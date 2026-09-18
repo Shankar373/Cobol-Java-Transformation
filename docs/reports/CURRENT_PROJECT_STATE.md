@@ -2,10 +2,13 @@
 
 ## Repository
 - local path: C:\Users\bandi\Desktop\SystemaOps\Cobol-Java-Transformation
-- GitLab project: NOT YET CREATED (requires manual creation or authentication)
+- development remote: https://github.com/Shankar373/cobol-java-modernization.git (origin)
 - branch: main
-- commit: a399b60 (chore: establish COBOL to Java transformation baseline)
-- remote: NONE (remote not yet configured)
+- commit: ac89757 (docs: record current project state) on top of a399b60
+  (chore: establish COBOL to Java transformation baseline)
+- remote state: GitHub repo `Shankar373/cobol-java-modernization` already contains its own
+  history (master audit baseline + feature branches); local `main` is an independent
+  baseline line for this platform and is pushed as a new remote branch `main`.
 
 ## Current Architecture
 - transformation engine: engine/transformation/ (parser, IR, generators)
@@ -72,8 +75,10 @@
 
 ## Current QA State
 
-- pytest: 1300+ tests passing (unit, integration, adversarial)
-- Docker testing: Working (maven-offline-springboot, eclipse-temurin, gnucobol)
+- pytest: 1846 tests collected cleanly (no collection errors); fast core subset
+  (parser/IR/generator/semantics/verdict/evidence/contracts: 265 tests) PASS; full
+  runtime/integration suite previously run green for the ARITH production path
+- Docker testing: Working (maven-offline-springboot, maven:3.9-eclipse-temurin-21, eclipse-temurin:21-jdk, gnucobol-ocesql)
 - Playwright: NOT PRESENT
 - CI/CD: NOT CONFIGURED
 - Regression testing: Manual (pytest)
@@ -94,5 +99,15 @@ The project currently demonstrates an end-to-end COBOL-to-Java/Spring Boot trans
 
 ---
 
-*Report generated: 2026-09-18*
-*Commit: a399b60 (chore: establish COBOL to Java transformation baseline)*
+## Repository Hygiene Notes
+
+- Root-level investigation/debug scripts left over from the Claims parser investigation
+  (`clean_test*.py`, `test_debug_read*.py`, `test_fresh*.py`, `run_*subprocess*.py`,
+  `final_*.py`, `test_subprocess.py`) were removed in the checkpoint commit — they were not
+  referenced by any project source and one (`test_debug_read12.py`) broke pytest collection.
+- `tmp/` and `tmp-output/` are git-ignored (runtime scratch).
+
+---
+
+*Report updated: 2026-09-18 (checkpoint)*
+*Commits: a399b60 (baseline) + ac89757 (state report) + checkpoint commit (hygiene + state refresh)*
