@@ -1,0 +1,26 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SIMPLE-CALC.
+       AUTHOR. SYSTEMA-OPS.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-RESULT           PIC 9(5) VALUE 0.
+       01  WS-COUNTER          PIC 9(3) VALUE 0.
+       01  WS-STATUS           PIC X(10) VALUE 'PENDING'.
+       01  WS-THRESHOLD        PIC 9(3) VALUE 200.
+       01  WS-AMOUNT           PIC 9(5) VALUE 150.
+
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           MOVE 100 TO WS-RESULT
+           ADD 50 TO WS-RESULT
+           ADD 25 TO WS-COUNTER
+           IF WS-AMOUNT > WS-THRESHOLD
+               MOVE 'APPROVED' TO WS-STATUS
+           ELSE
+               MOVE 'REJECTED' TO WS-STATUS
+           END-IF
+           DISPLAY "RESULT=" WS-RESULT
+           DISPLAY "COUNTER=" WS-COUNTER
+           DISPLAY "STATUS=" WS-STATUS
+           STOP RUN.

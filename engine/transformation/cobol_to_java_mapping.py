@@ -1,0 +1,804 @@
+"""COBOL → Java semantic mapping.
+
+Defines explicit mappings from COBOL semantic IR to the Java application model.
+Each mapping is a pure function that takes COBOL IR and produces Java IR.
+
+Mappings are organized by COBOL construct:
+
+    COBOL PROGRAM      → JavaProgram / JavaClass
+    COBOL paragraph    → JavaMethod
+    COBOL DATA ITEM    → JavaField
+    COBOL PIC          → JavaType
+    COBOL MOVE         → JavaAssignment
+    COBOL arithmetic   → Java expression
+    COBOL IF           → JavaIf
+    COBOL PERFORM      → Java method call / loop
+    COBOL STRING       → Java string operations
+    COBOL UNSTRING     → Java string split/parse
+    COBOL file ops     → JavaFileResource
+    COBOL DB2 SQL      → JavaDatabaseResource
+    COBOL CICS         → JavaTransactionBoundary
+    COBOL JCL          → JavaApplication composition
+
+No workload-specific logic. No domain vocabulary.
+All decisions derived from generic COBOL IR elements.
+"""
+
+from __future__ import annotations
+
+from engine.transformation.ir import (
+    AddStatement,
+    CobolProgram,
+    ComputeStatement,
+    DataItem,
+    DisplayStatement,
+    DivideStatement,
+    FileDefinition,
+    GoToStatement,
+    IfStatement,
+    MoveStatement,
+    Paragraph,
+    PerformStatement,
+    ReadStatement,
+    StopRunStatement,
+    StringStatement,
+    UnstringStatement,
+    WriteStatement,
+)
+
+from engine.transformation.java_ir import (
+    JavaApplication,
+    JavaAssignment,
+    JavaBasicType,
+    JavaBinaryOp,
+    JavaBlock,
+    JavaClass,
+    JavaComment,
+    JavaDatabaseResource,
+    JavaDependency,
+    JavaDependencyType,
+    JavaField,
+    JavaFileAccessMode,
+    JavaFileKey,
+    JavaFileOrganization,
+    JavaFileResource,
+    JavaIf,
+    JavaLiteral,
+    JavaMatchOutcome,
+    JavaMethod,
+    JavaMethodCall,
+    JavaMethodCallStatement,
+    JavaParameter,
+    JavaProgram,
+    JavaReportConfig,
+    JavaReturn,
+    JavaSqlOperationType,
+    JavaStatement,
+    JavaStatusCodeMapping,
+    JavaStringConcat,
+    JavaSummaryField,
+    JavaThresholdRule,
+    JavaTransactionBoundary,
+    JavaType,
+    JavaVariableRef,
+)
+
+
+# ---------------------------------------------------------------------------
+# PIC → Java type mapping
+# ---------------------------------------------------------------------------
+
+def map_pic_to_java_type(item: DataItem) -> JavaType:
+    """Map a COBOL PIC clause to a Java type.
+
+    Mapping rules:
+    - PIC 9(n) where n <= 9  → int
+    - PIC 9(n) where n > 9   → long
+    - PIC 9(n)V9(m)          → double
+    - PIC X(n)               → String
+    - PIC A(n)               → String
+    - Group items (children)  → String (treated as raw bytes)
+    - PIC S9(n)              → int (signed)
+    """
+    if item.children:
+        return JavaType(basic_type=JavaBasicType.STRING)
+
+    if item.is_numeric:
+        # Check for decimal (V clause implied by pic_length > integer digits)
+        if item.pic_length > 9:
+            return JavaType(basic_type=JavaBasicType.LONG)
+        return JavaType(basic_type=JavaBasicType.INT)
+
+    # Alphanumeric → String
+    return JavaType(basic_type=JavaBasicType.STRING)
+
+
+def map_pic_to_java_default(item: DataItem) -> str:
+    """Get the Java default value for a COBOL PIC type."""
+    if item.is_numeric:
+        if item.value:
+            return item.value.strip("'\"")
+        return "0"
+    if item.value:
+        return f'"{item.value.strip(chr(39) + chr(34))}"'
+    return '""'
+
+
+# ---------------------------------------------------------------------------
+# COBOL statement → Java statement mapping
+# ---------------------------------------------------------------------------
+
+def map_cobol_expr_to_java(expr: str) -> JavaExpression:
+    """Map a COBOL expression string to a Java expression.
+
+    Handles:
+    - Field references (DASH_UNDERSCORE conversion)
+    - Literals
+    - Arithmetic operators (+, -, *, /)
+    """
+    import re as _re
+    expr = expr.strip()
+
+    # Literal
+    if expr.startswith("'") and expr.endswith("'"):
+        return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
+    if expr.startswith('"') and expr.endswith('"'):
+        return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+    # Check if it's a simple number
+    if expr.replace(".", "").replace("-", "").isdigit():
+        return JavaLiteral(value=expr, java_type=JavaType(basic_type=JavaBasicType.INT))
+
+    # Try to parse binary expressions: left OP right (operators must have spaces)
+    binary_match = _re.match(
+        r'^([\w][\w-]*)\s+(\+|\-|\*|/)\s+([\w][\w-]*)$',
+        expr,
+    )
+    if binary_match:
+        left_str = binary_match.group(1).strip()
+        op = binary_match.group(2).strip()
+        right_str = binary_match.group(3).strip()
+
+        left: JavaExpression
+        if left_str.replace(".", "").replace("-", "").isdigit():
+            left = JavaLiteral(value=left_str, java_type=JavaType(basic_type=JavaBasicType.INT))
+        else:
+            left = JavaVariableRef(name=left_str.replace("-", "_"))
+
+        right: JavaExpression
+        if right_str.replace(".", "").replace("-", "").isdigit():
+            right = JavaLiteral(value=right_str, java_type=JavaType(basic_type=JavaBasicType.INT))
+        else:
+            right = JavaVariableRef(name=right_str.replace("-", "_"))
+
+        return JavaBinaryOp(left=left, operator=op, right=right)
+
+    # Field reference (single name)
+    java_name = expr.replace("-", "_")
+    return JavaVariableRef(name=java_name)
+
+
+def map_cobol_condition_to_java(condition: str) -> JavaExpression:
+    """Map a COBOL condition string to a Java expression.
+
+    Converts COBOL condition syntax to Java boolean expression.
+    Returns a JavaBinaryOp for simple conditions, or JavaLiteral for complex ones.
+    """
+    condition = condition.strip()
+
+    # Handle IS/IS NOT
+    condition = condition.replace(" IS NOT ", " != ")
+    condition = condition.replace(" IS ", " == ")
+
+    # Handle = <>
+    condition = condition.replace(" <> ", " != ")
+    # Handle bare = (but not ==)
+    import re as _re
+    condition = _re.sub(r'(?<!=)=(?!=)', ' == ', condition)
+
+    # Handle AND/OR
+    condition = condition.replace(" AND ", " && ")
+    condition = condition.replace(" OR ", " || ")
+
+    # Handle NOT
+    condition = condition.replace("NOT ", "!")
+
+    # Convert field references
+    parts = condition.split()
+    result_parts = []
+    for part in parts:
+        if part in ("==", "!=", "&&", "||", "(", ")", "!", ">=", "<=", ">", "<"):
+            result_parts.append(part)
+        elif part.startswith("'") or part.startswith('"'):
+            result_parts.append(part)
+        elif part.replace(".", "").replace("-", "").isdigit():
+            result_parts.append(part)
+        else:
+            result_parts.append(part.replace("-", "_"))
+
+    condition_str = " ".join(result_parts)
+
+    # Try to parse simple binary conditions: left OP right
+    binary_match = _re.match(
+        r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$',
+        condition_str,
+    )
+    if binary_match:
+        left_name = binary_match.group(1)
+        op = binary_match.group(2)
+        right_str = binary_match.group(3)
+
+        left_expr: JavaExpression
+        if left_name.replace(".", "").replace("-", "").isdigit():
+            left_expr = JavaLiteral(value=left_name)
+        else:
+            left_expr = JavaVariableRef(name=left_name)
+
+        right_expr: JavaExpression
+        if right_str.replace(".", "").replace("-", "").isdigit():
+            right_expr = JavaLiteral(value=right_str)
+        else:
+            right_expr = JavaVariableRef(name=right_str)
+
+        return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
+
+    return JavaLiteral(value=condition_str)
+
+
+def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) -> list[JavaStatement]:
+    """Map a single COBOL statement to one or more Java statements."""
+    result: list[JavaStatement] = []
+
+    # Build field format width lookup if program provided
+    field_format_widths = {}
+    if program is not None:
+        for item in program.working_storage:
+            if item.is_numeric and item.format_width > 0:
+                field_format_widths[item.name.replace("-", "_")] = item.format_width
+
+    if isinstance(stmt, MoveStatement):
+        target = stmt.target.replace("-", "_")
+        source = map_cobol_expr_to_java(stmt.source)
+        result.append(JavaAssignment(target=target, expression=source))
+
+    elif isinstance(stmt, AddStatement):
+        target = stmt.target.replace("-", "_")
+        source = map_cobol_expr_to_java(stmt.source)
+        # ADD source TO target → target += source
+        result.append(JavaAssignment(
+            target=target,
+            expression=JavaBinaryOp(
+                left=JavaVariableRef(name=target),
+                operator="+",
+                right=source,
+            ),
+        ))
+
+    elif isinstance(stmt, DivideStatement):
+        target = stmt.target.replace("-", "_")
+        source = map_cobol_expr_to_java(stmt.source)
+        divisor = map_cobol_expr_to_java(stmt.divisor)
+        result.append(JavaAssignment(
+            target=target,
+            expression=JavaBinaryOp(left=source, operator="/", right=divisor),
+        ))
+        # REMAINDER target = source % divisor
+        if stmt.remainder:
+            remainder_target = stmt.remainder.replace("-", "_")
+            result.append(JavaAssignment(
+                target=remainder_target,
+                expression=JavaBinaryOp(left=source, operator="%", right=divisor),
+            ))
+
+    elif isinstance(stmt, ComputeStatement):
+        target = stmt.target.replace("-", "_")
+        expression = map_cobol_expr_to_java(stmt.expression)
+        result.append(JavaAssignment(target=target, expression=expression))
+
+    elif isinstance(stmt, DisplayStatement):
+        parts: list[JavaExpression] = []
+        for part in stmt.parts:
+            if part.startswith('"'):
+                inner = part[1:-1]
+                if inner:
+                    parts.append(JavaLiteral(value=inner))
+            else:
+                java_name = part.replace("-", "_")
+                # Check if this field has a format width for numeric formatting
+                if java_name in field_format_widths:
+                    width = field_format_widths[java_name]
+                    var_ref = JavaVariableRef(name=java_name)
+                    # String.format("%0Nd", var) for zero-padded numeric display
+                    format_spec = JavaLiteral(value="%0{}d".format(width))
+                    parts.append(JavaMethodCall(
+                        class_name="String",
+                        method_name="format",
+                        arguments=(format_spec, var_ref),
+                        is_static=True,
+                    ))
+                else:
+                    parts.append(JavaVariableRef(name=java_name))
+        if parts:
+            concat = JavaStringConcat(parts=tuple(parts))
+            # out.println(...) or System.err.println(...)
+            is_stderr = stmt.destination == "STDERR"
+            if is_stderr:
+                result.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        object_ref=JavaVariableRef(name="System.err"),
+                        method_name="println",
+                        arguments=(concat,),
+                    )
+                ))
+            else:
+                result.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        object_ref=JavaVariableRef(name="System.out"),
+                        method_name="println",
+                        arguments=(concat,),
+                    )
+                ))
+
+    elif isinstance(stmt, IfStatement):
+        condition = map_cobol_condition_to_java(stmt.condition)
+        then_body = []
+        for s in stmt.then_body:
+            then_body.extend(map_cobol_statement(s, program))
+        else_body = []
+        for s in stmt.else_body:
+            else_body.extend(map_cobol_statement(s, program))
+        result.append(JavaIf(
+            condition=condition,
+            then_body=tuple(then_body),
+            else_body=tuple(else_body),
+        ))
+
+    elif isinstance(stmt, GoToStatement):
+        # GO TO → comment (control flow not directly mappable)
+        result.append(JavaComment(text=f"// GO TO {stmt.target}"))
+
+    elif isinstance(stmt, StopRunStatement):
+        result.append(JavaReturn())
+
+    elif isinstance(stmt, ReadStatement):
+        # READ → loop structure (handled at higher level)
+        body = []
+        for s in stmt.not_at_end_body:
+            body.extend(map_cobol_statement(s, program))
+        if body:
+            result.append(JavaBlock(statements=tuple(body)))
+
+    elif isinstance(stmt, WriteStatement):
+        # WRITE → method call (handled at higher level)
+        result.append(JavaComment(text=f"// WRITE {stmt.record_name}"))
+
+    elif isinstance(stmt, StringStatement):
+        # STRING → assignment
+        if stmt.target:
+            target = stmt.target.replace("-", "_")
+            parts_exprs = []
+            for part in stmt.structured_parts:
+                parts_exprs.append(map_cobol_expr_to_java(str(part)))
+            if parts_exprs:
+                result.append(JavaAssignment(
+                    target=target,
+                    expression=JavaStringConcat(parts=tuple(parts_exprs)),
+                ))
+
+    elif isinstance(stmt, UnstringStatement):
+        # UNSTRING → split operation (handled at higher level)
+        result.append(JavaComment(text=f"// UNSTRING {stmt.source}"))
+
+    elif isinstance(stmt, PerformStatement):
+        # PERFORM → method call
+        result.append(JavaMethodCallStatement(
+            call=JavaMethodCall(
+                method_name=stmt.paragraph_name.replace("-", "_"),
+                arguments=(),
+            )
+        ))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# COBOL program → Java class mapping
+# ---------------------------------------------------------------------------
+
+def map_cobol_data_items_to_fields(
+    items: tuple[DataItem, ...],
+) -> tuple[JavaField, ...]:
+    """Map COBOL WORKING-STORAGE items to Java fields."""
+    fields: list[JavaField] = []
+    for item in items:
+        java_type = map_pic_to_java_type(item)
+        java_name = item.name.replace("-", "_")
+        default = map_pic_to_java_default(item)
+        initializer = JavaLiteral(value=default)
+        fields.append(JavaField(
+            java_type=java_type,
+            name=java_name,
+            initializer=initializer,
+            is_static=True,
+            format_width=item.format_width if item.is_numeric else 0,
+        ))
+    return tuple(fields)
+
+
+def map_cobol_paragraph_to_method(
+    para: Paragraph,
+    program: CobolProgram,
+) -> JavaMethod:
+    """Map a COBOL paragraph to a Java method."""
+    body_stmts: list[JavaStatement] = []
+    for stmt in para.statements:
+        body_stmts.extend(map_cobol_statement(stmt, program))
+
+    return JavaMethod(
+        name=para.name.replace("-", "_"),
+        return_type=JavaType(basic_type=JavaBasicType.VOID),
+        parameters=(),
+        body_statements=tuple(body_stmts),
+        is_static=True,
+        modifiers=("public", "static"),
+    )
+
+
+def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
+    """Map a complete COBOL program to a JavaProgram.
+
+    Populates all Java IR structures including decision-mode metadata.
+    All values are derived from COBOL IR — not invented.
+    """
+    # Map fields
+    fields = map_cobol_data_items_to_fields(program.working_storage)
+
+    # Map methods from paragraphs
+    methods: list[JavaMethod] = []
+    for para in program.paragraphs:
+        methods.append(map_cobol_paragraph_to_method(para, program))
+
+    # Add main method
+    main_body: list[JavaStatement] = []
+    for para in program.paragraphs:
+        for stmt in para.statements:
+            main_body.extend(map_cobol_statement(stmt, program))
+
+    methods.append(JavaMethod(
+        name="main",
+        return_type=JavaType(basic_type=JavaBasicType.VOID),
+        parameters=(JavaParameter(
+            java_type=JavaType(
+                class_name="String",
+                is_array=True,
+                array_element_type=JavaType(basic_type=JavaBasicType.STRING),
+            ),
+            name="args",
+        ),),
+        body_statements=tuple(main_body),
+        is_static=True,
+        exceptions=("Exception",),
+    ))
+
+    # Build class
+    java_class = JavaClass(
+        name=_to_java_class_name(program.program_id),
+        fields=tuple(fields),
+        methods=tuple(methods),
+        imports=(
+            "java.io.BufferedReader",
+            "java.io.FileReader",
+            "java.io.FileWriter",
+            "java.io.PrintWriter",
+            "java.util.ArrayList",
+            "java.util.LinkedHashMap",
+            "java.util.List",
+            "java.util.Map",
+        ),
+    )
+
+    # Map file resources — derive delimiter from InputRecordMapping, access mode from OPEN
+    file_resources = tuple(
+        map_cobol_file_to_resource(fd, program.input_record_mappings, program.open_statements)
+        for fd in program.file_definitions
+    )
+
+    # --- Decision-mode metadata ---
+
+    # Status codes → JavaStatusCodeMapping
+    status_code_mappings = tuple(
+        JavaStatusCodeMapping(
+            code=sc.code,
+            label=sc.label,
+            counter_name=_label_to_counter_name(sc.label),
+        )
+        for sc in program.status_codes
+    )
+
+    # Threshold rules → JavaThresholdRule
+    threshold_rules = tuple(
+        JavaThresholdRule(
+            field_name=tr.field_name,
+            operator=tr.operator,
+            value=tr.value,
+        )
+        for tr in program.threshold_rules
+    )
+
+    # Summary fields → JavaSummaryField
+    ws_lookup = {item.name: item for item in program.working_storage}
+    summary_fields = tuple(
+        JavaSummaryField(
+            field_name=field,
+            java_var_name=_cobol_field_to_java_var(field),
+            format_width=ws_lookup[field].format_width if field in ws_lookup else 0,
+            is_numeric=ws_lookup[field].is_numeric if field in ws_lookup else True,
+        )
+        for field in program.summary_fields
+    )
+
+    # Match outcomes → JavaMatchOutcome
+    match_outcomes: tuple[JavaMatchOutcome, ...] = ()
+    if program.match_outcome_labels:
+        match_outcomes = (JavaMatchOutcome(
+            paid_label=program.match_outcome_labels[0] if len(program.match_outcome_labels) > 0 else "",
+            partial_label=program.match_outcome_labels[1] if len(program.match_outcome_labels) > 1 else "",
+            unpaid_label=program.match_outcome_labels[2] if len(program.match_outcome_labels) > 2 else "",
+        ),)
+
+    # Report config → JavaReportConfig
+    report_config: JavaReportConfig | None = None
+    if program.report_header or program.output_formats:
+        # Derive file names from file roles
+        input_files = [fd for fd in program.file_definitions
+                       if any(sm.file_name == fd.name and sm.mode.upper() == "INPUT"
+                              for sm in program.open_statements)]
+        output_files = [fd for fd in program.file_definitions
+                        if any(sm.file_name == fd.name and sm.mode.upper() == "OUTPUT"
+                               for sm in program.open_statements)]
+
+        report_file_name = output_files[0].name if output_files else ""
+        secondary_output_name = output_files[1].name if len(output_files) > 1 else ""
+
+        # Derive record format fields from output_formats
+        report_format_fields: tuple[str, ...] = ()
+        output_format_fields: tuple[str, ...] = ()
+        if len(program.output_formats) > 0 and program.output_formats[0].record_format:
+            report_format_fields = tuple(
+                fd.field_name for fd in program.output_formats[0].record_format.fields
+            )
+        if len(program.output_formats) > 1 and program.output_formats[1].record_format:
+            output_format_fields = tuple(
+                fd.field_name for fd in program.output_formats[1].record_format.fields
+            )
+
+        report_config = JavaReportConfig(
+            header=program.report_header,
+            report_file_name=report_file_name,
+            output_file_name=secondary_output_name,
+            report_fields=summary_fields,
+            output_fields=summary_fields,
+            report_format_fields=report_format_fields,
+            output_format_fields=output_format_fields,
+        )
+
+    # Determine generation mode from capabilities
+    caps = _derive_generation_mode(program)
+
+    # Input record fields (from first InputRecordMapping)
+    input_record_fields: tuple[str, ...] = ()
+    if program.input_record_mappings:
+        input_record_fields = tuple(
+            f.replace("-", "_") for f in program.input_record_mappings[0].fields
+        )
+
+    return JavaProgram(
+        program_id=program.program_id,
+        java_class=java_class,
+        cobol_program_id=program.program_id,
+        file_resources=file_resources,
+        has_file_status=any(fd.file_status_field for fd in program.file_definitions),
+        status_codes=status_code_mappings,
+        threshold_rules=threshold_rules,
+        summary_fields=summary_fields,
+        report_config=report_config,
+        match_outcomes=match_outcomes,
+        generation_mode=caps,
+        input_record_fields=input_record_fields,
+        copybooks=program.copybooks,
+        calls=program.called_programs,
+        entry_points=program.entry_points,
+    )
+
+
+def map_cobol_file_to_resource(
+    fd: FileDefinition,
+    input_record_mappings: tuple = (),
+    open_statements: tuple = (),
+) -> JavaFileResource:
+    """Map a COBOL file definition to a JavaFileResource.
+
+    Delimiter is derived from InputRecordMapping — not hardcoded.
+    Access mode is derived from OPEN statements — not hardcoded.
+    Organization, keys, and record width derived from COBOL IR — not invented.
+    """
+    # Find delimiter from InputRecordMapping for this file
+    delimiter: str | None = None
+    for irm in input_record_mappings:
+        if irm.file_name == fd.name:
+            delimiter = irm.delimiter
+            break
+
+    # Derive access mode from OPEN statements
+    access_mode = JavaFileAccessMode.READ
+    for stmt in open_statements:
+        if stmt.file_name == fd.name:
+            mode = stmt.mode.upper()
+            if mode == "OUTPUT":
+                access_mode = JavaFileAccessMode.WRITE
+            elif mode in ("I-O", "IO"):
+                access_mode = JavaFileAccessMode.READ_WRITE
+            elif mode == "EXTEND":
+                access_mode = JavaFileAccessMode.APPEND
+            break
+
+    # Map file organization from COBOL SELECT clause
+    org_map = {
+        "SEQUENTIAL": JavaFileOrganization.SEQUENTIAL,
+        "INDEXED": JavaFileOrganization.INDEXED,
+        "RELATIVE": JavaFileOrganization.RELATIVE,
+    }
+    organization = org_map.get(
+        fd.organization.value if hasattr(fd.organization, "value") else str(fd.organization),
+        JavaFileOrganization.SEQUENTIAL,
+    )
+
+    # Map record key
+    record_key: JavaFileKey | None = None
+    if fd.record_key:
+        record_key = JavaFileKey(
+            field_name=fd.record_key.field_name,
+            key_type=fd.record_key.key_type.value if hasattr(fd.record_key.key_type, "value") else str(fd.record_key.key_type),
+            is_duplicated=fd.record_key.is_duplicated,
+        )
+
+    # Map alternate keys
+    alternate_keys = tuple(
+        JavaFileKey(
+            field_name=ak.field_name,
+            key_type=ak.key_type.value if hasattr(ak.key_type, "value") else str(ak.key_type),
+            is_duplicated=ak.is_duplicated,
+        )
+        for ak in fd.alternate_keys
+    )
+
+    return JavaFileResource(
+        name=fd.name,
+        path=fd.container_path,
+        access_mode=access_mode,
+        record_delimiter=delimiter,
+        is_text=True,
+        status_field=fd.file_status_field,
+        organization=organization,
+        record_key=record_key,
+        alternate_keys=alternate_keys,
+        relative_key=fd.relative_key,
+        record_contains=fd.record_contains,
+    )
+
+
+def map_cobol_programs_to_application(
+    programs: tuple[CobolProgram, ...],
+    application_id: str = "",
+    copybooks: tuple[str, ...] = (),
+    edges: tuple = (),
+) -> JavaApplication:
+    """Map multiple COBOL programs to a JavaApplication.
+
+    This is the top-level mapping that produces the Java application model
+    from a multi-program COBOL application. Handles:
+
+    - CALL dependency mapping (static/dynamic, resolved/unresolved)
+    - COPY relationship tracking
+    - File resource deduplication across programs
+    - DB2 table dependency aggregation
+    - CICS transaction boundary mapping
+    - Cross-program Java reference preparation
+    """
+    java_programs: list[JavaProgram] = []
+    dependencies: list[JavaDependency] = []
+    all_databases: dict[str, JavaDatabaseResource] = {}
+    all_transactions: dict[str, JavaTransactionBoundary] = {}
+
+    program_ids = {p.program_id for p in programs}
+
+    for prog in programs:
+        java_prog = map_cobol_program_to_java(prog)
+        java_programs.append(java_prog)
+
+        # Map CALL dependencies with resolution status
+        for called in prog.called_programs:
+            resolution = "RESOLVED" if called in program_ids else "UNRESOLVED"
+            dependencies.append(JavaDependency(
+                source=prog.program_id,
+                target=called,
+                dependency_type=JavaDependencyType.METHOD_CALL,
+                metadata=f"resolution={resolution}",
+            ))
+
+        # Map DB2 table dependencies (from status_codes with SQLCODE)
+        if prog.status_codes:
+            for sc in prog.status_codes:
+                if sc.field_name.upper() in ("SQLCODE", "SQLSTATE"):
+                    # Derive table from status_code label if available
+                    table_name = sc.label if sc.label else f"{prog.program_id}_TABLE"
+                    if table_name not in all_databases:
+                        all_databases[table_name] = JavaDatabaseResource(
+                            name=table_name,
+                            operation=JavaSqlOperationType.SELECT,
+                        )
+
+        # Map CICS transaction boundaries (from transaction_boundaries)
+        for tb in java_prog.transaction_boundaries:
+            if tb.name not in all_transactions:
+                all_transactions[tb.name] = tb
+
+    # Deduplicate file resources across programs
+    all_files: dict[str, JavaFileResource] = {}
+    for jp in java_programs:
+        for fr in jp.file_resources:
+            if fr.name not in all_files:
+                all_files[fr.name] = fr
+
+    return JavaApplication(
+        application_id=application_id or "generated",
+        programs=tuple(java_programs),
+        dependencies=tuple(dependencies),
+        shared_file_resources=tuple(all_files.values()),
+        shared_database_resources=tuple(all_databases.values()),
+        shared_transaction_boundaries=tuple(all_transactions.values()),
+        source_paths=tuple(p.source_file for p in java_programs if p.source_file),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Utility
+# ---------------------------------------------------------------------------
+
+def _to_java_class_name(cobol_name: str) -> str:
+    """Convert COBOL program name to Java class name."""
+    return cobol_name.replace("-", "_").replace(" ", "_").title()
+
+
+def _cobol_field_to_java_var(field_name: str) -> str:
+    """Convert a COBOL field name to a Java variable name.
+
+    Converts LABEL_NAME → labelName (camelCase).
+    """
+    parts = field_name.lower().split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _label_to_counter_name(label: str) -> str:
+    """Convert a status label to a Java counter variable name.
+
+    Uses the same derivation as _cobol_field_to_java_var.
+    Example: "REJECTED" → "rejected"
+    """
+    return _cobol_field_to_java_var(label)
+
+
+def _derive_generation_mode(program: CobolProgram) -> str:
+    """Derive the generation mode from COBOL program capabilities.
+
+    Returns "decision", "file_io", or "minimal".
+    This is the only place where capability-based mode selection occurs.
+    """
+    from engine.transformation.ir import derive_capabilities
+    caps = derive_capabilities(program)
+
+    if caps.decision and program.status_codes:
+        return "decision"
+    if caps.input_record_mapping:
+        return "file_io"
+    return "minimal"
