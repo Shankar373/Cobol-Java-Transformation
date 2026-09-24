@@ -155,6 +155,8 @@ class ApplicationDiscovery:
                 match_outcome_labels=program.match_outcome_labels,
                 summary_fields=program.summary_fields,
                 report_header=program.report_header,
+                linkage_section=program.linkage_section,
+                using_parameters=program.using_parameters,
                 called_programs=tuple(c.target for c in calls),
                 copybooks=tuple(cb.copybook_name for cb in copybooks),
                 entry_points=tuple(entry_points),

@@ -149,6 +149,8 @@ class CobolParser:
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
         working_storage = self._parse_working_storage(code_lines)
+        linkage_section = self._parse_linkage_section(code_lines)
+        using_parameters = self._parse_procedure_using(code_lines)
         paragraphs = self._parse_procedure_division(code_lines)
         threshold_rules = self._extract_threshold_rules(code_lines)
 
@@ -212,6 +214,8 @@ class CobolParser:
             match_outcome_labels=tuple(match_labels),
             summary_fields=tuple(summary_fields),
             report_header=report_header,
+            linkage_section=tuple(linkage_section),
+            using_parameters=tuple(using_parameters),
         )
 
         # Validate that input contains a recognizable COBOL structure
@@ -440,77 +444,92 @@ class CobolParser:
                     break
         return file_defs
 
-    def _parse_working_storage(self, lines: list[str]) -> list[DataItem]:
-        """Parse WORKING-STORAGE SECTION to extract data items."""
-        in_ws = False
-        items: list[DataItem] = []
-        current_group_name: str | None = None
-        current_group_children: list[DataItem] = []
-
-        for line in lines:
-            upper = line.upper().strip()
-            if "WORKING-STORAGE SECTION" in upper:
-                in_ws = True
+    def parse_data_description_lines(self, lines: list[str]) -> list[DataItem]:
+        """Parse COBOL data-description entries for WORKING-STORAGE, LINKAGE or COPYBOOKs."""
+        parsed = []
+        for raw in lines:
+            stripped = raw.strip()
+            if not stripped or stripped.startswith(("*", "/")):
                 continue
-            if in_ws:
-                if upper.startswith("PROCEDURE DIVISION"):
-                    break
-                if not upper or upper.startswith("*"):
-                    continue
+            m = re.match(r"^(\d{1,2})\s+([A-Z0-9][\w-]*)\b(.*)$", stripped, re.IGNORECASE)
+            if not m:
+                continue
+            level, name, rest = int(m.group(1)), m.group(2).rstrip("."), m.group(3)
+            pic = re.search(r"\bPIC(?:TURE)?\s+([A-Z0-9()V+\-]+)", rest, re.IGNORECASE)
+            if pic:
+                pic_type, pic_length, decimals = self._parse_pic_details(pic.group(1))
+            else:
+                pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
+            value_m = re.search(r"\bVALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
+            occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
+            redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
+            parsed.append((level, DataItem(
+                name=name, level=level, pic_type=pic_type, pic_length=pic_length,
+                decimal_places=decimals,
+                value=value_m.group(1).strip().rstrip(".") if value_m else None,
+                occurs=int(occurs_m.group(1)) if occurs_m else None,
+                redefines=redef_m.group(1).rstrip(".") if redef_m else None,
+            )))
+        roots = []
+        stack = []
+        def replace_node(root, target, replacement):
+            if root is target:
+                return replacement
+            if not root.children:
+                return root
+            children = tuple(replacement if c is target else replace_node(c, target, replacement) for c in root.children)
+            return DataItem(name=root.name, level=root.level, pic_type=root.pic_type,
+                            pic_length=root.pic_length, decimal_places=root.decimal_places,
+                            value=root.value, occurs=root.occurs, redefines=root.redefines,
+                            children=children)
+        for level, item in parsed:
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            if not stack:
+                roots.append(item)
+            else:
+                parent_level, parent = stack[-1]
+                updated = DataItem(name=parent.name, level=parent.level, pic_type=parent.pic_type,
+                                   pic_length=parent.pic_length, decimal_places=parent.decimal_places,
+                                   value=parent.value, occurs=parent.occurs, redefines=parent.redefines,
+                                   children=parent.children + (item,))
+                roots = [replace_node(r, parent, updated) for r in roots]
+                stack[-1] = (parent_level, updated)
+            stack.append((level, item))
+        return roots
 
-                # Check for level 01 or 05 items
-                level_match = re.match(r"\s*(\d+)\s+(\S+)", line)
-                if not level_match:
-                    continue
+    def _parse_pic_details(self, pic_str: str) -> tuple[PicType, int, int]:
+        pic = pic_str.strip().rstrip(".").upper()
+        if pic.startswith("S"):
+            pic = pic[1:]
+        if "V" in pic:
+            left, right = pic.split("V", 1)
+            typ, left_len = _parse_pic(left)
+            right_len = len(re.findall(r"9", right))
+            return typ, left_len + right_len, right_len
+        typ, length = _parse_pic(pic)
+        return typ, length, 0
 
-                level = int(level_match.group(1))
-                item_name = level_match.group(2).rstrip(".")
+    def _parse_linkage_section(self, lines: list[str]) -> list[DataItem]:
+        start = next((i + 1 for i, line in enumerate(lines) if "LINKAGE SECTION" in line.upper()), None)
+        if start is None:
+            return []
+        end = next((i for i in range(start, len(lines)) if "PROCEDURE DIVISION" in lines[i].upper()), len(lines))
+        return self.parse_data_description_lines(lines[start:end])
 
-                # Check for PIC clause
-                pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                value_match = re.search(r"VALUE\s+(.+?)(?:\s+|$|\.|,)", line, re.IGNORECASE)
-                occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
+    def _parse_procedure_using(self, lines: list[str]) -> list[str]:
+        for line in lines:
+            m = re.search(r"PROCEDURE DIVISION\s+USING\s+(.+)", line, re.IGNORECASE)
+            if m:
+                return [token.rstrip(".") for token in m.group(1).split()]
+        return []
 
-                if pic_match:
-                    pic_type, pic_length = _parse_pic(pic_match.group(1))
-                    value = value_match.group(1).strip().rstrip(".") if value_match else None
-                    occurs = int(occurs_match.group(1)) if occurs_match else None
-
-                    if level == 5 and current_group_name:
-                        # Level 05 under a group
-                        current_group_children.append(DataItem(
-                            name=item_name,
-                            pic_type=pic_type,
-                            pic_length=pic_length,
-                            value=value,
-                        ))
-                    else:
-                        # Level 01 — standalone item
-                        items.append(DataItem(
-                            name=item_name,
-                            pic_type=pic_type,
-                            pic_length=pic_length,
-                            value=value,
-                            occurs=occurs,
-                        ))
-                        current_group_name = item_name if level == 1 else None
-                        current_group_children = []
-
-                elif occurs_match and level == 5:
-                    # Level 05 group with OCCURS (table structure)
-                    current_group_name = item_name
-                    current_group_children = []
-                elif level == 10 and current_group_name:
-                    # Level 10 under a group — children
-                    if pic_match:
-                        pic_type, pic_length = _parse_pic(pic_match.group(1))
-                        current_group_children.append(DataItem(
-                            name=item_name,
-                            pic_type=pic_type,
-                            pic_length=pic_length,
-                        ))
-
-        return items
+    def _parse_working_storage(self, lines: list[str]) -> list[DataItem]:
+        start = next((i + 1 for i, line in enumerate(lines) if "WORKING-STORAGE SECTION" in line.upper()), None)
+        if start is None:
+            return []
+        end = next((i for i in range(start, len(lines)) if "PROCEDURE DIVISION" in lines[i].upper()), len(lines))
+        return self.parse_data_description_lines(lines[start:end])
 
     def _parse_procedure_division(self, lines: list[str]) -> list[Paragraph]:
         """Parse PROCEDURE DIVISION into paragraphs with statements.
@@ -542,6 +561,9 @@ class CobolParser:
 
             if "PROCEDURE DIVISION" in upper:
                 in_procedure = True
+                if current_paragraph is None:
+                    current_paragraph = "MAIN"
+                    current_statements = []
                 i += 1
                 continue
 
@@ -630,6 +652,10 @@ class CobolParser:
         # COMPUTE
         if upper.startswith("COMPUTE "):
             return self._parse_compute(lines, start)
+
+        # EVALUATE
+        if upper.startswith("EVALUATE "):
+            return self._parse_evaluate(lines, start)
 
         # IF
         if upper.startswith("IF "):
@@ -754,15 +780,17 @@ class CobolParser:
         """Parse MOVE source TO target statement."""
         line = lines[start].strip()
 
-        match = re.search(r"MOVE\s+(.+?)\s+TO\s+(\S+)", line, re.IGNORECASE)
+        match = re.search(r"MOVE\s+(.+?)\s+TO\s+(.+?)(?:\.)?$", line, re.IGNORECASE)
         if match:
-            source = match.group(1).strip().rstrip(".")
-            target = match.group(2).strip().rstrip(".")
+            source = match.group(1).strip()
+            targets = tuple(t.rstrip(".") for t in match.group(2).split() if t.strip())
+            target = targets[0] if targets else ""
             return MoveStatement(
                 source=source,
                 target=target,
+                targets=targets,
                 source_expr=self._build_expression(source),
-                target_ref=FieldReference(name=target),
+                target_ref=FieldReference(name=target) if target else None,
             ), start + 1
 
         return MoveStatement(source="", target=""), start + 1
@@ -828,7 +856,7 @@ class CobolParser:
             i += 1
             parts.append(lines[i].strip())
         text = " ".join(parts).rstrip(".").strip()
-        match = re.match(r"CALL\\s+(?:'([^']+)'|\"([^\"]+)\"|(\\S+))(?:\\s+USING\\s+(.+))?$", text, re.IGNORECASE)
+        match = re.match(r"CALL\s+(?:'([^']+)'|\"([^\"]+)\"|(\S+))(?:\s+USING\s+(.+))?$", text, re.IGNORECASE)
         if not match:
             return CallStatement(program_name="", is_dynamic=True), i + 1
         program_name = next((g for g in match.groups()[:3] if g), "")
@@ -895,6 +923,53 @@ class CobolParser:
 
         return ComputeStatement(target="", expression=""), start + 1
 
+    def _parse_evaluate(self, lines: list[str], start: int) -> tuple[IfStatement, int]:
+        """Lower EVALUATE/WHEN into nested IF statements."""
+        subject = lines[start].strip()[len("EVALUATE "):].rstrip(".").strip()
+        arms = []
+        i = start + 1
+        while i < len(lines):
+            u = lines[i].strip().upper()
+            if u.startswith("END-EVALUATE"):
+                i += 1
+                break
+            if not u.startswith("WHEN "):
+                i += 1
+                continue
+            spec = lines[i].strip()[len("WHEN "):].rstrip(".").strip()
+            i += 1
+            body = []
+            while i < len(lines) and not lines[i].strip().upper().startswith(("WHEN ", "END-EVALUATE")):
+                stmt, new_i = self._parse_statement(lines, i)
+                if stmt is not None:
+                    body.append(stmt)
+                i = max(new_i, i + 1)
+            arms.append((spec, tuple(body)))
+        def cond(spec):
+            if spec.upper() == "OTHER":
+                return "OTHER"
+            tokens = spec.split()
+            up = [t.upper() for t in tokens]
+            if "THRU" in up:
+                k = up.index("THRU")
+                if k > 0 and k + 1 < len(tokens):
+                    return f"{subject} >= {tokens[k-1]} AND {subject} <= {tokens[k+1]}"
+            return " OR ".join(f"{subject} = {token}" for token in tokens)
+        def build(idx):
+            if idx >= len(arms):
+                return None
+            spec, body = arms[idx]
+            if spec.upper() == "OTHER":
+                return IfStatement(condition="OTHER", then_body=body)
+            condition = cond(spec)
+            if idx + 1 < len(arms) and arms[idx + 1][0].upper() == "OTHER":
+                return IfStatement(condition=condition, then_body=body, else_body=arms[idx + 1][1],
+                                   structured_condition=self._build_condition(condition))
+            nested = build(idx + 1)
+            return IfStatement(condition=condition, then_body=body, else_body=(nested,) if nested else (),
+                               structured_condition=self._build_condition(condition))
+        return (build(0) or IfStatement(condition="OTHER")), i
+
     def _parse_if(self, lines: list[str], start: int) -> tuple[IfStatement, int]:
         """Parse IF condition THEN ... ELSE ... END-IF."""
         line = lines[start].strip()
@@ -947,28 +1022,45 @@ class CobolParser:
         ), i
 
     def _parse_perform(self, lines: list[str], start: int) -> tuple[PerformStatement, int]:
-        """Parse PERFORM paragraph UNTIL condition or PERFORM paragraph."""
-        line = lines[start].strip()
-
-        match = re.search(
-            r"PERFORM\s+(\S+)\s+UNTIL\s+(.+?)(?:\s*\.?\s*$)",
-            line, re.IGNORECASE,
-        )
-        if match:
-            paragraph_name = match.group(1)
-            until_condition = match.group(2).strip().rstrip(".")
-            return PerformStatement(
-                paragraph_name=paragraph_name,
-                until_condition=until_condition,
-                structured_condition=self._build_condition(until_condition),
-            ), start + 1
-
-        match = re.search(r"PERFORM\s+(\S+)", line, re.IGNORECASE)
-        if match:
-            return PerformStatement(
-                paragraph_name=match.group(1).rstrip("."),
-            ), start + 1
-
+        """Parse paragraph, inline, TIMES, UNTIL, VARYING and THRU PERFORM forms."""
+        line = lines[start].strip().rstrip(".")
+        upper = line.upper()
+        inline = upper.startswith("PERFORM UNTIL ") or upper.startswith("PERFORM VARYING ") or bool(re.match(r"PERFORM\s+\d+\s+TIMES$", upper))
+        if inline:
+            if " UNTIL " in upper:
+                suffix = line.split(" UNTIL ", 1)[1].strip()
+            else:
+                suffix = line[len("PERFORM "):].strip()
+            body = []
+            i = start + 1
+            while i < len(lines):
+                if lines[i].strip().upper().startswith("END-PERFORM"):
+                    return PerformStatement(paragraph_name="", until_condition=suffix,
+                                            structured_condition=self._build_condition(suffix),
+                                            body=tuple(body)), i + 1
+                stmt, new_i = self._parse_statement(lines, i)
+                if stmt is not None:
+                    body.append(stmt)
+                i = max(new_i, i + 1)
+            return PerformStatement(paragraph_name="", until_condition=suffix, body=tuple(body)), i
+        m = re.match(r"PERFORM\s+([\w-]+)\s+THRU\s+([\w-]+)$", line, re.IGNORECASE)
+        if m:
+            return PerformStatement(paragraph_name=m.group(1), thru_target=m.group(2)), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)\s+(.+?)\s+TIMES$", line, re.IGNORECASE)
+        if m:
+            return PerformStatement(paragraph_name=m.group(1), until_condition=f"TIMES={m.group(2).strip()}"), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)\s+VARYING\s+(.+)$", line, re.IGNORECASE)
+        if m:
+            suffix = "VARYING " + m.group(2).strip()
+            return PerformStatement(paragraph_name=m.group(1), until_condition=suffix), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)\s+UNTIL\s+(.+)$", line, re.IGNORECASE)
+        if m:
+            cond = m.group(2).strip()
+            return PerformStatement(paragraph_name=m.group(1), until_condition=cond,
+                                    structured_condition=self._build_condition(cond)), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)$", line, re.IGNORECASE)
+        if m:
+            return PerformStatement(paragraph_name=m.group(1)), start + 1
         return PerformStatement(paragraph_name=""), start + 1
 
     def _parse_unstring(self, lines: list[str], start: int) -> tuple[UnstringStatement, int]:

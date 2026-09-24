@@ -248,7 +248,12 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
     return JavaLiteral(value=condition_str)
 
 
-def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) -> list[JavaStatement]:
+def map_cobol_statement(
+    stmt: Statement,
+    program: CobolProgram | None = None,
+    call_methods: dict[str, str] | None = None,
+    call_linkage: dict[str, tuple[str, ...]] | None = None,
+) -> list[JavaStatement]:
     """Map a single COBOL statement to one or more Java statements."""
     result: list[JavaStatement] = []
 
@@ -260,9 +265,10 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
                 field_format_widths[item.name.replace("-", "_")] = item.format_width
 
     if isinstance(stmt, MoveStatement):
-        target = stmt.target.replace("-", "_")
         source = map_cobol_expr_to_java(stmt.source)
-        result.append(JavaAssignment(target=target, expression=source))
+        targets = stmt.targets or ((stmt.target,) if stmt.target else ())
+        for target_name in targets:
+            result.append(JavaAssignment(target=target_name.replace("-", "_"), expression=source))
 
     elif isinstance(stmt, AddStatement):
         target = stmt.target.replace("-", "_")
@@ -304,12 +310,26 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
         ))
 
     elif isinstance(stmt, CallStatement):
+        target = stmt.program_name.replace("-", "_")
+        method = (call_methods or {}).get(stmt.program_name.upper(), stmt.program_name.replace("-", "_"))
+        linkage = (call_linkage or {}).get(stmt.program_name.upper(), ())
+        for idx, arg in enumerate(stmt.arguments):
+            if idx < len(linkage):
+                result.append(JavaAssignment(
+                    target=f"{target}.{linkage[idx].replace('-', '_')}",
+                    expression=map_cobol_expr_to_java(arg),
+                ))
         result.append(JavaMethodCallStatement(
-            call=JavaMethodCall(
-                method_name=stmt.program_name.replace("-", "_"),
-                arguments=tuple(map_cobol_expr_to_java(a) for a in stmt.arguments),
-            )
+            call=JavaMethodCall(method_name=method, class_name=target, is_static=True, arguments=())
         ))
+        for idx, arg in enumerate(stmt.arguments):
+            if idx < len(linkage):
+                mode = stmt.passing_modes[idx] if idx < len(stmt.passing_modes) else "REFERENCE"
+                if mode.upper() == "REFERENCE":
+                    result.append(JavaAssignment(
+                        target=arg.replace("-", "_"),
+                        expression=JavaVariableRef(name=f"{target}.{linkage[idx].replace('-', '_')}"),
+                    ))
 
     elif isinstance(stmt, DivideStatement):
         target = stmt.target.replace("-", "_")
@@ -380,7 +400,7 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
         condition = map_cobol_condition_to_java(stmt.condition)
         then_body = []
         for s in stmt.then_body:
-            then_body.extend(map_cobol_statement(s, program))
+            then_body.extend(map_cobol_statement(s, program, call_methods, call_linkage))
         else_body = []
         for s in stmt.else_body:
             else_body.extend(map_cobol_statement(s, program))
@@ -406,8 +426,13 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
             result.append(JavaBlock(statements=tuple(body)))
 
     elif isinstance(stmt, WriteStatement):
-        # WRITE → method call (handled at higher level)
-        result.append(JavaComment(text=f"// WRITE {stmt.record_name}"))
+        result.append(JavaMethodCallStatement(
+            call=JavaMethodCall(
+                object_ref=JavaVariableRef(name="System.out"),
+                method_name="println",
+                arguments=(JavaVariableRef(name=(stmt.from_field or stmt.record_name).replace("-", "_")),),
+            )
+        ))
 
     elif isinstance(stmt, StringStatement):
         # STRING → assignment
@@ -469,7 +494,7 @@ def map_cobol_paragraph_to_method(
     """Map a COBOL paragraph to a Java method."""
     body_stmts: list[JavaStatement] = []
     for stmt in para.statements:
-        body_stmts.extend(map_cobol_statement(stmt, program))
+        body_stmts.extend(map_cobol_statement(stmt, program, call_methods, call_linkage))
 
     return JavaMethod(
         name=para.name.replace("-", "_"),
@@ -481,7 +506,11 @@ def map_cobol_paragraph_to_method(
     )
 
 
-def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
+def map_cobol_program_to_java(
+    program: CobolProgram,
+    call_methods: dict[str, str] | None = None,
+    call_linkage: dict[str, tuple[str, ...]] | None = None,
+) -> JavaProgram:
     """Map a complete COBOL program to a JavaProgram.
 
     Populates all Java IR structures including decision-mode metadata.
@@ -499,7 +528,7 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
     main_body: list[JavaStatement] = []
     for para in program.paragraphs:
         for stmt in para.statements:
-            main_body.extend(map_cobol_statement(stmt, program))
+            main_body.extend(map_cobol_statement(stmt, program, call_methods, call_linkage))
 
     methods.append(JavaMethod(
         name="main",
@@ -748,9 +777,17 @@ def map_cobol_programs_to_application(
     all_transactions: dict[str, JavaTransactionBoundary] = {}
 
     program_ids = {p.program_id for p in programs}
+    call_methods = {
+        p.program_id.upper(): (p.paragraphs[0].name.replace("-", "_") if p.paragraphs else "main")
+        for p in programs
+    }
+    call_linkage = {
+        p.program_id.upper(): tuple(item.name for item in p.linkage_section)
+        for p in programs
+    }
 
     for prog in programs:
-        java_prog = map_cobol_program_to_java(prog)
+        java_prog = map_cobol_program_to_java(prog, call_methods, call_linkage)
         java_programs.append(java_prog)
 
         # Map CALL dependencies with resolution status

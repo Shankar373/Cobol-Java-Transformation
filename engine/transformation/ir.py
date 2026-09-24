@@ -343,14 +343,12 @@ class DeleteStatement:
 
 @dataclass(frozen=True)
 class MoveStatement:
-    """MOVE source TO target.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """MOVE source TO one or more targets."""
     source: str
     target: str
-    source_expr: Expression | None = None  # structured source expression
-    target_ref: FieldReference | None = None  # structured target reference
+    targets: tuple[str, ...] = ()
+    source_expr: Expression | None = None
+    target_ref: FieldReference | None = None
 
 
 @dataclass(frozen=True)
@@ -437,13 +435,12 @@ class IfStatement:
 
 @dataclass(frozen=True)
 class PerformStatement:
-    """PERFORM paragraph-name UNTIL condition, or PERFORM paragraph-name.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """PERFORM paragraph/inline block with optional UNTIL, TIMES, VARYING or THRU."""
     paragraph_name: str
     until_condition: str | None = None
-    structured_condition: Condition | None = None  # structured condition tree
+    structured_condition: Condition | None = None
+    body: tuple[Statement, ...] = ()
+    thru_target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -811,8 +808,11 @@ class CobolProgram:
     match_outcome_labels: tuple[str, ...] = ()
     summary_fields: tuple[str, ...] = ()
     report_header: str = ""
+    # Linkage / procedure interface
+    linkage_section: tuple[DataItem, ...] = ()
+    using_parameters: tuple[str, ...] = ()
     # Dependency information
-    called_programs: tuple[str, ...] = ()  # PROGRAM-IDs called via CALL
+    called_programs: tuple[str, ...] = ()
     copybooks: tuple[str, ...] = ()  # COPY references
     entry_points: tuple[str, ...] = ()  # ENTRY statements
 
