@@ -199,3 +199,34 @@ class TestCobolParserStatements:
         main = next(p for p in program.paragraphs if p.name == "MAIN-LOGIC")
         stops = [s for s in main.statements if isinstance(s, StopRunStatement)]
         assert len(stops) == 1
+
+
+
+    def test_named_paragraph_does_not_create_empty_synthetic_main(self, parser: CobolParser):
+        """A named paragraph is the first procedure paragraph, not a second MAIN."""
+        source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TEST.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 100 TO LIMIT.
+           IF LIMIT > 0
+               DISPLAY "POSITIVE"
+           END-IF.
+           PERFORM WORK UNTIL LIMIT = 0.
+           STOP RUN.
+       WORK.
+           MOVE 0 TO LIMIT.
+"""
+        program = parser.parse(source)
+
+        assert [paragraph.name for paragraph in program.paragraphs] == ["MAIN", "WORK"]
+        main = program.paragraphs[0]
+        assert len(main.statements) == 4
+        assert isinstance(main.statements[0], MoveStatement)
+        assert isinstance(main.statements[1], IfStatement)
+        assert isinstance(main.statements[2], PerformStatement)
+        assert isinstance(main.statements[3], StopRunStatement)
+        assert main.statements[0].source_expr is not None
+        assert main.statements[1].structured_condition is not None
+        assert main.statements[2].structured_condition is not None
