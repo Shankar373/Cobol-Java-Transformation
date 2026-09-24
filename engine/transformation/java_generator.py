@@ -1536,7 +1536,7 @@ public class {class_name} {{
             else:
                 default = '""'
                 if item.value:
-                        default = '"' + item.value.strip("'"") + '"'
+                    default = '"' + item.value.strip("'\"") + '"'
                 lines.append(f'    static String {java_name} = {default};')
         return "\n".join(lines)
 
