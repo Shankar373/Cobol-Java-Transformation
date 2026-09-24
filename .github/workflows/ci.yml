@@ -1,0 +1,99 @@
+name: SystemaOps CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: systemaops-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-oracle:
+    name: Backend and COBOL/Java Docker tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Build GnuCOBOL oracle image
+        run: docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
+      - name: Pull pinned Maven and Java execution images
+        run: |
+          docker pull maven-offline-springboot:latest
+          docker pull eclipse-temurin:21-jdk
+      - name: Record Docker image evidence
+        run: |
+          mkdir -p test-artifacts
+          docker image inspect gnucobol-ocesql:latest maven-offline-springboot:latest eclipse-temurin:21-jdk > test-artifacts/docker-images.json
+          docker run --rm --network none gnucobol-ocesql:latest cobc --version | tee test-artifacts/gnucobol-version.txt
+          docker run --rm --network none eclipse-temurin:21-jdk java -version 2>&1 | tee test-artifacts/java-version.txt
+          docker run --rm --network none maven-offline-springboot:latest mvn -version | tee test-artifacts/maven-version.txt
+      - name: Install backend and test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run backend, oracle, and integration tests
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -ra --junitxml=test-artifacts/backend-junit.xml tests 2>&1 | tee test-artifacts/backend-tests.log
+      - name: Upload backend logs and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-oracle-results
+          path: test-artifacts/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  frontend:
+    name: Frontend tests, TypeScript, and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run frontend tests
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p ../test-artifacts
+          npm test -- --reporter=verbose 2>&1 | tee ../test-artifacts/frontend-tests.log
+      - name: Run TypeScript check and production build
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../test-artifacts/frontend-build.log
+      - name: Upload frontend logs and build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-results
+          path: |
+            test-artifacts/frontend-*.log
+            frontend/dist/**
+          if-no-files-found: warn
+          retention-days: 30
