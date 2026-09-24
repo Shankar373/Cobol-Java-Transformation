@@ -44,6 +44,10 @@ from engine.transformation.ir import (
 )
 
 
+class DiscoveryError(RuntimeError):
+    """Raised when strict application discovery cannot produce a trustworthy graph."""
+
+
 class ApplicationDiscovery:
     """Discovers COBOL application structure from source files.
 
@@ -52,8 +56,14 @@ class ApplicationDiscovery:
         app = discovery.discover(source_directory)
     """
 
-    def __init__(self, parser: CobolParser | None = None) -> None:
+    def __init__(
+        self,
+        parser: CobolParser | None = None,
+        *,
+        strict: bool = False,
+    ) -> None:
         self._parser = parser or CobolParser()
+        self._strict = strict
 
     def discover(
         self,
@@ -171,7 +181,13 @@ class ApplicationDiscovery:
             )
 
         except Exception as e:
-            # Log error but continue with other files
+            if self._strict:
+                raise DiscoveryError(
+                    f"Failed to parse COBOL source {cobol_file}: {e}"
+                ) from e
+            # Non-strict callers may continue discovery, but the universal
+            # modernization path uses strict mode so parse loss cannot be
+            # mistaken for a complete application graph.
             print(f"Warning: Failed to parse {cobol_file}: {e}")
             return None
 
