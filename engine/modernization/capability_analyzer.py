@@ -261,9 +261,6 @@ class CapabilityAnalyzer:
                 has_unsupported = True
                 unsupported_reasons.append(f"GO TO {stmt.target}")
             if isinstance(stmt, PerformStatement):
-                if stmt.test_after:
-                    has_unsupported = True
-                    unsupported_reasons.append("PERFORM WITH TEST AFTER")
                 if stmt.thru_target:
                     known = {para.name for para in program.paragraphs}
                     if stmt.paragraph_name not in known or stmt.thru_target not in known:

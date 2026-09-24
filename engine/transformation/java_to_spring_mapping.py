@@ -18,9 +18,21 @@ from __future__ import annotations
 from engine.transformation.java_ir import (
     JavaApplication,
     JavaBasicType,
+    JavaBlock,
+    JavaClass,
     JavaDependencyType,
+    JavaDoWhile,
+    JavaFor,
+    JavaIf,
+    JavaMethodCall,
+    JavaMethodCallStatement,
+    JavaStatement,
+    JavaSwitch,
     JavaTransactionType,
+    JavaTryCatch,
     JavaType,
+    JavaVariableRef,
+    JavaWhile,
 )
 from engine.transformation.spring_boot_ir import (
     DataAccessStrategy,
@@ -35,6 +47,7 @@ from engine.transformation.spring_boot_ir import (
     SpringBootDependencyType,
     SpringBootEntryPoint,
     SpringBootFileOperationType,
+    SpringBootModel,
     SpringBootPackage,
     SpringBootRepository,
     SpringBootRepositoryImplementation,
@@ -49,6 +62,8 @@ from engine.transformation.spring_boot_ir import (
 def map_java_application_to_spring_boot(
     application: JavaApplication,
     base_package: str = "com.generated.app",
+    entry_program: str = "",
+    copybook_models=(),
 ) -> SpringBootApplication:
     """Map a JavaApplication to a SpringBootApplication.
 
@@ -63,6 +78,8 @@ def map_java_application_to_spring_boot(
     - Framework dependencies derived from resource capabilities
     - Controllers only if explicit API boundary present (not assumed)
     - Repository/Adapter implementations derived from strategy + operations
+    - entry_program selects the single service the entry point runs
+    - copybook_models are carried as SpringBootModel data holders
     """
     # Map services from programs
     services = _map_services(application, base_package)
@@ -85,8 +102,11 @@ def map_java_application_to_spring_boot(
     # Map adapter implementations
     adapter_implementations = _map_adapter_implementations(adapters, configuration, base_package)
 
-    # Create entry point
-    entry_point = _derive_entry_point(application, base_package)
+    # Create entry point (selected service from entry_program)
+    entry_point = _derive_entry_point(application, base_package, entry_program)
+
+    # Carry shared copybook models (data holders)
+    models = tuple(_to_spring_model(m) for m in copybook_models)
 
     # Derive framework dependencies
     dependencies = _derive_dependencies(repositories, adapters, transaction_boundaries)
@@ -105,9 +125,24 @@ def map_java_application_to_spring_boot(
         adapter_implementations=tuple(adapter_implementations),
         configuration=configuration,
         entry_point=entry_point,
+        models=models,
         dependencies=tuple(dependencies),
         packages=tuple(packages),
         source_application_id=application.application_id,
+    )
+
+
+def _to_spring_model(java_class: JavaClass | object) -> SpringBootModel:
+    """Wrap a copybook model JavaClass as a SpringBootModel."""
+    name = getattr(java_class, "name", "")
+    package = getattr(java_class, "package", "")
+    source_copybook = getattr(java_class, "source_copybook", "")
+    cls = java_class if isinstance(java_class, JavaClass) else None
+    return SpringBootModel(
+        name=name,
+        package=package,
+        source_copybook=source_copybook,
+        java_class=cls,
     )
 
 
@@ -120,6 +155,7 @@ def _map_services(
     Each program with a class becomes a service.
     CALL dependencies become service dependency edges.
     Methods from JavaClass are mapped to SpringBootServiceMethod.
+    Static CALL statements targeting dependencies become bean calls.
     """
     services: list[SpringBootService] = []
     service_package = f"{base_package}.service"
@@ -141,15 +177,16 @@ def _map_services(
                         JavaDependencyType.SERVICE_CALL,
                     )):
                 target_name = _to_class_name(dep.target)
-                depends_on.append(target_name)
+                if target_name not in depends_on:
+                    depends_on.append(target_name)
 
         # Check capabilities
         has_file_ops = len(program.file_resources) > 0
         has_db_ops = len(program.database_resources) > 0
         has_transactions = len(program.transaction_boundaries) > 0
 
-        # Map methods from JavaClass
-        methods = _map_methods(program.java_class)
+        # Map methods from JavaClass; rewrite static CALL → bean reference
+        methods = _map_methods(program.java_class, depends_on)
 
         # Map fields from JavaClass
         fields = tuple(program.java_class.fields) if program.java_class.fields else ()
@@ -169,12 +206,80 @@ def _map_services(
     return services
 
 
-def _map_methods(java_class) -> list[SpringBootServiceMethod]:
+def _rewrite_static_calls(stmt: JavaStatement, beans: dict[str, str]) -> JavaStatement:
+    """Rewrite static class calls into instance bean calls.
+
+    ``beans`` maps service class name → injected field name
+    (e.g. {"Claims": "claims"}). Nested control-flow bodies are walked.
+    """
+    if isinstance(stmt, JavaMethodCallStatement):
+        call = stmt.call
+        if call.is_static and call.class_name in beans:
+            return JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    object_ref=JavaVariableRef(name=beans[call.class_name]),
+                    method_name=call.method_name,
+                    arguments=call.arguments,
+                    is_static=False,
+                )
+            )
+        return stmt
+    if isinstance(stmt, JavaIf):
+        return JavaIf(
+            condition=stmt.condition,
+            then_body=tuple(_rewrite_static_calls(s, beans) for s in stmt.then_body),
+            else_body=tuple(_rewrite_static_calls(s, beans) for s in stmt.else_body),
+        )
+    if isinstance(stmt, JavaWhile):
+        return JavaWhile(
+            condition=stmt.condition,
+            body=tuple(_rewrite_static_calls(s, beans) for s in stmt.body),
+        )
+    if isinstance(stmt, JavaDoWhile):
+        return JavaDoWhile(
+            condition=stmt.condition,
+            body=tuple(_rewrite_static_calls(s, beans) for s in stmt.body),
+        )
+    if isinstance(stmt, JavaFor):
+        return JavaFor(
+            init=_rewrite_static_calls(stmt.init, beans) if stmt.init else None,
+            condition=stmt.condition,
+            update=_rewrite_static_calls(stmt.update, beans) if stmt.update else None,
+            body=tuple(_rewrite_static_calls(s, beans) for s in stmt.body),
+        )
+    if isinstance(stmt, JavaBlock):
+        return JavaBlock(
+            statements=tuple(_rewrite_static_calls(s, beans) for s in stmt.statements),
+        )
+    if isinstance(stmt, JavaTryCatch):
+        return JavaTryCatch(
+            try_body=tuple(_rewrite_static_calls(s, beans) for s in stmt.try_body),
+            catch_type=stmt.catch_type,
+            catch_var=stmt.catch_var,
+            catch_body=tuple(_rewrite_static_calls(s, beans) for s in stmt.catch_body),
+            finally_body=tuple(_rewrite_static_calls(s, beans) for s in stmt.finally_body),
+        )
+    if isinstance(stmt, JavaSwitch):
+        return JavaSwitch(
+            expression=stmt.expression,
+            cases=tuple(
+                (case, tuple(_rewrite_static_calls(s, beans) for s in body))
+                for case, body in stmt.cases
+            ),
+            default_body=tuple(_rewrite_static_calls(s, beans) for s in stmt.default_body),
+        )
+    return stmt
+
+
+def _map_methods(java_class, depends_on=()) -> list[SpringBootServiceMethod]:
     """Map JavaClass methods to SpringBootServiceMethod instances.
 
     Skips the 'main' method — Spring Boot services don't have main.
     Skips constructors — handled separately.
+    Static CALL statements targeting depends_on services are rewritten
+    to instance bean calls (object_ref = camelCase field name).
     """
+    beans = {name: _to_field_name(name) for name in depends_on}
     methods: list[SpringBootServiceMethod] = []
     for method in java_class.methods:
         # Skip main and constructors
@@ -182,15 +287,23 @@ def _map_methods(java_class) -> list[SpringBootServiceMethod]:
             continue
         # Convert JavaParameter tuples to (JavaType, name) tuples
         params = tuple((p.java_type, p.name) for p in method.parameters)
+        body = tuple(_rewrite_static_calls(s, beans) for s in method.body_statements)
         methods.append(SpringBootServiceMethod(
             name=method.name,
             return_type=method.return_type,
             parameters=params,
-            body_statements=method.body_statements,
+            body_statements=body,
             is_static=method.is_static,
             exceptions=method.exceptions,
         ))
     return methods
+
+
+def _to_field_name(class_name: str) -> str:
+    """Convert PascalCase class name to camelCase field name."""
+    if not class_name:
+        return ""
+    return class_name[0].lower() + class_name[1:]
 
 
 def _map_repositories(
@@ -340,12 +453,19 @@ def _derive_configuration(
 def _derive_entry_point(
     application: JavaApplication,
     base_package: str,
+    entry_program: str = "",
 ) -> SpringBootEntryPoint:
-    """Derive Spring Boot entry point from application."""
+    """Derive Spring Boot entry point from application.
+
+    ``entry_program`` is the selected service (COBOL program-id or class
+    name); when empty, the entry point invokes all services.
+    """
+    selected = _to_class_name(entry_program) if entry_program else ""
     return SpringBootEntryPoint(
         class_name="Application",
         package=base_package,
         application_name=application.application_id,
+        selected_service=selected,
     )
 
 

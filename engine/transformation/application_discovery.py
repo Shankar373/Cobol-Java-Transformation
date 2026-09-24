@@ -326,7 +326,7 @@ class ApplicationDiscovery:
                     source=unit.program_id,
                     target=call.target,
                     edge_type="CALL",
-                    metadata=f"resolution={resolution}",
+                    metadata=f"resolution={resolution},call_type={call.call_type}",
                 ))
 
             # Add COPY edges

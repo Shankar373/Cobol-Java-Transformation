@@ -603,7 +603,7 @@ class CobolParser:
         1. First pass: collect all paragraph names
         2. Second pass: parse statements with knowledge of all paragraph names
         """
-        # First pass: collect all paragraph names
+        # First pass: collect all paragraph names (exclude scope terminators)
         paragraph_names: set[str] = set()
         for line in lines:
             upper = line.upper().strip()
@@ -611,7 +611,9 @@ class CobolParser:
                 continue
             para_match = re.match(r"([A-Z0-9][\w-]*)\.", line.strip())
             if para_match and "PIC" not in upper and "VALUE" not in upper:
-                paragraph_names.add(para_match.group(1))
+                name = para_match.group(1)
+                if not name.upper().startswith("END-"):
+                    paragraph_names.add(name)
 
         # Second pass: parse with knowledge of all paragraph names
         in_procedure = False
@@ -639,18 +641,23 @@ class CobolParser:
                 continue
 
             # Check for paragraph name (ends with period, no PIC/VALUE/etc.)
+            # Scope terminators (END-PERFORM., END-EVALUATE., ...) are NOT
+            # paragraph names — treating them as such splits STOP RUN out of
+            # the driver paragraph and triggers false fall-through flags.
             para_match = re.match(r"([A-Z0-9][\w-]*)\.", line.strip())
             if para_match and "PIC" not in upper and "VALUE" not in upper:
-                # Save previous paragraph
-                if current_paragraph:
-                    paragraphs.append(Paragraph(
-                        name=current_paragraph,
-                        statements=tuple(current_statements),
-                    ))
-                current_paragraph = para_match.group(1)
-                current_statements = []
-                i += 1
-                continue
+                name = para_match.group(1)
+                if not name.upper().startswith("END-"):
+                    # Save previous paragraph
+                    if current_paragraph:
+                        paragraphs.append(Paragraph(
+                            name=current_paragraph,
+                            statements=tuple(current_statements),
+                        ))
+                    current_paragraph = name
+                    current_statements = []
+                    i += 1
+                    continue
 
             # Parse statements within the current paragraph. If the source
             # has no named paragraph, create one only when the first real
@@ -1087,7 +1094,28 @@ class CobolParser:
         """Parse paragraph, inline, TIMES, UNTIL, VARYING and THRU PERFORM forms."""
         line = lines[start].strip().rstrip(".")
         upper = line.upper()
-        inline = upper.startswith("PERFORM UNTIL ") or upper.startswith("PERFORM VARYING ") or bool(re.match(r"PERFORM\s+\d+\s+TIMES$", upper))
+
+        # WITH TEST AFTER / WITH TEST BEFORE (strip before form matching)
+        test_after = False
+        test_m = re.search(r"\bWITH\s+TEST\s+(AFTER|BEFORE)\b", line, re.IGNORECASE)
+        if test_m:
+            test_after = test_m.group(1).upper() == "AFTER"
+            line = re.sub(
+                r"\bWITH\s+TEST\s+(?:AFTER|BEFORE)\b\s*", "", line,
+                flags=re.IGNORECASE,
+            ).strip()
+            upper = line.upper()
+
+        inline = upper.startswith("PERFORM UNTIL ") or upper.startswith("PERFORM VARYING ") or bool(re.match(r"PERFORM\s+\d+\s+TIMES$", upper)) or bool(re.match(r"PERFORM\s+WITH\s+TEST", upper))
+        # After stripping WITH TEST, inline forms may start with PERFORM UNTIL/VARYING/TIMES
+        if not inline and upper.startswith("PERFORM "):
+            rest = upper[len("PERFORM "):]
+            inline = (
+                rest.startswith("UNTIL ")
+                or rest.startswith("VARYING ")
+                or bool(re.match(r"\d+\s+TIMES$", rest))
+                or bool(re.match(r"\d+\s+TIMES", rest))
+            )
         if inline:
             if " UNTIL " in upper:
                 suffix = line.split(" UNTIL ", 1)[1].strip()
@@ -1103,32 +1131,38 @@ class CobolParser:
                 if lines[i].strip().upper().startswith("END-PERFORM"):
                     return PerformStatement(paragraph_name="", until_condition=suffix,
                                             structured_condition=structured_condition,
-                                            body=tuple(body)), i + 1
+                                            body=tuple(body), test_after=test_after), i + 1
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:
                     body.append(stmt)
                 i = max(new_i, i + 1)
             return PerformStatement(paragraph_name="", until_condition=suffix,
-                                    structured_condition=structured_condition, body=tuple(body)), i
+                                    structured_condition=structured_condition,
+                                    body=tuple(body), test_after=test_after), i
         m = re.match(r"PERFORM\s+([\w-]+)\s+THRU\s+([\w-]+)$", line, re.IGNORECASE)
         if m:
-            return PerformStatement(paragraph_name=m.group(1), thru_target=m.group(2)), start + 1
+            return PerformStatement(paragraph_name=m.group(1), thru_target=m.group(2),
+                                    test_after=test_after), start + 1
         m = re.match(r"PERFORM\s+([\w-]+)\s+(.+?)\s+TIMES$", line, re.IGNORECASE)
         if m:
-            return PerformStatement(paragraph_name=m.group(1), until_condition=f"TIMES={m.group(2).strip()}"), start + 1
+            return PerformStatement(paragraph_name=m.group(1),
+                                    until_condition=f"TIMES={m.group(2).strip()}",
+                                    test_after=test_after), start + 1
         m = re.match(r"PERFORM\s+([\w-]+)\s+VARYING\s+(.+)$", line, re.IGNORECASE)
         if m:
             suffix = "VARYING " + m.group(2).strip()
-            return PerformStatement(paragraph_name=m.group(1), until_condition=suffix), start + 1
+            return PerformStatement(paragraph_name=m.group(1), until_condition=suffix,
+                                    test_after=test_after), start + 1
         m = re.match(r"PERFORM\s+([\w-]+)\s+UNTIL\s+(.+)$", line, re.IGNORECASE)
         if m:
             cond = m.group(2).strip()
             return PerformStatement(paragraph_name=m.group(1), until_condition=cond,
-                                    structured_condition=self._build_condition(cond)), start + 1
+                                    structured_condition=self._build_condition(cond),
+                                    test_after=test_after), start + 1
         m = re.match(r"PERFORM\s+([\w-]+)$", line, re.IGNORECASE)
         if m:
-            return PerformStatement(paragraph_name=m.group(1)), start + 1
-        return PerformStatement(paragraph_name=""), start + 1
+            return PerformStatement(paragraph_name=m.group(1), test_after=test_after), start + 1
+        return PerformStatement(paragraph_name="", test_after=test_after), start + 1
 
     def _parse_unstring(self, lines: list[str], start: int) -> tuple[UnstringStatement, int]:
         """Parse UNSTRING source DELIMITED BY delimiter INTO targets."""
@@ -1210,7 +1244,12 @@ class CobolParser:
         return StringStatement(parts=tuple(parts), target=target), i
 
     def _parse_display(self, lines: list[str], start: int) -> tuple[DisplayStatement, int]:
-        """Parse DISPLAY parts UPON destination."""
+        """Parse DISPLAY parts UPON destination.
+
+        Continuation lines are only consumed while the statement is open.
+        A DISPLAY that already ends with '.' is complete on that line —
+        otherwise the following CALL/PERFORM/EVALUATE would be swallowed.
+        """
         line = lines[start].strip()
         upper = line.upper()
 
@@ -1229,7 +1268,20 @@ class CobolParser:
                 elif token[1]:
                     parts.append(token[1])
 
-        # Check for continuation lines
+        # Statement already terminated on the opening line — do not continue.
+        if line.endswith("."):
+            return DisplayStatement(parts=tuple(parts), destination=destination), start + 1
+
+        # Keywords that open a new statement (or close a scope) — never
+        # DISPLAY continuation. Missing CALL/PERFORM/EVALUATE here was the
+        # root cause of swallowed CALL statements.
+        break_prefixes = (
+            "END-", "ELSE", "IF", "MOVE", "DISPLAY", "WRITE", "STOP RUN",
+            "CLOSE", "GO TO", "CALL", "PERFORM", "EVALUATE", "ADD",
+            "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE", "READ", "OPEN",
+            "STRING", "UNSTRING", "SET", "INITIALIZE", "WHEN",
+        )
+
         i = start + 1
         while i < len(lines):
             l = lines[i].strip()
@@ -1238,8 +1290,7 @@ class CobolParser:
                 destination = "STDERR" if "STDERR" in u else "STDOUT"
                 i += 1
                 continue
-            if (u.startswith(("END-IF", "ELSE", "IF", "MOVE", "DISPLAY",
-                    "WRITE", "STOP RUN", "CLOSE", "GO TO"))):
+            if u.startswith(break_prefixes):
                 break
             if l and not u.startswith("*") and not u.startswith("END-"):
                 for token in re.findall(r'"([^"]+)"|([A-Z][\w-]*)', l, re.IGNORECASE):
@@ -1247,6 +1298,9 @@ class CobolParser:
                         parts.append(f'"{token[0]}"')
                     elif token[1]:
                         parts.append(token[1])
+            if l.endswith("."):
+                i += 1
+                break
             i += 1
 
         return DisplayStatement(parts=tuple(parts), destination=destination), i

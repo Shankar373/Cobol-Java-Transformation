@@ -217,6 +217,13 @@ class JavaWhile(JavaStatement):
 
 
 @dataclass(frozen=True)
+class JavaDoWhile(JavaStatement):
+    """Do-while loop (PERFORM UNTIL WITH TEST AFTER)."""
+    condition: JavaExpression
+    body: tuple[JavaStatement, ...] = ()
+
+
+@dataclass(frozen=True)
 class JavaFor(JavaStatement):
     """For loop."""
     init: JavaStatement | None = None
@@ -325,6 +332,7 @@ class JavaClass:
     extends: str = ""  # superclass name
     implements: tuple[str, ...] = ()  # interface names
     imports: tuple[str, ...] = ()  # import statements
+    source_copybook: str = ""  # originating COPYBOOK stem (models only)
 
 
 # ---------------------------------------------------------------------------
