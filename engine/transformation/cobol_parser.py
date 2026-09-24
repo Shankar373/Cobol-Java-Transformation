@@ -23,6 +23,7 @@ from typing import Any
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
 from engine.transformation.ir import (
     AddStatement,
+    CallStatement,
     BinaryExpression,
     BooleanCondition,
     CobolProgram,
@@ -57,6 +58,8 @@ from engine.transformation.ir import (
     StatusCodeMapping,
     StopRunStatement,
     StringStatement,
+    SubtractStatement,
+    MultiplyStatement,
     ThresholdRule,
     UnaryExpression,
     UnstringStatement,
@@ -608,6 +611,18 @@ class CobolParser:
         if upper.startswith("ADD "):
             return self._parse_add(lines, start)
 
+        # SUBTRACT
+        if upper.startswith("SUBTRACT "):
+            return self._parse_subtract(lines, start)
+
+        # MULTIPLY
+        if upper.startswith("MULTIPLY "):
+            return self._parse_multiply(lines, start)
+
+        # CALL
+        if upper.startswith("CALL "):
+            return self._parse_call(lines, start)
+
         # DIVIDE
         if upper.startswith("DIVIDE "):
             return self._parse_divide(lines, start)
@@ -768,6 +783,72 @@ class CobolParser:
             ), start + 1
 
         return AddStatement(source="", target=""), start + 1
+
+    def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
+        """Parse SUBTRACT source FROM field [GIVING target]."""
+        line = lines[start].strip()
+        match = re.search(r"SUBTRACT\\s+(\\S+)\\s+FROM\\s+(\\S+)(?:\\s+GIVING\\s+(\\S+))?", line, re.IGNORECASE)
+        if not match:
+            return SubtractStatement(source="", from_field=""), start + 1
+        source = match.group(1).rstrip(".")
+        from_field = match.group(2).rstrip(".")
+        to_field = match.group(3).rstrip(".") if match.group(3) else None
+        return SubtractStatement(
+            source=source,
+            from_field=from_field,
+            to_field=to_field,
+            source_expr=self._build_expression(source),
+            from_ref=FieldReference(name=from_field),
+            to_ref=FieldReference(name=to_field) if to_field else None,
+        ), start + 1
+
+    def _parse_multiply(self, lines: list[str], start: int) -> tuple[MultiplyStatement, int]:
+        """Parse MULTIPLY source BY field [GIVING target]."""
+        line = lines[start].strip()
+        match = re.search(r"MULTIPLY\\s+(\\S+)\\s+BY\\s+(\\S+)(?:\\s+GIVING\\s+(\\S+))?", line, re.IGNORECASE)
+        if not match:
+            return MultiplyStatement(source="", multiplicand=""), start + 1
+        source = match.group(1).rstrip(".")
+        multiplicand = match.group(2).rstrip(".")
+        target = match.group(3).rstrip(".") if match.group(3) else None
+        return MultiplyStatement(
+            source=source,
+            multiplicand=multiplicand,
+            target=target,
+            source_expr=self._build_expression(source),
+            multiplicand_ref=FieldReference(name=multiplicand),
+            target_ref=FieldReference(name=target) if target else None,
+        ), start + 1
+
+    def _parse_call(self, lines: list[str], start: int) -> tuple[CallStatement, int]:
+        """Parse CALL literal/identifier USING arguments, including continuations."""
+        i = start
+        parts = [lines[i].strip()]
+        while i + 1 < len(lines) and not parts[-1].rstrip().endswith("."):
+            i += 1
+            parts.append(lines[i].strip())
+        text = " ".join(parts).rstrip(".").strip()
+        match = re.match(r"CALL\\s+(?:'([^']+)'|\"([^\"]+)\"|(\\S+))(?:\\s+USING\\s+(.+))?$", text, re.IGNORECASE)
+        if not match:
+            return CallStatement(program_name="", is_dynamic=True), i + 1
+        program_name = next((g for g in match.groups()[:3] if g), "")
+        using = match.group(4) or ""
+        tokens = using.split()
+        arguments=[]
+        modes=[]
+        current_mode="REFERENCE"
+        j=0
+        while j < len(tokens):
+            tok=tokens[j].upper()
+            if tok == "BY" and j + 1 < len(tokens):
+                current_mode=tokens[j+1].upper()
+                j += 2
+                continue
+            arguments.append(tokens[j].rstrip(","))
+            modes.append(current_mode)
+            j += 1
+        is_dynamic = not bool(match.group(1) or match.group(2))
+        return CallStatement(program_name=program_name, arguments=tuple(arguments), passing_modes=tuple(modes), is_dynamic=is_dynamic), i + 1
 
     def _parse_divide(self, lines: list[str], start: int) -> tuple[DivideStatement, int]:
         """Parse DIVIDE source BY divisor GIVING target [REMAINDER rem] statement."""
