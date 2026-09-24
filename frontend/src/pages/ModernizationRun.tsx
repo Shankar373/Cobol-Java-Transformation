@@ -62,7 +62,6 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
   const [pollFailures, setPollFailures] = useState(0);
   const [pollError, setPollError] = useState<string | null>(null);
   const pollFailuresRef = useRef(0);
-  const runError = run && typeof run.error === 'string' ? run.error : null;
 
   // Discovery is independent of run stage: fetch it as soon as the page
   // loads so programs/dependencies render whenever the API provides them
@@ -389,15 +388,15 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       </SectionCard>
 
       {/* Error — terminal failure explanation with run context */}
-      {runError !== null && runError.length > 0 && (
+      {typeof run.error === 'string' && run.error.length > 0 && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Error">
             <p style={{ color: tokens.colors.error, fontSize: tokens.font.sizes.sm, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-              {runError}
+              {String(run.error)}
             </p>
             <p style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>
-              Run ID: {run.id} \u2022 Application: {run.application_id}
+              Run ID: {String(run.id)} \u2022 Application: {String(run.application_id)}
             </p>
           </SectionCard>
         </>
@@ -411,17 +410,17 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
             <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.xs, fontSize: tokens.font.sizes.sm }}>
               <div>
                 <span style={{ color: tokens.colors.textMuted }}>Application: </span>
-                <span style={{ fontWeight: tokens.font.weights.medium }}>{detail.application_name ?? run.application_id}</span>
+                <span style={{ fontWeight: tokens.font.weights.medium }}>{String(detail.application_name ?? run.application_id)}</span>
               </div>
               <div>
                 <span style={{ color: tokens.colors.textMuted }}>Workload: </span>
-                <span>{detail.workload_id}</span>
+                <span>{String(detail.workload_id)}</span>
               </div>
               {detail.verdict_state && (
                 <div>
                   <span style={{ color: tokens.colors.textMuted }}>Verdict: </span>
                   <Badge variant={detail.verdict_state === 'VERIFIED' ? 'success' : detail.verdict_state === 'FAILED' || detail.verdict_state === 'ERROR' ? 'error' : 'warning'} size="sm">
-                    {detail.verdict_state}
+                    {String(detail.verdict_state)}
                   </Badge>
                 </div>
               )}
@@ -430,7 +429,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
                   <div style={{ color: tokens.colors.textMuted }}>Stage messages:</div>
                   <ul style={{ margin: `${tokens.spacing.xs} 0 0`, paddingLeft: 20 }}>
                     {extraStageMessages.map((m, i) => (
-                      <li key={i} style={{ color: tokens.colors.textSecondary }}>{m}</li>
+                      <li key={i} style={{ color: tokens.colors.textSecondary }}>{String(m)}</li>
                     ))}
                   </ul>
                 </div>
@@ -442,7 +441,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
                   </div>
                   <ul style={{ margin: `${tokens.spacing.xs} 0 0`, paddingLeft: 20, fontFamily: 'monospace', fontSize: tokens.font.sizes.xs }}>
                     {detail.generated_files.map((f) => (
-                      <li key={f} style={{ color: tokens.colors.textSecondary }}>{f}</li>
+                      <li key={f} style={{ color: tokens.colors.textSecondary }}>{String(f)}</li>
                     ))}
                   </ul>
                 </div>
@@ -665,7 +664,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
           <SectionCard title="Limitations" count={(report.report.limitations as unknown[]).length}>
             <ul style={{ margin: 0, paddingLeft: 20, fontSize: tokens.font.sizes.sm }}>
               {(report.report.limitations as string[]).map((lim, i) => (
-                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{lim}</li>
+                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{String(lim)}</li>
               ))}
             </ul>
           </SectionCard>
@@ -679,7 +678,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
           <SectionCard title="Recommendations" count={(report.report.recommendations as unknown[]).length}>
             <ul style={{ margin: 0, paddingLeft: 20, fontSize: tokens.font.sizes.sm }}>
               {(report.report.recommendations as string[]).map((rec, i) => (
-                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{rec}</li>
+                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{String(rec)}</li>
               ))}
             </ul>
           </SectionCard>
