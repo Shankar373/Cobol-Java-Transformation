@@ -319,14 +319,19 @@ class ApplicationDiscovery:
         known_programs = {p.program_id for p in program_units}
 
         for unit in program_units:
-            # Add CALL edges
+            # Add CALL edges. Dynamic CALLs (CALL data-item) never resolve
+            # to a static edge even when the item name coincides with a
+            # program-id — the target is a runtime value.
             for call in unit.calls:
-                resolution = "RESOLVED" if call.target in known_programs else "UNRESOLVED"
+                if call.call_type == "DYNAMIC":
+                    resolution = "UNRESOLVED"
+                else:
+                    resolution = "RESOLVED" if call.target in known_programs else "UNRESOLVED"
                 edges.append(DependencyEdge(
                     source=unit.program_id,
                     target=call.target,
                     edge_type="CALL",
-                    metadata=f"resolution={resolution}",
+                    metadata=f"resolution={resolution};call_type={call.call_type}",
                 ))
 
             # Add COPY edges
