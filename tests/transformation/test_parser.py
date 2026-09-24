@@ -231,3 +231,35 @@ class TestCobolParserStatements:
         assert main.statements[0].source_expr is not None
         assert main.statements[1].structured_condition is not None
         assert main.statements[2].structured_condition is not None
+
+    def test_parser_does_not_raise_index_error_on_malformed_statements(self, parser: CobolParser):
+        """Malformed/empty statement inputs must not raise IndexError (regression)."""
+        sources = [
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    .\n",
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    IF X > 0\n",
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n",
+        ]
+        for source in sources:
+            program = parser.parse(source)
+            assert program.paragraphs is not None
+
+    def test_inline_perform_times_ir_contract(self, parser: CobolParser):
+        """Inline PERFORM n TIMES yields TIMES=n with no synthetic condition."""
+        source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TEST.
+       PROCEDURE DIVISION.
+       MAIN.
+           PERFORM 3 TIMES
+               MOVE 1 TO LIMIT
+           END-PERFORM.
+           STOP RUN.
+"""
+        program = parser.parse(source)
+        main = program.paragraphs[0]
+        stmt = main.statements[0]
+        assert isinstance(stmt, PerformStatement)
+        assert stmt.paragraph_name == ""
+        assert stmt.until_condition == "TIMES=3"
+        assert stmt.structured_condition is None
+        assert len(stmt.body) == 1

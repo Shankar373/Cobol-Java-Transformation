@@ -810,7 +810,6 @@ class CobolParser:
                 i += 1
                 continue
             if u.startswith("END-READ"):
-                print(f"DEBUG _parse_read: Found END-READ at i={i}, line={lines[i].strip()[:60]}")
                 i += 1
                 break
 
@@ -1092,20 +1091,25 @@ class CobolParser:
         if inline:
             if " UNTIL " in upper:
                 suffix = line.split(" UNTIL ", 1)[1].strip()
+                structured_condition = self._build_condition(suffix)
             else:
                 suffix = line[len("PERFORM "):].strip()
+                structured_condition = None
+                if re.search(r"\s+TIMES$", upper):
+                    suffix = f"TIMES={suffix[: -len('TIMES')].strip()}"
             body = []
             i = start + 1
             while i < len(lines):
                 if lines[i].strip().upper().startswith("END-PERFORM"):
                     return PerformStatement(paragraph_name="", until_condition=suffix,
-                                            structured_condition=self._build_condition(suffix),
+                                            structured_condition=structured_condition,
                                             body=tuple(body)), i + 1
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:
                     body.append(stmt)
                 i = max(new_i, i + 1)
-            return PerformStatement(paragraph_name="", until_condition=suffix, body=tuple(body)), i
+            return PerformStatement(paragraph_name="", until_condition=suffix,
+                                    structured_condition=structured_condition, body=tuple(body)), i
         m = re.match(r"PERFORM\s+([\w-]+)\s+THRU\s+([\w-]+)$", line, re.IGNORECASE)
         if m:
             return PerformStatement(paragraph_name=m.group(1), thru_target=m.group(2)), start + 1
