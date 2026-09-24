@@ -366,6 +366,37 @@ class AddStatement:
 
 
 @dataclass(frozen=True)
+class SubtractStatement:
+    """SUBTRACT source FROM from_field [GIVING to_field]."""
+    source: str
+    from_field: str
+    to_field: str | None = None
+    source_expr: Expression | None = None
+    from_ref: FieldReference | None = None
+    to_ref: FieldReference | None = None
+
+
+@dataclass(frozen=True)
+class MultiplyStatement:
+    """MULTIPLY source BY multiplicand [GIVING target]."""
+    source: str
+    multiplicand: str
+    target: str | None = None
+    source_expr: Expression | None = None
+    multiplicand_ref: FieldReference | None = None
+    target_ref: FieldReference | None = None
+
+
+@dataclass(frozen=True)
+class CallStatement:
+    """CALL a statically or dynamically named COBOL program."""
+    program_name: str
+    arguments: tuple[str, ...] = ()
+    passing_modes: tuple[str, ...] = ()
+    is_dynamic: bool = False
+
+
+@dataclass(frozen=True)
 class DivideStatement:
     """DIVIDE source BY divisor GIVING target [REMAINDER rem].
 
@@ -482,6 +513,9 @@ Statement = (
     | DeleteStatement
     | MoveStatement
     | AddStatement
+    | SubtractStatement
+    | MultiplyStatement
+    | CallStatement
     | DivideStatement
     | IfStatement
     | PerformStatement
