@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from engine.transformation.ir import (
     AddStatement,
+    CallStatement,
     CobolProgram,
     ComputeStatement,
     DataItem,
@@ -42,6 +43,8 @@ from engine.transformation.ir import (
     ReadStatement,
     StopRunStatement,
     StringStatement,
+    SubtractStatement,
+    MultiplyStatement,
     UnstringStatement,
     WriteStatement,
 )
@@ -272,6 +275,40 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
                 operator="+",
                 right=source,
             ),
+        ))
+
+    elif isinstance(stmt, SubtractStatement):
+        source = map_cobol_expr_to_java(stmt.source)
+        base = stmt.from_field.replace("-", "_")
+        target = (stmt.to_field or stmt.from_field).replace("-", "_")
+        result.append(JavaAssignment(
+            target=target,
+            expression=JavaBinaryOp(
+                left=JavaVariableRef(name=base),
+                operator="-",
+                right=source,
+            ),
+        ))
+
+    elif isinstance(stmt, MultiplyStatement):
+        source = map_cobol_expr_to_java(stmt.source)
+        base = stmt.multiplicand.replace("-", "_")
+        target = (stmt.target or stmt.multiplicand).replace("-", "_")
+        result.append(JavaAssignment(
+            target=target,
+            expression=JavaBinaryOp(
+                left=map_cobol_expr_to_java(stmt.source),
+                operator="*",
+                right=JavaVariableRef(name=base),
+            ),
+        ))
+
+    elif isinstance(stmt, CallStatement):
+        result.append(JavaMethodCallStatement(
+            call=JavaMethodCall(
+                method_name=stmt.program_name.replace("-", "_"),
+                arguments=tuple(map_cobol_expr_to_java(a) for a in stmt.arguments),
+            )
         ))
 
     elif isinstance(stmt, DivideStatement):
