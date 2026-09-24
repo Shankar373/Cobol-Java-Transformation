@@ -388,7 +388,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       </SectionCard>
 
       {/* Error — terminal failure explanation with run context */}
-      {Boolean(run.error) && (
+      {typeof run.error === 'string' && run.error.length > 0 && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Error">
