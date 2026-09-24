@@ -440,9 +440,13 @@ class Service:
         report = pipeline.execute(progress=_pipeline_progress)
 
         if not report.generation_success:
-            raise ServiceError(
-                "Pipeline generation failed: " + "; ".join(report.generation_errors)
-            )
+            details = list(report.generation_errors)
+            if report.verification_readiness == "BLOCKED":
+                details.extend(report.readiness_reasons)
+            if not details:
+                details.extend(report.limitations)
+            detail_text = "; ".join(details) or "unknown"
+            raise ServiceError(f"Pipeline generation failed: {detail_text}")
 
         if not report.generated_project_dir:
             limit_detail = "; ".join(report.limitations) if report.limitations else "unknown"

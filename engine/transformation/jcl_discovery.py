@@ -43,6 +43,10 @@ from engine.transformation.ir import (
 )
 
 
+class JclDiscoveryError(RuntimeError):
+    """Raised when strict JCL discovery cannot produce a trustworthy graph."""
+
+
 class JclDiscovery:
     """Discovers JCL application structure and links to COBOL.
 
@@ -52,8 +56,14 @@ class JclDiscovery:
         combined = discovery.link_with_cobol(jcl_app, cobol_app)
     """
 
-    def __init__(self, parser: JclParser | None = None) -> None:
+    def __init__(
+        self,
+        parser: JclParser | None = None,
+        *,
+        strict: bool = False,
+    ) -> None:
         self._parser = parser or JclParser()
+        self._strict = strict
 
     def discover(
         self,
@@ -90,7 +100,11 @@ class JclDiscovery:
                     comments=job.comments,
                     source_path=str(jcl_file.relative_to(source_path)),
                 ))
-            except Exception:
+            except Exception as exc:
+                if self._strict:
+                    raise JclDiscoveryError(
+                        f"Failed to parse JCL source {jcl_file}: {exc}"
+                    ) from exc
                 continue
 
         # Build dependencies

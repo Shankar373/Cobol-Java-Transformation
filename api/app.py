@@ -280,6 +280,7 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
         file_dependencies=discovery.file_dependencies,
         call_dependencies=discovery.call_dependencies,
         dependency_edges=discovery.dependency_edges,
+        diagnostics=discovery.diagnostics,
         source_file_count=discovery.source_file_count,
         total_size_bytes=discovery.total_size_bytes,
     )
