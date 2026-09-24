@@ -446,26 +446,77 @@ public class {class_name} {{
 
         declarations = self._gen_field_declarations_from_ir(java_class)
 
-        # Build main body from methods
+        # Collect all method bodies (all non-main methods) and main body
+        all_methods_src: list[str] = []
         main_body = ""
+        uses_file_write = False
+        uses_cobol_file_io_stmt = False
+
         for method in java_class.methods:
-            if method.name != "main":
-                continue
+            method_stmts: list[str] = []
             for stmt in method.body_statements:
                 stmt_str = self._stmt_to_string(stmt)
                 if stmt_str:
-                    main_body += f"        {stmt_str}\n"
+                    method_stmts.append(stmt_str)
+                    if "_FileWriteHelper" in stmt_str:
+                        uses_file_write = True
+                    if "CobolFileIo." in stmt_str:
+                        uses_cobol_file_io_stmt = True
 
-        return f'''import java.io.PrintStream;
+            if method.name == "main":
+                main_body = "".join(f"        {s}\n" for s in method_stmts)
+            else:
+                params = ", ".join(
+                    f"{self._java_type_to_string(p.java_type)} {p.name}"
+                    for p in method.parameters
+                )
+                throws = " throws Exception" if method.exceptions else ""
+                body = "".join(f"        {s}\n" for s in method_stmts)
+                mods = " ".join(method.modifiers) if method.modifiers else "public static"
+                ret = self._java_type_to_string(method.return_type) if method.return_type else "void"
+                all_methods_src.append(
+                    f"\n    {mods} {ret} {method.name}({params}){throws} {{\n{body}    }}\n"
+                )
+
+        extra_methods = "".join(all_methods_src)
+
+        file_write_helper = ""
+        file_write_imports = ""
+        support_code = ""
+        uses_cobol_file_io = uses_file_write or uses_cobol_file_io_stmt
+        if uses_cobol_file_io:
+            from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
+            support_code = "\n" + COBOL_FILE_IO_JAVA + "\n"
+        if uses_file_write:
+            file_write_imports = (
+                "import java.io.FileWriter;\n"
+                "import java.io.PrintWriter;\n"
+            )
+            file_write_helper = (
+                "\n"
+                "    /** Append a text line to a file (sequential WRITE). */\n"
+                "    static void _FileWriteHelper_appendLine(String path, String line) throws Exception {\n"
+                "        try (PrintWriter _pw = new PrintWriter(new FileWriter(path, true))) {\n"
+                "            _pw.println(line);\n"
+                "        }\n"
+                "    }\n"
+            )
+            # Rewrite _FileWriteHelper.appendLine calls to use the actual method name
+            main_body = main_body.replace(
+                "_FileWriteHelper.appendLine(", "_FileWriteHelper_appendLine("
+            )
+            extra_methods = extra_methods.replace(
+                "_FileWriteHelper.appendLine(", "_FileWriteHelper_appendLine("
+            )
+
+        return f'''{file_write_imports}import java.io.PrintStream;
 
 public class {class_name} {{
 {declarations}
-
+{extra_methods}
     public static void main(String[] args) throws Exception {{
         PrintStream out = System.out;
-{main_body}
-    }}
-}}
+{main_body}    }}{file_write_helper}{support_code}}}
 '''
 
     # ================================================================
@@ -727,13 +778,29 @@ public class {class_name} {{
                         padRight(String.valueOf({amt_str_var}_num), 5));
             }}'''
 
+    def _java_type_to_string(self, java_type) -> str:
+        """Render a JavaType to its Java source string using the canonical renderer."""
+        if java_type is None:
+            return "void"
+        try:
+            return java_type.to_source()
+        except Exception:
+            return "void"
+
+    @staticmethod
+    def _escape_java_string(value: str) -> str:
+        """Escape a raw string value for embedding in a Java string literal."""
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
     def _gen_field_declarations_from_ir(self, java_class: JavaClass) -> str:
         """Generate Java variable declarations from JavaClass fields."""
         lines = []
         for field in java_class.fields:
             type_str = field.java_type.to_source()
-            if field.initializer:
-                default = field.initializer.value
+            if field.initializer is not None:
+                # Render through the literal renderer so String
+                # initializers are always quoted (never bare identifiers).
+                default = self._expr_to_string(field.initializer)
             elif type_str == "int":
                 default = "0"
             elif type_str == "String":
@@ -761,10 +828,16 @@ public class {class_name} {{
         """Convert a Java IR statement to a Java source string."""
         from engine.transformation.java_ir import (
             JavaAssignment, JavaMethodCallStatement, JavaReturn,
-            JavaComment, JavaIf, JavaBlock,
+            JavaComment, JavaIf, JavaBlock, JavaFor, JavaWhile,
+            JavaLocalVarDecl,
         )
         if isinstance(stmt, JavaAssignment):
             return f"{stmt.target} = {self._expr_to_string(stmt.expression)};"
+        if isinstance(stmt, JavaLocalVarDecl):
+            init_str = ""
+            if stmt.initializer:
+                init_str = f" = {self._expr_to_string(stmt.initializer)}"
+            return f"{stmt.java_type.to_source()} {stmt.name}{init_str};"
         if isinstance(stmt, JavaMethodCallStatement):
             return self._method_call_to_string(stmt.call) + ";"
         if isinstance(stmt, JavaReturn):
@@ -787,29 +860,59 @@ public class {class_name} {{
                     lines.append(f"    {self._stmt_to_string(s)}")
             lines.append("}")
             return "\n".join(lines)
+        if isinstance(stmt, JavaFor):
+            init_str = self._stmt_to_string(stmt.init).rstrip(";") if stmt.init else ""
+            cond_str = self._expr_to_string(stmt.condition) if stmt.condition else ""
+            update_str = self._stmt_to_string(stmt.update).rstrip(";") if stmt.update else ""
+            lines = [f"for ({init_str}; {cond_str}; {update_str}) {{"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append("}")
+            return "\n".join(lines)
         if isinstance(stmt, JavaBlock):
             return "\n".join(self._stmt_to_string(s) for s in stmt.statements)
+        if isinstance(stmt, JavaWhile):
+            cond = self._expr_to_string(stmt.condition)
+            lines = [f"while ({cond}) {{"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append("}")
+            return "\n".join(lines)
         return ""
 
     def _expr_to_string(self, expr) -> str:
         """Convert a Java IR expression to a Java source string."""
         from engine.transformation.java_ir import (
             JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
-            JavaStringConcat,
+            JavaStringConcat, JavaUnaryOp,
         )
         if isinstance(expr, JavaLiteral):
+            if expr.value == "null" and not expr.java_type:
+                return "null"
+            if expr.value in ("true", "false") and not expr.java_type:
+                return expr.value
             # String literals need quotes; numeric literals don't
             # JavaLiteral without java_type may be a condition expression — don't quote
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
-                return f'"{expr.value}"'
+                return f'"{self._escape_java_string(expr.value)}"'
+            # A single-quoted value is a COBOL string literal spelling, not a
+            # Java char: normalize to a double-quoted Java string literal.
+            if len(expr.value) >= 2 and expr.value.startswith("'") and expr.value.endswith("'"):
+                return f'"{self._escape_java_string(expr.value[1:-1])}"'
             # If it looks like a string value (not a number, not a condition)
             if not expr.value.replace(".", "").replace("-", "").isdigit():
                 # Check if it's a condition expression (contains operators)
                 if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
                     return expr.value  # Don't quote conditions
-                if not (expr.value.startswith('"') or expr.value.startswith("'")):
-                    return f'"{expr.value}"'
+                if not expr.value.startswith('"'):
+                    return f'"{self._escape_java_string(expr.value)}"'
             return expr.value
         if isinstance(expr, JavaVariableRef):
             return expr.name
@@ -817,6 +920,22 @@ public class {class_name} {{
             left = self._expr_to_string(expr.left)
             right = self._expr_to_string(expr.right)
             return f"({left} {expr.operator} {right})"
+        if isinstance(expr, JavaUnaryOp):
+            operand = self._expr_to_string(expr.operand)
+            if any(op in operand for op in ("==", "!=", "&&", "||", ">=", "<=", "<", ">")):
+                depth = 0
+                grouped = False
+                for i, ch in enumerate(operand):
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                        if depth == 0:
+                            grouped = i == len(operand) - 1
+                            break
+                if not grouped:
+                    operand = f"({operand})"
+            return f"({expr.operator}{operand})"
         if isinstance(expr, JavaMethodCall):
             return self._method_call_to_string(expr)
         if isinstance(expr, JavaStringConcat):
@@ -1558,9 +1677,15 @@ public class {class_name} {{
             return f"        {target} = {source};"
 
         if isinstance(stmt, AddStatement):
-            target = stmt.target.replace("-", "_")
-            source = self._cobol_expr_to_java(stmt.source)
-            return f"        {target} += {source};"
+            # ADD A TO B GIVING C → C = A + B  (C receives result, B unchanged)
+            # ADD A TO B           → B = A + B  (in-place)
+            target = stmt.giving_target.replace("-", "_") if stmt.giving_target else stmt.target.replace("-", "_")
+            source_a = self._cobol_expr_to_java(stmt.source)
+            source_b = stmt.target.replace("-", "_")
+            if stmt.giving_target:
+                return f"        {target} = ({source_a} + {source_b});"
+            else:
+                return f"        {target} = ({source_b} + {source_a});"
 
         if isinstance(stmt, DivideStatement):
             target = stmt.target.replace("-", "_")
