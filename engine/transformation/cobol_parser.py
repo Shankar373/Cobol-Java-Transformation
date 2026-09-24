@@ -787,7 +787,7 @@ class CobolParser:
     def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
         """Parse SUBTRACT source FROM field [GIVING target]."""
         line = lines[start].strip()
-        match = re.search(r"SUBTRACT\\s+(\\S+)\\s+FROM\\s+(\\S+)(?:\\s+GIVING\\s+(\\S+))?", line, re.IGNORECASE)
+        match = re.search(r"SUBTRACT\s+(\S+)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
         if not match:
             return SubtractStatement(source="", from_field=""), start + 1
         source = match.group(1).rstrip(".")
@@ -805,7 +805,7 @@ class CobolParser:
     def _parse_multiply(self, lines: list[str], start: int) -> tuple[MultiplyStatement, int]:
         """Parse MULTIPLY source BY field [GIVING target]."""
         line = lines[start].strip()
-        match = re.search(r"MULTIPLY\\s+(\\S+)\\s+BY\\s+(\\S+)(?:\\s+GIVING\\s+(\\S+))?", line, re.IGNORECASE)
+        match = re.search(r"MULTIPLY\s+(\S+)\s+BY\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
         if not match:
             return MultiplyStatement(source="", multiplicand=""), start + 1
         source = match.group(1).rstrip(".")
