@@ -388,7 +388,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       </SectionCard>
 
       {/* Error — terminal failure explanation with run context */}
-      {run.error && (
+      {Boolean(run.error) && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Error">
@@ -403,7 +403,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Run detail — served by GET /runs/{id}/detail when available */}
-      {detail && (
+      {Boolean(detail) && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Run Details">
