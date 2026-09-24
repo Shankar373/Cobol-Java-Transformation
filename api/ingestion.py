@@ -144,7 +144,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
             result.source_file_count += 1
 
     try:
-        cobol_discovery = ApplicationDiscovery()
+        cobol_discovery = ApplicationDiscovery(strict=True)
         cobol_app = cobol_discovery.discover(str(workspace), application_id=application_id)
 
         for unit in cobol_app.programs:
@@ -193,7 +193,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
         })
 
     try:
-        jcl_discovery = JclDiscovery()
+        jcl_discovery = JclDiscovery(strict=True)
         jcl_app = jcl_discovery.discover(str(workspace))
 
         for job in jcl_app.jobs:
@@ -210,7 +210,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
             })
 
         if result.cobol_programs:
-            cobol_discovery2 = ApplicationDiscovery()
+            cobol_discovery2 = ApplicationDiscovery(strict=True)
             cobol_app2 = cobol_discovery2.discover(
                 str(workspace), application_id=application_id
             )
