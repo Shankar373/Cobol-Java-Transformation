@@ -9,10 +9,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: systemaops-ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   backend-oracle:
     name: Backend and COBOL/Java Docker tests
@@ -29,10 +25,10 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Build GnuCOBOL oracle image
         run: docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
-      - name: Pull pinned Maven and Java execution images
-        run: |
-          docker pull maven-offline-springboot:latest
-          docker pull eclipse-temurin:21-jdk
+      - name: Build project Maven image
+        run: docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:latest .
+      - name: Pull pinned Java execution image
+        run: docker pull eclipse-temurin:21-jdk
       - name: Record Docker image evidence
         run: |
           mkdir -p test-artifacts
