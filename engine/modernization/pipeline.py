@@ -237,6 +237,37 @@ class UniversalModernizationPipeline:
             progress("PLAN_COMPLETED")
 
         # Phase 4: TRANSFORM (per-program, never concatenate)
+        # The transformation plan is authoritative for what may be emitted.
+        # Do not generate candidates for components explicitly classified as
+        # UNSUPPORTED or UNAVAILABLE; doing so would silently contradict the
+        # capability analysis and could produce a misleading candidate.
+        skipped_programs = tuple(
+            c.component_id
+            for c in plan.components
+            if c.component_type == "PROGRAM"
+            and c.action.name == "SKIP"
+        )
+        if skipped_programs:
+            report.generation_errors = (
+                "Transformation plan contains non-transformable programs: "
+                + ", ".join(skipped_programs),
+            )
+            report.limitations = (
+                "Transformation blocked by capability plan",
+                *tuple(
+                    c.reason
+                    for c in plan.components
+                    if c.component_type == "PROGRAM"
+                    and c.component_id in skipped_programs
+                    and c.reason
+                ),
+            )
+            report.recommendations = (
+                "Add a producer/transformer for the blocked constructs or "
+                "provide an explicit manual transformation path",
+            )
+            return report
+
         if progress:
             progress("TRANSFORMING")
         try:
