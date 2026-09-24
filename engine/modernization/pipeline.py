@@ -188,7 +188,9 @@ class UniversalModernizationPipeline:
 
     def __init__(self, config: ModernizationConfig) -> None:
         self._config = config
-        self._discovery = ApplicationDiscovery()
+        # Strict discovery is mandatory here: silently dropping a source
+        # file would invalidate the capability/readiness decision.
+        self._discovery = ApplicationDiscovery(strict=True)
         self._generator = ApplicationGenerator()
         self._capability_analyzer = CapabilityAnalyzer(
             docker_available=config.docker_available,
@@ -217,7 +219,13 @@ class UniversalModernizationPipeline:
             )
             report = self._fill_discovery(report, application)
         except Exception as e:
-            report.limitations = (f"Discovery failed: {e}",)
+            reason = f"Discovery failed: {e}"
+            report.verification_readiness = "BLOCKED"
+            report.readiness_reasons = (reason,)
+            report.limitations = (reason,)
+            report.recommendations = (
+                "Fix discovery errors before attempting modernization verification",
+            )
             return report
         if progress:
             progress("DISCOVERY_COMPLETED")
