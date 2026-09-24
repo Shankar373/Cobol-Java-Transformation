@@ -988,34 +988,29 @@ class CobolParser:
         current_section = "then"
 
         i = start + 1
-        depth = 1
-
-        while i < len(lines) and depth > 0:
+        while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
 
-            if u.startswith("ELSE") and depth == 1:
+            if u.startswith("ELSE"):
                 current_section = "else"
                 i += 1
                 continue
-            if u.startswith("END-IF"):
-                depth -= 1
-                if depth == 0:
-                    i += 1
-                    break
-            if u.startswith("IF "):
-                depth += 1
 
-            if current_section == "then":
-                stmt, i = self._parse_statement(lines, i)
-                if stmt is not None:
-                    then_body.append(stmt)
-            elif current_section == "else":
-                stmt, i = self._parse_statement(lines, i)
-                if stmt is not None:
-                    else_body.append(stmt)
-            else:
+            if u.startswith("END-IF"):
                 i += 1
+                break
+
+            # Nested IF statements parse themselves through their own END-IF.
+            # Treat the resulting IfStatement as one child so the outer ELSE
+            # and END-IF remain scoped to this IF only.
+            stmt, new_i = self._parse_statement(lines, i)
+            if stmt is not None:
+                if current_section == "then":
+                    then_body.append(stmt)
+                else:
+                    else_body.append(stmt)
+            i = max(new_i, i + 1)
 
         return IfStatement(
             condition=condition,
