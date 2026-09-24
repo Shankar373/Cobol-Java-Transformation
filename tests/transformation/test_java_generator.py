@@ -124,9 +124,14 @@ class TestJavaGeneratorBasic:
         program = parser.parse(SAMPLE_CLAIMS_COBOL)
         files = generator.generate(program)
         source = files[0].source_code
-        assert "cobol" not in source.lower() or "cobol" in "Claims.java"
+        # The generated service is pure Java: it may embed the native-Java
+        # CobolFileIo static helper, but must never shell out to a COBOL
+        # runtime (no gnucobol binary, no subprocess, no cobc invocation).
         assert "gnucobol" not in source.lower()
+        assert "cobc" not in source.lower()
         assert "subprocess" not in source.lower()
+        assert "getruntime().exec" not in source.lower()
+        assert "final class CobolFileIo" in source
 
 
 class TestJavaGeneratorFileIO:

@@ -1,0 +1,73 @@
+{
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "COPYBOOK-DEMO"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Copybook_Demo.java": "import java.io.PrintStream;\n\npublic class Copybook_Demo {\n    static int WS_RESULT = 0;\n    static int WS_COUNTER = 0;\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"COPYBOOK DEMO STARTED\");\n        CLAIM_AMOUNT = 100;\n        CLAIM_ID = \"C-999\";\n        System.out.println(\"INITIAL CLAIM-ID=\" + CLAIM_ID);\n        System.out.println(\"INITIAL CLAIM-AMOUNT=\" + CLAIM_AMOUNT);\n        WS_RESULT = CLAIM_AMOUNT;\n        System.out.println(\"WS-RESULT=\" + String.format(\"%08d\", WS_RESULT));\n        if (CLAIM_AMOUNT > 500) {\n    System.out.println(\"AMOUNT GT 500\");\n} else {\n    System.out.println(\"AMOUNT LE 500\");\n}\n        System.out.println(\"FINAL CLAIM-ID=\" + CLAIM_ID);\n        System.out.println(\"FINAL CLAIM-AMOUNT=\" + CLAIM_AMOUNT);\n        return;\n\n    }\n}\n",
+      "CommonRecord.java": "package com.generated.app.model;\n\n/**\n * Shared data model materialized from COPYBOOK.\n * Auto-generated: data definition only, no business logic.\n */\npublic class CommonRecord {\n\n    public CommonRecord() {}\n}\n"
+    },
+    "entrypoint": "Copybook_Demo",
+    "program_ids": [
+      "COPYBOOK-DEMO"
+    ],
+    "copybook_models": 1
+  },
+  "java_result": {
+    "success": false,
+    "error": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:10: error: cannot find symbol\r\n        CLAIM_AMOUNT = 100;\r\n        ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:11: error: cannot find symbol\r\n        CLAIM_ID = \"C-999\";\r\n        ^\r\n  symbol:   variable CLAIM_ID\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:12: error: cannot find symbol\r\n        System.out.println(\"INITIAL CLAIM-ID=\" + CLAIM_ID);\r\n                                                 ^\r\n  symbol:   variable CLAIM_ID\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"INITIAL CLAIM-AMOUNT=\" + CLAIM_AMOUNT);\r\n                                                     ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:14: error: cannot find symbol\r\n        WS_RESULT = CLAIM_AMOUNT;\r\n                    ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:16: error: cannot find symbol\r\n        if (CLAIM_AMOUNT > 500) {\r\n            ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:21: error: cannot find symbol\r\n        System.out.println(\"FINAL CLAIM-ID=\" + CLAIM_ID);\r\n                                               ^\r\n  symbol:   variable CLAIM_ID\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:22: error: cannot find symbol\r\n        System.out.println(\"FINAL CLAIM-AMOUNT=\" + CLAIM_AMOUNT);\r\n                                                   ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\n8 errors\r\n",
+    "compilation_errors": [
+      "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:10: error: cannot find symbol\r\n        CLAIM_AMOUNT = 100;\r\n        ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:11: error: cannot find symbol\r\n        CLAIM_ID = \"C-999\";\r\n        ^\r\n  symbol:   variable CLAIM_ID\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:12: error: cannot find symbol\r\n        System.out.println(\"INITIAL CLAIM-ID=\" + CLAIM_ID);\r\n                                                 ^\r\n  symbol:   variable CLAIM_ID\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"INITIAL CLAIM-AMOUNT=\" + CLAIM_AMOUNT);\r\n                                                     ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:14: error: cannot find symbol\r\n        WS_RESULT = CLAIM_AMOUNT;\r\n                    ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:16: error: cannot find symbol\r\n        if (CLAIM_AMOUNT > 500) {\r\n            ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:21: error: cannot find symbol\r\n        System.out.println(\"FINAL CLAIM-ID=\" + CLAIM_ID);\r\n                                               ^\r\n  symbol:   variable CLAIM_ID\r\n  location: class Copybook_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpthpzfs7_\\Copybook_Demo.java:22: error: cannot find symbol\r\n        System.out.println(\"FINAL CLAIM-AMOUNT=\" + CLAIM_AMOUNT);\r\n                                                   ^\r\n  symbol:   variable CLAIM_AMOUNT\r\n  location: class Copybook_Demo\r\n8 errors\r\n"
+    ],
+    "status": "FAILED",
+    "compilation_success": false
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_status": "RUNNING",
+    "candidate_status": "nonzero_exit",
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_stderr_preview": "MAIN.cob:1: error: invalid indicator 'F' at column 7\nCOMMON.CPY:1: error: invalid indicator 'A' at column 7\nCOMMON.CPY:3: warning: line not terminated by a newline [-Wothers]\nMAIN.cob:33: warning: lin",
+    "candidate_stderr_preview": "/workspace/source/Copybook_Demo.java:10: error: cannot find symbol\n        CLAIM_AMOUNT = 100;\n        ^\n  symbol:   variable CLAIM_AMOUNT\n  location: class Copybook_Demo\n/workspace/source/Copybook_De",
+    "oracle_available": true
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "BUILDS",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

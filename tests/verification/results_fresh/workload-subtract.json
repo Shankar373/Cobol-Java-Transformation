@@ -1,0 +1,112 @@
+{
+  "workload_id": "workload-subtract",
+  "timestamp": "2026-09-23T09:44:37Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": false,
+    "FRESH_VERIFIED": false
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/SubtractDemo.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "SUBTRACT statement \u2014 various forms",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "SUBTRACT-DEMO"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "SUBTRACT-DEMO",
+  "java_application_files": [
+    "Subtract_Demo.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "FAILED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 197,
+  "candidate_stdout_len": 197,
+  "candidate_execution_id": "candidate-run-workload-subtract-20260923094440-20260923094506",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-subtract-20260923094440-20260923094440",
+      "candidate_artifact_id": "stdout-candidate-run-workload-subtract-20260923094440-20260923094506",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MISMATCH",
+      "differences": [
+        "STDERR output differs"
+      ],
+      "oracle_artifact_id": "stderr-oracle-run-workload-subtract-20260923094440-20260923094440",
+      "candidate_artifact_id": "stderr-candidate-run-workload-subtract-20260923094440-20260923094506",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-subtract-20260923094440-20260923094440",
+      "candidate_artifact_id": "exit-candidate-run-workload-subtract-20260923094440-20260923094506",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "SUBTRACT DEMO STARTED\nWS-A=0100\nWS-B=0025\nSUBTRACT B FROM A GIVING RESULT=0075\nSUBTRACT 10 FROM A (in-place) A=0090\nSUBTRACT B FROM TEMP GIVING RESULT=0025\nSUBTRACT A B FROM 200 GIVING RESULT=0085\n",
+  "candidate_stdout": "SUBTRACT DEMO STARTED\nWS-A=0100\nWS-B=0025\nSUBTRACT B FROM A GIVING RESULT=0075\nSUBTRACT 10 FROM A (in-place) A=0090\nSUBTRACT B FROM TEMP GIVING RESULT=0025\nSUBTRACT A B FROM 200 GIVING RESULT=0085\n",
+  "oracle_stderr": "MAIN.cob:31: warning: line not terminated by a newline [-Wothers]\n",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:1c0b032da6018aac05ebde3d031a269d00bd4e6fee3175e04fcf495e231440ff",
+  "executed_check_count": 3,
+  "diff_count": 1,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 2 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": "MISMATCH: STDERR:MISMATCH"
+}

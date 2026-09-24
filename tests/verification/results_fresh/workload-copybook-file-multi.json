@@ -1,0 +1,133 @@
+{
+  "workload_id": "workload-copybook-file-multi",
+  "timestamp": "2026-09-23T13:44:38Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": true,
+    "FRESH_VERIFIED": true
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/adapter/AbstractEmpFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/AbstractEmpRdFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/EmpFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/EmpRdFileAdapter.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/model/EmprecRecord.java",
+    "src/main/java/com/generated/app/service/CobolFileIo.java",
+    "src/main/java/com/generated/app/service/CopybookFileMulti.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "COPYBOOK (WORKING-STORAGE) drives LINE SEQUENTIAL WRITE of 3 records, then READ back and process copied fields",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS",
+    "FIXED_RECORD"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact",
+    "fixed-record-exact"
+  ],
+  "program_ids": [
+    "COPYBOOK-FILE-MULTI"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [
+    "EMPREC"
+  ],
+  "main_program_id": "COPYBOOK-FILE-MULTI",
+  "java_application_files": [
+    "Copybook_File_Multi.java",
+    "EmprecRecord.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "VERIFIED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 368,
+  "candidate_stdout_len": 368,
+  "candidate_execution_id": "candidate-run-workload-copybook-file-multi-20260923134449-20260923134633",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-copybook-file-multi-20260923134449-20260923134449",
+      "candidate_artifact_id": "stdout-candidate-run-workload-copybook-file-multi-20260923134449-20260923134633",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stderr-oracle-run-workload-copybook-file-multi-20260923134449-20260923134449",
+      "candidate_artifact_id": "stderr-candidate-run-workload-copybook-file-multi-20260923134449-20260923134633",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-copybook-file-multi-20260923134449-20260923134449",
+      "candidate_artifact_id": "exit-candidate-run-workload-copybook-file-multi-20260923134449-20260923134633",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "FIXED_RECORD",
+      "comparator_id": "FIXED_RECORD_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "fixed-copybook-file-multi-output-oracle-run-workload-copybook-file-multi-20260923134449-20260923134449",
+      "candidate_artifact_id": "fixed-copybook-file-multi-output-candidate-run-workload-copybook-file-multi-20260923134449-20260923134633",
+      "vacuous": false,
+      "oracle_size": 75,
+      "candidate_size": 75
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "FIXED_RECORD_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "COPYBOOK FILE MULTI DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE E001 STATUS=00 SRC-ID=E001\nWRITE E002 STATUS=00 SRC-ID=E002\nWRITE E003 STATUS=00 SRC-ID=E003\nCLOSE OUT STATUS=00\nOPEN INPUT STATUS=00\nREAD: ID=E001 NAME=ALICE        DEPT=SALES001\nREAD: ID=E002 NAME=BOB          DEPT=ENGG0001\nREAD: ID=E003 NAME=CAROL        DEPT=TECH0001\nRECORDS READ=03\nCLOSE IN STATUS=00\n",
+  "candidate_stdout": "COPYBOOK FILE MULTI DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE E001 STATUS=00 SRC-ID=E001\nWRITE E002 STATUS=00 SRC-ID=E002\nWRITE E003 STATUS=00 SRC-ID=E003\nCLOSE OUT STATUS=00\nOPEN INPUT STATUS=00\nREAD: ID=E001 NAME=ALICE        DEPT=SALES001\nREAD: ID=E002 NAME=BOB          DEPT=ENGG0001\nREAD: ID=E003 NAME=CAROL        DEPT=TECH0001\nRECORDS READ=03\nCLOSE IN STATUS=00\n",
+  "oracle_stderr": "",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:c0a5ef79c9889178bd1ed530517be4d0de4b0c9b429213614de4d452a36393a1",
+  "executed_check_count": 4,
+  "diff_count": 0,
+  "integrity_violations": [],
+  "evidence_summary": "4 comparisons, 4 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": ""
+}

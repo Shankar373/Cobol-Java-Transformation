@@ -275,13 +275,21 @@ class TestCapabilityDrivenArchitecture:
         assert "spring-persistence" in dep_names
         assert "spring-data-jpa" not in dep_names
 
-    def test_file_drives_file_io_dependency(self):
-        """File resources → generic file I/O dependency (NOT Spring Integration)."""
+    def test_file_does_not_add_phantom_dependency(self):
+        """File resources use standard java.io.* (JDK built-in, no Maven dep).
+
+        The generated code uses java.io.FileWriter / PrintWriter from the JDK.
+        No phantom 'spring-file-io' artifact is added (it does not exist in
+        Maven central). Spring Integration file support is also not assumed.
+        """
         p = _make_java_program("A", file_names=("F1",))
         app = _make_java_application(programs=(p,))
         sb = map_java_application_to_spring_boot(app)
         dep_names = [d.name for d in sb.dependencies]
-        assert "spring-file-io" in dep_names
+        # No phantom deps — file I/O is handled by standard JDK
+        assert "spring-file-io" not in dep_names, (
+            "spring-file-io does not exist in Maven central; do not add it"
+        )
         assert "spring-integration-file" not in dep_names
 
     def test_transaction_drives_tx_dependency(self):

@@ -757,11 +757,23 @@ class TestStatementMapping:
         assert len(java_stmts) == 1
         assert isinstance(java_stmts[0], JavaComment)
 
-    def test_write_to_comment(self):
+    def test_write_produces_real_statement(self):
+        """WriteStatement maps to a real Java statement (not a comment).
+
+        A WRITE to a stdout-bound file produces System.out.println.
+        The from_field name is used as the argument.
+        """
         stmt = WriteStatement(record_name="OUT-REC", file_name="OUTFILE", from_field="WS-DATA")
         java_stmts = map_cobol_statement(stmt)
         assert len(java_stmts) == 1
-        assert isinstance(java_stmts[0], JavaComment)
+        # WRITE now generates real code, not a placeholder comment
+        assert not isinstance(java_stmts[0], JavaComment), (
+            "WRITE must not silently become a comment; it must emit real Java"
+        )
+        assert isinstance(java_stmts[0], JavaMethodCallStatement), (
+            f"Expected JavaMethodCallStatement (println), got: {type(java_stmts[0])}"
+        )
+
 
     def test_display_with_variable(self):
         stmt = DisplayStatement(parts=["WS-COUNT"], destination="STDOUT")

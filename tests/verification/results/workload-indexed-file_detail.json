@@ -1,0 +1,72 @@
+{
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "INDEXED-FILE-DEMO"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Indexed_File_Demo.java": "import java.io.PrintStream;\n\npublic class Indexed_File_Demo {\n    static String WS_FILE_STATUS = \"00\";\n    static String WS_EOF = \"N\";\n    static int WS_COUNT = 0;\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\n        System.out.println(\"OPEN OUTPUT STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        IDX_DATA = \"RECORD-ONE-DATA----\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K001 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n        IDX_DATA = \"RECORD-TWO-DATA----\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K002 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K003\";\n        IDX_DATA = \"RECORD-THREE-DATA---\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K003 STATUS=\" + WS_FILE_STATUS);\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\n        System.out.println(\"OPEN I-O STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n        IDX_DATA = \"REC-TWO-UPDATED----\";\n        System.out.println(\"REWRITE K002 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        System.out.println(\"DELETE K001 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        System.out.println(\"START K001 STATUS=\" + WS_FILE_STATUS);\n        WS_EOF = \"N\";\n        WS_COUNT = 0;\n        UNTIL();\n        WS_COUNT = (WS_COUNT + 1);\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\nSystem.out.println(\"RECORDS READ=\" + String.format(\"%02d\", WS_COUNT));\nSystem.out.println(\"FINAL CLOSE STATUS=\" + WS_FILE_STATUS);\nreturn;\n\n    }\n}\n"
+    },
+    "entrypoint": "Indexed_File_Demo",
+    "program_ids": [
+      "INDEXED-FILE-DEMO"
+    ],
+    "copybook_models": 0
+  },
+  "java_result": {
+    "success": false,
+    "error": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                         ^\r\n  symbol:   variable OPEN\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                ^\r\n  symbol:   variable OUTPUT\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                         ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:12: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:13: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-ONE-DATA----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:16: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:17: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-TWO-DATA----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:20: error: cannot find symbol\r\n        IDX_KEY = \"K003\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:21: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-THREE-DATA---\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                              ^\r\n  symbol:   variable OPEN\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable I_O\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                           ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:26: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:27: error: cannot find symbol\r\n        IDX_DATA = \"REC-TWO-UPDATED----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:29: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:31: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:35: error: cannot find symbol\r\n        UNTIL();\r\n        ^\r\n  symbol:   method UNTIL()\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:37: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                  ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:37: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                                       ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\n19 errors\r\n",
+    "compilation_errors": [
+      "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                         ^\r\n  symbol:   variable OPEN\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                ^\r\n  symbol:   variable OUTPUT\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                         ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:12: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:13: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-ONE-DATA----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:16: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:17: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-TWO-DATA----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:20: error: cannot find symbol\r\n        IDX_KEY = \"K003\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:21: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-THREE-DATA---\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                              ^\r\n  symbol:   variable OPEN\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable I_O\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                           ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:26: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:27: error: cannot find symbol\r\n        IDX_DATA = \"REC-TWO-UPDATED----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:29: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:31: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:35: error: cannot find symbol\r\n        UNTIL();\r\n        ^\r\n  symbol:   method UNTIL()\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:37: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                  ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Indexed_File_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpof8zvsjs\\Indexed_File_Demo.java:37: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                                       ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Indexed_File_Demo\r\n19 errors\r\n"
+    ],
+    "status": "FAILED",
+    "compilation_success": false
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_status": "RUNNING",
+    "candidate_status": "nonzero_exit",
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_stderr_preview": "MAIN.cob:1: error: invalid indicator 'F' at column 7\nMAIN.cob:75: error: continuation character expected\nMAIN.cob:82: warning: line not terminated by a newline [-Wothers]\nMAIN.cob: in paragraph 'MAIN-",
+    "candidate_stderr_preview": "/workspace/source/Indexed_File_Demo.java:10: error: cannot find symbol\n        System.out.println(\"INDEXED FILE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\n                                             ",
+    "oracle_available": true
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "BUILDS",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

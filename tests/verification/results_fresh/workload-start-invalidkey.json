@@ -1,0 +1,113 @@
+{
+  "workload_id": "workload-start-invalidkey",
+  "timestamp": "2026-09-23T09:57:10Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": true,
+    "FRESH_VERIFIED": true
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/IdxFileAdapter.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/FileIoSupport.java",
+    "src/main/java/com/generated/app/service/StartKeyStatus.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "START statement, INVALID KEY conditions, FILE STATUS codes",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "START-KEY-STATUS"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "START-KEY-STATUS",
+  "java_application_files": [
+    "Start_Key_Status.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "VERIFIED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 457,
+  "candidate_stdout_len": 457,
+  "candidate_execution_id": "candidate-run-workload-start-invalidkey-20260923095714-20260923095739",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-start-invalidkey-20260923095714-20260923095714",
+      "candidate_artifact_id": "stdout-candidate-run-workload-start-invalidkey-20260923095714-20260923095739",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stderr-oracle-run-workload-start-invalidkey-20260923095714-20260923095714",
+      "candidate_artifact_id": "stderr-candidate-run-workload-start-invalidkey-20260923095714-20260923095739",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-start-invalidkey-20260923095714-20260923095714",
+      "candidate_artifact_id": "exit-candidate-run-workload-start-invalidkey-20260923095714-20260923095739",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "START/INVALID KEY/FILE STATUS DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE K001 STATUS=00\nWRITE K002 STATUS=00\nWRITE K003 STATUS=00\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nSTART = K002 STATUS=00\nREAD AFTER START = KEY=K002 STATUS=00\nSTART > K001 STATUS=00\nREAD AFTER START > KEY=K001 STATUS=00\nSTART = K999 INVALID KEY STATUS=23\nWRITE DUPLICATE K001 INVALID KEY STATUS=22\nREAD K999 INVALID KEY STATUS=23\nDELETE K002 AGAIN INVALID KEY STATUS=23\nFINAL CLOSE STATUS=00\n",
+  "candidate_stdout": "START/INVALID KEY/FILE STATUS DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE K001 STATUS=00\nWRITE K002 STATUS=00\nWRITE K003 STATUS=00\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nSTART = K002 STATUS=00\nREAD AFTER START = KEY=K002 STATUS=00\nSTART > K001 STATUS=00\nREAD AFTER START > KEY=K001 STATUS=00\nSTART = K999 INVALID KEY STATUS=23\nWRITE DUPLICATE K001 INVALID KEY STATUS=22\nREAD K999 INVALID KEY STATUS=23\nDELETE K002 AGAIN INVALID KEY STATUS=23\nFINAL CLOSE STATUS=00\n",
+  "oracle_stderr": "",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:a6c0c88150405af58bd770c268a43bb48c4130bdf8baf9ac074de8d30901058f",
+  "executed_check_count": 3,
+  "diff_count": 0,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 3 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": ""
+}

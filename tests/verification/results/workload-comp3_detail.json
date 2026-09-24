@@ -1,0 +1,35 @@
+{
+  "parse_result": {
+    "success": false,
+    "error": "Unsupported PIC clause: S9(5)V99"
+  },
+  "transform_result": {
+    "success": false,
+    "error": "No programs discovered"
+  },
+  "java_result": {
+    "success": false
+  },
+  "pipeline_result": null,
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "PARSED_ONLY",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

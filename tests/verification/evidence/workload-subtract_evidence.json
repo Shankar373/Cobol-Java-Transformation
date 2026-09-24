@@ -1,0 +1,28 @@
+{
+  "workload_id": "workload-subtract",
+  "manifest_hash": "sha256:8d5163298e1ccc7aecf40b26c367750ca4aa909fbc1890f07012aeea60d9abcd",
+  "run_id": "evidence-workload-subtract-1789973813",
+  "workload_id_str": "workload-subtract",
+  "evidence_integrity_validation": {
+    "passed": false,
+    "violations_count": 3,
+    "violations": [
+      "missing_required_evidence",
+      "missing_required_evidence",
+      "missing_required_evidence"
+    ]
+  },
+  "verdict": {
+    "state": "UNAVAILABLE",
+    "executed_check_count": 0,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "differences": [
+      "Required infrastructure unavailable"
+    ]
+  },
+  "trust_boundary": {
+    "empty_evidence_cannot_be_verified": true,
+    "cross_run_binding_enforced": true
+  }
+}

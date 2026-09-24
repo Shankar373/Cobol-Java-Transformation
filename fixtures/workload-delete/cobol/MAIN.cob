@@ -1,0 +1,81 @@
+IDENTIFICATION DIVISION.
+       PROGRAM-ID. DELETE-DEMO.
+       AUTHOR. VALIDATION-PLATFORM.
+
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT IDX-FILE ASSIGN TO "DELETE.DAT"
+               ORGANIZATION IS INDEXED
+               RECORD KEY IS IDX-KEY
+               ACCESS MODE IS DYNAMIC
+               FILE STATUS IS WS-FILE-STATUS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  IDX-FILE.
+       01  IDX-REC.
+           05  IDX-KEY             PIC X(4).
+           05  IDX-DATA            PIC X(20).
+
+       WORKING-STORAGE SECTION.
+       01  WS-FILE-STATUS      PIC X(2) VALUE "00".
+       01  WS-EOF              PIC X VALUE "N".
+       01  WS-COUNT            PIC 9(2) VALUE 0.
+
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           DISPLAY "DELETE DEMO STARTED".
+
+           OPEN OUTPUT IDX-FILE.
+           DISPLAY "OPEN OUTPUT STATUS=" WS-FILE-STATUS.
+
+           MOVE "K001" TO IDX-KEY.
+           MOVE "RECORD-ONE-TO-DELETE" TO IDX-DATA.
+           WRITE IDX-REC.
+           DISPLAY "WRITE K001 STATUS=" WS-FILE-STATUS.
+
+           MOVE "K002" TO IDX-KEY.
+           MOVE "RECORD-TWO-KEEP----" TO IDX-DATA.
+           WRITE IDX-REC.
+           DISPLAY "WRITE K002 STATUS=" WS-FILE-STATUS.
+
+           MOVE "K003" TO IDX-KEY.
+           MOVE "RECORD-THREE-DELETE" TO IDX-DATA.
+           WRITE IDX-REC.
+           DISPLAY "WRITE K003 STATUS=" WS-FILE-STATUS.
+
+           CLOSE IDX-FILE.
+           DISPLAY "CLOSE STATUS=" WS-FILE-STATUS.
+
+           OPEN I-O IDX-FILE.
+           DISPLAY "OPEN I-O STATUS=" WS-FILE-STATUS.
+
+           MOVE "K001" TO IDX-KEY.
+           DELETE IDX-FILE RECORD.
+           DISPLAY "DELETE K001 STATUS=" WS-FILE-STATUS.
+
+           MOVE "K003" TO IDX-KEY.
+           DELETE IDX-FILE RECORD.
+           DISPLAY "DELETE K003 STATUS=" WS-FILE-STATUS.
+
+           MOVE "K001" TO IDX-KEY.
+           START IDX-FILE KEY >= IDX-KEY.
+           DISPLAY "START K001 STATUS=" WS-FILE-STATUS.
+
+           MOVE "N" TO WS-EOF.
+           MOVE 0 TO WS-COUNT.
+           PERFORM UNTIL WS-EOF = "Y"
+               READ IDX-FILE NEXT
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       ADD 1 TO WS-COUNT
+                       DISPLAY "READ: KEY=" IDX-KEY " DATA=" IDX-DATA " STATUS=" WS-FILE-STATUS
+               END-READ
+           END-PERFORM.
+           DISPLAY "RECORDS READ=" WS-COUNT.
+
+           CLOSE IDX-FILE.
+           DISPLAY "FINAL CLOSE STATUS=" WS-FILE-STATUS.
+
+           STOP RUN.

@@ -1,0 +1,12 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SELF.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N PIC 9(4) VALUE 0.
+       PROCEDURE DIVISION.
+       SELF-PARA.
+           DISPLAY 'SELF-START'.
+           ADD 1 TO WS-N.
+           CALL 'SELF'.
+           DISPLAY 'SELF-END'.
+           STOP RUN.

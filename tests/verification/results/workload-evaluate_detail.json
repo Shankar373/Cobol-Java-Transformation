@@ -1,0 +1,72 @@
+{
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "EVALUATE-DEMO"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Evaluate_Demo.java": "import java.io.PrintStream;\n\npublic class Evaluate_Demo {\n    static int WS_GRADE = 85;\n    static String WS_RESULT = \"SPACES\";\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"EVALUATE DEMO STARTED\");\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\n        WS_RESULT = \"A\";\n        WS_RESULT = \"B\";\n        WS_RESULT = \"C\";\n        WS_RESULT = \"D\";\n        WS_RESULT = \"F\";\n        System.out.println(\"LETTER GRADE=\" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format(\"%02d\", WS_GRADE));\n        System.out.println(\"EXCELLENT\" + WHEN + String.format(\"%02d\", WS_GRADE));\n        System.out.println(\"GOOD\" + WHEN + String.format(\"%02d\", WS_GRADE));\n        System.out.println(\"AVERAGE\" + WHEN + String.format(\"%02d\", WS_GRADE));\n        System.out.println(\"BELOW AVERAGE\" + WHEN + OTHER);\n        System.out.println(\"FAILING\");\n        return;\n\n    }\n}\n"
+    },
+    "entrypoint": "Evaluate_Demo",
+    "program_ids": [
+      "EVALUATE-DEMO"
+    ],
+    "copybook_models": 0
+  },
+  "java_result": {
+    "success": false,
+    "error": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\r\n                                                                        ^\r\n  symbol:   variable EVALUATE\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\r\n                                                                                                                     ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\r\n                                                                                                                            ^\r\n  symbol:   variable THRU\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"LETTER GRADE=\" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                                         ^\r\n  symbol:   variable EVALUATE\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"LETTER GRADE=\" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                                                    ^\r\n  symbol:   variable TRUE\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"LETTER GRADE=\" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                                                           ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:17: error: cannot find symbol\r\n        System.out.println(\"EXCELLENT\" + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                         ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"GOOD\" + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                    ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:19: error: cannot find symbol\r\n        System.out.println(\"AVERAGE\" + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                       ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"BELOW AVERAGE\" + WHEN + OTHER);\r\n                                             ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"BELOW AVERAGE\" + WHEN + OTHER);\r\n                                                    ^\r\n  symbol:   variable OTHER\r\n  location: class Evaluate_Demo\r\n11 errors\r\n",
+    "compilation_errors": [
+      "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\r\n                                                                        ^\r\n  symbol:   variable EVALUATE\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\r\n                                                                                                                     ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\r\n                                                                                                                            ^\r\n  symbol:   variable THRU\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"LETTER GRADE=\" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                                         ^\r\n  symbol:   variable EVALUATE\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"LETTER GRADE=\" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                                                    ^\r\n  symbol:   variable TRUE\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"LETTER GRADE=\" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                                                           ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:17: error: cannot find symbol\r\n        System.out.println(\"EXCELLENT\" + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                         ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"GOOD\" + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                    ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:19: error: cannot find symbol\r\n        System.out.println(\"AVERAGE\" + WHEN + String.format(\"%02d\", WS_GRADE));\r\n                                       ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"BELOW AVERAGE\" + WHEN + OTHER);\r\n                                             ^\r\n  symbol:   variable WHEN\r\n  location: class Evaluate_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmp04k023nm\\Evaluate_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"BELOW AVERAGE\" + WHEN + OTHER);\r\n                                                    ^\r\n  symbol:   variable OTHER\r\n  location: class Evaluate_Demo\r\n11 errors\r\n"
+    ],
+    "status": "FAILED",
+    "compilation_success": false
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_status": "RUNNING",
+    "candidate_status": "nonzero_exit",
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_stderr_preview": "MAIN.cob:1: error: invalid indicator 'F' at column 7\nMAIN.cob:43: warning: line not terminated by a newline [-Wothers]\n",
+    "candidate_stderr_preview": "/workspace/source/Evaluate_Demo.java:10: error: cannot find symbol\n        System.out.println(\"GRADE=\" + String.format(\"%02d\", WS_GRADE) + EVALUATE + String.format(\"%02d\", WS_GRADE) + WHEN + THRU);\n  ",
+    "oracle_available": true
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "BUILDS",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

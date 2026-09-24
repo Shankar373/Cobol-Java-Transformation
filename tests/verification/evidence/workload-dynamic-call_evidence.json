@@ -1,0 +1,28 @@
+{
+  "workload_id": "workload-dynamic-call",
+  "manifest_hash": "sha256:efa7b4e97e5c46039362822f67a3206f375204e2901297e61b1b3aae106b0dc9",
+  "run_id": "evidence-workload-dynamic-call-1789973813",
+  "workload_id_str": "workload-dynamic-call",
+  "evidence_integrity_validation": {
+    "passed": false,
+    "violations_count": 3,
+    "violations": [
+      "missing_required_evidence",
+      "missing_required_evidence",
+      "missing_required_evidence"
+    ]
+  },
+  "verdict": {
+    "state": "UNAVAILABLE",
+    "executed_check_count": 0,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "differences": [
+      "Required infrastructure unavailable"
+    ]
+  },
+  "trust_boundary": {
+    "empty_evidence_cannot_be_verified": true,
+    "cross_run_binding_enforced": true
+  }
+}

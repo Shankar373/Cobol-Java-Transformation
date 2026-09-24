@@ -1,0 +1,310 @@
+{
+  "workload_id": "workload-start-invalidkey",
+  "docker_info": {
+    "available": true,
+    "images": {
+      "gnucobol-ocesql:latest": {
+        "id": "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+        "repo_tags": [
+          "gnucobol-ocesql:latest"
+        ],
+        "repo_digests": [
+          "gnucobol-ocesql@sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+        ],
+        "created": "2026-08-30T10:10:03.519348313Z",
+        "size": 72978412,
+        "available": true
+      },
+      "eclipse-temurin:21-jdk": {
+        "id": "sha256:1f79c73404fb0cccf9a3459eda22892f368d994b1028d6fb1ae871c1f49749a6",
+        "repo_tags": [
+          "eclipse-temurin:21-jdk"
+        ],
+        "repo_digests": [
+          "eclipse-temurin@sha256:1f79c73404fb0cccf9a3459eda22892f368d994b1028d6fb1ae871c1f49749a6"
+        ],
+        "created": "2026-09-09T02:20:38.798652851Z",
+        "size": 230097738,
+        "available": true
+      },
+      "maven-offline-springboot:latest": {
+        "id": "sha256:99d13a5416066fcba901aec7cb10a4bffd4d5e081cf94475478b35e023a7f678",
+        "repo_tags": [
+          "maven-offline-springboot:latest"
+        ],
+        "repo_digests": [
+          "maven-offline-springboot@sha256:99d13a5416066fcba901aec7cb10a4bffd4d5e081cf94475478b35e023a7f678"
+        ],
+        "created": "2026-09-17T07:49:54.041582083Z",
+        "size": 295958018,
+        "available": true
+      }
+    },
+    "errors": []
+  },
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "START-KEY-STATUS"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Start_Key_Status.java": "import java.io.PrintStream;\n\npublic class Start_Key_Status {\n    static String WS_FILE_STATUS = \"00\";\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"START/INVALID KEY/FILE STATUS DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\n        System.out.println(\"OPEN OUTPUT STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        IDX_DATA = \"RECORD-ONE----------\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K001 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n        IDX_DATA = \"RECORD-TWO---------\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K002 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K003\";\n        IDX_DATA = \"RECORD-THREE--------\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K003 STATUS=\" + WS_FILE_STATUS);\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\n        System.out.println(\"OPEN I-O STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n        System.out.println(\"START = K002 STATUS=\" + WS_FILE_STATUS + READ + IDX_FILE);\n        System.out.println(\"READ AFTER START = KEY=\" + IDX_KEY + \" STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        System.out.println(\"START > K001 STATUS=\" + WS_FILE_STATUS + READ + IDX_FILE);\n        System.out.println(\"READ AFTER START > KEY=\" + IDX_KEY + \" STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K999\";\n        System.out.println(\"START = K999 INVALID KEY STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        IDX_DATA = \"DUPLICATE-KEY-------\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE DUPLICATE K001 INVALID KEY STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K999\";\n        IDX_KEY = \"K002\";\n        System.out.println(\"DELETE K002 INVALID KEY STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n        System.out.println(\"DELETE K002 AGAIN INVALID KEY STATUS=\" + WS_FILE_STATUS);\n        System.out.println(\"FINAL CLOSE STATUS=\" + WS_FILE_STATUS);\n        return;\n\n    }\n}\n"
+    },
+    "entrypoint": "Start_Key_Status",
+    "program_ids": [
+      "START-KEY-STATUS"
+    ],
+    "copybook_models": 0
+  },
+  "java_result": {
+    "success": false,
+    "build_status": "FAILED",
+    "failure_stage": "BUILD",
+    "failure_cause": "COMPILATION_ERROR",
+    "error": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:8: error: cannot find symbol\r\n        System.out.println(\"START/INVALID KEY/FILE STATUS DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                          ^\r\n  symbol:   variable OPEN\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:8: error: cannot find symbol\r\n        System.out.println(\"START/INVALID KEY/FILE STATUS DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                                 ^\r\n  symbol:   variable OUTPUT\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:8: error: cannot find symbol\r\n        System.out.println(\"START/INVALID KEY/FILE STATUS DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                                          ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:10: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:11: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-ONE----------\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:14: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:15: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-TWO---------\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:18: error: cannot find symbol\r\n        IDX_KEY = \"K003\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:19: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-THREE--------\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:22: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                              ^\r\n  symbol:   variable OPEN\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:22: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable I_O\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:22: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                           ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:24: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:25: error: cannot find symbol\r\n        System.out.println(\"START = K002 STATUS=\" + WS_FILE_STATUS + READ + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable READ\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:25: error: cannot find symbol\r\n        System.out.println(\"START = K002 STATUS=\" + WS_FILE_STATUS + READ + IDX_FILE);\r\n                                                                            ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:26: error: cannot find symbol\r\n        System.out.println(\"READ AFTER START = KEY=\" + IDX_KEY + \" STATUS=\" + WS_FILE_STATUS);\r\n                                                       ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:27: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:28: error: cannot find symbol\r\n        System.out.println(\"START > K001 STATUS=\" + WS_FILE_STATUS + READ + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable READ\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:28: error: cannot find symbol\r\n        System.out.println(\"START > K001 STATUS=\" + WS_FILE_STATUS + READ + IDX_FILE);\r\n                                                                            ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:29: error: cannot find symbol\r\n        System.out.println(\"READ AFTER START > KEY=\" + IDX_KEY + \" STATUS=\" + WS_FILE_STATUS);\r\n                                                       ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:30: error: cannot find symbol\r\n        IDX_KEY = \"K999\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:32: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:33: error: cannot find symbol\r\n        IDX_DATA = \"DUPLICATE-KEY-------\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:36: error: cannot find symbol\r\n        IDX_KEY = \"K999\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:37: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\nC:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:39: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Start_Key_Status\r\n26 errors\r\n",
+    "compiler_errors": [
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:8: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:8: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:8: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:10: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:11: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:14: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:15: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:18: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:19: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:22: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:22: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:22: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:24: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:25: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:25: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:26: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:27: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:28: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:28: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:29: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:30: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:32: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:33: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:36: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:37: error: cannot find symbol",
+      "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java:39: error: cannot find symbol"
+    ],
+    "class_dir": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmprjjrwqwv",
+    "build_success": false,
+    "exec_success": false,
+    "exec_status": "NOT_ATTEMPTED"
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_available": true,
+    "candidate_available": true,
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_termination": "nonzero_exit",
+    "candidate_termination": "nonzero_exit"
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "passed": true,
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "passed": true,
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_oracle_artifact_no_comparison",
+      "passed": true,
+      "detail": "Empty manifest has no artifact/comparison evidence"
+    }
+  ],
+  "stage_info": {
+    "stage": "TRANSFORMED",
+    "build_status": "FAILED",
+    "exec_status": "NOT_ATTEMPTED",
+    "oracle_status": true,
+    "failure_stage": "BUILD",
+    "failure_cause": "COMPILATION_ERROR"
+  },
+  "build_errors": [
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "8",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "8",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "8",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "10",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "11",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "14",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "15",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "18",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "19",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "22",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "22",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "22",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "24",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "25",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "25",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "26",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "27",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "28",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "28",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "29",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "30",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "32",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "33",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "36",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "37",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    },
+    {
+      "file": "C:\\Users\\bandi\\Desktop\\SystemaOps\\Cobol-Java-Transformation\\tests\\verification\\results_fresh2\\details\\workload-start-invalidkey_generated\\Start_Key_Status.java",
+      "line": "39",
+      "error": "cannot find symbol",
+      "identifier": "cannot find symbol"
+    }
+  ],
+  "oracle_available": true,
+  "java_image_available": true,
+  "maven_image_available": true,
+  "vacuous_match": false
+}

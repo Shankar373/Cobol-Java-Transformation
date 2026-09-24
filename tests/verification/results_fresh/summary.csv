@@ -1,0 +1,2 @@
+Workload,Capability,Current Stage,Oracle,Java,Comparator,Evidence,Verdict,Failure Cause
+workload-copybook-file-multi,workload-copybook-file-multi,FRESH_VERIFIED,gnucobol-ocesql:latest,maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application),"EXIT_STATUS_COMPARATOR,FIXED_RECORD_COMPARATOR,STDERR_COMPARATOR,STDOUT_COMPARATOR","4 comparisons, 4 MATCH, 0 vacuous, 0 integrity violations",VERIFIED,

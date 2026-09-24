@@ -1,0 +1,28 @@
+{
+  "workload_id": "workload-redefines",
+  "manifest_hash": "sha256:cecac69a76729b22e43939229cd033c5be33fa914ec091bd81b90b9c7ba95b27",
+  "run_id": "evidence-workload-redefines-1789973813",
+  "workload_id_str": "workload-redefines",
+  "evidence_integrity_validation": {
+    "passed": false,
+    "violations_count": 3,
+    "violations": [
+      "missing_required_evidence",
+      "missing_required_evidence",
+      "missing_required_evidence"
+    ]
+  },
+  "verdict": {
+    "state": "UNAVAILABLE",
+    "executed_check_count": 0,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "differences": [
+      "Required infrastructure unavailable"
+    ]
+  },
+  "trust_boundary": {
+    "empty_evidence_cannot_be_verified": true,
+    "cross_run_binding_enforced": true
+  }
+}

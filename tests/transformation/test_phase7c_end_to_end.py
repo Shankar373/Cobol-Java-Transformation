@@ -469,13 +469,20 @@ class TestSourceMutationMatrix:
                                  'MOVE "ITEM999" TO WS-ITEM-CODE')
         parser = CobolParser()
         prog = parser.parse(mutated)
-        # Find the MOVE statement with the mutated value
-        found = False
-        for para in prog.paragraphs:
-            for stmt in para.statements:
+        # Find the MOVE statement with the mutated value (recursive into nested IF/EVALUATE)
+        def _find_move(stmts):
+            for stmt in stmts:
                 if type(stmt).__name__ == "MoveStatement":
                     if stmt.source == '"ITEM999"':
-                        found = True
+                        return True
+                if hasattr(stmt, 'then_body'):
+                    if _find_move(stmt.then_body):
+                        return True
+                if hasattr(stmt, 'else_body'):
+                    if _find_move(stmt.else_body):
+                        return True
+            return False
+        found = any(_find_move(para.statements) for para in prog.paragraphs)
         assert found, "Mutated literal not found in IR"
 
 

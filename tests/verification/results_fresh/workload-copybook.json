@@ -1,0 +1,118 @@
+{
+  "workload_id": "workload-copybook",
+  "timestamp": "2026-09-23T09:43:57Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": false,
+    "FRESH_VERIFIED": false
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/model/CommonRecord.java",
+    "src/main/java/com/generated/app/service/CopybookDemo.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "COPYBOOK with computation \u2014 end-to-end runtime verification",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "COPYBOOK-DEMO"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [
+    "COMMON"
+  ],
+  "main_program_id": "COPYBOOK-DEMO",
+  "java_application_files": [
+    "Copybook_Demo.java",
+    "CommonRecord.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "FAILED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 163,
+  "candidate_stdout_len": 153,
+  "candidate_execution_id": "candidate-run-workload-copybook-20260923094401-20260923094427",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MISMATCH",
+      "differences": [
+        "STDOUT output differs"
+      ],
+      "oracle_artifact_id": "stdout-oracle-run-workload-copybook-20260923094401-20260923094401",
+      "candidate_artifact_id": "stdout-candidate-run-workload-copybook-20260923094401-20260923094427",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MISMATCH",
+      "differences": [
+        "STDERR output differs"
+      ],
+      "oracle_artifact_id": "stderr-oracle-run-workload-copybook-20260923094401-20260923094401",
+      "candidate_artifact_id": "stderr-candidate-run-workload-copybook-20260923094401-20260923094427",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-copybook-20260923094401-20260923094401",
+      "candidate_artifact_id": "exit-candidate-run-workload-copybook-20260923094401-20260923094427",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "COPYBOOK DEMO STARTED\nINITIAL CLAIM-ID=C-999     \nINITIAL CLAIM-AMOUNT=000100\nWS-RESULT=00000100\nAMOUNT LE 500\nFINAL CLAIM-ID=C-999     \nFINAL CLAIM-AMOUNT=000100\n",
+  "candidate_stdout": "COPYBOOK DEMO STARTED\nINITIAL CLAIM-ID=C-999\nINITIAL CLAIM-AMOUNT=000100\nWS-RESULT=00000100\nAMOUNT LE 500\nFINAL CLAIM-ID=C-999\nFINAL CLAIM-AMOUNT=000100\n",
+  "oracle_stderr": "COMMON.CPY:3: warning: line not terminated by a newline [-Wothers]\nMAIN.cob:33: warning: line not terminated by a newline [-Wothers]\n",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:d91ee07faf7f7d547c3d32b2e2023e3c1678880c2a5bc6f2b6484221fb85d5e6",
+  "executed_check_count": 3,
+  "diff_count": 2,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 1 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": "MISMATCH: STDOUT:MISMATCH; STDERR:MISMATCH"
+}

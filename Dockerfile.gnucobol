@@ -1,0 +1,18 @@
+FROM ubuntu:22.04
+
+# Install GnuCOBOL 3.x — the project's V1 oracle runtime.
+# Uses Ubuntu 22.04 packages which provide gnucobol 3.1.2.0-1.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        gnucobol \
+        libgmp-dev \
+        libdb-dev \
+        libncurses-dev \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Smoke-test: cobc --version must succeed
+RUN cobc --version
+
+WORKDIR /workspace

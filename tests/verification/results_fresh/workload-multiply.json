@@ -1,0 +1,112 @@
+{
+  "workload_id": "workload-multiply",
+  "timestamp": "2026-09-23T09:45:16Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": false,
+    "FRESH_VERIFIED": false
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/MultiplyDemo.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "MULTIPLY statement \u2014 various forms",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "MULTIPLY-DEMO"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "MULTIPLY-DEMO",
+  "java_application_files": [
+    "Multiply_Demo.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "FAILED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 196,
+  "candidate_stdout_len": 196,
+  "candidate_execution_id": "candidate-run-workload-multiply-20260923094519-20260923094544",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-multiply-20260923094519-20260923094519",
+      "candidate_artifact_id": "stdout-candidate-run-workload-multiply-20260923094519-20260923094544",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MISMATCH",
+      "differences": [
+        "STDERR output differs"
+      ],
+      "oracle_artifact_id": "stderr-oracle-run-workload-multiply-20260923094519-20260923094519",
+      "candidate_artifact_id": "stderr-candidate-run-workload-multiply-20260923094519-20260923094544",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-multiply-20260923094519-20260923094519",
+      "candidate_artifact_id": "exit-candidate-run-workload-multiply-20260923094519-20260923094544",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "MULTIPLY DEMO STARTED\nWS-A=0010\nWS-B=0005\nMULTIPLY A BY B GIVING RESULT=00000050\nMULTIPLY 4 BY A (in-place) A=0040\nMULTIPLY B BY TEMP GIVING RESULT=00000015\nMULTIPLY A BY B GIVING RESULT=00000200\n",
+  "candidate_stdout": "MULTIPLY DEMO STARTED\nWS-A=0010\nWS-B=0005\nMULTIPLY A BY B GIVING RESULT=00000050\nMULTIPLY 4 BY A (in-place) A=0040\nMULTIPLY B BY TEMP GIVING RESULT=00000015\nMULTIPLY A BY B GIVING RESULT=00000200\n",
+  "oracle_stderr": "MAIN.cob:31: warning: line not terminated by a newline [-Wothers]\n",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:b2f0e138777d9ca7561e3b546cf1b99bfe82c4cc11ad07e3e5fa968d40eeafb0",
+  "executed_check_count": 3,
+  "diff_count": 1,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 2 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": "MISMATCH: STDERR:MISMATCH"
+}

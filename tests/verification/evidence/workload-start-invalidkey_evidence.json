@@ -1,0 +1,28 @@
+{
+  "workload_id": "workload-start-invalidkey",
+  "manifest_hash": "sha256:c6240989148cf151819102d3379f16a01e2ccf2df2a5c5da94f8bc438c231d38",
+  "run_id": "evidence-workload-start-invalidkey-1789973813",
+  "workload_id_str": "workload-start-invalidkey",
+  "evidence_integrity_validation": {
+    "passed": false,
+    "violations_count": 3,
+    "violations": [
+      "missing_required_evidence",
+      "missing_required_evidence",
+      "missing_required_evidence"
+    ]
+  },
+  "verdict": {
+    "state": "UNAVAILABLE",
+    "executed_check_count": 0,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "differences": [
+      "Required infrastructure unavailable"
+    ]
+  },
+  "trust_boundary": {
+    "empty_evidence_cannot_be_verified": true,
+    "cross_run_binding_enforced": true
+  }
+}

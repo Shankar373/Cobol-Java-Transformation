@@ -1,0 +1,11 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PGM PIC X(10) VALUE 'HELPER'.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           DISPLAY 'DYN-START'.
+           CALL WS-PGM.
+           DISPLAY 'DYN-END'.
+           STOP RUN.

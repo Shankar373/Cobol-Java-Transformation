@@ -1,0 +1,26 @@
+{
+  "workload_id": "workload-start-invalidkey",
+  "oracle_available": true,
+  "oracle_image_id": "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+  "oracle_created": "2026-08-30T10:10:03.519348313Z",
+  "java_image_id": "sha256:1f79c73404fb0cccf9a3459eda22892f368d994b1028d6fb1ae871c1f49749a6",
+  "maven_image_id": "sha256:99d13a5416066fcba901aec7cb10a4bffd4d5e081cf94475478b35e023a7f678",
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "passed": true,
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "passed": true,
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_oracle_artifact_no_comparison",
+      "passed": true,
+      "detail": "Empty manifest has no artifact/comparison evidence"
+    }
+  ],
+  "evidence_integrity": "PASS"
+}

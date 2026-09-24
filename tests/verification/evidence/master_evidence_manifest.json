@@ -1,0 +1,575 @@
+{
+  "timestamp": "2026-09-21T06:56:53.361019+00:00",
+  "total_workloads": 20,
+  "evidence_integrity_validator": "EvidenceIntegrityValidator v1.0",
+  "verdict_deriver": "VerdictDeriver v1.0",
+  "results": [
+    {
+      "workload_id": "workload-call-linkage",
+      "manifest_hash": "sha256:17022f6d2210b42af25a1153615f42f3285c4695b3ef85107b3b3ee33589404a",
+      "run_id": "evidence-workload-call-linkage-1789973813",
+      "workload_id_str": "workload-call-linkage",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-by-reference",
+      "manifest_hash": "sha256:421a1f6959e343092c77726ff0875ffaa2f9c48b801ece52edf8fb3298e2c17f",
+      "run_id": "evidence-workload-by-reference-1789973813",
+      "workload_id_str": "workload-by-reference",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-by-content",
+      "manifest_hash": "sha256:ad3d984600baea674a43dad0eefb6c02801b3212ff13611fc654a23c273a007e",
+      "run_id": "evidence-workload-by-content-1789973813",
+      "workload_id_str": "workload-by-content",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-by-value",
+      "manifest_hash": "sha256:1bcf3f3dcb967216769714824a3873a2b18d86af688403b10ac857a6e8f13abf",
+      "run_id": "evidence-workload-by-value-1789973813",
+      "workload_id_str": "workload-by-value",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-dynamic-call",
+      "manifest_hash": "sha256:efa7b4e97e5c46039362822f67a3206f375204e2901297e61b1b3aae106b0dc9",
+      "run_id": "evidence-workload-dynamic-call-1789973813",
+      "workload_id_str": "workload-dynamic-call",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-copybook",
+      "manifest_hash": "sha256:684252b8b79cfa1cb16435c6a8467ebec00ec6228509ff9c55cfb441a1228a0a",
+      "run_id": "evidence-workload-copybook-1789973813",
+      "workload_id_str": "workload-copybook",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-subtract",
+      "manifest_hash": "sha256:8d5163298e1ccc7aecf40b26c367750ca4aa909fbc1890f07012aeea60d9abcd",
+      "run_id": "evidence-workload-subtract-1789973813",
+      "workload_id_str": "workload-subtract",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-multiply",
+      "manifest_hash": "sha256:9f78d85e10caa6705bf5809e47b5d9a06c54de46491f86b1600232d0828a9937",
+      "run_id": "evidence-workload-multiply-1789973813",
+      "workload_id_str": "workload-multiply",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-evaluate",
+      "manifest_hash": "sha256:c858377bd75c2052632110af1028f00035b4a0115b4915da327b353a55e20614",
+      "run_id": "evidence-workload-evaluate-1789973813",
+      "workload_id_str": "workload-evaluate",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-perform-varying",
+      "manifest_hash": "sha256:65f87bf91ca2ec903c7f0ef3a0c698372e0840aedc1098fe7a42afef55cc660e",
+      "run_id": "evidence-workload-perform-varying-1789973813",
+      "workload_id_str": "workload-perform-varying",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-occurs",
+      "manifest_hash": "sha256:66fc115da5c48778f0189811c7ef4edbe360955b61aec96240fcf93afe75cefc",
+      "run_id": "evidence-workload-occurs-1789973813",
+      "workload_id_str": "workload-occurs",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-redefines",
+      "manifest_hash": "sha256:cecac69a76729b22e43939229cd033c5be33fa914ec091bd81b90b9c7ba95b27",
+      "run_id": "evidence-workload-redefines-1789973813",
+      "workload_id_str": "workload-redefines",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-level88",
+      "manifest_hash": "sha256:0eeb80085e4a119373669c1d44c7a6116706d41d2f03ec2ce87dbc6252dfa6e3",
+      "run_id": "evidence-workload-level88-1789973813",
+      "workload_id_str": "workload-level88",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-comp",
+      "manifest_hash": "sha256:897b1fa718f8bf40d297dde0c24b549f9ca8bf398d4650ec373caa0986a39f27",
+      "run_id": "evidence-workload-comp-1789973813",
+      "workload_id_str": "workload-comp",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-comp3",
+      "manifest_hash": "sha256:a1612db33ed360722e21552d7c5944b4b360d0ac9df39bad6c2e41f0d30f4151",
+      "run_id": "evidence-workload-comp3-1789973813",
+      "workload_id_str": "workload-comp3",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-indexed-file",
+      "manifest_hash": "sha256:95a751fd68bf3c87cb5d062fbecfd308d607f827189e0895115c9a22634a46cc",
+      "run_id": "evidence-workload-indexed-file-1789973813",
+      "workload_id_str": "workload-indexed-file",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-relative-file",
+      "manifest_hash": "sha256:1a9d88b8a8482d6553a81e4da0d8f4b4c45735c44afab0444b3b8b0e574131fe",
+      "run_id": "evidence-workload-relative-file-1789973813",
+      "workload_id_str": "workload-relative-file",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-rewrite",
+      "manifest_hash": "sha256:3b33014aa64a08db5b87a89799c5aecb30ccdb6eff656b5125d48956794bc8de",
+      "run_id": "evidence-workload-rewrite-1789973813",
+      "workload_id_str": "workload-rewrite",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-delete",
+      "manifest_hash": "sha256:c98b635250143537aee5b5e8113e0265403b24e91cf6d3961b78cb51a82db520",
+      "run_id": "evidence-workload-delete-1789973813",
+      "workload_id_str": "workload-delete",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    },
+    {
+      "workload_id": "workload-start-invalidkey",
+      "manifest_hash": "sha256:c6240989148cf151819102d3379f16a01e2ccf2df2a5c5da94f8bc438c231d38",
+      "run_id": "evidence-workload-start-invalidkey-1789973813",
+      "workload_id_str": "workload-start-invalidkey",
+      "evidence_integrity_validation": {
+        "passed": false,
+        "violations_count": 3,
+        "violations": [
+          "missing_required_evidence",
+          "missing_required_evidence",
+          "missing_required_evidence"
+        ]
+      },
+      "verdict": {
+        "state": "UNAVAILABLE",
+        "executed_check_count": 0,
+        "skipped_count": 0,
+        "unavailable_count": 0,
+        "differences": [
+          "Required infrastructure unavailable"
+        ]
+      },
+      "trust_boundary": {
+        "empty_evidence_cannot_be_verified": true,
+        "cross_run_binding_enforced": true
+      }
+    }
+  ],
+  "summary": {
+    "evidence_integrity_passed": 0,
+    "evidence_integrity_failed": 20,
+    "trust_boundary_passed": 20,
+    "cross_workload_binding_enforced": 20,
+    "all_verdicts_unavailable": true
+  }
+}

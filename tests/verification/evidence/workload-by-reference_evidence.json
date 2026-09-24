@@ -1,0 +1,28 @@
+{
+  "workload_id": "workload-by-reference",
+  "manifest_hash": "sha256:421a1f6959e343092c77726ff0875ffaa2f9c48b801ece52edf8fb3298e2c17f",
+  "run_id": "evidence-workload-by-reference-1789973813",
+  "workload_id_str": "workload-by-reference",
+  "evidence_integrity_validation": {
+    "passed": false,
+    "violations_count": 3,
+    "violations": [
+      "missing_required_evidence",
+      "missing_required_evidence",
+      "missing_required_evidence"
+    ]
+  },
+  "verdict": {
+    "state": "UNAVAILABLE",
+    "executed_check_count": 0,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "differences": [
+      "Required infrastructure unavailable"
+    ]
+  },
+  "trust_boundary": {
+    "empty_evidence_cannot_be_verified": true,
+    "cross_run_binding_enforced": true
+  }
+}

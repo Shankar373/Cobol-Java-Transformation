@@ -1,0 +1,113 @@
+{
+  "workload_id": "workload-indexed-rewrite-delete-start",
+  "timestamp": "2026-09-23T13:42:37Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": true,
+    "FRESH_VERIFIED": true
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/IdxFileAdapter.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/CobolFileIo.java",
+    "src/main/java/com/generated/app/service/IdxRwdelStart.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "INDEXED DYNAMIC \u2014 WRITE/dup INVALID KEY, REWRITE, random READ, START (= and >=) + READ NEXT, DELETE, INVALID/NOT INVALID KEY READ, CLOSE",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "IDX-RWDEL-START"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "IDX-RWDEL-START",
+  "java_application_files": [
+    "Idx_Rwdel_Start.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "VERIFIED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 767,
+  "candidate_stdout_len": 767,
+  "candidate_execution_id": "candidate-run-workload-indexed-rewrite-delete-start-20260923134242-20260923134323",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-indexed-rewrite-delete-start-20260923134242-20260923134242",
+      "candidate_artifact_id": "stdout-candidate-run-workload-indexed-rewrite-delete-start-20260923134242-20260923134323",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stderr-oracle-run-workload-indexed-rewrite-delete-start-20260923134242-20260923134242",
+      "candidate_artifact_id": "stderr-candidate-run-workload-indexed-rewrite-delete-start-20260923134242-20260923134323",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-indexed-rewrite-delete-start-20260923134242-20260923134242",
+      "candidate_artifact_id": "exit-candidate-run-workload-indexed-rewrite-delete-start-20260923134242-20260923134323",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "INDEXED REWRITE/DELETE/START DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE R001 STATUS=00\nWRITE R002 STATUS=00\nWRITE R003 STATUS=00\nWRITE DUP R002 INVALID KEY STATUS=22\nPOST WRITE DUP STATUS=22\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nREWRITE R002 STATUS=00\nREAD KEY R002 DATA=REC-TWO-REWRITTEN--- STATUS=00\nSTART = R001 STATUS=00\nNEXT: KEY=R001 DATA=REC-ONE-ORIGINAL---- STATUS=00\nNEXT: KEY=R002 DATA=REC-TWO-REWRITTEN--- STATUS=00\nNEXT: KEY=R003 DATA=REC-THREE-ORIGINAL-- STATUS=00\nRECORDS READ=03\nSTART >= R003 STATUS=00\nNEXT FROM >= R003: KEY=R003 DATA=REC-THREE-ORIGINAL--\nDELETE R003 STATUS=00\nDELETE R003 AGAIN INVALID KEY STATUS=23\nREAD R999 INVALID KEY STATUS=23\nREAD R001 OK DATA=REC-ONE-ORIGINAL---- STATUS=00\nREWRITE R999 INVALID KEY STATUS=23\nFINAL CLOSE STATUS=00\n",
+  "candidate_stdout": "INDEXED REWRITE/DELETE/START DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE R001 STATUS=00\nWRITE R002 STATUS=00\nWRITE R003 STATUS=00\nWRITE DUP R002 INVALID KEY STATUS=22\nPOST WRITE DUP STATUS=22\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nREWRITE R002 STATUS=00\nREAD KEY R002 DATA=REC-TWO-REWRITTEN--- STATUS=00\nSTART = R001 STATUS=00\nNEXT: KEY=R001 DATA=REC-ONE-ORIGINAL---- STATUS=00\nNEXT: KEY=R002 DATA=REC-TWO-REWRITTEN--- STATUS=00\nNEXT: KEY=R003 DATA=REC-THREE-ORIGINAL-- STATUS=00\nRECORDS READ=03\nSTART >= R003 STATUS=00\nNEXT FROM >= R003: KEY=R003 DATA=REC-THREE-ORIGINAL--\nDELETE R003 STATUS=00\nDELETE R003 AGAIN INVALID KEY STATUS=23\nREAD R999 INVALID KEY STATUS=23\nREAD R001 OK DATA=REC-ONE-ORIGINAL---- STATUS=00\nREWRITE R999 INVALID KEY STATUS=23\nFINAL CLOSE STATUS=00\n",
+  "oracle_stderr": "",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:6e40f38ac746895c27f174d5c8333c9d2b23aea69ede1c3fa6f1441629433c8f",
+  "executed_check_count": 3,
+  "diff_count": 0,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 3 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": ""
+}

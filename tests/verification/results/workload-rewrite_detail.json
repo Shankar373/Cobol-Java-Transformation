@@ -1,0 +1,72 @@
+{
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "REWRITE-DEMO"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Rewrite_Demo.java": "import java.io.PrintStream;\n\npublic class Rewrite_Demo {\n    static String WS_FILE_STATUS = \"00\";\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\n        System.out.println(\"OPEN OUTPUT STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        IDX_DATA = \"ORIGINAL-DATA-ONE--\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K001 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n        IDX_DATA = \"ORIGINAL-DATA-TWO--\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K002 STATUS=\" + WS_FILE_STATUS);\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\n        System.out.println(\"OPEN I-O STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        IDX_DATA = \"UPDATED-DATA-ONE---\";\n        System.out.println(\"REWRITE K001 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n\n    }\n}\n"
+    },
+    "entrypoint": "Rewrite_Demo",
+    "program_ids": [
+      "REWRITE-DEMO"
+    ],
+    "copybook_models": 0
+  },
+  "java_result": {
+    "success": false,
+    "error": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:8: error: cannot find symbol\r\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                    ^\r\n  symbol:   variable OPEN\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:8: error: cannot find symbol\r\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                           ^\r\n  symbol:   variable OUTPUT\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:8: error: cannot find symbol\r\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                    ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:10: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:11: error: cannot find symbol\r\n        IDX_DATA = \"ORIGINAL-DATA-ONE--\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:14: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:15: error: cannot find symbol\r\n        IDX_DATA = \"ORIGINAL-DATA-TWO--\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                              ^\r\n  symbol:   variable OPEN\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable I_O\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                           ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:20: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:21: error: cannot find symbol\r\n        IDX_DATA = \"UPDATED-DATA-ONE---\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:23: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\n13 errors\r\n",
+    "compilation_errors": [
+      "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:8: error: cannot find symbol\r\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                    ^\r\n  symbol:   variable OPEN\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:8: error: cannot find symbol\r\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                           ^\r\n  symbol:   variable OUTPUT\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:8: error: cannot find symbol\r\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                    ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:10: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:11: error: cannot find symbol\r\n        IDX_DATA = \"ORIGINAL-DATA-ONE--\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:14: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:15: error: cannot find symbol\r\n        IDX_DATA = \"ORIGINAL-DATA-TWO--\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                              ^\r\n  symbol:   variable OPEN\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable I_O\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:18: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                           ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:20: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:21: error: cannot find symbol\r\n        IDX_DATA = \"UPDATED-DATA-ONE---\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Rewrite_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpsgo13vkm\\Rewrite_Demo.java:23: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Rewrite_Demo\r\n13 errors\r\n"
+    ],
+    "status": "FAILED",
+    "compilation_success": false
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_status": "RUNNING",
+    "candidate_status": "nonzero_exit",
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_stderr_preview": "MAIN.cob:1: error: invalid indicator 'F' at column 7\nMAIN.cob:63: warning: line not terminated by a newline [-Wothers]\n",
+    "candidate_stderr_preview": "/workspace/source/Rewrite_Demo.java:8: error: cannot find symbol\n        System.out.println(\"REWRITE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\n                                                    ^\n  ",
+    "oracle_available": true
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "BUILDS",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

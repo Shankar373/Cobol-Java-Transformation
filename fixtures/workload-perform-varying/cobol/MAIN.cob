@@ -1,0 +1,30 @@
+IDENTIFICATION DIVISION.
+       PROGRAM-ID. PERFORM-VARYING-DEMO.
+       AUTHOR. VALIDATION-PLATFORM.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-I              PIC 9(2) VALUE 0.
+       01  WS-SUM            PIC 9(4) VALUE 0.
+       01  WS-J              PIC 9(2) VALUE 0.
+       01  WS-PROD           PIC 9(4) VALUE 1.
+
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           DISPLAY "PERFORM VARYING DEMO STARTED".
+
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 5
+               ADD WS-I TO WS-SUM
+               DISPLAY "I=" WS-I " SUM=" WS-SUM
+           END-PERFORM.
+
+           DISPLAY "FINAL SUM=" WS-SUM.
+
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 4
+               MULTIPLY WS-J BY WS-PROD GIVING WS-PROD
+               DISPLAY "J=" WS-J " PROD=" WS-PROD
+           END-PERFORM.
+
+           DISPLAY "FINAL PROD=" WS-PROD.
+
+           STOP RUN.

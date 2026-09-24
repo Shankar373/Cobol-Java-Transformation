@@ -1,0 +1,42 @@
+IDENTIFICATION DIVISION.
+       PROGRAM-ID. CUSTINQ.
+       AUTHOR. CICS-MODERNIZATION-LANE.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-INQMSU      PIC X(7).
+       01 WS-CUST-ID     PIC X(9).
+       01 WS-CUST-NAME   PIC X(30).
+       01 WS-CUST        PIC X(132).
+       01 WS-CUST-LEN    PIC S9(4) COMP.
+       01 WS-RESP        PIC S9(8) COMP.
+       01 WS-COMMAREA.
+           05 WS-CA-ID      PIC X(9).
+           05 WS-CA-NAME    PIC X(30).
+
+       PROCEDURE DIVISION.
+       MAIN.
+           EXEC CICS
+               HANDLE CONDITION NOTFND(NOT-FOUND) ERROR(ERR-RTN)
+               SEND MAP(INQMENU) MAPSET(INQMSU) ERASE
+               RECEIVE MAP(INQMENU) INTO(:WS-CUST) LENGTH(:WS-CUST-LEN)
+               READ DATASET(CUSTFILE) INTO(:WS-CUST)
+                    RIDFLD(:WS-CUST-ID) RESP(:WS-RESP)
+               LINK PROGRAM(CUSTDISP) COMMAREA(:WS-COMMAREA)
+                    LENGTH(:WS-CUST-LEN)
+               SYNCPOINT
+               RETURN TRANSID(CUST)
+           END-EXEC.
+           GOBACK.
+
+       ERR-RTN.
+           EXEC CICS SEND TEXT FROM(:WS-CUST-NAME) LENGTH(30)
+           END-EXEC.
+           GOBACK.
+
+       NOT-FOUND.
+           EXEC CICS SEND TEXT FROM('NOT FOUND') LENGTH(9)
+           END-EXEC.
+           GOBACK.
+
+       END PROGRAM CUSTINQ.

@@ -1,0 +1,72 @@
+{
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "MULTIPLY-DEMO"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Multiply_Demo.java": "import java.io.PrintStream;\n\npublic class Multiply_Demo {\n    static int WS_A = 10;\n    static int WS_B = 5;\n    static int WS_RESULT = 0;\n    static int WS_TEMP = 3;\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"MULTIPLY DEMO STARTED\");\n        System.out.println(\"WS-A=\" + String.format(\"%04d\", WS_A));\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\n        System.out.println(\"MULTIPLY A BY B GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + BY + String.format(\"%04d\", WS_A));\n        System.out.println(\"MULTIPLY 4 BY A (in-place) A=\" + String.format(\"%04d\", WS_A) + MULTIPLY + String.format(\"%04d\", WS_B) + BY + String.format(\"%04d\", WS_TEMP) + GIVING + String.format(\"%08d\", WS_RESULT));\n        System.out.println(\"MULTIPLY B BY TEMP GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\n        System.out.println(\"MULTIPLY A BY B GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT));\n        return;\n\n    }\n}\n"
+    },
+    "entrypoint": "Multiply_Demo",
+    "program_ids": [
+      "MULTIPLY-DEMO"
+    ],
+    "copybook_models": 0
+  },
+  "java_result": {
+    "success": false,
+    "error": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                   ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                            ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                               ^\r\n  symbol:   variable GIVING\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:14: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY A BY B GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + BY + String.format(\"%04d\", WS_A));\r\n                                                                                                 ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:14: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY A BY B GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + BY + String.format(\"%04d\", WS_A));\r\n                                                                                                            ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:15: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY 4 BY A (in-place) A=\" + String.format(\"%04d\", WS_A) + MULTIPLY + String.format(\"%04d\", WS_B) + BY + String.format(\"%04d\", WS_TEMP) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                           ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:15: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY 4 BY A (in-place) A=\" + String.format(\"%04d\", WS_A) + MULTIPLY + String.format(\"%04d\", WS_B) + BY + String.format(\"%04d\", WS_TEMP) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                    ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:15: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY 4 BY A (in-place) A=\" + String.format(\"%04d\", WS_A) + MULTIPLY + String.format(\"%04d\", WS_B) + BY + String.format(\"%04d\", WS_TEMP) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                                                          ^\r\n  symbol:   variable GIVING\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY B BY TEMP GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                    ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY B BY TEMP GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                             ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY B BY TEMP GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                                                                ^\r\n  symbol:   variable GIVING\r\n  location: class Multiply_Demo\r\n11 errors\r\n",
+    "compilation_errors": [
+      "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                   ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                            ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:13: error: cannot find symbol\r\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                               ^\r\n  symbol:   variable GIVING\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:14: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY A BY B GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + BY + String.format(\"%04d\", WS_A));\r\n                                                                                                 ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:14: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY A BY B GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + BY + String.format(\"%04d\", WS_A));\r\n                                                                                                            ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:15: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY 4 BY A (in-place) A=\" + String.format(\"%04d\", WS_A) + MULTIPLY + String.format(\"%04d\", WS_B) + BY + String.format(\"%04d\", WS_TEMP) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                           ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:15: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY 4 BY A (in-place) A=\" + String.format(\"%04d\", WS_A) + MULTIPLY + String.format(\"%04d\", WS_B) + BY + String.format(\"%04d\", WS_TEMP) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                    ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:15: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY 4 BY A (in-place) A=\" + String.format(\"%04d\", WS_A) + MULTIPLY + String.format(\"%04d\", WS_B) + BY + String.format(\"%04d\", WS_TEMP) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                                                          ^\r\n  symbol:   variable GIVING\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY B BY TEMP GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                    ^\r\n  symbol:   variable MULTIPLY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY B BY TEMP GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                             ^\r\n  symbol:   variable BY\r\n  location: class Multiply_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpgnzjbcp2\\Multiply_Demo.java:16: error: cannot find symbol\r\n        System.out.println(\"MULTIPLY B BY TEMP GIVING RESULT=\" + String.format(\"%08d\", WS_RESULT) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\", WS_B) + GIVING + String.format(\"%08d\", WS_RESULT));\r\n                                                                                                                                                                                ^\r\n  symbol:   variable GIVING\r\n  location: class Multiply_Demo\r\n11 errors\r\n"
+    ],
+    "status": "FAILED",
+    "compilation_success": false
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_status": "RUNNING",
+    "candidate_status": "nonzero_exit",
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_stderr_preview": "MAIN.cob:1: error: invalid indicator 'F' at column 7\nMAIN.cob:31: warning: line not terminated by a newline [-Wothers]\n",
+    "candidate_stderr_preview": "/workspace/source/Multiply_Demo.java:13: error: cannot find symbol\n        System.out.println(\"WS-B=\" + String.format(\"%04d\", WS_B) + MULTIPLY + String.format(\"%04d\", WS_A) + BY + String.format(\"%04d\"",
+    "oracle_available": true
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "BUILDS",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

@@ -1,0 +1,113 @@
+{
+  "workload_id": "workload-rewrite",
+  "timestamp": "2026-09-23T09:55:55Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": true,
+    "FRESH_VERIFIED": true
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/IdxFileAdapter.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/FileIoSupport.java",
+    "src/main/java/com/generated/app/service/RewriteDemo.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "REWRITE statement \u2014 update existing records",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "REWRITE-DEMO"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "REWRITE-DEMO",
+  "java_application_files": [
+    "Rewrite_Demo.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "VERIFIED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 234,
+  "candidate_stdout_len": 234,
+  "candidate_execution_id": "candidate-run-workload-rewrite-20260923095558-20260923095623",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-rewrite-20260923095558-20260923095558",
+      "candidate_artifact_id": "stdout-candidate-run-workload-rewrite-20260923095558-20260923095623",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stderr-oracle-run-workload-rewrite-20260923095558-20260923095558",
+      "candidate_artifact_id": "stderr-candidate-run-workload-rewrite-20260923095558-20260923095623",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-rewrite-20260923095558-20260923095558",
+      "candidate_artifact_id": "exit-candidate-run-workload-rewrite-20260923095558-20260923095623",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "REWRITE DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE K001 STATUS=00\nWRITE K002 STATUS=00\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nREWRITE K001 STATUS=00\nREAD K002 DATA=ORIGINAL-DATA-TWO--  STATUS=00\nREWRITE K002 STATUS=00\nFINAL CLOSE STATUS=00\n",
+  "candidate_stdout": "REWRITE DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE K001 STATUS=00\nWRITE K002 STATUS=00\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nREWRITE K001 STATUS=00\nREAD K002 DATA=ORIGINAL-DATA-TWO--  STATUS=00\nREWRITE K002 STATUS=00\nFINAL CLOSE STATUS=00\n",
+  "oracle_stderr": "",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:f3a93cc3e47123cbe13e3058e649057d7fd3ec569f5ebbe3d66bc7c7eeb2e251",
+  "executed_check_count": 3,
+  "diff_count": 0,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 3 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": ""
+}

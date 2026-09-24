@@ -1,0 +1,33 @@
+{
+  "workload_id": "workload-comp3",
+  "timestamp": "2026-09-23T09:47:50Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": true,
+    "PARSED_ONLY": false,
+    "MODELED_ONLY": false,
+    "TRANSFORMED": false,
+    "BUILDS": false,
+    "EXECUTES": false,
+    "ORACLE_MATCHED": false,
+    "FRESH_VERIFIED": false
+  },
+  "artifacts": [],
+  "generated_files": [],
+  "errors": [],
+  "workload_description": "COMP-3 \u2014 packed decimal data type",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [],
+  "source_files": [],
+  "copybooks": [],
+  "failure_cause": "PARSE_ERROR: no programs discovered"
+}

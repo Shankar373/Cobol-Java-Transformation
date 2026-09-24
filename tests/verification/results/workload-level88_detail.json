@@ -1,0 +1,72 @@
+{
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "LEVEL88-DEMO"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Level88_Demo.java": "import java.io.PrintStream;\n\npublic class Level88_Demo {\n    static String WS_STATUS = 10;\n    static String WS_GENDER = \"M\";\n    static String WS_RESULT = \"SPACES\";\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\n        WS_RESULT = \"STATUS OK\";\n        WS_RESULT = \"STATUS WARNING\";\n        WS_RESULT = \"STATUS ERROR\";\n        System.out.println(\"STATUS CHECK: \" + WS_RESULT);\n        if (\"GENDER_MALE\") {\n    System.out.println(\"GENDER IS MALE\");\n} else {\n    System.out.println(\"GENDER IS FEMALE\");\n}\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\n        System.out.println(\"AFTER SET GENDER-FEMALE: WS-GENDER=\" + WS_GENDER);\n        return;\n\n    }\n}\n"
+    },
+    "entrypoint": "Level88_Demo",
+    "program_ids": [
+      "LEVEL88-DEMO"
+    ],
+    "copybook_models": 0
+  },
+  "java_result": {
+    "success": false,
+    "error": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:4: error: incompatible types: int cannot be converted to String\r\n    static String WS_STATUS = 10;\r\n                              ^\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                     ^\r\n  symbol:   variable EVALUATE\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                                ^\r\n  symbol:   variable TRUE\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                                       ^\r\n  symbol:   variable WHEN\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                                              ^\r\n  symbol:   variable STAT_OK\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:15: error: incompatible types: String cannot be converted to boolean\r\n        if (\"GENDER_MALE\") {\r\n            ^\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                ^\r\n  symbol:   variable SET\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                      ^\r\n  symbol:   variable GENDER_FEMALE\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                                      ^\r\n  symbol:   variable TO\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                                           ^\r\n  symbol:   variable TRUE\r\n  location: class Level88_Demo\r\n10 errors\r\n",
+    "compilation_errors": [
+      "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:4: error: incompatible types: int cannot be converted to String\r\n    static String WS_STATUS = 10;\r\n                              ^\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                     ^\r\n  symbol:   variable EVALUATE\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                                ^\r\n  symbol:   variable TRUE\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                                       ^\r\n  symbol:   variable WHEN\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"LEVEL-88 DEMO STARTED\" + EVALUATE + TRUE + WHEN + STAT_OK);\r\n                                                                              ^\r\n  symbol:   variable STAT_OK\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:15: error: incompatible types: String cannot be converted to boolean\r\n        if (\"GENDER_MALE\") {\r\n            ^\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                ^\r\n  symbol:   variable SET\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                      ^\r\n  symbol:   variable GENDER_FEMALE\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                                      ^\r\n  symbol:   variable TO\r\n  location: class Level88_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmphi2_cm50\\Level88_Demo.java:20: error: cannot find symbol\r\n        System.out.println(\"AFTER SET STAT-OK: WS-STATUS=\" + String.format(\"%02d\", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);\r\n                                                                                                                           ^\r\n  symbol:   variable TRUE\r\n  location: class Level88_Demo\r\n10 errors\r\n"
+    ],
+    "status": "FAILED",
+    "compilation_success": false
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_status": "RUNNING",
+    "candidate_status": "nonzero_exit",
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_stderr_preview": "MAIN.cob:1: error: invalid indicator 'F' at column 7\nMAIN.cob:42: warning: line not terminated by a newline [-Wothers]\n",
+    "candidate_stderr_preview": "/workspace/source/Level88_Demo.java:4: error: incompatible types: int cannot be converted to String\n    static String WS_STATUS = 10;\n                              ^\n/workspace/source/Level88_Demo.jav",
+    "oracle_available": true
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "BUILDS",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

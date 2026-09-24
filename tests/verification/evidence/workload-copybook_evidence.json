@@ -1,0 +1,28 @@
+{
+  "workload_id": "workload-copybook",
+  "manifest_hash": "sha256:684252b8b79cfa1cb16435c6a8467ebec00ec6228509ff9c55cfb441a1228a0a",
+  "run_id": "evidence-workload-copybook-1789973813",
+  "workload_id_str": "workload-copybook",
+  "evidence_integrity_validation": {
+    "passed": false,
+    "violations_count": 3,
+    "violations": [
+      "missing_required_evidence",
+      "missing_required_evidence",
+      "missing_required_evidence"
+    ]
+  },
+  "verdict": {
+    "state": "UNAVAILABLE",
+    "executed_check_count": 0,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "differences": [
+      "Required infrastructure unavailable"
+    ]
+  },
+  "trust_boundary": {
+    "empty_evidence_cannot_be_verified": true,
+    "cross_run_binding_enforced": true
+  }
+}

@@ -1,0 +1,40 @@
+IDENTIFICATION DIVISION.
+       PROGRAM-ID. ORDPROC.
+       AUTHOR. CICS-MODERNIZATION-LANE.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ORDMENU      PIC X(7).
+       01 WS-ORD-ID       PIC X(9).
+       01 WS-ORD          PIC X(132).
+       01 WS-ORD-LEN      PIC S9(4) COMP.
+       01 WS-ORD-RESP     PIC S9(8) COMP.
+       01 WS-AUDIT        PIC X(132).
+       01 WS-AUDIT-LEN    PIC S9(4) COMP.
+       01 WS-PRICE        PIC X(132).
+       01 WS-PRICE-LEN    PIC S9(4) COMP.
+
+       PROCEDURE DIVISION.
+       MAIN.
+           EXEC CICS
+               HANDLE CONDITION NOTFND(NOT-FOUND)
+               RECEIVE MAP(ORDMENU) INTO(:WS-ORD) LENGTH(:WS-ORD-LEN)
+               READ DATASET(ORDFILE) INTO(:WS-ORD) RIDFLD(:WS-ORD-ID)
+                    RESP(:WS-ORD-RESP)
+               WRITE DATASET(AUDITFILE) FROM(:WS-AUDIT)
+                    LENGTH(:WS-AUDIT-LEN)
+               WRITEQ TS QNAME(ORDERQ) FROM(:WS-ORD) LENGTH(:WS-ORD-LEN)
+               LINK PROGRAM(PRICECALC) COMMAREA(:WS-PRICE)
+                    LENGTH(:WS-PRICE-LEN)
+               ALLOCATE
+               SYNCPOINT
+               RETURN
+           END-EXEC.
+           GOBACK.
+
+       NOT-FOUND.
+           EXEC CICS SEND TEXT FROM('ORDER NOT FOUND') LENGTH(15)
+           END-EXEC.
+           GOBACK.
+
+       END PROGRAM ORDPROC.

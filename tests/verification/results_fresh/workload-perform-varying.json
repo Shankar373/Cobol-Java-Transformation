@@ -1,0 +1,112 @@
+{
+  "workload_id": "workload-perform-varying",
+  "timestamp": "2026-09-23T09:46:13Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": false,
+    "FRESH_VERIFIED": false
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/PerformVaryingDemo.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "PERFORM VARYING statement \u2014 COBOL for loop",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "PERFORM-VARYING-DEMO"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "PERFORM-VARYING-DEMO",
+  "java_application_files": [
+    "Perform_Varying_Demo.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "FAILED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 190,
+  "candidate_stdout_len": 190,
+  "candidate_execution_id": "candidate-run-workload-perform-varying-20260923094616-20260923094639",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-perform-varying-20260923094616-20260923094616",
+      "candidate_artifact_id": "stdout-candidate-run-workload-perform-varying-20260923094616-20260923094639",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MISMATCH",
+      "differences": [
+        "STDERR output differs"
+      ],
+      "oracle_artifact_id": "stderr-oracle-run-workload-perform-varying-20260923094616-20260923094616",
+      "candidate_artifact_id": "stderr-candidate-run-workload-perform-varying-20260923094616-20260923094639",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-perform-varying-20260923094616-20260923094616",
+      "candidate_artifact_id": "exit-candidate-run-workload-perform-varying-20260923094616-20260923094639",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "PERFORM VARYING DEMO STARTED\nI=01 SUM=0001\nI=02 SUM=0003\nI=03 SUM=0006\nI=04 SUM=0010\nI=05 SUM=0015\nFINAL SUM=0015\nJ=01 PROD=0001\nJ=02 PROD=0002\nJ=03 PROD=0006\nJ=04 PROD=0024\nFINAL PROD=0024\n",
+  "candidate_stdout": "PERFORM VARYING DEMO STARTED\nI=01 SUM=0001\nI=02 SUM=0003\nI=03 SUM=0006\nI=04 SUM=0010\nI=05 SUM=0015\nFINAL SUM=0015\nJ=01 PROD=0001\nJ=02 PROD=0002\nJ=03 PROD=0006\nJ=04 PROD=0024\nFINAL PROD=0024\n",
+  "oracle_stderr": "MAIN.cob:30: warning: line not terminated by a newline [-Wothers]\n",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:e7b18aef200235e437dadd9620920d975c250033b9fa1b7507356515e92fe2ee",
+  "executed_check_count": 3,
+  "diff_count": 1,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 2 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": "MISMATCH: STDERR:MISMATCH"
+}

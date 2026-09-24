@@ -1,0 +1,72 @@
+{
+  "parse_result": {
+    "success": true,
+    "programs": 1,
+    "program_ids": [
+      "DELETE-DEMO"
+    ]
+  },
+  "transform_result": {
+    "success": true,
+    "generated_files": {
+      "Delete_Demo.java": "import java.io.PrintStream;\n\npublic class Delete_Demo {\n    static String WS_FILE_STATUS = \"00\";\n    static String WS_EOF = \"N\";\n    static int WS_COUNT = 0;\n\n    public static void main(String[] args) throws Exception {\n        PrintStream out = System.out;\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\n        System.out.println(\"OPEN OUTPUT STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        IDX_DATA = \"RECORD-ONE-TO-DELETE\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K001 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K002\";\n        IDX_DATA = \"RECORD-TWO-KEEP----\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K002 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K003\";\n        IDX_DATA = \"RECORD-THREE-DELETE\";\n        // // WRITE IDX-REC\n        System.out.println(\"WRITE K003 STATUS=\" + WS_FILE_STATUS);\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\n        System.out.println(\"OPEN I-O STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        System.out.println(\"DELETE K001 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K003\";\n        System.out.println(\"DELETE K003 STATUS=\" + WS_FILE_STATUS);\n        IDX_KEY = \"K001\";\n        System.out.println(\"START K001 STATUS=\" + WS_FILE_STATUS);\n        WS_EOF = \"N\";\n        WS_COUNT = 0;\n        UNTIL();\n        WS_COUNT = (WS_COUNT + 1);\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\nSystem.out.println(\"RECORDS READ=\" + String.format(\"%02d\", WS_COUNT));\nSystem.out.println(\"FINAL CLOSE STATUS=\" + WS_FILE_STATUS);\nreturn;\n\n    }\n}\n"
+    },
+    "entrypoint": "Delete_Demo",
+    "program_ids": [
+      "DELETE-DEMO"
+    ],
+    "copybook_models": 0
+  },
+  "java_result": {
+    "success": false,
+    "error": "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                   ^\r\n  symbol:   variable OPEN\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                          ^\r\n  symbol:   variable OUTPUT\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                   ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:12: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:13: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-ONE-TO-DELETE\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:16: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:17: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-TWO-KEEP----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:20: error: cannot find symbol\r\n        IDX_KEY = \"K003\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:21: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-THREE-DELETE\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                              ^\r\n  symbol:   variable OPEN\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable I_O\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                           ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:26: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:28: error: cannot find symbol\r\n        IDX_KEY = \"K003\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:30: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:34: error: cannot find symbol\r\n        UNTIL();\r\n        ^\r\n  symbol:   method UNTIL()\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:36: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                  ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:36: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                                       ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\n18 errors\r\n",
+    "compilation_errors": [
+      "C:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                   ^\r\n  symbol:   variable OPEN\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                          ^\r\n  symbol:   variable OUTPUT\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:10: error: cannot find symbol\r\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\r\n                                                                   ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:12: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:13: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-ONE-TO-DELETE\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:16: error: cannot find symbol\r\n        IDX_KEY = \"K002\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:17: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-TWO-KEEP----\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:20: error: cannot find symbol\r\n        IDX_KEY = \"K003\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:21: error: cannot find symbol\r\n        IDX_DATA = \"RECORD-THREE-DELETE\";\r\n        ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                              ^\r\n  symbol:   variable OPEN\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                     ^\r\n  symbol:   variable I_O\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:24: error: cannot find symbol\r\n        System.out.println(\"CLOSE STATUS=\" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);\r\n                                                                           ^\r\n  symbol:   variable IDX_FILE\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:26: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:28: error: cannot find symbol\r\n        IDX_KEY = \"K003\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:30: error: cannot find symbol\r\n        IDX_KEY = \"K001\";\r\n        ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:34: error: cannot find symbol\r\n        UNTIL();\r\n        ^\r\n  symbol:   method UNTIL()\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:36: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                  ^\r\n  symbol:   variable IDX_KEY\r\n  location: class Delete_Demo\r\nC:\\Users\\bandi\\AppData\\Local\\Temp\\tmpbjk7uhxk\\Delete_Demo.java:36: error: cannot find symbol\r\nSystem.out.println(\"READ: KEY=\" + IDX_KEY + \" DATA=\" + IDX_DATA + \" STATUS=\" + WS_FILE_STATUS);\r\n                                                       ^\r\n  symbol:   variable IDX_DATA\r\n  location: class Delete_Demo\r\n18 errors\r\n"
+    ],
+    "status": "FAILED",
+    "compilation_success": false
+  },
+  "pipeline_result": {
+    "verdict_state": "UNAVAILABLE",
+    "oracle_exit_code": 1,
+    "candidate_exit_code": 1,
+    "oracle_status": "RUNNING",
+    "candidate_status": "nonzero_exit",
+    "artifact_count": 6,
+    "comparison_count": 3,
+    "comparison_results": [
+      "MATCH",
+      "MATCH",
+      "MISMATCH"
+    ],
+    "differences": [
+      "Required infrastructure unavailable"
+    ],
+    "oracle_stdout_preview": "",
+    "candidate_stdout_preview": "",
+    "oracle_stderr_preview": "MAIN.cob:1: error: invalid indicator 'F' at column 7\nMAIN.cob:74: error: continuation character expected\nMAIN.cob:81: warning: line not terminated by a newline [-Wothers]\nMAIN.cob: in paragraph 'MAIN-",
+    "candidate_stderr_preview": "/workspace/source/Delete_Demo.java:10: error: cannot find symbol\n        System.out.println(\"DELETE DEMO STARTED\" + OPEN + OUTPUT + IDX_FILE);\n                                                   ^\n  sy",
+    "oracle_available": true
+  },
+  "adversarial_tests": [
+    {
+      "test": "evidence_integrity",
+      "result": "PASS",
+      "detail": "3 violations"
+    },
+    {
+      "test": "trust_boundary_empty_evidence",
+      "result": "PASS",
+      "detail": "Verdict: UNAVAILABLE"
+    },
+    {
+      "test": "no_unauthorized_verified",
+      "result": "PASS",
+      "detail": "Empty evidence cannot produce VERIFIED"
+    }
+  ],
+  "status": "BUILDS",
+  "docker_available": true,
+  "java_available": true,
+  "compilation_success": false
+}

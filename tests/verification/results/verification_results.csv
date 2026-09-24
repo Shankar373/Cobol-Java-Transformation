@@ -1,0 +1,1073 @@
+Workload,Capability,Current Stage,Oracle,Java,Comparator,Evidence,Verdict,Failure Cause
+workload-call-linkage,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Calculate.java:9: error: cannot find symbol
+        System.out.println("INPUT A=" + LS_INPUT_A);
+                                        ^
+  symbol:   variable LS_INPUT_A
+  location: class Calculate
+C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Calculate.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                        ^
+  symbol:   variable LS_INPUT_B
+  location: class Calculate
+C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Calculate.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                                     ^
+  symbol:   variable COMPUTE
+  location: class Calculate
+C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Calculate.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                                                                                ^
+  symbol:   variable LS_INPUT_A
+  location: class Calculate
+C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Calculate.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                                                                                             ^
+  symbol:   variable LS_INPUT_B
+  location: class Calculate
+C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Calculate.java:11: error: cannot find symbol
+        LS_RESULT = WS_TEMP;
+        ^
+  symbol:   variable LS_RESULT
+  location: class Calculate
+C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Calculate.java:12: error: cannot find symbol
+        System.out.println("SUBROUTINE RESULT=" + String.format("%06d", WS_TEMP) + GOBACK);
+                                                                                   ^
+  symbol:   variable GOBACK
+  location: class Calculate
+C:\Users\bandi\AppData\Local\Temp\tmpw13et1uq\Main.java:13: error: cannot find symbol
+        Calculate.MAIN_LOGIC(WS_INPUT_A, WS_INPUT_B, WS_RESULT);
+                 ^
+  symbol:   method MAIN_LOGIC(int,int,int)
+  location: class Calculate
+8 errors
+"
+workload-by-reference,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Main.java:4: error: cannot find symbol
+    static int WS_VALUE = PIC;
+                          ^
+  symbol:   variable PIC
+  location: class Main
+C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Main.java:10: error: cannot find symbol
+        Modify.MAIN_LOGIC(WS_VALUE);
+              ^
+  symbol:   method MAIN_LOGIC(int)
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                      ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                 ^
+  symbol:   variable ADD
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                       ^
+  symbol:   variable TO
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                            ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Modify.java:10: error: cannot find symbol
+        System.out.println("MODIFY CHANGED VALUE=" + LS_VALUE + GOBACK);
+                                                     ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmp6uwf6kf6\Modify.java:10: error: cannot find symbol
+        System.out.println("MODIFY CHANGED VALUE=" + LS_VALUE + GOBACK);
+                                                                ^
+  symbol:   variable GOBACK
+  location: class Modify
+8 errors
+"
+workload-by-content,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Main.java:4: error: cannot find symbol
+    static int WS_VALUE = PIC;
+                          ^
+  symbol:   variable PIC
+  location: class Main
+C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Main.java:10: error: cannot find symbol
+        Modify.MAIN_LOGIC(WS_VALUE);
+              ^
+  symbol:   method MAIN_LOGIC(int)
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                      ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                 ^
+  symbol:   variable ADD
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                       ^
+  symbol:   variable TO
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                            ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Modify.java:10: error: cannot find symbol
+        System.out.println("MODIFY CHANGED LOCAL COPY=" + LS_VALUE + GOBACK);
+                                                          ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpmr4pbhu3\Modify.java:10: error: cannot find symbol
+        System.out.println("MODIFY CHANGED LOCAL COPY=" + LS_VALUE + GOBACK);
+                                                                     ^
+  symbol:   variable GOBACK
+  location: class Modify
+8 errors
+"
+workload-by-value,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Main.java:4: error: cannot find symbol
+    static int WS_VALUE = PIC;
+                          ^
+  symbol:   variable PIC
+  location: class Main
+C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Main.java:10: error: cannot find symbol
+        Modify.MAIN_LOGIC(WS_VALUE);
+              ^
+  symbol:   method MAIN_LOGIC(int)
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                      ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                 ^
+  symbol:   variable ADD
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                       ^
+  symbol:   variable TO
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Modify.java:9: error: cannot find symbol
+        System.out.println("MODIFY RECEIVED VALUE=" + LS_VALUE + ADD + TO + LS_VALUE);
+                                                                            ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Modify.java:10: error: cannot find symbol
+        System.out.println("MODIFY CHANGED LOCAL COPY=" + LS_VALUE + GOBACK);
+                                                          ^
+  symbol:   variable LS_VALUE
+  location: class Modify
+C:\Users\bandi\AppData\Local\Temp\tmpnuvyggnl\Modify.java:10: error: cannot find symbol
+        System.out.println("MODIFY CHANGED LOCAL COPY=" + LS_VALUE + GOBACK);
+                                                                     ^
+  symbol:   variable GOBACK
+  location: class Modify
+8 errors
+"
+workload-dynamic-call,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Calc.java:9: error: cannot find symbol
+        System.out.println("INPUT A=" + LS_INPUT_A);
+                                        ^
+  symbol:   variable LS_INPUT_A
+  location: class Calc
+C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Calc.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                        ^
+  symbol:   variable LS_INPUT_B
+  location: class Calc
+C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Calc.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                                     ^
+  symbol:   variable COMPUTE
+  location: class Calc
+C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Calc.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                                                                                ^
+  symbol:   variable LS_INPUT_A
+  location: class Calc
+C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Calc.java:10: error: cannot find symbol
+        System.out.println("INPUT B=" + LS_INPUT_B + COMPUTE + String.format("%06d", WS_TEMP) + LS_INPUT_A + LS_INPUT_B);
+                                                                                                             ^
+  symbol:   variable LS_INPUT_B
+  location: class Calc
+C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Calc.java:11: error: cannot find symbol
+        LS_RESULT = WS_TEMP;
+        ^
+  symbol:   variable LS_RESULT
+  location: class Calc
+C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Calc.java:12: error: cannot find symbol
+        System.out.println("CALC RESULT=" + String.format("%06d", WS_TEMP) + GOBACK);
+                                                                             ^
+  symbol:   variable GOBACK
+  location: class Calc
+C:\Users\bandi\AppData\Local\Temp\tmpo16qqcjz\Main.java:13: error: cannot find symbol
+        Ws_Prog_Name.MAIN_LOGIC(WS_INPUT_A, WS_INPUT_B, WS_RESULT);
+        ^
+  symbol:   variable Ws_Prog_Name
+  location: class Main
+8 errors
+"
+workload-copybook,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:10: error: cannot find symbol
+        CLAIM_AMOUNT = 100;
+        ^
+  symbol:   variable CLAIM_AMOUNT
+  location: class Copybook_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:11: error: cannot find symbol
+        CLAIM_ID = "C-999";
+        ^
+  symbol:   variable CLAIM_ID
+  location: class Copybook_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:12: error: cannot find symbol
+        System.out.println("INITIAL CLAIM-ID=" + CLAIM_ID);
+                                                 ^
+  symbol:   variable CLAIM_ID
+  location: class Copybook_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:13: error: cannot find symbol
+        System.out.println("INITIAL CLAIM-AMOUNT=" + CLAIM_AMOUNT);
+                                                     ^
+  symbol:   variable CLAIM_AMOUNT
+  location: class Copybook_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:14: error: cannot find symbol
+        WS_RESULT = CLAIM_AMOUNT;
+                    ^
+  symbol:   variable CLAIM_AMOUNT
+  location: class Copybook_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:16: error: cannot find symbol
+        if (CLAIM_AMOUNT > 500) {
+            ^
+  symbol:   variable CLAIM_AMOUNT
+  location: class Copybook_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:21: error: cannot find symbol
+        System.out.println("FINAL CLAIM-ID=" + CLAIM_ID);
+                                               ^
+  symbol:   variable CLAIM_ID
+  location: class Copybook_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpthpzfs7_\Copybook_Demo.java:22: error: cannot find symbol
+        System.out.println("FINAL CLAIM-AMOUNT=" + CLAIM_AMOUNT);
+                                                   ^
+  symbol:   variable CLAIM_AMOUNT
+  location: class Copybook_Demo
+8 errors
+"
+workload-subtract,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:13: error: cannot find symbol
+        System.out.println("WS-B=" + String.format("%04d", WS_B) + SUBTRACT + String.format("%04d", WS_B) + FROM + String.format("%04d", WS_A) + GIVING + String.format("%04d", WS_RESULT));
+                                                                   ^
+  symbol:   variable SUBTRACT
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:13: error: cannot find symbol
+        System.out.println("WS-B=" + String.format("%04d", WS_B) + SUBTRACT + String.format("%04d", WS_B) + FROM + String.format("%04d", WS_A) + GIVING + String.format("%04d", WS_RESULT));
+                                                                                                            ^
+  symbol:   variable FROM
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:13: error: cannot find symbol
+        System.out.println("WS-B=" + String.format("%04d", WS_B) + SUBTRACT + String.format("%04d", WS_B) + FROM + String.format("%04d", WS_A) + GIVING + String.format("%04d", WS_RESULT));
+                                                                                                                                                 ^
+  symbol:   variable GIVING
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:14: error: cannot find symbol
+        System.out.println("SUBTRACT B FROM A GIVING RESULT=" + String.format("%04d", WS_RESULT) + SUBTRACT + FROM + String.format("%04d", WS_A));
+                                                                                                   ^
+  symbol:   variable SUBTRACT
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:14: error: cannot find symbol
+        System.out.println("SUBTRACT B FROM A GIVING RESULT=" + String.format("%04d", WS_RESULT) + SUBTRACT + FROM + String.format("%04d", WS_A));
+                                                                                                              ^
+  symbol:   variable FROM
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:15: error: cannot find symbol
+        System.out.println("SUBTRACT 10 FROM A (in-place) A=" + String.format("%04d", WS_A) + SUBTRACT + String.format("%04d", WS_B) + FROM + String.format("%04d", WS_TEMP) + GIVING + String.format("%04d", WS_RESULT));
+                                                                                              ^
+  symbol:   variable SUBTRACT
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:15: error: cannot find symbol
+        System.out.println("SUBTRACT 10 FROM A (in-place) A=" + String.format("%04d", WS_A) + SUBTRACT + String.format("%04d", WS_B) + FROM + String.format("%04d", WS_TEMP) + GIVING + String.format("%04d", WS_RESULT));
+                                                                                                                                       ^
+  symbol:   variable FROM
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:15: error: cannot find symbol
+        System.out.println("SUBTRACT 10 FROM A (in-place) A=" + String.format("%04d", WS_A) + SUBTRACT + String.format("%04d", WS_B) + FROM + String.format("%04d", WS_TEMP) + GIVING + String.format("%04d", WS_RESULT));
+                                                                                                                                                                               ^
+  symbol:   variable GIVING
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:16: error: cannot find symbol
+        System.out.println("SUBTRACT B FROM TEMP GIVING RESULT=" + String.format("%04d", WS_RESULT) + SUBTRACT + String.format("%04d", WS_A) + String.format("%04d", WS_B) + FROM + GIVING + String.format("%04d", WS_RESULT));
+                                                                                                      ^
+  symbol:   variable SUBTRACT
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:16: error: cannot find symbol
+        System.out.println("SUBTRACT B FROM TEMP GIVING RESULT=" + String.format("%04d", WS_RESULT) + SUBTRACT + String.format("%04d", WS_A) + String.format("%04d", WS_B) + FROM + GIVING + String.format("%04d", WS_RESULT));
+                                                                                                                                                                             ^
+  symbol:   variable FROM
+  location: class Subtract_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpqm1nx_6u\Subtract_Demo.java:16: error: cannot find symbol
+        System.out.println("SUBTRACT B FROM TEMP GIVING RESULT=" + String.format("%04d", WS_RESULT) + SUBTRACT + String.format("%04d", WS_A) + String.format("%04d", WS_B) + FROM + GIVING + String.format("%04d", WS_RESULT));
+                                                                                                                                                                                    ^
+  symbol:   variable GIVING
+  location: class Subtract_Demo
+11 errors
+"
+workload-multiply,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:13: error: cannot find symbol
+        System.out.println("WS-B=" + String.format("%04d", WS_B) + MULTIPLY + String.format("%04d", WS_A) + BY + String.format("%04d", WS_B) + GIVING + String.format("%08d", WS_RESULT));
+                                                                   ^
+  symbol:   variable MULTIPLY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:13: error: cannot find symbol
+        System.out.println("WS-B=" + String.format("%04d", WS_B) + MULTIPLY + String.format("%04d", WS_A) + BY + String.format("%04d", WS_B) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                                            ^
+  symbol:   variable BY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:13: error: cannot find symbol
+        System.out.println("WS-B=" + String.format("%04d", WS_B) + MULTIPLY + String.format("%04d", WS_A) + BY + String.format("%04d", WS_B) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                                                                               ^
+  symbol:   variable GIVING
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:14: error: cannot find symbol
+        System.out.println("MULTIPLY A BY B GIVING RESULT=" + String.format("%08d", WS_RESULT) + MULTIPLY + BY + String.format("%04d", WS_A));
+                                                                                                 ^
+  symbol:   variable MULTIPLY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:14: error: cannot find symbol
+        System.out.println("MULTIPLY A BY B GIVING RESULT=" + String.format("%08d", WS_RESULT) + MULTIPLY + BY + String.format("%04d", WS_A));
+                                                                                                            ^
+  symbol:   variable BY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:15: error: cannot find symbol
+        System.out.println("MULTIPLY 4 BY A (in-place) A=" + String.format("%04d", WS_A) + MULTIPLY + String.format("%04d", WS_B) + BY + String.format("%04d", WS_TEMP) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                           ^
+  symbol:   variable MULTIPLY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:15: error: cannot find symbol
+        System.out.println("MULTIPLY 4 BY A (in-place) A=" + String.format("%04d", WS_A) + MULTIPLY + String.format("%04d", WS_B) + BY + String.format("%04d", WS_TEMP) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                                                                    ^
+  symbol:   variable BY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:15: error: cannot find symbol
+        System.out.println("MULTIPLY 4 BY A (in-place) A=" + String.format("%04d", WS_A) + MULTIPLY + String.format("%04d", WS_B) + BY + String.format("%04d", WS_TEMP) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                                                                                                          ^
+  symbol:   variable GIVING
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:16: error: cannot find symbol
+        System.out.println("MULTIPLY B BY TEMP GIVING RESULT=" + String.format("%08d", WS_RESULT) + MULTIPLY + String.format("%04d", WS_A) + BY + String.format("%04d", WS_B) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                                    ^
+  symbol:   variable MULTIPLY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:16: error: cannot find symbol
+        System.out.println("MULTIPLY B BY TEMP GIVING RESULT=" + String.format("%08d", WS_RESULT) + MULTIPLY + String.format("%04d", WS_A) + BY + String.format("%04d", WS_B) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                                                                             ^
+  symbol:   variable BY
+  location: class Multiply_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpgnzjbcp2\Multiply_Demo.java:16: error: cannot find symbol
+        System.out.println("MULTIPLY B BY TEMP GIVING RESULT=" + String.format("%08d", WS_RESULT) + MULTIPLY + String.format("%04d", WS_A) + BY + String.format("%04d", WS_B) + GIVING + String.format("%08d", WS_RESULT));
+                                                                                                                                                                                ^
+  symbol:   variable GIVING
+  location: class Multiply_Demo
+11 errors
+"
+workload-evaluate,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:10: error: cannot find symbol
+        System.out.println("GRADE=" + String.format("%02d", WS_GRADE) + EVALUATE + String.format("%02d", WS_GRADE) + WHEN + THRU);
+                                                                        ^
+  symbol:   variable EVALUATE
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:10: error: cannot find symbol
+        System.out.println("GRADE=" + String.format("%02d", WS_GRADE) + EVALUATE + String.format("%02d", WS_GRADE) + WHEN + THRU);
+                                                                                                                     ^
+  symbol:   variable WHEN
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:10: error: cannot find symbol
+        System.out.println("GRADE=" + String.format("%02d", WS_GRADE) + EVALUATE + String.format("%02d", WS_GRADE) + WHEN + THRU);
+                                                                                                                            ^
+  symbol:   variable THRU
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:16: error: cannot find symbol
+        System.out.println("LETTER GRADE=" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format("%02d", WS_GRADE));
+                                                         ^
+  symbol:   variable EVALUATE
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:16: error: cannot find symbol
+        System.out.println("LETTER GRADE=" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format("%02d", WS_GRADE));
+                                                                    ^
+  symbol:   variable TRUE
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:16: error: cannot find symbol
+        System.out.println("LETTER GRADE=" + WS_RESULT + EVALUATE + TRUE + WHEN + String.format("%02d", WS_GRADE));
+                                                                           ^
+  symbol:   variable WHEN
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:17: error: cannot find symbol
+        System.out.println("EXCELLENT" + WHEN + String.format("%02d", WS_GRADE));
+                                         ^
+  symbol:   variable WHEN
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:18: error: cannot find symbol
+        System.out.println("GOOD" + WHEN + String.format("%02d", WS_GRADE));
+                                    ^
+  symbol:   variable WHEN
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:19: error: cannot find symbol
+        System.out.println("AVERAGE" + WHEN + String.format("%02d", WS_GRADE));
+                                       ^
+  symbol:   variable WHEN
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:20: error: cannot find symbol
+        System.out.println("BELOW AVERAGE" + WHEN + OTHER);
+                                             ^
+  symbol:   variable WHEN
+  location: class Evaluate_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp04k023nm\Evaluate_Demo.java:20: error: cannot find symbol
+        System.out.println("BELOW AVERAGE" + WHEN + OTHER);
+                                                    ^
+  symbol:   variable OTHER
+  location: class Evaluate_Demo
+11 errors
+"
+workload-perform-varying,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:11: error: cannot find symbol
+        System.out.println("PERFORM VARYING DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_I) + FROM + BY + UNTIL + String.format("%02d", WS_I) + ADD + String.format("%02d", WS_I) + TO + String.format("%04d", WS_SUM));
+                                                            ^
+  symbol:   variable PERFORM
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:11: error: cannot find symbol
+        System.out.println("PERFORM VARYING DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_I) + FROM + BY + UNTIL + String.format("%02d", WS_I) + ADD + String.format("%02d", WS_I) + TO + String.format("%04d", WS_SUM));
+                                                                      ^
+  symbol:   variable VARYING
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:11: error: cannot find symbol
+        System.out.println("PERFORM VARYING DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_I) + FROM + BY + UNTIL + String.format("%02d", WS_I) + ADD + String.format("%02d", WS_I) + TO + String.format("%04d", WS_SUM));
+                                                                                                              ^
+  symbol:   variable FROM
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:11: error: cannot find symbol
+        System.out.println("PERFORM VARYING DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_I) + FROM + BY + UNTIL + String.format("%02d", WS_I) + ADD + String.format("%02d", WS_I) + TO + String.format("%04d", WS_SUM));
+                                                                                                                     ^
+  symbol:   variable BY
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:11: error: cannot find symbol
+        System.out.println("PERFORM VARYING DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_I) + FROM + BY + UNTIL + String.format("%02d", WS_I) + ADD + String.format("%02d", WS_I) + TO + String.format("%04d", WS_SUM));
+                                                                                                                          ^
+  symbol:   variable UNTIL
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:11: error: cannot find symbol
+        System.out.println("PERFORM VARYING DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_I) + FROM + BY + UNTIL + String.format("%02d", WS_I) + ADD + String.format("%02d", WS_I) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                ^
+  symbol:   variable ADD
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:11: error: cannot find symbol
+        System.out.println("PERFORM VARYING DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_I) + FROM + BY + UNTIL + String.format("%02d", WS_I) + ADD + String.format("%02d", WS_I) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                                                    ^
+  symbol:   variable TO
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                          ^
+  symbol:   variable PERFORM
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                                    ^
+  symbol:   variable VARYING
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                                                                            ^
+  symbol:   variable FROM
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                                                                                   ^
+  symbol:   variable BY
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                                                                                        ^
+  symbol:   variable UNTIL
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                                                                                                                              ^
+  symbol:   variable MULTIPLY
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                                                                                                                                                                       ^
+  symbol:   variable BY
+  location: class Perform_Varying_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpp4sej0yy\Perform_Varying_Demo.java:13: error: cannot find symbol
+        System.out.println("FINAL SUM=" + String.format("%04d", WS_SUM) + PERFORM + VARYING + String.format("%02d", WS_J) + FROM + BY + UNTIL + String.format("%02d", WS_J) + MULTIPLY + String.format("%02d", WS_J) + BY + String.format("%04d", WS_PROD) + GIVING + String.format("%04d", WS_PROD));
+                                                                                                                                                                                                                                                             ^
+  symbol:   variable GIVING
+  location: class Perform_Varying_Demo
+15 errors
+"
+workload-occurs,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:10: error: cannot find symbol
+        System.out.println("OCCURS DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + COMPUTE + WS_ELEMENT + String.format("%02d", WS_INDEX) + String.format("%02d", WS_INDEX));
+                                                   ^
+  symbol:   variable PERFORM
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:10: error: cannot find symbol
+        System.out.println("OCCURS DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + COMPUTE + WS_ELEMENT + String.format("%02d", WS_INDEX) + String.format("%02d", WS_INDEX));
+                                                             ^
+  symbol:   variable VARYING
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:10: error: cannot find symbol
+        System.out.println("OCCURS DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + COMPUTE + WS_ELEMENT + String.format("%02d", WS_INDEX) + String.format("%02d", WS_INDEX));
+                                                                                                         ^
+  symbol:   variable FROM
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:10: error: cannot find symbol
+        System.out.println("OCCURS DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + COMPUTE + WS_ELEMENT + String.format("%02d", WS_INDEX) + String.format("%02d", WS_INDEX));
+                                                                                                                ^
+  symbol:   variable BY
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:10: error: cannot find symbol
+        System.out.println("OCCURS DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + COMPUTE + WS_ELEMENT + String.format("%02d", WS_INDEX) + String.format("%02d", WS_INDEX));
+                                                                                                                     ^
+  symbol:   variable UNTIL
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:10: error: cannot find symbol
+        System.out.println("OCCURS DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + COMPUTE + WS_ELEMENT + String.format("%02d", WS_INDEX) + String.format("%02d", WS_INDEX));
+                                                                                                                                                               ^
+  symbol:   variable COMPUTE
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:10: error: cannot find symbol
+        System.out.println("OCCURS DEMO STARTED" + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + COMPUTE + WS_ELEMENT + String.format("%02d", WS_INDEX) + String.format("%02d", WS_INDEX));
+                                                                                                                                                                         ^
+  symbol:   variable WS_ELEMENT
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                 ^
+  symbol:   variable WS_ELEMENT
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                ^
+  symbol:   variable PERFORM
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                          ^
+  symbol:   variable VARYING
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                                      ^
+  symbol:   variable FROM
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                                             ^
+  symbol:   variable BY
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                                                  ^
+  symbol:   variable UNTIL
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                                                                                            ^
+  symbol:   variable ADD
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                                                                                                  ^
+  symbol:   variable WS_ELEMENT
+  location: class Occurs_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpjmx0hty7\Occurs_Demo.java:11: error: cannot find symbol
+        System.out.println("ELEMENT(" + String.format("%02d", WS_INDEX) + ")=" + WS_ELEMENT + String.format("%02d", WS_INDEX) + PERFORM + VARYING + String.format("%02d", WS_INDEX) + FROM + BY + UNTIL + String.format("%02d", WS_INDEX) + ADD + WS_ELEMENT + String.format("%02d", WS_INDEX) + TO + String.format("%04d", WS_SUM));
+                                                                                                                                                                                                                                                                                                 ^
+  symbol:   variable TO
+  location: class Occurs_Demo
+16 errors
+"
+workload-redefines,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:9: error: cannot find symbol
+        System.out.println("WS-NUMERIC=" + WS_NUMERIC);
+                                           ^
+  symbol:   variable WS_NUMERIC
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:10: error: cannot find symbol
+        System.out.println("WS-PART1=" + WS_PART1);
+                                         ^
+  symbol:   variable WS_PART1
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:11: error: cannot find symbol
+        System.out.println("WS-PART2=" + WS_PART2);
+                                         ^
+  symbol:   variable WS_PART2
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:12: error: cannot find symbol
+        System.out.println("WS-CHAR=" + WS_CHAR);
+                                        ^
+  symbol:   variable WS_CHAR
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:13: error: cannot find symbol
+        WS_CHAR = "ABCDEF";
+        ^
+  symbol:   variable WS_CHAR
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:15: error: cannot find symbol
+        System.out.println("WS-NUMERIC=" + WS_NUMERIC);
+                                           ^
+  symbol:   variable WS_NUMERIC
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:16: error: cannot find symbol
+        System.out.println("WS-PART1=" + WS_PART1);
+                                         ^
+  symbol:   variable WS_PART1
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:17: error: cannot find symbol
+        System.out.println("WS-PART2=" + WS_PART2);
+                                         ^
+  symbol:   variable WS_PART2
+  location: class Redefines_Demo
+C:\Users\bandi\AppData\Local\Temp\tmp0eivo34j\Redefines_Demo.java:18: error: cannot find symbol
+        System.out.println("WS-CHAR=" + WS_CHAR);
+                                        ^
+  symbol:   variable WS_CHAR
+  location: class Redefines_Demo
+9 errors
+"
+workload-level88,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:4: error: incompatible types: int cannot be converted to String
+    static String WS_STATUS = 10;
+                              ^
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:10: error: cannot find symbol
+        System.out.println("LEVEL-88 DEMO STARTED" + EVALUATE + TRUE + WHEN + STAT_OK);
+                                                     ^
+  symbol:   variable EVALUATE
+  location: class Level88_Demo
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:10: error: cannot find symbol
+        System.out.println("LEVEL-88 DEMO STARTED" + EVALUATE + TRUE + WHEN + STAT_OK);
+                                                                ^
+  symbol:   variable TRUE
+  location: class Level88_Demo
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:10: error: cannot find symbol
+        System.out.println("LEVEL-88 DEMO STARTED" + EVALUATE + TRUE + WHEN + STAT_OK);
+                                                                       ^
+  symbol:   variable WHEN
+  location: class Level88_Demo
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:10: error: cannot find symbol
+        System.out.println("LEVEL-88 DEMO STARTED" + EVALUATE + TRUE + WHEN + STAT_OK);
+                                                                              ^
+  symbol:   variable STAT_OK
+  location: class Level88_Demo
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:15: error: incompatible types: String cannot be converted to boolean
+        if ("GENDER_MALE") {
+            ^
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:20: error: cannot find symbol
+        System.out.println("AFTER SET STAT-OK: WS-STATUS=" + String.format("%02d", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);
+                                                                                                ^
+  symbol:   variable SET
+  location: class Level88_Demo
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:20: error: cannot find symbol
+        System.out.println("AFTER SET STAT-OK: WS-STATUS=" + String.format("%02d", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);
+                                                                                                      ^
+  symbol:   variable GENDER_FEMALE
+  location: class Level88_Demo
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:20: error: cannot find symbol
+        System.out.println("AFTER SET STAT-OK: WS-STATUS=" + String.format("%02d", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);
+                                                                                                                      ^
+  symbol:   variable TO
+  location: class Level88_Demo
+C:\Users\bandi\AppData\Local\Temp\tmphi2_cm50\Level88_Demo.java:20: error: cannot find symbol
+        System.out.println("AFTER SET STAT-OK: WS-STATUS=" + String.format("%02d", WS_STATUS) + SET + GENDER_FEMALE + TO + TRUE);
+                                                                                                                           ^
+  symbol:   variable TRUE
+  location: class Level88_Demo
+10 errors
+"
+workload-comp,Unknown,PARSED_ONLY,RUNNING,UNAVAILABLE,REGISTERED,3 adversarial,UNAVAILABLE,"PARSE_ERROR: Unsupported PIC clause: S9(4)"
+workload-comp3,Unknown,PARSED_ONLY,RUNNING,UNAVAILABLE,REGISTERED,3 adversarial,UNAVAILABLE,"PARSE_ERROR: Unsupported PIC clause: S9(5)V99"
+workload-indexed-file,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:10: error: cannot find symbol
+        System.out.println("INDEXED FILE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                         ^
+  symbol:   variable OPEN
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:10: error: cannot find symbol
+        System.out.println("INDEXED FILE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                                ^
+  symbol:   variable OUTPUT
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:10: error: cannot find symbol
+        System.out.println("INDEXED FILE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                                         ^
+  symbol:   variable IDX_FILE
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:12: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:13: error: cannot find symbol
+        IDX_DATA = "RECORD-ONE-DATA----";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:16: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:17: error: cannot find symbol
+        IDX_DATA = "RECORD-TWO-DATA----";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:20: error: cannot find symbol
+        IDX_KEY = "K003";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:21: error: cannot find symbol
+        IDX_DATA = "RECORD-THREE-DATA---";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:24: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                              ^
+  symbol:   variable OPEN
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:24: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                     ^
+  symbol:   variable I_O
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:24: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                           ^
+  symbol:   variable IDX_FILE
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:26: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:27: error: cannot find symbol
+        IDX_DATA = "REC-TWO-UPDATED----";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:29: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:31: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:35: error: cannot find symbol
+        UNTIL();
+        ^
+  symbol:   method UNTIL()
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:37: error: cannot find symbol
+System.out.println("READ: KEY=" + IDX_KEY + " DATA=" + IDX_DATA + " STATUS=" + WS_FILE_STATUS);
+                                  ^
+  symbol:   variable IDX_KEY
+  location: class Indexed_File_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpof8zvsjs\Indexed_File_Demo.java:37: error: cannot find symbol
+System.out.println("READ: KEY=" + IDX_KEY + " DATA=" + IDX_DATA + " STATUS=" + WS_FILE_STATUS);
+                                                       ^
+  symbol:   variable IDX_DATA
+  location: class Indexed_File_Demo
+19 errors
+"
+workload-relative-file,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpugbik99i\Relative_File_Demo.java:37: error: illegal start of expression
+        if (WS_RRN > == 3) {
+                     ^
+1 error
+"
+workload-rewrite,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:8: error: cannot find symbol
+        System.out.println("REWRITE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                    ^
+  symbol:   variable OPEN
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:8: error: cannot find symbol
+        System.out.println("REWRITE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                           ^
+  symbol:   variable OUTPUT
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:8: error: cannot find symbol
+        System.out.println("REWRITE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                                    ^
+  symbol:   variable IDX_FILE
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:10: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:11: error: cannot find symbol
+        IDX_DATA = "ORIGINAL-DATA-ONE--";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:14: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:15: error: cannot find symbol
+        IDX_DATA = "ORIGINAL-DATA-TWO--";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:18: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                              ^
+  symbol:   variable OPEN
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:18: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                     ^
+  symbol:   variable I_O
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:18: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                           ^
+  symbol:   variable IDX_FILE
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:20: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:21: error: cannot find symbol
+        IDX_DATA = "UPDATED-DATA-ONE---";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Rewrite_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpsgo13vkm\Rewrite_Demo.java:23: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Rewrite_Demo
+13 errors
+"
+workload-delete,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:10: error: cannot find symbol
+        System.out.println("DELETE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                   ^
+  symbol:   variable OPEN
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:10: error: cannot find symbol
+        System.out.println("DELETE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                          ^
+  symbol:   variable OUTPUT
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:10: error: cannot find symbol
+        System.out.println("DELETE DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                                   ^
+  symbol:   variable IDX_FILE
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:12: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:13: error: cannot find symbol
+        IDX_DATA = "RECORD-ONE-TO-DELETE";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:16: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:17: error: cannot find symbol
+        IDX_DATA = "RECORD-TWO-KEEP----";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:20: error: cannot find symbol
+        IDX_KEY = "K003";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:21: error: cannot find symbol
+        IDX_DATA = "RECORD-THREE-DELETE";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:24: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                              ^
+  symbol:   variable OPEN
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:24: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                     ^
+  symbol:   variable I_O
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:24: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                           ^
+  symbol:   variable IDX_FILE
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:26: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:28: error: cannot find symbol
+        IDX_KEY = "K003";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:30: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:34: error: cannot find symbol
+        UNTIL();
+        ^
+  symbol:   method UNTIL()
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:36: error: cannot find symbol
+System.out.println("READ: KEY=" + IDX_KEY + " DATA=" + IDX_DATA + " STATUS=" + WS_FILE_STATUS);
+                                  ^
+  symbol:   variable IDX_KEY
+  location: class Delete_Demo
+C:\Users\bandi\AppData\Local\Temp\tmpbjk7uhxk\Delete_Demo.java:36: error: cannot find symbol
+System.out.println("READ: KEY=" + IDX_KEY + " DATA=" + IDX_DATA + " STATUS=" + WS_FILE_STATUS);
+                                                       ^
+  symbol:   variable IDX_DATA
+  location: class Delete_Demo
+18 errors
+"
+workload-start-invalidkey,Unknown,BUILDS,RUNNING,FAILED,REGISTERED,3 adversarial,UNAVAILABLE,"JAVA_ERROR: C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:8: error: cannot find symbol
+        System.out.println("START/INVALID KEY/FILE STATUS DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                                          ^
+  symbol:   variable OPEN
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:8: error: cannot find symbol
+        System.out.println("START/INVALID KEY/FILE STATUS DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                                                 ^
+  symbol:   variable OUTPUT
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:8: error: cannot find symbol
+        System.out.println("START/INVALID KEY/FILE STATUS DEMO STARTED" + OPEN + OUTPUT + IDX_FILE);
+                                                                                          ^
+  symbol:   variable IDX_FILE
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:10: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:11: error: cannot find symbol
+        IDX_DATA = "RECORD-ONE----------";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:14: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:15: error: cannot find symbol
+        IDX_DATA = "RECORD-TWO---------";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:18: error: cannot find symbol
+        IDX_KEY = "K003";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:19: error: cannot find symbol
+        IDX_DATA = "RECORD-THREE--------";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:22: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                              ^
+  symbol:   variable OPEN
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:22: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                     ^
+  symbol:   variable I_O
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:22: error: cannot find symbol
+        System.out.println("CLOSE STATUS=" + WS_FILE_STATUS + OPEN + I_O + IDX_FILE);
+                                                                           ^
+  symbol:   variable IDX_FILE
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:24: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:25: error: cannot find symbol
+        System.out.println("START = K002 STATUS=" + WS_FILE_STATUS + READ + IDX_FILE);
+                                                                     ^
+  symbol:   variable READ
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:25: error: cannot find symbol
+        System.out.println("START = K002 STATUS=" + WS_FILE_STATUS + READ + IDX_FILE);
+                                                                            ^
+  symbol:   variable IDX_FILE
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:26: error: cannot find symbol
+        System.out.println("READ AFTER START = KEY=" + IDX_KEY + " STATUS=" + WS_FILE_STATUS);
+                                                       ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:27: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:28: error: cannot find symbol
+        System.out.println("START > K001 STATUS=" + WS_FILE_STATUS + READ + IDX_FILE);
+                                                                     ^
+  symbol:   variable READ
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:28: error: cannot find symbol
+        System.out.println("START > K001 STATUS=" + WS_FILE_STATUS + READ + IDX_FILE);
+                                                                            ^
+  symbol:   variable IDX_FILE
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:29: error: cannot find symbol
+        System.out.println("READ AFTER START > KEY=" + IDX_KEY + " STATUS=" + WS_FILE_STATUS);
+                                                       ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:30: error: cannot find symbol
+        IDX_KEY = "K999";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:32: error: cannot find symbol
+        IDX_KEY = "K001";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:33: error: cannot find symbol
+        IDX_DATA = "DUPLICATE-KEY-------";
+        ^
+  symbol:   variable IDX_DATA
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:36: error: cannot find symbol
+        IDX_KEY = "K999";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:37: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+C:\Users\bandi\AppData\Local\Temp\tmp1eb34f0d\Start_Key_Status.java:39: error: cannot find symbol
+        IDX_KEY = "K002";
+        ^
+  symbol:   variable IDX_KEY
+  location: class Start_Key_Status
+26 errors
+"

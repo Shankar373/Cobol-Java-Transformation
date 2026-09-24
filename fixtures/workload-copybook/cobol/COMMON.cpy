@@ -1,0 +1,3 @@
+01  CLAIM-REC.
+           05  CLAIM-ID       PIC X(10) VALUE "C-001".
+           05  CLAIM-AMOUNT   PIC 9(6) VALUE 500.

@@ -1,0 +1,113 @@
+{
+  "workload_id": "workload-relative-file",
+  "timestamp": "2026-09-23T09:55:16Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": true,
+    "FRESH_VERIFIED": true
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/adapter/AbstractRelFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/RelFileAdapter.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/FileIoSupport.java",
+    "src/main/java/com/generated/app/service/RelativeFileDemo.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "RELATIVE file \u2014 READ, WRITE, REWRITE, DELETE",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact"
+  ],
+  "program_ids": [
+    "RELATIVE-FILE-DEMO"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "RELATIVE-FILE-DEMO",
+  "java_application_files": [
+    "Relative_File_Demo.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "VERIFIED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 373,
+  "candidate_stdout_len": 373,
+  "candidate_execution_id": "candidate-run-workload-relative-file-20260923095519-20260923095545",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-relative-file-20260923095519-20260923095519",
+      "candidate_artifact_id": "stdout-candidate-run-workload-relative-file-20260923095519-20260923095545",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stderr-oracle-run-workload-relative-file-20260923095519-20260923095519",
+      "candidate_artifact_id": "stderr-candidate-run-workload-relative-file-20260923095519-20260923095545",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-relative-file-20260923095519-20260923095519",
+      "candidate_artifact_id": "exit-candidate-run-workload-relative-file-20260923095519-20260923095545",
+      "vacuous": false
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "RELATIVE FILE DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE RRN=1 STATUS=00\nWRITE RRN=2 STATUS=00\nWRITE RRN=3 STATUS=00\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nREWRITE RRN=2 STATUS=00\nDELETE RRN=1 STATUS=00\nREAD RRN=0001 INVALID KEY STATUS=23\nREAD: RRN=0002 DATA=REL-REC-TWO-UPD----  STATUS=00\nREAD: RRN=0003 DATA=REL-RECORD-THREE---- STATUS=00\nRECORDS READ=02\nFINAL CLOSE STATUS=00\n",
+  "candidate_stdout": "RELATIVE FILE DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE RRN=1 STATUS=00\nWRITE RRN=2 STATUS=00\nWRITE RRN=3 STATUS=00\nCLOSE STATUS=00\nOPEN I-O STATUS=00\nREWRITE RRN=2 STATUS=00\nDELETE RRN=1 STATUS=00\nREAD RRN=0001 INVALID KEY STATUS=23\nREAD: RRN=0002 DATA=REL-REC-TWO-UPD----  STATUS=00\nREAD: RRN=0003 DATA=REL-RECORD-THREE---- STATUS=00\nRECORDS READ=02\nFINAL CLOSE STATUS=00\n",
+  "oracle_stderr": "",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:e405fce2f078e0bad27aad3734af3448b46d8734f9da41ba443a3a4e22fcc75a",
+  "executed_check_count": 3,
+  "diff_count": 0,
+  "integrity_violations": [],
+  "evidence_summary": "3 comparisons, 3 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": ""
+}

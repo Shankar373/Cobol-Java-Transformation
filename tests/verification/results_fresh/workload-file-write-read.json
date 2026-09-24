@@ -1,0 +1,129 @@
+{
+  "workload_id": "workload-file-write-read",
+  "timestamp": "2026-09-23T13:41:30Z",
+  "git_head": "9ca0cfd",
+  "stages": {
+    "NOT_IMPLEMENTED": false,
+    "PARSED_ONLY": true,
+    "MODELED_ONLY": true,
+    "TRANSFORMED": true,
+    "BUILDS": true,
+    "EXECUTES": true,
+    "ORACLE_MATCHED": true,
+    "FRESH_VERIFIED": true
+  },
+  "artifacts": [],
+  "generated_files": [
+    "pom.xml",
+    "src/main/java/com/generated/app/Application.java",
+    "src/main/java/com/generated/app/adapter/AbstractInFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/AbstractOutFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/InFileAdapter.java",
+    "src/main/java/com/generated/app/adapter/OutFileAdapter.java",
+    "src/main/java/com/generated/app/config/AppConfig.java",
+    "src/main/java/com/generated/app/service/CobolFileIo.java",
+    "src/main/java/com/generated/app/service/FileWriteRead.java",
+    "src/main/resources/application.properties"
+  ],
+  "errors": [],
+  "workload_description": "Sequential LINE SEQUENTIAL write then read with AT END loop",
+  "declared_artifacts": [
+    "STDOUT",
+    "STDERR",
+    "EXIT_STATUS",
+    "FIXED_RECORD"
+  ],
+  "declared_comparators": [
+    "stdout-exact",
+    "stderr-exact",
+    "exit-status-exact",
+    "fixed-record-exact"
+  ],
+  "program_ids": [
+    "FILE-WRITE-READ"
+  ],
+  "source_files": [
+    "MAIN.cob"
+  ],
+  "copybooks": [],
+  "main_program_id": "FILE-WRITE-READ",
+  "java_application_files": [
+    "File_Write_Read.java"
+  ],
+  "java_entrypoint": "com.generated.app.Application",
+  "pom_exists": true,
+  "candidate_adapter_available": "AVAILABLE",
+  "oracle": "gnucobol-ocesql:latest",
+  "java": "maven-offline-springboot:latest -> eclipse-temurin:21-jdk (entry com.generated.app.Application)",
+  "progress_phases": [
+    "EXECUTING_ORACLE",
+    "BUILDING",
+    "EXECUTING_GENERATED",
+    "COMPARING",
+    "VALIDATING_EVIDENCE"
+  ],
+  "verdict_state": "VERIFIED",
+  "oracle_termination": "normal",
+  "candidate_termination": "normal",
+  "oracle_exit_code": 0,
+  "candidate_exit_code": 0,
+  "oracle_stdout_len": 319,
+  "candidate_stdout_len": 319,
+  "candidate_execution_id": "candidate-run-workload-file-write-read-20260923134136-20260923134217",
+  "comparisons": [
+    {
+      "artifact_type": "STDOUT",
+      "comparator_id": "STDOUT_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stdout-oracle-run-workload-file-write-read-20260923134136-20260923134136",
+      "candidate_artifact_id": "stdout-candidate-run-workload-file-write-read-20260923134136-20260923134217",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "STDERR",
+      "comparator_id": "STDERR_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "stderr-oracle-run-workload-file-write-read-20260923134136-20260923134136",
+      "candidate_artifact_id": "stderr-candidate-run-workload-file-write-read-20260923134136-20260923134217",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "EXIT_STATUS",
+      "comparator_id": "EXIT_STATUS_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "exit-oracle-run-workload-file-write-read-20260923134136-20260923134136",
+      "candidate_artifact_id": "exit-candidate-run-workload-file-write-read-20260923134136-20260923134217",
+      "vacuous": false
+    },
+    {
+      "artifact_type": "FIXED_RECORD",
+      "comparator_id": "FIXED_RECORD_COMPARATOR",
+      "result": "MATCH",
+      "differences": [],
+      "oracle_artifact_id": "fixed-file-write-read-output-oracle-run-workload-file-write-read-20260923134136-20260923134136",
+      "candidate_artifact_id": "fixed-file-write-read-output-candidate-run-workload-file-write-read-20260923134136-20260923134217",
+      "vacuous": false,
+      "oracle_size": 51,
+      "candidate_size": 51
+    }
+  ],
+  "comparator_ids": [
+    "EXIT_STATUS_COMPARATOR",
+    "FIXED_RECORD_COMPARATOR",
+    "STDERR_COMPARATOR",
+    "STDOUT_COMPARATOR"
+  ],
+  "oracle_stdout": "SEQUENTIAL WRITE/READ DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE R001 STATUS=00\nWRITE R002 STATUS=00\nWRITE R003 STATUS=00\nCLOSE OUT STATUS=00\nOPEN INPUT STATUS=00\nREAD: ID=R001 VAL=VALUE-ONE--- STATUS=00\nREAD: ID=R002 VAL=VALUE-TWO--- STATUS=00\nREAD: ID=R003 VAL=VALUE-THREE- STATUS=00\nRECORDS READ=03\nCLOSE IN STATUS=00\n",
+  "candidate_stdout": "SEQUENTIAL WRITE/READ DEMO STARTED\nOPEN OUTPUT STATUS=00\nWRITE R001 STATUS=00\nWRITE R002 STATUS=00\nWRITE R003 STATUS=00\nCLOSE OUT STATUS=00\nOPEN INPUT STATUS=00\nREAD: ID=R001 VAL=VALUE-ONE--- STATUS=00\nREAD: ID=R002 VAL=VALUE-TWO--- STATUS=00\nREAD: ID=R003 VAL=VALUE-THREE- STATUS=00\nRECORDS READ=03\nCLOSE IN STATUS=00\n",
+  "oracle_stderr": "",
+  "candidate_stderr": "",
+  "evidence_manifest_hash": "sha256:13c053431beb4e3c09441aff44d9f53e4c1fbc19c1fe67b2f037ca6c36dcc660",
+  "executed_check_count": 4,
+  "diff_count": 0,
+  "integrity_violations": [],
+  "evidence_summary": "4 comparisons, 4 MATCH, 0 vacuous, 0 integrity violations",
+  "failure_cause": ""
+}

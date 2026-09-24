@@ -1,0 +1,13 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SUBV.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-MARK PIC X(4) VALUE 'SUBV'.
+       LINKAGE SECTION.
+       01 LV-A PIC 9(4).
+       01 LV-V PIC X(4).
+       PROCEDURE DIVISION USING LV-A LV-V.
+       SUBV-PARA.
+           ADD 100 TO LV-A.
+           MOVE 'QQQQ' TO LV-V.
+           EXIT PROGRAM.
