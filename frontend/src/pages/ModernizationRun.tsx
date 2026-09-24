@@ -403,7 +403,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Run detail — served by GET /runs/{id}/detail when available */}
-      {Boolean(detail) && (
+      {detail !== null && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Run Details">
