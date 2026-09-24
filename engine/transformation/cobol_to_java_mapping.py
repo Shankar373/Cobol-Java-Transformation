@@ -60,13 +60,17 @@ from engine.transformation.java_ir import (
     JavaDatabaseResource,
     JavaDependency,
     JavaDependencyType,
+    JavaDoWhile,
+    JavaExpression,
     JavaField,
     JavaFileAccessMode,
     JavaFileKey,
     JavaFileOrganization,
     JavaFileResource,
+    JavaFor,
     JavaIf,
     JavaLiteral,
+    JavaLocalVarDecl,
     JavaMatchOutcome,
     JavaMethod,
     JavaMethodCall,
@@ -83,8 +87,14 @@ from engine.transformation.java_ir import (
     JavaThresholdRule,
     JavaTransactionBoundary,
     JavaType,
+    JavaUnaryOp,
     JavaVariableRef,
+    JavaWhile,
 )
+
+# Monotonic counter for unique PERFORM TIMES loop variables (_times_0, _times_1, ...)
+import itertools as _itertools
+_times_counter = _itertools.count()
 
 
 # ---------------------------------------------------------------------------
@@ -277,8 +287,31 @@ def map_cobol_statement(
         ))
 
     elif isinstance(stmt, CallStatement):
-        target = stmt.program_name.replace("-", "_")
-        method = (call_methods or {}).get(stmt.program_name.upper(), stmt.program_name.replace("-", "_"))
+        # Static CALL → static Java method call on the callee class.
+        # Class name uses the same _to_java_class_name convention as the
+        # generated class (CLAIMS → Claims), not raw program_name underscores.
+        # Entry method: MAIN_LOGIC for LINKAGE callees (value-result via
+        # static linkage fields), else first-paragraph method from
+        # call_methods, else program-name-derived fallback.
+        target = _to_java_class_name(stmt.program_name) if stmt.program_name else ""
+        raw_target = (stmt.program_name or "").strip()
+        is_static_target = (
+            len(raw_target) >= 2
+            and raw_target[0] in ("'", '"')
+            and raw_target[-1] in ("'", '"')
+        )
+        callee_has_linkage = False
+        if is_static_target and call_linkage:
+            callee_has_linkage = bool(
+                (call_linkage or {}).get(stmt.program_name.upper())
+            )
+        if is_static_target and callee_has_linkage:
+            method = "MAIN_LOGIC"
+        else:
+            method = (call_methods or {}).get(
+                stmt.program_name.upper(),
+                stmt.program_name.replace("-", "_").title().replace("_", ""),
+            )
         linkage = (call_linkage or {}).get(stmt.program_name.upper(), ())
         for idx, arg in enumerate(stmt.arguments):
             if idx < len(linkage):
@@ -419,15 +452,143 @@ def map_cobol_statement(
         result.append(JavaComment(text=f"// UNSTRING {stmt.source}"))
 
     elif isinstance(stmt, PerformStatement):
-        # PERFORM → method call
-        result.append(JavaMethodCallStatement(
+        result.extend(_map_perform_statement(stmt, program, call_methods, call_linkage))
+
+    return result
+
+
+def _expand_thru_range(stmt: PerformStatement, program: CobolProgram | None) -> list[str]:
+    """Expand PERFORM A THRU B into the inclusive list of paragraph names.
+
+    Uses program paragraph order. Falls back to [A, B] when the named
+    paragraphs are not present in the program IR (bare fixture parses).
+    """
+    if not stmt.paragraph_name:
+        return []
+    if not stmt.thru_target:
+        return [stmt.paragraph_name]
+    if program is None:
+        return [stmt.paragraph_name, stmt.thru_target]
+    names = [p.name for p in program.paragraphs]
+    if stmt.paragraph_name in names and stmt.thru_target in names:
+        start = names.index(stmt.paragraph_name)
+        end = names.index(stmt.thru_target)
+        if end >= start:
+            return names[start:end + 1]
+    return [stmt.paragraph_name, stmt.thru_target]
+
+
+def _map_perform_body(
+    stmt: PerformStatement,
+    program: CobolProgram | None,
+    call_methods: dict[str, str] | None,
+    call_linkage: dict[str, tuple[str, ...]] | None,
+) -> list[JavaStatement]:
+    """Body statements for a PERFORM loop: paragraph call and/or inline body."""
+    body: list[JavaStatement] = []
+    if stmt.paragraph_name:
+        body.append(JavaMethodCallStatement(
             call=JavaMethodCall(
                 method_name=stmt.paragraph_name.replace("-", "_"),
                 arguments=(),
             )
         ))
+    for s in stmt.body:
+        body.extend(map_cobol_statement(s, program, call_methods, call_linkage))
+    return body
 
-    return result
+
+def _map_perform_statement(
+    stmt: PerformStatement,
+    program: CobolProgram | None,
+    call_methods: dict[str, str] | None = None,
+    call_linkage: dict[str, tuple[str, ...]] | None = None,
+) -> list[JavaStatement]:
+    """Map a PERFORM statement to Java IR control flow.
+
+    - TIMES=N        → bounded for-loop with a unique _times_N counter
+    - UNTIL cond     → while (!(cond))  (TEST BEFORE, COBOL default)
+    - UNTIL + AFTER  → do { } while (!(cond))
+    - A THRU B       → sequential calls for each paragraph in the range
+    - plain PARA     → method call
+    """
+    # PERFORM ... N TIMES (or VAR TIMES)
+    if stmt.until_condition and stmt.until_condition.startswith("TIMES="):
+        count_str = stmt.until_condition[len("TIMES="):].strip()
+        counter = f"_times_{next(_times_counter)}"
+        if count_str.isdigit():
+            count_expr: JavaExpression = JavaLiteral(value=count_str)
+        else:
+            count_expr = JavaVariableRef(name=count_str.replace("-", "_"))
+        init = JavaLocalVarDecl(
+            java_type=JavaType(basic_type=JavaBasicType.INT),
+            name=counter,
+            initializer=JavaLiteral(value="0"),
+        )
+        condition = JavaBinaryOp(
+            left=JavaVariableRef(name=counter),
+            operator="<",
+            right=count_expr,
+        )
+        update = JavaAssignment(
+            target=counter,
+            expression=JavaBinaryOp(
+                left=JavaVariableRef(name=counter),
+                operator="+",
+                right=JavaLiteral(value="1"),
+            ),
+        )
+        body = _map_perform_body(stmt, program, call_methods, call_linkage)
+        return [JavaFor(init=init, condition=condition, update=update, body=tuple(body))]
+
+    # PERFORM A THRU B — sequential calls, no loop wrapper
+    if stmt.thru_target:
+        return [
+            JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    method_name=name.replace("-", "_"),
+                    arguments=(),
+                )
+            )
+            for name in _expand_thru_range(stmt, program)
+        ]
+
+    # UNTIL / VARYING with a condition
+    if stmt.until_condition:
+        cond_str = stmt.until_condition
+        # Out-of-line VARYING keeps the paragraph form; use the UNTIL clause.
+        upper_cond = cond_str.upper()
+        if upper_cond.startswith("VARYING"):
+            until_idx = upper_cond.find("UNTIL ")
+            if until_idx >= 0:
+                cond_str = cond_str[until_idx + len("UNTIL "):].strip()
+            else:
+                cond_str = ""
+        if cond_str:
+            condition: JavaExpression = map_cobol_condition_to_java(cond_str)
+            loop_condition = JavaUnaryOp(operator="!", operand=condition)
+            body = _map_perform_body(stmt, program, call_methods, call_linkage)
+            if stmt.test_after:
+                return [JavaDoWhile(condition=loop_condition, body=tuple(body))]
+            return [JavaWhile(condition=loop_condition, body=tuple(body))]
+
+    # Plain PERFORM paragraph (or empty inline no-op)
+    if stmt.paragraph_name:
+        return [JavaMethodCallStatement(
+            call=JavaMethodCall(
+                method_name=stmt.paragraph_name.replace("-", "_"),
+                arguments=(),
+            )
+        )]
+
+    # Inline body without a condition (degenerate) — expand body statements
+    if stmt.body:
+        result: list[JavaStatement] = []
+        for s in stmt.body:
+            result.extend(map_cobol_statement(s, program, call_methods, call_linkage))
+        return result
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -485,8 +646,15 @@ def map_cobol_program_to_java(
     Populates all Java IR structures including decision-mode metadata.
     All values are derived from COBOL IR — not invented.
     """
-    # Map fields
+    # Map fields — working-storage + LINKAGE items (linkage items become
+    # static fields so callers can sync values through them).
     fields = map_cobol_data_items_to_fields(program.working_storage)
+    if program.linkage_section:
+        existing = {f.name for f in fields}
+        for link_field in map_cobol_data_items_to_fields(program.linkage_section):
+            if link_field.name not in existing:
+                fields = fields + (link_field,)
+                existing.add(link_field.name)
 
     # Map methods from paragraphs
     methods: list[JavaMethod] = []
@@ -514,6 +682,23 @@ def map_cobol_program_to_java(
         is_static=True,
         exceptions=("Exception",),
     ))
+
+    # Business entry for LINKAGE programs: parameterless MAIN_LOGIC that
+    # operates on the static linkage fields. Callers sync-in before the
+    # call and sync-out after (BY REFERENCE only).
+    if program.linkage_section and program.paragraphs:
+        business_body: list[JavaStatement] = []
+        for stmt in program.paragraphs[0].statements:
+            business_body.extend(map_cobol_statement(stmt, program, call_methods, call_linkage))
+        methods.append(JavaMethod(
+            name="MAIN_LOGIC",
+            return_type=JavaType(basic_type=JavaBasicType.VOID),
+            parameters=(),
+            body_statements=tuple(business_body),
+            is_static=True,
+            modifiers=("public", "static"),
+            exceptions=("Exception",),
+        ))
 
     # Build class
     java_class = JavaClass(
@@ -746,8 +931,16 @@ def map_cobol_programs_to_application(
     all_transactions: dict[str, JavaTransactionBoundary] = {}
 
     program_ids = {p.program_id for p in programs}
+    # Entry-method convention:
+    #   * Callee with LINKAGE SECTION → MAIN_LOGIC (value-result through
+    #     static linkage fields; see CallStatement mapping).
+    #   * Callee without LINKAGE → first paragraph name.
     call_methods = {
-        p.program_id.upper(): (p.paragraphs[0].name.replace("-", "_") if p.paragraphs else "main")
+        p.program_id.upper(): (
+            "MAIN_LOGIC"
+            if p.linkage_section
+            else (p.paragraphs[0].name.replace("-", "_") if p.paragraphs else "main")
+        )
         for p in programs
     }
     call_linkage = {

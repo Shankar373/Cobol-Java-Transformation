@@ -441,6 +441,7 @@ class PerformStatement:
     structured_condition: Condition | None = None
     body: tuple[Statement, ...] = ()
     thru_target: str | None = None
+    test_after: bool = False  # WITH TEST AFTER → do-while; default (BEFORE) → while
 
 
 @dataclass(frozen=True)

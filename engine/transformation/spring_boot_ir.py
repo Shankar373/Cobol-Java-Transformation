@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from engine.transformation.java_ir import (
+    JavaClass,
     JavaStatement,
     JavaType,
 )
@@ -217,10 +218,26 @@ class SpringBootEntryPoint:
     """Spring Boot application entry point.
 
     The main class with @SpringBootApplication annotation.
+
+    ``selected_service`` names the single service the entry point
+    injects and invokes ("" means invoke all services).
     """
     class_name: str = "Application"
     package: str = ""  # target package
     application_name: str = ""  # from JavaApplication.application_id
+    selected_service: str = ""  # service class name to run; "" = all
+
+
+@dataclass(frozen=True)
+class SpringBootModel:
+    """Shared data model materialized from a COPYBOOK.
+
+    Data holder only — never a service, never an entry point.
+    """
+    name: str  # model class name (e.g. CommonRecord)
+    package: str = ""  # target package
+    source_copybook: str = ""  # originating copybook stem (e.g. COMMON)
+    java_class: JavaClass | None = None  # full class IR for emission
 
 
 @dataclass(frozen=True)
@@ -362,6 +379,8 @@ class SpringBootApplication:
     # Configuration
     configuration: SpringBootConfiguration | None = None
     entry_point: SpringBootEntryPoint | None = None
+    # Shared copybook models (data holders, not services)
+    models: tuple[SpringBootModel, ...] = ()
     # Dependencies
     dependencies: tuple[SpringBootDependency, ...] = ()
     # Package structure

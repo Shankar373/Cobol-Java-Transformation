@@ -761,10 +761,16 @@ public class {class_name} {{
         """Convert a Java IR statement to a Java source string."""
         from engine.transformation.java_ir import (
             JavaAssignment, JavaMethodCallStatement, JavaReturn,
-            JavaComment, JavaIf, JavaBlock,
+            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaDoWhile,
+            JavaFor, JavaLocalVarDecl,
         )
         if isinstance(stmt, JavaAssignment):
             return f"{stmt.target} = {self._expr_to_string(stmt.expression)};"
+        if isinstance(stmt, JavaLocalVarDecl):
+            init_str = ""
+            if stmt.initializer:
+                init_str = f" = {self._expr_to_string(stmt.initializer)}"
+            return f"{stmt.java_type.to_source()} {stmt.name}{init_str};"
         if isinstance(stmt, JavaMethodCallStatement):
             return self._method_call_to_string(stmt.call) + ";"
         if isinstance(stmt, JavaReturn):
@@ -787,6 +793,38 @@ public class {class_name} {{
                     lines.append(f"    {self._stmt_to_string(s)}")
             lines.append("}")
             return "\n".join(lines)
+        if isinstance(stmt, JavaWhile):
+            cond = self._expr_to_string(stmt.condition)
+            lines = [f"while ({cond}) {{"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append("}")
+            return "\n".join(lines)
+        if isinstance(stmt, JavaDoWhile):
+            cond = self._expr_to_string(stmt.condition)
+            lines = ["do {"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append(f"}} while ({cond});")
+            return "\n".join(lines)
+        if isinstance(stmt, JavaFor):
+            init_str = self._stmt_to_string(stmt.init).rstrip(";") if stmt.init else ""
+            cond_str = self._expr_to_string(stmt.condition) if stmt.condition else ""
+            update_str = self._stmt_to_string(stmt.update).rstrip(";") if stmt.update else ""
+            lines = [f"for ({init_str}; {cond_str}; {update_str}) {{"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append("}")
+            return "\n".join(lines)
         if isinstance(stmt, JavaBlock):
             return "\n".join(self._stmt_to_string(s) for s in stmt.statements)
         return ""
@@ -795,7 +833,7 @@ public class {class_name} {{
         """Convert a Java IR expression to a Java source string."""
         from engine.transformation.java_ir import (
             JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
-            JavaStringConcat,
+            JavaStringConcat, JavaUnaryOp,
         )
         if isinstance(expr, JavaLiteral):
             # String literals need quotes; numeric literals don't
@@ -817,6 +855,9 @@ public class {class_name} {{
             left = self._expr_to_string(expr.left)
             right = self._expr_to_string(expr.right)
             return f"({left} {expr.operator} {right})"
+        if isinstance(expr, JavaUnaryOp):
+            operand = self._expr_to_string(expr.operand)
+            return f"({expr.operator}{operand})"
         if isinstance(expr, JavaMethodCall):
             return self._method_call_to_string(expr)
         if isinstance(expr, JavaStringConcat):

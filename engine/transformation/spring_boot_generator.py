@@ -35,6 +35,7 @@ from engine.transformation.spring_boot_ir import (
     SpringBootDependency,
     SpringBootDependencyType,
     SpringBootEntryPoint,
+    SpringBootModel,
     SpringBootRepository,
     SpringBootRepositoryImplementation,
     SpringBootService,
@@ -78,6 +79,10 @@ class SpringBootGenerator:
         # Services
         for service in application.services:
             files.append(self._generate_service(service))
+
+        # Shared copybook models (data holders)
+        for model in application.models:
+            files.append(self._generate_model(model))
 
         # Repositories (interfaces)
         for repo in application.repositories:
@@ -231,7 +236,16 @@ class SpringBootGenerator:
         path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
 
         # Check if this is a batch program (has business logic services)
-        has_services = bool(services)
+        # When selected_service is set, only that service is injected/run.
+        if entry.selected_service:
+            run_services = tuple(
+                s for s in services if s.name == entry.selected_service
+            )
+            if not run_services:
+                run_services = tuple(services)
+        else:
+            run_services = tuple(services)
+        has_services = bool(run_services)
 
         if has_services:
             # Batch execution: inject services and execute business logic
@@ -240,7 +254,7 @@ class SpringBootGenerator:
             service_assignments = []
             service_calls = []
 
-            for i, svc in enumerate(services):
+            for i, svc in enumerate(run_services):
                 field_name = svc.name[0].lower() + svc.name[1:] if svc.name else f"service{i}"
                 service_fields.append(f"    private final {svc.name} {field_name};")
                 service_params.append(f"{svc.name} {field_name}")
@@ -262,7 +276,7 @@ class SpringBootGenerator:
                 "import org.springframework.boot.autoconfigure.SpringBootApplication;",
                 "import org.springframework.context.annotation.Bean;",
             ]
-            for svc in services:
+            for svc in run_services:
                 svc_package = svc.package if hasattr(svc, 'package') and svc.package else package
                 imports.append(f"import {svc_package}.{svc.name};")
 
@@ -424,6 +438,67 @@ public class {class_name} {{
             path=path,
         )
 
+    # ================================================================
+    # COPYBOOK MODELS
+    # ================================================================
+
+    def _generate_model(self, model: SpringBootModel) -> GeneratedFile:
+        """Generate a shared copybook model class (data holder only)."""
+        class_name = model.name
+        package = model.package or f"{model.package}"
+        if not package:
+            package = "com.generated.app.model"
+        path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
+
+        java_class = model.java_class
+        lines = [
+            f"package {package};",
+            "",
+            "/**",
+            " * Shared data model materialized from COPYBOOK.",
+            " * Auto-generated: data definition only, no business logic.",
+            " */",
+            f"public class {class_name} {{",
+        ]
+
+        if java_class is not None:
+            for field in java_class.fields:
+                init = ""
+                if field.initializer is not None:
+                    init = f" = {self._expr_to_string(field.initializer)}"
+                field_type = field.java_type.to_source() if field.java_type else "Object"
+                mods = " ".join(field.modifiers) if field.modifiers else "private"
+                lines.append(f"    {mods} {field_type} {field.name}{init};")
+            lines.append("")
+            lines.append(f"    public {class_name}() {{}}")
+            for method in java_class.methods:
+                params = ", ".join(
+                    f"{p.java_type.to_source()} {p.name}" for p in method.parameters
+                )
+                lines.append("")
+                lines.append(
+                    f"    public {method.return_type.to_source()} {method.name}({params}) {{"
+                )
+                for stmt in method.body_statements:
+                    stmt_str = self._stmt_to_string(stmt)
+                    if stmt_str:
+                        for stmt_line in stmt_str.split("\n"):
+                            lines.append(f"        {stmt_line}")
+                lines.append("    }")
+        else:
+            lines.append(f"    // TODO: fields for {class_name}")
+            lines.append("")
+            lines.append(f"    public {class_name}() {{}}")
+
+        lines.append("}")
+        source = "\n".join(lines) + "\n"
+        return GeneratedFile(
+            filename=f"{class_name}.java",
+            source_code=source,
+            class_name=class_name,
+            path=path,
+        )
+
     def _generate_method_body(self, method: SpringBootServiceMethod) -> list[str]:
         """Generate a method implementation from structured IR."""
         # Build method signature
@@ -454,8 +529,8 @@ public class {class_name} {{
         """Convert a Java IR statement to a Java source string."""
         from engine.transformation.java_ir import (
             JavaAssignment, JavaMethodCallStatement, JavaReturn,
-            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaFor,
-            JavaThrow, JavaLocalVarDecl,
+            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaDoWhile,
+            JavaFor, JavaThrow, JavaLocalVarDecl,
         )
         if isinstance(stmt, JavaAssignment):
             expr_str = self._expr_to_string(stmt.expression)
@@ -506,11 +581,21 @@ public class {class_name} {{
                         lines.append(f"    {inner_line}")
             lines.append("}")
             return "\n".join(lines)
+        if isinstance(stmt, JavaDoWhile):
+            cond = self._expr_to_string(stmt.condition)
+            lines = ["do {"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append(f"}} while ({cond});")
+            return "\n".join(lines)
         if isinstance(stmt, JavaFor):
-            init_str = self._stmt_to_string(stmt.init) if stmt.init else ""
+            init_str = self._stmt_to_string(stmt.init).rstrip(";") if stmt.init else ""
             cond_str = self._expr_to_string(stmt.condition) if stmt.condition else ""
-            update_str = self._stmt_to_string(stmt.update) if stmt.update else ""
-            lines = [f"for ({init_str} {cond_str}; {update_str}) {{"]
+            update_str = self._stmt_to_string(stmt.update).rstrip(";") if stmt.update else ""
+            lines = [f"for ({init_str}; {cond_str}; {update_str}) {{"]
             for s in stmt.body:
                 inner = self._stmt_to_string(s)
                 if inner:
