@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from engine.transformation.java_ir import (
+    JavaClass,
     JavaStatement,
     JavaType,
 )
@@ -178,6 +179,21 @@ class SpringBootAdapter:
 
 
 @dataclass(frozen=True)
+class SpringBootModel:
+    """A shared data-model component materialized from a COBOL COPYBOOK.
+
+    Carries the generated model ``JavaClass`` (data holders only: fields
+    plus accessors, no business-logic methods, no ``main``). A model is
+    NOT a service, repository, or adapter: it never becomes an executable
+    entrypoint and never appears in the service dependency graph.
+    """
+    name: str  # model class name (e.g. "CommonRecord")
+    package: str = ""  # target package (e.g. "com.generated.app.model")
+    source_copybook: str = ""  # originating COPYBOOK name (upper-cased stem)
+    java_class: JavaClass | None = None  # data-holder class IR
+
+
+@dataclass(frozen=True)
 class SpringBootTransactionBoundary:
     """A Spring Boot transaction boundary.
 
@@ -221,6 +237,10 @@ class SpringBootEntryPoint:
     class_name: str = "Application"
     package: str = ""  # target package
     application_name: str = ""  # from JavaApplication.application_id
+    # Selected service executed by the runner. Empty means legacy behaviour
+    # (invoke every service's first method). When set to a known service,
+    # the runner invokes ONLY that service; callees run via service calls.
+    selected_service: str = ""
 
 
 @dataclass(frozen=True)
@@ -355,6 +375,9 @@ class SpringBootApplication:
     services: tuple[SpringBootService, ...] = ()
     repositories: tuple[SpringBootRepository, ...] = ()
     adapters: tuple[SpringBootAdapter, ...] = ()
+    # Shared copybook data models (M7). Data holders only — never services,
+    # never entrypoints. Defaults to empty: existing callers are unaffected.
+    models: tuple[SpringBootModel, ...] = ()
     transaction_boundaries: tuple[SpringBootTransactionBoundary, ...] = ()
     # Implementations (derived from repositories/adapters + strategy)
     repository_implementations: tuple[SpringBootRepositoryImplementation, ...] = ()
@@ -438,6 +461,18 @@ class SpringBootApplication:
             if a.name in seen_names:
                 errors.append(f"Duplicate adapter name: {a.name}")
             seen_names.add(a.name)
+        for m in self.models:
+            if m.name in seen_names:
+                errors.append(f"Duplicate model name: {m.name}")
+            seen_names.add(m.name)
+
+        # Models must be data holders, never executable components.
+        for m in self.models:
+            if m.java_class is not None and any(
+                method.name.lower() == "main"
+                for method in m.java_class.methods
+            ):
+                errors.append(f"Model must not define main: {m.name}")
 
         # Check for unresolved service dependencies
         service_names = {s.name for s in self.services}

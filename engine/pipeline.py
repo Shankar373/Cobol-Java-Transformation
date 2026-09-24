@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,8 +77,13 @@ class PipelineConfig:
     java_candidate_path: str
     java_entrypoint: str
     workload: WorkloadDefinition | None = None
-    oracle_image: str = "gnucobol-ocesql:latest"
-    oracle_digest: str = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+    oracle_image: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_IMAGE", "gnucobol-ocesql:latest"
+    )
+    oracle_digest: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_DIGEST",
+        "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+    )
     oracle_compiler_version: str = "3.1.2.0"
     javac_path: str = "javac"
     java_path: str = "java"
@@ -393,7 +400,18 @@ class VerticalSlicePipeline:
                 files[source.name] = source.read_bytes()
         return files if files else None
 
-    def run(self, controlled_input: bytes | None = None) -> PipelineResult:
+    def run(
+        self,
+        controlled_input: bytes | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> PipelineResult:
+        """Run the full validation pipeline.
+
+        The optional progress callback receives phase names
+        (EXECUTING_ORACLE, BUILDING, EXECUTING_GENERATED, COMPARING,
+        VALIDATING_EVIDENCE) as each phase STARTS. It changes nothing
+        about execution, comparison, evidence, or verdict semantics.
+        """
         run_id = RunId(value=f"run-{self._config.workload_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
         workload_id = WorkloadId(value=self._config.workload_id)
 
@@ -401,6 +419,8 @@ class VerticalSlicePipeline:
 
         input_files = self._load_input_files()
 
+        if progress is not None:
+            progress("EXECUTING_ORACLE")
         oracle_result = self._oracle_adapter.execute(
             run_id=run_id,
             source_path=self._config.cobol_source_path,
@@ -411,6 +431,8 @@ class VerticalSlicePipeline:
 
         candidate_identity = self._compute_candidate_identity(source_identity.source_hash)
 
+        if progress is not None:
+            progress("BUILDING")
         compilation = self._candidate_adapter.compile(
             candidate_path=self._config.java_candidate_path,
             manifest=self._build_candidate_manifest(source_identity.source_hash),
@@ -423,6 +445,8 @@ class VerticalSlicePipeline:
                     class_file.parent.mkdir(parents=True, exist_ok=True)
                     class_file.write_bytes(bytecode)
 
+                if progress is not None:
+                    progress("EXECUTING_GENERATED")
                 candidate_result = self._candidate_adapter.execute(
                     run_id=run_id,
                     compiled_path=tmpdir,
@@ -447,6 +471,8 @@ class VerticalSlicePipeline:
 
         candidate_evidence = candidate_result.to_execution_evidence()
 
+        if progress is not None:
+            progress("COMPARING")
         if self._config.workload is not None:
             artifact_evidence, comparison_evidence, _, _ = self._run_declaration_driven(
                 run_id, workload_id, oracle_result, candidate_result,
@@ -478,6 +504,8 @@ class VerticalSlicePipeline:
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation
+        if progress is not None:
+            progress("VALIDATING_EVIDENCE")
         validation_result = self._integrity_validator.validate(manifest)
         if isinstance(validation_result, list):
             # Trust boundary violated — untrusted evidence cannot produce VERIFIED
