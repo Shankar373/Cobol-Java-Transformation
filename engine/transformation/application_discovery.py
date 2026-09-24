@@ -203,12 +203,13 @@ class ApplicationDiscovery:
                 args_str = using_match.group(1).strip()
                 arguments = tuple(args_str.split())
 
+            is_literal = bool(match.group(1) or match.group(2))
             calls.append(ProgramCall(
                 caller=caller_id,
                 target=target,
                 arguments=arguments,
-                call_type="STATIC",
-                resolution="UNRESOLVED",  # Will be resolved later
+                call_type="STATIC" if is_literal else "DYNAMIC",
+                resolution="UNRESOLVED",
             ))
 
         return calls

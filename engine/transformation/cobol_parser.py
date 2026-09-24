@@ -561,9 +561,6 @@ class CobolParser:
 
             if "PROCEDURE DIVISION" in upper:
                 in_procedure = True
-                if current_paragraph is None:
-                    current_paragraph = "MAIN"
-                    current_statements = []
                 i += 1
                 continue
 
@@ -590,7 +587,13 @@ class CobolParser:
                 i += 1
                 continue
 
-            # Parse statements within the current paragraph
+            # Parse statements within the current paragraph. If the source
+            # has no named paragraph, create one only when the first real
+            # statement is encountered; this avoids an empty synthetic
+            # paragraph before a normal named paragraph.
+            if current_paragraph is None:
+                current_paragraph = "MAIN"
+                current_statements = []
             if current_paragraph:
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:

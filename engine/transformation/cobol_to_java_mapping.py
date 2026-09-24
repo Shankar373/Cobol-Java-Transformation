@@ -182,70 +182,37 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
 
 
 def map_cobol_condition_to_java(condition: str) -> JavaExpression:
-    """Map a COBOL condition string to a Java expression.
-
-    Converts COBOL condition syntax to Java boolean expression.
-    Returns a JavaBinaryOp for simple conditions, or JavaLiteral for complex ones.
-    """
-    condition = condition.strip()
-
-    # Handle IS/IS NOT
-    condition = condition.replace(" IS NOT ", " != ")
-    condition = condition.replace(" IS ", " == ")
-
-    # Handle = <>
-    condition = condition.replace(" <> ", " != ")
-    # Handle bare = (but not ==)
+    """Map COBOL conditions to structured Java expressions without mangling >= or <=."""
     import re as _re
-    condition = _re.sub(r'(?<!=)=(?!=)', ' == ', condition)
+    text = condition.strip()
+    text = _re.sub(r"\bNOT\s+", "!", text)
+    text = text.replace(" AND ", " && ").replace(" OR ", " || ")
+    text = _re.sub(r"<>", "!=", text)
+    text = _re.sub(r"(?<![<>=!])=(?!=)", "==", text)
 
-    # Handle AND/OR
-    condition = condition.replace(" AND ", " && ")
-    condition = condition.replace(" OR ", " || ")
+    # Single simple comparison, including quoted strings.
+    match = _re.fullmatch(r"([\w-]+)\s*(==|!=|>=|<=|>|<)\s*(.+)", text)
+    if match:
+        left_name, op, right = match.groups()
+        left = JavaVariableRef(name=left_name.replace("-", "_"))
+        right = right.strip()
+        if (right.startswith("'") and right.endswith("'")) or (right.startswith('"') and right.endswith('"')):
+            return JavaBinaryOp(
+                left=left, operator=op,
+                right=JavaLiteral(value=right[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING)),
+            )
+        if _re.fullmatch(r"-?\d+(?:\.\d+)?", right):
+            return JavaBinaryOp(left=left, operator=op, right=JavaLiteral(value=right))
+        return JavaBinaryOp(left=left, operator=op, right=JavaVariableRef(name=right.replace("-", "_")))
 
-    # Handle NOT
-    condition = condition.replace("NOT ", "!")
+    # Complex expressions remain structured enough for the Java renderer via
+    # a raw boolean Java literal. Quote COBOL string literals correctly.
+    rendered = text
+    rendered = _re.sub(r"'([^']*)'", lambda mm: '"' + mm.group(1).replace('"', '\\\"') + '"', rendered)
+    rendered = _re.sub(r'\b([A-Za-z_][A-Za-z0-9-]*)\b', lambda mm: mm.group(1).replace("-", "_")
+                       if mm.group(1) not in {"AND","OR","NOT"} else mm.group(1), rendered)
+    return JavaLiteral(value=rendered)
 
-    # Convert field references
-    parts = condition.split()
-    result_parts = []
-    for part in parts:
-        if part in ("==", "!=", "&&", "||", "(", ")", "!", ">=", "<=", ">", "<"):
-            result_parts.append(part)
-        elif part.startswith("'") or part.startswith('"'):
-            result_parts.append(part)
-        elif part.replace(".", "").replace("-", "").isdigit():
-            result_parts.append(part)
-        else:
-            result_parts.append(part.replace("-", "_"))
-
-    condition_str = " ".join(result_parts)
-
-    # Try to parse simple binary conditions: left OP right
-    binary_match = _re.match(
-        r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$',
-        condition_str,
-    )
-    if binary_match:
-        left_name = binary_match.group(1)
-        op = binary_match.group(2)
-        right_str = binary_match.group(3)
-
-        left_expr: JavaExpression
-        if left_name.replace(".", "").replace("-", "").isdigit():
-            left_expr = JavaLiteral(value=left_name)
-        else:
-            left_expr = JavaVariableRef(name=left_name)
-
-        right_expr: JavaExpression
-        if right_str.replace(".", "").replace("-", "").isdigit():
-            right_expr = JavaLiteral(value=right_str)
-        else:
-            right_expr = JavaVariableRef(name=right_str)
-
-        return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
-
-    return JavaLiteral(value=condition_str)
 
 
 def map_cobol_statement(
@@ -403,7 +370,7 @@ def map_cobol_statement(
             then_body.extend(map_cobol_statement(s, program, call_methods, call_linkage))
         else_body = []
         for s in stmt.else_body:
-            else_body.extend(map_cobol_statement(s, program))
+            else_body.extend(map_cobol_statement(s, program, call_methods, call_linkage))
         result.append(JavaIf(
             condition=condition,
             then_body=tuple(then_body),
@@ -421,7 +388,7 @@ def map_cobol_statement(
         # READ → loop structure (handled at higher level)
         body = []
         for s in stmt.not_at_end_body:
-            body.extend(map_cobol_statement(s, program))
+            body.extend(map_cobol_statement(s, program, call_methods, call_linkage))
         if body:
             result.append(JavaBlock(statements=tuple(body)))
 
@@ -490,6 +457,8 @@ def map_cobol_data_items_to_fields(
 def map_cobol_paragraph_to_method(
     para: Paragraph,
     program: CobolProgram,
+    call_methods: dict[str, str] | None = None,
+    call_linkage: dict[str, tuple[str, ...]] | None = None,
 ) -> JavaMethod:
     """Map a COBOL paragraph to a Java method."""
     body_stmts: list[JavaStatement] = []
@@ -522,7 +491,7 @@ def map_cobol_program_to_java(
     # Map methods from paragraphs
     methods: list[JavaMethod] = []
     for para in program.paragraphs:
-        methods.append(map_cobol_paragraph_to_method(para, program))
+        methods.append(map_cobol_paragraph_to_method(para, program, call_methods, call_linkage))
 
     # Add main method
     main_body: list[JavaStatement] = []

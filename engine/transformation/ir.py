@@ -346,9 +346,9 @@ class MoveStatement:
     """MOVE source TO one or more targets."""
     source: str
     target: str
-    targets: tuple[str, ...] = ()
     source_expr: Expression | None = None
     target_ref: FieldReference | None = None
+    targets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -808,13 +808,12 @@ class CobolProgram:
     match_outcome_labels: tuple[str, ...] = ()
     summary_fields: tuple[str, ...] = ()
     report_header: str = ""
-    # Linkage / procedure interface
-    linkage_section: tuple[DataItem, ...] = ()
-    using_parameters: tuple[str, ...] = ()
     # Dependency information
     called_programs: tuple[str, ...] = ()
     copybooks: tuple[str, ...] = ()  # COPY references
     entry_points: tuple[str, ...] = ()  # ENTRY statements
+    linkage_section: tuple[DataItem, ...] = ()
+    using_parameters: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
