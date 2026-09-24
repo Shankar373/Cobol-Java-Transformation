@@ -15,6 +15,7 @@ from engine.transformation.ir import (
     MoveStatement,
     OpenStatement,
     Paragraph,
+    PerformStatement,
     PicType,
     ReadStatement,
     StopRunStatement,
