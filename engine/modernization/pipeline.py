@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityReport
+from engine.modernization.completeness_gate import evaluate_verification_readiness
 from engine.modernization.transformation_plan import (
     TransformationPlan,
     TransformationPlanGenerator,
@@ -45,6 +46,8 @@ class ModernizationConfig:
     application_id: str = ""
     entrypoint: str = ""
     docker_available: bool = True
+    allow_partial: bool = False
+    enforce_readiness: bool = True
 
 
 @dataclass
@@ -68,6 +71,8 @@ class ModernizationReport:
     # Capability analysis
     capability_report: CapabilityReport | None = None
     overall_capability: str = ""
+    verification_readiness: str = ""
+    readiness_reasons: tuple[str, ...] = ()
 
     # Transformation plan
     transformation_plan: TransformationPlan | None = None
@@ -100,6 +105,8 @@ class ModernizationReport:
                 "dependency_edges": self.dependency_edges,
             },
             "capability": self.capability_report.to_dict() if self.capability_report else {},
+            "verification_readiness": self.verification_readiness,
+            "readiness_reasons": list(self.readiness_reasons),
             "plan": self.transformation_plan.to_dict() if self.transformation_plan else {},
             "transformation": {
                 "success": self.generation_success,
@@ -221,6 +228,22 @@ class UniversalModernizationPipeline:
         capability_report = self._capability_analyzer.analyze(application)
         report.capability_report = capability_report
         report.overall_capability = capability_report.overall_level.value
+
+        # Fail closed before transformation. Unsupported, unavailable, and
+        # partial capabilities cannot silently become a "complete" artifact.
+        readiness = evaluate_verification_readiness(
+            capability_report,
+            allow_partial=self._config.allow_partial,
+        )
+        report.verification_readiness = readiness.readiness.value
+        report.readiness_reasons = readiness.reasons
+        if self._config.enforce_readiness and not readiness.ready:
+            report.limitations = readiness.reasons
+            report.recommendations = (
+                "Resolve blocked capabilities or explicitly enable exploratory partial mode",
+            )
+            return report
+
         if progress:
             progress("ANALYSIS_COMPLETED")
 
