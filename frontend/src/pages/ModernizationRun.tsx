@@ -62,6 +62,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
   const [pollFailures, setPollFailures] = useState(0);
   const [pollError, setPollError] = useState<string | null>(null);
   const pollFailuresRef = useRef(0);
+  const runError = run && typeof run.error === 'string' ? run.error : null;
 
   // Discovery is independent of run stage: fetch it as soon as the page
   // loads so programs/dependencies render whenever the API provides them
@@ -388,12 +389,12 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       </SectionCard>
 
       {/* Error — terminal failure explanation with run context */}
-      {typeof run.error === 'string' && run.error.length > 0 && (
+      {runError !== null && runError.length > 0 && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Error">
             <p style={{ color: tokens.colors.error, fontSize: tokens.font.sizes.sm, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-              {run.error}
+              {runError}
             </p>
             <p style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>
               Run ID: {run.id} \u2022 Application: {run.application_id}
