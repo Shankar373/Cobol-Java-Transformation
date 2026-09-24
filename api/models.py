@@ -203,6 +203,7 @@ class DiscoveryResponse(BaseModel):
     file_dependencies: list[dict]
     call_dependencies: list[dict]
     dependency_edges: list[dict]
+    diagnostics: list[dict] = Field(default_factory=list)
     source_file_count: int
     total_size_bytes: int
 
