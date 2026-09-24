@@ -52,6 +52,7 @@ class DiscoveryResult:
     file_dependencies: list[dict] = field(default_factory=list)
     call_dependencies: list[dict] = field(default_factory=list)
     dependency_edges: list[dict] = field(default_factory=list)
+    diagnostics: list[dict] = field(default_factory=list)
     source_file_count: int = 0
     total_size_bytes: int = 0
 
@@ -64,20 +65,14 @@ class DiscoveryResult:
             "file_dependencies": self.file_dependencies,
             "call_dependencies": self.call_dependencies,
             "dependency_edges": self.dependency_edges,
+            "diagnostics": self.diagnostics,
             "source_file_count": self.source_file_count,
             "total_size_bytes": self.total_size_bytes,
         }
 
 
 def ingest_zip(data: bytes, application_id: str) -> Path:
-    """Extract a ZIP archive into an isolated workspace directory.
-
-    Returns the workspace path containing the extracted source tree.
-    Preserves the original directory structure from the ZIP.
-
-    Security: extraction is path-traversal safe (Zip Slip protected), rejects
-    absolute paths and symlink entries, and enforces archive entry/size limits.
-    """
+    """Extract a ZIP archive into an isolated workspace directory."""
     if len(data) > MAX_ZIP_ARCHIVE_BYTES:
         raise IngestionError(
             f"ZIP archive exceeds size limit of {MAX_ZIP_ARCHIVE_BYTES} bytes"
@@ -96,9 +91,7 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
             total_size = 0
             for info in members:
                 if _is_traversal(info.filename):
-                    raise IngestionError(
-                        f"Unsafe ZIP entry path: {info.filename!r}"
-                    )
+                    raise IngestionError(f"Unsafe ZIP entry path: {info.filename!r}")
                 if _is_symlink(info):
                     raise IngestionError(
                         f"Symlink ZIP entries are not allowed: {info.filename!r}"
@@ -139,11 +132,7 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
 
 
 def discover_application(workspace: Path, application_id: str) -> DiscoveryResult:
-    """Run application discovery on an imported workspace.
-
-    Uses ApplicationDiscovery for COBOL programs and JclDiscovery for JCL.
-    Returns a structured DiscoveryResult with all discovered artifacts.
-    """
+    """Run application discovery without hiding partial/failed discovery."""
     from engine.transformation.application_discovery import ApplicationDiscovery
     from engine.transformation.jcl_discovery import JclDiscovery
 
@@ -154,13 +143,12 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
             result.total_size_bytes += f.stat().st_size
             result.source_file_count += 1
 
-    # Discover COBOL programs
     try:
         cobol_discovery = ApplicationDiscovery()
         cobol_app = cobol_discovery.discover(str(workspace), application_id=application_id)
 
         for unit in cobol_app.programs:
-            prog_info = {
+            result.cobol_programs.append({
                 "program_id": unit.program_id,
                 "source_path": unit.source_path,
                 "file_dependencies": [
@@ -173,8 +161,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                 ],
                 "copybooks": [cb.copybook_name for cb in unit.copybooks],
                 "entry_points": list(unit.entry_points),
-            }
-            result.cobol_programs.append(prog_info)
+            })
 
             for fd in unit.file_dependencies:
                 result.file_dependencies.append({
@@ -190,23 +177,27 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                 })
 
         result.copybooks = list(cobol_app.copybooks)
-
-        for edge in cobol_app.edges:
-            result.dependency_edges.append({
+        result.dependency_edges.extend(
+            {
                 "source": edge.source,
                 "target": edge.target,
                 "edge_type": edge.edge_type,
-            })
-    except Exception:
-        pass
+            }
+            for edge in cobol_app.edges
+        )
+    except Exception as exc:
+        result.diagnostics.append({
+            "component": "COBOL_DISCOVERY",
+            "level": "ERROR",
+            "message": str(exc),
+        })
 
-    # Discover JCL
     try:
         jcl_discovery = JclDiscovery()
         jcl_app = jcl_discovery.discover(str(workspace))
 
         for job in jcl_app.jobs:
-            job_info = {
+            result.jcl_jobs.append({
                 "name": job.name,
                 "steps": [
                     {
@@ -216,23 +207,28 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                     }
                     for step in job.steps
                 ],
-            }
-            result.jcl_jobs.append(job_info)
+            })
 
-        # Link JCL with COBOL if both exist
         if result.cobol_programs:
-            from engine.transformation.ir import CobolApplication
             cobol_discovery2 = ApplicationDiscovery()
-            cobol_app2 = cobol_discovery2.discover(str(workspace), application_id=application_id)
+            cobol_app2 = cobol_discovery2.discover(
+                str(workspace), application_id=application_id
+            )
             jcl_app = jcl_discovery.link_with_cobol(jcl_app, cobol_app2)
 
-            for dep in jcl_app.dependencies:
-                result.dependency_edges.append({
+            result.dependency_edges.extend(
+                {
                     "source": dep.source,
                     "target": dep.target,
                     "edge_type": dep.dependency_type,
-                })
-    except Exception:
-        pass
+                }
+                for dep in jcl_app.dependencies
+            )
+    except Exception as exc:
+        result.diagnostics.append({
+            "component": "JCL_DISCOVERY",
+            "level": "ERROR",
+            "message": str(exc),
+        })
 
     return result
