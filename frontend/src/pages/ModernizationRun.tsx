@@ -240,6 +240,13 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
     (m) => m !== run.stage && m !== (run.error ?? '\0'),
   );
 
+  const showCapabilityReport = !!report?.report?.capability_report;
+  const showTransformationPlan = !!report?.report?.transformation_plan;
+  const reportLimitations = report?.report?.limitations;
+  const showLimitations = Array.isArray(reportLimitations) && reportLimitations.length > 0;
+  const reportRecommendations = report?.report?.recommendations;
+  const showRecommendations = Array.isArray(reportRecommendations) && reportRecommendations.length > 0;
+
   return (
     <PageContainer
       title={appName}
@@ -605,7 +612,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Capability Analysis — from universal pipeline report */}
-      {report?.report?.capability_report && (
+      {showCapabilityReport && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Capability Analysis">
@@ -627,7 +634,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Transformation Plan — from universal pipeline report */}
-      {report?.report?.transformation_plan && (
+      {showTransformationPlan && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Transformation Plan">
@@ -658,12 +665,12 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Limitations — from universal pipeline report */}
-      {report?.report?.limitations && Array.isArray(report.report.limitations) && (report.report.limitations as unknown[]).length > 0 && (
+      {showLimitations && (
         <>
           <div style={{ height: tokens.spacing.md }} />
-          <SectionCard title="Limitations" count={(report.report.limitations as unknown[]).length}>
+          <SectionCard title="Limitations" count={(reportLimitations as unknown[]).length}>
             <ul style={{ margin: 0, paddingLeft: 20, fontSize: tokens.font.sizes.sm }}>
-              {(report.report.limitations as string[]).map((lim, i) => (
+              {(reportLimitations as string[]).map((lim, i) => (
                 <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{String(lim)}</li>
               ))}
             </ul>
@@ -672,12 +679,12 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Recommendations — from universal pipeline report */}
-      {report?.report?.recommendations && Array.isArray(report.report.recommendations) && (report.report.recommendations as unknown[]).length > 0 && (
+      {showRecommendations && (
         <>
           <div style={{ height: tokens.spacing.md }} />
-          <SectionCard title="Recommendations" count={(report.report.recommendations as unknown[]).length}>
+          <SectionCard title="Recommendations" count={(reportRecommendations as unknown[]).length}>
             <ul style={{ margin: 0, paddingLeft: 20, fontSize: tokens.font.sizes.sm }}>
-              {(report.report.recommendations as string[]).map((rec, i) => (
+              {(reportRecommendations as string[]).map((rec, i) => (
                 <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{String(rec)}</li>
               ))}
             </ul>
