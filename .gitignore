@@ -337,6 +337,8 @@ kubeconfig
 # Database
 *.dump
 *.sql
+# Managed workload fixtures must be tracked despite the *.sql ignore above.
+!fixtures/**/*.sql
 
 # Logs
 *.log

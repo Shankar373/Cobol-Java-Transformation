@@ -77,8 +77,28 @@ class SpringBootGenerator:
             files.append(self._generate_entry_point(application.entry_point, application.services))
 
         # Services
+        service_files: list[GeneratedFile] = []
         for service in application.services:
-            files.append(self._generate_service(service))
+            service_files.append(self._generate_service(service))
+        files.extend(service_files)
+
+        # File I/O support class: emitted when a generated service performs
+        # COBOL file operations (detected by "CobolFileIo." references).
+        emitted_cobol_file_io = False
+        for service, service_file in zip(application.services, service_files):
+            if emitted_cobol_file_io:
+                break
+            if "CobolFileIo." in service_file.source_code:
+                from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolFileIo.java"
+                files.append(GeneratedFile(
+                    filename="CobolFileIo.java",
+                    source_code=f"package {package};\n\n{COBOL_FILE_IO_JAVA}\n",
+                    class_name="CobolFileIo",
+                    path=path,
+                ))
+                emitted_cobol_file_io = True
 
         # Shared copybook models (data holders)
         for model in application.models:
@@ -99,6 +119,10 @@ class SpringBootGenerator:
         # Adapter implementations
         for impl in application.adapter_implementations:
             files.append(self._generate_adapter_implementation(impl))
+
+        # Shared copybook data models (M7): data holders only.
+        for model in application.models:
+            files.append(self._generate_model(model))
 
         # Configuration
         if application.configuration:
@@ -235,17 +259,19 @@ class SpringBootGenerator:
         package = entry.package
         path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
 
+        # Selected-service execution: the runner invokes ONLY the requested
+        # entry service; callees run through service calls. Unknown/empty
+        # selection keeps the legacy invoke-every-service behaviour.
+        selected = (entry.selected_service or "").strip()
+        known = {svc.name for svc in services}
+        active = (
+            tuple(svc for svc in services if svc.name == selected)
+            if selected and selected in known
+            else tuple(services)
+        )
+
         # Check if this is a batch program (has business logic services)
-        # When selected_service is set, only that service is injected/run.
-        if entry.selected_service:
-            run_services = tuple(
-                s for s in services if s.name == entry.selected_service
-            )
-            if not run_services:
-                run_services = tuple(services)
-        else:
-            run_services = tuple(services)
-        has_services = bool(run_services)
+        has_services = bool(active)
 
         if has_services:
             # Batch execution: inject services and execute business logic
@@ -254,12 +280,12 @@ class SpringBootGenerator:
             service_assignments = []
             service_calls = []
 
-            for i, svc in enumerate(run_services):
+            for i, svc in enumerate(active):
                 field_name = svc.name[0].lower() + svc.name[1:] if svc.name else f"service{i}"
                 service_fields.append(f"    private final {svc.name} {field_name};")
                 service_params.append(f"{svc.name} {field_name}")
                 service_assignments.append(f"        this.{field_name} = {field_name};")
-                # Call the first method of each service
+                # Call the first method of each active service
                 if svc.methods:
                     method = svc.methods[0]
                     params = ", ".join(f"new {ptype.to_source()}()" if hasattr(ptype, 'to_source') else str(ptype) for ptype, pname in method.parameters)
@@ -276,7 +302,7 @@ class SpringBootGenerator:
                 "import org.springframework.boot.autoconfigure.SpringBootApplication;",
                 "import org.springframework.context.annotation.Bean;",
             ]
-            for svc in run_services:
+            for svc in active:
                 svc_package = svc.package if hasattr(svc, 'package') and svc.package else package
                 imports.append(f"import {svc_package}.{svc.name};")
 
@@ -442,59 +468,62 @@ public class {class_name} {{
     # COPYBOOK MODELS
     # ================================================================
 
-    def _generate_model(self, model: SpringBootModel) -> GeneratedFile:
-        """Generate a shared copybook model class (data holder only)."""
-        class_name = model.name
-        package = model.package or f"{model.package}"
-        if not package:
-            package = "com.generated.app.model"
-        path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
+    def _generate_model(self, model) -> GeneratedFile:
+        """Generate a shared copybook model class (M7 data holder).
 
-        java_class = model.java_class
+        Consumes only the model's ``JavaClass`` IR via the existing
+        statement/expression renderers. Emits fields, a default
+        constructor, and accessors — never business logic, never ``main``.
+        A model without class IR renders its shell so the canonical path
+        still exists.
+        """
+        from engine.transformation.spring_boot_ir import SpringBootModel
+
+        assert isinstance(model, SpringBootModel)
+        cls = model.java_class
+        package = model.package
+        class_name = model.name
+        fields = tuple(cls.fields) if cls is not None else ()
+        methods = tuple(cls.methods) if cls is not None else ()
         lines = [
             f"package {package};",
             "",
             "/**",
-            " * Shared data model materialized from COPYBOOK.",
+            f" * Shared data model materialized from COPYBOOK {model.source_copybook}.",
             " * Auto-generated: data definition only, no business logic.",
             " */",
             f"public class {class_name} {{",
         ]
+        for field in fields:
+            init_val = ""
+            if field.initializer:
+                init_val = f" = {self._expr_to_string(field.initializer)}"
+            field_type = field.java_type.to_source() if field.java_type else "Object"
+            lines.append(f"    private {field_type} {field.name}{init_val};")
+        lines.append("")
+        lines.append(f"    public {class_name}() {{}}")
 
-        if java_class is not None:
-            for field in java_class.fields:
-                init = ""
-                if field.initializer is not None:
-                    init = f" = {self._expr_to_string(field.initializer)}"
-                field_type = field.java_type.to_source() if field.java_type else "Object"
-                mods = " ".join(field.modifiers) if field.modifiers else "private"
-                lines.append(f"    {mods} {field_type} {field.name}{init};")
+        for method in methods:
             lines.append("")
-            lines.append(f"    public {class_name}() {{}}")
-            for method in java_class.methods:
-                params = ", ".join(
-                    f"{p.java_type.to_source()} {p.name}" for p in method.parameters
-                )
-                lines.append("")
-                lines.append(
-                    f"    public {method.return_type.to_source()} {method.name}({params}) {{"
-                )
-                for stmt in method.body_statements:
-                    stmt_str = self._stmt_to_string(stmt)
-                    if stmt_str:
-                        for stmt_line in stmt_str.split("\n"):
-                            lines.append(f"        {stmt_line}")
-                lines.append("    }")
-        else:
-            lines.append(f"    // TODO: fields for {class_name}")
-            lines.append("")
-            lines.append(f"    public {class_name}() {{}}")
+            lines.extend(self._generate_method_body(SpringBootServiceMethod(
+                name=method.name,
+                return_type=method.return_type,
+                parameters=tuple(
+                    (p.java_type, p.name) for p in method.parameters
+                ),
+                body_statements=method.body_statements,
+                is_static=False,
+                exceptions=method.exceptions,
+            )))
 
-        lines.append("}")
-        source = "\n".join(lines) + "\n"
+        lines.extend([
+            "",
+            "}",
+        ])
+        path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
         return GeneratedFile(
             filename=f"{class_name}.java",
-            source_code=source,
+            source_code="\n".join(lines),
             class_name=class_name,
             path=path,
         )
@@ -615,6 +644,10 @@ public class {class_name} {{
             JavaTernary,
         )
         if isinstance(expr, JavaLiteral):
+            if expr.value == "null" and not expr.java_type:
+                return "null"
+            if expr.value in ("true", "false") and not expr.java_type:
+                return expr.value
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
                 return f'"{expr.value}"'
@@ -632,6 +665,19 @@ public class {class_name} {{
             return f"({left} {expr.operator} {right})"
         if isinstance(expr, JavaUnaryOp):
             operand = self._expr_to_string(expr.operand)
+            if any(op in operand for op in ("==", "!=", "&&", "||", ">=", "<=", "<", ">")):
+                depth = 0
+                grouped = False
+                for i, ch in enumerate(operand):
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                        if depth == 0:
+                            grouped = i == len(operand) - 1
+                            break
+                if not grouped:
+                    operand = f"({operand})"
             return f"({expr.operator}{operand})"
         if isinstance(expr, JavaMethodCall):
             return self._method_call_to_string(expr)

@@ -303,14 +303,31 @@ class OpenStatement:
 
 
 @dataclass(frozen=True)
+class CloseStatement:
+    """CLOSE file."""
+    file_name: str
+
+
+@dataclass(frozen=True)
 class ReadStatement:
     """READ file AT END / NOT AT END / INVALID KEY / NOT INVALID KEY."""
     file_name: str
     record_name: str
     key: str = ""  # READ with key for indexed/relative
     into_field: str = ""  # READ INTO field
+    read_next: bool = False  # READ NEXT RECORD
     at_end_body: tuple[Statement, ...] = ()
     not_at_end_body: tuple[Statement, ...] = ()
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class StartStatement:
+    """START file KEY IS [relational-operator] key."""
+    file_name: str
+    key: str = ""
+    operator: str = ""  # "=", "<", "<=", ">", ">="
     invalid_key_body: tuple[Statement, ...] = ()
     not_invalid_key_body: tuple[Statement, ...] = ()
 
@@ -321,6 +338,8 @@ class WriteStatement:
     record_name: str
     file_name: str
     from_field: str = ""  # WRITE FROM field
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -361,6 +380,7 @@ class AddStatement:
     target: str
     source_expr: Expression | None = None  # structured source expression
     target_ref: FieldReference | None = None  # structured target reference
+    giving_target: str | None = None  # ADD ... GIVING result
 
 
 @dataclass(frozen=True)
@@ -372,6 +392,7 @@ class SubtractStatement:
     source_expr: Expression | None = None
     from_ref: FieldReference | None = None
     to_ref: FieldReference | None = None
+    sources: tuple[str, ...] = ()  # multi-source SUBTRACT A B C FROM D
 
 
 @dataclass(frozen=True)
@@ -505,7 +526,9 @@ class StopRunStatement:
 # Union type for all statements
 Statement = (
     OpenStatement
+    | CloseStatement
     | ReadStatement
+    | StartStatement
     | WriteStatement
     | RewriteStatement
     | DeleteStatement
