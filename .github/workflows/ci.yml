@@ -44,7 +44,17 @@ jobs:
       - name: Build project Maven image
         run: docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:latest .
       - name: Pull pinned Java execution image
-        run: docker pull eclipse-temurin:21-jdk
+        run: |
+          RUNTIME_DIGEST="$(python -c 'from engine.candidate.docker_spring_boot_adapter import DockerSpringBootConfig; print(DockerSpringBootConfig().runtime_digest)')"
+          docker pull "$RUNTIME_DIGEST"
+          docker tag "$RUNTIME_DIGEST" eclipse-temurin:21-jdk
+      - name: Record Docker image provenance
+        run: |
+          mkdir -p test-artifacts
+          python scripts/record_docker_image_provenance.py \
+            --build-image maven-offline-springboot:latest \
+            --runtime-image eclipse-temurin:21-jdk \
+            --output test-artifacts/docker-image-provenance.json
       - name: Record Docker image evidence
         run: |
           mkdir -p test-artifacts

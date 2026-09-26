@@ -28,6 +28,7 @@ from engine.candidate.docker_spring_boot_adapter import (
     DockerSpringBootCandidateAdapter,
     DockerSpringBootConfig,
 )
+from engine.candidate.image_provenance import load_adapter_provenance
 from engine.contracts.models import NormalizationPolicy, OrderingPolicy
 from engine.domain.identities import (
     AdapterStatus,
@@ -188,16 +189,21 @@ class TestAdapterAvailability:
         assert adapter.status == AdapterStatus.AVAILABLE
 
     def test_build_digest_verified(self):
-        """Build image digest matches configured value."""
+        """Build image identity matches the provisioned immutable identity."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.build_resolved_digest
-        assert adapter.build_resolved_digest == DockerSpringBootConfig().build_digest
+        provenance = load_adapter_provenance()
+        assert provenance.validate() == []
+        assert "sha256:" in adapter.build_identity
+        assert adapter.build_identity == provenance.build_identity
+        assert adapter.build_identity_kind == provenance.build_identity_kind
 
     def test_runtime_digest_verified(self):
         """Runtime image digest matches configured value."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.runtime_resolved_digest
-        assert adapter.runtime_resolved_digest == DockerSpringBootConfig().runtime_digest
+        provenance = load_adapter_provenance()
+        assert provenance.runtime_identity == DockerSpringBootConfig().runtime_digest
+        assert "sha256:" in adapter.runtime_identity
+        assert adapter.runtime_identity == DockerSpringBootConfig().runtime_digest
 
 
 # ============================================================

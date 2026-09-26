@@ -17,6 +17,11 @@ Security model:
 - Resource limits for execution
 - Read-only JAR mount for execution
 - Hard timeout with explicit termination/cleanup lifecycle
+- Fail-closed immutable image provenance:
+  - registry RepoDigest takes precedence when Docker reports one;
+  - locally built images without a RepoDigest use their immutable Image ID;
+  - runtime execution additionally requires a RepoDigest identity;
+  - expected and observed identities must match exactly.
 """
 
 from __future__ import annotations
@@ -36,6 +41,13 @@ from engine.candidate.adapter import (
     CandidateManifest,
     CompilationResult,
 )
+from engine.candidate.image_provenance import (
+    DEFAULT_PROVENANCE_PATH,
+    DockerImageObservation,
+    load_adapter_provenance,
+    resolve_docker_image_identity,
+    verify_image_identity,
+)
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
@@ -45,11 +57,19 @@ from engine.domain.identities import (
 
 @dataclass(frozen=True)
 class DockerSpringBootConfig:
-    """Configuration for Docker-backed Spring Boot candidate adapter."""
+    """Configuration for Docker-backed Spring Boot candidate adapter.
+
+    ``build_identity`` is the exact immutable identity provisioned for the
+    current deployment: a registry RepoDigest when Docker reports one, or the
+    immutable local Image ID for an image built locally. It may be supplied
+    directly or through a validated provenance record at ``provenance_path``.
+    An empty build identity always fails closed.
+    """
     build_image: str = "maven-offline-springboot:latest"
-    build_digest: str = "maven-offline-springboot@sha256:99d13a5416066fcba901aec7cb10a4bffd4d5e081cf94475478b35e023a7f678"
+    build_identity: str = ""
     runtime_image: str = "eclipse-temurin:21-jdk"
-    runtime_digest: str = "eclipse-temurin@sha256:1f79c73404fb0cccf9a3459eda22892f368d994b1028d6fb1ae871c1f49749a6"
+    runtime_digest: str = "eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026"
+    provenance_path: str = str(DEFAULT_PROVENANCE_PATH)
     build_timeout_seconds: int = 240
     execution_timeout_seconds: int = 30
     memory_limit: str = "512m"
@@ -68,27 +88,53 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         super().__init__()
         self._config = config or DockerSpringBootConfig()
         self._docker_available = self._check_docker()
-        self._build_resolved_digest: str = ""
-        self._runtime_resolved_digest: str = ""
-        self._java_version: str = ""
-        self._maven_version: str = ""
+        self._build_observation = DockerImageObservation(
+            requested_ref=self._config.build_image
+        )
+        self._runtime_observation = DockerImageObservation(
+            requested_ref=self._config.runtime_image
+        )
+        self._java_version = ""
+        self._maven_version = ""
 
         if self._docker_available:
-            self._build_resolved_digest = self._resolve_build_digest()
-            self._runtime_resolved_digest = self._resolve_runtime_digest()
+            self._build_observation = self._resolve_build_observation()
+            self._runtime_observation = self._resolve_runtime_observation()
             self._java_version = self._detect_java_version()
             self._maven_version = self._detect_maven_version()
 
-            if self._config.build_digest and self._build_resolved_digest != self._config.build_digest:
-                self._status = AdapterStatus.UNAVAILABLE
-            elif self._config.runtime_digest and self._runtime_resolved_digest != self._config.runtime_digest:
-                self._status = AdapterStatus.UNAVAILABLE
-            elif self._build_resolved_digest and self._runtime_resolved_digest:
-                self._status = AdapterStatus.AVAILABLE
-            else:
-                self._status = AdapterStatus.UNAVAILABLE
+            build_verified = verify_image_identity(
+                expected_identity=self._expected_build_identity(),
+                observed=self._build_observation,
+                require_repo_digest=False,
+            )
+            runtime_verified = verify_image_identity(
+                expected_identity=self._config.runtime_digest,
+                observed=self._runtime_observation,
+                require_repo_digest=True,
+            )
+            self._status = (
+                AdapterStatus.AVAILABLE
+                if build_verified and runtime_verified
+                else AdapterStatus.UNAVAILABLE
+            )
         else:
             self._status = AdapterStatus.UNAVAILABLE
+
+    def _expected_build_identity(self) -> str:
+        """Return the explicit provisioned build identity, if any."""
+        explicit_identity = self._config.build_identity.strip()
+        if explicit_identity:
+            return explicit_identity
+        if not self._config.provenance_path.strip():
+            return ""
+        try:
+            provenance = load_adapter_provenance(self._config.provenance_path)
+        except (OSError, ValueError):
+            return ""
+        if provenance.build_image.strip() != self._config.build_image.strip():
+            return ""
+        return provenance.build_identity
 
     def _check_docker(self) -> bool:
         try:
@@ -102,27 +148,15 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
-    def _resolve_digest(self, image: str) -> str:
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", "--format", "{{index .RepoDigests 0}}", image],
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            if result.returncode == 0:
-                output = result.stdout.decode(errors="replace").strip()
-                if "sha256:" in output:
-                    return output
-            return ""
-        except Exception:
-            return ""
+    def _resolve_image_observation(self, image: str) -> DockerImageObservation:
+        """Resolve immutable Docker identity evidence for one image reference."""
+        return resolve_docker_image_identity(image)
 
-    def _resolve_build_digest(self) -> str:
-        return self._resolve_digest(self._config.build_image)
+    def _resolve_build_observation(self) -> DockerImageObservation:
+        return self._resolve_image_observation(self._config.build_image)
 
-    def _resolve_runtime_digest(self) -> str:
-        return self._resolve_digest(self._config.runtime_image)
+    def _resolve_runtime_observation(self) -> DockerImageObservation:
+        return self._resolve_image_observation(self._config.runtime_image)
 
     def _detect_java_version(self) -> str:
         try:
@@ -165,12 +199,30 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         return self._status == AdapterStatus.AVAILABLE
 
     @property
+    def build_identity(self) -> str:
+        return self._build_observation.identity
+
+    @property
+    def build_identity_kind(self) -> str:
+        return self._build_observation.identity_kind
+
+    @property
     def build_resolved_digest(self) -> str:
-        return self._build_resolved_digest
+        """Compatibility alias for the selected immutable build identity."""
+        return self._build_observation.identity
+
+    @property
+    def runtime_identity(self) -> str:
+        return self._runtime_observation.identity
+
+    @property
+    def runtime_identity_kind(self) -> str:
+        return self._runtime_observation.identity_kind
 
     @property
     def runtime_resolved_digest(self) -> str:
-        return self._runtime_resolved_digest
+        """Compatibility alias for the selected immutable runtime identity."""
+        return self._runtime_observation.identity
 
     @property
     def java_version(self) -> str:
