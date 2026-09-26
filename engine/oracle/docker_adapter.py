@@ -273,6 +273,12 @@ class DockerOracleAdapter(OracleAdapter):
                     dest = Path(tmpdir) / "src" / cobol_source.name
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(cobol_source.read_bytes())
+                    # A single COBOL entry file may depend on sibling COPYBOOKs.
+                    # Stage those read-only dependencies without broadening the
+                    # compile/link set to unrelated COBOL program modules.
+                    for copybook in cobol_source.parent.iterdir():
+                        if copybook.is_file() and copybook.suffix.lower() == ".cpy":
+                            (dest.parent / copybook.name).write_bytes(copybook.read_bytes())
                     container_src = "/workspace/src"
                 else:
                     import shutil
