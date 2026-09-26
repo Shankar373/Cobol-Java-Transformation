@@ -331,8 +331,36 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
                 container_name = f"maven-{uuid.uuid4().hex[:12]}"
 
-                # Maven build command
+                # Maven runs as root in the build image so it can use the
+                # pre-cached /root/.m2 repository. Because the project and output
+                # directories are bind-mounted from the host, Maven can otherwise
+                # leave root-owned files behind and make TemporaryDirectory cleanup
+                # fail on Linux CI. Reconcile ownership before the container exits.
                 maven_cmd = "mvn -o -B -Dmaven.test.skip=true package"
+                host_uid = os.getuid() if hasattr(os, "getuid") else None
+                host_gid = os.getgid() if hasattr(os, "getgid") else None
+
+                if host_uid is not None and host_gid is not None:
+                    ownership_cleanup = (
+                        f"status=\$?; "
+                        f"chown -R {host_uid}:{host_gid} /workspace/project /workspace/output "
+                        f"2>/dev/null || true; "
+                        f"exit \$status"
+                    )
+                    build_shell = (
+                        f"{maven_cmd}; status=\$?; "
+                        f"if [ \$status -eq 0 ]; then "
+                        f"cp target/*.jar /workspace/output/ 2>/dev/null || status=\$?; "
+                        f"fi; "
+                        f"{ownership_cleanup}"
+                    )
+                else:
+                    # Docker Desktop/Windows does not expose POSIX uid/gid semantics
+                    # through this process; retain the existing build behavior there.
+                    build_shell = (
+                        f"{maven_cmd} && "
+                        f"cp target/*.jar /workspace/output/ 2>/dev/null || true"
+                    )
 
                 docker_cmd = [
                     "docker", "run", "--rm",
@@ -345,7 +373,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "-v", f"{os.path.abspath(staged_project)}:/workspace/project",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     self._config.build_image,
-                    "sh", "-c", f"{maven_cmd} && cp target/*.jar /workspace/output/ 2>/dev/null || true",
+                    "sh", "-c", build_shell,
                 ]
 
                 proc = None
