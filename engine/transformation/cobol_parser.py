@@ -1262,11 +1262,13 @@ class CobolParser:
         parts: list[str] = []
         if parts_match:
             parts_str = parts_match.group(1).strip()
-            for token in re.findall(r'"([^"]+)"|([A-Z][\w-]*)', parts_str, re.IGNORECASE):
+            for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*)', parts_str, re.IGNORECASE):
                 if token[0]:
                     parts.append(f'"{token[0]}"')
                 elif token[1]:
-                    parts.append(token[1])
+                    parts.append(f"'{token[1]}'")
+                elif token[2]:
+                    parts.append(token[2])
 
         # Statement already terminated on the opening line — do not continue.
         if line.endswith("."):
@@ -1293,11 +1295,13 @@ class CobolParser:
             if u.startswith(break_prefixes):
                 break
             if l and not u.startswith("*") and not u.startswith("END-"):
-                for token in re.findall(r'"([^"]+)"|([A-Z][\w-]*)', l, re.IGNORECASE):
+                for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*)', l, re.IGNORECASE):
                     if token[0]:
                         parts.append(f'"{token[0]}"')
                     elif token[1]:
-                        parts.append(token[1])
+                        parts.append(f"'{token[1]}'")
+                    elif token[2]:
+                        parts.append(token[2])
             if l.endswith("."):
                 i += 1
                 break
