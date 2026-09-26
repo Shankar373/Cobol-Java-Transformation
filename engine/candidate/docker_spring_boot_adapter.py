@@ -342,15 +342,15 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
                 if host_uid is not None and host_gid is not None:
                     ownership_cleanup = (
-                        f"status=\$?; "
+                        f"status=$?; "
                         f"chown -R {host_uid}:{host_gid} /workspace/project /workspace/output "
                         f"2>/dev/null || true; "
-                        f"exit \$status"
+                        f"exit $status"
                     )
                     build_shell = (
-                        f"{maven_cmd}; status=\$?; "
-                        f"if [ \$status -eq 0 ]; then "
-                        f"cp target/*.jar /workspace/output/ 2>/dev/null || status=\$?; "
+                        f"{maven_cmd}; status=$?; "
+                        f"if [ $status -eq 0 ]; then "
+                        f"cp target/*.jar /workspace/output/ 2>/dev/null || status=$?; "
                         f"fi; "
                         f"{ownership_cleanup}"
                     )
