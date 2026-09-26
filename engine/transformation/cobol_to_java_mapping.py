@@ -1729,10 +1729,15 @@ def map_cobol_program_to_java(
             arguments=(),
         )))
     else:
-        # No linkage - inline the driver paragraph statements
-        for para in driver_paragraphs:
-            for stmt in para.statements:
-                main_body.extend(map_cobol_statement(stmt, program, called_programs))
+        # No linkage - invoke the mapped driver paragraph instead of inlining
+        # its statements. Each paragraph already has its own Java method;
+        # inlining here would execute the same COBOL statements twice in the
+        # generated class (once in the paragraph method and once in main).
+        if driver_paragraphs:
+            main_body.append(JavaMethodCallStatement(call=JavaMethodCall(
+                method_name=_to_java_method_name(driver_paragraphs[0].name),
+                arguments=(),
+            )))
 
     methods.append(JavaMethod(
         name="main",
