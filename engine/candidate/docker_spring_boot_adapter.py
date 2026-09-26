@@ -388,11 +388,15 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     )
 
                     if proc.returncode != 0:
+                        stdout = proc.stdout.decode(errors="replace")
                         stderr = proc.stderr.decode(errors="replace")
+                        diagnostics = "\n".join(
+                            part for part in (stdout, stderr) if part
+                        )
                         return CompilationResult(
                             success=False,
                             class_files={},
-                            compilation_errors=(f"Maven build failed: {stderr}",),
+                            compilation_errors=(f"Maven build failed: {diagnostics}",),
                             compilation_time_ms=int(
                                 (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                             ),
