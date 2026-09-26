@@ -341,18 +341,20 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 host_gid = os.getgid() if hasattr(os, "getgid") else None
 
                 if host_uid is not None and host_gid is not None:
-                    ownership_cleanup = (
-                        f"status=$?; "
+                    build_shell = (
+                        f"{maven_cmd}; build_status=$?; "
+                        f"if [ $build_status -eq 0 ]; then "
+                        f"jar_status=0; "
+                        f"for jar in target/*.jar; do "
+                        f"if [ -f \"$jar\" ] && [ \"$jar\" != \"*.jar\" ]; then "
+                        f"cp \"$jar\" /workspace/output/ || jar_status=$?; "
+                        f"fi; "
+                        f"done; "
+                        f"if [ $jar_status -ne 0 ]; then build_status=$jar_status; fi; "
+                        f"fi; "
                         f"chown -R {host_uid}:{host_gid} /workspace/project /workspace/output "
                         f"2>/dev/null || true; "
-                        f"exit $status"
-                    )
-                    build_shell = (
-                        f"{maven_cmd}; status=$?; "
-                        f"if [ $status -eq 0 ]; then "
-                        f"cp target/*.jar /workspace/output/ 2>/dev/null || status=$?; "
-                        f"fi; "
-                        f"{ownership_cleanup}"
+                        f"exit $build_status"
                     )
                 else:
                     # Docker Desktop/Windows does not expose POSIX uid/gid semantics
