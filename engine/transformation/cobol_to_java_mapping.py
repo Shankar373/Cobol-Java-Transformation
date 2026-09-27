@@ -29,6 +29,11 @@ from __future__ import annotations
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
+    BooleanCondition,
+    Comparison,
+    Condition,
+    LogicalCondition,
+    NegatedCondition,
     CloseStatement,
     CobolProgram,
     ComputeStatement,
@@ -617,20 +622,46 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
     return map_cobol_expr_to_java(str(expr))
 
 
-def map_cobol_condition_to_java(condition: str) -> JavaExpression:
-    """Map a COBOL condition string to a Java expression.
+def map_cobol_condition_to_java(condition: str | Condition) -> JavaExpression:
+    """Map a COBOL condition while preserving the parser semantic tree."""
+    if isinstance(condition, Condition):
+        def expression(expr) -> JavaExpression:
+            return _map_cobol_expression_to_java(expr)
 
-    Converts COBOL condition syntax to Java boolean expression.
-    Returns a JavaBinaryOp for simple conditions, or JavaLiteral for complex ones.
-    """
+        def structured(node: Condition) -> JavaExpression:
+            if isinstance(node, Comparison):
+                return JavaBinaryOp(
+                    left=expression(node.left),
+                    operator={"=": "==", "<>": "!="}.get(node.operator, node.operator),
+                    right=expression(node.right),
+                )
+            if isinstance(node, LogicalCondition):
+                return JavaBinaryOp(
+                    left=structured(node.left),
+                    operator="&&" if node.operator == "AND" else "||",
+                    right=structured(node.right),
+                )
+            if isinstance(node, NegatedCondition):
+                return JavaUnaryOp(operator="!", operand=structured(node.condition))
+            if isinstance(node, BooleanCondition):
+                field = expression(node.field)
+                if node.is_negated:
+                    return JavaUnaryOp(operator="!", operand=field)
+                return JavaBinaryOp(
+                    left=field,
+                    operator="!=",
+                    right=JavaLiteral(value="0"),
+                )
+            raise TypeError(f"Unsupported structured COBOL condition: {type(node).__name__}")
+
+        return structured(condition)
+
     condition = condition.strip()
     import re as _re
 
-    # Handle WHEN OTHER → always true (standalone or as "subject = OTHER")
     if condition == "OTHER" or condition.endswith(" = OTHER") or condition.endswith("== OTHER"):
         return JavaLiteral(value="true")
 
-    # Handle THRU range: subject = val1 THRU val2 → subject >= val1 && subject <= val2
     thru_match = _re.match(
         r'^(\w[\w-]*)\s*==\s*(\d+)\s+THRU\s+(\d+)$',
         condition.replace("-", "_").replace(" = ", " == ").strip(),
@@ -639,37 +670,28 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
         subject = thru_match.group(1).replace("-", "_")
         low = thru_match.group(2)
         high = thru_match.group(3)
-        left = JavaBinaryOp(
-            left=JavaVariableRef(name=subject),
-            operator=">=",
-            right=JavaLiteral(value=low),
+        return JavaBinaryOp(
+            left=JavaBinaryOp(
+                left=JavaVariableRef(name=subject),
+                operator=">=",
+                right=JavaLiteral(value=low),
+            ),
+            operator="&&",
+            right=JavaBinaryOp(
+                left=JavaVariableRef(name=subject),
+                operator="<=",
+                right=JavaLiteral(value=high),
+            ),
         )
-        right = JavaBinaryOp(
-            left=JavaVariableRef(name=subject),
-            operator="<=",
-            right=JavaLiteral(value=high),
-        )
-        return JavaBinaryOp(left=left, operator="&&", right=right)
 
-    # Handle IS/IS NOT
     condition = condition.replace(" IS NOT ", " != ")
     condition = condition.replace(" IS ", " == ")
-
-    # Handle = <>
     condition = condition.replace(" <> ", " != ")
-    # Handle bare = (but not ==, >=, <=, !=, and never inside quotes).
     condition = _replace_bare_equals(condition)
-
-    # Handle AND/OR
     condition = condition.replace(" AND ", " && ")
     condition = condition.replace(" OR ", " || ")
-
-    # Handle NOT
     condition = condition.replace("NOT ", "!")
 
-    # Convert field references. Single-quoted COBOL literals become
-    # double-quoted Java string literals (single quotes would be Java
-    # char literals and would not compile against String fields).
     parts = condition.split()
     result_parts = []
     for part in parts:
@@ -686,33 +708,13 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
             result_parts.append(part.replace("-", "_"))
 
     condition_str = " ".join(result_parts)
-
-    # Try to parse simple binary conditions: left OP right
-    binary_match = _re.match(
-        r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$',
-        condition_str,
-    )
+    binary_match = _re.match(r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$', condition_str)
     if binary_match:
-        left_name = binary_match.group(1)
-        op = binary_match.group(2)
-        right_str = binary_match.group(3)
-
-        left_expr: JavaExpression
-        if left_name.replace(".", "").replace("-", "").isdigit():
-            left_expr = JavaLiteral(value=left_name)
-        else:
-            left_expr = JavaVariableRef(name=left_name)
-
-        right_expr: JavaExpression
-        if right_str.replace(".", "").replace("-", "").isdigit():
-            right_expr = JavaLiteral(value=right_str)
-        else:
-            right_expr = JavaVariableRef(name=right_str)
-
+        left_name, op, right_str = binary_match.groups()
+        left_expr = JavaLiteral(value=left_name) if left_name.replace(".", "").replace("-", "").isdigit() else JavaVariableRef(name=left_name)
+        right_expr = JavaLiteral(value=right_str) if right_str.replace(".", "").replace("-", "").isdigit() else JavaVariableRef(name=right_str)
         return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
-
     return JavaLiteral(value=condition_str)
-
 
 def _replace_bare_equals(condition: str) -> str:
     """Replace COBOL bare `=` with Java `==`, quote-aware.
@@ -1023,7 +1025,9 @@ def map_cobol_statement(
                 ))
 
     elif isinstance(stmt, IfStatement):
-        condition = map_cobol_condition_to_java(stmt.condition)
+        condition = map_cobol_condition_to_java(
+            stmt.structured_condition if stmt.structured_condition is not None else stmt.condition
+        )
         then_body = []
         for s in stmt.then_body:
             then_body.extend(map_cobol_statement(s, program))
