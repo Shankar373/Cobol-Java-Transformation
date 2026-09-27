@@ -570,6 +570,8 @@ class JavaProgram:
     generation_mode: str = ""  # "decision", "file_io", or "minimal"
     # Input record field names (positional — which fields are parsed from input records)
     input_record_fields: tuple[str, ...] = ()
+    # Source-derived outcome used by the implicit ELSE/default decision branch.
+    default_status_label: str = ""
 
 
 @dataclass(frozen=True)
