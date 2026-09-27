@@ -42,6 +42,7 @@ from engine.transformation.ir import (
     DisplayStatement,
     DivideStatement,
     FileDefinition,
+    FieldProvenance,
     GoToStatement,
     IfStatement,
     MoveStatement,
