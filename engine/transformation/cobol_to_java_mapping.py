@@ -33,6 +33,7 @@ from engine.transformation.ir import (
     Comparison,
     Condition,
     LogicalCondition,
+    Literal,
     NegatedCondition,
     CloseStatement,
     CobolProgram,
