@@ -1848,8 +1848,6 @@ No workload-specific logic. No domain vocabulary.
 All decisions derived from generic COBOL IR elements.
 """
 
-from __future__ import annotations
-
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
