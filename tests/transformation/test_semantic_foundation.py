@@ -57,6 +57,40 @@ def test_nested_if_exposes_structural_decision_tree_and_default_branch():
     assert outer.provenance.line == 5
 
 
+
+def test_nested_read_decision_preserves_default_outcome_for_mapping():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. NESTEDDECISION.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC X(20).
+       WORKING-STORAGE SECTION.
+       01 STATUS PIC X(1).
+       01 AMOUNT PIC 9(5).
+       01 RESULT PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           READ INPUT-FILE
+               NOT AT END
+                   IF STATUS = 'R'
+                       MOVE 'REJECTED' TO RESULT
+                   ELSE
+                       IF AMOUNT < 500
+                           MOVE 'REJECTED' TO RESULT
+                       ELSE
+                           MOVE 'APPROVED' TO RESULT
+                       END-IF
+                   END-IF
+           END-READ
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="nested-decision.cob")
+    java_program = map_cobol_program_to_java(program)
+    assert java_program.default_status_label == "APPROVED"
+
+
 def test_expression_reference_is_bound_to_source_type_and_provenance():
     source = """\
        IDENTIFICATION DIVISION.
