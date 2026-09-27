@@ -224,7 +224,11 @@ class TestJavaMapping:
             for f in SpringBootGenerator().generate_project(spring_app)
         }
 
-        main_src = files["MAIN"]
+        main_service = next(
+            svc for svc in spring_app.services
+            if svc.source_program == "MAIN"
+        )
+        main_src = files[main_service.name]
         assert "public void mainLogic() throws Exception {" in main_src
 
     def test_calc_has_system_out_println(self) -> None:
