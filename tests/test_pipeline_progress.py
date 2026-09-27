@@ -371,7 +371,7 @@ class TestAsyncAPIStagePersistence:
 
         canonical_order = [
             "CREATED", "INGESTING", "DISCOVERING", "DISCOVERY_COMPLETED",
-            "TRANSFORMING", "GENERATING", "BUILDING", "EXECUTING_ORACLE",
+            "TRANSFORMING", "GENERATING", "EXECUTING_ORACLE", "BUILDING",
             "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE", "COMPLETED",
         ]
         last_idx = -1
