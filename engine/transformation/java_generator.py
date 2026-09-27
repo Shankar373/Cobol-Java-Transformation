@@ -800,7 +800,7 @@ public class {class_name} {{
         status_codes: tuple[JavaStatusCodeMapping, ...],
         id_var: str,
         status_var: str,
-        amt_str_var: str,
+        amount_var: str,
     ) -> str:
         """Build stderr diagnostic output from Java IR."""
         if not status_codes:
