@@ -323,19 +323,91 @@ def _rewrite_service_calls(
             )
         return stmt
 
+    def _collect_called_service_exceptions(
+        stmt: JavaStatement,
+        owner: SpringBootService,
+    ) -> tuple[str, ...]:
+        """Collect checked exceptions propagated by rewritten service calls."""
+        found: list[str] = []
+
+        def add_from_call(call: JavaMethodCall) -> None:
+            if not isinstance(call.object_ref, JavaVariableRef):
+                return
+            target = by_key.get(
+                _normalise_service_key(
+                    next(
+                        (
+                            dep for dep in owner.depends_on
+                            if _to_bean_field_name(dep) == call.object_ref.name
+                        ),
+                        "",
+                    )
+                )
+            )
+            if target is None:
+                return
+            for target_method in target.methods:
+                if target_method.name == call.method_name:
+                    for exc in target_method.exceptions:
+                        if exc not in found:
+                            found.append(exc)
+                    break
+
+        def walk(node: JavaStatement) -> None:
+            if isinstance(node, JavaMethodCallStatement):
+                add_from_call(node.call)
+            elif isinstance(node, JavaIf):
+                for child in (*node.then_body, *node.else_body):
+                    walk(child)
+            elif isinstance(node, JavaBlock):
+                for child in node.statements:
+                    walk(child)
+            elif isinstance(node, (JavaWhile, JavaDoWhile)):
+                for child in node.body:
+                    walk(child)
+            elif isinstance(node, JavaFor):
+                if node.init:
+                    walk(node.init)
+                if node.update:
+                    walk(node.update)
+                for child in node.body:
+                    walk(child)
+            elif isinstance(node, JavaTryCatch):
+                for child in node.try_body:
+                    walk(child)
+                for child in node.catch_body:
+                    walk(child)
+                for child in node.finally_body:
+                    walk(child)
+            elif isinstance(node, JavaSwitch):
+                for _, body in node.cases:
+                    for child in body:
+                        walk(child)
+                for child in node.default_body:
+                    walk(child)
+
+        walk(stmt)
+        return tuple(found)
+
     rewritten: list[SpringBootService] = []
     for svc in services:
-        methods = tuple(
-            SpringBootServiceMethod(
+        mapped_methods: list[SpringBootServiceMethod] = []
+        for m in svc.methods:
+            body = tuple(_rewrite(s, svc) for s in m.body_statements)
+            propagated = list(m.exceptions)
+            for statement in body:
+                for exc in _collect_called_service_exceptions(statement, svc):
+                    if exc not in propagated:
+                        propagated.append(exc)
+            mapped_methods.append(SpringBootServiceMethod(
                 name=m.name,
                 return_type=m.return_type,
                 parameters=m.parameters,
-                body_statements=tuple(_rewrite(s, svc) for s in m.body_statements),
+                body_statements=body,
                 is_static=m.is_static,
-                exceptions=m.exceptions,
-            )
-            for m in svc.methods
-        )
+                exceptions=tuple(propagated),
+            ))
+        methods = tuple(mapped_methods)
         rewritten.append(SpringBootService(
             name=svc.name,
             package=svc.package,
