@@ -1688,6 +1688,63 @@ def map_cobol_paragraph_to_method(
     )
 
 
+def _derive_default_status_label(program: CobolProgram) -> str:
+    """Derive the source-defined label for an implicit decision ELSE branch.
+
+    Status-code extraction records explicit IF/code branches, but COBOL
+    decision trees can encode the successful/default outcome in the final
+    ELSE branch. Preserve that outcome as Java IR metadata instead of
+    inferring it from the order of explicit status codes.
+    """
+    if not program.status_codes or not program.threshold_rules:
+        return ""
+
+    def walk(statements):
+        for stmt in statements:
+            if isinstance(stmt, IfStatement):
+                yield stmt
+                yield from walk(stmt.then_body)
+                yield from walk(stmt.else_body)
+
+    def literal_move(statements, target: str = "") -> tuple[str, str] | None:
+        for stmt in statements:
+            if isinstance(stmt, MoveStatement):
+                source = (stmt.source or "").strip()
+                normalized_target = (stmt.target or "").rstrip(".")
+                if target and normalized_target.upper() != target.upper():
+                    continue
+                if len(source) >= 2 and source[0] in "'\"" and source[-1] == source[0]:
+                    return source[1:-1], normalized_target
+            if isinstance(stmt, IfStatement):
+                found = literal_move(stmt.then_body, target) or literal_move(stmt.else_body, target)
+                if found:
+                    return found
+        return None
+
+    status_target = ""
+    first_status = program.status_codes[0]
+    all_statements = (s for p in program.paragraphs for s in p.statements)
+    for stmt in walk(all_statements):
+        condition = " ".join((stmt.condition or "").rstrip(".").split())
+        expected = f"{first_status.field_name} = '{first_status.code}'"
+        if condition.upper() == expected.upper():
+            found = literal_move(stmt.then_body)
+            if found:
+                status_target = found[1]
+                break
+
+    for rule in program.threshold_rules:
+        expected = f"{rule.field_name} {rule.operator} {rule.value}"
+        all_statements = (s for p in program.paragraphs for s in p.statements)
+        for stmt in walk(all_statements):
+            condition = " ".join((stmt.condition or "").rstrip(".").split())
+            if condition.upper() != expected.upper():
+                continue
+            found = literal_move(stmt.else_body, status_target)
+            if found:
+                return found[0]
+    return ""
+
 def map_cobol_program_to_java(
     program: CobolProgram,
     called_programs: dict[str, CobolProgram] | None = None,
@@ -1919,6 +1976,7 @@ def map_cobol_program_to_java(
 
     # Determine generation mode from capabilities
     caps = _derive_generation_mode(program)
+    default_status_label = _derive_default_status_label(program)
 
     # Input record fields must correspond to the first READ/INPUT file,
     # not the first UNSTRING encountered in source order. A program may
@@ -1957,6 +2015,7 @@ def map_cobol_program_to_java(
         match_outcomes=match_outcomes,
         generation_mode=caps,
         input_record_fields=input_record_fields,
+        default_status_label=default_status_label,
         copybooks=program.copybooks,
         calls=program.called_programs,
         entry_points=program.entry_points,
