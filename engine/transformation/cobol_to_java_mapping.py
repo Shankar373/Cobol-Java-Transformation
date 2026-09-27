@@ -1741,7 +1741,7 @@ def _derive_default_status_label(program: CobolProgram) -> str:
             condition is not None
             and getattr(condition.left, "name", "").upper() == first_status.field_name.upper()
             and getattr(condition, "operator", "") == "="
-            and str(getattr(condition.right, "value", "")).strip().strip("'\\"").upper()
+            and str(getattr(condition.right, "value", "")).strip().upper()
             == first_status.code.upper()
         ) or (
             condition is None
