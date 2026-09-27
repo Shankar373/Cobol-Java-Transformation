@@ -152,3 +152,31 @@ def test_structured_condition_mapping_preserves_logical_tree():
     assert condition.operator == "||"
     assert condition.left.operator == "&&"
     assert condition.right.operator == "!"
+
+
+def test_mapping_prefers_structured_expression_over_raw_expression_text():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EXPRESSION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 A PIC 9(3).
+       01 B PIC 9(3).
+       01 RESULT PIC 9(3).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE (A + B) TO RESULT
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="expression.cob")
+    java_program = map_cobol_program_to_java(program)
+    assignment = next(
+        statement
+        for method in java_program.java_class.methods
+        for statement in method.body_statements
+        if getattr(statement, "target", "") == "RESULT"
+    )
+    assert assignment.expression.__class__.__name__ == "JavaBinaryOp"
+    assert assignment.expression.operator == "+"
+    assert assignment.expression.left.name == "A"
+    assert assignment.expression.right.name == "B"
