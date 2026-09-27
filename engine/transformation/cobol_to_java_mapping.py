@@ -3746,6 +3746,7 @@ def map_cobol_program_to_java(
         generation_mode=caps,
         input_record_fields=input_record_fields,
         default_status_label=default_status_label,
+        default_status_counter_name=_label_to_counter_name(default_status_label) if default_status_label else "",
         copybooks=program.copybooks,
         calls=program.called_programs,
         entry_points=program.entry_points,
