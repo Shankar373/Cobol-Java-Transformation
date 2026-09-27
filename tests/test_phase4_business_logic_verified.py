@@ -203,6 +203,30 @@ class TestJavaMapping:
             f"Expected Calc reference in Main.java:\n{main_src}"
         )
 
+    def test_spring_service_preserves_checked_exceptions(self) -> None:
+        from engine.transformation.application_discovery import ApplicationDiscovery
+        from engine.transformation.application_generator import ApplicationGenerator
+        from engine.transformation.java_to_spring_mapping import map_java_application_to_spring_boot
+        from engine.transformation.spring_boot_generator import SpringBootGenerator
+
+        app = ApplicationDiscovery().discover(
+            str(FIXTURE_DIR), application_id="business-logic-app"
+        )
+        gen_result = ApplicationGenerator().generate(
+            app, entrypoint="MAIN", source_root=FIXTURE_DIR
+        )
+        assert gen_result.success, gen_result.errors
+        spring_app = map_java_application_to_spring_boot(
+            gen_result.java_application, entry_program="MAIN"
+        )
+        files = {
+            f.class_name: f.source_code
+            for f in SpringBootGenerator().generate_project(spring_app)
+        }
+
+        main_src = files["MAIN"]
+        assert "public void mainLogic() throws Exception {" in main_src
+
     def test_calc_has_system_out_println(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
         from engine.transformation.cobol_to_java_mapping import (
