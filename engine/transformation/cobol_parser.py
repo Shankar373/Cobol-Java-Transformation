@@ -1138,8 +1138,16 @@ class CobolParser:
                 upper = line.upper()
 
             if " UNTIL " in upper:
-                suffix = line.split(" UNTIL ", 1)[1].strip()
-                structured_condition = self._build_condition(suffix)
+                condition_text = line.split(" UNTIL ", 1)[1].strip()
+                structured_condition = self._build_condition(condition_text)
+                # Preserve the complete VARYING header in the legacy
+                # until_condition field; the Java mapper uses it to
+                # reconstruct the loop initializer/update/termination.
+                suffix = (
+                    line[len("PERFORM "):].strip()
+                    if upper.startswith("PERFORM VARYING ")
+                    else condition_text
+                )
             else:
                 suffix = line[len("PERFORM "):].strip()
                 structured_condition = None
