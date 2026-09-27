@@ -195,6 +195,17 @@ class TestJavaGeneratorVariables:
         assert "totalClaimAmt" in source
         assert "totalPayAmt" in source
 
+    def test_threshold_uses_input_amount_provenance(
+        self, parser: CobolParser, generator: JavaGenerator
+    ):
+        """Decision threshold must consume the amount parsed from the input record."""
+        program = self._parse_real_claims(parser)
+        files = generator.generate(program)
+        source = files[0].source_code
+
+        assert "WS_CR_AMOUNT_STR_num = Integer.parseInt(WS_CR_AMOUNT_STR.trim());" in source
+        assert "if (WS_CR_AMOUNT_STR_num < THRESHOLD)" in source
+
 
 class TestJavaGeneratorDeterminism:
     """Test deterministic generation."""
