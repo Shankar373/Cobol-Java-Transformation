@@ -355,8 +355,10 @@ class TestDockerExecution:
         stdout = execution_result.stdout.decode(errors="replace")
         app_output = _extract_app_output(stdout)
         normalized = [_normalize_numbers(l) for l in app_output]
-        # UPDATED CLAIM-AMOUNT = 100 (from MOVE 100 TO CLAIM-AMOUNT)
-        assert any("UPDATED CLAIM-AMOUNT=100" in line for line in normalized)
+        # The current COBOL source displays the moved value as INITIAL and
+        # repeats the unchanged value as FINAL; there is no UPDATED display.
+        assert any("INITIAL CLAIM-AMOUNT=100" in line for line in normalized)
+        assert any("FINAL CLAIM-AMOUNT=100" in line for line in normalized)
         # WS-RESULT = CLAIM-AMOUNT = 100
         assert any("WS-RESULT=100" in line for line in normalized)
         # IF CLAIM-AMOUNT > 500 -> false, so AMOUNT LE 500
@@ -413,8 +415,10 @@ class TestOracleExecution:
     def test_oracle_has_computation(self, oracle_result):
         """Oracle output contains computed values."""
         stdout = oracle_result.stdout.decode(errors="replace")
-        # UPDATED CLAIM-AMOUNT = 100 (from MOVE 100 TO CLAIM-AMOUNT)
-        assert "UPDATED CLAIM-AMOUNT=000100" in stdout
+        # The current COBOL source has no UPDATED display; the moved value
+        # is emitted as INITIAL and the final value remains unchanged.
+        assert "INITIAL CLAIM-AMOUNT=000100" in stdout
+        assert "FINAL CLAIM-AMOUNT=000100" in stdout
         # WS-RESULT = CLAIM-AMOUNT = 100
         assert "WS-RESULT=00000100" in stdout
         # IF CLAIM-AMOUNT > 500 -> false, so AMOUNT LE 500
