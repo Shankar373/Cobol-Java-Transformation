@@ -1900,31 +1900,31 @@ class CobolParser:
             operand = self._build_expression(text[1:])
             return UnaryExpression(operator="-", operand=operand)
 
-        # Check for binary operators (simplified - handles single level)
-        # Priority: AND, OR, then comparison, then arithmetic
+        # Build by precedence, selecting the rightmost top-level operator
+        # at each level so arithmetic remains left-associative.
         for op in ["AND", "OR"]:
-            pos = self._find_binary_operator(text, op)
+            pos = self._find_rightmost_binary_operator(text, op)
             if pos is not None:
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
 
         for op in ["<>", ">=", "<=", "=", ">", "<"]:
-            pos = self._find_binary_operator(text, op)
+            pos = self._find_rightmost_binary_operator(text, op)
             if pos is not None:
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
 
         for op in ["+", "-"]:
-            pos = self._find_binary_operator(text, op)
+            pos = self._find_rightmost_binary_operator(text, op)
             if pos is not None:
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
 
         for op in ["*", "/"]:
-            pos = self._find_binary_operator(text, op)
+            pos = self._find_rightmost_binary_operator(text, op)
             if pos is not None:
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
@@ -1932,6 +1932,27 @@ class CobolParser:
 
         # Default: field reference
         return FieldReference(name=text)
+
+    def _find_rightmost_binary_operator(self, text: str, op: str) -> int | None:
+        """Find the rightmost top-level binary operator, respecting parentheses."""
+        depth = 0
+        pos = None
+        i = 0
+        while i < len(text):
+            if text[i] == '(':
+                depth += 1
+            elif text[i] == ')':
+                depth -= 1
+            elif depth == 0 and text[i:i + len(op)].upper() == op.upper():
+                before_ok = i == 0 or not text[i - 1].isalnum()
+                after_pos = i + len(op)
+                after_ok = after_pos >= len(text) or not text[after_pos].isalnum()
+                if before_ok and after_ok:
+                    pos = i
+                    i += len(op)
+                    continue
+            i += 1
+        return pos
 
     def _find_binary_operator(self, text: str, op: str) -> int | None:
         """Find the position of a binary operator in text, respecting parentheses."""
