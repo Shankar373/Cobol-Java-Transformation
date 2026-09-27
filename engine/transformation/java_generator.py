@@ -256,7 +256,14 @@ class JavaGenerator:
         input_fields = program.input_record_fields or tuple(f.name for f in java_class.fields)
         id_var = input_fields[0] if len(input_fields) > 0 else "field_0"
         status_var = input_fields[1] if len(input_fields) > 1 else "field_1"
-        amt_str_var = input_fields[-1] if len(input_fields) > 0 else "field_last"
+        # The threshold rule identifies the amount field explicitly. Do not
+        # assume it is the last input column; COBOL record layouts are
+        # positional and may contain additional fields after the amount.
+        amt_str_var = (
+            program.threshold_rules[0].field_name.replace("-", "_")
+            if program.threshold_rules
+            else (input_fields[-1] if input_fields else "field_last")
+        )
 
         # Report write
         report_write = self._build_record_write_java_from_ir(
