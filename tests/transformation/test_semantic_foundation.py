@@ -118,3 +118,35 @@ def test_mapping_uses_structured_numeric_else_branch_for_default():
     program = CobolParser().parse(source, source_name="generic.cob")
     java_program = map_cobol_program_to_java(program)
     assert java_program.default_status_label == "APPROVED"
+
+
+def test_structured_condition_mapping_preserves_logical_tree():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CONDITION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 A PIC 9(3).
+       01 B PIC 9(3).
+       01 C PIC 9(3).
+       01 RESULT PIC X(1).
+       PROCEDURE DIVISION.
+       MAIN.
+           IF A > 1 AND B < 10 OR NOT C = 0
+               MOVE 'Y' TO RESULT
+           ELSE
+               MOVE 'N' TO RESULT
+           END-IF
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="condition.cob")
+    java_program = map_cobol_program_to_java(program)
+    statement = next(
+        statement
+        for statement in java_program.methods[0].body
+        if getattr(statement, "condition", None) is not None
+    )
+    condition = statement.condition
+    assert condition.operator == "||"
+    assert condition.left.operator == "&&"
+    assert condition.right.operator == "!"
