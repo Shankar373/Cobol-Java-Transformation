@@ -1691,6 +1691,7 @@ def map_cobol_statement(
 
 def map_cobol_data_items_to_fields(
     items: tuple[DataItem, ...],
+    source_provenance: dict[str, object] | None = None,
 ) -> tuple[JavaField, ...]:
     """Map COBOL WORKING-STORAGE items to Java fields."""
     fields: list[JavaField] = []
@@ -1705,6 +1706,11 @@ def map_cobol_data_items_to_fields(
             initializer=initializer,
             is_static=True,
             format_width=item.format_width if item.is_numeric else 0,
+            source_provenance=(
+                source_provenance.get(item.name.upper())
+                if source_provenance is not None
+                else FieldProvenance(source=item.provenance, field_name=item.name)
+            ),
         ))
     return tuple(fields)
 
@@ -1824,7 +1830,35 @@ def map_cobol_program_to_java(
     for fd in program.file_definitions:
         file_record_items.extend(fd.record_items)
     all_data_items = tuple(file_record_items) + program.working_storage
-    fields = map_cobol_data_items_to_fields(all_data_items)
+
+    # Carry the primary input mapping's canonical provenance into the target
+    # field model. The input mapping remains the source of positional origin;
+    # JavaField merely preserves that provenance for downstream generation.
+    primary_input_file = next(
+        (
+            fd.name
+            for fd in program.file_definitions
+            if any(
+                stmt.file_name == fd.name and stmt.mode.upper() == "INPUT"
+                for stmt in program.open_statements
+            )
+        ),
+        "",
+    )
+    primary_mapping = next(
+        (
+            mapping
+            for mapping in program.input_record_mappings
+            if mapping.file_name == primary_input_file
+        ),
+        None,
+    )
+    input_provenance = {
+        provenance.field_name.upper(): provenance
+        for provenance in (primary_mapping.field_provenance if primary_mapping else ())
+    }
+
+    fields = map_cobol_data_items_to_fields(all_data_items, input_provenance)
     if program.linkage_section:
         existing = {f.name for f in fields}
         for link_field in map_cobol_data_items_to_fields(program.linkage_section):
