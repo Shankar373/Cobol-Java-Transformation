@@ -232,6 +232,26 @@ class TestCobolParserStatements:
         assert main.statements[1].structured_condition is not None
         assert main.statements[2].structured_condition is not None
 
+    def test_multiline_move_preserves_source_and_target(self, parser: CobolParser):
+        """A continued TO clause must remain one semantic MOVE statement."""
+        source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TEST.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 'APPROVED'
+               TO WS-STATUS
+           STOP RUN.
+"""
+        program = parser.parse(source)
+        move = program.paragraphs[0].statements[0]
+
+        assert isinstance(move, MoveStatement)
+        assert move.source == "'APPROVED'"
+        assert move.target == "WS-STATUS"
+        assert move.source_expr is not None
+        assert move.target_ref is not None
+
     def test_parser_does_not_raise_index_error_on_malformed_statements(self, parser: CobolParser):
         """Malformed/empty statement inputs must not raise IndexError (regression)."""
         sources = [
