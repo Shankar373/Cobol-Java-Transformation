@@ -453,6 +453,15 @@ public class {class_name} {{
                 exceptions=method.exceptions or ("Exception",),
             )
             lines.extend(self._generate_method_body(non_static))
+            # Expose the conventional camelCase Spring entry name while
+            # retaining the source-derived MAIN_LOGIC method for compatibility.
+            if method.name == "MAIN_LOGIC":
+                lines.extend([
+                    "",
+                    "    public void mainLogic() throws Exception {",
+                    "        MAIN_LOGIC();",
+                    "    }",
+                ])
 
         lines.extend([
             "",

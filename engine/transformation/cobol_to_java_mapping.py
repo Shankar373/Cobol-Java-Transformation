@@ -1845,7 +1845,10 @@ def map_cobol_program_to_java(
     )
 
     # Summary fields → JavaSummaryField
-    ws_lookup = {item.name: item for item in program.working_storage}
+    ws_lookup = {
+        item.name.replace("-", "_"): item
+        for item in program.working_storage
+    }
     summary_fields_list = []
     for field in program.summary_fields:
         source_field = ""
