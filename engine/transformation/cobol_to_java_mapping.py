@@ -942,7 +942,13 @@ def map_cobol_statement(
 
     elif isinstance(stmt, ComputeStatement):
         target = stmt.target.replace("-", "_")
-        expression = map_cobol_expr_to_java(stmt.expression)
+        # Prefer the structured expression produced by the parser so chained
+        # arithmetic and nested expressions preserve their real operator tree.
+        expression = (
+            _map_cobol_expression_to_java(stmt.expression_expr)
+            if stmt.expression_expr is not None
+            else map_cobol_expr_to_java(stmt.expression)
+        )
         result.append(JavaAssignment(target=target, expression=expression))
 
     elif isinstance(stmt, DisplayStatement):
