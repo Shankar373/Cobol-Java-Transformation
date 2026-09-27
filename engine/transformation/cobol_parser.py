@@ -414,7 +414,7 @@ class CobolParser:
                     index
                     for index, line in enumerate(code_lines)
                     if re.match(
-                        rf"^\s*{item.level}\s+{re.escape(item.name)}(?:\s|\.|$)",
+                        rf"^\s*0*{item.level}\s+{re.escape(item.name)}(?:\s|\.|$)",
                         line,
                         re.IGNORECASE,
                     )
