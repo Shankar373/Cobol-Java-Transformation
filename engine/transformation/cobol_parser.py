@@ -607,7 +607,7 @@ class CobolParser:
                 occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
 
                 if pic_match:
-                    pic_type, pic_length = _parse_pic(pic_match.group(1))
+                    pic_type, pic_length, decimal_places = self._parse_pic_details(pic_match.group(1))
                     value = value_match.group(1).strip().rstrip(".") if value_match else None
                     occurs = int(occurs_match.group(1)) if occurs_match else None
 
@@ -617,6 +617,7 @@ class CobolParser:
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
                             value=value,
                         ))
                     else:
@@ -1972,6 +1973,22 @@ class CobolParser:
         """
         text = text.strip()
 
+        # Strip one balanced outer pair so parenthesized expressions retain
+        # their structured AST instead of becoming a raw field reference.
+        if text.startswith("(") and text.endswith(")"):
+            depth = 0
+            matching = True
+            for i, char in enumerate(text):
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                if depth == 0 and i < len(text) - 1:
+                    matching = False
+                    break
+            if matching:
+                return self._build_expression(text[1:-1])
+
         # Check for string literal
         if (text.startswith("'") and text.endswith("'")) or \
            (text.startswith('"') and text.endswith('"')):
@@ -2102,7 +2119,7 @@ class CobolParser:
             return NegatedCondition(condition=inner)
 
         # Check for AND/OR (at top level)
-        for op in ["AND", "OR"]:
+        for op in ["OR", "AND"]:
             pos = self._find_binary_operator(text, op)
             if pos is not None:
                 left = self._build_condition(text[:pos])
