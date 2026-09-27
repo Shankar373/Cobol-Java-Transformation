@@ -838,16 +838,17 @@ def map_cobol_statement(
     """
     result: list[JavaStatement] = []
 
-    # Build field format width lookup if program provided
+    # Build DISPLAY format metadata from COBOL data items.
     field_format_widths = {}
+    field_items = {}
     if program is not None:
-        # Working storage items
         for item in program.working_storage:
+            field_items[item.name.replace("-", "_")] = item
             if item.is_numeric and item.format_width > 0:
                 field_format_widths[item.name.replace("-", "_")] = item.format_width
-        # FD record items (for numeric DISPLAY padding)
         for fd in program.file_definitions:
             for item in fd.record_items:
+                field_items[item.name.replace("-", "_")] = item
                 if item.is_numeric and item.format_width > 0:
                     field_format_widths[item.name.replace("-", "_")] = item.format_width
 
@@ -968,11 +969,10 @@ def map_cobol_statement(
                     ))
             else:
                 java_name = part.replace("-", "_")
-                # Check if this field has a format width for numeric formatting
+                var_ref = JavaVariableRef(name=java_name)
+                item = field_items.get(java_name)
                 if java_name in field_format_widths:
                     width = field_format_widths[java_name]
-                    var_ref = JavaVariableRef(name=java_name)
-                    # String.format("%0Nd", var) for zero-padded numeric display
                     format_spec = JavaLiteral(value="%0{}d".format(width))
                     parts.append(JavaMethodCall(
                         class_name="String",
@@ -980,8 +980,21 @@ def map_cobol_statement(
                         arguments=(format_spec, var_ref),
                         is_static=True,
                     ))
+                elif item is not None and item.is_alphanumeric and item.pic_length > 0:
+                    format_spec = JavaLiteral(value="%-{}s".format(item.pic_length))
+                    formatted = JavaMethodCall(
+                        class_name="String",
+                        method_name="format",
+                        arguments=(format_spec, var_ref),
+                        is_static=True,
+                    )
+                    parts.append(JavaMethodCall(
+                        object_ref=formatted,
+                        method_name="substring",
+                        arguments=(_int_lit(0), _int_lit(item.pic_length)),
+                    ))
                 else:
-                    parts.append(JavaVariableRef(name=java_name))
+                    parts.append(var_ref)
         if parts:
             concat = JavaStringConcat(parts=tuple(parts))
             # out.println(...) or System.err.println(...) based on destination
@@ -1826,15 +1839,28 @@ def map_cobol_program_to_java(
 
     # Summary fields → JavaSummaryField
     ws_lookup = {item.name: item for item in program.working_storage}
-    summary_fields = tuple(
-        JavaSummaryField(
+    summary_fields_list = []
+    for field in program.summary_fields:
+        source_field = ""
+        for para in program.paragraphs:
+            for stmt in para.statements:
+                if isinstance(stmt, DisplayStatement) and len(stmt.parts) >= 2:
+                    label = stmt.parts[0].strip("'\\\"").rstrip("=")
+                    if label == field and not (
+                        stmt.parts[1].startswith("'") or stmt.parts[1].startswith('"')
+                    ):
+                        source_field = stmt.parts[1].replace("-", "_")
+                        break
+            if source_field:
+                break
+        source_item = ws_lookup.get(source_field)
+        summary_fields_list.append(JavaSummaryField(
             field_name=field,
             java_var_name=_cobol_field_to_java_var(field),
-            format_width=ws_lookup[field].format_width if field in ws_lookup else 0,
-            is_numeric=ws_lookup[field].is_numeric if field in ws_lookup else True,
-        )
-        for field in program.summary_fields
-    )
+            format_width=source_item.format_width if source_item is not None else 0,
+            is_numeric=source_item.is_numeric if source_item is not None else True,
+        ))
+    summary_fields = tuple(summary_fields_list)
 
     # Match outcomes → JavaMatchOutcome
     match_outcomes: tuple[JavaMatchOutcome, ...] = ()
