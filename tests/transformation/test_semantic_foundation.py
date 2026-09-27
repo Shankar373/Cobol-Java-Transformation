@@ -180,3 +180,47 @@ def test_mapping_prefers_structured_expression_over_raw_expression_text():
     assert assignment.expression.operator == "+"
     assert assignment.expression.left.name == "A"
     assert assignment.expression.right.name == "B"
+
+
+def test_input_field_provenance_survives_ir_to_java_mapping():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INPUTPROV.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT INFILE ASSIGN TO "input.dat".
+       DATA DIVISION.
+       FILE SECTION.
+       FD INFILE.
+       01 IN-REC PIC X(20).
+       WORKING-STORAGE SECTION.
+       01 WS-ID PIC X(5).
+       PROCEDURE DIVISION.
+       MAIN.
+           UNSTRING IN-REC DELIMITED BY "|" INTO WS-ID
+           MOVE WS-ID TO WS-ID
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="inputprov.cob")
+    mapping = program.input_record_mappings[0]
+    assert mapping.field_provenance[0].file_name == "INFILE"
+    assert mapping.field_provenance[0].record_name == "IN-REC"
+    assert mapping.field_provenance[0].field_name == "WS-ID"
+    assert mapping.field_provenance[0].input_position == 0
+
+    move = next(
+        statement
+        for statement in program.paragraphs[0].statements
+        if getattr(statement, "target", "") == "WS-ID"
+    )
+    assert move.source_expr.provenance.file_name == "INFILE"
+    assert move.source_expr.provenance.record_name == "IN-REC"
+    assert move.source_expr.provenance.input_position == 0
+
+    java_program = map_cobol_program_to_java(program)
+    java_field = next(field for field in java_program.java_class.fields if field.name == "WS_ID")
+    assert java_field.source_provenance is not None
+    assert java_field.source_provenance.file_name == "INFILE"
+    assert java_field.source_provenance.record_name == "IN-REC"
+    assert java_field.source_provenance.input_position == 0
