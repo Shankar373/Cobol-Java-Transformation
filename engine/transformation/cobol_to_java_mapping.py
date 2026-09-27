@@ -3458,69 +3458,6 @@ def map_cobol_paragraph_to_method(
     )
 
 
-def _derive_default_status_label(program: CobolProgram) -> str:
-    """Read an implicit/default outcome from the canonical IF decision tree.
-
-    The decision structure in IfStatement is authoritative. This helper
-    deliberately does not consult status_codes or threshold_rules:
-    those are projections for specialised generation, not the source of
-    control-flow truth.
-
-    A numeric decision with literal MOVE outcomes on both branches is a
-    semantic decision point. Its ELSE branch is the source-defined default
-    outcome. The same rule therefore works for any program with this shape;
-    it is not tied to Claims or to field names.
-    """
-    def literal_move(statements: tuple) -> tuple[str, str] | None:
-        for stmt in statements:
-            if isinstance(stmt, MoveStatement):
-                source = (stmt.source or "").strip()
-                target = (stmt.target or "").rstrip(".")
-                if (
-                    len(source) >= 2
-                    and source[0] in "'\""
-                    and source[-1] == source[0]
-                    and target
-                ):
-                    return target, source[1:-1]
-        return None
-
-    def walk(statements: tuple):
-        for stmt in statements:
-            if not isinstance(stmt, IfStatement):
-                continue
-
-            condition = stmt.structured_condition
-            if isinstance(condition, Comparison):
-                left = condition.left
-                right = condition.right
-                left_type = getattr(left, "semantic_type", None)
-                is_numeric_decision = (
-                    condition.operator in {"<", ">", "<=", ">="}
-                    and isinstance(right, Literal)
-                    and right.is_numeric
-                    and (left_type is None or left_type.is_numeric)
-                )
-                if is_numeric_decision:
-                    then_move = literal_move(stmt.then_body)
-                    else_move = literal_move(stmt.else_body)
-                    if (
-                        then_move is not None
-                        and else_move is not None
-                        and then_move[0].upper() == else_move[0].upper()
-                    ):
-                        return else_move[1]
-
-            found = walk(stmt.then_body)
-            if found is not None:
-                return found
-            found = walk(stmt.else_body)
-            if found is not None:
-                return found
-        return None
-
-    return walk(tuple(s for p in program.paragraphs for s in p.statements)) or ""
-
 def map_cobol_program_to_java(
     program: CobolProgram,
     called_programs: dict[str, CobolProgram] | None = None,
