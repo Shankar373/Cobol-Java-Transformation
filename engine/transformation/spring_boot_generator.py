@@ -538,10 +538,19 @@ public class {class_name} {{
 
         lines = []
         # Method signature
+        throws_clause = (
+            f" throws {', '.join(method.exceptions)}"
+            if method.exceptions
+            else ""
+        )
         if method.is_static:
-            lines.append(f"    public static {return_type_str} {method.name}({params_str}) {{")
+            lines.append(
+                f"    public static {return_type_str} {method.name}({params_str}){throws_clause} {{"
+            )
         else:
-            lines.append(f"    public {return_type_str} {method.name}({params_str}) {{")
+            lines.append(
+                f"    public {return_type_str} {method.name}({params_str}){throws_clause} {{"
+            )
 
         # Generate method body from structured IR statements
         for stmt in method.body_statements:
