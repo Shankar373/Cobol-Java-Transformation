@@ -1094,6 +1094,37 @@ public class {class_name} {{
         status_var = field_vars.get(main_record.fields[1], "field_1") if main_record and len(main_record.fields) > 1 else "field_1"
         amt_str_var = field_vars.get(main_record.fields[-1], "field_last") if main_record and main_record.fields else "field_last"
 
+        # Threshold arithmetic must follow the source field's Java type.
+        # Numeric PIC fields are already parsed as numeric Java fields; calling
+        # .trim() on them generates invalid Java. Alphanumeric fields require
+        # explicit numeric parsing only when they are used as threshold input.
+        amount_item = None
+        if main_record and main_record.fields:
+            amount_source = main_record.fields[-1]
+            for fd in program.file_definitions:
+                for item in fd.record_items:
+                    if item.name == amount_source:
+                        amount_item = item
+                        break
+                if amount_item is not None:
+                    break
+        if amount_item is None:
+            raise ValueError(
+                "MISSING_REQUIRED_SEMANTIC: Threshold input field is not present "
+                "in the source record definition."
+            )
+        amount_java_type = "long" if amount_item.pic_length > 9 else "int"
+        if amount_item.is_numeric:
+            amount_num_declaration = (
+                f"            {amount_java_type} {amt_str_var}_num = {amt_str_var};"
+            )
+        else:
+            parse_fn = "Long.parseLong" if amount_java_type == "long" else "Integer.parseInt"
+            amount_num_declaration = (
+                f"            {amount_java_type} {amt_str_var}_num = "
+                f"{parse_fn}({amt_str_var}.trim());"
+            )
+
         status_java = self._build_status_checks_java(
             program.status_codes, program.lookup_operations,
             program.match_outcome_labels, status_var, id_var, amt_str_var,
@@ -1154,7 +1185,7 @@ public class {class_name} {{
 {self._generate_counter_increments(program.status_codes, summary_fields)}
 {self._generate_field_assignments(main_record, field_vars)}
 
-            int {amount_var}_num = Integer.parseInt({amt_str_var}.trim());
+{amount_num_declaration}
 
             String result;
             int lookupMatch = 0;
