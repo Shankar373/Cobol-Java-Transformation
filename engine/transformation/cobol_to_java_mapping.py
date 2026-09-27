@@ -1689,78 +1689,67 @@ def map_cobol_paragraph_to_method(
 
 
 def _derive_default_status_label(program: CobolProgram) -> str:
-    """Derive the source-defined label for an implicit decision ELSE branch.
+    """Read an implicit/default outcome from the canonical IF decision tree.
 
-    Match the numeric threshold structurally from the parsed condition tree
-    rather than depending on source-string formatting.
+    The decision structure in IfStatement is authoritative. This helper
+    deliberately does not consult status_codes or threshold_rules:
+    those are projections for specialised generation, not the source of
+    control-flow truth.
+
+    A numeric decision with literal MOVE outcomes on both branches is a
+    semantic decision point. Its ELSE branch is the source-defined default
+    outcome. The same rule therefore works for any program with this shape;
+    it is not tied to Claims or to field names.
     """
-    if not program.status_codes or not program.threshold_rules:
-        return ""
-
-    def walk(statements):
-        for stmt in statements:
-            if isinstance(stmt, IfStatement):
-                yield stmt
-                yield from walk(stmt.then_body)
-                yield from walk(stmt.else_body)
-
-    def literal_move(statements, target: str = "") -> tuple[str, str] | None:
+    def literal_move(statements: tuple) -> tuple[str, str] | None:
         for stmt in statements:
             if isinstance(stmt, MoveStatement):
                 source = (stmt.source or "").strip()
-                normalized_target = (stmt.target or "").rstrip(".")
-                if target and normalized_target.upper() != target.upper():
-                    continue
-                if len(source) >= 2 and source[0] in "'\"" and source[-1] == source[0]:
-                    return source[1:-1], normalized_target
-            if isinstance(stmt, IfStatement):
-                found = literal_move(stmt.then_body, target) or literal_move(stmt.else_body, target)
-                if found:
-                    return found
+                target = (stmt.target or "").rstrip(".")
+                if (
+                    len(source) >= 2
+                    and source[0] in "'\""
+                    and source[-1] == source[0]
+                    and target
+                ):
+                    return target, source[1:-1]
         return None
 
-    def matches_threshold(stmt: IfStatement, rule) -> bool:
-        condition = stmt.structured_condition
-        if condition is not None:
-            if (
-                getattr(condition.left, "name", "").upper() == rule.field_name.upper()
-                and getattr(condition, "operator", "") == rule.operator
-                and str(getattr(condition.right, "value", "")).strip() == str(rule.value)
-            ):
-                return True
-        text = " ".join((stmt.condition or "").rstrip(".").split())
-        expected = f"{rule.field_name} {rule.operator} {rule.value}"
-        return text.upper() == expected.upper()
+    def walk(statements: tuple):
+        for stmt in statements:
+            if not isinstance(stmt, IfStatement):
+                continue
 
-    status_target = ""
-    first_status = program.status_codes[0]
-    expected_status = f"{first_status.field_name} = '{first_status.code}'"
-    for stmt in walk(s for p in program.paragraphs for s in p.statements):
-        condition = stmt.structured_condition
-        if (
-            condition is not None
-            and getattr(condition.left, "name", "").upper() == first_status.field_name.upper()
-            and getattr(condition, "operator", "") == "="
-            and str(getattr(condition.right, "value", "")).strip().upper()
-            == first_status.code.upper()
-        ) or (
-            condition is None
-            and " ".join((stmt.condition or "").rstrip(".").split()).upper()
-            == expected_status.upper()
-        ):
-            found = literal_move(stmt.then_body)
-            if found:
-                status_target = found[1]
-                break
+            condition = stmt.structured_condition
+            if isinstance(condition, Comparison):
+                left = condition.left
+                right = condition.right
+                left_type = getattr(left, "semantic_type", None)
+                is_numeric_decision = (
+                    condition.operator in {"<", ">", "<=", ">="}
+                    and isinstance(right, Literal)
+                    and right.is_numeric
+                    and (left_type is None or left_type.is_numeric)
+                )
+                if is_numeric_decision:
+                    then_move = literal_move(stmt.then_body)
+                    else_move = literal_move(stmt.else_body)
+                    if (
+                        then_move is not None
+                        and else_move is not None
+                        and then_move[0].upper() == else_move[0].upper()
+                    ):
+                        return else_move[1]
 
-    for rule in program.threshold_rules:
-        for stmt in walk(s for p in program.paragraphs for s in p.statements):
-            if matches_threshold(stmt, rule):
-                found = literal_move(stmt.else_body, status_target)
-                if found:
-                    return found[0]
+            found = walk(stmt.then_body)
+            if found is not None:
+                return found
+            found = walk(stmt.else_body)
+            if found is not None:
+                return found
+        return None
 
-    return ""
+    return walk(tuple(s for p in program.paragraphs for s in p.statements)) or ""
 
 def map_cobol_program_to_java(
     program: CobolProgram,
