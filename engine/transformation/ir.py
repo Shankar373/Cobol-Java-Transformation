@@ -895,7 +895,11 @@ def _flatten_statements(stmt: Statement) -> list[Statement]:
     return result
 
 
-def _bind_semantic_node(node, symbols: dict[str, DataItem]):
+def _bind_semantic_node(
+    node,
+    symbols: dict[str, DataItem],
+    input_provenance: dict[str, FieldProvenance],
+):
     """Recursively bind FieldReference nodes to canonical source symbols."""
     from dataclasses import fields as dataclass_fields, is_dataclass, replace
 
@@ -906,9 +910,9 @@ def _bind_semantic_node(node, symbols: dict[str, DataItem]):
         return replace(
             node,
             semantic_type=item.semantic_type,
-            provenance=FieldProvenance(
-                source=item.provenance,
-                field_name=item.name,
+            provenance=input_provenance.get(
+                item.name.upper(),
+                FieldProvenance(source=item.provenance, field_name=item.name),
             ),
         )
 
@@ -921,7 +925,7 @@ def _bind_semantic_node(node, symbols: dict[str, DataItem]):
     changes = {}
     for field_def in dataclass_fields(node):
         value = getattr(node, field_def.name)
-        bound = _bind_semantic_node(value, symbols)
+        bound = _bind_semantic_node(value, symbols, input_provenance)
         if bound != value:
             changes[field_def.name] = bound
     return replace(node, **changes) if changes else node
@@ -943,10 +947,11 @@ def bind_program_semantics(program: "CobolProgram") -> "CobolProgram":
     for fd in program.file_definitions:
         add_items(fd.record_items)
 
-    bound_paragraphs = tuple(
-        _bind_semantic_node(paragraph, symbols) for paragraph in program.paragraphs
-    )
-
+    # Input provenance is a projection of the canonical field symbol, not a
+    # second field model. When a field participates in more than one input
+    # mapping, leave the reference provenance unresolved rather than choosing
+    # an arbitrary record.
+    input_candidates: dict[str, list[FieldProvenance]] = {}
     bound_mappings = []
     for mapping in program.input_record_mappings:
         field_provenance = tuple(
@@ -959,7 +964,20 @@ def bind_program_semantics(program: "CobolProgram") -> "CobolProgram":
             )
             for index, name in enumerate(mapping.fields)
         )
+        for provenance in field_provenance:
+            input_candidates.setdefault(provenance.field_name.upper(), []).append(provenance)
         bound_mappings.append(replace(mapping, field_provenance=field_provenance))
+
+    input_provenance = {
+        name: candidates[0]
+        for name, candidates in input_candidates.items()
+        if len(candidates) == 1
+    }
+
+    bound_paragraphs = tuple(
+        _bind_semantic_node(paragraph, symbols, input_provenance)
+        for paragraph in program.paragraphs
+    )
 
     return replace(
         program,
