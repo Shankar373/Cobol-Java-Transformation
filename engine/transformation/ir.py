@@ -917,7 +917,7 @@ def _bind_semantic_node(
         )
 
     if isinstance(node, tuple):
-        return tuple(_bind_semantic_node(value, symbols) for value in node)
+        return tuple(_bind_semantic_node(value, symbols, input_provenance) for value in node)
 
     if not is_dataclass(node):
         return node
