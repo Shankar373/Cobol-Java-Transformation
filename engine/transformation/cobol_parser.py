@@ -64,6 +64,8 @@ from engine.transformation.ir import (
     UnaryExpression,
     UnstringStatement,
     WriteStatement,
+    SourceProvenance,
+    bind_program_semantics,
 )
 
 
@@ -133,16 +135,20 @@ class CobolParser:
     def __init__(self, diagnostics: DiagnosticCollector | None = None) -> None:
         self._diagnostics = diagnostics or DiagnosticCollector()
         self._unsupported_statements: list[str] = []
+        self._source_name: str = ""
+        self._source_line_numbers: list[int] = []
 
-    def parse(self, source: str) -> CobolProgram:
+    def parse(self, source: str, source_name: str = "") -> CobolProgram:
         """Parse COBOL source text into a CobolProgram IR."""
         lines = source.split("\n")
-        # Remove comments and empty lines
+        self._source_name = source_name
+        self._source_line_numbers = []
         code_lines = []
-        for line in lines:
+        for source_line_number, line in enumerate(lines, start=1):
             cleaned = _strip_area_prefix(line)
             if cleaned and not cleaned.startswith("*"):
                 code_lines.append(cleaned)
+                self._source_line_numbers.append(source_line_number)
 
         # Parse divisions
         program_id = self._parse_program_id(code_lines)
@@ -188,6 +194,15 @@ class CobolParser:
             else:
                 merged_files.append(fd)
 
+        # Bind source coordinates to data declarations before semantic binding.
+        working_storage = self._attach_data_provenance(working_storage, code_lines)
+        linkage_section = self._attach_data_provenance(linkage_section, code_lines)
+        from dataclasses import replace
+        merged_files = [
+            replace(fd, record_items=tuple(self._attach_data_provenance(list(fd.record_items), code_lines)))
+            for fd in merged_files
+        ]
+
         # Extract input record mappings from UNSTRING statements
         input_record_mappings = self._extract_input_record_mappings(
             code_lines, file_section_map,
@@ -217,6 +232,9 @@ class CobolParser:
             linkage_section=tuple(linkage_section),
             using_parameters=tuple(using_parameters),
         )
+
+        # Bind source types/provenance into the same IR consumed downstream.
+        program = bind_program_semantics(program)
 
         # Validate that input contains a recognizable COBOL structure
         self._validate_program_structure(program, source)
@@ -381,6 +399,39 @@ class CobolParser:
                     break
 
         return file_defs
+
+    def _attach_data_provenance(
+        self,
+        items: list[DataItem],
+        code_lines: list[str],
+    ) -> list[DataItem]:
+        """Attach original source coordinates to parsed data items."""
+        from dataclasses import replace
+
+        def attach(item: DataItem) -> DataItem:
+            line_index = next(
+                (
+                    index
+                    for index, line in enumerate(code_lines)
+                    if re.match(
+                        rf"^\s*{item.level}\s+{re.escape(item.name)}(?:\s|\.|$)",
+                        line,
+                        re.IGNORECASE,
+                    )
+                ),
+                None,
+            )
+            children = tuple(attach(child) for child in item.children)
+            provenance = item.provenance
+            if line_index is not None:
+                provenance = SourceProvenance(
+                    source_name=self._source_name,
+                    line=self._source_line_numbers[line_index],
+                    construct="DATA_ITEM",
+                )
+            return replace(item, provenance=provenance, children=children)
+
+        return [attach(item) for item in items]
 
     def _parse_file_section(self, lines: list[str]) -> list[FileDefinition]:
         """Parse FILE SECTION to extract record definitions."""
@@ -1098,6 +1149,11 @@ class CobolParser:
             then_body=tuple(then_body),
             else_body=tuple(else_body),
             structured_condition=self._build_condition(condition),
+            provenance=SourceProvenance(
+                source_name=self._source_name,
+                line=self._source_line_numbers[start] if start < len(self._source_line_numbers) else start + 1,
+                construct="IF",
+            ),
         ), i
 
     def _parse_perform(self, lines: list[str], start: int) -> tuple[PerformStatement, int]:
