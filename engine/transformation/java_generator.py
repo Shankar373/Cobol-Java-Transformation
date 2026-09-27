@@ -225,10 +225,21 @@ class JavaGenerator:
         # Build field mappings from class fields
         field_map = {f.name: f for f in java_class.fields}
 
-        # Status checks
+        input_fields = program.input_record_fields or tuple(
+            f.name for f in java_class.fields
+        )
+        status_var = (
+            program.status_codes[0].field_name
+            if program.status_codes and program.status_codes[0].field_name
+            else (input_fields[1] if len(input_fields) > 1 else "field_1")
+        )
+        amount_var = self._derive_threshold_input_field(
+            program.threshold_rules, java_class, input_fields,
+        )
         status_java = self._build_status_checks_java_from_ir(
             program.status_codes, program.match_outcomes,
-            program.summary_fields, field_map, program.input_record_fields,
+            program.summary_fields, field_map, input_fields,
+            status_var=status_var, amount_var=amount_var,
         )
 
         # Summary output
@@ -252,18 +263,7 @@ class JavaGenerator:
             program, java_class,
         )
 
-        # Status variable names (positional from input record fields)
-        input_fields = program.input_record_fields or tuple(f.name for f in java_class.fields)
-        id_var = input_fields[0] if len(input_fields) > 0 else "field_0"
-        status_var = input_fields[1] if len(input_fields) > 1 else "field_1"
-        # The threshold rule identifies the amount field explicitly. Do not
-        # assume it is the last input column; COBOL record layouts are
-        # positional and may contain additional fields after the amount.
-        amt_str_var = (
-            program.threshold_rules[0].field_name.replace("-", "_")
-            if program.threshold_rules
-            else (input_fields[-1] if input_fields else "field_last")
-        )
+        id_var = input_fields[0] if input_fields else "field_0"
 
         # Report write
         report_write = self._build_record_write_java_from_ir(
@@ -275,7 +275,7 @@ class JavaGenerator:
 
         # Stderr diagnostics
         stderr_java = self._build_stderr_java_from_ir(
-            program.status_codes, id_var, status_var, amt_str_var,
+            program.status_codes, id_var, status_var, amount_var,
         )
 
         # Class-level field declarations
@@ -321,7 +321,7 @@ public class {class_name} {{
 {counter_increments}
 {field_assignments}
 
-            int {amt_str_var}_num = Integer.parseInt({amt_str_var}.trim());
+            int {amount_var}_num = Integer.parseInt({amount_var}.trim());
 
             String result;
             int lookupMatch = 0;
@@ -619,6 +619,8 @@ public class {class_name} {{
         summary_fields: tuple[JavaSummaryField, ...],
         field_map: dict[str, JavaField],
         input_record_fields: tuple[str, ...] = (),
+        status_var: str = "",
+        amount_var: str = "",
     ) -> str:
         """Generate Java if/else chain from Java IR status codes."""
         if not status_codes:
@@ -644,13 +646,13 @@ public class {class_name} {{
 
         # Derive variable names from input record fields (positional)
         if input_record_fields:
-            id_var = input_record_fields[0] if len(input_record_fields) > 0 else "field_0"
-            status_var = input_record_fields[1] if len(input_record_fields) > 1 else "field_1"
-            amt_str_var = input_record_fields[-1] if len(input_record_fields) > 0 else "field_last"
+            id_var = input_record_fields[0]
         else:
             id_var = self._derive_field_var_simple(field_map, 0, "field_0")
-            status_var = self._derive_field_var_simple(field_map, 1, "field_1")
-            amt_str_var = self._derive_field_var_simple(field_map, -1, "field_last")
+        status_var = status_var or self._derive_field_var_simple(field_map, 1, "field_1")
+        amount_var = amount_var or (
+            input_record_fields[-1] if input_record_fields else "field_last"
+        )
 
         lines = []
         first = True
@@ -663,7 +665,7 @@ public class {class_name} {{
             first = False
 
         lines.append('            } else {')
-        lines.append(f'            if ({amt_str_var}_num < THRESHOLD) {{')
+        lines.append(f'            if ({amount_var}_num < THRESHOLD) {{')
         lines.append(f'                result = "{first_label}";')
         lines.append(f'                {label_to_counter.get(first_label, "counter")}++;')
         lines.append('            } else {')
@@ -679,7 +681,7 @@ public class {class_name} {{
             lines.append(f'                if (lookupMap.containsKey({id_var}.trim())) {{')
             lines.append(f'                    lookupMatch = lookupMap.get({id_var}.trim());')
             lines.append('')
-            lines.append(f'                    if (lookupMatch == {amt_str_var}_num) {{')
+            lines.append(f'                    if (lookupMatch == {amount_var}_num) {{')
             lines.append(f'                        result = "{paid_label}";')
             lines.append(f'                        {paid_counter}++;')
             lines.append('                    } else {')
@@ -697,6 +699,38 @@ public class {class_name} {{
         lines.append('            }')
 
         return "\n".join(lines)
+
+    def _derive_threshold_input_field(
+        self,
+        threshold_rules: tuple[JavaThresholdRule, ...],
+        java_class: JavaClass,
+        input_fields: tuple[str, ...],
+    ) -> str:
+        if not threshold_rules:
+            return input_fields[-1] if input_fields else "field_last"
+        target = threshold_rules[0].field_name.replace("-", "_")
+        from engine.transformation.java_ir import JavaAssignment, JavaVariableRef
+        for method in java_class.methods:
+            for stmt in self._walk_statements(method.body_statements):
+                if isinstance(stmt, JavaAssignment) and stmt.target == target:
+                    if isinstance(stmt.expression, JavaVariableRef):
+                        if stmt.expression.name in input_fields:
+                            return stmt.expression.name
+        return target
+
+    def _walk_statements(self, statements):
+        from engine.transformation.java_ir import JavaBlock, JavaIf, JavaFor, JavaWhile
+        for stmt in statements:
+            yield stmt
+            if isinstance(stmt, JavaIf):
+                yield from self._walk_statements(stmt.then_body)
+                yield from self._walk_statements(stmt.else_body)
+            elif isinstance(stmt, JavaBlock):
+                yield from self._walk_statements(stmt.statements)
+            elif isinstance(stmt, JavaFor):
+                yield from self._walk_statements(stmt.body)
+            elif isinstance(stmt, JavaWhile):
+                yield from self._walk_statements(stmt.body)
 
     def _derive_field_var_simple(
         self,
@@ -779,10 +813,10 @@ public class {class_name} {{
                         {id_var},
                         {status_var});
             }}
-            if ({amt_str_var}_num < THRESHOLD && {status_check}) {{
+            if ({amount_var}_num < THRESHOLD && {status_check}) {{
                 System.err.printf("LOW_VALUE:%s value=%s%n",
                         {id_var},
-                        padRight(String.valueOf({amt_str_var}_num), 5));
+                        padRight(String.valueOf({amount_var}_num), 5));
             }}'''
 
     def _java_type_to_string(self, java_type) -> str:
@@ -1120,7 +1154,7 @@ public class {class_name} {{
 {self._generate_counter_increments(program.status_codes, summary_fields)}
 {self._generate_field_assignments(main_record, field_vars)}
 
-            int {amt_str_var}_num = Integer.parseInt({amt_str_var}.trim());
+            int {amount_var}_num = Integer.parseInt({amt_str_var}.trim());
 
             String result;
             int lookupMatch = 0;
@@ -1338,7 +1372,7 @@ public class {class_name} {{
             first = False
 
         lines.append('            } else {')
-        lines.append(f'            if ({amt_str_var}_num < THRESHOLD) {{')
+        lines.append(f'            if ({amount_var}_num < THRESHOLD) {{')
         lines.append(f'                result = "{first_label}";')
         lines.append(f'                {label_to_counter[first_label]}++;')
         lines.append('            } else {')
@@ -1351,7 +1385,7 @@ public class {class_name} {{
             lines.append(f'                if (lookupMap.containsKey({id_var}.trim())) {{')
             lines.append(f'                    lookupMatch = lookupMap.get({id_var}.trim());')
             lines.append('')
-            lines.append(f'                    if (lookupMatch == {amt_str_var}_num) {{')
+            lines.append(f'                    if (lookupMatch == {amount_var}_num) {{')
             lines.append(f'                        result = "{paid_label}";')
             lines.append(f'                        {label_to_counter[paid_label]}++;')
             lines.append('                    } else {')
@@ -1459,10 +1493,10 @@ public class {class_name} {{
                         {id_var},
                         {status_var});
             }}
-            if ({amt_str_var}_num < THRESHOLD && {status_check}) {{
+            if ({amount_var}_num < THRESHOLD && {status_check}) {{
                 System.err.printf("LOW_VALUE:%s value=%s%n",
                         {id_var},
-                        padRight(String.valueOf({amt_str_var}_num), 5));
+                        padRight(String.valueOf({amount_var}_num), 5));
             }}'''
 
     def _generate_file_io_java(self, program: CobolProgram, class_name: str) -> str:
