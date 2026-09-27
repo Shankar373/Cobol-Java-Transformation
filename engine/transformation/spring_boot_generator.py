@@ -447,7 +447,10 @@ public class {class_name} {{
                 parameters=method.parameters,
                 body_statements=method.body_statements,
                 is_static=False,
-                exceptions=method.exceptions,
+                # Java paragraph methods are generated with checked-exception
+                # propagation. Preserve that contract at the Spring boundary;
+                # an empty metadata tuple must not silently erase it.
+                exceptions=method.exceptions or ("Exception",),
             )
             lines.extend(self._generate_method_body(non_static))
 
