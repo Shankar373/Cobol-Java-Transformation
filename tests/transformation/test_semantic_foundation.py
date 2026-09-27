@@ -1,6 +1,7 @@
 """Regression tests for the canonical semantic foundation."""
 
 from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
 from engine.transformation.ir import BinaryExpression, CobolType, DecisionNode, FieldReference, IfStatement, InputRecordMapping, PicType
 
 
@@ -86,3 +87,34 @@ def test_expression_reference_is_bound_to_source_type_and_provenance():
 def test_input_mapping_exposes_field_provenance_shape():
     mapping = InputRecordMapping("CLAIM-REC", "CLAIMS-FILE", "|", ("ID", "STATUS", "AMOUNT"))
     assert mapping.field_provenance == ()
+
+
+def test_mapping_uses_structured_numeric_else_branch_for_default():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GENERIC.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 STATUS PIC X(1).
+       01 AMOUNT PIC 9(5).
+       01 RESULT PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           IF STATUS = 'R'
+               MOVE 'REJECTED' TO RESULT
+           ELSE
+               IF STATUS = 'P'
+                   MOVE 'PENDING' TO RESULT
+               ELSE
+                   IF AMOUNT < 500
+                       MOVE 'REJECTED' TO RESULT
+                   ELSE
+                       MOVE 'APPROVED' TO RESULT
+                   END-IF
+               END-IF
+           END-IF
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="generic.cob")
+    java_program = map_cobol_program_to_java(program)
+    assert java_program.default_status_label == "APPROVED"
