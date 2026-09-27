@@ -262,6 +262,7 @@ class JavaGenerator:
             program.status_codes, program.match_outcomes,
             program.summary_fields, field_map, input_fields,
             status_var=status_var, amount_var=amount_var,
+            default_status_label=program.default_status_label,
         )
 
         # Summary output
@@ -643,6 +644,7 @@ public class {class_name} {{
         input_record_fields: tuple[str, ...] = (),
         status_var: str = "",
         amount_var: str = "",
+        default_status_label: str = "",
     ) -> str:
         """Generate Java if/else chain from Java IR status codes."""
         if not status_codes:
@@ -652,7 +654,7 @@ public class {class_name} {{
         # The implicit/default branch is separate from explicit status codes.
         # Prefer the source-derived default carried by JavaProgram; retain the
         # explicit last-code fallback for directly constructed Java IR.
-        approval_label = program.default_status_label or status_codes[-1].label
+        approval_label = default_status_label or status_codes[-1].label
 
         # Get match outcome labels
         paid_label = match_outcomes[0].paid_label if match_outcomes else approval_label
