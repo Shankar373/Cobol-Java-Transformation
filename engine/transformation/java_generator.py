@@ -263,6 +263,7 @@ class JavaGenerator:
             program.summary_fields, field_map, input_fields,
             status_var=status_var, amount_var=amount_var,
             default_status_label=program.default_status_label,
+            default_status_counter_name=program.default_status_counter_name,
         )
 
         # Summary output
@@ -273,7 +274,7 @@ class JavaGenerator:
         # Variable declarations
         var_decls = self._generate_var_declarations_from_ir(
             program.status_codes, program.match_outcomes,
-            program.summary_fields,
+            program.summary_fields, program.default_status_counter_name,
         )
 
         # Counter increments
@@ -567,6 +568,7 @@ public class {class_name} {{
         status_codes: tuple[JavaStatusCodeMapping, ...],
         match_outcomes: tuple[JavaMatchOutcome, ...],
         summary_fields: tuple[JavaSummaryField, ...],
+        default_status_counter_name: str = "",
     ) -> str:
         """Generate Java variable declarations from Java IR metadata."""
         lines = []
@@ -589,6 +591,10 @@ public class {class_name} {{
             if sf.java_var_name not in declared:
                 lines.append(f'        int {sf.java_var_name} = 0;')
                 declared.add(sf.java_var_name)
+
+        if default_status_counter_name and default_status_counter_name not in declared:
+            lines.append(f'        int {default_status_counter_name} = 0;')
+            declared.add(default_status_counter_name)
 
         return "\n".join(lines)
 
@@ -645,6 +651,7 @@ public class {class_name} {{
         status_var: str = "",
         amount_var: str = "",
         default_status_label: str = "",
+        default_status_counter_name: str = "",
     ) -> str:
         """Generate Java if/else chain from Java IR status codes."""
         if not status_codes:
@@ -663,6 +670,8 @@ public class {class_name} {{
 
         # Build label → counter mapping
         label_to_counter = {sc.label: sc.counter_name for sc in status_codes}
+        if default_status_label and default_status_counter_name:
+            label_to_counter[default_status_label] = default_status_counter_name
         for mo in match_outcomes:
             if mo.paid_label:
                 label_to_counter[mo.paid_label] = self._label_to_counter_name(mo.paid_label)
