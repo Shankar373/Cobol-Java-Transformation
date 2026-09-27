@@ -1832,31 +1832,20 @@ def map_cobol_program_to_java(
         file_record_items.extend(fd.record_items)
     all_data_items = tuple(file_record_items) + program.working_storage
 
-    # Carry the primary input mapping's canonical provenance into the target
-    # field model. The input mapping remains the source of positional origin;
-    # JavaField merely preserves that provenance for downstream generation.
-    primary_input_file = next(
-        (
-            fd.name
-            for fd in program.file_definitions
-            if any(
-                stmt.file_name == fd.name and stmt.mode.upper() == "INPUT"
-                for stmt in program.open_statements
+    # Carry canonical input provenance into the target field model.
+    # A field is safe to bind only when exactly one input mapping owns it.
+    # Multiple candidate mappings remain unresolved rather than selecting an
+    # arbitrary record or relying on OPEN statement order.
+    input_candidates: dict[str, list[FieldProvenance]] = {}
+    for mapping in program.input_record_mappings:
+        for provenance in mapping.field_provenance:
+            input_candidates.setdefault(provenance.field_name.upper(), []).append(
+                provenance
             )
-        ),
-        "",
-    )
-    primary_mapping = next(
-        (
-            mapping
-            for mapping in program.input_record_mappings
-            if mapping.file_name == primary_input_file
-        ),
-        None,
-    )
     input_provenance = {
-        provenance.field_name.upper(): provenance
-        for provenance in (primary_mapping.field_provenance if primary_mapping else ())
+        name: candidates[0]
+        for name, candidates in input_candidates.items()
+        if len(candidates) == 1
     }
 
     fields = map_cobol_data_items_to_fields(all_data_items, input_provenance)
