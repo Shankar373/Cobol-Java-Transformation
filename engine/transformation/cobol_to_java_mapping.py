@@ -1926,13 +1926,19 @@ def map_cobol_program_to_java(
     # before claims), so source-order selection can bind the wrong record
     # layout and silently leave the decision fields at their defaults.
     input_record_fields: tuple[str, ...] = ()
-    input_file_names = {
-        stmt.file_name
-        for stmt in program.open_statements
-        if stmt.mode.upper() == "INPUT"
-    }
+    primary_input_file = next(
+        (
+            fd.name
+            for fd in program.file_definitions
+            if any(
+                stmt.file_name == fd.name and stmt.mode.upper() == "INPUT"
+                for stmt in program.open_statements
+            )
+        ),
+        "",
+    )
     for mapping in program.input_record_mappings:
-        if mapping.file_name in input_file_names:
+        if mapping.file_name == primary_input_file:
             input_record_fields = tuple(
                 f.replace("-", "_") for f in mapping.fields
             )
