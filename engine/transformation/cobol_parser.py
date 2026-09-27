@@ -1034,10 +1034,7 @@ class CobolParser:
                 return None
             spec, body = arms[idx]
             if spec.upper() == "OTHER":
-                # WHEN OTHER is the unconditional fallback arm of EVALUATE.
-                # It is not a COBOL boolean condition; lowering it to a
-                # literal TRUE keeps the IR valid for Java generation.
-                return IfStatement(condition="TRUE", then_body=body)
+                return IfStatement(condition="OTHER", then_body=body)
             condition = cond(spec)
             if idx + 1 < len(arms) and arms[idx + 1][0].upper() == "OTHER":
                 return IfStatement(condition=condition, then_body=body, else_body=arms[idx + 1][1],
