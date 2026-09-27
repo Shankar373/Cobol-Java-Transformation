@@ -980,20 +980,11 @@ def map_cobol_statement(
                         arguments=(format_spec, var_ref),
                         is_static=True,
                     ))
-                elif item is not None and item.is_alphanumeric and item.pic_length > 0:
-                    format_spec = JavaLiteral(value="%-{}s".format(item.pic_length))
-                    formatted = JavaMethodCall(
-                        class_name="String",
-                        method_name="format",
-                        arguments=(format_spec, var_ref),
-                        is_static=True,
-                    )
-                    parts.append(JavaMethodCall(
-                        object_ref=formatted,
-                        method_name="substring",
-                        arguments=(_int_lit(0), _int_lit(item.pic_length)),
-                    ))
                 else:
+                    # DISPLAY of an alphanumeric field uses the field's
+                    # current value. COBOL PIC X storage width is preserved
+                    # by the data semantics; DISPLAY must not invent Java
+                    # padding/truncation around an already-typed String.
                     parts.append(var_ref)
         if parts:
             concat = JavaStringConcat(parts=tuple(parts))
