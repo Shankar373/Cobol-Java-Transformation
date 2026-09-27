@@ -1691,10 +1691,8 @@ def map_cobol_paragraph_to_method(
 def _derive_default_status_label(program: CobolProgram) -> str:
     """Derive the source-defined label for an implicit decision ELSE branch.
 
-    Status-code extraction records explicit IF/code branches, but COBOL
-    decision trees can encode the successful/default outcome in the final
-    ELSE branch. Preserve that outcome as Java IR metadata instead of
-    inferring it from the order of explicit status codes.
+    Match the numeric threshold structurally from the parsed condition tree
+    rather than depending on source-string formatting.
     """
     if not program.status_codes or not program.threshold_rules:
         return ""
@@ -1721,28 +1719,47 @@ def _derive_default_status_label(program: CobolProgram) -> str:
                     return found
         return None
 
+    def matches_threshold(stmt: IfStatement, rule) -> bool:
+        condition = stmt.structured_condition
+        if condition is not None:
+            if (
+                getattr(condition.left, "name", "").upper() == rule.field_name.upper()
+                and getattr(condition, "operator", "") == rule.operator
+                and str(getattr(condition.right, "value", "")).strip() == str(rule.value)
+            ):
+                return True
+        text = " ".join((stmt.condition or "").rstrip(".").split())
+        expected = f"{rule.field_name} {rule.operator} {rule.value}"
+        return text.upper() == expected.upper()
+
     status_target = ""
     first_status = program.status_codes[0]
-    all_statements = (s for p in program.paragraphs for s in p.statements)
-    for stmt in walk(all_statements):
-        condition = " ".join((stmt.condition or "").rstrip(".").split())
-        expected = f"{first_status.field_name} = '{first_status.code}'"
-        if condition.upper() == expected.upper():
+    expected_status = f"{first_status.field_name} = '{first_status.code}'"
+    for stmt in walk(s for p in program.paragraphs for s in p.statements):
+        condition = stmt.structured_condition
+        if (
+            condition is not None
+            and getattr(condition.left, "name", "").upper() == first_status.field_name.upper()
+            and getattr(condition, "operator", "") == "="
+            and str(getattr(condition.right, "value", "")).strip().strip("'\\"").upper()
+            == first_status.code.upper()
+        ) or (
+            condition is None
+            and " ".join((stmt.condition or "").rstrip(".").split()).upper()
+            == expected_status.upper()
+        ):
             found = literal_move(stmt.then_body)
             if found:
                 status_target = found[1]
                 break
 
     for rule in program.threshold_rules:
-        expected = f"{rule.field_name} {rule.operator} {rule.value}"
-        all_statements = (s for p in program.paragraphs for s in p.statements)
-        for stmt in walk(all_statements):
-            condition = " ".join((stmt.condition or "").rstrip(".").split())
-            if condition.upper() != expected.upper():
-                continue
-            found = literal_move(stmt.else_body, status_target)
-            if found:
-                return found[0]
+        for stmt in walk(s for p in program.paragraphs for s in p.statements):
+            if matches_threshold(stmt, rule):
+                found = literal_move(stmt.else_body, status_target)
+                if found:
+                    return found[0]
+
     return ""
 
 def map_cobol_program_to_java(
