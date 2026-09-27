@@ -335,9 +335,18 @@ class DockerOracleAdapter(OracleAdapter):
                 format_flag = self._compile_format_flag(
                     Path(tmpdir, "src"), [main_file, *link_modules]
                 )
+                # Keep compiler diagnostics separate from the runtime
+                # stderr artifact. Successful compilation warnings must not
+                # contaminate behavioral STDERR comparison.
                 compile_cmd = (
                     f"cd {container_src} && "
-                    f"cobc -x {format_flag}{compile_units} -o /tmp/oracle_prog && "
+                    f"cobc -x {format_flag}{compile_units} "
+                    f"-o /tmp/oracle_prog 2>/tmp/oracle_compile.stderr; "
+                    f"compile_status=$?; "
+                    f"if [ $compile_status -ne 0 ]; then "
+                    f"cat /tmp/oracle_compile.stderr >&2; "
+                    f"exit $compile_status; "
+                    f"fi; "
                     f"cd /workspace && "
                     f"/tmp/oracle_prog"
                 )
