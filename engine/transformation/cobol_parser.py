@@ -1117,6 +1117,26 @@ class CobolParser:
                 or bool(re.match(r"\d+\s+TIMES", rest))
             )
         if inline:
+            # COBOL permits the VARYING header to continue onto the next
+            # source line before the UNTIL phrase. Consume only that header
+            # continuation; the statements after UNTIL remain the loop body.
+            header_line = line
+            body_start = start + 1
+            if upper.startswith("PERFORM VARYING ") and " UNTIL " not in upper:
+                j = start + 1
+                while j < len(lines):
+                    continuation = lines[j].strip()
+                    if not continuation:
+                        j += 1
+                        continue
+                    header_line += " " + continuation.rstrip(".")
+                    j += 1
+                    if " UNTIL " in continuation.upper():
+                        body_start = j
+                        break
+                line = header_line
+                upper = line.upper()
+
             if " UNTIL " in upper:
                 suffix = line.split(" UNTIL ", 1)[1].strip()
                 structured_condition = self._build_condition(suffix)
@@ -1126,7 +1146,7 @@ class CobolParser:
                 if re.search(r"\s+TIMES$", upper):
                     suffix = f"TIMES={suffix[: -len('TIMES')].strip()}"
             body = []
-            i = start + 1
+            i = body_start
             while i < len(lines):
                 if lines[i].strip().upper().startswith("END-PERFORM"):
                     return PerformStatement(paragraph_name="", until_condition=suffix,
