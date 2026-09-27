@@ -158,6 +158,7 @@ class TestParsing:
                  if isinstance(s, PerformStatement) and s.until_condition
                  and "VARYING" in (s.until_condition or "")]
         assert len(stmts) >= 1, "CALC must have a PERFORM VARYING"
+        assert "UNTIL WS-LOOP-CNT > 5" in stmts[0].until_condition
 
     def test_main_has_call(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
