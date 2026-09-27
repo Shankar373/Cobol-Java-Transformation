@@ -43,6 +43,45 @@ class PicType(Enum):
     NUMERIC = "NUMERIC"
 
 
+@dataclass(frozen=True)
+class SourceProvenance:
+    """Canonical source provenance for semantic IR nodes."""
+    source_name: str = ""
+    line: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
+    construct: str = ""
+
+
+@dataclass(frozen=True)
+class CobolType:
+    """Canonical source-language type information."""
+    pic_type: PicType
+    length: int = 0
+    decimal_places: int = 0
+    signed: bool = False
+    usage: str = "DISPLAY"
+
+    @property
+    def is_numeric(self) -> bool:
+        return self.pic_type == PicType.NUMERIC
+
+    @property
+    def precision(self) -> int:
+        return self.length
+
+
+@dataclass(frozen=True)
+class FieldProvenance:
+    """Canonical relationship between a COBOL field and an input record."""
+    source: SourceProvenance = SourceProvenance()
+    file_name: str = ""
+    record_name: str = ""
+    field_name: str = ""
+    input_position: int | None = None
+
+
 # ---------------------------------------------------------------------------
 # Expressions
 # ---------------------------------------------------------------------------
@@ -63,9 +102,10 @@ class Literal(Expression):
         'HELLO'
         "WORLD"
     """
-    value: str  # the raw literal text
+    value: str
     is_numeric: bool = False
     is_signed: bool = False
+    semantic_type: CobolType | None = None
 
 
 @dataclass(frozen=True)
@@ -77,7 +117,9 @@ class FieldReference(Expression):
         WS-TOTAL
         AMOUNT
     """
-    name: str  # the COBOL field name
+    name: str
+    semantic_type: CobolType | None = None
+    provenance: FieldProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -193,8 +235,21 @@ class DataItem:
     decimal_places: int = 0  # V clause: digits after decimal point
     value: str | None = None
     occurs: int | None = None
-    redefines: str | None = None  # REDEFINES clause
+    redefines: str | None = None
+    signed: bool = False
+    usage: str = "DISPLAY"
+    provenance: SourceProvenance = SourceProvenance()
     children: tuple[DataItem, ...] = ()
+
+    @property
+    def semantic_type(self) -> CobolType:
+        return CobolType(
+            pic_type=self.pic_type,
+            length=self.pic_length,
+            decimal_places=self.decimal_places,
+            signed=self.signed,
+            usage=self.usage,
+        )
 
     @property
     def is_alphanumeric(self) -> bool:
@@ -443,6 +498,16 @@ class ComputeStatement:
 
 
 @dataclass(frozen=True)
+class DecisionNode:
+    """Canonical decision/control-flow view over an IF subtree."""
+    condition: Condition
+    then_body: tuple["Statement", ...] = ()
+    else_body: tuple["Statement", ...] = ()
+    explicit_else: bool = False
+    provenance: SourceProvenance = SourceProvenance()
+
+
+@dataclass(frozen=True)
 class IfStatement:
     """IF condition THEN ... ELSE ... END-IF.
 
@@ -451,7 +516,25 @@ class IfStatement:
     condition: str
     then_body: tuple[Statement, ...] = ()
     else_body: tuple[Statement, ...] = ()
-    structured_condition: Condition | None = None  # structured condition tree
+    structured_condition: Condition | None = None
+    provenance: SourceProvenance = SourceProvenance()
+
+    @property
+    def has_explicit_else(self) -> bool:
+        return bool(self.else_body)
+
+    @property
+    def decision_tree(self) -> "DecisionNode":
+        condition = self.structured_condition or BooleanCondition(
+            field=FieldReference(name=self.condition)
+        )
+        return DecisionNode(
+            condition=condition,
+            then_body=self.then_body,
+            else_body=self.else_body,
+            explicit_else=self.has_explicit_else,
+            provenance=self.provenance,
+        )
 
 
 @dataclass(frozen=True)
@@ -651,8 +734,9 @@ class InputRecordMapping:
     """
     record_name: str  # e.g. "CLAIM-REC", "PAYMENT-REC"
     file_name: str  # e.g. "CLAIMS-FILE"
-    delimiter: str  # e.g. "|"
-    fields: tuple[str, ...] = ()  # ordered target field names
+    delimiter: str
+    fields: tuple[str, ...] = ()
+    field_provenance: tuple[FieldProvenance, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -809,6 +893,79 @@ def _flatten_statements(stmt: Statement) -> list[Statement]:
         # PERFORM body statements are in paragraphs, not in the statement itself
         pass
     return result
+
+
+def _bind_semantic_node(node, symbols: dict[str, DataItem]):
+    """Recursively bind FieldReference nodes to canonical source symbols."""
+    from dataclasses import fields as dataclass_fields, is_dataclass, replace
+
+    if isinstance(node, FieldReference):
+        item = symbols.get(node.name.upper())
+        if item is None:
+            return node
+        return replace(
+            node,
+            semantic_type=item.semantic_type,
+            provenance=FieldProvenance(
+                source=item.provenance,
+                field_name=item.name,
+            ),
+        )
+
+    if isinstance(node, tuple):
+        return tuple(_bind_semantic_node(value, symbols) for value in node)
+
+    if not is_dataclass(node):
+        return node
+
+    changes = {}
+    for field_def in dataclass_fields(node):
+        value = getattr(node, field_def.name)
+        bound = _bind_semantic_node(value, symbols)
+        if bound != value:
+            changes[field_def.name] = bound
+    return replace(node, **changes) if changes else node
+
+
+def bind_program_semantics(program: "CobolProgram") -> "CobolProgram":
+    """Bind source types/provenance into the parsed semantic IR."""
+    from dataclasses import replace
+
+    symbols: dict[str, DataItem] = {}
+
+    def add_items(items: tuple[DataItem, ...]) -> None:
+        for item in items:
+            symbols[item.name.upper()] = item
+            add_items(item.children)
+
+    add_items(program.working_storage)
+    add_items(program.linkage_section)
+    for fd in program.file_definitions:
+        add_items(fd.record_items)
+
+    bound_paragraphs = tuple(
+        _bind_semantic_node(paragraph, symbols) for paragraph in program.paragraphs
+    )
+
+    bound_mappings = []
+    for mapping in program.input_record_mappings:
+        field_provenance = tuple(
+            FieldProvenance(
+                source=symbols.get(name.upper(), DataItem(name=name)).provenance,
+                file_name=mapping.file_name,
+                record_name=mapping.record_name,
+                field_name=name,
+                input_position=index,
+            )
+            for index, name in enumerate(mapping.fields)
+        )
+        bound_mappings.append(replace(mapping, field_provenance=field_provenance))
+
+    return replace(
+        program,
+        paragraphs=bound_paragraphs,
+        input_record_mappings=tuple(bound_mappings),
+    )
 
 
 @dataclass(frozen=True)
