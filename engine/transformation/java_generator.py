@@ -731,13 +731,48 @@ public class {class_name} {{
         if not threshold_rules:
             return input_fields[-1] if input_fields else "field_last"
         target = threshold_rules[0].field_name.replace("-", "_")
-        from engine.transformation.java_ir import JavaAssignment, JavaVariableRef
+        from engine.transformation.java_ir import (
+            JavaAssignment,
+            JavaBinaryOp,
+            JavaMethodCall,
+            JavaStringConcat,
+            JavaUnaryOp,
+            JavaVariableRef,
+        )
+
+        def resolve_input_ref(expression):
+            if isinstance(expression, JavaVariableRef):
+                return expression.name if expression.name in input_fields else None
+            if isinstance(expression, JavaMethodCall):
+                refs = []
+                if expression.object_ref is not None:
+                    refs.append(expression.object_ref)
+                refs.extend(expression.arguments)
+                for ref in refs:
+                    resolved = resolve_input_ref(ref)
+                    if resolved is not None:
+                        return resolved
+                return None
+            if isinstance(expression, JavaBinaryOp):
+                return (
+                    resolve_input_ref(expression.left)
+                    or resolve_input_ref(expression.right)
+                )
+            if isinstance(expression, JavaUnaryOp):
+                return resolve_input_ref(expression.operand)
+            if isinstance(expression, JavaStringConcat):
+                for part in expression.parts:
+                    resolved = resolve_input_ref(part)
+                    if resolved is not None:
+                        return resolved
+            return None
+
         for method in java_class.methods:
             for stmt in self._walk_statements(method.body_statements):
                 if isinstance(stmt, JavaAssignment) and stmt.target == target:
-                    if isinstance(stmt.expression, JavaVariableRef):
-                        if stmt.expression.name in input_fields:
-                            return stmt.expression.name
+                    resolved = resolve_input_ref(stmt.expression)
+                    if resolved is not None:
+                        return resolved
         return target
 
     def _walk_statements(self, statements):
