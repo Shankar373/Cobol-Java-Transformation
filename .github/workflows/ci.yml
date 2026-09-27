@@ -30,6 +30,8 @@ jobs:
     name: Backend and COBOL/Java Docker tests
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    env:
+      RUN_DOCKER_TESTS: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@v4
