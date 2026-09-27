@@ -1823,6 +1823,7 @@ def map_cobol_program_to_java(
             code=sc.code,
             label=sc.label,
             counter_name=_label_to_counter_name(sc.label),
+            field_name=sc.field_name.replace("-", "_"),
         )
         for sc in program.status_codes
     )
