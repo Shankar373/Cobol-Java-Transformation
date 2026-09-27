@@ -575,6 +575,9 @@ class JavaProgram:
     input_record_fields: tuple[str, ...] = ()
     # Source-derived outcome used by the implicit ELSE/default decision branch.
     default_status_label: str = ""
+    # Canonical Java counter projection for the same source-defined default
+    # outcome. Kept explicit so generation never invents a fallback identifier.
+    default_status_counter_name: str = ""
 
 
 @dataclass(frozen=True)
