@@ -141,7 +141,7 @@ def test_structured_condition_mapping_preserves_logical_tree():
 """
     program = CobolParser().parse(source, source_name="condition.cob")
     java_program = map_cobol_program_to_java(program)
-    java_class = java_program.programs[0].java_class
+    java_class = java_program.java_class
     statement = next(
         statement
         for method in java_class.methods
