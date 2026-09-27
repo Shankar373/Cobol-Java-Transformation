@@ -401,11 +401,16 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                             line for line in diagnostics.splitlines()
                             if "[ERROR]" in line
                         ]
-                        failure_detail = "\n".join(error_lines) or diagnostics
+                        if error_lines:
+                            compilation_errors = tuple(
+                                f"Maven build failed: {line}" for line in error_lines
+                            )
+                        else:
+                            compilation_errors = (f"Maven build failed: {diagnostics}",)
                         return CompilationResult(
                             success=False,
                             class_files={},
-                            compilation_errors=(f"Maven build failed: {failure_detail}",),
+                            compilation_errors=compilation_errors,
                             compilation_time_ms=int(
                                 (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                             ),
