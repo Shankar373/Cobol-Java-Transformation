@@ -236,6 +236,28 @@ class JavaGenerator:
         amount_var = self._derive_threshold_input_field(
             program.threshold_rules, java_class, input_fields,
         )
+        amount_field = field_map.get(amount_var)
+        if amount_field is None:
+            raise ValueError(
+                "MISSING_REQUIRED_SEMANTIC: Threshold input field is not "
+                "present in the Java class field model."
+            )
+        amount_type = amount_field.java_type.basic_type.value if amount_field.java_type.basic_type else ""
+        if amount_type == "long":
+            amount_num_declaration = (
+                f"            long {amount_var}_num = {amount_var};"
+            )
+        elif amount_type == "int":
+            amount_num_declaration = (
+                f"            int {amount_var}_num = {amount_var};"
+            )
+        else:
+            parse_fn = "Long.parseLong" if amount_type == "long" else "Integer.parseInt"
+            numeric_type = "long" if amount_type == "long" else "int"
+            amount_num_declaration = (
+                f"            {numeric_type} {amount_var}_num = "
+                f"{parse_fn}({amount_var}.trim());"
+            )
         status_java = self._build_status_checks_java_from_ir(
             program.status_codes, program.match_outcomes,
             program.summary_fields, field_map, input_fields,
@@ -321,7 +343,7 @@ public class {class_name} {{
 {counter_increments}
 {field_assignments}
 
-            int {amount_var}_num = Integer.parseInt({amount_var}.trim());
+{amount_num_declaration}
 
             String result;
             int lookupMatch = 0;
