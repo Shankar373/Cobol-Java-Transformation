@@ -1920,12 +1920,23 @@ def map_cobol_program_to_java(
     # Determine generation mode from capabilities
     caps = _derive_generation_mode(program)
 
-    # Input record fields (from first InputRecordMapping)
+    # Input record fields must correspond to the first READ/INPUT file,
+    # not the first UNSTRING encountered in source order. A program may
+    # load auxiliary input files before its primary record (e.g. payments
+    # before claims), so source-order selection can bind the wrong record
+    # layout and silently leave the decision fields at their defaults.
     input_record_fields: tuple[str, ...] = ()
-    if program.input_record_mappings:
-        input_record_fields = tuple(
-            f.replace("-", "_") for f in program.input_record_mappings[0].fields
-        )
+    input_file_names = {
+        stmt.file_name
+        for stmt in program.open_statements
+        if stmt.mode.upper() == "INPUT"
+    }
+    for mapping in program.input_record_mappings:
+        if mapping.file_name in input_file_names:
+            input_record_fields = tuple(
+                f.replace("-", "_") for f in mapping.fields
+            )
+            break
 
     return JavaProgram(
         program_id=program.program_id,
