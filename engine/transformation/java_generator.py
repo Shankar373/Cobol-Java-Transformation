@@ -649,7 +649,10 @@ public class {class_name} {{
             return ""
 
         first_label = status_codes[0].label
-        approval_label = status_codes[-1].label
+        # The implicit/default branch is separate from explicit status codes.
+        # Prefer the source-derived default carried by JavaProgram; retain the
+        # explicit last-code fallback for directly constructed Java IR.
+        approval_label = program.default_status_label or status_codes[-1].label
 
         # Get match outcome labels
         paid_label = match_outcomes[0].paid_label if match_outcomes else approval_label
