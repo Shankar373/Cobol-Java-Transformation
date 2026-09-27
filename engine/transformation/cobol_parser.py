@@ -851,8 +851,18 @@ class CobolParser:
         return WriteStatement(record_name=record_name, file_name=file_name), start + 1
 
     def _parse_move(self, lines: list[str], start: int) -> tuple[MoveStatement, int]:
-        """Parse MOVE source TO target statement."""
+        """Parse MOVE source TO target, including a continued TO clause."""
         line = lines[start].strip()
+        next_index = start + 1
+
+        # COBOL permits the MOVE source and TO target on separate physical
+        # lines. Join only the unambiguous continuation form so the parser
+        # preserves the semantic MOVE instead of emitting an empty statement.
+        if not re.search(r"\s+TO\s+", line, re.IGNORECASE) and next_index < len(lines):
+            next_line = lines[next_index].strip()
+            if re.match(r"^TO\s+\S+", next_line, re.IGNORECASE):
+                line = f"{line} {next_line}"
+                next_index += 1
 
         match = re.search(r"MOVE\s+(.+?)\s+TO\s+(.+?)(?:\.)?$", line, re.IGNORECASE)
         if match:
@@ -865,9 +875,9 @@ class CobolParser:
                 targets=targets,
                 source_expr=self._build_expression(source),
                 target_ref=FieldReference(name=target) if target else None,
-            ), start + 1
+            ), next_index
 
-        return MoveStatement(source="", target=""), start + 1
+        return MoveStatement(source="", target=""), next_index
 
     def _parse_add(self, lines: list[str], start: int) -> tuple[AddStatement, int]:
         """Parse ADD source TO target statement."""
