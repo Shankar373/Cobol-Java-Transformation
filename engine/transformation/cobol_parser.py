@@ -1916,16 +1916,17 @@ class CobolParser:
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
 
-        for op in ["+", "-"]:
-            pos = self._find_rightmost_binary_operator(text, op)
-            if pos is not None:
-                left = self._build_expression(text[:pos])
-                right = self._build_expression(text[pos + len(op):])
-                return BinaryExpression(left=left, operator=op, right=right)
-
-        for op in ["*", "/"]:
-            pos = self._find_rightmost_binary_operator(text, op)
-            if pos is not None:
+        # For operators at the same precedence level, choose the
+        # rightmost occurrence so the resulting tree is left-associative:
+        # A - B - C => (A - B) - C and A * B / C => (A * B) / C.
+        for operators in (("+", "-"), ("*", "/")):
+            candidates = [
+                (self._find_rightmost_binary_operator(text, op), op)
+                for op in operators
+            ]
+            candidates = [(pos, op) for pos, op in candidates if pos is not None]
+            if candidates:
+                pos, op = max(candidates, key=lambda item: item[0])
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
