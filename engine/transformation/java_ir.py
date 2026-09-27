@@ -43,6 +43,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from engine.transformation.ir import FieldProvenance
+
 
 # ---------------------------------------------------------------------------
 # Java type system
@@ -296,6 +298,7 @@ class JavaField:
     is_final: bool = False
     modifiers: tuple[str, ...] = ()  # additional modifiers
     format_width: int = 0  # PIC display width for numeric formatting (0 = no formatting)
+    source_provenance: FieldProvenance | None = None
 
 
 @dataclass(frozen=True)
