@@ -475,6 +475,7 @@ class JavaStatusCodeMapping:
     code: str  # e.g. "R", "P", "A"
     label: str  # e.g. "REJECTED", "PENDING"
     counter_name: str  # Java variable name for the counter (e.g. "rejected")
+    field_name: str = ""  # source field tested by this status code
 
 
 @dataclass(frozen=True)
