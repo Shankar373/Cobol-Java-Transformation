@@ -1757,21 +1757,38 @@ class CobolParser:
     def _extract_output_formats(self, lines: list[str]) -> list[OutputFormat]:
         """Extract all output record formats from STRING ... INTO statements.
 
-        Finds ALL STRING INTO <record> patterns and extracts their formats.
-        No domain-specific prefix detection — purely pattern-based.
+        STRING statements may span multiple physical source lines, so
+        discovery uses the same logical-block representation as
+        ``_extract_record_format``. No domain-specific prefix detection
+        is used; record names come only from parsed STRING ... INTO structure.
         """
-        # Find all STRING INTO record names
-        record_names: list[str] = []
-        for line in lines:
-            upper = line.upper()
-            if "STRING " in upper and "INTO " in upper:
-                match = re.search(r"INTO\s+(\S+)", line, re.IGNORECASE)
-                if match:
-                    name = match.group(1).rstrip(".")
-                    if name not in record_names:
-                        record_names.append(name)
+        # Join multiline STRING ... END-STRING blocks before discovering
+        # target records. This preserves output metadata when STRING and
+        # INTO occur on different physical source lines.
+        joined_blocks: list[str] = []
+        i = 0
+        while i < len(lines):
+            stripped = lines[i].strip()
+            if stripped.upper().startswith("STRING"):
+                block = stripped
+                i += 1
+                while i < len(lines):
+                    next_stripped = lines[i].strip()
+                    block += " " + next_stripped
+                    if "END-STRING" in next_stripped.upper():
+                        break
+                    i += 1
+                joined_blocks.append(block)
+            i += 1
 
-        # Extract record format for each found record
+        record_names: list[str] = []
+        for block in joined_blocks:
+            match = re.search(r"INTO\s+(\S+)", block, re.IGNORECASE)
+            if match:
+                name = match.group(1).rstrip(".")
+                if name not in record_names:
+                    record_names.append(name)
+
         formats: list[OutputFormat] = []
         for name in record_names:
             fmt = self._extract_record_format(lines, name)
