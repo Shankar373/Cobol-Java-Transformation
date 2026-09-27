@@ -1131,7 +1131,7 @@ class CobolParser:
                         continue
                     header_line += " " + continuation.rstrip(".")
                     j += 1
-                    if " UNTIL " in continuation.upper():
+                    if continuation.upper().startswith("UNTIL ") or " UNTIL " in continuation.upper():
                         body_start = j
                         break
                 line = header_line
