@@ -142,6 +142,28 @@ class TestParsing:
         has_if = any(isinstance(s, IfStatement) for s in all_stmts)
         assert has_if, "CALC must have an EVALUATE (converted to nested IF)"
 
+    def test_evaluate_other_lowers_to_unconditional_fallback(self) -> None:
+        from engine.transformation.cobol_parser import CobolParser
+        from engine.transformation.ir import IfStatement
+
+        prog = CobolParser().parse((FIXTURE_DIR / "CALC.cob").read_text())
+        evaluate = next(
+            s for s in prog.paragraphs[0].statements if isinstance(s, IfStatement)
+        )
+
+        # WHEN OTHER is a fallback arm, not a Java boolean/string condition.
+        def walk(stmt):
+            yield stmt
+            for child in stmt.then_body:
+                if isinstance(child, IfStatement):
+                    yield from walk(child)
+            for child in stmt.else_body:
+                if isinstance(child, IfStatement):
+                    yield from walk(child)
+
+        conditions = [s.condition for s in walk(evaluate)]
+        assert "OTHER" not in conditions
+
     def test_calc_has_perform_varying(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
         from engine.transformation.ir import PerformStatement
