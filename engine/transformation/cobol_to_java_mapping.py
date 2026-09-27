@@ -1770,7 +1770,8 @@ def _derive_default_status_label(program: CobolProgram) -> str:
     def walk(statements: tuple):
         for stmt in statements:
             if isinstance(stmt, IfStatement):
-                condition = stmt.structured_condition
+                decision = stmt.decision_tree
+                condition = decision.condition
                 if isinstance(condition, Comparison):
                     left = condition.left
                     right = condition.right
@@ -1782,8 +1783,8 @@ def _derive_default_status_label(program: CobolProgram) -> str:
                         and (left_type is None or left_type.is_numeric)
                     )
                     if is_numeric_decision:
-                        then_move = literal_move(stmt.then_body)
-                        else_move = literal_move(stmt.else_body)
+                        then_move = literal_move(decision.then_body)
+                        else_move = literal_move(decision.else_body)
                         if (
                             then_move is not None
                             and else_move is not None
