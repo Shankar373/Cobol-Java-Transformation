@@ -141,9 +141,11 @@ def test_structured_condition_mapping_preserves_logical_tree():
 """
     program = CobolParser().parse(source, source_name="condition.cob")
     java_program = map_cobol_program_to_java(program)
+    java_class = java_program.programs[0].java_class
     statement = next(
         statement
-        for statement in java_program.methods[0].body
+        for method in java_class.methods
+        for statement in method.body_statements
         if getattr(statement, "condition", None) is not None
     )
     condition = statement.condition
