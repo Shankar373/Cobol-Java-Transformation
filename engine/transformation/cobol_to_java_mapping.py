@@ -981,11 +981,26 @@ def map_cobol_statement(
                         is_static=True,
                     ))
                 else:
-                    # DISPLAY of an alphanumeric field uses the field's
-                    # current value. COBOL PIC X storage width is preserved
-                    # by the data semantics; DISPLAY must not invent Java
-                    # padding/truncation around an already-typed String.
-                    parts.append(var_ref)
+                    # COBOL PIC X fields have fixed character width. Java
+                    # Strings are variable-length, so DISPLAY must reproduce
+                    # the field's storage width rather than silently trimming
+                    # trailing spaces from the observable output.
+                    if item is not None and not item.is_numeric and item.format_width > 0:
+                        width = item.format_width
+                        format_spec = JavaLiteral(value="%-{}s".format(width))
+                        padded = JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, var_ref),
+                            is_static=True,
+                        )
+                        parts.append(JavaMethodCall(
+                            object_ref=padded,
+                            method_name="substring",
+                            arguments=(JavaLiteral(value="0"), JavaLiteral(value=str(width))),
+                        ))
+                    else:
+                        parts.append(var_ref)
         if parts:
             concat = JavaStringConcat(parts=tuple(parts))
             # out.println(...) or System.err.println(...) based on destination
