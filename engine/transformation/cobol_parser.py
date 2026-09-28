@@ -510,7 +510,7 @@ class CobolParser:
             if pic:
                 pic_type, pic_length, decimals, signed = self._parse_pic_details(pic.group(1))
             else:
-                pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
+                pic_type, pic_length, decimals, signed = PicType.ALPHANUMERIC, 0, 0, False
             value_m = re.search(r"\bVALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
             occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
             redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
