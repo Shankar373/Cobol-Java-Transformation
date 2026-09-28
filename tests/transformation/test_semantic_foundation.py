@@ -88,6 +88,7 @@ def test_file_record_child_preserves_level_and_canonical_pic_metadata():
     assert item.level == 5
     assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
     assert item.provenance.source_name == "filegroup.cob"
+    assert item.provenance.line == 7
 
 
 def test_nested_if_exposes_structural_decision_tree_and_default_branch():
