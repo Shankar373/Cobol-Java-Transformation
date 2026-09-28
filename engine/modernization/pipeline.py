@@ -78,8 +78,8 @@ class ModernizationReport:
     generation_success: bool = False
     generation_errors: tuple[str, ...] = ()
     generated_program_ids: tuple[str, ...] = ()
-    producer_identity: str = "internal-native-java-producer"
-    producer_version: str = "1.0.0"
+    producer_identity: str = ApplicationGenerator.PRODUCER_IDENTITY
+    producer_version: str = ApplicationGenerator.PRODUCER_VERSION
 
     # Assembly: the Spring Boot project directory and entry point
     generated_project_dir: str = ""
