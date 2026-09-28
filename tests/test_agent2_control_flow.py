@@ -292,16 +292,18 @@ class TestEvaluate:
 
     def test_simple_evaluate_becomes_if(self) -> None:
         stmt = self._eval("WHEN 'A'\n    MOVE 'ALPHA' TO WS-R\n")
-        assert isinstance(stmt, IfStatement)
-        assert "WS-G" in stmt.condition
+        assert isinstance(stmt, EvaluateStatement)
+        assert stmt.subject.name == "WS-G"
+        assert len(stmt.arms) == 1
 
     def test_multiple_when_nest(self) -> None:
         stmt = self._eval(
             "WHEN 'A'\n    MOVE 'ALPHA' TO WS-R\n"
             "WHEN 'B'\n    MOVE 'BETA ' TO WS-R\n"
         )
-        assert isinstance(stmt, IfStatement)
-        assert isinstance(stmt.else_body[0], IfStatement)
+        assert isinstance(stmt, EvaluateStatement)
+        assert len(stmt.arms) == 2
+        assert all(arm.other is False for arm in stmt.arms)
 
     def test_when_other_becomes_else(self) -> None:
         from engine.transformation.ir import MoveStatement
@@ -310,17 +312,18 @@ class TestEvaluate:
             "WHEN 'A'\n    MOVE 'ALPHA' TO WS-R\n"
             "WHEN OTHER\n    MOVE 'OTHER' TO WS-R\n"
         )
-        assert isinstance(stmt, IfStatement)
-        assert any(
-            isinstance(s, MoveStatement) for s in stmt.else_body
-        )
+        assert isinstance(stmt, EvaluateStatement)
+        assert stmt.arms[-1].other is True
+        assert any(isinstance(s, MoveStatement) for s in stmt.arms[-1].body)
 
     def test_when_list_becomes_or(self) -> None:
         stmt = self._eval(
             "WHEN 'Y' 'y'\n    MOVE 'ALPHA' TO WS-R\n"
         )
-        assert isinstance(stmt, IfStatement)
-        assert "OR" in stmt.condition
+        assert isinstance(stmt, EvaluateStatement)
+        assert len(stmt.arms) == 1
+        assert len(stmt.arms[0].conditions) == 2
+        assert all(condition.operator == "=" for condition in stmt.arms[0].conditions)
 
     def test_thru_range_becomes_bounded_compare(self) -> None:
         src = textwrap.dedent("""\
@@ -340,8 +343,11 @@ class TestEvaluate:
                 END-EVALUATE.
             """)
         stmt = CobolParser().parse(src).paragraphs[0].statements[0]
-        assert isinstance(stmt, IfStatement)
-        assert ">=" in stmt.condition and "<=" in stmt.condition
+        assert isinstance(stmt, EvaluateStatement)
+        range_condition = stmt.arms[0].conditions[0]
+        assert range_condition.operator == "AND"
+        assert range_condition.left.operator == ">="
+        assert range_condition.right.operator == "<="
 
 
 # ---------------------------------------------------------------------------
