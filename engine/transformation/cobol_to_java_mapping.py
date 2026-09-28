@@ -1740,6 +1740,56 @@ def map_cobol_paragraph_to_method(
     )
 
 
+def _derive_outcome_field_name(program: CobolProgram) -> str:
+    """Find the source field receiving literal decision outcomes.
+
+    Outcome assignments are part of the canonical statement tree. This
+    projection records the target field so output generation can consume the
+    same semantic outcome value instead of reading an unassigned Java field.
+    """
+    labels = {sc.label for sc in program.status_codes}
+    labels.update(program.match_outcome_labels)
+    default_label = _derive_default_status_label(program)
+    if default_label:
+        labels.add(default_label)
+
+    counts: dict[str, int] = {}
+
+    def walk(statements: tuple) -> None:
+        for stmt in statements:
+            if isinstance(stmt, MoveStatement):
+                source = (stmt.source or "").strip()
+                target = (stmt.target or "").rstrip(".")
+                if (
+                    len(source) >= 2
+                    and source[0] in "'\""
+                    and source[-1] == source[0]
+                    and source[1:-1] in labels
+                    and target
+                ):
+                    counts[target] = counts.get(target, 0) + 1
+            if isinstance(stmt, IfStatement):
+                decision = stmt.decision_tree
+                walk(decision.then_body)
+                walk(decision.else_body)
+            nested = (
+                getattr(stmt, "not_at_end_body", ())
+                + getattr(stmt, "at_end_body", ())
+                + getattr(stmt, "not_invalid_key_body", ())
+                + getattr(stmt, "invalid_key_body", ())
+                + getattr(stmt, "body", ())
+            )
+            if nested and not isinstance(stmt, IfStatement):
+                walk(nested)
+
+    for paragraph in program.paragraphs:
+        walk(paragraph.statements)
+
+    if not counts:
+        return ""
+    return max(counts, key=counts.get)
+
+
 def _derive_default_status_label(program: CobolProgram) -> str:
     """Read an implicit/default outcome from the canonical IF decision tree.
 
@@ -3694,6 +3744,7 @@ def map_cobol_program_to_java(
                 fd.field_name for fd in program.output_formats[1].record_format.fields
             )
 
+        outcome_field_name = _derive_outcome_field_name(program)
         report_config = JavaReportConfig(
             header=program.report_header,
             report_file_name=report_file_name,
@@ -3702,6 +3753,7 @@ def map_cobol_program_to_java(
             output_fields=summary_fields,
             report_format_fields=report_format_fields,
             output_format_fields=output_format_fields,
+            outcome_field_name=outcome_field_name,
         )
 
     # Determine generation mode from capabilities
