@@ -892,7 +892,7 @@ def map_cobol_statement(
 
     if isinstance(stmt, MoveStatement):
         source = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
@@ -912,22 +912,21 @@ def map_cobol_statement(
         # ADD A TO B           → B = A + B  (in-place)
         target = stmt.giving_target.replace("-", "_") if stmt.giving_target else stmt.target.replace("-", "_")
         source_a = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
         source_b = (
-            _map_cobol_expression_to_java(stmt.target_ref)
+            _map_cobol_expression_to_java(stmt.target_ref, field_items)
             if stmt.target_ref is not None
             else JavaVariableRef(name=stmt.target.replace("-", "_"))
         )
         if stmt.giving_target:
             result.append(JavaAssignment(
                 target=target,
-                expression=JavaBinaryOp(
-                    left=source_a,
-                    operator="+",
-                    right=source_b,
+                expression=_coerce_assignment_expression(
+                    JavaBinaryOp(left=source_a, operator="+", right=source_b),
+                    field_items.get(target),
                 ),
             ))
         else:
@@ -950,7 +949,7 @@ def map_cobol_statement(
         sources = stmt.sources if stmt.sources else (stmt.source,)
         java_sources = [
             (
-                _map_cobol_expression_to_java(stmt.source_expr)
+                _map_cobol_expression_to_java(stmt.source_expr, field_items)
                 if stmt.source_expr is not None and s == stmt.source and len(sources) == 1
                 else map_cobol_expr_to_java(s)
             )
@@ -958,13 +957,16 @@ def map_cobol_statement(
         ]
         # Build chained subtraction: ((minuend - s1) - s2) - ...
         expr: JavaExpression = (
-            _map_cobol_expression_to_java(stmt.from_ref)
+            _map_cobol_expression_to_java(stmt.from_ref, field_items)
             if stmt.from_ref is not None
             else JavaVariableRef(name=stmt.from_field.replace("-", "_"))
         )
         for src in java_sources:
             expr = JavaBinaryOp(left=expr, operator="-", right=src)
-        result.append(JavaAssignment(target=target, expression=expr))
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(expr, field_items.get(target)),
+        ))
 
     elif isinstance(stmt, MultiplyStatement):
         # MULTIPLY A BY B GIVING C → C = A * B
@@ -977,39 +979,41 @@ def map_cobol_statement(
         else:
             target = stmt.multiplicand.replace("-", "_")
         source = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
         multiplicand = (
-            _map_cobol_expression_to_java(stmt.multiplicand_ref)
+            _map_cobol_expression_to_java(stmt.multiplicand_ref, field_items)
             if stmt.multiplicand_ref is not None
             else JavaVariableRef(name=stmt.multiplicand.replace("-", "_"))
         )
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(
-                left=source,
-                operator="*",
-                right=multiplicand,
+            expression=_coerce_assignment_expression(
+                JavaBinaryOp(left=source, operator="*", right=multiplicand),
+                field_items.get(target),
             ),
         ))
 
     elif isinstance(stmt, DivideStatement):
         target = stmt.target.replace("-", "_")
         source = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
         divisor = (
-            _map_cobol_expression_to_java(stmt.divisor_expr)
+            _map_cobol_expression_to_java(stmt.divisor_expr, field_items)
             if stmt.divisor_expr is not None
             else map_cobol_expr_to_java(stmt.divisor)
         )
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(left=source, operator="/", right=divisor),
+            expression=_coerce_assignment_expression(
+                JavaBinaryOp(left=source, operator="/", right=divisor),
+                field_items.get(target),
+            ),
         ))
         # REMAINDER target = source % divisor
         if stmt.remainder:
@@ -1024,11 +1028,14 @@ def map_cobol_statement(
         # Prefer the structured expression produced by the parser so chained
         # arithmetic and nested expressions preserve their real operator tree.
         expression = (
-            _map_cobol_expression_to_java(stmt.expression_expr)
+            _map_cobol_expression_to_java(stmt.expression_expr, field_items)
             if stmt.expression_expr is not None
             else map_cobol_expr_to_java(stmt.expression)
         )
-        result.append(JavaAssignment(target=target, expression=expression))
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(expression, field_items.get(target)),
+        ))
 
     elif isinstance(stmt, DisplayStatement):
         parts: list[JavaExpression] = []
@@ -2771,7 +2778,7 @@ def map_cobol_statement(
 
     if isinstance(stmt, MoveStatement):
         source = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
@@ -2791,22 +2798,21 @@ def map_cobol_statement(
         # ADD A TO B           → B = A + B  (in-place)
         target = stmt.giving_target.replace("-", "_") if stmt.giving_target else stmt.target.replace("-", "_")
         source_a = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
         source_b = (
-            _map_cobol_expression_to_java(stmt.target_ref)
+            _map_cobol_expression_to_java(stmt.target_ref, field_items)
             if stmt.target_ref is not None
             else JavaVariableRef(name=stmt.target.replace("-", "_"))
         )
         if stmt.giving_target:
             result.append(JavaAssignment(
                 target=target,
-                expression=JavaBinaryOp(
-                    left=source_a,
-                    operator="+",
-                    right=source_b,
+                expression=_coerce_assignment_expression(
+                    JavaBinaryOp(left=source_a, operator="+", right=source_b),
+                    field_items.get(target),
                 ),
             ))
         else:
@@ -2829,7 +2835,7 @@ def map_cobol_statement(
         sources = stmt.sources if stmt.sources else (stmt.source,)
         java_sources = [
             (
-                _map_cobol_expression_to_java(stmt.source_expr)
+                _map_cobol_expression_to_java(stmt.source_expr, field_items)
                 if stmt.source_expr is not None and s == stmt.source and len(sources) == 1
                 else map_cobol_expr_to_java(s)
             )
@@ -2837,13 +2843,16 @@ def map_cobol_statement(
         ]
         # Build chained subtraction: ((minuend - s1) - s2) - ...
         expr: JavaExpression = (
-            _map_cobol_expression_to_java(stmt.from_ref)
+            _map_cobol_expression_to_java(stmt.from_ref, field_items)
             if stmt.from_ref is not None
             else JavaVariableRef(name=stmt.from_field.replace("-", "_"))
         )
         for src in java_sources:
             expr = JavaBinaryOp(left=expr, operator="-", right=src)
-        result.append(JavaAssignment(target=target, expression=expr))
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(expr, field_items.get(target)),
+        ))
 
     elif isinstance(stmt, MultiplyStatement):
         # MULTIPLY A BY B GIVING C → C = A * B
@@ -2856,39 +2865,41 @@ def map_cobol_statement(
         else:
             target = stmt.multiplicand.replace("-", "_")
         source = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
         multiplicand = (
-            _map_cobol_expression_to_java(stmt.multiplicand_ref)
+            _map_cobol_expression_to_java(stmt.multiplicand_ref, field_items)
             if stmt.multiplicand_ref is not None
             else JavaVariableRef(name=stmt.multiplicand.replace("-", "_"))
         )
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(
-                left=source,
-                operator="*",
-                right=multiplicand,
+            expression=_coerce_assignment_expression(
+                JavaBinaryOp(left=source, operator="*", right=multiplicand),
+                field_items.get(target),
             ),
         ))
 
     elif isinstance(stmt, DivideStatement):
         target = stmt.target.replace("-", "_")
         source = (
-            _map_cobol_expression_to_java(stmt.source_expr)
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
             if stmt.source_expr is not None
             else map_cobol_expr_to_java(stmt.source)
         )
         divisor = (
-            _map_cobol_expression_to_java(stmt.divisor_expr)
+            _map_cobol_expression_to_java(stmt.divisor_expr, field_items)
             if stmt.divisor_expr is not None
             else map_cobol_expr_to_java(stmt.divisor)
         )
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(left=source, operator="/", right=divisor),
+            expression=_coerce_assignment_expression(
+                JavaBinaryOp(left=source, operator="/", right=divisor),
+                field_items.get(target),
+            ),
         ))
         # REMAINDER target = source % divisor
         if stmt.remainder:
@@ -2903,11 +2914,14 @@ def map_cobol_statement(
         # Prefer the structured expression produced by the parser so chained
         # arithmetic and nested expressions preserve their real operator tree.
         expression = (
-            _map_cobol_expression_to_java(stmt.expression_expr)
+            _map_cobol_expression_to_java(stmt.expression_expr, field_items)
             if stmt.expression_expr is not None
             else map_cobol_expr_to_java(stmt.expression)
         )
-        result.append(JavaAssignment(target=target, expression=expression))
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(expression, field_items.get(target)),
+        ))
 
     elif isinstance(stmt, DisplayStatement):
         parts: list[JavaExpression] = []

@@ -305,7 +305,9 @@ class JavaGenerator:
         # Class-level field declarations
         field_decls = self._gen_field_declarations_from_ir(java_class)
 
-        return f'''{math_imports}import java.io.BufferedReader;
+        return f'''import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.PrintWriter;
@@ -1794,7 +1796,9 @@ public class {class_name} {{
         declarations = self._gen_variable_declarations(program)
         main_body = self._gen_paragraph_statements(program)
 
-        return f'''{math_imports}import java.io.PrintStream;
+        return f'''import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.io.PrintStream;
 
 public class {class_name} {{
 {declarations}
