@@ -73,6 +73,9 @@ class TestOracleE2E:
         assert b"PROD=00000050" in result.stdout
         assert result.source_tree_hash_before is not None
         assert result.source_tree_hash_after is not None
+        assert result.runtime_image_digest == config.image_digest
+        assert result.observed_compiler_version
+        assert result.observed_docker_version
 
     def test_oracle_source_hash_integrity(self):
         config = OracleAdapterConfig(
