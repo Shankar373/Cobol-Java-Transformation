@@ -508,7 +508,7 @@ class CobolParser:
             level, name, rest = int(m.group(1)), m.group(2).rstrip("."), m.group(3)
             pic = re.search(r"\bPIC(?:TURE)?\s+([A-Z0-9()V+\-]+)", rest, re.IGNORECASE)
             if pic:
-                pic_type, pic_length, decimals = self._parse_pic_details(pic.group(1))
+                pic_type, pic_length, decimals, signed = self._parse_pic_details(pic.group(1))
             else:
                 pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
             value_m = re.search(r"\bVALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
@@ -517,6 +517,7 @@ class CobolParser:
             parsed.append((level, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
+                signed=signed,
                 value=value_m.group(1).strip().rstrip(".") if value_m else None,
                 occurs=int(occurs_m.group(1)) if occurs_m else None,
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
@@ -549,17 +550,18 @@ class CobolParser:
             stack.append((level, item))
         return roots
 
-    def _parse_pic_details(self, pic_str: str) -> tuple[PicType, int, int]:
+    def _parse_pic_details(self, pic_str: str) -> tuple[PicType, int, int, bool]:
         pic = pic_str.strip().rstrip(".").upper()
-        if pic.startswith("S"):
+        signed = pic.startswith("S")
+        if signed:
             pic = pic[1:]
         if "V" in pic:
             left, right = pic.split("V", 1)
             typ, left_len = _parse_pic(left)
             right_len = len(re.findall(r"9", right))
-            return typ, left_len + right_len, right_len
+            return typ, left_len + right_len, right_len, signed
         typ, length = _parse_pic(pic)
-        return typ, length, 0
+        return typ, length, 0, signed
 
     def _parse_linkage_section(self, lines: list[str]) -> list[DataItem]:
         start = next((i + 1 for i, line in enumerate(lines) if "LINKAGE SECTION" in line.upper()), None)
@@ -607,7 +609,7 @@ class CobolParser:
                 occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
 
                 if pic_match:
-                    pic_type, pic_length, decimal_places = self._parse_pic_details(pic_match.group(1))
+                    pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
                     value = value_match.group(1).strip().rstrip(".") if value_match else None
                     occurs = int(occurs_match.group(1)) if occurs_match else None
 
@@ -618,6 +620,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
+                            signed=signed,
                             value=value,
                         ))
                     else:
@@ -627,6 +630,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
+                            signed=signed,
                             value=value,
                             occurs=occurs,
                         ))
