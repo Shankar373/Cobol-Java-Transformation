@@ -150,3 +150,80 @@ def test_plain_supported_program_remains_supported() -> None:
 
     assert capability.level == CapabilityLevel.SUPPORTED
     assert capability.reason == "All constructs supported"
+
+
+def test_unknown_capability_is_fail_closed_in_transformation_plan() -> None:
+    from engine.modernization.transformation_plan import (
+        TransformationAction,
+        TransformationPlanGenerator,
+        TransformerType,
+    )
+    from engine.modernization.capability_analyzer import (
+        CapabilityReport,
+        CapabilityLevel,
+    )
+
+    program = CobolProgram(
+        program_id="UNKNOWN-DEMO",
+        paragraphs=(Paragraph(name="MAIN", statements=()),),
+    )
+    app = CobolApplication(
+        application_id="unknown-plan",
+        programs=(_unit(program),),
+    )
+    report = CapabilityReport(
+        application_id="unknown-plan",
+        components=(
+            __import__(
+                "engine.modernization.capability_analyzer",
+                fromlist=["ComponentCapability"],
+            ).ComponentCapability(
+                component_id="UNKNOWN-DEMO",
+                component_type="PROGRAM",
+                level=CapabilityLevel.UNKNOWN,
+                reason="Capability could not be established",
+            ),
+        ),
+        overall_level=CapabilityLevel.UNKNOWN,
+    )
+
+    plan = TransformationPlanGenerator().generate(app, report)
+    component = next(
+        c for c in plan.components if c.component_id == "UNKNOWN-DEMO"
+    )
+
+    assert component.action == TransformationAction.SKIP
+    assert component.transformer == TransformerType.SKIP
+    assert "not" in component.reason.lower() or "unknown" in component.reason.lower()
+
+
+def test_missing_capability_is_fail_closed_in_transformation_plan() -> None:
+    from engine.modernization.transformation_plan import (
+        TransformationAction,
+        TransformationPlanGenerator,
+        TransformerType,
+    )
+    from engine.modernization.capability_analyzer import CapabilityReport
+
+    program = CobolProgram(
+        program_id="MISSING-CAP-DEMO",
+        paragraphs=(Paragraph(name="MAIN", statements=()),),
+    )
+    app = CobolApplication(
+        application_id="missing-cap-plan",
+        programs=(_unit(program),),
+    )
+    report = CapabilityReport(
+        application_id="missing-cap-plan",
+        components=(),
+        overall_level=CapabilityLevel.UNKNOWN,
+    )
+
+    plan = TransformationPlanGenerator().generate(app, report)
+    component = next(
+        c for c in plan.components if c.component_id == "MISSING-CAP-DEMO"
+    )
+
+    assert component.action == TransformationAction.SKIP
+    assert component.transformer == TransformerType.SKIP
+    assert "not proven" in component.reason
