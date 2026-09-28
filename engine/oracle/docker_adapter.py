@@ -147,24 +147,16 @@ class DockerOracleAdapter(OracleAdapter):
             return False
 
     def probe(self) -> AdapterStatus:
-        if not self._docker_available or not self._verified_image_ref:
+        if not self._docker_available:
             self._status = AdapterStatus.UNAVAILABLE
             return self._status
 
-        try:
-            result = subprocess.run(
-                ["docker", "image", "inspect", self.V1_IMAGE],
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            if result.returncode == 0:
-                self._status = AdapterStatus.AVAILABLE
-            else:
-                self._status = AdapterStatus.UNAVAILABLE
-        except Exception:
-            self._status = AdapterStatus.UNAVAILABLE
-
+        self._resolve_runtime_identity()
+        self._status = (
+            AdapterStatus.AVAILABLE
+            if self._verified_image_ref
+            else AdapterStatus.UNAVAILABLE
+        )
         return self._status
 
     # Filenames that designate the application entry module by convention.
