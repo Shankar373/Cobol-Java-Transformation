@@ -1814,6 +1814,9 @@ def _derive_outcome_field_name(program: CobolProgram) -> str:
                 decision = stmt.decision_tree
                 walk(decision.then_body)
                 walk(decision.else_body)
+            elif isinstance(stmt, EvaluateStatement):
+                for arm in stmt.arms:
+                    walk(arm.body)
             nested = (
                 getattr(stmt, "not_at_end_body", ())
                 + getattr(stmt, "at_end_body", ())
@@ -1905,6 +1908,12 @@ def _derive_default_status_label(program: CobolProgram) -> str:
                 found = walk(nested_bodies)
                 if found is not None:
                     return found
+
+            if isinstance(stmt, EvaluateStatement):
+                for arm in stmt.arms:
+                    found = walk(arm.body)
+                    if found is not None:
+                        return found
 
             # Generic compound statements may expose a body tuple.
             body = getattr(stmt, "body", ())
