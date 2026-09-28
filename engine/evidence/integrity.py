@@ -63,6 +63,7 @@ class ViolationType(Enum):
     ORPHAN_ARTIFACT = "orphan_artifact"
     ORPHAN_COMPARISON = "orphan_comparison"
     MALFORMED_EVIDENCE = "malformed_evidence"
+    PROVENANCE_MISMATCH = "provenance_mismatch"
 
 
 @dataclass(frozen=True)
@@ -147,6 +148,10 @@ class EvidenceIntegrityValidator:
 
         # 9. Required evidence presence
         violations.extend(self._validate_required_evidence(manifest))
+
+        # 10. Trusted provenance is required for production certification.
+        if manifest.require_trusted_provenance:
+            violations.extend(self._validate_trusted_provenance(manifest))
 
         if violations:
             return violations
@@ -401,6 +406,190 @@ class EvidenceIntegrityValidator:
                 expected=str(computed_hash),
                 actual=str(recomputed),
             ))
+
+        return violations
+
+    # ------------------------------------------------------------------
+    # Trusted runtime / producer provenance
+    # ------------------------------------------------------------------
+
+    def _validate_trusted_provenance(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Require observed runtime and producer identity for certification."""
+        violations: list[IntegrityViolation] = []
+
+        if not manifest.producer_identity or not manifest.producer_version:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Required transformation producer identity/version is missing",
+                field_path="producer_identity",
+                expected="non-empty producer identity and version",
+                actual=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+            ))
+
+        candidate = manifest.candidate_identity
+        if candidate is None:
+            return violations
+
+        if (
+            candidate.producer_identity != manifest.producer_identity
+            or candidate.producer_version != manifest.producer_version
+        ):
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Candidate producer identity does not match manifest producer identity",
+                field_path="candidate_identity.producer_identity",
+                expected=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+                actual=f"{candidate.producer_identity!r}/{candidate.producer_version!r}",
+            ))
+
+        oracle_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("oracle")]
+        candidate_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("candidate")]
+
+        for i, execution in enumerate(oracle_execs):
+            if not execution.image_digest:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution has no observed image digest",
+                    field_path=f"execution_evidence[oracle:{i}].image_digest",
+                    expected=manifest.oracle_identity.image_digest,
+                    actual="None",
+                ))
+            elif execution.image_digest != manifest.oracle_identity.image_digest:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution image digest differs from oracle identity",
+                    field_path=f"execution_evidence[oracle:{i}].image_digest",
+                    expected=manifest.oracle_identity.image_digest,
+                    actual=execution.image_digest,
+                ))
+            if not execution.cobol_compiler:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution has no observed compiler identity",
+                    field_path=f"execution_evidence[oracle:{i}].cobol_compiler",
+                    expected="observed compiler version",
+                    actual="None",
+                ))
+            elif execution.cobol_compiler != manifest.oracle_identity.compiler_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution compiler differs from oracle identity",
+                    field_path=f"execution_evidence[oracle:{i}].cobol_compiler",
+                    expected=manifest.oracle_identity.compiler_version,
+                    actual=execution.cobol_compiler,
+                ))
+
+        for i, execution in enumerate(candidate_execs):
+            if not execution.producer_identity or not execution.producer_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no producer identity",
+                    field_path=f"execution_evidence[candidate:{i}].producer_identity",
+                    expected=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+                    actual=f"{execution.producer_identity!r}/{execution.producer_version!r}",
+                ))
+            elif (
+                execution.producer_identity != manifest.producer_identity
+                or execution.producer_version != manifest.producer_version
+            ):
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution producer identity differs from manifest",
+                    field_path=f"execution_evidence[candidate:{i}].producer_identity",
+                    expected=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+                    actual=f"{execution.producer_identity!r}/{execution.producer_version!r}",
+                ))
+
+            if not execution.java_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no observed Java runtime identity",
+                    field_path=f"execution_evidence[candidate:{i}].java_version",
+                    expected="observed Java version",
+                    actual="None",
+                ))
+            elif candidate.java_version and execution.java_version != candidate.java_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate Java runtime differs from candidate identity",
+                    field_path=f"execution_evidence[candidate:{i}].java_version",
+                    expected=candidate.java_version,
+                    actual=execution.java_version,
+                ))
+
+            if candidate.runtime_image_digest:
+                if execution.image_digest != candidate.runtime_image_digest:
+                    violations.append(IntegrityViolation(
+                        violation_type=ViolationType.PROVENANCE_MISMATCH,
+                        description="Candidate runtime image differs from candidate identity",
+                        field_path=f"execution_evidence[candidate:{i}].image_digest",
+                        expected=candidate.runtime_image_digest,
+                        actual=execution.image_digest or "None",
+                    ))
+
+        for i, env in enumerate(manifest.environment_identities):
+            execution = next(
+                (e for e in manifest.execution_evidence if e.runtime_id == env.runtime_id),
+                None,
+            )
+            if execution is None:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Environment identity is not bound to an execution",
+                    field_path=f"environment_identities[{i}].runtime_id",
+                    expected="runtime_id present in execution evidence",
+                    actual=env.runtime_id,
+                ))
+                continue
+            observed = {
+                "java_version": execution.java_version,
+                "maven_version": execution.maven_version,
+                "python_version": execution.python_version,
+                "docker_version": execution.docker_version,
+                "cobol_compiler": execution.cobol_compiler,
+                "image_digest": execution.image_digest,
+            }
+            for field_name, expected_value in (
+                ("java_version", env.java_version),
+                ("maven_version", env.maven_version),
+                ("python_version", env.python_version),
+                ("docker_version", env.docker_version),
+                ("cobol_compiler", env.cobol_compiler),
+                ("image_digest", env.image_digest),
+            ):
+                if expected_value != observed[field_name]:
+                    violations.append(IntegrityViolation(
+                        violation_type=ViolationType.PROVENANCE_MISMATCH,
+                        description=f"Environment {field_name} differs from execution observation",
+                        field_path=f"environment_identities[{i}].{field_name}",
+                        expected=str(observed[field_name]),
+                        actual=str(expected_value),
+                    ))
+
+        for i, execution in enumerate(manifest.execution_evidence):
+            payload = {
+                "execution_id": execution.execution_id.value,
+                "run_id": execution.run_id.value,
+                "runtime_id": execution.runtime_id,
+                "command": execution.command,
+                "java_version": execution.java_version,
+                "maven_version": execution.maven_version,
+                "python_version": execution.python_version,
+                "docker_version": execution.docker_version,
+                "cobol_compiler": execution.cobol_compiler,
+                "image_digest": execution.image_digest,
+                "producer_identity": execution.producer_identity,
+                "producer_version": execution.producer_version,
+            }
+            expected_hash = ContentHash.from_string(json.dumps(payload, sort_keys=True))
+            if execution.provenance_hash != expected_hash:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Execution provenance hash does not match observed identity fields",
+                    field_path=f"execution_evidence[{i}].provenance_hash",
+                    expected=str(expected_hash),
+                    actual=str(execution.provenance_hash),
+                ))
 
         return violations
 
