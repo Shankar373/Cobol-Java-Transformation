@@ -518,6 +518,14 @@ class EvidenceIntegrityValidator:
                     expected=manifest.oracle_identity.image_digest,
                     actual=execution.image_digest,
                 ))
+            if not execution.docker_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution has no observed Docker runtime identity",
+                    field_path=f"execution_evidence[oracle:{i}].docker_version",
+                    expected="observed Docker daemon version",
+                    actual="None",
+                ))
             if not execution.cobol_compiler:
                 violations.append(IntegrityViolation(
                     violation_type=ViolationType.PROVENANCE_MISMATCH,
@@ -556,6 +564,30 @@ class EvidenceIntegrityValidator:
                     actual=f"{execution.producer_identity!r}/{execution.producer_version!r}",
                 ))
 
+            if not execution.docker_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no observed Docker runtime identity",
+                    field_path=f"execution_evidence[candidate:{i}].docker_version",
+                    expected="observed Docker daemon version",
+                    actual="None",
+                ))
+            if not execution.image_digest:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no immutable runtime image identity",
+                    field_path=f"execution_evidence[candidate:{i}].image_digest",
+                    expected="immutable image digest or image ID",
+                    actual="None",
+                ))
+            if candidate.maven_version is not None and not execution.maven_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate build Maven identity is required but missing from execution evidence",
+                    field_path=f"execution_evidence[candidate:{i}].maven_version",
+                    expected=candidate.maven_version,
+                    actual="None",
+                ))
             if not execution.java_version:
                 violations.append(IntegrityViolation(
                     violation_type=ViolationType.PROVENANCE_MISMATCH,
