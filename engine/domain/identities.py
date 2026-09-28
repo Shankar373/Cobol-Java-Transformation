@@ -83,12 +83,14 @@ class SourceIdentity:
 
 @dataclass(frozen=True)
 class CandidateIdentity:
-    """Identity of a Java candidate package."""
+    """Identity of a Java candidate package and its transformation producer."""
     candidate_id: str
     candidate_hash: ContentHash
     source_hash: ContentHash  # binding to the COBOL source
     file_count: int
     total_size_bytes: int
+    producer_identity: str | None = None
+    producer_version: str | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_id:
@@ -115,10 +117,19 @@ class OracleIdentity:
 
 @dataclass(frozen=True)
 class EnvironmentIdentity:
-    """Identity of the execution environment."""
+    """Observed identity of an execution environment.
+
+    Values are observations from the runtime actually used for execution.
+    Missing values remain None rather than being inferred from declared
+    configuration.
+    """
     runtime_id: str
     java_version: str | None = None
+    maven_version: str | None = None
+    python_version: str | None = None
+    docker_version: str | None = None
     cobol_compiler: str | None = None
+    image_digest: str | None = None
     os_base: str | None = None
     network_policy: str = "none"
     resource_limits: dict[str, str] = field(default_factory=dict)
