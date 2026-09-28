@@ -1628,6 +1628,42 @@ class CobolParser:
         Handles continuation lines where MOVE and TO are on separate lines.
         """
         labels: list[str] = []
+
+        # Prefer the semantic lookup match flag and its decision block. The
+        # older source-order scan can encounter ordinary status assignments
+        # before the lookup outcomes and misclassify them as paid/partial/
+        # unpaid labels.
+        lookup = self._extract_lookup_operation(lines)
+        if lookup and lookup.match_found_field:
+            match_field = re.escape(lookup.match_found_field)
+            for i, raw_line in enumerate(lines):
+                if not re.search(
+                    rf"IF\\s+{match_field}\\s*=\\s*['\\\"]Y['\\\"]",
+                    raw_line,
+                    re.IGNORECASE,
+                ):
+                    continue
+                depth = 0
+                block_labels: list[str] = []
+                for block_line in lines[i:]:
+                    upper = block_line.upper().strip()
+                    if re.match(r"IF\\s+", upper):
+                        depth += 1
+                    for move in re.finditer(
+                        r"MOVE\\s+['\\\"]([^'\\\"]+)['\\\"]\\s+TO\\s+\\S+",
+                        block_line,
+                        re.IGNORECASE,
+                    ):
+                        label = move.group(1)
+                        if len(label) > 1 and label not in block_labels:
+                            block_labels.append(label)
+                    if re.search(r"END-IF", upper):
+                        depth -= len(re.findall(r"END-IF", upper))
+                        if depth <= 0:
+                            break
+                if block_labels:
+                    return block_labels
+
         in_lookup_section = False
 
         # First pass: join continuation lines
