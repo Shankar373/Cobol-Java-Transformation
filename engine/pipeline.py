@@ -46,6 +46,7 @@ from engine.comparators.framework import (
 from engine.domain.identities import (
     AdapterStatus,
     CandidateIdentity,
+    EnvironmentIdentity,
     ContentHash,
     ExecutionId,
     InputIdentity,
@@ -89,6 +90,9 @@ class PipelineConfig:
     java_path: str = "java"
     timeout_seconds: int = 30
     use_docker_java: bool = True
+    producer_identity: str | None = None
+    producer_version: str | None = None
+    require_trusted_provenance: bool = False
 
 
 @dataclass
@@ -205,6 +209,8 @@ class VerticalSlicePipeline:
             source_hash=source_hash,
             file_count=file_count,
             total_size_bytes=total_size,
+            producer_identity=self._config.producer_identity,
+            producer_version=self._config.producer_version,
         )
 
     def _build_candidate_manifest(self, source_hash: ContentHash) -> CandidateManifest:
@@ -225,7 +231,9 @@ class VerticalSlicePipeline:
             source_hash=str(source_hash),
             generated_files=generated_files,
             entrypoint=self._config.java_entrypoint,
-            java_version="25",
+            java_version=getattr(self._candidate_adapter, "java_version", "") or "",
+            producer_identity=self._config.producer_identity or "",
+            producer_version=self._config.producer_version or "",
         )
 
     def _extract_artifact_content(
@@ -483,7 +491,26 @@ class VerticalSlicePipeline:
                 run_id, oracle_result, candidate_result,
             )
 
-        environment_identities = ()
+        oracle_identity = self._oracle_adapter.get_identity()
+        environment_identities = (
+            EnvironmentIdentity(
+                runtime_id=oracle_evidence.runtime_id,
+                cobol_compiler=oracle_evidence.cobol_compiler,
+                docker_version=oracle_evidence.docker_version,
+                image_digest=oracle_evidence.image_digest,
+                network_policy="none",
+                resource_limits={"memory": "512m", "cpus": "1.0", "pids": "256"},
+            ),
+            EnvironmentIdentity(
+                runtime_id=candidate_evidence.runtime_id,
+                java_version=candidate_evidence.java_version,
+                maven_version=candidate_evidence.maven_version,
+                docker_version=candidate_evidence.docker_version,
+                image_digest=candidate_evidence.image_digest,
+                network_policy="none" if self._config.use_docker_java else "host",
+                resource_limits={"memory": "512m", "cpus": "1.0", "pids": "256"} if self._config.use_docker_java else {},
+            ),
+        )
         controlled_input_identity = InputIdentity(
             input_id=f"input-{run_id.value}",
             stdin_hash=ContentHash.from_bytes(controlled_input or b""),
@@ -495,8 +522,11 @@ class VerticalSlicePipeline:
             workload_id=workload_id,
             source_identity=source_identity,
             candidate_identity=candidate_identity,
-            oracle_identity=self._oracle_adapter.get_identity(),
+            oracle_identity=oracle_identity,
             environment_identities=environment_identities,
+            producer_identity=self._config.producer_identity,
+            producer_version=self._config.producer_version,
+            require_trusted_provenance=self._config.require_trusted_provenance,
             controlled_input=controlled_input_identity,
             execution_evidence=(oracle_evidence, candidate_evidence),
             artifact_evidence=artifact_evidence,
@@ -537,7 +567,7 @@ class VerticalSlicePipeline:
             run_id=run_id,
             workload_id=workload_id,
             source_identity=source_identity,
-            oracle_identity=self._oracle_adapter.get_identity(),
+            oracle_identity=oracle_identity,
             candidate_identity=candidate_identity,
             oracle_evidence=oracle_evidence,
             candidate_evidence=candidate_evidence,
