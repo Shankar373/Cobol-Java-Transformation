@@ -34,6 +34,7 @@ import pytest
 from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.ir import (
     CallStatement,
+    EvaluateStatement,
     GoToStatement,
     IfStatement,
     PerformStatement,
