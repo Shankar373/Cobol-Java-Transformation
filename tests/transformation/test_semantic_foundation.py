@@ -91,6 +91,35 @@ def test_file_record_child_preserves_level_and_canonical_pic_metadata():
     assert item.provenance.line == 7
 
 
+
+def test_file_control_metadata_merges_with_record_schema():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FILEMERGE.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT INPUT-FILE ASSIGN TO "input.dat".
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC S9(5)V99.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="filemerge.cob")
+    file_def = program.file_definitions[0]
+    item = file_def.record_items[0]
+
+    assert file_def.name == "INPUT-FILE"
+    assert file_def.container_path == "input.dat"
+    assert item.name == "INPUT-REC"
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.provenance.source_name == "filemerge.cob"
+
+
 def test_nested_if_exposes_structural_decision_tree_and_default_branch():
     source = """\
        IDENTIFICATION DIVISION.
