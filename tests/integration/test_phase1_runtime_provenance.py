@@ -19,6 +19,7 @@ def test_docker_java_adapter_reports_observed_runtime_identity():
     assert "sha256:" in adapter.resolved_digest
     assert adapter.java_version
     assert "version" in adapter.java_version.lower()
+    assert "21." in adapter.java_version
     assert adapter.docker_version
 
 
@@ -31,6 +32,7 @@ def test_spring_boot_adapter_reports_observed_runtime_identity():
     assert "@sha256:" in adapter.runtime_identity
     assert adapter.java_version
     assert "version" in adapter.java_version.lower()
+    assert "21." in adapter.java_version
     assert adapter.maven_version
     assert adapter.docker_version
 
