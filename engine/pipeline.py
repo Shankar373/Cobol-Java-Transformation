@@ -211,6 +211,10 @@ class VerticalSlicePipeline:
             total_size_bytes=total_size,
             producer_identity=self._config.producer_identity,
             producer_version=self._config.producer_version,
+            runtime_image_digest=getattr(self._candidate_adapter, "resolved_digest", None)
+            or getattr(self._candidate_adapter, "runtime_identity", None),
+            java_version=getattr(self._candidate_adapter, "java_version", None) or None,
+            maven_version=getattr(self._candidate_adapter, "maven_version", None) or None,
         )
 
     def _build_candidate_manifest(self, source_hash: ContentHash) -> CandidateManifest:
