@@ -79,8 +79,11 @@ def test_file_record_child_preserves_level_and_canonical_pic_metadata():
            STOP RUN.
 """
     program = CobolParser().parse(source, source_name="filegroup.cob")
-    item = program.file_definitions[0].record_items[0]
+    record = program.file_definitions[0].record_items[0]
+    item = record.children[0]
 
+    assert record.name == "INPUT-REC"
+    assert record.level == 1
     assert item.name == "INPUT-AMOUNT"
     assert item.level == 5
     assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
