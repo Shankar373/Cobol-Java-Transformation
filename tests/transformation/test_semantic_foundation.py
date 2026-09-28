@@ -23,6 +23,25 @@ def test_data_item_has_canonical_type_and_provenance():
     assert item.provenance.line == 5
 
 
+def test_signed_pic_preserves_canonical_signed_type():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SIGNEDTYPE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-BALANCE PIC S9(5)V99.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="signed-type.cob")
+    item = next(i for i in program.working_storage if i.name == "WS-BALANCE")
+
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.semantic_type.signed is True
+    assert item.provenance.source_name == "signed-type.cob"
+
+
 def test_nested_if_exposes_structural_decision_tree_and_default_branch():
     source = """\
        IDENTIFICATION DIVISION.
