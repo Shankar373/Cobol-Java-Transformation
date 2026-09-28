@@ -85,7 +85,14 @@ class DockerOracleAdapter(OracleAdapter):
                 matching = [image_id]
             if not matching:
                 return
-            self._verified_image_digest = expected
+            observed_digest = (
+                matching[0].rsplit("@", 1)[-1]
+                if "@" in matching[0]
+                else matching[0]
+            )
+            if observed_digest != expected:
+                return
+            self._verified_image_digest = observed_digest
             self._verified_image_ref = matching[0]
             compiler = subprocess.run(
                 ["docker", "run", "--rm", "--network", "none",
@@ -338,6 +345,24 @@ class DockerOracleAdapter(OracleAdapter):
                 exit_code=None,
                 stdout=b"",
                 stderr=b"Docker is not available",
+                start_time=start_time.isoformat(),
+                end_time=end_time.isoformat(),
+                termination_status="error",
+                timeout_applied=False,
+                source_tree_hash_before=source_hash_before,
+                source_tree_hash_after=source_hash_before,
+            )
+
+        if not self._verified_image_ref:
+            end_time = datetime.now(timezone.utc)
+            return OracleExecutionResult(
+                execution_id=execution_id,
+                run_id=run_id,
+                oracle_id=self._config.oracle_id,
+                status=AdapterStatus.UNAVAILABLE,
+                exit_code=None,
+                stdout=b"",
+                stderr=b"Oracle runtime image could not be verified against expected digest",
                 start_time=start_time.isoformat(),
                 end_time=end_time.isoformat(),
                 termination_status="error",

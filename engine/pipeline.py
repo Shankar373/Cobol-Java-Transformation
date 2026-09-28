@@ -79,11 +79,10 @@ class PipelineConfig:
     java_entrypoint: str
     workload: WorkloadDefinition | None = None
     oracle_image: str = os.environ.get(
-        "SYSTEMAOPS_ORACLE_IMAGE", "gnucobol-ocesql:latest"
+        "SYSTEMAOPS_ORACLE_IMAGE", DockerOracleAdapter.V1_IMAGE
     )
     oracle_digest: str = os.environ.get(
-        "SYSTEMAOPS_ORACLE_DIGEST",
-        "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+        "SYSTEMAOPS_ORACLE_DIGEST", DockerOracleAdapter.V1_DIGEST
     )
     oracle_compiler_version: str = "3.1.2.0"
     javac_path: str = "javac"

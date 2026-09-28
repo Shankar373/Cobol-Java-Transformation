@@ -135,7 +135,7 @@ def _make_mock_generate(expected_programs=("PROG-1",)):
 
 def _make_mock_validation():
     """Return a mock _run_validation that sets evidence stage and verdict."""
-    def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+    def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
         from api.models import RunStage
         run.stage = RunStage.VALIDATING_EVIDENCE
         run.verdict = _StubVerdict(run.id, run.workload_id)

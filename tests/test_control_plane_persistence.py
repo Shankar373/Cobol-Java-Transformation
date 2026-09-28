@@ -84,7 +84,7 @@ def _mock_generate(self_svc, app, run):
     return artifact_dir, "com.example.HelloWorld"
 
 
-def _mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+def _mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
     run.stage = RunStage.VALIDATING_EVIDENCE
     run.verdict = _StubVerdict(run.id, run.workload_id)
     self_svc._store.update_run(run)

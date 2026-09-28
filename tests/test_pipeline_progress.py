@@ -313,7 +313,7 @@ class TestAsyncAPIStagePersistence:
             self_svc._store.update_application(app)
             return Path("/tmp/mock"), "com.example.Main"
 
-        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
             for phase in ["EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE"]:
                 run.stage = RunStage(phase)
                 self_svc._store.update_run(run)
@@ -348,7 +348,7 @@ class TestAsyncAPIStagePersistence:
             self_svc._store.update_application(app)
             return Path("/tmp/mock"), "com.example.Main"
 
-        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
             for phase in ["EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE"]:
                 run.stage = RunStage(phase)
                 self_svc._store.update_run(run)

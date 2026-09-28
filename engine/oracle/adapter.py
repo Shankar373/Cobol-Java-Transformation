@@ -139,6 +139,9 @@ class OracleExecutionResult:
             termination_status=self.termination_status,
             timeout_applied=self.timeout_applied,
             timeout_duration=self.timeout_duration,
+            docker_version=self.observed_docker_version,
+            cobol_compiler=self.observed_compiler_version,
+            image_digest=self.runtime_image_digest,
         )
 
 

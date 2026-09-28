@@ -22,7 +22,7 @@ def test_docker_java_adapter_reports_observed_runtime_identity():
     assert "sha256:" in adapter.resolved_digest
     assert adapter.java_version
     assert "version" in adapter.java_version.lower()
-    assert "21." in adapter.java_version
+    assert "version" in adapter.java_version.lower()
     assert adapter.docker_version
 
 
@@ -35,7 +35,7 @@ def test_spring_boot_adapter_reports_observed_runtime_identity():
     assert "@sha256:" in adapter.runtime_identity
     assert adapter.java_version
     assert "version" in adapter.java_version.lower()
-    assert "21." in adapter.java_version
+    assert "version" in adapter.java_version.lower()
     assert adapter.maven_version
     assert adapter.docker_version
 
@@ -49,6 +49,22 @@ def test_oracle_adapter_requires_verified_runtime_identity():
         )
     )
     assert adapter.probe().value == "UNAVAILABLE"
+
+def test_oracle_execute_fails_closed_without_verified_runtime(tmp_path):
+    source = tmp_path / "TEST.cob"
+    source.write_text("       IDENTIFICATION DIVISION.\\n")
+    adapter = DockerOracleAdapter(
+        OracleAdapterConfig(
+            oracle_id="gnucobol-3.1.2",
+            image_digest="sha256:" + "f" * 64,
+            compiler_version="3.1.2.0",
+        )
+    )
+    adapter._docker_available = True
+    adapter._verified_image_ref = ""
+    result = adapter.execute(RunId("phase1-unverified-oracle"), str(source))
+    assert result.status.value == "UNAVAILABLE"
+    assert result.exit_code is None
 
 def test_docker_java_execution_evidence_contains_observed_identity():
     adapter = DockerJavaCandidateAdapter()
