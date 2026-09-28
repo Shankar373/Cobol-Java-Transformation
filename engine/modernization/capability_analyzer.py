@@ -36,6 +36,7 @@ class CapabilityLevel(Enum):
     PARTIAL = "PARTIAL"
     UNSUPPORTED = "UNSUPPORTED"
     UNAVAILABLE = "UNAVAILABLE"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass(frozen=True)
