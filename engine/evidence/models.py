@@ -94,6 +94,29 @@ class ExecutionEvidence:
     image_digest: str | None = None
     producer_identity: str | None = None
     producer_version: str | None = None
+    provenance_hash: ContentHash | None = None
+
+    def __post_init__(self) -> None:
+        if self.provenance_hash is None:
+            payload = {
+                "execution_id": self.execution_id.value,
+                "run_id": self.run_id.value,
+                "runtime_id": self.runtime_id,
+                "command": self.command,
+                "java_version": self.java_version,
+                "maven_version": self.maven_version,
+                "python_version": self.python_version,
+                "docker_version": self.docker_version,
+                "cobol_compiler": self.cobol_compiler,
+                "image_digest": self.image_digest,
+                "producer_identity": self.producer_identity,
+                "producer_version": self.producer_version,
+            }
+            object.__setattr__(
+                self,
+                "provenance_hash",
+                ContentHash.from_string(json.dumps(payload, sort_keys=True)),
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
@@ -123,6 +146,7 @@ class ExecutionEvidence:
             "image_digest": self.image_digest,
             "producer_identity": self.producer_identity,
             "producer_version": self.producer_version,
+            "provenance_hash": str(self.provenance_hash) if self.provenance_hash else None,
         }
 
 
@@ -296,6 +320,7 @@ class EvidenceManifest:
                     "image_digest": e.image_digest,
                     "producer_identity": e.producer_identity,
                     "producer_version": e.producer_version,
+                    "provenance_hash": str(e.provenance_hash) if e.provenance_hash else None,
                 }
                 for e in self.execution_evidence
             ],
