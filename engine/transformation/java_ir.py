@@ -298,6 +298,7 @@ class JavaField:
     is_final: bool = False
     modifiers: tuple[str, ...] = ()  # additional modifiers
     format_width: int = 0  # PIC display width for numeric formatting (0 = no formatting)
+    decimal_places: int = 0  # PIC V scale preserved from COBOL numeric metadata
     source_provenance: FieldProvenance | None = None
 
 

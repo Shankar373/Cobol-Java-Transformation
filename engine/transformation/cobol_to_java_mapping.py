@@ -109,40 +109,115 @@ from engine.transformation.java_ir import (
 # ---------------------------------------------------------------------------
 
 def map_pic_to_java_type(item: DataItem) -> JavaType:
-    """Map a COBOL PIC clause to a Java type.
-
-    Mapping rules:
-    - PIC 9(n) where n <= 9  → int
-    - PIC 9(n) where n > 9   → long
-    - PIC 9(n)V9(m)          → double
-    - PIC X(n)               → String
-    - PIC A(n)               → String
-    - Group items (children)  → String (treated as raw bytes)
-    - PIC S9(n)              → int (signed)
-    """
+    """Map COBOL PIC data without collapsing fixed-point decimals into binary floating point."""
     if item.children:
         return JavaType(basic_type=JavaBasicType.STRING)
-
+    if item.is_numeric and item.decimal_places > 0:
+        return JavaType(class_name="BigDecimal")
     if item.is_numeric:
-        # Check for decimal (V clause implied by pic_length > integer digits)
-        if item.pic_length > 9:
-            return JavaType(basic_type=JavaBasicType.LONG)
-        return JavaType(basic_type=JavaBasicType.INT)
-
-    # Alphanumeric → String
+        return JavaType(basic_type=JavaBasicType.LONG if item.pic_length > 9 else JavaBasicType.INT)
     return JavaType(basic_type=JavaBasicType.STRING)
 
 
 def map_pic_to_java_default(item: DataItem) -> str:
-    """Get the Java default value for a COBOL PIC type."""
     if item.is_numeric:
-        if item.value:
-            return item.value.strip("'\"")
-        return "0"
-    if item.value:
-        return f'"{item.value.strip(chr(39) + chr(34))}"'
-    return '""'
+        return item.value.strip("'"") if item.value else "0"
+    return f'"{item.value.strip(chr(39) + chr(34))}"' if item.value else '""'
 
+
+def _is_decimal_item(item: DataItem | None) -> bool:
+    return bool(item and item.is_numeric and item.decimal_places > 0)
+
+
+def _expression_is_decimal(expr, field_items):
+    from engine.transformation import ir as _cobol_ir
+    if isinstance(expr, _cobol_ir.Literal):
+        return bool("." in expr.value or (expr.semantic_type and expr.semantic_type.decimal_places > 0))
+    if isinstance(expr, _cobol_ir.FieldReference):
+        return bool(
+            (expr.semantic_type and expr.semantic_type.decimal_places > 0)
+            or _is_decimal_item(field_items.get(expr.name.replace("-", "_")))
+        )
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        return _expression_is_decimal(expr.operand, field_items)
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        return _expression_is_decimal(expr.left, field_items) or _expression_is_decimal(expr.right, field_items)
+    return False
+
+
+def _big_decimal_value(expr):
+    return JavaMethodCall(
+        class_name="BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
+    )
+
+
+def _map_numeric_expression(expr, field_items, expected_decimal=False):
+    from engine.transformation import ir as _cobol_ir
+    decimal_context = expected_decimal or _expression_is_decimal(expr, field_items)
+
+    if isinstance(expr, _cobol_ir.Literal):
+        if expr.is_numeric:
+            value = JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.INT))
+            return _big_decimal_value(value) if decimal_context else value
+        return JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+    if isinstance(expr, _cobol_ir.FieldReference):
+        ref = JavaVariableRef(name=expr.name.replace("-", "_"))
+        if decimal_context:
+            item = field_items.get(expr.name.replace("-", "_"))
+            if not _is_decimal_item(item) and not (expr.semantic_type and expr.semantic_type.decimal_places > 0):
+                return _big_decimal_value(ref)
+        return ref
+
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        operand = _map_numeric_expression(expr.operand, field_items, decimal_context)
+        if decimal_context and expr.operator == "-":
+            return JavaMethodCall(object_ref=operand, method_name="negate", arguments=())
+        return JavaUnaryOp(operator=expr.operator, operand=operand)
+
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        left = _map_numeric_expression(expr.left, field_items, decimal_context)
+        right = _map_numeric_expression(expr.right, field_items, decimal_context)
+        if decimal_context:
+            if expr.operator == "+":
+                return JavaMethodCall(object_ref=left, method_name="add", arguments=(right,))
+            if expr.operator == "-":
+                return JavaMethodCall(object_ref=left, method_name="subtract", arguments=(right,))
+            if expr.operator == "*":
+                return JavaMethodCall(object_ref=left, method_name="multiply", arguments=(right,))
+            if expr.operator == "/":
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal DIVIDE requires explicit target precision")
+        return JavaBinaryOp(left=left, operator=expr.operator, right=right)
+
+    return map_cobol_expr_to_java(str(expr))
+
+
+def _map_cobol_expression_to_java(expr, field_items=None, expected_decimal=False):
+    return _map_numeric_expression(expr, field_items or {}, expected_decimal)
+
+
+def _coerce_assignment_expression(expression, target_item):
+    if target_item is not None and _is_decimal_item(target_item):
+        if not isinstance(expression, JavaMethodCall):
+            expression = _big_decimal_value(expression)
+        return JavaMethodCall(
+            object_ref=expression,
+            method_name="setScale",
+            arguments=(
+                JavaLiteral(value=str(target_item.decimal_places)),
+                JavaVariableRef(name="RoundingMode.DOWN"),
+            ),
+        )
+    if isinstance(expression, JavaMethodCall) and expression.class_name == "BigDecimal":
+        raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal-to-integer assignment is not proven")
+    return expression
+
+
+# ---------------------------------------------------------------------------
+# COBOL statement → Java statement mapping
 
 # ---------------------------------------------------------------------------
 # COBOL statement → Java statement mapping
@@ -581,55 +656,13 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     return JavaVariableRef(name=java_name)
 
 
-def _map_cobol_expression_to_java(expr) -> JavaExpression:
-    """Map a structured COBOL IR Expression to a Java expression.
-
-    COBOL literal → expression representation → Java literal:
-    - Literal (non-numeric, e.g. 'SUBTRACT') → Java string literal
-      (rendered quoted, never as a bare Java identifier).
-    - Literal (numeric) → Java int literal.
-    - FieldReference → Java variable reference.
-    - Binary/Unary expressions recurse into operands.
-
-    Raw strings fall back to :func:`map_cobol_expr_to_java` (which handles
-    quoted text); anything else stringifies through the same path instead
-    of ``str()``-ing the IR node into a variable name.
-    """
-    from engine.transformation import ir as _cobol_ir
-
-    if isinstance(expr, str):
-        return map_cobol_expr_to_java(expr)
-    if isinstance(expr, _cobol_ir.Literal):
-        if expr.is_numeric:
-            return JavaLiteral(
-                value=expr.value,
-                java_type=JavaType(basic_type=JavaBasicType.INT),
-            )
-        return JavaLiteral(
-            value=expr.value,
-            java_type=JavaType(basic_type=JavaBasicType.STRING),
-        )
-    if isinstance(expr, _cobol_ir.FieldReference):
-        return JavaVariableRef(name=expr.name.replace("-", "_"))
-    if isinstance(expr, _cobol_ir.BinaryExpression):
-        return JavaBinaryOp(
-            left=_map_cobol_expression_to_java(expr.left),
-            operator=expr.operator,
-            right=_map_cobol_expression_to_java(expr.right),
-        )
-    if isinstance(expr, _cobol_ir.UnaryExpression):
-        return JavaUnaryOp(
-            operator=expr.operator,
-            operand=_map_cobol_expression_to_java(expr.operand),
-        )
-    return map_cobol_expr_to_java(str(expr))
 
 
-def map_cobol_condition_to_java(condition: str | Condition) -> JavaExpression:
+def map_cobol_condition_to_java(condition: str | Condition, field_items=None) -> JavaExpression:
     """Map a COBOL condition while preserving the parser semantic tree."""
     if isinstance(condition, Condition):
         def expression(expr) -> JavaExpression:
-            return _map_cobol_expression_to_java(expr)
+            return _map_cobol_expression_to_java(expr, field_items or {})
 
         def structured(node: Condition) -> JavaExpression:
             if isinstance(node, Comparison):
@@ -1019,12 +1052,30 @@ def map_cobol_statement(
                 if java_name in field_format_widths:
                     width = field_format_widths[java_name]
                     format_spec = JavaLiteral(value="%0{}d".format(width))
-                    parts.append(JavaMethodCall(
-                        class_name="String",
-                        method_name="format",
-                        arguments=(format_spec, var_ref),
-                        is_static=True,
-                    ))
+                    if item is not None and item.decimal_places > 0:
+                        display_value = JavaMethodCall(
+                            object_ref=var_ref,
+                            method_name="movePointRight",
+                            arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                        )
+                        display_value = JavaMethodCall(
+                            object_ref=display_value,
+                            method_name="longValueExact",
+                            arguments=(),
+                        )
+                        parts.append(JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, display_value),
+                            is_static=True,
+                        ))
+                    else:
+                        parts.append(JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, var_ref),
+                            is_static=True,
+                        ))
                 else:
                     # COBOL PIC X fields have fixed character width. Java
                     # Strings are variable-length, so DISPLAY must reproduce
@@ -1744,12 +1795,22 @@ def map_cobol_data_items_to_fields(
         java_name = item.name.replace("-", "_")
         default = map_pic_to_java_default(item)
         initializer = JavaLiteral(value=default)
+        if _is_decimal_item(item):
+            initializer = _big_decimal_value(
+                JavaLiteral(value=default, java_type=JavaType(basic_type=JavaBasicType.INT))
+            )
+            initializer = JavaMethodCall(
+                object_ref=initializer,
+                method_name="movePointLeft",
+                arguments=(JavaLiteral(value=str(item.decimal_places)),),
+            )
         fields.append(JavaField(
             java_type=java_type,
             name=java_name,
             initializer=initializer,
             is_static=True,
             format_width=item.format_width if item.is_numeric else 0,
+            decimal_places=item.decimal_places if item.is_numeric else 0,
             source_provenance=(
                 source_provenance.get(item.name.upper())
                 if source_provenance is not None
@@ -1927,40 +1988,115 @@ def _derive_default_status_label(program: CobolProgram) -> str:
 # ---------------------------------------------------------------------------
 
 def map_pic_to_java_type(item: DataItem) -> JavaType:
-    """Map a COBOL PIC clause to a Java type.
-
-    Mapping rules:
-    - PIC 9(n) where n <= 9  → int
-    - PIC 9(n) where n > 9   → long
-    - PIC 9(n)V9(m)          → double
-    - PIC X(n)               → String
-    - PIC A(n)               → String
-    - Group items (children)  → String (treated as raw bytes)
-    - PIC S9(n)              → int (signed)
-    """
+    """Map COBOL PIC data without collapsing fixed-point decimals into binary floating point."""
     if item.children:
         return JavaType(basic_type=JavaBasicType.STRING)
-
+    if item.is_numeric and item.decimal_places > 0:
+        return JavaType(class_name="BigDecimal")
     if item.is_numeric:
-        # Check for decimal (V clause implied by pic_length > integer digits)
-        if item.pic_length > 9:
-            return JavaType(basic_type=JavaBasicType.LONG)
-        return JavaType(basic_type=JavaBasicType.INT)
-
-    # Alphanumeric → String
+        return JavaType(basic_type=JavaBasicType.LONG if item.pic_length > 9 else JavaBasicType.INT)
     return JavaType(basic_type=JavaBasicType.STRING)
 
 
 def map_pic_to_java_default(item: DataItem) -> str:
-    """Get the Java default value for a COBOL PIC type."""
     if item.is_numeric:
-        if item.value:
-            return item.value.strip("'\"")
-        return "0"
-    if item.value:
-        return f'"{item.value.strip(chr(39) + chr(34))}"'
-    return '""'
+        return item.value.strip("'"") if item.value else "0"
+    return f'"{item.value.strip(chr(39) + chr(34))}"' if item.value else '""'
 
+
+def _is_decimal_item(item: DataItem | None) -> bool:
+    return bool(item and item.is_numeric and item.decimal_places > 0)
+
+
+def _expression_is_decimal(expr, field_items):
+    from engine.transformation import ir as _cobol_ir
+    if isinstance(expr, _cobol_ir.Literal):
+        return bool("." in expr.value or (expr.semantic_type and expr.semantic_type.decimal_places > 0))
+    if isinstance(expr, _cobol_ir.FieldReference):
+        return bool(
+            (expr.semantic_type and expr.semantic_type.decimal_places > 0)
+            or _is_decimal_item(field_items.get(expr.name.replace("-", "_")))
+        )
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        return _expression_is_decimal(expr.operand, field_items)
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        return _expression_is_decimal(expr.left, field_items) or _expression_is_decimal(expr.right, field_items)
+    return False
+
+
+def _big_decimal_value(expr):
+    return JavaMethodCall(
+        class_name="BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
+    )
+
+
+def _map_numeric_expression(expr, field_items, expected_decimal=False):
+    from engine.transformation import ir as _cobol_ir
+    decimal_context = expected_decimal or _expression_is_decimal(expr, field_items)
+
+    if isinstance(expr, _cobol_ir.Literal):
+        if expr.is_numeric:
+            value = JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.INT))
+            return _big_decimal_value(value) if decimal_context else value
+        return JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+    if isinstance(expr, _cobol_ir.FieldReference):
+        ref = JavaVariableRef(name=expr.name.replace("-", "_"))
+        if decimal_context:
+            item = field_items.get(expr.name.replace("-", "_"))
+            if not _is_decimal_item(item) and not (expr.semantic_type and expr.semantic_type.decimal_places > 0):
+                return _big_decimal_value(ref)
+        return ref
+
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        operand = _map_numeric_expression(expr.operand, field_items, decimal_context)
+        if decimal_context and expr.operator == "-":
+            return JavaMethodCall(object_ref=operand, method_name="negate", arguments=())
+        return JavaUnaryOp(operator=expr.operator, operand=operand)
+
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        left = _map_numeric_expression(expr.left, field_items, decimal_context)
+        right = _map_numeric_expression(expr.right, field_items, decimal_context)
+        if decimal_context:
+            if expr.operator == "+":
+                return JavaMethodCall(object_ref=left, method_name="add", arguments=(right,))
+            if expr.operator == "-":
+                return JavaMethodCall(object_ref=left, method_name="subtract", arguments=(right,))
+            if expr.operator == "*":
+                return JavaMethodCall(object_ref=left, method_name="multiply", arguments=(right,))
+            if expr.operator == "/":
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal DIVIDE requires explicit target precision")
+        return JavaBinaryOp(left=left, operator=expr.operator, right=right)
+
+    return map_cobol_expr_to_java(str(expr))
+
+
+def _map_cobol_expression_to_java(expr, field_items=None, expected_decimal=False):
+    return _map_numeric_expression(expr, field_items or {}, expected_decimal)
+
+
+def _coerce_assignment_expression(expression, target_item):
+    if target_item is not None and _is_decimal_item(target_item):
+        if not isinstance(expression, JavaMethodCall):
+            expression = _big_decimal_value(expression)
+        return JavaMethodCall(
+            object_ref=expression,
+            method_name="setScale",
+            arguments=(
+                JavaLiteral(value=str(target_item.decimal_places)),
+                JavaVariableRef(name="RoundingMode.DOWN"),
+            ),
+        )
+    if isinstance(expression, JavaMethodCall) and expression.class_name == "BigDecimal":
+        raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal-to-integer assignment is not proven")
+    return expression
+
+
+# ---------------------------------------------------------------------------
+# COBOL statement → Java statement mapping
 
 # ---------------------------------------------------------------------------
 # COBOL statement → Java statement mapping
@@ -2399,55 +2535,13 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     return JavaVariableRef(name=java_name)
 
 
-def _map_cobol_expression_to_java(expr) -> JavaExpression:
-    """Map a structured COBOL IR Expression to a Java expression.
-
-    COBOL literal → expression representation → Java literal:
-    - Literal (non-numeric, e.g. 'SUBTRACT') → Java string literal
-      (rendered quoted, never as a bare Java identifier).
-    - Literal (numeric) → Java int literal.
-    - FieldReference → Java variable reference.
-    - Binary/Unary expressions recurse into operands.
-
-    Raw strings fall back to :func:`map_cobol_expr_to_java` (which handles
-    quoted text); anything else stringifies through the same path instead
-    of ``str()``-ing the IR node into a variable name.
-    """
-    from engine.transformation import ir as _cobol_ir
-
-    if isinstance(expr, str):
-        return map_cobol_expr_to_java(expr)
-    if isinstance(expr, _cobol_ir.Literal):
-        if expr.is_numeric:
-            return JavaLiteral(
-                value=expr.value,
-                java_type=JavaType(basic_type=JavaBasicType.INT),
-            )
-        return JavaLiteral(
-            value=expr.value,
-            java_type=JavaType(basic_type=JavaBasicType.STRING),
-        )
-    if isinstance(expr, _cobol_ir.FieldReference):
-        return JavaVariableRef(name=expr.name.replace("-", "_"))
-    if isinstance(expr, _cobol_ir.BinaryExpression):
-        return JavaBinaryOp(
-            left=_map_cobol_expression_to_java(expr.left),
-            operator=expr.operator,
-            right=_map_cobol_expression_to_java(expr.right),
-        )
-    if isinstance(expr, _cobol_ir.UnaryExpression):
-        return JavaUnaryOp(
-            operator=expr.operator,
-            operand=_map_cobol_expression_to_java(expr.operand),
-        )
-    return map_cobol_expr_to_java(str(expr))
 
 
-def map_cobol_condition_to_java(condition: str | Condition) -> JavaExpression:
+def map_cobol_condition_to_java(condition: str | Condition, field_items=None) -> JavaExpression:
     """Map a COBOL condition while preserving the parser semantic tree."""
     if isinstance(condition, Condition):
         def expression(expr) -> JavaExpression:
-            return _map_cobol_expression_to_java(expr)
+            return _map_cobol_expression_to_java(expr, field_items or {})
 
         def structured(node: Condition) -> JavaExpression:
             if isinstance(node, Comparison):
@@ -2837,12 +2931,30 @@ def map_cobol_statement(
                 if java_name in field_format_widths:
                     width = field_format_widths[java_name]
                     format_spec = JavaLiteral(value="%0{}d".format(width))
-                    parts.append(JavaMethodCall(
-                        class_name="String",
-                        method_name="format",
-                        arguments=(format_spec, var_ref),
-                        is_static=True,
-                    ))
+                    if item is not None and item.decimal_places > 0:
+                        display_value = JavaMethodCall(
+                            object_ref=var_ref,
+                            method_name="movePointRight",
+                            arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                        )
+                        display_value = JavaMethodCall(
+                            object_ref=display_value,
+                            method_name="longValueExact",
+                            arguments=(),
+                        )
+                        parts.append(JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, display_value),
+                            is_static=True,
+                        ))
+                    else:
+                        parts.append(JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, var_ref),
+                            is_static=True,
+                        ))
                 else:
                     # COBOL PIC X fields have fixed character width. Java
                     # Strings are variable-length, so DISPLAY must reproduce
@@ -3562,12 +3674,22 @@ def map_cobol_data_items_to_fields(
         java_name = item.name.replace("-", "_")
         default = map_pic_to_java_default(item)
         initializer = JavaLiteral(value=default)
+        if _is_decimal_item(item):
+            initializer = _big_decimal_value(
+                JavaLiteral(value=default, java_type=JavaType(basic_type=JavaBasicType.INT))
+            )
+            initializer = JavaMethodCall(
+                object_ref=initializer,
+                method_name="movePointLeft",
+                arguments=(JavaLiteral(value=str(item.decimal_places)),),
+            )
         fields.append(JavaField(
             java_type=java_type,
             name=java_name,
             initializer=initializer,
             is_static=True,
             format_width=item.format_width if item.is_numeric else 0,
+            decimal_places=item.decimal_places if item.is_numeric else 0,
             source_provenance=(
                 source_provenance.get(item.name.upper())
                 if source_provenance is not None

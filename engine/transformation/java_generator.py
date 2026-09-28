@@ -305,7 +305,7 @@ class JavaGenerator:
         # Class-level field declarations
         field_decls = self._gen_field_declarations_from_ir(java_class)
 
-        return f'''import java.io.BufferedReader;
+        return f'''{math_imports}import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.PrintWriter;
@@ -414,6 +414,7 @@ public class {class_name} {{
 
         # Variable declarations from class fields
         declarations = self._gen_field_declarations_from_ir(java_class)
+        math_imports = ("import java.math.BigDecimal;\nimport java.math.RoundingMode;\n" if any(f.java_type.class_name == "BigDecimal" for f in java_class.fields) else "")
 
         # Parsing code from input file record
         parsing = self._gen_parsing_java_from_ir(input_files[0], java_class)
@@ -476,6 +477,7 @@ public class {class_name} {{
             raise ValueError("MISSING_REQUIRED_SEMANTIC: No Java class in program.")
 
         declarations = self._gen_field_declarations_from_ir(java_class)
+        math_imports = ("import java.math.BigDecimal;\nimport java.math.RoundingMode;\n" if any(f.java_type.class_name == "BigDecimal" for f in java_class.fields) else "")
 
         # Collect all method bodies (all non-main methods) and main body
         all_methods_src: list[str] = []
@@ -935,7 +937,11 @@ public class {class_name} {{
         """Generate Java parsing code from file resource and class fields."""
         lines = []
         for i, field in enumerate(java_class.fields):
-            if field.java_type.basic_type and field.java_type.basic_type.value == "int":
+            if field.java_type.class_name == "BigDecimal":
+                lines.append(
+                    f'            {field.name} = new BigDecimal(rec[{i}].trim()).movePointLeft({field.decimal_places});'
+                )
+            elif field.java_type.basic_type and field.java_type.basic_type.value == "int":
                 lines.append(f'            {field.name} = Integer.parseInt(rec[{i}].trim());')
             else:
                 lines.append(f'            {field.name} = rec[{i}].trim();')
@@ -1788,7 +1794,7 @@ public class {class_name} {{
         declarations = self._gen_variable_declarations(program)
         main_body = self._gen_paragraph_statements(program)
 
-        return f'''import java.io.PrintStream;
+        return f'''{math_imports}import java.io.PrintStream;
 
 public class {class_name} {{
 {declarations}
