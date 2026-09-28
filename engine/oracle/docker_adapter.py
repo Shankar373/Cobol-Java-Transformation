@@ -47,7 +47,10 @@ class DockerOracleAdapter(OracleAdapter):
     """
 
     V1_IMAGE = "gnucobol-ocesql:latest"
-    V1_DIGEST = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+    V1_DIGEST = os.environ.get(
+        "SYSTEMAOPS_ORACLE_DIGEST",
+        "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+    )
 
     def __init__(self, config: OracleAdapterConfig) -> None:
         super().__init__(config)
@@ -76,7 +79,10 @@ class DockerOracleAdapter(OracleAdapter):
             if not payload:
                 return
             repo_digests = payload[0].get("RepoDigests") or []
+            image_id = payload[0].get("Id") or ""
             matching = [ref for ref in repo_digests if ref.rsplit("@", 1)[-1] == expected]
+            if not matching and image_id == expected:
+                matching = [image_id]
             if not matching:
                 return
             self._verified_image_digest = expected
