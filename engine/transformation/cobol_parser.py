@@ -1638,7 +1638,7 @@ class CobolParser:
             match_field = re.escape(lookup.match_found_field)
             for i, raw_line in enumerate(lines):
                 if not re.search(
-                    rf"IF\\s+{match_field}\\s*=\\s*['\\\"]Y['\\\"]",
+                    rf"IF\s+{match_field}\s*=\s*['\"]Y['\"]",
                     raw_line,
                     re.IGNORECASE,
                 ):
@@ -1647,10 +1647,10 @@ class CobolParser:
                 block_labels: list[str] = []
                 for block_line in lines[i:]:
                     upper = block_line.upper().strip()
-                    if re.match(r"IF\\s+", upper):
+                    if re.match(r"IF\s+", upper):
                         depth += 1
                     for move in re.finditer(
-                        r"MOVE\\s+['\\\"]([^'\\\"]+)['\\\"]\\s+TO\\s+\\S+",
+                        r"MOVE\s+['\"]([^'\"]+)['\"]\s+TO\s+\S+",
                         block_line,
                         re.IGNORECASE,
                     ):
