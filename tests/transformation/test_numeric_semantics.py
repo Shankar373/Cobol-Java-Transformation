@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from engine.candidate.docker_java_adapter import CandidateManifest, DockerJavaCandidateAdapter
+from engine.candidate.docker_java_adapter import DockerJavaCandidateAdapter
+from engine.candidate.docker_spring_boot_adapter import CandidateManifest
 from engine.domain.identities import RunId
 from engine.oracle.adapter import OracleAdapterConfig
 from engine.oracle.docker_adapter import DockerOracleAdapter
@@ -73,7 +74,7 @@ def test_generated_java_uses_exact_fixed_point_operations():
     assert ".add(" in generated
     assert ".setScale(2, RoundingMode.DOWN)" in generated
     assert "longValueExact()" in generated
-    assert "String.format("%05d"" in generated
+    assert 'String.format("%05d"' in generated
 
 
 @pytest.mark.skipif(not shutil.which("docker"), reason="Docker unavailable")
