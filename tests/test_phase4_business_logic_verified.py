@@ -135,12 +135,13 @@ class TestParsing:
 
     def test_calc_has_evaluate(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
-        from engine.transformation.ir import IfStatement
+        from engine.transformation.ir import EvaluateStatement
         prog = CobolParser().parse((FIXTURE_DIR / "CALC.cob").read_text())
-        # EVALUATE converts to nested IF
         all_stmts = [s for para in prog.paragraphs for s in para.statements]
-        has_if = any(isinstance(s, IfStatement) for s in all_stmts)
-        assert has_if, "CALC must have an EVALUATE (converted to nested IF)"
+        evaluate = next((s for s in all_stmts if isinstance(s, EvaluateStatement)), None)
+        assert evaluate is not None, "CALC must preserve its canonical EVALUATE"
+        assert len(evaluate.arms) == 5
+        assert evaluate.arms[-1].other is True
 
     def test_evaluate_other_maps_to_boolean_true(self) -> None:
         from engine.transformation.cobol_to_java_mapping import map_cobol_condition_to_java
