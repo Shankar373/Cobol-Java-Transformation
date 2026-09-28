@@ -651,6 +651,7 @@ class CobolParser:
                             pic_length=pic_length,
                             decimal_places=decimal_places,
                             signed=signed,
+                            usage=usage,
                             value=value,
                             occurs=occurs,
                         ))
