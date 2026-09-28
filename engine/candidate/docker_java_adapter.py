@@ -103,6 +103,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
         self._docker_available = self._check_docker()
         self._resolved_digest: str = ""
         self._java_version: str = ""
+        self._docker_version: str = ""
 
         if self._docker_available:
             self._resolved_digest = self._resolve_image_digest()
@@ -155,10 +156,13 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
             if result.returncode == 0:
                 import json
                 data = json.loads(result.stdout)
-                if data and "RepoDigests" in data[0]:
-                    for digest_ref in data[0]["RepoDigests"]:
+                if data:
+                    for digest_ref in data[0].get("RepoDigests") or []:
                         if "sha256:" in digest_ref:
                             return digest_ref
+                    image_id = data[0].get("Id", "")
+                    if image_id.startswith("sha256:"):
+                        return image_id
 
             return ""
         except Exception:
@@ -170,7 +174,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
             result = subprocess.run(
                 [
                     "docker", "run", "--rm", "--network", "none",
-                    self._config.image, "java", "-version",
+                    self._resolved_digest, "java", "-version",
                 ],
                 capture_output=True,
                 timeout=30,
