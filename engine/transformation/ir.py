@@ -508,6 +508,31 @@ class DecisionNode:
 
 
 @dataclass(frozen=True)
+class EvaluateWhen:
+    """One WHEN arm of an EVALUATE statement.
+
+    Conditions are structured semantic predicates over the EVALUATE subject.
+    The other flag marks WHEN OTHER as the final fallback branch.
+    """
+    conditions: tuple[Condition, ...] = ()
+    body: tuple[Statement, ...] = ()
+    other: bool = False
+    provenance: SourceProvenance = SourceProvenance()
+
+
+@dataclass(frozen=True)
+class EvaluateStatement:
+    """Canonical single-subject EVALUATE control-flow statement.
+
+    WHEN arms remain structured so downstream mappings do not reconstruct
+    selector and branch semantics from flattened IF strings.
+    """
+    subject: Expression
+    arms: tuple[EvaluateWhen, ...] = ()
+    provenance: SourceProvenance = SourceProvenance()
+
+
+@dataclass(frozen=True)
 class IfStatement:
     """IF condition THEN ... ELSE ... END-IF.
 
@@ -621,6 +646,7 @@ Statement = (
     | MultiplyStatement
     | CallStatement
     | DivideStatement
+    | EvaluateStatement
     | IfStatement
     | PerformStatement
     | PerformTimesStatement
