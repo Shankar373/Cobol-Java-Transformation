@@ -522,6 +522,7 @@ class JavaReportConfig:
     # Record format: field names and literal delimiters for printf
     report_format_fields: tuple[str, ...] = ()  # alternates: field names and literals
     output_format_fields: tuple[str, ...] = ()  # alternates: field names and literals
+    outcome_field_name: str = ""  # source field receiving decision/settlement outcomes
 
 
 @dataclass(frozen=True)
