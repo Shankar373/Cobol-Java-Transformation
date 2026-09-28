@@ -239,6 +239,9 @@ class EvidenceManifest:
     execution_evidence: tuple[ExecutionEvidence, ...]
     artifact_evidence: tuple[ArtifactEvidence, ...]
     comparison_evidence: tuple[ComparisonEvidence, ...]
+    producer_identity: str | None = None
+    producer_version: str | None = None
+    require_trusted_provenance: bool = False
     verdict_evidence: VerdictEvidence | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -255,6 +258,9 @@ class EvidenceManifest:
             "manifest_version": self.manifest_version,
             "run_id": self.run_id.value,
             "workload_id": self.workload_id.value,
+            "producer_identity": self.producer_identity,
+            "producer_version": self.producer_version,
+            "require_trusted_provenance": self.require_trusted_provenance,
             "source_identity": {
                 "source_id": self.source_identity.source_id,
                 "source_hash": str(self.source_identity.source_hash),
@@ -365,6 +371,9 @@ class EvidenceManifest:
             "manifest_version": self.manifest_version,
             "run_id": self.run_id.value,
             "workload_id": self.workload_id.value,
+            "producer_identity": self.producer_identity,
+            "producer_version": self.producer_version,
+            "require_trusted_provenance": self.require_trusted_provenance,
             "source_identity": {
                 "source_id": self.source_identity.source_id,
                 "source_hash": str(self.source_identity.source_hash),
