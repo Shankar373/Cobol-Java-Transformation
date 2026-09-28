@@ -282,7 +282,10 @@ class Service:
                 )
 
                 adapter = DockerSpringBootCandidateAdapter()
-            self._run_validation(app, run, java_dir, entrypoint, adapter)
+            self._run_validation(
+                app, run, java_dir, entrypoint, adapter,
+                require_trusted_provenance=require_trusted_provenance,
+            )
 
             # Terminal state is set here; VALIDATING_EVIDENCE itself is
             # emitted by the pipeline progress hook at the true point.
@@ -373,7 +376,11 @@ class Service:
 
                 adapter = DockerSpringBootCandidateAdapter()
             self._run_validation(
-                app, run, candidate_dir, entrypoint, adapter
+                app, run, candidate_dir, entrypoint, adapter,
+                require_trusted_provenance=(
+                    app.generated_app_path is not None
+                    and str(candidate_dir) == app.generated_app_path
+                ),
             )
             run.stage = RunStage.COMPLETED
             run.completed_at = datetime.now(timezone.utc).isoformat()
@@ -489,6 +496,7 @@ class Service:
         java_dir: Path,
         entrypoint: str,
         candidate_adapter=None,
+        require_trusted_provenance: bool = False,
     ) -> None:
         """Run the validation pipeline and persist evidence + verdict.
 
