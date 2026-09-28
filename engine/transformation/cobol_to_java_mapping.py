@@ -121,7 +121,7 @@ def map_pic_to_java_type(item: DataItem) -> JavaType:
 
 def map_pic_to_java_default(item: DataItem) -> str:
     if item.is_numeric:
-        return item.value.strip("'\"") if item.value else "0"
+        return (item.value or "").replace("'", "").replace('"', "") if item.value else "0"
     return f'"{item.value.strip(chr(39) + chr(34))}"' if item.value else '""'
 
 
@@ -2000,7 +2000,7 @@ def map_pic_to_java_type(item: DataItem) -> JavaType:
 
 def map_pic_to_java_default(item: DataItem) -> str:
     if item.is_numeric:
-        return item.value.strip("'"") if item.value else "0"
+        return (item.value or "").replace("'", "").replace('"', "") if item.value else "0"
     return f'"{item.value.strip(chr(39) + chr(34))}"' if item.value else '""'
 
 
