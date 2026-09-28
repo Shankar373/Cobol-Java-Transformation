@@ -42,7 +42,9 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Build GnuCOBOL oracle image
-        run: docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
+        run: |
+          docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
+          echo "SYSTEMAOPS_ORACLE_DIGEST=$(docker image inspect --format '{{.Id}}' gnucobol-ocesql:latest)" >> "$GITHUB_ENV"
       - name: Build project Maven image
         run: docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:latest .
       - name: Pull pinned Java execution image
