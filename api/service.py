@@ -522,6 +522,11 @@ class Service:
             ),
         )
 
+        pipeline_report = run.modernization_report.get("pipeline_report", {}) if run.modernization_report else {}
+        transformation_report = pipeline_report.get("transformation", {})
+        producer_identity = transformation_report.get("producer_identity")
+        producer_version = transformation_report.get("producer_version")
+
         config = PipelineConfig(
             workload_id=app.workload_id,
             cobol_source_path=app.cobol_source_path,
@@ -529,6 +534,9 @@ class Service:
             java_entrypoint=entrypoint,
             workload=workload_def,
             use_docker_java=True,
+            producer_identity=producer_identity,
+            producer_version=producer_version,
+            require_trusted_provenance=not use_uploaded_candidate,
         )
 
         phase_to_stage = {
