@@ -8,6 +8,7 @@ from pathlib import Path
 from engine.candidate.adapter import CandidateManifest
 from engine.candidate.docker_java_adapter import DockerJavaCandidateAdapter
 from engine.candidate.docker_spring_boot_adapter import DockerSpringBootCandidateAdapter
+from engine.domain.identities import RunId
 from engine.oracle.adapter import OracleAdapterConfig
 from engine.oracle.docker_adapter import DockerOracleAdapter
 
@@ -78,7 +79,7 @@ def test_docker_java_execution_evidence_contains_observed_identity():
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(bytecode)
         result = adapter.execute(
-            run_id=__import__("engine.domain.identities", fromlist=["RunId"]).RunId("phase1-runtime"),
+            run_id=RunId("phase1-runtime"),
             compiled_path=tmpdir,
             manifest=manifest,
         )
