@@ -78,6 +78,8 @@ class ModernizationReport:
     generation_success: bool = False
     generation_errors: tuple[str, ...] = ()
     generated_program_ids: tuple[str, ...] = ()
+    producer_identity: str = "internal-native-java-producer"
+    producer_version: str = "1.0.0"
 
     # Assembly: the Spring Boot project directory and entry point
     generated_project_dir: str = ""
@@ -105,6 +107,8 @@ class ModernizationReport:
                 "success": self.generation_success,
                 "program_ids": list(self.generated_program_ids),
                 "errors": list(self.generation_errors),
+                "producer_identity": self.producer_identity,
+                "producer_version": self.producer_version,
             },
             "assembly": {
                 "project_dir": self.generated_project_dir,
@@ -291,6 +295,8 @@ class UniversalModernizationPipeline:
 
         report.generation_success = True
         report.generated_program_ids = gen_result.program_ids
+        report.producer_identity = gen_result.producer_identity
+        report.producer_version = gen_result.producer_version
 
         # Phase 5: ASSEMBLY via Spring Boot mapping (same path as the service)
         if progress:
