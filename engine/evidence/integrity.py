@@ -803,7 +803,14 @@ class EvidenceIntegrityValidator:
             {
                 "runtime_id": ei.runtime_id,
                 "java_version": ei.java_version,
+                "maven_version": ei.maven_version,
+                "python_version": ei.python_version,
+                "docker_version": ei.docker_version,
                 "cobol_compiler": ei.cobol_compiler,
+                "image_digest": ei.image_digest,
+                "os_base": ei.os_base,
+                "network_policy": ei.network_policy,
+                "resource_limits": dict(ei.resource_limits),
             }
             for ei in manifest.environment_identities
         ]
