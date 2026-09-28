@@ -37,6 +37,7 @@ class RealJavaCandidateAdapter(CandidateAdapter):
         self._javac_path = javac_path
         self._java_path = java_path
         self._available = self._check_java()
+        self._java_version = self._detect_java_version() if self._available else ""
 
     def _check_java(self) -> bool:
         try:
@@ -49,6 +50,26 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             return result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
+
+    @property
+    def java_version(self) -> str:
+        return self._java_version
+
+    def _detect_java_version(self) -> str:
+        try:
+            result = subprocess.run(
+                [self._java_path, "-version"],
+                capture_output=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if result.returncode == 0:
+                for line in result.stderr.decode(errors="replace").splitlines():
+                    if "version" in line:
+                        return line.strip()
+            return ""
+        except Exception:
+            return ""
 
     @property
     def available(self) -> bool:
@@ -230,4 +251,7 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             termination_status=termination,
             timeout_applied=termination == "timeout",
             timeout_duration=30,
+            observed_java_version=self._java_version or None,
+            producer_identity=manifest.producer_identity or None,
+            producer_version=manifest.producer_version or None,
         )
