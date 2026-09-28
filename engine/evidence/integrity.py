@@ -139,6 +139,7 @@ class EvidenceIntegrityValidator:
 
         # 6. Comparison-artifact binding
         violations.extend(self._validate_comparison_artifact_binding(manifest))
+        violations.extend(self._validate_comparison_execution_binding(manifest))
 
         # 7. EXIT_STATUS completeness (FINDING F)
         violations.extend(self._validate_exit_status_completeness(manifest))
@@ -340,6 +341,61 @@ class EvidenceIntegrityValidator:
                     actual=comp_ev.candidate_artifact_id,
                 ))
 
+        return violations
+
+    # ------------------------------------------------------------------
+    # Comparison-execution binding
+    # ------------------------------------------------------------------
+
+    def _validate_comparison_execution_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Ensure each comparison is tied to the executions that produced its artifacts."""
+        violations: list[IntegrityViolation] = []
+        artifacts = {a.artifact.artifact_id: a for a in manifest.artifact_evidence}
+        executions = {e.execution_id.value: e for e in manifest.execution_evidence}
+
+        for i, comparison in enumerate(manifest.comparison_evidence):
+            oracle = artifacts.get(comparison.oracle_artifact_id)
+            candidate = artifacts.get(comparison.candidate_artifact_id)
+            if oracle is None or candidate is None:
+                continue
+            if oracle.artifact.producer_role != "ORACLE" or candidate.artifact.producer_role != "CANDIDATE":
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                    description="Comparison artifact roles do not match oracle/candidate positions",
+                    field_path=f"comparison_evidence[{i}]",
+                    expected="ORACLE artifact followed by CANDIDATE artifact",
+                    actual=f"{oracle.artifact.producer_role}/{candidate.artifact.producer_role}",
+                ))
+            oracle_exec = executions.get(oracle.execution_id.value)
+            candidate_exec = executions.get(candidate.execution_id.value)
+            if oracle_exec is None or candidate_exec is None:
+                continue
+            if not oracle_exec.runtime_id.startswith("oracle"):
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                    description="Comparison oracle artifact is bound to a non-oracle execution",
+                    field_path=f"comparison_evidence[{i}].oracle_artifact_id",
+                    expected="oracle execution",
+                    actual=oracle_exec.runtime_id,
+                ))
+            if not candidate_exec.runtime_id.startswith("candidate"):
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                    description="Comparison candidate artifact is bound to a non-candidate execution",
+                    field_path=f"comparison_evidence[{i}].candidate_artifact_id",
+                    expected="candidate execution",
+                    actual=candidate_exec.runtime_id,
+                ))
+
+        for i, artifact in enumerate(manifest.artifact_evidence):
+            if artifact.content_hash != artifact.artifact.content_hash:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.CONTENT_HASH_MISMATCH,
+                    description="Artifact evidence content hash differs from artifact identity hash",
+                    field_path=f"artifact_evidence[{i}].content_hash",
+                    expected=str(artifact.artifact.content_hash),
+                    actual=str(artifact.content_hash),
+                ))
         return violations
 
     # ------------------------------------------------------------------
