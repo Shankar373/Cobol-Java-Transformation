@@ -41,6 +41,7 @@ from engine.transformation.ir import (
     DataItem,
     DeleteStatement,
     DisplayStatement,
+    EvaluateStatement,
     DivideStatement,
     FileDefinition,
     FieldProvenance,
@@ -1065,6 +1066,47 @@ def map_cobol_statement(
                         arguments=(concat,),
                     )
                 ))
+
+    elif isinstance(stmt, EvaluateStatement):
+        # EVALUATE is already canonicalized into structured WHEN predicates.
+        # Lower only the canonical IR here; do not reconstruct COBOL text.
+        def map_arm(index: int) -> list:
+            if index >= len(stmt.arms):
+                return []
+
+            arm = stmt.arms[index]
+            body: list = []
+            for nested in arm.body:
+                body.extend(map_cobol_statement(nested, program))
+
+            if arm.other:
+                return body
+
+            conditions = [
+                map_cobol_condition_to_java(condition)
+                for condition in arm.conditions
+            ]
+            if not conditions:
+                return map_arm(index + 1)
+
+            condition = conditions[0]
+            for next_condition in conditions[1:]:
+                condition = JavaBinaryOp(
+                    left=condition,
+                    operator="||",
+                    right=next_condition,
+                )
+
+            else_body = map_arm(index + 1)
+            return [
+                JavaIf(
+                    condition=condition,
+                    then_body=tuple(body),
+                    else_body=tuple(else_body),
+                )
+            ]
+
+        result.extend(map_arm(0))
 
     elif isinstance(stmt, IfStatement):
         condition = map_cobol_condition_to_java(
