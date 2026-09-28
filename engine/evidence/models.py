@@ -329,6 +329,9 @@ class EvidenceManifest:
                 "source_hash": str(self.candidate_identity.source_hash),
                 "producer_identity": self.candidate_identity.producer_identity,
                 "producer_version": self.candidate_identity.producer_version,
+                "runtime_image_digest": self.candidate_identity.runtime_image_digest,
+                "java_version": self.candidate_identity.java_version,
+                "maven_version": self.candidate_identity.maven_version,
             }
         graph["environment_identities"] = [
             {
