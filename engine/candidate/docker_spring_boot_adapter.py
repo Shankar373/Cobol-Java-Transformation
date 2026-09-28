@@ -209,6 +209,10 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
             return ""
 
     @property
+    def docker_version(self) -> str:
+        return self._docker_version
+
+    @property
     def available(self) -> bool:
         return self._status == AdapterStatus.AVAILABLE
 
