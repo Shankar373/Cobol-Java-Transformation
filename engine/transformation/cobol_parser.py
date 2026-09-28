@@ -465,11 +465,13 @@ class CobolParser:
                         current_record = parts[1].rstrip(".")
                         pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
                         if pic_match:
-                            pic_type, pic_length = _parse_pic(pic_match.group(1))
+                            pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
                             current_items.append(DataItem(
                                 name=current_record,
                                 pic_type=pic_type,
                                 pic_length=pic_length,
+                                decimal_places=decimal_places,
+                                signed=signed,
                             ))
                 elif current_fd and re.match(r"\d{2}\s+", upper):
                     # Handle sub-level items (05, 10, 15, etc.)
@@ -478,11 +480,13 @@ class CobolParser:
                         item_name = parts[1].rstrip(".")
                         pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
                         if pic_match:
-                            pic_type, pic_length = _parse_pic(pic_match.group(1))
+                            pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
                             current_items.append(DataItem(
                                 name=item_name,
                                 pic_type=pic_type,
                                 pic_length=pic_length,
+                                decimal_places=decimal_places,
+                                signed=signed,
                             ))
                 elif upper.startswith(("WORKING-STORAGE", "PROCEDURE")):
                     if current_fd and current_record:
@@ -644,11 +648,13 @@ class CobolParser:
                 elif level == 10 and current_group_name:
                     # Level 10 under a group — children
                     if pic_match:
-                        pic_type, pic_length = _parse_pic(pic_match.group(1))
+                        pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
                         current_group_children.append(DataItem(
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
+                            signed=signed,
                         ))
 
         return items
