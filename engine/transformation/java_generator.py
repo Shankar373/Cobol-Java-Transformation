@@ -417,6 +417,7 @@ public class {class_name} {{
         # Variable declarations from class fields
         declarations = self._gen_field_declarations_from_ir(java_class)
         math_imports = ("import java.math.BigDecimal;\nimport java.math.RoundingMode;\n" if any(f.java_type.class_name == "BigDecimal" for f in java_class.fields) else "")
+        ir_imports = "".join(f"import {name};\n" for name in java_class.imports)
 
         # Parsing code from input file record
         parsing = self._gen_parsing_java_from_ir(input_files[0], java_class)
@@ -544,7 +545,7 @@ public class {class_name} {{
                 "_FileWriteHelper.appendLine(", "_FileWriteHelper_appendLine("
             )
 
-        return f'''{file_write_imports}import java.io.PrintStream;
+        return f'''{ir_imports}{file_write_imports}import java.io.PrintStream;
 
 public class {class_name} {{
 {declarations}

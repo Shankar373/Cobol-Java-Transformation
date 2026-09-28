@@ -964,13 +964,19 @@ class CobolParser:
         """Parse ADD source TO target statement."""
         line = lines[start].strip()
 
-        match = re.search(r"ADD\s+(.+?)\s+TO\s+(\S+)", line, re.IGNORECASE)
+        match = re.search(
+            r"ADD\s+(.+?)\s+TO\s+(\S+?)(?:\s+GIVING\s+(\S+))?\.?$",
+            line,
+            re.IGNORECASE,
+        )
         if match:
             source = match.group(1).strip().rstrip(".")
             target = match.group(2).strip().rstrip(".")
+            giving_target = (match.group(3) or "").strip().rstrip(".") or None
             return AddStatement(
                 source=source,
                 target=target,
+                giving_target=giving_target,
                 source_expr=self._build_expression(source),
                 target_ref=FieldReference(name=target),
             ), start + 1

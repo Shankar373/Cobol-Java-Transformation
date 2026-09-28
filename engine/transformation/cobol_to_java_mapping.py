@@ -3877,6 +3877,11 @@ def map_cobol_program_to_java(
             "java.util.LinkedHashMap",
             "java.util.List",
             "java.util.Map",
+            *(
+                ("java.math.BigDecimal", "java.math.RoundingMode")
+                if any(field.java_type.class_name == "BigDecimal" for field in fields)
+                else ()
+            ),
         ),
     )
 
