@@ -197,9 +197,9 @@ class TransformationPlanGenerator:
             return ComponentPlan(
                 component_id=program_id,
                 component_type="PROGRAM",
-                action=TransformationAction.TRANSFORM,
-                transformer=TransformerType.INTERNAL_NATIVE,
-                reason="No capability analysis — default transformable",
+                action=TransformationAction.SKIP,
+                transformer=TransformerType.SKIP,
+                reason="Missing capability analysis — transformation not proven",
             )
 
         if capability.level == CapabilityLevel.SUPPORTED:
@@ -237,8 +237,9 @@ class TransformationPlanGenerator:
         return ComponentPlan(
             component_id=program_id,
             component_type="PROGRAM",
-            action=TransformationAction.TRANSFORM,
-            transformer=TransformerType.INTERNAL_NATIVE,
+            action=TransformationAction.SKIP,
+            transformer=TransformerType.SKIP,
+            reason=f"Unknown capability level: {capability.level.value}",
         )
 
     def _topological_sort(self, application: CobolApplication) -> list:
