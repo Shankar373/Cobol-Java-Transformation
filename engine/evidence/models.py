@@ -86,6 +86,14 @@ class ExecutionEvidence:
     termination_status: str  # normal, timeout, nonzero_exit, error
     timeout_applied: bool
     timeout_duration: int | None = None
+    java_version: str | None = None
+    maven_version: str | None = None
+    python_version: str | None = None
+    docker_version: str | None = None
+    cobol_compiler: str | None = None
+    image_digest: str | None = None
+    producer_identity: str | None = None
+    producer_version: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
@@ -107,6 +115,14 @@ class ExecutionEvidence:
             "termination_status": self.termination_status,
             "timeout_applied": self.timeout_applied,
             "timeout_duration": self.timeout_duration,
+            "java_version": self.java_version,
+            "maven_version": self.maven_version,
+            "python_version": self.python_version,
+            "docker_version": self.docker_version,
+            "cobol_compiler": self.cobol_compiler,
+            "image_digest": self.image_digest,
+            "producer_identity": self.producer_identity,
+            "producer_version": self.producer_version,
         }
 
 
@@ -249,6 +265,8 @@ class EvidenceManifest:
                 "oracle_id": self.oracle_identity.oracle_id if self.oracle_identity else None,
                 "image_digest": self.oracle_identity.image_digest if self.oracle_identity else None,
                 "compiler_version": self.oracle_identity.compiler_version if self.oracle_identity else None,
+                "preprocessor_version": self.oracle_identity.preprocessor_version if self.oracle_identity else None,
+                "base_image": self.oracle_identity.base_image if self.oracle_identity else None,
             } if self.oracle_identity else None,
             "controlled_input": {
                 "input_id": self.controlled_input.input_id,
@@ -264,6 +282,14 @@ class EvidenceManifest:
                     "exit_code": e.exit_code,
                     "stdout_hash": str(e.stdout_hash),
                     "stderr_hash": str(e.stderr_hash),
+                    "java_version": e.java_version,
+                    "maven_version": e.maven_version,
+                    "python_version": e.python_version,
+                    "docker_version": e.docker_version,
+                    "cobol_compiler": e.cobol_compiler,
+                    "image_digest": e.image_digest,
+                    "producer_identity": e.producer_identity,
+                    "producer_version": e.producer_version,
                 }
                 for e in self.execution_evidence
             ],
@@ -295,6 +321,8 @@ class EvidenceManifest:
                 "candidate_id": self.candidate_identity.candidate_id,
                 "candidate_hash": str(self.candidate_identity.candidate_hash),
                 "source_hash": str(self.candidate_identity.source_hash),
+                "producer_identity": self.candidate_identity.producer_identity,
+                "producer_version": self.candidate_identity.producer_version,
             }
         content_bytes = json.dumps(graph, sort_keys=True, default=str).encode("utf-8")
         return ContentHash.from_bytes(content_bytes)
