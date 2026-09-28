@@ -284,7 +284,7 @@ class Service:
                 adapter = DockerSpringBootCandidateAdapter()
             self._run_validation(
                 app, run, java_dir, entrypoint, adapter,
-                require_trusted_provenance=not use_uploaded_candidate,
+                require_trusted_provenance=require_trusted_provenance,
             )
 
             # Terminal state is set here; VALIDATING_EVIDENCE itself is
