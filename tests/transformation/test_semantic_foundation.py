@@ -64,6 +64,33 @@ def test_file_record_preserves_canonical_pic_metadata():
     assert item.level == 1
 
 
+def test_comp3_usage_preserves_canonical_storage_metadata_across_data_paths():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. USAGETYPE.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC S9(5)V99 COMP-3.
+       WORKING-STORAGE SECTION.
+       01 WS-AMOUNT PIC S9(5)V99 USAGE COMP-3.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="usage.cob")
+
+    file_item = program.file_definitions[0].record_items[0]
+    working_item = next(
+        item for item in program.working_storage if item.name == "WS-AMOUNT"
+    )
+
+    assert file_item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "COMP-3")
+    assert working_item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "COMP-3")
+    assert file_item.provenance.source_name == "usage.cob"
+    assert working_item.provenance.source_name == "usage.cob"
+
+
 def test_file_record_child_preserves_level_and_canonical_pic_metadata():
     source = """\
        IDENTIFICATION DIVISION.
