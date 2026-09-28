@@ -498,6 +498,23 @@ class EvidenceIntegrityValidator:
                 actual=f"{candidate.producer_identity!r}/{candidate.producer_version!r}",
             ))
 
+        if not candidate.runtime_image_digest:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Candidate identity has no immutable runtime image identity",
+                field_path="candidate_identity.runtime_image_digest",
+                expected="immutable image digest or image ID",
+                actual="None",
+            ))
+        if not candidate.java_version:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Candidate identity has no observed Java runtime identity",
+                field_path="candidate_identity.java_version",
+                expected="observed Java version",
+                actual="None",
+            ))
+
         oracle_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("oracle")]
         candidate_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("candidate")]
 
