@@ -2,7 +2,7 @@
 
 from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
-from engine.transformation.ir import BinaryExpression, CobolType, DecisionNode, FieldReference, IfStatement, InputRecordMapping, PicType
+from engine.transformation.ir import BinaryExpression, CobolType, DecisionNode, EvaluateStatement, FieldReference, IfStatement, InputRecordMapping, PicType
 
 
 def test_data_item_has_canonical_type_and_provenance():
@@ -118,6 +118,51 @@ def test_file_control_metadata_merges_with_record_schema():
     assert item.name == "INPUT-REC"
     assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
     assert item.provenance.source_name == "filemerge.cob"
+
+
+
+def test_evaluate_preserves_structured_when_and_other_branches():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EVALUATESEM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 STATUS PIC 9(2).
+       01 RESULT PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           EVALUATE STATUS
+               WHEN 1
+                   MOVE 'ONE' TO RESULT
+               WHEN 2 THRU 3
+                   MOVE 'TWO-THREE' TO RESULT
+               WHEN OTHER
+                   MOVE 'OTHER' TO RESULT
+           END-EVALUATE
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="evaluate.cob")
+    evaluate = next(
+        statement
+        for statement in program.paragraphs[0].statements
+        if isinstance(statement, EvaluateStatement)
+    )
+
+    assert evaluate.provenance.source_name == "evaluate.cob"
+    assert len(evaluate.arms) == 3
+    assert evaluate.arms[0].conditions[0].right.value == "1"
+    assert evaluate.arms[1].conditions[0].operator == "AND"
+    assert evaluate.arms[2].other is True
+
+    java_program = map_cobol_program_to_java(program)
+    java_ifs = [
+        statement
+        for method in java_program.java_class.methods
+        for statement in method.body_statements
+        if statement.__class__.__name__ == "JavaIf"
+    ]
+    assert len(java_ifs) == 1
+    assert java_ifs[0].else_body
 
 
 def test_nested_if_exposes_structural_decision_tree_and_default_branch():
