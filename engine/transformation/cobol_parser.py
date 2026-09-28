@@ -510,6 +510,7 @@ class CobolParser:
                 pic_type, pic_length, decimals, signed = self._parse_pic_details(pic.group(1))
             else:
                 pic_type, pic_length, decimals, signed = PicType.ALPHANUMERIC, 0, 0, False
+            usage = self._parse_usage(rest)
             value_m = re.search(r"\bVALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
             occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
             redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
@@ -517,6 +518,7 @@ class CobolParser:
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
                 signed=signed,
+                usage=usage,
                 value=value_m.group(1).strip().rstrip(".") if value_m else None,
                 occurs=int(occurs_m.group(1)) if occurs_m else None,
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
@@ -532,6 +534,7 @@ class CobolParser:
             return DataItem(name=root.name, level=root.level, pic_type=root.pic_type,
                             pic_length=root.pic_length, decimal_places=root.decimal_places,
                             value=root.value, occurs=root.occurs, redefines=root.redefines,
+                            signed=root.signed, usage=root.usage, provenance=root.provenance,
                             children=children)
         for level, item in parsed:
             while stack and stack[-1][0] >= level:
@@ -543,11 +546,27 @@ class CobolParser:
                 updated = DataItem(name=parent.name, level=parent.level, pic_type=parent.pic_type,
                                    pic_length=parent.pic_length, decimal_places=parent.decimal_places,
                                    value=parent.value, occurs=parent.occurs, redefines=parent.redefines,
+                                   signed=parent.signed, usage=parent.usage, provenance=parent.provenance,
                                    children=parent.children + (item,))
                 roots = [replace_node(r, parent, updated) for r in roots]
                 stack[-1] = (parent_level, updated)
             stack.append((level, item))
         return roots
+
+    def _parse_usage(self, declaration: str) -> str:
+        """Extract the canonical COBOL storage usage from a data declaration."""
+        match = re.search(
+            r"\bUSAGE\s+(?:IS\s+)?(DISPLAY|COMP-3|COMP-2|COMP-1|COMP-4|COMP-5|COMP|BINARY)\b",
+            declaration,
+            re.IGNORECASE,
+        )
+        if match:
+            usage = match.group(1).upper()
+            return "BINARY" if usage == "BINARY" else usage
+        # COBOL permits shorthand USAGE clauses such as "COMP-3" without
+        # the USAGE keyword.
+        shorthand = re.search(r"\b(COMP-3|COMP-2|COMP-1|COMP-4|COMP-5|COMP)\b", declaration, re.IGNORECASE)
+        return shorthand.group(1).upper() if shorthand else "DISPLAY"
 
     def _parse_pic_details(self, pic_str: str) -> tuple[PicType, int, int, bool]:
         pic = pic_str.strip().rstrip(".").upper()
@@ -609,6 +628,7 @@ class CobolParser:
 
                 if pic_match:
                     pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
+                    usage = self._parse_usage(line)
                     value = value_match.group(1).strip().rstrip(".") if value_match else None
                     occurs = int(occurs_match.group(1)) if occurs_match else None
 
@@ -620,6 +640,7 @@ class CobolParser:
                             pic_length=pic_length,
                             decimal_places=decimal_places,
                             signed=signed,
+                            usage=usage,
                             value=value,
                         ))
                     else:
@@ -650,6 +671,7 @@ class CobolParser:
                             pic_length=pic_length,
                             decimal_places=decimal_places,
                             signed=signed,
+                            usage=usage,
                         ))
 
         return items
