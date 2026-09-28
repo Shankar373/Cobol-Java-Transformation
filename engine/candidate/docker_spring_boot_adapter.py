@@ -96,12 +96,14 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         )
         self._java_version = ""
         self._maven_version = ""
+        self._docker_version = ""
 
         if self._docker_available:
             self._build_observation = self._resolve_build_observation()
             self._runtime_observation = self._resolve_runtime_observation()
             self._java_version = self._detect_java_version()
             self._maven_version = self._detect_maven_version()
+            self._docker_version = self._detect_docker_version()
 
             build_verified = verify_image_identity(
                 expected_identity=self._expected_build_identity(),
@@ -191,6 +193,18 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     if "Maven" in line:
                         return line.strip()
             return ""
+        except Exception:
+            return ""
+
+    def _detect_docker_version(self) -> str:
+        try:
+            result = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            return result.stdout.decode(errors="replace").strip() if result.returncode == 0 else ""
         except Exception:
             return ""
 
@@ -650,6 +664,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     observed_java_version=self._java_version or None,
                     observed_maven_version=self._maven_version or None,
                     runtime_image_digest=self._runtime_observation.identity or None,
+                    observed_docker_version=self._docker_version or None,
                     producer_identity=manifest.producer_identity or None,
                     producer_version=manifest.producer_version or None,
                 )
