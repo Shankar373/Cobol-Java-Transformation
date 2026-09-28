@@ -717,6 +717,9 @@ class EvidenceIntegrityValidator:
             "manifest_version": manifest.manifest_version,
             "run_id": manifest.run_id.value,
             "workload_id": manifest.workload_id.value,
+            "producer_identity": manifest.producer_identity,
+            "producer_version": manifest.producer_version,
+            "require_trusted_provenance": manifest.require_trusted_provenance,
             "source_identity": {
                 "source_id": manifest.source_identity.source_id,
                 "source_hash": str(manifest.source_identity.source_hash),
@@ -744,6 +747,15 @@ class EvidenceIntegrityValidator:
                     "stdout_hash": str(e.stdout_hash),
                     "stderr_hash": str(e.stderr_hash),
                     "generated_files": {k: str(v) for k, v in e.generated_files.items()},
+                    "java_version": e.java_version,
+                    "maven_version": e.maven_version,
+                    "python_version": e.python_version,
+                    "docker_version": e.docker_version,
+                    "cobol_compiler": e.cobol_compiler,
+                    "image_digest": e.image_digest,
+                    "producer_identity": e.producer_identity,
+                    "producer_version": e.producer_version,
+                    "provenance_hash": str(e.provenance_hash) if e.provenance_hash else None,
                 }
                 for e in manifest.execution_evidence
             ],
@@ -779,6 +791,11 @@ class EvidenceIntegrityValidator:
                 "candidate_id": manifest.candidate_identity.candidate_id,
                 "candidate_hash": str(manifest.candidate_identity.candidate_hash),
                 "source_hash": str(manifest.candidate_identity.source_hash),
+                "producer_identity": manifest.candidate_identity.producer_identity,
+                "producer_version": manifest.candidate_identity.producer_version,
+                "runtime_image_digest": manifest.candidate_identity.runtime_image_digest,
+                "java_version": manifest.candidate_identity.java_version,
+                "maven_version": manifest.candidate_identity.maven_version,
             }
 
         # Add environment identities
