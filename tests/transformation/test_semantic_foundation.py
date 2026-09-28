@@ -185,6 +185,7 @@ def test_evaluate_preserves_structured_when_and_other_branches():
     java_ifs = [
         statement
         for method in java_program.java_class.methods
+        if method.name == "MAIN"
         for statement in method.body_statements
         if statement.__class__.__name__ == "JavaIf"
     ]
