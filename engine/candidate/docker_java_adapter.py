@@ -107,6 +107,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
         if self._docker_available:
             self._resolved_digest = self._resolve_image_digest()
             self._java_version = self._detect_java_version()
+            self._docker_version = self._detect_docker_version()
             if self._config.digest and self._resolved_digest != self._config.digest:
                 self._status = AdapterStatus.UNAVAILABLE
             elif self._resolved_digest:
@@ -196,6 +197,22 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
     @property
     def java_version(self) -> str:
         return self._java_version
+
+    @property
+    def docker_version(self) -> str:
+        return self._docker_version
+
+    def _detect_docker_version(self) -> str:
+        try:
+            result = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            return result.stdout.decode(errors="replace").strip() if result.returncode == 0 else ""
+        except Exception:
+            return ""
 
     @staticmethod
     def _cleanup_container(container_name: str) -> tuple[bool, str]:
@@ -330,7 +347,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "--workdir", "/workspace",
                     "-v", f"{os.path.abspath(staged_source)}:/workspace/source:ro",
                     "-v", f"{os.path.abspath(staged_output)}:/workspace/classes",
-                    self._config.image,
+                    self._resolved_digest,
                     "sh", "-c", compile_cmd,
                 ]
 
@@ -496,7 +513,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "-v", f"{os.path.abspath(staged_classes)}:/workspace/classes:ro",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     *input_mount_args,
-                    self._config.image,
+                    self._resolved_digest,
                     "sh", "-c", java_cmd,
                 ]
 
@@ -580,6 +597,11 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     timeout_applied=termination == "timeout",
                     timeout_duration=self._config.timeout_seconds if termination == "timeout" else None,
                     generated_files=generated_files if generated_files else None,
+                    observed_java_version=self._java_version or None,
+                    observed_docker_version=self._docker_version or None,
+                    runtime_image_digest=self._resolved_digest or None,
+                    producer_identity=manifest.producer_identity or None,
+                    producer_version=manifest.producer_version or None,
                 )
 
         except Exception as e:
