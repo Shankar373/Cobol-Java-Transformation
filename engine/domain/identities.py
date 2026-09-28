@@ -91,6 +91,9 @@ class CandidateIdentity:
     total_size_bytes: int
     producer_identity: str | None = None
     producer_version: str | None = None
+    runtime_image_digest: str | None = None
+    java_version: str | None = None
+    maven_version: str | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_id:
