@@ -42,6 +42,27 @@ def test_signed_pic_preserves_canonical_signed_type():
     assert item.provenance.source_name == "signed-type.cob"
 
 
+def test_file_record_preserves_canonical_pic_metadata():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FILETYPE.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC S9(5)V99.
+       WORKING-STORAGE SECTION.
+       01 WS-AMOUNT PIC S9(5)V99.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="filetype.cob")
+    item = program.file_definitions[0].record_items[0]
+
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.provenance.source_name == "filetype.cob"
+
+
 def test_nested_if_exposes_structural_decision_tree_and_default_branch():
     source = """\
        IDENTIFICATION DIVISION.
