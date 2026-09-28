@@ -129,7 +129,7 @@ class DockerOracleAdapter(OracleAdapter):
         return OracleIdentity(
             oracle_id=self._config.oracle_id,
             image_digest=self._verified_image_digest,
-            compiler_version=self._observed_compiler_version or self._config.compiler_version,
+            compiler_version=self._observed_compiler_version,
             preprocessor_version=self._config.preprocessor_version,
             base_image=self._config.base_image,
         )
