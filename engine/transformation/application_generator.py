@@ -57,6 +57,8 @@ class ApplicationGenerationResult:
     # Copybook preparation diagnostics (resolution/merge notes). Errors
     # here fail generation deterministically (see generate()).
     copybook_diagnostics: tuple[str, ...] = ()
+    producer_identity: str = "internal-native-java-producer"
+    producer_version: str = "1.0.0"
 
 
 def _normalise(name: str) -> str:
@@ -69,7 +71,15 @@ def _normalise(name: str) -> str:
 
 
 class ApplicationGenerator:
-    """Discover-driven, per-program transformation + application assembly."""
+    """Discover-driven, per-program transformation + application assembly.
+
+    Producer provenance is owned by this active deterministic native
+    transformation implementation. It is metadata about the code path that
+    actually generated the Java artifact; it does not activate producer
+    switching or the OpenSourceCOBOL4J lane.
+    """
+    PRODUCER_IDENTITY = "internal-native-java-producer"
+    PRODUCER_VERSION = "1.0.0"
 
     def __init__(self, generator: JavaGenerator | None = None) -> None:
         self._generator = generator or JavaGenerator()
