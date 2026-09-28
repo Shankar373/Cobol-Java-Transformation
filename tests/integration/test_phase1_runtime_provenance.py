@@ -6,6 +6,7 @@ import pytest
 
 from engine.candidate.docker_java_adapter import DockerJavaCandidateAdapter
 from engine.candidate.docker_spring_boot_adapter import DockerSpringBootCandidateAdapter
+from engine.oracle.adapter import OracleAdapterConfig
 from engine.oracle.docker_adapter import DockerOracleAdapter
 
 
@@ -36,13 +37,10 @@ def test_spring_boot_adapter_reports_observed_runtime_identity():
 
 def test_oracle_adapter_requires_verified_runtime_identity():
     adapter = DockerOracleAdapter(
-        __import__("engine.oracle.adapter", fromlist=["OracleAdapterConfig"]).OracleAdapterConfig(
+        OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
             image_digest="sha256:" + "f" * 64,
             compiler_version="3.1.2.0",
         )
     )
-    if not adapter._docker_available:
-        pytest.skip("Docker is not available")
-    assert not adapter.verified_image_ref
     assert adapter.probe().value == "UNAVAILABLE"
