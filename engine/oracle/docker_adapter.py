@@ -13,6 +13,7 @@ Implements the oracle adapter with real Docker execution:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -51,6 +52,87 @@ class DockerOracleAdapter(OracleAdapter):
     def __init__(self, config: OracleAdapterConfig) -> None:
         super().__init__(config)
         self._docker_available = self._check_docker()
+        self._verified_image_ref = ""
+        self._verified_image_digest = ""
+        self._observed_compiler_version = ""
+        self._observed_docker_version = ""
+        if self._docker_available:
+            self._resolve_runtime_identity()
+
+    def _resolve_runtime_identity(self) -> None:
+        """Resolve and verify the exact image used by Oracle execution."""
+        expected = self._config.image_digest.strip()
+        if not expected.startswith("sha256:"):
+            return
+        try:
+            inspect = subprocess.run(
+                ["docker", "image", "inspect", self.V1_IMAGE],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if inspect.returncode != 0:
+                return
+            payload = json.loads(inspect.stdout.decode(errors="replace"))
+            if not payload:
+                return
+            repo_digests = payload[0].get("RepoDigests") or []
+            matching = [ref for ref in repo_digests if ref.rsplit("@", 1)[-1] == expected]
+            if not matching:
+                return
+            self._verified_image_digest = expected
+            self._verified_image_ref = matching[0]
+            compiler = subprocess.run(
+                ["docker", "run", "--rm", "--network", "none",
+                 self._verified_image_ref, "cobc", "--version"],
+                capture_output=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if compiler.returncode == 0:
+                for line in compiler.stdout.decode(errors="replace").splitlines():
+                    if "cobc" in line.lower() or "version" in line.lower():
+                        self._observed_compiler_version = line.strip()
+                        break
+            version = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if version.returncode == 0:
+                self._observed_docker_version = version.stdout.decode(errors="replace").strip()
+        except (OSError, ValueError, subprocess.TimeoutExpired, json.JSONDecodeError):
+            self._verified_image_ref = ""
+            self._verified_image_digest = ""
+            self._observed_compiler_version = ""
+            self._observed_docker_version = ""
+
+    @property
+    def verified_image_digest(self) -> str:
+        return self._verified_image_digest
+
+    @property
+    def verified_image_ref(self) -> str:
+        return self._verified_image_ref
+
+    @property
+    def observed_compiler_version(self) -> str:
+        return self._observed_compiler_version
+
+    @property
+    def observed_docker_version(self) -> str:
+        return self._observed_docker_version
+
+    def get_identity(self):
+        """Return the observed image identity when verification succeeded."""
+        if not self._verified_image_digest:
+            return super().get_identity()
+        from engine.domain.identities import OracleIdentity
+        return OracleIdentity(
+            oracle_id=self._config.oracle_id,
+            image_digest=self._verified_image_digest,
+            compiler_version=self._observed_compiler_version or self._config.compiler_version,
+            preprocessor_version=self._config.preprocessor_version,
+            base_image=self._config.base_image,
+        )
 
     def _check_docker(self) -> bool:
         try:
@@ -65,7 +147,7 @@ class DockerOracleAdapter(OracleAdapter):
             return False
 
     def probe(self) -> AdapterStatus:
-        if not self._docker_available:
+        if not self._docker_available or not self._verified_image_ref:
             self._status = AdapterStatus.UNAVAILABLE
             return self._status
 
@@ -361,7 +443,7 @@ class DockerOracleAdapter(OracleAdapter):
                     "-v", f"{os.path.abspath(tmpdir)}/src:{container_src}:ro",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     *input_mount_args,
-                    self.V1_IMAGE,
+                    self._verified_image_ref,
                     "sh", "-c", compile_cmd,
                 ]
 
@@ -409,6 +491,9 @@ class DockerOracleAdapter(OracleAdapter):
                 generated_files=generated_files if generated_files else None,
                 source_tree_hash_before=source_hash_before,
                 source_tree_hash_after=source_hash_after,
+                observed_compiler_version=self._observed_compiler_version or None,
+                observed_docker_version=self._observed_docker_version or None,
+                runtime_image_digest=self._verified_image_digest or None,
             )
 
         except Exception as e:
