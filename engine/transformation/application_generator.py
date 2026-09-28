@@ -32,6 +32,7 @@ from engine.transformation.copybook_model import (
 from engine.transformation.ir import CobolApplication
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator
 from engine.transformation.java_ir import JavaApplication, JavaClass
+from engine.transformation.producers.internal_native import InternalNativeJavaProducer
 
 
 @dataclass(frozen=True)
@@ -57,8 +58,8 @@ class ApplicationGenerationResult:
     # Copybook preparation diagnostics (resolution/merge notes). Errors
     # here fail generation deterministically (see generate()).
     copybook_diagnostics: tuple[str, ...] = ()
-    producer_identity: str = "internal-native-java-producer"
-    producer_version: str = "1.0.0"
+    producer_identity: str = InternalNativeJavaProducer.PRODUCER_IDENTITY
+    producer_version: str = InternalNativeJavaProducer.PRODUCER_VERSION
 
 
 def _normalise(name: str) -> str:
@@ -78,8 +79,8 @@ class ApplicationGenerator:
     actually generated the Java artifact; it does not activate producer
     switching or the OpenSourceCOBOL4J lane.
     """
-    PRODUCER_IDENTITY = "internal-native-java-producer"
-    PRODUCER_VERSION = "1.0.0"
+    PRODUCER_IDENTITY = InternalNativeJavaProducer.PRODUCER_IDENTITY
+    PRODUCER_VERSION = InternalNativeJavaProducer.PRODUCER_VERSION
 
     def __init__(self, generator: JavaGenerator | None = None) -> None:
         self._generator = generator or JavaGenerator()
