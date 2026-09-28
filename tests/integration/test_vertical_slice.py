@@ -15,6 +15,7 @@ Tests real execution paths:
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import pytest
 
@@ -46,7 +47,7 @@ class TestOracleE2E:
     def test_oracle_adapter_probe(self):
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
-            image_digest="sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+            image_digest=os.environ.get("SYSTEMAOPS_ORACLE_DIGEST", DockerOracleAdapter.V1_DIGEST),
             compiler_version="3.1.2.0",
         )
         adapter = DockerOracleAdapter(config)
