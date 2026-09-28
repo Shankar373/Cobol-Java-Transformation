@@ -480,6 +480,7 @@ class CobolParser:
                             pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
                             current_items.append(DataItem(
                                 name=current_record,
+                                level=1,
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
@@ -495,6 +496,7 @@ class CobolParser:
                             pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
                             current_items.append(DataItem(
                                 name=item_name,
+                                level=int(upper.split()[0]),
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
