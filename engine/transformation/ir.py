@@ -817,8 +817,11 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
             all_stmts.extend(_flatten_statements(stmt))
 
     has_move = any(isinstance(s, MoveStatement) for s in all_stmts)
-    has_arithmetic = any(isinstance(s, (AddStatement, DivideStatement)) for s in all_stmts)
-    has_condition = any(isinstance(s, IfStatement) for s in all_stmts)
+    has_arithmetic = any(
+        isinstance(s, (AddStatement, SubtractStatement, MultiplyStatement, DivideStatement, ComputeStatement))
+        for s in all_stmts
+    )
+    has_condition = any(isinstance(s, (IfStatement, EvaluateStatement)) for s in all_stmts)
     has_display = any(isinstance(s, DisplayStatement) for s in all_stmts)
     has_goto = any(isinstance(s, GoToStatement) for s in all_stmts)
     has_perform = any(isinstance(s, PerformStatement) for s in all_stmts)
@@ -837,14 +840,19 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
     # InputRecordMapping
     has_input_record = bool(program.input_record_mappings)
 
-    # --- Decision: any IfStatement with MoveStatement in then_body ---
+    # --- Decision: structured IF/EVALUATE with MOVE outcomes ---
     decision = False
     if has_condition and has_move:
         for s in all_stmts:
-            if isinstance(s, IfStatement):
-                if any(isinstance(x, MoveStatement) for x in s.then_body):
-                    decision = True
-                    break
+            if isinstance(s, IfStatement) and any(isinstance(x, MoveStatement) for x in s.then_body):
+                decision = True
+                break
+            if isinstance(s, EvaluateStatement) and any(
+                any(isinstance(x, MoveStatement) for x in arm.body)
+                for arm in s.arms
+            ):
+                decision = True
+                break
 
     # --- Lookup: table search pattern (IF with array indexing) ---
     # Generic COBOL table search: IF field(idx) = search-value
@@ -903,20 +911,28 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
 
 
 def _flatten_statements(stmt: Statement) -> list[Statement]:
-    """Recursively flatten compound statements into a list."""
+    """Recursively flatten canonical compound statements without losing structure."""
     result = [stmt]
     if isinstance(stmt, IfStatement):
         for s in stmt.then_body:
             result.extend(_flatten_statements(s))
         for s in stmt.else_body:
             result.extend(_flatten_statements(s))
-    if isinstance(stmt, ReadStatement):
+    elif isinstance(stmt, EvaluateStatement):
+        for arm in stmt.arms:
+            for s in arm.body:
+                result.extend(_flatten_statements(s))
+    elif isinstance(stmt, ReadStatement):
         for s in stmt.not_at_end_body:
             result.extend(_flatten_statements(s))
         for s in stmt.at_end_body:
             result.extend(_flatten_statements(s))
-    if isinstance(stmt, PerformStatement):
-        # PERFORM body statements are in paragraphs, not in the statement itself
+        for s in stmt.not_invalid_key_body:
+            result.extend(_flatten_statements(s))
+        for s in stmt.invalid_key_body:
+            result.extend(_flatten_statements(s))
+    elif isinstance(stmt, PerformStatement):
+        # PERFORM body statements are in paragraphs, not in the statement itself.
         pass
     return result
 
