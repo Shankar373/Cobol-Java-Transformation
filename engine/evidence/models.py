@@ -330,6 +330,21 @@ class EvidenceManifest:
                 "producer_identity": self.candidate_identity.producer_identity,
                 "producer_version": self.candidate_identity.producer_version,
             }
+        graph["environment_identities"] = [
+            {
+                "runtime_id": ei.runtime_id,
+                "java_version": ei.java_version,
+                "maven_version": ei.maven_version,
+                "python_version": ei.python_version,
+                "docker_version": ei.docker_version,
+                "cobol_compiler": ei.cobol_compiler,
+                "image_digest": ei.image_digest,
+                "os_base": ei.os_base,
+                "network_policy": ei.network_policy,
+                "resource_limits": dict(ei.resource_limits),
+            }
+            for ei in self.environment_identities
+        ]
         content_bytes = json.dumps(graph, sort_keys=True, default=str).encode("utf-8")
         return ContentHash.from_bytes(content_bytes)
 
