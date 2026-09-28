@@ -31,6 +31,8 @@ from engine.transformation.ir import (
     Condition,
     DataItem,
     DisplayStatement,
+    EvaluateStatement,
+    EvaluateWhen,
     DivideStatement,
     Expression,
     FileAccessMode,
@@ -1063,11 +1065,18 @@ class CobolParser:
 
         return ComputeStatement(target="", expression=""), start + 1
 
-    def _parse_evaluate(self, lines: list[str], start: int) -> tuple[IfStatement, int]:
-        """Lower EVALUATE/WHEN into nested IF statements."""
-        subject = lines[start].strip()[len("EVALUATE "):].rstrip(".").strip()
-        arms = []
+    def _parse_evaluate(self, lines: list[str], start: int) -> tuple[EvaluateStatement, int]:
+        """Parse a single-subject EVALUATE into canonical WHEN arms.
+
+        This supported subset preserves selector, WHEN predicates, WHEN
+        OTHER, and branch bodies structurally. Multi-subject ALSO forms are
+        rejected rather than being flattened into an incorrect condition.
+        """
+        subject_text = lines[start].strip()[len("EVALUATE "):].rstrip(".").strip()
+        subject = self._build_expression(subject_text)
+        arms: list[EvaluateWhen] = []
         i = start + 1
+
         while i < len(lines):
             u = lines[i].strip().upper()
             if u.startswith("END-EVALUATE"):
@@ -1076,39 +1085,73 @@ class CobolParser:
             if not u.startswith("WHEN "):
                 i += 1
                 continue
+
             spec = lines[i].strip()[len("WHEN "):].rstrip(".").strip()
+            when_line = i
             i += 1
-            body = []
+            body: list[Any] = []
             while i < len(lines) and not lines[i].strip().upper().startswith(("WHEN ", "END-EVALUATE")):
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:
                     body.append(stmt)
                 i = max(new_i, i + 1)
-            arms.append((spec, tuple(body)))
-        def cond(spec):
+
+            provenance = SourceProvenance(
+                source_name=self._source_name,
+                line=self._source_line_numbers[when_line] if when_line < len(self._source_line_numbers) else when_line + 1,
+                construct="WHEN",
+            )
+
             if spec.upper() == "OTHER":
-                return "OTHER"
+                arms.append(EvaluateWhen(
+                    body=tuple(body),
+                    other=True,
+                    provenance=provenance,
+                ))
+                continue
+
+            if re.search(r"\bALSO\b", spec, re.IGNORECASE):
+                raise CobolParseError(
+                    "Unsupported multi-subject EVALUATE WHEN ALSO form; "
+                    "semantic conditions would otherwise be lossy"
+                )
+
             tokens = spec.split()
-            up = [t.upper() for t in tokens]
-            if "THRU" in up:
-                k = up.index("THRU")
-                if k > 0 and k + 1 < len(tokens):
-                    return f"{subject} >= {tokens[k-1]} AND {subject} <= {tokens[k+1]}"
-            return " OR ".join(f"{subject} = {token}" for token in tokens)
-        def build(idx):
-            if idx >= len(arms):
-                return None
-            spec, body = arms[idx]
-            if spec.upper() == "OTHER":
-                return IfStatement(condition="OTHER", then_body=body)
-            condition = cond(spec)
-            if idx + 1 < len(arms) and arms[idx + 1][0].upper() == "OTHER":
-                return IfStatement(condition=condition, then_body=body, else_body=arms[idx + 1][1],
-                                   structured_condition=self._build_condition(condition))
-            nested = build(idx + 1)
-            return IfStatement(condition=condition, then_body=body, else_body=(nested,) if nested else (),
-                               structured_condition=self._build_condition(condition))
-        return (build(0) or IfStatement(condition="OTHER")), i
+            conditions: list[Condition] = []
+            upper_tokens = [token.upper() for token in tokens]
+            if "THRU" in upper_tokens:
+                if len(tokens) != 3 or upper_tokens[1] != "THRU":
+                    raise CobolParseError(f"Unsupported EVALUATE WHEN range: {spec}")
+                lower = self._build_expression(tokens[0])
+                upper = self._build_expression(tokens[2])
+                conditions.append(LogicalCondition(
+                    left=Comparison(subject, ">=", lower),
+                    operator="AND",
+                    right=Comparison(subject, "<=", upper),
+                ))
+            else:
+                for token in tokens:
+                    conditions.append(Comparison(
+                        left=subject,
+                        operator="=",
+                        right=self._build_expression(token),
+                    ))
+
+            arms.append(EvaluateWhen(
+                conditions=tuple(conditions),
+                body=tuple(body),
+                provenance=provenance,
+            ))
+
+        return EvaluateStatement(
+            subject=subject,
+            arms=tuple(arms),
+            provenance=SourceProvenance(
+                source_name=self._source_name,
+                line=self._source_line_numbers[start] if start < len(self._source_line_numbers) else start + 1,
+                construct="EVALUATE",
+            ),
+        ), i
 
     def _parse_if(self, lines: list[str], start: int) -> tuple[IfStatement, int]:
         """Parse IF condition THEN ... ELSE ... END-IF."""
