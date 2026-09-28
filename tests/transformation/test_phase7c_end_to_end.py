@@ -469,17 +469,17 @@ class TestSourceMutationMatrix:
                                  'MOVE "ITEM999" TO WS-ITEM-CODE')
         parser = CobolParser()
         prog = parser.parse(mutated)
-        # Find the MOVE statement with the mutated value (recursive into nested IF/EVALUATE)
+        # Walk the canonical statement tree, including structured EVALUATE arms.
         def _find_move(stmts):
             for stmt in stmts:
-                if type(stmt).__name__ == "MoveStatement":
-                    if stmt.source == '"ITEM999"':
+                if type(stmt).__name__ == "MoveStatement" and stmt.source == '"ITEM999"':
+                    return True
+                for attr in ("then_body", "else_body", "body"):
+                    nested = getattr(stmt, attr, ())
+                    if nested and _find_move(nested):
                         return True
-                if hasattr(stmt, 'then_body'):
-                    if _find_move(stmt.then_body):
-                        return True
-                if hasattr(stmt, 'else_body'):
-                    if _find_move(stmt.else_body):
+                for arm in getattr(stmt, "arms", ()):
+                    if _find_move(arm.body):
                         return True
             return False
         found = any(_find_move(para.statements) for para in prog.paragraphs)
