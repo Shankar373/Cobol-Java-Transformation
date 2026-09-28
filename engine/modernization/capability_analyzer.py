@@ -221,6 +221,7 @@ class CapabilityAnalyzer:
         silently treated as supported.
         """
         from engine.transformation.ir import (
+            EvaluateStatement,
             GoToStatement,
             IfStatement,
             PerformStatement,
@@ -269,6 +270,10 @@ class CapabilityAnalyzer:
                             f"PERFORM THRU unresolved range "
                             f"{stmt.paragraph_name} THRU {stmt.thru_target}"
                         )
+            if isinstance(stmt, EvaluateStatement):
+                for arm in stmt.arms:
+                    for s in arm.body:
+                        _walk(s)
             if isinstance(stmt, IfStatement):
                 for s in stmt.then_body:
                     _walk(s)
