@@ -61,6 +61,30 @@ def test_file_record_preserves_canonical_pic_metadata():
 
     assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
     assert item.provenance.source_name == "filetype.cob"
+    assert item.level == 1
+
+
+def test_file_record_child_preserves_level_and_canonical_pic_metadata():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FILEGROUP.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC.
+           05 INPUT-AMOUNT PIC S9(5)V99.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="filegroup.cob")
+    item = program.file_definitions[0].record_items[0]
+
+    assert item.name == "INPUT-AMOUNT"
+    assert item.level == 5
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.provenance.source_name == "filegroup.cob"
 
 
 def test_nested_if_exposes_structural_decision_tree_and_default_branch():
