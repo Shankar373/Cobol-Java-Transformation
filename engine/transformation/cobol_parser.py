@@ -171,10 +171,16 @@ class CobolParser:
         # Extract output record formats (generic — no domain-specific prefix)
         output_formats = self._extract_output_formats(code_lines) if has_status else []
 
-        # Merge file definitions with record items from FILE SECTION
+        # Merge FILE-CONTROL metadata with FILE SECTION record definitions.
+        # A valid FD may exist without a SELECT in the input being parsed, so
+        # FILE SECTION records must not be discarded merely because there is
+        # no matching FILE-CONTROL definition.
         file_section_map = {fd.name: fd for fd in file_section}
         merged_files = []
+        merged_names: set[str] = set()
+
         for fd in file_defs:
+            merged_names.add(fd.name)
             if fd.name in file_section_map:
                 fsd = file_section_map[fd.name]
                 merged_files.append(FileDefinition(
@@ -193,6 +199,12 @@ class CobolParser:
                 ))
             else:
                 merged_files.append(fd)
+
+        # Preserve FILE SECTION-only definitions as first-class file records.
+        merged_files.extend(
+            fsd for name, fsd in file_section_map.items()
+            if name not in merged_names
+        )
 
         # Bind source coordinates to data declarations before semantic binding.
         working_storage = self._attach_data_provenance(working_storage, code_lines)
