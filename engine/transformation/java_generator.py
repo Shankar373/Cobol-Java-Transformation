@@ -294,7 +294,7 @@ class JavaGenerator:
             "rpt", report_config.report_format_fields, field_map,
         )
         output_write = self._build_record_write_java_from_ir(
-            "out", report_config.output_format_fields, field_map,
+            "out", report_config.output_format_fields, field_map, report_config.outcome_field_name,
         )
 
         # Stderr diagnostics
@@ -841,6 +841,7 @@ public class {class_name} {{
         writer_var: str,
         format_fields: tuple[str, ...],
         field_map: dict[str, JavaField],
+        outcome_field_name: str = "",
     ) -> str:
         """Build Java printf/write statement from IR-derived record format."""
         if not format_fields:
@@ -855,7 +856,11 @@ public class {class_name} {{
                 fmt_parts.append("%s")
                 args.append(f'"{literal}"')
             else:
-                java_name = name.replace("-", "_")
+                java_name = (
+                    "result"
+                    if outcome_field_name and name.upper() == outcome_field_name.upper()
+                    else name.replace("-", "_")
+                )
                 fmt_parts.append("%s")
                 args.append(java_name)
 
