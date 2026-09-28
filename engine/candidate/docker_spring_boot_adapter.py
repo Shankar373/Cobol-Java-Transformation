@@ -162,7 +162,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         try:
             result = subprocess.run(
                 ["docker", "run", "--rm", "--network", "none",
-                 self._config.runtime_image, "java", "-version"],
+                 self._runtime_observation.identity, "java", "-version"],
                 capture_output=True,
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -180,7 +180,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         try:
             result = subprocess.run(
                 ["docker", "run", "--rm", "--network", "none",
-                 self._config.build_image, "mvn", "-version"],
+                 self._build_observation.identity, "mvn", "-version"],
                 capture_output=True,
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -374,7 +374,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "--workdir", "/workspace/project",
                     "-v", f"{os.path.abspath(staged_project)}:/workspace/project",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
-                    self._config.build_image,
+                    self._build_observation.identity,
                     "sh", "-c", build_shell,
                 ]
 
@@ -647,6 +647,11 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     timeout_applied=termination == "timeout",
                     timeout_duration=self._config.execution_timeout_seconds if termination == "timeout" else None,
                     generated_files=generated_files if generated_files else None,
+                    observed_java_version=self._java_version or None,
+                    observed_maven_version=self._maven_version or None,
+                    runtime_image_digest=self._runtime_observation.identity or None,
+                    producer_identity=manifest.producer_identity or None,
+                    producer_version=manifest.producer_version or None,
                 )
 
         except Exception as e:
