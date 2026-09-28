@@ -446,71 +446,50 @@ class CobolParser:
         return [attach(item) for item in items]
 
     def _parse_file_section(self, lines: list[str]) -> list[FileDefinition]:
-        """Parse FILE SECTION to extract record definitions."""
+        """Parse FILE SECTION record definitions into canonical data hierarchy."""
         in_file_section = False
         file_defs: list[FileDefinition] = []
         current_fd: str | None = None
-        current_record: str | None = None
-        current_items: list[DataItem] = []
+        current_data_lines: list[str] = []
+
+        def flush_file() -> None:
+            nonlocal current_fd, current_data_lines
+            if not current_fd:
+                return
+            parsed = self.parse_data_description_lines(current_data_lines)
+            record_name = parsed[0].name if parsed else ""
+            file_defs.append(FileDefinition(
+                name=current_fd,
+                container_path="",
+                record_name=record_name,
+                record_items=tuple(parsed),
+            ))
+            current_data_lines = []
 
         for line in lines:
             upper = line.upper().strip()
             if upper == "FILE SECTION.":
                 in_file_section = True
                 continue
-            if in_file_section:
-                if upper.startswith("FD "):
-                    if current_fd and current_record:
-                        file_defs.append(FileDefinition(
-                            name=current_fd,
-                            container_path="",
-                            record_name=current_record,
-                            record_items=tuple(current_items),
-                        ))
-                    parts = line.strip().split()
-                    current_fd = parts[1].rstrip(".") if len(parts) >= 2 else None
-                    current_record = None
-                    current_items = []
-                elif current_fd and upper.startswith("01 "):
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        current_record = parts[1].rstrip(".")
-                        pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                        if pic_match:
-                            pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
-                            current_items.append(DataItem(
-                                name=current_record,
-                                level=1,
-                                pic_type=pic_type,
-                                pic_length=pic_length,
-                                decimal_places=decimal_places,
-                                signed=signed,
-                            ))
-                elif current_fd and re.match(r"\d{2}\s+", upper):
-                    # Handle sub-level items (05, 10, 15, etc.)
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        item_name = parts[1].rstrip(".")
-                        pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                        if pic_match:
-                            pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
-                            current_items.append(DataItem(
-                                name=item_name,
-                                level=int(upper.split()[0]),
-                                pic_type=pic_type,
-                                pic_length=pic_length,
-                                decimal_places=decimal_places,
-                                signed=signed,
-                            ))
-                elif upper.startswith(("WORKING-STORAGE", "PROCEDURE")):
-                    if current_fd and current_record:
-                        file_defs.append(FileDefinition(
-                            name=current_fd,
-                            container_path="",
-                            record_name=current_record,
-                            record_items=tuple(current_items),
-                        ))
-                    break
+            if not in_file_section:
+                continue
+
+            if upper.startswith("FD "):
+                flush_file()
+                parts = line.strip().split()
+                current_fd = parts[1].rstrip(".") if len(parts) >= 2 else None
+                current_data_lines = []
+                continue
+
+            if upper.startswith(("WORKING-STORAGE", "LINKAGE", "LOCAL-STORAGE", "PROCEDURE")):
+                flush_file()
+                current_fd = None
+                break
+
+            if current_fd and re.match(r"\d{2}\s+", upper):
+                current_data_lines.append(line)
+
+        flush_file()
         return file_defs
 
     def parse_data_description_lines(self, lines: list[str]) -> list[DataItem]:
