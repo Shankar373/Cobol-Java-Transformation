@@ -623,7 +623,9 @@ class CobolParser:
 
                 # Check for PIC clause
                 pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                value_match = re.search(r"VALUE\s+(.+?)(?:\s+|$|\.|,)", line, re.IGNORECASE)
+                value_match = re.search(r"VALUE\s+([+-]?\d+(?:\.\d+)?)\.?(?:\s|$)", line, re.IGNORECASE)
+                if value_match is None:
+                    value_match = re.search(r"VALUE\s+(.+?)(?:\s+|$|\.|,)", line, re.IGNORECASE)
                 occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
 
                 if pic_match:

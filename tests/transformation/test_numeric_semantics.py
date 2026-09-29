@@ -23,8 +23,8 @@ IDENTIFICATION DIVISION.
 PROGRAM-ID. NUMERIC-DEMO.
 DATA DIVISION.
 WORKING-STORAGE SECTION.
-01 WS-A PIC 9(3)V99 VALUE 12345.
-01 WS-B PIC 9(3)V99 VALUE 200.
+01 WS-A PIC 9(3)V99 VALUE 123.45.
+01 WS-B PIC 9(3)V99 VALUE 2.00.
 01 WS-C PIC 9(3)V99 VALUE 0.
 PROCEDURE DIVISION.
 MAIN.
@@ -43,6 +43,8 @@ def test_parser_and_ir_preserve_fixed_point_scale():
     items = {item.name: item for item in program.working_storage}
     assert items["WS-A"].decimal_places == 2
     assert items["WS-A"].pic_length == 5
+    assert items["WS-A"].value == "123.45"
+    assert items["WS-B"].value == "2.00"
 
     from engine.transformation.ir import bind_program_semantics
     bound = bind_program_semantics(program)
@@ -123,5 +125,5 @@ def test_oracle_and_generated_java_match_fixed_point_behavior(tmp_path: Path):
     assert oracle_result.status.value == "SUCCEEDED"
     oracle_stdout = oracle_result.stdout.decode(errors="replace")
 
-    assert "12545" in oracle_stdout
+    assert "125.45" in oracle_stdout
     assert oracle_stdout == candidate_stdout

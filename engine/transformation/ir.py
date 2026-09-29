@@ -279,11 +279,10 @@ class DataItem:
     def format_width(self) -> int:
         """Total display width for numeric formatting.
 
-        Derived from PIC: integer digits + decimal places.
-        For PIC 9(6): width=6, decimal_places=0
-        For PIC 9(6)V99: width=8, decimal_places=2
+        The V (implied decimal point) occupies no storage, so width is the
+        total number of 9 positions represented by the PIC.
         """
-        return self.pic_length + self.decimal_places
+        return self.pic_length
 
     @property
     def is_decimal(self) -> bool:

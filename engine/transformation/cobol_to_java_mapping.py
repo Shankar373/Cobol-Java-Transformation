@@ -26,6 +26,8 @@ All decisions derived from generic COBOL IR elements.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -151,6 +153,33 @@ def _big_decimal_value(expr):
         method_name="valueOf",
         arguments=(expr,),
         is_static=True,
+    )
+
+
+def _decimal_value_initializer(value: str, decimal_places: int):
+    """Map a fixed-point VALUE literal to an exact unscaled BigDecimal initializer."""
+    try:
+        numeric_value = Decimal(value)
+    except InvalidOperation as exc:
+        raise ValueError(
+            f"UNSUPPORTED_NUMERIC_SEMANTIC: invalid decimal VALUE {value!r}"
+        ) from exc
+    scale = Decimal(10) ** decimal_places
+    unscaled = numeric_value * scale
+    if unscaled != unscaled.to_integral_value():
+        raise ValueError(
+            "UNSUPPORTED_NUMERIC_SEMANTIC: decimal VALUE precision exceeds "
+            f"PIC scale {decimal_places}"
+        )
+    return JavaMethodCall(
+        object_ref=_big_decimal_value(
+            JavaLiteral(
+                value=str(unscaled.to_integral_value()),
+                java_type=JavaType(basic_type=JavaBasicType.INT),
+            )
+        ),
+        method_name="movePointLeft",
+        arguments=(JavaLiteral(value=str(decimal_places)),),
     )
 
 
@@ -1125,12 +1154,32 @@ def map_cobol_statement(
                             method_name="longValueExact",
                             arguments=(),
                         )
-                        parts.append(JavaMethodCall(
+                        formatted_value = JavaMethodCall(
                             class_name="String",
                             method_name="format",
                             arguments=(format_spec, display_value),
                             is_static=True,
-                        ))
+                        )
+                        integer_width = width - item.decimal_places
+                        parts.append(JavaStringConcat(parts=(
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(
+                                    JavaLiteral(value="0"),
+                                    JavaLiteral(value=str(integer_width)),
+                                ),
+                            ),
+                            JavaLiteral(
+                                value=".",
+                                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                            ),
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(JavaLiteral(value=str(integer_width)),),
+                            ),
+                        )))
                     else:
                         parts.append(JavaMethodCall(
                             class_name="String",
@@ -1858,14 +1907,23 @@ def map_cobol_data_items_to_fields(
         default = map_pic_to_java_default(item)
         initializer = JavaLiteral(value=default)
         if _is_decimal_item(item):
-            initializer = _big_decimal_value(
-                JavaLiteral(value=default, java_type=JavaType(basic_type=JavaBasicType.INT))
-            )
-            initializer = JavaMethodCall(
-                object_ref=initializer,
-                method_name="movePointLeft",
-                arguments=(JavaLiteral(value=str(item.decimal_places)),),
-            )
+            if "." in default:
+                initializer = _decimal_value_initializer(
+                    default,
+                    item.decimal_places,
+                )
+            else:
+                initializer = _big_decimal_value(
+                    JavaLiteral(
+                        value=default,
+                        java_type=JavaType(basic_type=JavaBasicType.INT),
+                    )
+                )
+                initializer = JavaMethodCall(
+                    object_ref=initializer,
+                    method_name="movePointLeft",
+                    arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                )
         fields.append(JavaField(
             java_type=java_type,
             name=java_name,
@@ -3017,12 +3075,32 @@ def map_cobol_statement(
                             method_name="longValueExact",
                             arguments=(),
                         )
-                        parts.append(JavaMethodCall(
+                        formatted_value = JavaMethodCall(
                             class_name="String",
                             method_name="format",
                             arguments=(format_spec, display_value),
                             is_static=True,
-                        ))
+                        )
+                        integer_width = width - item.decimal_places
+                        parts.append(JavaStringConcat(parts=(
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(
+                                    JavaLiteral(value="0"),
+                                    JavaLiteral(value=str(integer_width)),
+                                ),
+                            ),
+                            JavaLiteral(
+                                value=".",
+                                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                            ),
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(JavaLiteral(value=str(integer_width)),),
+                            ),
+                        )))
                     else:
                         parts.append(JavaMethodCall(
                             class_name="String",
@@ -3750,14 +3828,23 @@ def map_cobol_data_items_to_fields(
         default = map_pic_to_java_default(item)
         initializer = JavaLiteral(value=default)
         if _is_decimal_item(item):
-            initializer = _big_decimal_value(
-                JavaLiteral(value=default, java_type=JavaType(basic_type=JavaBasicType.INT))
-            )
-            initializer = JavaMethodCall(
-                object_ref=initializer,
-                method_name="movePointLeft",
-                arguments=(JavaLiteral(value=str(item.decimal_places)),),
-            )
+            if "." in default:
+                initializer = _decimal_value_initializer(
+                    default,
+                    item.decimal_places,
+                )
+            else:
+                initializer = _big_decimal_value(
+                    JavaLiteral(
+                        value=default,
+                        java_type=JavaType(basic_type=JavaBasicType.INT),
+                    )
+                )
+                initializer = JavaMethodCall(
+                    object_ref=initializer,
+                    method_name="movePointLeft",
+                    arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                )
         fields.append(JavaField(
             java_type=java_type,
             name=java_name,
