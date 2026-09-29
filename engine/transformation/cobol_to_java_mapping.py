@@ -199,6 +199,44 @@ def _map_cobol_expression_to_java(expr, field_items=None, expected_decimal=False
     return _map_numeric_expression(expr, field_items or {}, expected_decimal)
 
 
+def _map_numeric_binary_expression(left, operator: str, right):
+    """Lower a numeric Java IR binary operation using operand representation."""
+    if operator == "+" and (
+        _is_big_decimal_expression(left) or _is_big_decimal_expression(right)
+    ):
+        return JavaMethodCall(object_ref=_as_big_decimal(left), method_name="add", arguments=(_as_big_decimal(right),))
+    if operator == "-" and (
+        _is_big_decimal_expression(left) or _is_big_decimal_expression(right)
+    ):
+        return JavaMethodCall(object_ref=_as_big_decimal(left), method_name="subtract", arguments=(_as_big_decimal(right),))
+    if operator == "*" and (
+        _is_big_decimal_expression(left) or _is_big_decimal_expression(right)
+    ):
+        return JavaMethodCall(object_ref=_as_big_decimal(left), method_name="multiply", arguments=(_as_big_decimal(right),))
+    return JavaBinaryOp(left=left, operator=operator, right=right)
+
+
+def _is_big_decimal_expression(expr) -> bool:
+    if isinstance(expr, JavaMethodCall) and (
+        expr.class_name == "BigDecimal" or expr.method_name in {"add", "subtract", "multiply", "setScale", "negate"}
+    ):
+        return True
+    if isinstance(expr, JavaVariableRef):
+        return False
+    return False
+
+
+def _as_big_decimal(expr):
+    if _is_big_decimal_expression(expr):
+        return expr
+    return JavaMethodCall(
+        class_name="BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
+    )
+
+
 def _coerce_assignment_expression(expression, target_item):
     if target_item is not None and _is_decimal_item(target_item):
         if not isinstance(expression, JavaMethodCall):
@@ -925,7 +963,7 @@ def map_cobol_statement(
             result.append(JavaAssignment(
                 target=target,
                 expression=_coerce_assignment_expression(
-                    JavaBinaryOp(left=source_a, operator="+", right=source_b),
+                    _map_numeric_binary_expression(source_a, "+", source_b),
                     field_items.get(target),
                 ),
             ))
