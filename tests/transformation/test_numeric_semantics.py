@@ -10,7 +10,7 @@ import pytest
 
 from engine.candidate.docker_java_adapter import DockerJavaCandidateAdapter
 from engine.candidate.docker_spring_boot_adapter import CandidateManifest
-from engine.domain.identities import RunId
+from engine.domain.identities import AdapterStatus, RunId
 from engine.oracle.adapter import OracleAdapterConfig
 from engine.oracle.docker_adapter import DockerOracleAdapter
 from engine.transformation.cobol_parser import CobolParser
@@ -114,7 +114,19 @@ def test_oracle_and_generated_java_match_fixed_point_behavior(tmp_path: Path):
     run_id = RunId(value="numeric-contract")
     compiled = candidate.compile(str(java_dir), manifest)
     assert compiled.success, compiled.compilation_errors
-    candidate_result = candidate.execute(run_id, str(java_dir), manifest)
+    compiled_dir = tmp_path / "compiled"
+    compiled_dir.mkdir()
+    for name, bytecode in compiled.class_files.items():
+        class_file = compiled_dir / name
+        class_file.parent.mkdir(parents=True, exist_ok=True)
+        class_file.write_bytes(bytecode)
+
+    candidate_result = candidate.execute(run_id, str(compiled_dir), manifest)
+    assert candidate_result.status == AdapterStatus.SUCCEEDED, (
+        candidate_result.stderr.decode(errors="replace")
+    )
+    assert candidate_result.exit_code == 0
+    assert candidate_result.stderr == b""
     candidate_stdout = candidate_result.stdout.decode(errors="replace")
 
     oracle_result = oracle.execute(
