@@ -480,7 +480,7 @@ public class {class_name} {{
             raise ValueError("MISSING_REQUIRED_SEMANTIC: No Java class in program.")
 
         declarations = self._gen_field_declarations_from_ir(java_class)
-        math_imports = ("import java.math.BigDecimal;\nimport java.math.RoundingMode;\n" if any(f.java_type.class_name == "BigDecimal" for f in java_class.fields) else "")
+        ir_imports = "".join(f"import {name};\n" for name in java_class.imports)
 
         # Collect all method bodies (all non-main methods) and main body
         all_methods_src: list[str] = []
