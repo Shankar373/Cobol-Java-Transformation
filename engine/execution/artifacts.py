@@ -27,9 +27,9 @@ from engine.evidence.models import ArtifactEvidence
 
 @dataclass(frozen=True)
 class CapturedArtifact:
-    """A captured artifact with its content."""
+    """A captured artifact with explicit availability semantics."""
     artifact: ArtifactIdentity
-    content: bytes
+    content: bytes | None
     content_hash: ContentHash
     size_bytes: int
     execution_id: ExecutionId
@@ -170,6 +170,37 @@ class ArtifactCapturer:
             content=content,
             content_hash=content_hash,
             size_bytes=len(content),
+            execution_id=execution_id,
+            capture_time=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def capture_missing(
+        self,
+        execution_id: ExecutionId,
+        artifact_type: str,
+        logical_name: str,
+        producer_role: str = "ORACLE",
+        status: str = "MISSING",
+        record_length: int | None = None,
+    ) -> CapturedArtifact:
+        if status not in ("MISSING", "UNAVAILABLE", "FAILED"):
+            raise ValueError(f"Invalid missing-artifact status: {status}")
+        marker = f"{status}:{artifact_type}:{logical_name}:{execution_id.value}".encode()
+        content_hash = ContentHash.from_bytes(marker)
+        artifact = ArtifactIdentity(
+            artifact_id=f"{status.lower()}-{logical_name}-{execution_id.value}",
+            artifact_type=artifact_type,
+            logical_name=logical_name,
+            producer_role=producer_role,
+            content_hash=content_hash,
+            size_bytes=0,
+            availability=status,
+        )
+        return CapturedArtifact(
+            artifact=artifact,
+            content=None,
+            content_hash=content_hash,
+            size_bytes=0,
             execution_id=execution_id,
             capture_time=datetime.now(timezone.utc).isoformat(),
         )

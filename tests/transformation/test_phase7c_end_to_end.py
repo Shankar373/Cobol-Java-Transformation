@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,9 @@ from engine.evidence.models import (
     ExecutionEvidence,
 )
 from engine.verdict.derivation import derive_verdict
+from engine.pipeline import PipelineConfig, VerticalSlicePipeline
+from engine.workload import WorkloadArtifact, WorkloadDefinition
+from engine.contracts.models import FailurePolicy, NormalizationPolicy, OrderingPolicy
 
 # ============================================================
 # CONSTANTS
@@ -1400,11 +1404,51 @@ class TestGeneratedJavaMutation:
         This test documents the limitation honestly rather than fabricating
         a behavioral claim.
         """
-        pytest.skip(
-            "Docker execution BLOCKED / NOT VERIFIED — "
-            "runtime behavioral mutation detection requires "
-            "Docker container execution of both oracle and candidate"
-        )
+        if not os.environ.get("RUN_DOCKER_TESTS"):
+            pytest.skip("RUN_DOCKER_TESTS is not enabled; runtime mutation capability is UNAVAILABLE")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cobol = root / "mutation.cob"
+            cobol.write_text(
+                "IDENTIFICATION DIVISION.\nPROGRAM-ID. MUTATION.\n"
+                "PROCEDURE DIVISION.\nMAIN.\nDISPLAY \"1\".\nSTOP RUN.\n",
+                encoding="utf-8",
+            )
+            candidate = root / "candidate"
+            candidate.mkdir()
+            (candidate / "Main.java").write_text(
+                "public class Main { public static void main(String[] a) { System.out.println(\"2\"); } }\n",
+                encoding="utf-8",
+            )
+            workload = WorkloadDefinition(
+                workload_id="runtime-mutation",
+                description="Real Docker behavioral mutation",
+                artifacts=(WorkloadArtifact(
+                    logical_name="stdout",
+                    artifact_type="STDOUT",
+                    comparator_id="STDOUT_COMPARATOR",
+                    normalization=NormalizationPolicy(()),
+                    ordering=OrderingPolicy("SEQUENTIAL"),
+                    failure=FailurePolicy(on_missing="UNAVAILABLE"),
+                ),),
+            )
+            pipeline = VerticalSlicePipeline(PipelineConfig(
+                workload_id="runtime-mutation",
+                cobol_source_path=str(cobol),
+                java_candidate_path=str(candidate),
+                java_entrypoint="Main",
+                workload=workload,
+                oracle_digest=os.environ.get("SYSTEMAOPS_ORACLE_DIGEST"),
+                use_docker_java=True,
+            ))
+            if pipeline._oracle_adapter.probe().value == "UNAVAILABLE":
+                pytest.skip("Oracle Docker capability is UNAVAILABLE")
+            if not pipeline._candidate_adapter.available:
+                pytest.skip("Candidate Docker capability is UNAVAILABLE")
+            result = pipeline.run()
+            assert result.oracle_stdout.strip() == b"1"
+            assert result.candidate_stdout.strip() == b"2"
+            assert result.verdict.state == VerdictState.FAILED
 
 
 # ============================================================

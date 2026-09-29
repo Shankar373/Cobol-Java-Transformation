@@ -29,6 +29,7 @@ Architecture:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from engine.transformation.ir import (
     CobolProgramUnit,
     CopybookReference,
     DependencyEdge,
+    DiscoveryIssue,
     FileDependency,
     ProgramCall,
 )
@@ -87,13 +89,21 @@ class ApplicationDiscovery:
         # Parse each program
         program_units: list[CobolProgramUnit] = []
         all_copybooks: set[str] = set()
+        discovery_issues: list[DiscoveryIssue] = []
 
         for cobol_file in cobol_files:
             unit = self._parse_program_unit(cobol_file, source_path)
-            if unit is not None:
-                program_units.append(unit)
-                for cb in unit.copybooks:
-                    all_copybooks.add(cb.copybook_name)
+            program_units.append(unit)
+            if unit.status != "PARSED":
+                discovery_issues.append(DiscoveryIssue(
+                    source_path=unit.source_path,
+                    program_id=unit.program_id,
+                    status=unit.status,
+                    message=unit.diagnostic,
+                    source_hash=self._source_hash(cobol_file),
+                ))
+            for cb in unit.copybooks:
+                all_copybooks.add(cb.copybook_name)
 
         # Build dependency graph
         edges = self._build_dependency_graph(program_units)
@@ -103,6 +113,8 @@ class ApplicationDiscovery:
             programs=tuple(program_units),
             copybooks=tuple(sorted(all_copybooks)),
             edges=tuple(edges),
+            discovery_complete=not discovery_issues,
+            discovery_issues=tuple(discovery_issues),
         )
 
     def _find_cobol_files(self, source_path: Path) -> list[Path]:
@@ -120,20 +132,33 @@ class ApplicationDiscovery:
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     if "IDENTIFICATION DIVISION" in content.upper():
                         cobol_files.append(f)
-                except Exception:
-                    pass
+                except (OSError, UnicodeError):
+                    continue
 
         return sorted(set(cobol_files))
+
+    @staticmethod
+    def _source_hash(path: Path) -> str | None:
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return None
 
     def _parse_program_unit(
         self,
         cobol_file: Path,
         source_root: Path,
-    ) -> CobolProgramUnit | None:
-        """Parse a single COBOL file into a program unit."""
+    ) -> CobolProgramUnit:
+        """Parse a single COBOL file; failures remain in the inventory."""
+        relative_path = str(cobol_file.relative_to(source_root))
         try:
             source = cobol_file.read_text(encoding="utf-8")
-            program = self._parser.parse(source)
+        except (OSError, UnicodeError) as exc:
+            return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="READ_FAILED", diagnostic=f"Unable to read COBOL source: {exc}")
+        try:
+            program = self._parser.parse(source, source_name=relative_path)
+            if program.program_id == "UNKNOWN":
+                return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="PARSE_FAILED", diagnostic="Parser returned UNKNOWN program identity")
 
             # Extract dependencies from source
             calls = self._extract_calls(source, program.program_id)
@@ -164,18 +189,17 @@ class ApplicationDiscovery:
 
             return CobolProgramUnit(
                 program_id=program.program_id,
-                source_path=str(cobol_file.relative_to(source_root)),
+                source_path=relative_path,
                 program=program_with_deps,
+                status="PARSED",
                 calls=tuple(calls),
                 copybooks=tuple(copybooks),
                 entry_points=tuple(entry_points),
                 file_dependencies=tuple(file_deps),
             )
 
-        except Exception as e:
-            # Log error but continue with other files
-            print(f"Warning: Failed to parse {cobol_file}: {e}")
-            return None
+        except Exception as exc:
+            return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="PARSE_FAILED", diagnostic=f"Failed to parse COBOL source: {exc}")
 
     def _extract_calls(self, source: str, caller_id: str) -> list[ProgramCall]:
         """Extract CALL statements from COBOL source."""
@@ -319,6 +343,8 @@ class ApplicationDiscovery:
         known_programs = {p.program_id for p in program_units}
 
         for unit in program_units:
+            if unit.status != "PARSED" or unit.program is None:
+                continue
             # Add CALL edges. Dynamic CALLs (CALL data-item) never resolve
             # to a static edge even when the item name coincides with a
             # program-id — the target is a runtime value.

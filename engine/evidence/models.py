@@ -8,7 +8,7 @@ A verdict is a pure function of an evidence manifest.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
@@ -210,6 +210,8 @@ class ComparisonEvidence:
     differences: tuple[str, ...]
     field_level_results: tuple[dict[str, Any], ...]
     content_hash: ContentHash
+    ordering_applied: str = "SEQUENTIAL"
+    failure_policy: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -224,6 +226,8 @@ class ComparisonEvidence:
             "normalization_applied": list(self.normalization_applied),
             "differences": list(self.differences),
             "field_level_results": list(self.field_level_results),
+            "ordering_applied": self.ordering_applied,
+            "failure_policy": self.failure_policy,
         }
 
 
@@ -281,113 +285,23 @@ class EvidenceManifest:
     require_trusted_provenance: bool = False
     verdict_evidence: VerdictEvidence | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    stored_manifest_hash: ContentHash | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.stored_manifest_hash is None:
+            object.__setattr__(self, "stored_manifest_hash", self._compute_manifest_hash())
+
+    def canonical_serialization(self) -> bytes:
+        payload = asdict(self)
+        payload.pop("stored_manifest_hash", None)
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+    def _compute_manifest_hash(self) -> ContentHash:
+        return ContentHash.from_bytes(self.canonical_serialization())
 
     @property
     def manifest_hash(self) -> ContentHash:
-        """Compute hash covering the complete evidence graph.
-
-        Covers: all identity fields, all execution evidence,
-        all artifact identities and content hashes, all comparison
-        evidence and content hashes. Any modification to any evidence
-        field changes this hash.
-        """
-        graph: dict[str, Any] = {
-            "manifest_version": self.manifest_version,
-            "run_id": self.run_id.value,
-            "workload_id": self.workload_id.value,
-            "producer_identity": self.producer_identity,
-            "producer_version": self.producer_version,
-            "require_trusted_provenance": self.require_trusted_provenance,
-            "source_identity": {
-                "source_id": self.source_identity.source_id,
-                "source_hash": str(self.source_identity.source_hash),
-                "file_count": self.source_identity.file_count,
-                "total_size_bytes": self.source_identity.total_size_bytes,
-            },
-            "oracle_identity": {
-                "oracle_id": self.oracle_identity.oracle_id if self.oracle_identity else None,
-                "image_digest": self.oracle_identity.image_digest if self.oracle_identity else None,
-                "compiler_version": self.oracle_identity.compiler_version if self.oracle_identity else None,
-                "preprocessor_version": self.oracle_identity.preprocessor_version if self.oracle_identity else None,
-                "base_image": self.oracle_identity.base_image if self.oracle_identity else None,
-            } if self.oracle_identity else None,
-            "controlled_input": {
-                "input_id": self.controlled_input.input_id,
-                "stdin_hash": str(self.controlled_input.stdin_hash) if self.controlled_input.stdin_hash else None,
-            },
-            "execution_evidence": [
-                {
-                    "execution_id": e.execution_id.value,
-                    "run_id": e.run_id.value,
-                    "runtime_id": e.runtime_id,
-                    "termination_status": e.termination_status,
-                    "timeout_applied": e.timeout_applied,
-                    "exit_code": e.exit_code,
-                    "stdout_hash": str(e.stdout_hash),
-                    "stderr_hash": str(e.stderr_hash),
-                    "java_version": e.java_version,
-                    "maven_version": e.maven_version,
-                    "python_version": e.python_version,
-                    "docker_version": e.docker_version,
-                    "cobol_compiler": e.cobol_compiler,
-                    "image_digest": e.image_digest,
-                    "producer_identity": e.producer_identity,
-                    "producer_version": e.producer_version,
-                    "provenance_hash": str(e.provenance_hash) if e.provenance_hash else None,
-                }
-                for e in self.execution_evidence
-            ],
-            "artifact_evidence": [
-                {
-                    "artifact_id": a.artifact.artifact_id,
-                    "artifact_type": a.artifact.artifact_type,
-                    "producer_role": a.artifact.producer_role,
-                    "content_hash": str(a.content_hash),
-                    "execution_id": a.execution_id.value,
-                }
-                for a in self.artifact_evidence
-            ],
-            "comparison_evidence": [
-                {
-                    "comparison_id": c.comparison_id,
-                    "run_id": c.run_id.value,
-                    "oracle_artifact_id": c.oracle_artifact_id,
-                    "candidate_artifact_id": c.candidate_artifact_id,
-                    "result": c.result,
-                    "artifact_type": c.artifact_type,
-                    "content_hash": str(c.content_hash),
-                }
-                for c in self.comparison_evidence
-            ],
-        }
-        if self.candidate_identity is not None:
-            graph["candidate_identity"] = {
-                "candidate_id": self.candidate_identity.candidate_id,
-                "candidate_hash": str(self.candidate_identity.candidate_hash),
-                "source_hash": str(self.candidate_identity.source_hash),
-                "producer_identity": self.candidate_identity.producer_identity,
-                "producer_version": self.candidate_identity.producer_version,
-                "runtime_image_digest": self.candidate_identity.runtime_image_digest,
-                "java_version": self.candidate_identity.java_version,
-                "maven_version": self.candidate_identity.maven_version,
-            }
-        graph["environment_identities"] = [
-            {
-                "runtime_id": ei.runtime_id,
-                "java_version": ei.java_version,
-                "maven_version": ei.maven_version,
-                "python_version": ei.python_version,
-                "docker_version": ei.docker_version,
-                "cobol_compiler": ei.cobol_compiler,
-                "image_digest": ei.image_digest,
-                "os_base": ei.os_base,
-                "network_policy": ei.network_policy,
-                "resource_limits": dict(ei.resource_limits),
-            }
-            for ei in self.environment_identities
-        ]
-        content_bytes = json.dumps(graph, sort_keys=True, default=str).encode("utf-8")
-        return ContentHash.from_bytes(content_bytes)
+        return self.stored_manifest_hash or self._compute_manifest_hash()
 
     def is_complete(self) -> bool:
         """Check if manifest is complete for VERIFIED verdict.

@@ -234,6 +234,8 @@ class ModernizationPlan:
 
     # Blocking summary
     blocking_summary: tuple[str, ...]
+    discovery_complete: bool = True
+    discovery_issues: tuple[dict[str, str], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -323,6 +325,8 @@ class ModernizationPlan:
                 for fd in self.file_dependencies
             ],
             "blocking_summary": list(self.blocking_summary),
+            "discovery_complete": self.discovery_complete,
+            "discovery_issues": [dict(issue) for issue in self.discovery_issues],
             "transformation_plan": self.transformation_plan.to_dict(),
         }
 
@@ -454,12 +458,14 @@ class ModernizationPlanner:
         unavailable = sum(1 for p in program_plans if p.capability_level == CapabilityLevel.UNAVAILABLE)
 
         # Overall status
-        overall = self._derive_overall_status(capability_report)
+        overall = ModernizationStatus.BLOCKED if not application.discovery_complete else self._derive_overall_status(capability_report)
 
         # Blocking summary
         blocking = self._build_blocking_summary(
             program_plans, call_relationships, copybook_relationships, file_dependencies, capability_report
         )
+        discovery_issues = tuple({"source_path": i.source_path, "program_id": i.program_id, "status": i.status, "message": i.message} for i in application.discovery_issues)
+        blocking.extend(f"DISCOVERY {i['source_path']}: {i['status']} — {i['message']}" for i in discovery_issues)
 
         return ModernizationPlan(
             application_id=application.application_id,
@@ -479,6 +485,8 @@ class ModernizationPlanner:
             unknown_programs=0,  # Not used; UNKNOWN maps to UNSUPPORTED
             transformation_plan=transformation_plan,
             blocking_summary=tuple(blocking),
+            discovery_complete=application.discovery_complete,
+            discovery_issues=discovery_issues,
         )
 
     def _build_program_plan(

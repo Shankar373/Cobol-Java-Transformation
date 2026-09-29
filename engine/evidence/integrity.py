@@ -445,25 +445,31 @@ class EvidenceIntegrityValidator:
     # ------------------------------------------------------------------
 
     def _validate_manifest_integrity(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """Verify manifest hash covers the complete evidence graph."""
+        """Verify the sealed digest against the current canonical evidence graph."""
         violations: list[IntegrityViolation] = []
-
-        # The current manifest_hash is computed from summary fields.
-        # We verify it is at least consistent with those fields.
-        computed_hash = manifest.manifest_hash
-
-        # Verify the hash is deterministic
-        recomputed = manifest.manifest_hash
-        if computed_hash != recomputed:
+        expected = manifest.stored_manifest_hash
+        if expected is None:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MANIFEST_HASH_MISMATCH,
-                description="Manifest hash is non-deterministic",
+                description="Evidence manifest has no sealed expected digest",
+                field_path="stored_manifest_hash",
+                expected="sha256:<digest>",
+                actual="<missing>",
+            ))
+            return violations
+
+        recomputed = manifest._compute_manifest_hash()
+        if expected != recomputed:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MANIFEST_HASH_MISMATCH,
+                description="Canonical evidence graph does not match its sealed digest",
                 field_path="manifest_hash",
-                expected=str(computed_hash),
+                expected=str(expected),
                 actual=str(recomputed),
             ))
 
         return violations
+
 
     # ------------------------------------------------------------------
     # Trusted runtime / producer provenance

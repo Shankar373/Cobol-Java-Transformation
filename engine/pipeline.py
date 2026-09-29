@@ -244,8 +244,8 @@ class VerticalSlicePipeline:
         artifact_type: str,
         output_path: str | None,
         execution_result: object,
-    ) -> bytes:
-        """Extract artifact content from execution result based on artifact type."""
+    ) -> bytes | None:
+        """Extract artifact content; missing declared files remain missing."""
         if artifact_type == "STDOUT":
             return execution_result.stdout
         if artifact_type == "STDERR":
@@ -256,20 +256,25 @@ class VerticalSlicePipeline:
             generated = getattr(execution_result, "generated_files", None) or {}
             if output_path and output_path in generated:
                 return generated[output_path]
-            return b""
-        return b""
+            return None
+        return None
 
     def _capture_artifact(
         self,
         artifact_type: str,
         output_path: str | None,
         execution_id: ExecutionId,
-        content: bytes,
+        content: bytes | None,
         logical_name: str,
         producer_role: str,
         record_length: int | None = None,
     ) -> CapturedArtifact:
-        """Capture an artifact using the appropriate capturer method."""
+        """Capture an artifact using explicit presence/absence semantics."""
+        if content is None:
+            return self._capturer.capture_missing(
+                execution_id, artifact_type, logical_name, producer_role,
+                status="MISSING", record_length=record_length,
+            )
         if artifact_type == "STDOUT":
             return self._capturer.capture_stdout(
                 execution_id, content, logical_name, producer_role
@@ -314,6 +319,8 @@ class VerticalSlicePipeline:
             normalization_applied=comp_result.normalization_applied,
             differences=tuple(d.description for d in comp_result.differences),
             field_level_results=(),
+            ordering_applied=getattr(comp_result, "ordering_applied", "SEQUENTIAL"),
+            failure_policy=getattr(comp_result, "failure_policy", ""),
             content_hash=ContentHash.from_string(json.dumps({
                 "result": comp_result.result.value,
                 "differences": [
@@ -379,9 +386,14 @@ class VerticalSlicePipeline:
                 )
 
             # Compare
+            normalization = artifact_def.normalization.allowed_normalizations if artifact_def.normalization else ()
+            ordering = artifact_def.ordering.order if artifact_def.ordering else "SEQUENTIAL"
             comp_result = comparator.compare(
                 oracle_ca.artifact, oracle_ca.content,
                 candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=normalization,
+                ordering=ordering,
+                failure_policy=artifact_def.failure,
             )
             comparison_evidence.append(self._make_comparison_evidence(
                 run_id, artifact_def, oracle_ca, candidate_ca, comp_result,

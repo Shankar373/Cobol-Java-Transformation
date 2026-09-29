@@ -167,6 +167,7 @@ class ArtifactIdentity:
     content_hash: ContentHash
     size_bytes: int
     record_count: int | None = None
+    availability: str = "PRESENT"
 
     def __post_init__(self) -> None:
         valid_types = {"STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD"}
@@ -174,6 +175,8 @@ class ArtifactIdentity:
             raise ValueError(f"artifact_type must be one of {valid_types}, got {self.artifact_type}")
         if self.producer_role not in ("ORACLE", "CANDIDATE"):
             raise ValueError(f"producer_role must be ORACLE or CANDIDATE, got {self.producer_role}")
+        if self.availability not in ("PRESENT", "MISSING", "UNAVAILABLE", "FAILED"):
+            raise ValueError(f"Invalid artifact availability: {self.availability}")
 
 
 @dataclass(frozen=True)

@@ -1109,6 +1109,16 @@ class DependencyEdge:
 
 
 @dataclass(frozen=True)
+class DiscoveryIssue:
+    """Authoritative discovery outcome for a source unit."""
+    source_path: str
+    program_id: str
+    status: str
+    message: str
+    source_hash: str | None = None
+
+
+@dataclass(frozen=True)
 class CobolProgramUnit:
     """A single program unit within an application.
 
@@ -1116,11 +1126,13 @@ class CobolProgramUnit:
     """
     program_id: str
     source_path: str  # filesystem path to the source file
-    program: CobolProgram
+    program: CobolProgram | None
     calls: tuple[ProgramCall, ...] = ()
     copybooks: tuple[CopybookReference, ...] = ()
     entry_points: tuple[str, ...] = ()
     file_dependencies: tuple[FileDependency, ...] = ()
+    status: str = "PARSED"
+    diagnostic: str = ""
 
 
 @dataclass(frozen=True)
@@ -1134,6 +1146,8 @@ class CobolApplication:
     programs: tuple[CobolProgramUnit, ...] = ()
     copybooks: tuple[str, ...] = ()  # discovered copybook names
     edges: tuple[DependencyEdge, ...] = ()  # dependency graph edges
+    discovery_complete: bool = True
+    discovery_issues: tuple[DiscoveryIssue, ...] = ()
 
     def get_program(self, program_id: str) -> CobolProgramUnit | None:
         """Find a program by its PROGRAM-ID."""
