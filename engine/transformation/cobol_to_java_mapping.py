@@ -199,35 +199,47 @@ def _map_cobol_expression_to_java(expr, field_items=None, expected_decimal=False
     return _map_numeric_expression(expr, field_items or {}, expected_decimal)
 
 
-def _map_numeric_binary_expression(left, operator: str, right):
-    """Lower a numeric Java IR binary operation using operand representation."""
-    if operator == "+" and (
-        _is_big_decimal_expression(left) or _is_big_decimal_expression(right)
+def _map_numeric_binary_expression(
+    left,
+    operator: str,
+    right,
+    field_items: dict[str, DataItem] | None = None,
+):
+    """Lower arithmetic using the Java IR representation and COBOL type metadata."""
+    field_items = field_items or {}
+    if operator in {"+", "-", "*"} and (
+        _is_big_decimal_expression(left, field_items)
+        or _is_big_decimal_expression(right, field_items)
     ):
-        return JavaMethodCall(object_ref=_as_big_decimal(left), method_name="add", arguments=(_as_big_decimal(right),))
-    if operator == "-" and (
-        _is_big_decimal_expression(left) or _is_big_decimal_expression(right)
-    ):
-        return JavaMethodCall(object_ref=_as_big_decimal(left), method_name="subtract", arguments=(_as_big_decimal(right),))
-    if operator == "*" and (
-        _is_big_decimal_expression(left) or _is_big_decimal_expression(right)
-    ):
-        return JavaMethodCall(object_ref=_as_big_decimal(left), method_name="multiply", arguments=(_as_big_decimal(right),))
+        method_name = {"+": "add", "-": "subtract", "*": "multiply"}[operator]
+        return JavaMethodCall(
+            object_ref=_as_big_decimal(left, field_items),
+            method_name=method_name,
+            arguments=(_as_big_decimal(right, field_items),),
+        )
     return JavaBinaryOp(left=left, operator=operator, right=right)
 
 
-def _is_big_decimal_expression(expr) -> bool:
+def _is_big_decimal_expression(
+    expr,
+    field_items: dict[str, DataItem] | None = None,
+) -> bool:
     if isinstance(expr, JavaMethodCall) and (
-        expr.class_name == "BigDecimal" or expr.method_name in {"add", "subtract", "multiply", "setScale", "negate"}
+        expr.class_name == "BigDecimal"
+        or expr.method_name in {"add", "subtract", "multiply", "setScale", "negate"}
     ):
         return True
-    if isinstance(expr, JavaVariableRef):
-        return False
+    if isinstance(expr, JavaVariableRef) and field_items:
+        item = field_items.get(expr.name)
+        return _is_decimal_item(item)
     return False
 
 
-def _as_big_decimal(expr):
-    if _is_big_decimal_expression(expr):
+def _as_big_decimal(
+    expr,
+    field_items: dict[str, DataItem] | None = None,
+):
+    if _is_big_decimal_expression(expr, field_items):
         return expr
     return JavaMethodCall(
         class_name="BigDecimal",
@@ -1000,7 +1012,7 @@ def map_cobol_statement(
             else JavaVariableRef(name=stmt.from_field.replace("-", "_"))
         )
         for src in java_sources:
-            expr = JavaBinaryOp(left=expr, operator="-", right=src)
+            expr = _map_numeric_binary_expression(expr, "-", src, field_items)
         result.append(JavaAssignment(
             target=target,
             expression=_coerce_assignment_expression(expr, field_items.get(target)),
@@ -1029,7 +1041,12 @@ def map_cobol_statement(
         result.append(JavaAssignment(
             target=target,
             expression=_coerce_assignment_expression(
-                JavaBinaryOp(left=source, operator="*", right=multiplicand),
+                _map_numeric_binary_expression(
+                    source,
+                    "*",
+                    multiplicand,
+                    field_items,
+                ),
                 field_items.get(target),
             ),
         ))
@@ -2849,17 +2866,23 @@ def map_cobol_statement(
             result.append(JavaAssignment(
                 target=target,
                 expression=_coerce_assignment_expression(
-                    JavaBinaryOp(left=source_a, operator="+", right=source_b),
+                    _map_numeric_binary_expression(
+                        source_a,
+                        "+",
+                        source_b,
+                        field_items,
+                    ),
                     field_items.get(target),
                 ),
             ))
         else:
             result.append(JavaAssignment(
                 target=target,
-                expression=JavaBinaryOp(
-                    left=source_b,
-                    operator="+",
-                    right=source_a,
+                expression=_map_numeric_binary_expression(
+                    source_b,
+                    "+",
+                    source_a,
+                    field_items,
                 ),
             ))
 
