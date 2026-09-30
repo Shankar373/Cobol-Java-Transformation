@@ -292,9 +292,48 @@ class EvidenceManifest:
             object.__setattr__(self, "stored_manifest_hash", self._compute_manifest_hash())
 
     def canonical_serialization(self) -> bytes:
+        """Serialize security-relevant evidence deterministically.
+
+        Manifest creation and verdict-derivation timestamps are recording
+        metadata, not evidence identity. They must not make equivalent
+        evidence hash differently. Evidence collections are canonicalized by
+        stable identity keys so construction order cannot alter the digest.
+        All substantive fields remain in the canonical payload.
+        """
         payload = asdict(self)
         payload.pop("stored_manifest_hash", None)
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        payload.pop("created_at", None)
+
+        collection_keys = (
+            ("execution_evidence", "execution_id"),
+            ("artifact_evidence", "artifact", "artifact_id"),
+            ("comparison_evidence", "comparison_id"),
+            ("environment_identities", "runtime_id"),
+        )
+        for spec in collection_keys:
+            collection_name, *path = spec
+            collection = payload.get(collection_name)
+            if not isinstance(collection, list):
+                continue
+            if len(path) == 1:
+                collection.sort(key=lambda item: str(item.get(path[0], "")))
+            else:
+                collection.sort(
+                    key=lambda item: str(
+                        item.get(path[0], {}).get(path[1], "")
+                    )
+                )
+
+        verdict = payload.get("verdict_evidence")
+        if isinstance(verdict, dict):
+            verdict.pop("derivation_timestamp", None)
+
+        return json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
 
     def _compute_manifest_hash(self) -> ContentHash:
         return ContentHash.from_bytes(self.canonical_serialization())
