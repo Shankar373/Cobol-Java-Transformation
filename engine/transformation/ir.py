@@ -1082,6 +1082,10 @@ class CopybookReference:
     source_program: str  # PROGRAM-ID of program containing COPY
     copybook_name: str  # name of the copybook
     location: str = ""  # line/column if available
+    resolution: str = "UNRESOLVED"
+    resolved_path: str = ""
+    source_hash: str | None = None
+    diagnostic: str = ""
 
 
 @dataclass(frozen=True)
@@ -1151,10 +1155,11 @@ class CobolApplication:
 
     def get_program(self, program_id: str) -> CobolProgramUnit | None:
         """Find a program by its PROGRAM-ID."""
-        for p in self.programs:
-            if p.program_id == program_id:
-                return p
-        return None
+        matches = [p for p in self.programs if p.program_id.upper() == program_id.upper()]
+        if len(matches) > 1:
+            paths = ", ".join(sorted(p.source_path for p in matches))
+            raise ValueError(f"Ambiguous PROGRAM-ID {program_id}: {paths}")
+        return matches[0] if matches else None
 
     def get_callers(self, target: str) -> list[str]:
         """Find all programs that call the target."""

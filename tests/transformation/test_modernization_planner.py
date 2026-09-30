@@ -403,9 +403,10 @@ class TestModernizationPlannerFailClosed:
             planner = ModernizationPlanner(docker_available=True)
             plan = planner.plan(tmpdir)
 
-            # Program itself is SUPPORTED, but the call relationship is PARTIAL
-            # The overall status should reflect this
-            assert plan.overall_status == ModernizationStatus.PARTIAL
+            # An absent required program makes the estate incomplete and blocks planning.
+            assert plan.overall_status == ModernizationStatus.BLOCKED
+            assert not plan.discovery_complete
+            assert any(issue["status"] == "INVALID_DEPENDENCY_GRAPH" for issue in plan.discovery_issues)
 
     def test_unsupported_blocked(self):
         """UNSUPPORTED programs are blocked."""

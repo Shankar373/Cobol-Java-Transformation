@@ -31,12 +31,16 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import replace
 from pathlib import Path
 
 from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.copybook_model import parse_copybook
+from engine.transformation.copybook_resolver import (
+    AmbiguousCopybookError, CopybookResolutionError, resolve_copybook,
+)
 from engine.transformation.ir import (
     CobolApplication,
-    CobolProgram,
     CobolProgramUnit,
     CopybookReference,
     DependencyEdge,
@@ -90,9 +94,12 @@ class ApplicationDiscovery:
         program_units: list[CobolProgramUnit] = []
         all_copybooks: set[str] = set()
         discovery_issues: list[DiscoveryIssue] = []
+        search_dirs = tuple(sorted({source_path, *(p.parent for p in source_path.rglob("*") if p.is_file())}))
 
         for cobol_file in cobol_files:
             unit = self._parse_program_unit(cobol_file, source_path)
+            references = tuple(self._resolve_copybook(cb, search_dirs, source_path) for cb in unit.copybooks)
+            unit = replace(unit, copybooks=references)
             program_units.append(unit)
             if unit.status != "PARSED":
                 discovery_issues.append(DiscoveryIssue(
@@ -104,11 +111,31 @@ class ApplicationDiscovery:
                 ))
             for cb in unit.copybooks:
                 all_copybooks.add(cb.copybook_name)
+                if cb.resolution != "RESOLVED":
+                    discovery_issues.append(DiscoveryIssue(
+                        source_path=unit.source_path, program_id=unit.program_id,
+                        status=f"COPY_{cb.resolution}", message=cb.diagnostic,
+                        source_hash=cb.source_hash,
+                    ))
+
+        identities: dict[str, list[CobolProgramUnit]] = {}
+        for unit in program_units:
+            identities.setdefault(unit.program_id.upper(), []).append(unit)
+        for identity, units in sorted(identities.items()):
+            if len(units) > 1:
+                paths = ", ".join(sorted(unit.source_path for unit in units))
+                for unit in units:
+                    discovery_issues.append(DiscoveryIssue(
+                        source_path=unit.source_path, program_id=identity,
+                        status="DUPLICATE_PROGRAM_ID",
+                        message=f"Duplicate PROGRAM-ID {identity}: {paths}",
+                        source_hash=self._source_hash(source_path / unit.source_path),
+                    ))
 
         # Build dependency graph
         edges = self._build_dependency_graph(program_units)
 
-        return CobolApplication(
+        application = CobolApplication(
             application_id=application_id or source_path.name,
             programs=tuple(program_units),
             copybooks=tuple(sorted(all_copybooks)),
@@ -116,6 +143,55 @@ class ApplicationDiscovery:
             discovery_complete=not discovery_issues,
             discovery_issues=tuple(discovery_issues),
         )
+        for message in application.validate():
+            # Duplicate diagnostics above retain every conflicting source.
+            # Cycles are valid graph structure, though not necessarily transformable.
+            if message.startswith(("Duplicate PROGRAM-ID:", "Cyclic dependency detected:")):
+                continue
+            discovery_issues.append(DiscoveryIssue(
+                source_path="", program_id="", status="INVALID_DEPENDENCY_GRAPH", message=message,
+            ))
+        return replace(application, discovery_complete=not discovery_issues,
+                       discovery_issues=tuple(discovery_issues))
+
+    def _resolve_copybook(
+        self, reference: CopybookReference, search_dirs: tuple[Path, ...], source_root: Path,
+    ) -> CopybookReference:
+        path = None
+        try:
+            path = resolve_copybook(reference.copybook_name, search_dirs,
+                                    program_id=reference.source_program).path
+            text = path.read_text(encoding="utf-8")
+            if self._extract_copybooks(text, reference.source_program):
+                raise ValueError("nested COPY is not yet supported")
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                code = line.strip()
+                if not code or code.startswith(("*", "/")):
+                    continue
+                if not re.match(
+                    r"(?:\d{1,2}\s+[\w-]+|(?:PIC(?:TURE)?|VALUE|USAGE|OCCURS|"
+                    r"REDEFINES|SIGN|JUSTIFIED|SYNC(?:HRONIZED)?|INDEXED|DEPENDING)\b)",
+                    code, re.IGNORECASE,
+                ):
+                    raise ValueError(f"Unsupported or invalid copybook data description at line {line_number}")
+            model = parse_copybook(path)
+            if not model.records:
+                raise ValueError("COPY must contain supported data definitions")
+            return replace(reference, resolution="RESOLVED",
+                           resolved_path=str(path.relative_to(source_root)),
+                           source_hash=self._source_hash(path))
+        except AmbiguousCopybookError as exc:
+            status, message = "AMBIGUOUS", str(exc)
+        except CopybookResolutionError as exc:
+            status, message = "MISSING", str(exc)
+        except (OSError, UnicodeError) as exc:
+            status, message = "UNREADABLE", str(exc)
+        except ValueError as exc:
+            status, message = "INVALID", str(exc)
+        return replace(reference, resolution=status,
+                       resolved_path=str(path.relative_to(source_root)) if path else "",
+                       source_hash=self._source_hash(path) if path else None,
+                       diagnostic=f"COPY {reference.copybook_name} at {reference.location}: {message}")
 
     def _find_cobol_files(self, source_path: Path) -> list[Path]:
         """Find all COBOL source files in the directory tree."""
@@ -156,7 +232,12 @@ class ApplicationDiscovery:
         except (OSError, UnicodeError) as exc:
             return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="READ_FAILED", diagnostic=f"Unable to read COBOL source: {exc}")
         try:
+            diagnostics = getattr(self._parser, "_diagnostics", None)
+            previous_errors = len(diagnostics.errors) if diagnostics is not None else 0
             program = self._parser.parse(source, source_name=relative_path)
+            errors = diagnostics.errors[previous_errors:] if diagnostics is not None else []
+            if errors:
+                raise ValueError("; ".join(f"{error.code.value}: {error.message}" for error in errors))
             if program.program_id == "UNKNOWN":
                 return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="PARSE_FAILED", diagnostic="Parser returned UNKNOWN program identity")
 
@@ -167,21 +248,8 @@ class ApplicationDiscovery:
             file_deps = self._extract_file_dependencies(source, program.program_id)
 
             # Update program with dependency information
-            program_with_deps = CobolProgram(
-                program_id=program.program_id,
-                file_definitions=program.file_definitions,
-                working_storage=program.working_storage,
-                paragraphs=program.paragraphs,
-                threshold_rules=program.threshold_rules,
-                input_record_mappings=program.input_record_mappings,
-                status_codes=program.status_codes,
-                output_formats=program.output_formats,
-                lookup_operations=program.lookup_operations,
-                match_outcome_labels=program.match_outcome_labels,
-                summary_fields=program.summary_fields,
-                report_header=program.report_header,
-                linkage_section=program.linkage_section,
-                using_parameters=program.using_parameters,
+            program_with_deps = replace(
+                program,
                 called_programs=tuple(c.target for c in calls),
                 copybooks=tuple(cb.copybook_name for cb in copybooks),
                 entry_points=tuple(entry_points),
@@ -242,14 +310,19 @@ class ApplicationDiscovery:
         """Extract COPY statements from COBOL source."""
         copybooks: list[CopybookReference] = []
 
-        # Find COPY statements
+        # Preserve line positions while ignoring comments and quoted text that
+        # merely mentions COPY. A directive need not start a physical line.
+        source = re.sub(r"(?m)^(?:[ 0-9]{6}[*\/]|\s*\*)[^\n]*", "", source)
         copy_pattern = re.compile(
-            r"COPY\s+(\S+)",
+            r"\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'|\*>[^\n]*|"
+            r"\bCOPY\s+(?P<name>[\w-]+|'[^']+'|\"[^\"]+\")",
             re.IGNORECASE,
         )
 
         for match in copy_pattern.finditer(source):
-            copybook_name = match.group(1).rstrip(".")
+            if match.group("name") is None:
+                continue
+            copybook_name = match.group("name").strip("\"'")
 
             # Skip if it's a REPLACING clause
             if copybook_name.upper() == "REPLACING":
@@ -258,6 +331,7 @@ class ApplicationDiscovery:
             copybooks.append(CopybookReference(
                 source_program=source_program,
                 copybook_name=copybook_name,
+                location=str(source.count("\n", 0, match.start()) + 1),
             ))
 
         return copybooks
@@ -366,6 +440,7 @@ class ApplicationDiscovery:
                     source=unit.program_id,
                     target=cb.copybook_name,
                     edge_type="COPY",
+                    metadata=f"resolution={cb.resolution};path={cb.resolved_path};sha256={cb.source_hash or ''}",
                 ))
 
             # Add FILE edges
