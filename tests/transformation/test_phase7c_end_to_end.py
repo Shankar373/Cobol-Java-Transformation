@@ -861,12 +861,12 @@ class TestGeneratedJavaMutation:
     A. Validator integrity proof — tampered evidence is rejected
        PROVEN by calling the real EvidenceIntegrityValidator.
 
-    B. Runtime behavioral mutation proof — BLOCKED / NOT VERIFIED
-       because Docker execution is not available on this host.
+    B. Runtime behavioral mutation proof — executed when Docker is available.
 
     This split is intentional. A textual difference in source code
-    is NOT behavioral evidence. Only execution + comparison can
-    prove behavioral equivalence, and that requires Docker.
+    is NOT behavioral evidence. The test therefore executes a real
+    baseline candidate and then a behavior-changing mutation through
+    the production validation pipeline.
     """
 
     def _h(self, s: str) -> ContentHash:
@@ -1394,18 +1394,10 @@ class TestGeneratedJavaMutation:
                  ↓
             verdict
 
-        BLOCKED because Docker execution is not available on this host.
-
-        The validator integrity proof above (tests A.1-A.10) proves that
-        the validator can detect evidence tampering. The actual behavioral
-        mutation detection requires executing both oracle and candidate
-        binaries and comparing their outputs, which requires Docker.
-
-        This test documents the limitation honestly rather than fabricating
-        a behavioral claim.
+        Docker is probed at runtime. If the required oracle or candidate
+        container is unavailable, the test reports that infrastructure
+        limitation explicitly rather than claiming behavioral proof.
         """
-        if not os.environ.get("RUN_DOCKER_TESTS"):
-            pytest.skip("RUN_DOCKER_TESTS is not enabled; runtime mutation capability is UNAVAILABLE")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cobol = root / "mutation.cob"
@@ -1414,12 +1406,18 @@ class TestGeneratedJavaMutation:
                 "PROCEDURE DIVISION.\nMAIN.\nDISPLAY \"1\".\nSTOP RUN.\n",
                 encoding="utf-8",
             )
+            program = CobolParser().parse(
+                cobol.read_text(encoding="utf-8"),
+                source_name="mutation.cob",
+            )
+            generated = __import__(
+                "engine.transformation.java_generator",
+                fromlist=["JavaGenerator"],
+            ).JavaGenerator().generate(program)[0]
             candidate = root / "candidate"
             candidate.mkdir()
-            (candidate / "Main.java").write_text(
-                "public class Main { public static void main(String[] a) { System.out.println(\"2\"); } }\n",
-                encoding="utf-8",
-            )
+            candidate_file = candidate / generated.filename
+            candidate_file.write_text(generated.source_code, encoding="utf-8")
             workload = WorkloadDefinition(
                 workload_id="runtime-mutation",
                 description="Real Docker behavioral mutation",
@@ -1433,10 +1431,10 @@ class TestGeneratedJavaMutation:
                 ),),
             )
             pipeline = VerticalSlicePipeline(PipelineConfig(
-                workload_id="runtime-mutation",
+                workload_id="runtime-mutation-baseline",
                 cobol_source_path=str(cobol),
                 java_candidate_path=str(candidate),
-                java_entrypoint="Main",
+                java_entrypoint=generated.class_name,
                 workload=workload,
                 oracle_digest=os.environ.get("SYSTEMAOPS_ORACLE_DIGEST"),
                 use_docker_java=True,
@@ -1445,10 +1443,29 @@ class TestGeneratedJavaMutation:
                 pytest.skip("Oracle Docker capability is UNAVAILABLE")
             if not pipeline._candidate_adapter.available:
                 pytest.skip("Candidate Docker capability is UNAVAILABLE")
-            result = pipeline.run()
-            assert result.oracle_stdout.strip() == b"1"
-            assert result.candidate_stdout.strip() == b"2"
-            assert result.verdict.state == VerdictState.FAILED
+
+            baseline = pipeline.run()
+            assert baseline.oracle_stdout.strip() == b"1"
+            assert baseline.candidate_stdout.strip() == b"1"
+            assert baseline.verdict.state == VerdictState.VERIFIED
+
+            mutated_source = generated.source_code.replace(
+                'System.out.println("1")',
+                'System.out.println("2")',
+                1,
+            )
+            assert mutated_source != generated.source_code
+            candidate_file.write_text(mutated_source, encoding="utf-8")
+
+            mutated = pipeline.run()
+            assert mutated.oracle_stdout.strip() == b"1"
+            assert mutated.candidate_stdout.strip() == b"2"
+            assert mutated.verdict.state == VerdictState.FAILED
+            assert any(
+                "differs" in difference.lower()
+                for comp in mutated.comparison_evidence
+                for difference in comp.differences
+            )
 
 
 # ============================================================

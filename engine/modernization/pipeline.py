@@ -59,6 +59,8 @@ class ModernizationReport:
     output_dir: str
 
     # Discovery results
+    discovery_complete: bool = False
+    discovery_issues: tuple[object, ...] = ()
     discovered_programs: tuple[str, ...] = ()
     discovered_copybooks: tuple[str, ...] = ()
     discovered_calls: tuple[str, ...] = ()
@@ -95,6 +97,17 @@ class ModernizationReport:
             "source_dir": self.source_dir,
             "output_dir": self.output_dir,
             "discovery": {
+                "complete": self.discovery_complete,
+                "issues": [
+                    {
+                        "source_path": getattr(issue, "source_path", ""),
+                        "program_id": getattr(issue, "program_id", ""),
+                        "status": getattr(issue, "status", ""),
+                        "message": getattr(issue, "message", ""),
+                        "source_hash": getattr(issue, "source_hash", None),
+                    }
+                    for issue in self.discovery_issues
+                ],
                 "programs": list(self.discovered_programs),
                 "copybooks": list(self.discovered_copybooks),
                 "calls": list(self.discovered_calls),
@@ -126,6 +139,7 @@ class ModernizationReport:
             f"Output: {self.output_dir}",
             "",
             "DISCOVERY:",
+            f"  Complete: {self.discovery_complete}",
             f"  Programs: {', '.join(self.discovered_programs)}",
             f"  Copybooks: {', '.join(self.discovered_copybooks) or 'none'}",
             f"  CALLs: {', '.join(self.discovered_calls) or 'none'}",
@@ -215,6 +229,22 @@ class UniversalModernizationPipeline:
             report = self._fill_discovery(report, application)
         except Exception as e:
             report.limitations = (f"Discovery failed: {e}",)
+            return report
+        # Real CobolApplication instances always expose discovery_complete.
+        # Keep lightweight legacy test doubles compatible without weakening
+        # the typed production contract.
+        if not getattr(application, "discovery_complete", True):
+            issues = tuple(
+                f"{issue.status}: {issue.source_path}: {issue.message}"
+                for issue in application.discovery_issues
+            )
+            report.limitations = (
+                "Discovery incomplete; modernization is blocked until all required source units are understood",
+                *issues,
+            )
+            report.recommendations = (
+                "Resolve discovery failures before requesting transformation",
+            )
             return report
         if progress:
             progress("DISCOVERY_COMPLETED")
@@ -385,6 +415,8 @@ class UniversalModernizationPipeline:
             application_id=report.application_id,
             source_dir=report.source_dir,
             output_dir=report.output_dir,
+            discovery_complete=app.discovery_complete,
+            discovery_issues=app.discovery_issues,
             discovered_programs=tuple(u.program_id for u in app.programs),
             discovered_copybooks=app.copybooks,
             discovered_calls=tuple(
