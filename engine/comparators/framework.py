@@ -193,7 +193,11 @@ class StdoutComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare STDOUT artifacts."""
         missing = self._handle_missing(oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy)
@@ -241,7 +245,11 @@ class StderrComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare STDERR artifacts."""
         missing = self._handle_missing(oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy)
@@ -289,7 +297,11 @@ class ExitStatusComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare EXIT_STATUS artifacts."""
         missing = self._handle_missing(oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy)
@@ -353,7 +365,11 @@ class TextFileComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare TEXT_FILE artifacts."""
         missing = self._handle_missing(oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy)
@@ -406,7 +422,11 @@ class FixedRecordComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare FIXED_RECORD artifacts record-by-record."""
         missing = self._handle_missing(oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy)
