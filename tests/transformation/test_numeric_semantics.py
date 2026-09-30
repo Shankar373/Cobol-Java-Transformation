@@ -79,8 +79,19 @@ def test_generated_java_uses_exact_fixed_point_operations():
     assert 'String.format("%05d"' in generated
 
 
+CONTINUED_COMPUTE = COBOL.replace(
+    "01 WS-C PIC 9(3)V99 VALUE 0.",
+    "01 WS-C PIC 9(3)V99 VALUE 0.\n01 WS-OUT PIC 9(6) VALUE 0.",
+).replace(
+    "ADD WS-A TO WS-B GIVING WS-C.",
+    "COMPUTE WS-C =\n        WS-A / WS-B\n"
+    "    COMPUTE WS-OUT =\n        WS-C * 100\n    DISPLAY WS-OUT.",
+)
+
+
+@pytest.mark.parametrize("source, expected", [(COBOL, "125.45"), (CONTINUED_COMPUTE, "061.72")])
 @pytest.mark.skipif(not shutil.which("docker"), reason="Docker unavailable")
-def test_oracle_and_generated_java_match_fixed_point_behavior(tmp_path: Path):
+def test_oracle_and_generated_java_match_fixed_point_behavior(tmp_path: Path, source, expected):
     oracle = DockerOracleAdapter(OracleAdapterConfig(
         oracle_id="numeric-contract-probe",
         image_digest=DockerOracleAdapter.V1_DIGEST,
@@ -89,12 +100,12 @@ def test_oracle_and_generated_java_match_fixed_point_behavior(tmp_path: Path):
     if oracle.probe().value == "UNAVAILABLE":
         pytest.skip("GnuCOBOL oracle image unavailable")
 
-    program = _parse()
+    program = CobolParser().parse(source)
     generated = JavaGenerator().generate(program)[0]
 
     cobol_dir = tmp_path / "cobol"
     cobol_dir.mkdir()
-    (cobol_dir / "NUMERIC-DEMO.cob").write_text(COBOL, encoding="utf-8")
+    (cobol_dir / "NUMERIC-DEMO.cob").write_text(source, encoding="utf-8")
 
     java_dir = tmp_path / "java"
     java_dir.mkdir()
@@ -103,7 +114,7 @@ def test_oracle_and_generated_java_match_fixed_point_behavior(tmp_path: Path):
     manifest = CandidateManifest(
         candidate_id="numeric-contract",
         workload_id="numeric-contract",
-        source_hash=hashlib.sha256(COBOL.encode()).hexdigest(),
+        source_hash=hashlib.sha256(source.encode()).hexdigest(),
         generated_files={generated.filename: hashlib.sha256(generated.source_code.encode()).hexdigest()},
         entrypoint=generated.class_name,
     )
@@ -137,5 +148,5 @@ def test_oracle_and_generated_java_match_fixed_point_behavior(tmp_path: Path):
     assert oracle_result.status.value == "SUCCEEDED"
     oracle_stdout = oracle_result.stdout.decode(errors="replace")
 
-    assert "125.45" in oracle_stdout
+    assert expected in oracle_stdout
     assert oracle_stdout == candidate_stdout

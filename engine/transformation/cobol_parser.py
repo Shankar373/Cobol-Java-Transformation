@@ -18,9 +18,9 @@ Unsupported constructs will raise CobolParseError.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, NoReturn
 
-from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
+from engine.transformation.diagnostics import Diagnostic, DiagnosticCode, DiagnosticCollector, DiagnosticLevel
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -73,6 +73,12 @@ from engine.transformation.ir import (
 
 class CobolParseError(Exception):
     """Raised when COBOL source contains unsupported or invalid syntax."""
+
+    def __init__(self, message: str, diagnostics: tuple[Diagnostic, ...] = (),
+                 code: DiagnosticCode = DiagnosticCode.SYNTAX_ERROR) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
+        self.code = code
 
 
 def _clean_line(line: str) -> str:
@@ -141,7 +147,38 @@ class CobolParser:
         self._source_line_numbers: list[int] = []
 
     def parse(self, source: str, source_name: str = "") -> CobolProgram:
-        """Parse COBOL source text into a CobolProgram IR."""
+        """Return a valid model or raise CobolParseError with structured diagnostics.
+
+        Only diagnostics from this invocation determine its outcome; a failed
+        earlier invocation must not poison subsequent valid input.
+        """
+        first_diagnostic = len(self._diagnostics.all)
+        self._source_name = source_name
+        try:
+            program = self._parse_source(source, source_name)
+        except (CobolParseError, ValueError, IndexError) as exc:
+            current = self._diagnostics.all[first_diagnostic:]
+            if not any(d.level == DiagnosticLevel.ERROR for d in current):
+                code = exc.code if isinstance(exc, CobolParseError) else DiagnosticCode.SYNTAX_ERROR
+                self._diagnostics.error(code, str(exc),
+                                        location=source_name or "source input")
+            raise CobolParseError(str(exc), self._diagnostics.all[first_diagnostic:]) from exc
+        current = self._diagnostics.all[first_diagnostic:]
+        errors = [d for d in current if d.level == DiagnosticLevel.ERROR]
+        if errors:
+            raise CobolParseError("; ".join(d.message for d in errors), current)
+        return program
+
+    def _syntax_error(self, message: str, line_index: int,
+                      code: DiagnosticCode = DiagnosticCode.SYNTAX_ERROR) -> NoReturn:
+        line = (self._source_line_numbers[line_index]
+                if line_index < len(self._source_line_numbers) else line_index + 1)
+        self._diagnostics.error(code, message,
+                                location=f"{self._source_name or 'source'}:{line}")
+        raise CobolParseError(message)
+
+    def _parse_source(self, source: str, source_name: str) -> CobolProgram:
+        """Build the model; the public boundary rejects any recorded errors."""
         lines = source.split("\n")
         self._source_name = source_name
         self._source_line_numbers = []
@@ -149,6 +186,12 @@ class CobolParser:
         for source_line_number, line in enumerate(lines, start=1):
             cleaned = _strip_area_prefix(line)
             if cleaned and not cleaned.startswith("*"):
+                without_literals = re.sub(r'''"(?:[^"]|"")*"|'(?:[^']|'')*'|\*>.*$''', "", cleaned)
+                if '"' in without_literals or "'" in without_literals:
+                    self._diagnostics.error(DiagnosticCode.SYNTAX_ERROR,
+                                            "Unterminated quoted literal",
+                                            location=f"{source_name or 'source'}:{source_line_number}")
+                    raise CobolParseError("Unterminated quoted literal")
                 code_lines.append(cleaned)
                 self._source_line_numbers.append(source_line_number)
 
@@ -261,20 +304,24 @@ class CobolParser:
         This prevents completely invalid or empty input from being treated
         as a successful transformation.
         """
-        has_structure = (
-            program.program_id != "UNKNOWN"
-            or len(program.file_definitions) > 0
-            or len(program.working_storage) > 0
-            or len(program.paragraphs) > 0
-        )
-
-        if not has_structure:
+        code = "\n".join(line.strip() for line in source.splitlines()
+                         if not line.lstrip().startswith("*"))
+        if program.program_id == "UNKNOWN":
             self._diagnostics.error(
                 DiagnosticCode.PARSE_ERROR,
                 "Input contains no valid transformable COBOL program structure. "
                 "Expected IDENTIFICATION DIVISION with PROGRAM-ID.",
-                location="source input",
+                location=self._source_name or "source input",
             )
+        if not re.search(r"(?im)^\s*(?:IDENTIFICATION|ID)\s+DIVISION\s*\.", code):
+            self._diagnostics.error(DiagnosticCode.PARSE_ERROR,
+                                    "Missing IDENTIFICATION DIVISION", location=self._source_name or "source input")
+        if not re.search(r"(?im)^\s*PROCEDURE\s+DIVISION\b", code):
+            self._diagnostics.error(DiagnosticCode.PARSE_ERROR,
+                                    "Missing PROCEDURE DIVISION", location=self._source_name or "source input")
+        if len(re.findall(r"(?im)^\s*PROGRAM-ID\.", code)) != 1:
+            self._diagnostics.error(DiagnosticCode.PARSE_ERROR,
+                                    "Expected exactly one PROGRAM-ID per source unit", location=self._source_name or "source input")
 
     def _parse_program_id(self, lines: list[str]) -> str:
         """Extract PROGRAM-ID from IDENTIFICATION DIVISION."""
@@ -724,6 +771,8 @@ class CobolParser:
                 continue
 
             # Check for paragraph name (ends with period, no PIC/VALUE/etc.)
+            if re.fullmatch(r"(?:MOVE|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|OPEN|READ|WRITE|CALL|DISPLAY|IF|PERFORM|STRING|UNSTRING)\.?", upper):
+                self._syntax_error("Missing required statement operands", i)
             # Scope terminators (END-PERFORM., END-EVALUATE., ...) are NOT
             # paragraph names — treating them as such splits STOP RUN out of
             # the driver paragraph and triggers false fall-through flags.
@@ -767,6 +816,25 @@ class CobolParser:
         return paragraphs
 
     def _parse_statement(self, lines: list[str], start: int) -> tuple[Any, int]:
+        if re.fullmatch(r"(?:MOVE|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|OPEN|READ|WRITE|CALL|DISPLAY|IF|PERFORM|STRING|UNSTRING)\.?", lines[start].strip(), re.IGNORECASE):
+            self._syntax_error("Missing required statement operands", start)
+        statement, next_index = self._parse_statement_impl(lines, start)
+        required = {
+            "OpenStatement": ("file_name",), "ReadStatement": ("file_name",),
+            "WriteStatement": ("record_name",), "MoveStatement": ("source", "target"),
+            "AddStatement": ("source", "target"), "SubtractStatement": ("source", "from_field"),
+            "MultiplyStatement": ("source", "multiplicand"),
+            "DivideStatement": ("source", "divisor", "target"),
+            "ComputeStatement": ("target", "expression"), "CallStatement": ("program_name",),
+            "GoToStatement": ("target",), "UnstringStatement": ("source", "targets"),
+            "StringStatement": ("parts", "target"),
+        }
+        for field in required.get(type(statement).__name__, ()):
+            if not getattr(statement, field):
+                self._syntax_error(f"Malformed {type(statement).__name__}: missing {field}", start)
+        return statement, next_index
+
+    def _parse_statement_impl(self, lines: list[str], start: int) -> tuple[Any, int]:
         """Parse a single statement starting at the given line index."""
         line = lines[start].strip()
         upper = line.upper()
@@ -853,20 +921,13 @@ class CobolParser:
         return None, start + 1
 
     def _parse_open(self, lines: list[str], start: int) -> tuple[OpenStatement, int]:
-        """Parse OPEN INPUT/OUTPUT statement."""
+        """Preserve the declared OPEN mode and required file operand."""
         line = lines[start].strip()
-        upper = line.upper()
-
-        if "INPUT" in upper:
-            mode = "INPUT"
-        elif "OUTPUT" in upper:
-            mode = "OUTPUT"
-        else:
-            mode = "INPUT"
-
-        # Extract file name
-        match = re.search(r"OPEN\s+(?:INPUT|OUTPUT)\s+(\S+)", line, re.IGNORECASE)
-        file_name = match.group(1).rstrip(".") if match else ""
+        match = re.match(r"OPEN\s+(INPUT|OUTPUT|I-O|EXTEND)\s+(\S+)", line, re.IGNORECASE)
+        if not match:
+            self._syntax_error("Malformed OPEN: expected mode and file name", start)
+        mode = match.group(1).upper()
+        file_name = match.group(2).rstrip(".")
 
         return OpenStatement(mode=mode, file_name=file_name), start + 1
 
@@ -941,7 +1002,7 @@ class CobolParser:
         # COBOL permits the MOVE source and TO target on separate physical
         # lines. Join only the unambiguous continuation form so the parser
         # preserves the semantic MOVE instead of emitting an empty statement.
-        if not re.search(r"\s+TO\s+", line, re.IGNORECASE) and next_index < len(lines):
+        if not line.endswith(".") and not re.search(r"\s+TO\s+", line, re.IGNORECASE) and next_index < len(lines):
             next_line = lines[next_index].strip()
             if re.match(r"^TO\s+\S+", next_line, re.IGNORECASE):
                 line = f"{line} {next_line}"
@@ -960,11 +1021,17 @@ class CobolParser:
                 target_ref=FieldReference(name=target) if target else None,
             ), next_index
 
-        return MoveStatement(source="", target=""), next_index
+        self._syntax_error("Malformed MOVE: expected source TO target", start)
 
     def _parse_add(self, lines: list[str], start: int) -> tuple[AddStatement, int]:
         """Parse ADD source TO target statement."""
         line = lines[start].strip()
+        next_index = start + 1
+        if not line.endswith(".") and not re.search(r"\s+TO\s+", line, re.IGNORECASE) and next_index < len(lines):
+            continuation = lines[next_index].strip()
+            if re.match(r"TO\s+\S+", continuation, re.IGNORECASE):
+                line += " " + continuation
+                next_index += 1
 
         match = re.search(
             r"ADD\s+(.+?)\s+TO\s+(\S+?)(?:\s+GIVING\s+(\S+))?\.?$",
@@ -981,16 +1048,16 @@ class CobolParser:
                 giving_target=giving_target,
                 source_expr=self._build_expression(source),
                 target_ref=FieldReference(name=target),
-            ), start + 1
+            ), next_index
 
-        return AddStatement(source="", target=""), start + 1
+        self._syntax_error("Malformed ADD: expected source TO target", start)
 
     def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
         """Parse SUBTRACT source FROM field [GIVING target]."""
         line = lines[start].strip()
         match = re.search(r"SUBTRACT\s+(\S+)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
         if not match:
-            return SubtractStatement(source="", from_field=""), start + 1
+            self._syntax_error("Malformed SUBTRACT: expected source FROM target", start)
         source = match.group(1).rstrip(".")
         from_field = match.group(2).rstrip(".")
         to_field = match.group(3).rstrip(".") if match.group(3) else None
@@ -1008,7 +1075,7 @@ class CobolParser:
         line = lines[start].strip()
         match = re.search(r"MULTIPLY\s+(\S+)\s+BY\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
         if not match:
-            return MultiplyStatement(source="", multiplicand=""), start + 1
+            self._syntax_error("Malformed MULTIPLY: expected source BY target", start)
         source = match.group(1).rstrip(".")
         multiplicand = match.group(2).rstrip(".")
         target = match.group(3).rstrip(".") if match.group(3) else None
@@ -1031,7 +1098,7 @@ class CobolParser:
         text = " ".join(parts).rstrip(".").strip()
         match = re.match(r"CALL\s+(?:'([^']+)'|\"([^\"]+)\"|(\S+))(?:\s+USING\s+(.+))?$", text, re.IGNORECASE)
         if not match:
-            return CallStatement(program_name="", is_dynamic=True), i + 1
+            self._syntax_error("Malformed CALL: expected a target and optional USING arguments", start)
         program_name = next((g for g in match.groups()[:3] if g), "")
         using = match.group(4) or ""
         tokens = using.split()
@@ -1075,13 +1142,28 @@ class CobolParser:
                 target_ref=FieldReference(name=target),
             ), start + 1
 
-        return DivideStatement(source="", divisor="", target=""), start + 1
+        if re.fullmatch(r"DIVIDE\s+\S+\s+INTO\s+\S+(?:\s+GIVING\s+\S+)?\.?", line, re.IGNORECASE):
+            self._syntax_error("DIVIDE INTO is not supported by this parser", start,
+                               DiagnosticCode.UNSUPPORTED_CONSTRUCT)
+        self._syntax_error("Malformed DIVIDE: expected required operands", start)
 
     def _parse_compute(self, lines: list[str], start: int) -> tuple['ComputeStatement', int]:
         """Parse COMPUTE target = expression."""
         from engine.transformation.ir import ComputeStatement
 
         line = lines[start].strip()
+        next_index = start + 1
+        if line.endswith("=") and next_index < len(lines):
+            continuation = lines[next_index].strip()
+            # A continued expression contains operands/operators, never another
+            # statement. Do not swallow a following statement to fill an operand.
+            if re.fullmatch(r"[\w\s()+*/.\-]+", continuation) and not re.match(
+                r"(?:MOVE|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|DISPLAY|STOP|CALL|"
+                r"PERFORM|IF|ELSE|END-|WHEN|OPEN|CLOSE|READ|WRITE|GO\s+TO)\b",
+                continuation, re.IGNORECASE,
+            ):
+                line += " " + continuation
+                next_index += 1
 
         match = re.search(r"COMPUTE\s+(\S+)\s*=\s*(.+?)\.?\s*$", line, re.IGNORECASE)
         if match:
@@ -1092,9 +1174,9 @@ class CobolParser:
                 expression=expression,
                 target_ref=FieldReference(name=target),
                 expression_expr=self._build_expression(expression),
-            ), start + 1
+            ), next_index
 
-        return ComputeStatement(target="", expression=""), start + 1
+        self._syntax_error("Malformed COMPUTE: expected target = expression", start)
 
     def _parse_evaluate(self, lines: list[str], start: int) -> tuple[EvaluateStatement, int]:
         """Parse a single-subject EVALUATE into canonical WHEN arms.
@@ -1144,7 +1226,8 @@ class CobolParser:
             if re.search(r"\bALSO\b", spec, re.IGNORECASE):
                 raise CobolParseError(
                     "Unsupported multi-subject EVALUATE WHEN ALSO form; "
-                    "semantic conditions would otherwise be lossy"
+                    "semantic conditions would otherwise be lossy",
+                    code=DiagnosticCode.UNSUPPORTED_CONSTRUCT,
                 )
 
             tokens = spec.split()
@@ -1197,6 +1280,7 @@ class CobolParser:
         then_body: list[Any] = []
         else_body: list[Any] = []
         current_section = "then"
+        terminated = False
 
         i = start + 1
         while i < len(lines):
@@ -1209,6 +1293,7 @@ class CobolParser:
                 continue
 
             if u.startswith("END-IF"):
+                terminated = True
                 i += 1
                 break
 
@@ -1222,6 +1307,12 @@ class CobolParser:
                 else:
                     else_body.append(stmt)
             i = max(new_i, i + 1)
+            if lines[i - 1].rstrip().endswith("."):
+                terminated = True
+                break
+
+        if not condition or not terminated:
+            self._syntax_error("Incomplete IF: expected condition and END-IF or terminating period", start)
 
         return IfStatement(
             condition=condition,
@@ -1309,9 +1400,7 @@ class CobolParser:
                 if stmt is not None:
                     body.append(stmt)
                 i = max(new_i, i + 1)
-            return PerformStatement(paragraph_name="", until_condition=suffix,
-                                    structured_condition=structured_condition,
-                                    body=tuple(body), test_after=test_after), i
+            self._syntax_error("Incomplete inline PERFORM: missing END-PERFORM", start)
         m = re.match(r"PERFORM\s+([\w-]+)\s+THRU\s+([\w-]+)$", line, re.IGNORECASE)
         if m:
             return PerformStatement(paragraph_name=m.group(1), thru_target=m.group(2),
@@ -1335,7 +1424,7 @@ class CobolParser:
         m = re.match(r"PERFORM\s+([\w-]+)$", line, re.IGNORECASE)
         if m:
             return PerformStatement(paragraph_name=m.group(1), test_after=test_after), start + 1
-        return PerformStatement(paragraph_name="", test_after=test_after), start + 1
+        self._syntax_error("Unsupported or malformed PERFORM", start)
 
     def _parse_unstring(self, lines: list[str], start: int) -> tuple[UnstringStatement, int]:
         """Parse UNSTRING source DELIMITED BY delimiter INTO targets."""

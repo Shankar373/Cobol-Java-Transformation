@@ -25,7 +25,7 @@ from engine.transformation.contracts import (
     TransformationResult,
     TransformationStatus,
 )
-from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.cobol_parser import CobolParseError, CobolParser
 from engine.transformation.diagnostics import DiagnosticCollector
 from engine.transformation.java_generator import JavaGenerator
 
@@ -136,6 +136,18 @@ class InternalNativeJavaProducer(TransformationProducer):
                 },
             )
 
+        except CobolParseError as exc:
+            return TransformationResult(
+                status=TransformationStatus.FAILED,
+                producer_identity=self.PRODUCER_IDENTITY,
+                producer_version=self.PRODUCER_VERSION,
+                diagnostics=tuple({
+                    "level": diagnostic.level.value,
+                    "code": diagnostic.code.value,
+                    "message": diagnostic.message,
+                    "location": diagnostic.location,
+                } for diagnostic in exc.diagnostics),
+            )
         except Exception as e:
             return TransformationResult(
                 status=TransformationStatus.FAILED,

@@ -34,7 +34,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.cobol_parser import CobolParseError, CobolParser
 from engine.transformation.copybook_model import parse_copybook
 from engine.transformation.copybook_resolver import (
     AmbiguousCopybookError, CopybookResolutionError, resolve_copybook,
@@ -232,12 +232,7 @@ class ApplicationDiscovery:
         except (OSError, UnicodeError) as exc:
             return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="READ_FAILED", diagnostic=f"Unable to read COBOL source: {exc}")
         try:
-            diagnostics = getattr(self._parser, "_diagnostics", None)
-            previous_errors = len(diagnostics.errors) if diagnostics is not None else 0
             program = self._parser.parse(source, source_name=relative_path)
-            errors = diagnostics.errors[previous_errors:] if diagnostics is not None else []
-            if errors:
-                raise ValueError("; ".join(f"{error.code.value}: {error.message}" for error in errors))
             if program.program_id == "UNKNOWN":
                 return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="PARSE_FAILED", diagnostic="Parser returned UNKNOWN program identity")
 
@@ -266,6 +261,15 @@ class ApplicationDiscovery:
                 file_dependencies=tuple(file_deps),
             )
 
+        except CobolParseError as exc:
+            diagnostic = "; ".join(
+                f"{item.code.value} at {item.location}: {item.message}"
+                for item in exc.diagnostics
+            ) or str(exc)
+            return CobolProgramUnit(
+                program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path,
+                program=None, status="PARSE_FAILED", diagnostic=diagnostic,
+            )
         except Exception as exc:
             return CobolProgramUnit(program_id=cobol_file.stem.upper() or "UNKNOWN", source_path=relative_path, program=None, status="PARSE_FAILED", diagnostic=f"Failed to parse COBOL source: {exc}")
 

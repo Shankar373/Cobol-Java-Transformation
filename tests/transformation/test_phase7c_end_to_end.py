@@ -22,7 +22,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.cobol_parser import CobolParseError, CobolParser
 from engine.transformation.cobol_to_java_mapping import (
     map_cobol_programs_to_application,
 )
@@ -499,19 +499,18 @@ class TestNegativeTests:
     """Prove malformed/unsupported input fails safely."""
 
     def test_invalid_cobol_no_identification(self):
-        """Invalid COBOL without IDENTIFICATION DIVISION parses to UNKNOWN."""
+        """Invalid COBOL fails authoritatively without returning an IR."""
         parser = CobolParser()
-        prog = parser.parse("THIS IS NOT COBOL AT ALL")
-        # Parser is tolerant — returns UNKNOWN program_id
-        assert prog.program_id == "UNKNOWN"
+        with pytest.raises(CobolParseError) as caught:
+            parser.parse("THIS IS NOT COBOL AT ALL")
+        assert any(d.code.value == "PARSE_ERROR" for d in caught.value.diagnostics)
 
     def test_empty_source_fails_safely(self):
-        """Empty source parses safely to UNKNOWN."""
+        """Empty source fails with structured parse diagnostics."""
         parser = CobolParser()
-        prog = parser.parse("")
-        assert prog.program_id == "UNKNOWN"
-        assert len(prog.file_definitions) == 0
-        assert len(prog.working_storage) == 0
+        with pytest.raises(CobolParseError) as caught:
+            parser.parse("")
+        assert any(d.code.value == "PARSE_ERROR" for d in caught.value.diagnostics)
 
     def test_minimal_cobol_parses(self):
         """Minimal valid COBOL parses successfully."""

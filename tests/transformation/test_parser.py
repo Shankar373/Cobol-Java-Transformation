@@ -256,12 +256,13 @@ class TestCobolParserStatements:
         """Malformed/empty statement inputs must not raise IndexError (regression)."""
         sources = [
             "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    .\n",
-            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    IF X > 0\n",
             "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n",
         ]
         for source in sources:
             program = parser.parse(source)
             assert program.paragraphs is not None
+        with pytest.raises(CobolParseError, match="Incomplete IF"):
+            parser.parse("IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    IF X > 0\n")
 
     def test_inline_perform_times_ir_contract(self, parser: CobolParser):
         """Inline PERFORM n TIMES yields TIMES=n with no synthetic condition."""

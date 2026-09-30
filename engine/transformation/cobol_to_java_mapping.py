@@ -1109,13 +1109,38 @@ def map_cobol_statement(
 
     elif isinstance(stmt, ComputeStatement):
         target = stmt.target.replace("-", "_")
+        target_item = field_items.get(target)
+        from engine.transformation.ir import BinaryExpression
+        decimal_expression = stmt.expression_expr is not None and (
+            _expression_is_decimal(stmt.expression_expr, field_items) or _is_decimal_item(target_item)
+        )
         # Prefer the structured expression produced by the parser so chained
         # arithmetic and nested expressions preserve their real operator tree.
-        expression = (
-            _map_cobol_expression_to_java(stmt.expression_expr, field_items)
-            if stmt.expression_expr is not None
-            else map_cobol_expr_to_java(stmt.expression)
-        )
+        if (decimal_expression and isinstance(stmt.expression_expr, BinaryExpression)
+                and stmt.expression_expr.operator == "/"):
+            if target_item is None or not target_item.is_numeric:
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: COMPUTE division requires declared target precision")
+            expression = JavaMethodCall(
+                object_ref=_map_cobol_expression_to_java(stmt.expression_expr.left, field_items, True),
+                method_name="divide",
+                arguments=(
+                    _map_cobol_expression_to_java(stmt.expression_expr.right, field_items, True),
+                    JavaLiteral(value=str(target_item.decimal_places)),
+                    JavaVariableRef(name="RoundingMode.DOWN"),
+                ),
+            )
+        else:
+            expression = (
+                _map_cobol_expression_to_java(stmt.expression_expr, field_items, decimal_expression)
+                if stmt.expression_expr is not None
+                else map_cobol_expr_to_java(stmt.expression)
+            )
+        if decimal_expression and target_item is not None and target_item.is_numeric and not _is_decimal_item(target_item):
+            expression = JavaMethodCall(
+                object_ref=expression,
+                method_name="longValue" if target_item.pic_length > 9 else "intValue",
+                arguments=(),
+            )
         result.append(JavaAssignment(
             target=target,
             expression=_coerce_assignment_expression(expression, field_items.get(target)),
@@ -3032,11 +3057,36 @@ def map_cobol_statement(
         target = stmt.target.replace("-", "_")
         # Prefer the structured expression produced by the parser so chained
         # arithmetic and nested expressions preserve their real operator tree.
-        expression = (
-            _map_cobol_expression_to_java(stmt.expression_expr, field_items)
-            if stmt.expression_expr is not None
-            else map_cobol_expr_to_java(stmt.expression)
+        target_item = field_items.get(target)
+        from engine.transformation.ir import BinaryExpression
+        decimal_expression = stmt.expression_expr is not None and (
+            _expression_is_decimal(stmt.expression_expr, field_items) or _is_decimal_item(target_item)
         )
+        if (decimal_expression and isinstance(stmt.expression_expr, BinaryExpression)
+                and stmt.expression_expr.operator == "/"):
+            if target_item is None or not target_item.is_numeric:
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: COMPUTE division requires declared target precision")
+            expression = JavaMethodCall(
+                object_ref=_map_cobol_expression_to_java(stmt.expression_expr.left, field_items, True),
+                method_name="divide",
+                arguments=(
+                    _map_cobol_expression_to_java(stmt.expression_expr.right, field_items, True),
+                    JavaLiteral(value=str(target_item.decimal_places)),
+                    JavaVariableRef(name="RoundingMode.DOWN"),
+                ),
+            )
+        else:
+            expression = (
+                _map_cobol_expression_to_java(stmt.expression_expr, field_items, decimal_expression)
+                if stmt.expression_expr is not None
+                else map_cobol_expr_to_java(stmt.expression)
+            )
+        if decimal_expression and target_item is not None and target_item.is_numeric and not _is_decimal_item(target_item):
+            expression = JavaMethodCall(
+                object_ref=expression,
+                method_name="longValue" if target_item.pic_length > 9 else "intValue",
+                arguments=(),
+            )
         result.append(JavaAssignment(
             target=target,
             expression=_coerce_assignment_expression(expression, field_items.get(target)),
