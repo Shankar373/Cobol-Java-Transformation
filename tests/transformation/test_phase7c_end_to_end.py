@@ -1435,7 +1435,6 @@ class TestGeneratedJavaMutation:
                 java_candidate_path=str(candidate),
                 java_entrypoint=generated.class_name,
                 workload=workload,
-                oracle_digest=os.environ.get("SYSTEMAOPS_ORACLE_DIGEST"),
                 use_docker_java=True,
             ))
             if pipeline._oracle_adapter.probe().value == "UNAVAILABLE":

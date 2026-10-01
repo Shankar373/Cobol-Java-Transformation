@@ -49,7 +49,7 @@ class DockerOracleAdapter(OracleAdapter):
     V1_IMAGE = "gnucobol-ocesql:latest"
     V1_DIGEST = os.environ.get(
         "SYSTEMAOPS_ORACLE_DIGEST",
-        "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+        "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
     )
 
     def __init__(self, config: OracleAdapterConfig) -> None:
