@@ -26,7 +26,7 @@ import re
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.models import (
@@ -47,8 +47,15 @@ from api.models import (
     IngestResponse,
     DiscoveryResponse,
 )
-from api.service import Service, ServiceError
-from api.ingestion import IngestionError
+from api.service import (
+    MAX_UPLOAD_FILES,
+    MAX_UPLOAD_TOTAL_BYTES,
+    MAX_UPLOAD_FILE_BYTES,
+    Service,
+    ServiceError,
+    UploadLimitError,
+)
+from api.ingestion import IngestionError, MAX_ZIP_ARCHIVE_BYTES
 from api.store import ApplicationRecord, Store
 
 # ---------------------------------------------------------------------------
@@ -88,6 +95,50 @@ def _svc() -> Service:
 
 def _error(status: int, msg: str) -> HTTPException:
     return HTTPException(status_code=status, detail=msg)
+
+
+_CHUNK_BYTES = 1024 * 1024
+
+
+async def _read_upload_file(upload: UploadFile, max_bytes: int) -> bytes:
+    """Read one upload in bounded chunks, failing closed past max_bytes."""
+    content = b""
+    while True:
+        chunk = await upload.read(_CHUNK_BYTES)
+        if not chunk:
+            break
+        content += chunk
+        if len(content) > max_bytes:
+            raise _error(
+                413,
+                f"File {upload.filename or 'unknown'} exceeds maximum size of "
+                f"{max_bytes} bytes",
+            )
+    return content
+
+
+async def _read_upload_files(files: list[UploadFile]) -> dict[str, bytes]:
+    """Read a multi-file upload under count, per-file and total bounds."""
+    if len(files) > MAX_UPLOAD_FILES:
+        raise _error(
+            413,
+            f"Too many files: maximum {MAX_UPLOAD_FILES} files per request",
+        )
+
+    file_contents: dict[str, bytes] = {}
+    total_bytes = 0
+    for upload in files:
+        content = await _read_upload_file(upload, MAX_UPLOAD_FILE_BYTES)
+        total_bytes += len(content)
+        if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+            raise _error(
+                413,
+                f"Total upload size exceeds maximum of "
+                f"{MAX_UPLOAD_TOTAL_BYTES} bytes",
+            )
+        name = upload.filename or f"file_{len(file_contents)}"
+        file_contents[name] = content
+    return file_contents
 
 
 def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
@@ -168,16 +219,13 @@ def list_application_runs(app_id: str) -> list[RunResponse]:
 
 
 @app.post("/applications/{app_id}/upload", response_model=UploadResponse, status_code=201)
-async def upload_cobol_source(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_cobol_source(app_id: str, request: Request, files: list[UploadFile] = File(...)) -> UploadResponse:
     """Upload COBOL source files for an application."""
     try:
-        file_contents: dict[str, bytes] = {}
-        for f in files:
-            content = await f.read()
-            name = f.filename or f"file_{len(file_contents)}"
-            file_contents[name] = content
-
+        file_contents = await _read_upload_files(files)
         _app, count = _svc().upload_cobol_source(app_id, file_contents)
+    except UploadLimitError as exc:
+        raise _error(413, str(exc))
     except ServiceError as exc:
         raise _error(404, str(exc))
 
@@ -189,16 +237,13 @@ async def upload_cobol_source(app_id: str, files: list[UploadFile] = File(...)) 
 
 
 @app.post("/applications/{app_id}/candidate", response_model=UploadResponse, status_code=201)
-async def upload_java_candidate(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_java_candidate(app_id: str, request: Request, files: list[UploadFile] = File(...)) -> UploadResponse:
     """Upload Java candidate files for an application."""
     try:
-        file_contents: dict[str, bytes] = {}
-        for f in files:
-            content = await f.read()
-            name = f.filename or f"file_{len(file_contents)}"
-            file_contents[name] = content
-
+        file_contents = await _read_upload_files(files)
         _app, count = _svc().upload_java_candidate(app_id, file_contents)
+    except UploadLimitError as exc:
+        raise _error(413, str(exc))
     except ServiceError as exc:
         raise _error(404, str(exc))
 
@@ -243,7 +288,7 @@ async def ingest_application(app_id: str, file: UploadFile = File(...)) -> Inges
     Extracts the archive, runs application discovery, detects the project
     name, and returns structured results about the discovered source tree.
     """
-    content = await file.read()
+    content = await _read_upload_file(file, MAX_ZIP_ARCHIVE_BYTES)
     zip_filename = file.filename or "upload.zip"
     try:
         discovery = _svc().ingest_application(app_id, content, zip_filename)

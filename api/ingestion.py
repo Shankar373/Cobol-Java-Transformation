@@ -230,12 +230,10 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
             }
             result.jcl_jobs.append(job_info)
 
-        # Link JCL with COBOL if both exist
+        # Link JCL with COBOL if both exist — reuse the already-discovered cobol_app
+        # to avoid a redundant discovery pass over the same workspace.
         if result.cobol_programs:
-            from engine.transformation.ir import CobolApplication
-            cobol_discovery2 = ApplicationDiscovery()
-            cobol_app2 = cobol_discovery2.discover(str(workspace), application_id=application_id)
-            jcl_app = jcl_discovery.link_with_cobol(jcl_app, cobol_app2)
+            jcl_app = jcl_discovery.link_with_cobol(jcl_app, cobol_app)
 
             for dep in jcl_app.dependencies:
                 result.dependency_edges.append({

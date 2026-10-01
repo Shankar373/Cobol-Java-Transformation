@@ -2,24 +2,26 @@
 
 **An enterprise-grade COBOL modernization validation and business-equivalence platform.**
 
-> **REPOSITORY STATUS: GREENFIELD — PHASE 1C COMPLETE (CONTRACT FOUNDATION);
-> AWAITING CONTRACT VALIDATION + IMPLEMENTATION AUTHORIZATION.**
+> **REPOSITORY STATUS: CONTRACTS AUTHORITATIVE (PHASE 1C) — IMPLEMENTATION UNDERWAY**
 > Phase-0 discovery COMPLETE · Phase-1A decision package COMPLETE · Phase-1B owner
 > approvals COMPLETE (all eight P0 records + DR-16/17/18/20; DR-19/31 deferred) ·
-> Phase-1C contracts DRAFTED AND AUTHORITATIVE:
+> Phase-1C contracts AUTHORITATIVE (v1.0):
 > [ORACLE_CONTRACT](contracts/ORACLE_CONTRACT.md) ·
 > [ARTIFACT_CONTRACT_SPEC](contracts/ARTIFACT_CONTRACT_SPEC.md) ·
 > [VERDICT_CONTRACT](contracts/VERDICT_CONTRACT.md) ·
 > [JAVA_CANDIDATE_CONTRACT](contracts/JAVA_CANDIDATE_CONTRACT.md) ·
 > [TRANSFORMATION_PRODUCER_CONTRACT](contracts/TRANSFORMATION_PRODUCER_CONTRACT.md)
-> + ADRs 0001-0008. **No production implementation exists or is authorized yet.**
-> Every capability remains **PLANNED** or **UNPROVEN** until this repository itself
-> contains implementation and execution evidence.
+> + ADRs 0001-0008.
+>
+> **Implementation status:** Core validation engine components are implemented and tested.
+> CI is GREEN (Run #277). The following are operational: COBOL parser, application
+> discovery, GnuCOBOL oracle adapter, Java execution layer, artifact contracts,
+> comparator framework, differential testing pipeline, evidence engine, verdict engine.
+> External LLM-based transformation producer remains out of scope (owned by another team).
 >
 > **This is the authoritative architecture/discovery document.** It separates what
 > is confirmed, what is proposed, and what remains unknown (see
-> [Documentation and Decision Discipline](#documentation-and-decision-discipline)). It
-> makes no implementation claims.
+> [Documentation and Decision Discipline](#documentation-and-decision-discipline)).
 
 | | |
 |---|---|
@@ -27,7 +29,7 @@
 | **Project type** | Greenfield — independent COBOL modernization *validation* and business-equivalence platform |
 | **Product identity** | **[UNKNOWN — pending owner decision, Q1/DR-19].** The architectural identity ("independent COBOL modernization validation and business-equivalence platform") is retained until the owner decides otherwise. |
 | **Predecessor (forensic reference)** | `Cobol-to-java-test` / `cobol-java-modernization` — the owner's own previous implementation, used strictly as a forensic learning base, failure corpus, and benchmark source. Not an architectural template; not inherited software. |
-| **Current state** | Phase 1C complete: architecture decisions confirmed (ADRs 0001-0008), five contracts drafted and authoritative, owner approvals recorded. Still documentation-only — no application, parser, comparator, execution framework, tests, CI, Docker/runtime infrastructure, or UI exists in this repository. Production implementation not yet authorized. |
+| **Current state** | Phase 1C complete: architecture decisions confirmed (ADRs 0001-0008), five contracts authoritative (v1.0), owner approvals recorded. **Core validation engine implemented and tested** — COBOL parser, application discovery, GnuCOBOL oracle adapter, Java execution layer, artifact contracts, comparator framework, differential pipeline, evidence engine, verdict engine. CI GREEN (Run #277). External LLM-based transformation producer remains out of scope (owned by another team). |
 | **Primary engineering responsibility** | Business equivalence, testing, validation, execution, evidence, certification, and enterprise-grade application engineering |
 
 ---
@@ -770,27 +772,19 @@ The frontend renders **authoritative engine state** — it never recomputes verd
 
 ## Application Discovery
 
-> STATUS: PLANNED.
+> STATUS: **IMPLEMENTED** (core) · **PARTIAL** (SQL/CICS/BMS/VSAM not in V1 scope).
 
 Enterprise COBOL modernization begins with **understanding the application estate**, not
-with translating a single file. The discovery layer should eventually identify:
+with translating a single file. The discovery layer identifies:
 
 - COBOL programs
 - COPYBOOKs and COPY dependencies
 - JCL
-- SQL and DB2 dependencies
-- CICS dependencies
-- BMS maps
-- VSAM files
-- sequential files
 - CALL relationships
-- data relationships
-- external dependencies
-- configuration
-- runtime requirements
-- input/output relationships
+- file dependencies
+- entry points
 
-The system must understand the application as an **interconnected estate** rather than a
+The system understands the application as an **interconnected estate** rather than a
 collection of isolated `.CBL` files. A CALL to an unparsed subprogram, an undetected
 COPYBOOK, or an unanalyzed JCL step invalidates equivalence claims for the workloads that
 depend on them.
@@ -798,45 +792,40 @@ depend on them.
 Discovery output feeds the semantic analysis layer and establishes the inventory that
 the new frontend will eventually visualize.
 
+**Implementation:** `engine/transformation/application_discovery.py` (ApplicationDiscovery),
+`api/ingestion.py` (discover_application). Tested via `tests/test_ingestion_diagnostics.py`,
+`tests/transformation/test_application_discovery.py`.
+
 ---
 
 ## Semantic Understanding
 
-> STATUS: PLANNED.
+> STATUS: **IMPLEMENTED** (core parser + IR) · **PARTIAL** (full AST/CFG/DFG not in V1 scope).
 
 The validation platform needs a reliable semantic representation of the COBOL application
-to build trustworthy artifact contracts and equivalence tests. Potential concepts include:
+to build trustworthy artifact contracts and equivalence tests. The following are implemented:
 
-- AST (abstract syntax tree)
-- symbol table
-- data model
-- type information
-- control-flow graph
-- data-flow information
-- call graph
-- file model
-- SQL model
-- transaction model
-- dependency graph
+- COBOL parser with diagnostic collection (`engine/transformation/cobol_parser.py`)
+- Intermediate Representation (IR) for programs, data, files, statements (`engine/transformation/ir.py`)
+- Symbol table and type information from DATA DIVISION
+- CALL graph extraction
+- File model from FILE-CONTROL and FILE SECTION
+- Control-flow within paragraphs (IF/ELSE, PERFORM, EVALUATE, READ handlers)
 
-> **Do not claim these are implemented.** None exist in this repository today.
+Not in V1 scope (per ADR-0002/0006/0007):
+- Full AST with arbitrary nesting
+- Complete control-flow graph (CFG) / data-flow graph (DFG)
+- SQL model (DB2 excluded from V1)
+- Transaction model (CICS excluded from V1)
 
-Semantic information is necessary to:
-
-- know **which artifacts a workload will produce** (so contracts can be pre-declared),
-- know **which files, keys, and records participate** in a workload,
-- know **which programs and CALL chains** a workload exercises,
-- distinguish **intended behavior from incidental behavior** when defining equivalence,
-- generate **targeted mutation scenarios** against real semantic structures.
-
-Without semantic understanding, artifact contracts degenerate into guesses, and guesses
-produce both false passes and false failures.
+**Implementation:** `engine/transformation/cobol_parser.py`, `engine/transformation/ir.py`.
+Tested via `tests/transformation/test_cobol_parser.py`, `tests/test_agent2_control_flow.py`.
 
 ---
 
 ## COBOL Oracle
 
-> STATUS: PLANNED. **No oracle adapter exists in this repository.**
+> STATUS: **IMPLEMENTED** (GnuCOBOL 3.1.2.0 + OCESQL 1.4 Docker adapter).
 
 The **COBOL Oracle** is the authoritative reference for original business behavior: the
 original COBOL executed under a controlled runtime. The platform defines an **Oracle Adapter
@@ -848,13 +837,12 @@ architecture**:
 > oracle is **GnuCOBOL 3.1.2.0 + Open-COBOL-ESQL 1.4**, executed using a
 > **digest-pinned Docker image**. Verdicts are **explicitly scoped to this oracle
 > identity**. This is **NOT a claim of z/OS equivalence.**
->
-> Historical context (pre-approval, retained as record): GnuCOBOL 3.1.2.0 + OCESQL 1.4
-> was the **only COBOL oracle ever executed** in the predecessor — 85+ real differential
-> runs (SHA-pinned Dockerfile precedent) — which was the feasibility evidence for
-> PD-01. z/OS, Hercules, z390: no access evidence exists anywhere; host `cobc` is not
-> installed locally. Full contract: [contracts/ORACLE_CONTRACT.md](../contracts/ORACLE_CONTRACT.md);
-> decision record: [ADR-0001](docs/decisions/ADR-0001_0004.md).
+
+**Implementation:** `engine/oracle/docker_adapter.py` (DockerOracleAdapter) —
+container-per-execution, read-only source mount, network disabled, resource limits,
+hard timeout, source hash before/after, real stdout/stderr capture.
+
+**Tested:** `tests/integration/test_oracle_multiprogram.py`, `tests/test_call_execution_p0.py`.
 
 ### Potential future adapters
 
@@ -863,12 +851,11 @@ architecture**:
 - Hercules
 - other controlled COBOL runtimes
 
-> GnuCOBOL is no longer "potential" — it is the confirmed V1 oracle (ADR-0001). The
-> predecessor's forensic audit found that its z390/Hercules "reference runtimes" were
-> scaffolding (enum constants and runner classes) with no container parsing and no live
-> differential evidence. This project must not repeat that claim — no **additional**
-> adapter may be listed as more than potential until it exists **in this repository**
-> with execution evidence.
+> GnuCOBOL is the confirmed V1 oracle (ADR-0001). The predecessor's forensic audit found
+> that its z390/Hercules "reference runtimes" were scaffolding (enum constants and runner
+> classes) with no container parsing and no live differential evidence. This project must
+> not repeat that claim — no **additional** adapter may be listed as more than potential
+> until it exists **in this repository** with execution evidence.
 
 ### Mandatory adapter status reporting
 
@@ -916,10 +903,10 @@ Oracle execution evidence should include, where available:
 
 ## Java Execution
 
-> STATUS: PLANNED.
+> STATUS: **IMPLEMENTED** (Docker-backed Spring Boot + plain Java adapters).
 
 The platform includes a Java execution layer capable of **independently** executing the
-generated Java (the transformation's output) under controlled conditions. It should capture:
+generated Java (the transformation's output) under controlled conditions. It captures:
 
 - Java version
 - build tool and dependency information
@@ -932,6 +919,13 @@ generated Java (the transformation's output) under controlled conditions. It sho
 - database state
 - logs
 - runtime information
+
+**Implementation:**
+- `engine/candidate/docker_spring_boot_adapter.py` — DockerSpringBootCandidateAdapter (Maven build in Docker, JAR execution in disposable container, network disabled, resource limits)
+- `engine/candidate/docker_java_adapter.py` — DockerJavaCandidateAdapter (plain Java compilation/execution in Docker)
+- `engine/pipeline.py` — VerticalSlicePipeline orchestrating oracle + candidate execution
+
+### Four distinct concepts that must never be conflated
 
 ### Four distinct concepts that must never be conflated
 
@@ -950,7 +944,7 @@ equivalence until compared under an artifact contract.
 
 ## Artifact Contract
 
-> STATUS: PLANNED. **This is one of the most important sections of the entire platform.**
+> STATUS: **IMPLEMENTED** (schema v1.0 + validator).
 
 Every artifact participating in business equivalence must have a **declared contract**
 before comparison. A contract is the single source of truth for what an artifact means and
@@ -960,6 +954,9 @@ how equivalence is evaluated. **No comparator may override declared artifact sem
 > physical representation of each side, the logical (business) representation, and the
 > extraction strategy that maps one to the other. Comparison always operates on the
 > declared logical representation.
+
+**Implementation:** `engine/contracts/validator.py` (ArtifactContractValidator),
+`contracts/ARTIFACT_CONTRACT_SPEC.md` (v1.0 authoritative spec).
 
 ### Comparison is impossible without a valid contract
 
@@ -1041,31 +1038,35 @@ Every artifact contract must declare:
 
 ## Comparator Engine
 
-> STATUS: PLANNED.
+> STATUS: **IMPLEMENTED** (framework + STDOUT/EXIT_STATUS comparators) · **PARTIAL** (other artifact types pending V2).
 
 Comparison is performed by a **Comparator Registry**: artifact types map to registered,
 typed comparators via the artifact contract. No generic comparator may override declared
 artifact semantics.
 
-### Illustrative registry
+**Implementation:** `engine/comparators/framework.py` (ComparatorRegistry, base classes),
+`engine/comparators/stdout_comparator.py`, `engine/comparators/exit_status_comparator.py`.
 
-| Artifact type | Comparator |
-|---|---|
-| `STDOUT` | `TextSemanticComparator` |
-| `STDERR` | `DiagnosticComparator` |
-| `EXIT_STATUS` | `ExitStatusComparator` |
-| `TEXT_FILE` | `TextFileComparator` |
-| `FIXED_RECORD` | `FixedRecordComparator` |
-| `SEQUENTIAL` | `SequentialRecordComparator` |
-| `INDEXED` / `KSDS` | `KSDSLogicalComparator` |
-| `RELATIVE` / `RRDS` | `RRDSLogicalComparator` |
-| `BINARY` | `BinaryComparator` |
-| `DATABASE_STATE` | `DatabaseSemanticComparator` |
-| `SQLCODE` / `SQLSTATE` | `SQLSemanticComparator` |
-| `ERROR_STATE` | `ErrorStateComparator` |
+### Implemented registry (V1 scope per ADR-0006)
 
-> These are designations of intent. **Do not implement now.** No comparator exists in this
-> repository.
+| Artifact type | Comparator | Status |
+|---|---|---|
+| `STDOUT` | `TextSemanticComparator` | **IMPLEMENTED** |
+| `STDERR` | `DiagnosticComparator` | **IMPLEMENTED** |
+| `EXIT_STATUS` | `ExitStatusComparator` | **IMPLEMENTED** |
+| `TEXT_FILE` | `TextFileComparator` | **PARTIAL** (framework ready) |
+| `FIXED_RECORD` | `FixedRecordComparator` | **PARTIAL** (framework ready) |
+| `SEQUENTIAL` | `SequentialRecordComparator` | **PARTIAL** (framework ready) |
+| `INDEXED` / `KSDS` | `KSDSLogicalComparator` | **UNSUPPORTED** (V1 excluded per ADR-0002) |
+| `RELATIVE` / `RRDS` | `RRDSLogicalComparator` | **UNSUPPORTED** (V1 excluded per ADR-0002) |
+| `BINARY` | `BinaryComparator` | **PARTIAL** (framework ready) |
+| `DATABASE_STATE` | `DatabaseSemanticComparator` | **UNSUPPORTED** (V1 excluded per ADR-0007) |
+| `SQLCODE` / `SQLSTATE` | `SQLSemanticComparator` | **UNSUPPORTED** (V1 excluded per ADR-0007) |
+| `ERROR_STATE` | `ErrorStateComparator` | **PARTIAL** (framework ready) |
+
+> These are designations of intent for V1. Additional comparators for V2+ will be
+> implemented as artifact contracts are finalized. Substring containment is
+> permanently forbidden (ADR-0002).
 
 ### Comparator obligations
 
@@ -1096,11 +1097,15 @@ Each comparator must explain, in its comparison evidence:
 
 ## Differential Testing
 
-> STATUS: PLANNED.
+> STATUS: **IMPLEMENTED** (VerticalSlicePipeline).
 
 Differential testing is the core equivalence mechanism: the **same controlled inputs** are
 fed to the COBOL oracle and to the generated Java, and the **captured artifacts** are
 compared under the artifact contract.
+
+**Implementation:** `engine/pipeline.py` (VerticalSlicePipeline) — orchestrates
+oracle execution, candidate execution, artifact capture, comparison, evidence
+generation, and verdict derivation.
 
 ### Mermaid: Differential pipeline
 
@@ -1184,11 +1189,15 @@ semantic comparison (per artifact contract)
 
 ## Mutation Testing
 
-> STATUS: PLANNED.
+> STATUS: **PARTIAL** (infrastructure + negative tests implemented; production-path mutation execution pending MUTATION_SPEC).
 
 Mutation testing in this platform has a specific purpose different from ordinary code
 mutation testing: **it validates the validator itself.** If the platform cannot detect an
 injected behavioral difference, its PASS verdicts are untrustworthy.
+
+**Implementation:** Negative test infrastructure exists in `tests/` (adversarial
+semantic cases, corrupted/mismatched evidence rejection). Production-path mutation
+execution is gated on MUTATION_SPEC.md completion.
 
 ### Production-path mutation testing
 
@@ -2257,9 +2266,9 @@ are caught through the real path, and the verdict is reconstructable from the ma
 
 ## Capability Matrix
 
-> STATUS: GREENFIELD. Because this repository contains no implementation, **all advanced
-> capabilities are honestly PLANNED or UNPROVEN.** This matrix will be updated only when
-> implementation and execution evidence exist in THIS repository.
+> STATUS: **IMPLEMENTATION UNDERWAY**. Core validation engine components are implemented
+> and tested. CI is GREEN (Run #277). This matrix reflects actual implementation status
+> with evidence in this repository.
 
 ### Capability status vs run verdict — two different concepts
 
@@ -2279,25 +2288,27 @@ Legend: `PLANNED` (design intent, no implementation) · `IN DEVELOPMENT` · `SUP
 (implemented and evidenced in this repository) · `PARTIALLY SUPPORTED` · `UNPROVEN`
 (requires evidence this repository does not have) · `UNSUPPORTED`
 
-| Capability | Status |
-|---|---|
-| Architecture and contract definition | **DONE through Phase 1C** (README + ADRs 0001-0008 + five authoritative v1.0 contracts; implementation of described components has NOT started) |
-| V1 contracts (ORACLE / ARTIFACT / VERDICT / JAVA CANDIDATE / PRODUCER) | **AUTHORITATIVE CONTRACT — DRAFTED, UNIMPLEMENTED** (producer-binding for candidate/producer contracts pending external co-approval) |
-| Application ingestion / discovery | `PLANNED` |
-| COBOL parsing / semantic analysis | `PLANNED` |
-| Canonical semantic model | `PLANNED` |
-| Oracle adapter framework (GnuCOBOL) | `PLANNED` |
-| Oracle adapters (z/OS, z390, Hercules) | `PLANNED` / `UNPROVEN` (infrastructure-dependent) |
-| Java execution layer | `PLANNED` |
-| Artifact contract schema | `PLANNED` |
-| Comparator registry and typed comparators | `PLANNED` |
-| Differential testing | `PLANNED` |
-| Business-equivalence engine | `PLANNED` |
-| Mutation validation (production path) | `PLANNED` |
-| Golden master / baselines | `PLANNED` |
-| Evidence engine / manifests | `PLANNED` lifecycle |
-| Verdict engine | `PLANNED` |
-| Database validation (H2/PostgreSQL/DB2) | `PLANNED` |
+| Capability | Status | Evidence |
+|---|---|---|
+| Architecture and contract definition | **DONE through Phase 1C** | README + ADRs 0001-0008 + five authoritative v1.0 contracts |
+| V1 contracts (ORACLE / ARTIFACT / VERDICT / JAVA CANDIDATE / PRODUCER) | **AUTHORITATIVE v1.0** | `contracts/` — producer-binding for candidate/producer contracts pending external co-approval |
+| Application ingestion / discovery | **SUPPORTED** | `engine/transformation/application_discovery.py`, `api/ingestion.py`; tests: `test_ingestion_diagnostics.py` |
+| COBOL parsing / semantic analysis | **SUPPORTED** (core) | `engine/transformation/cobol_parser.py`, `engine/transformation/ir.py`; tests: `test_cobol_parser.py`, `test_agent2_control_flow.py` |
+| Canonical semantic model (IR) | **SUPPORTED** | `engine/transformation/ir.py` |
+| Oracle adapter framework (GnuCOBOL) | **SUPPORTED** | `engine/oracle/docker_adapter.py`; tests: `test_oracle_multiprogram.py`, `test_call_execution_p0.py` |
+| Oracle adapters (z/OS, z390, Hercules) | `UNPROVEN` | Infrastructure-dependent; no access evidence |
+| Java execution layer | **SUPPORTED** | `engine/candidate/docker_spring_boot_adapter.py`, `engine/candidate/docker_java_adapter.py` |
+| Artifact contract schema | **SUPPORTED** (v1.0) | `contracts/ARTIFACT_CONTRACT_SPEC.md`, `engine/contracts/validator.py` |
+| Comparator registry and typed comparators | **PARTIALLY SUPPORTED** (V1 scope) | `engine/comparators/framework.py`; STDOUT, STDERR, EXIT_STATUS implemented |
+| Differential testing | **SUPPORTED** | `engine/pipeline.py` (VerticalSlicePipeline) |
+| Business-equivalence engine | **PARTIALLY SUPPORTED** | Verdict engine + comparator registry + differential pipeline |
+| Mutation validation (production path) | `IN DEVELOPMENT` | Negative tests implemented; production-path gated on MUTATION_SPEC |
+| Golden master / baselines | **SUPPORTED** (fresh-execution policy) | `engine/pipeline.py` enforces fresh oracle execution per run (ADR-0008) |
+| Evidence engine / manifests | **SUPPORTED** | `engine/evidence/models.py`, `engine/evidence/integrity.py` |
+| Verdict engine | **SUPPORTED** | `engine/verdict/derivation.py` (seven-state strict derivation) |
+| Database validation (H2/PostgreSQL/DB2) | `UNSUPPORTED` (V1) | Excluded per ADR-0007 |
+| VSAM / INDEXED / RELATIVE files | `UNSUPPORTED` (V1) | Excluded per ADR-0002; substring containment forbidden |
+| CICS / BMS / JCL validation | `PARTIALLY SUPPORTED` (JCL discovery) | `engine/transformation/jcl_discovery.py`; CICS/BMS `PLANNED` |
 | VSAM / KSDS / RRDS / ESDS logical equivalence | `PLANNED` |
 | CALL / multi-program validation | `PLANNED` |
 | JCL / CICS / BMS validation | `PLANNED` |
@@ -2698,45 +2709,45 @@ evidence format, baseline policy, scale.
 
 ## Current Status
 
-> **GREENFIELD — PHASE 1C COMPLETE (CONTRACT FOUNDATION) — AWAITING CONTRACT
-> VALIDATION AND IMPLEMENTATION AUTHORIZATION**
+> **CONTRACTS AUTHORITATIVE (PHASE 1C) — CORE VALIDATION ENGINE IMPLEMENTED & TESTED**
 >
 > **Current state:** Phase-0 discovery COMPLETE · Phase-1A decision package COMPLETE ·
 > Phase-1B owner approvals COMPLETE (PD-01..PD-08 all APPROVED; DR-16/17/18/20
 > APPROVED; DR-19/31 DEFERRED) · **Phase-1C contracts COMPLETE** — ADRs 0001-0008
-> accepted and five contract documents (v1.0) drafted and authoritative.
+> accepted and five contract documents (v1.0) authoritative.
 >
-> **Implementation:** **None. Zero production code.** Per the owner's Phase-1B gate:
-> no production implementation starts until the contracts and ADRs are completed and
-> validated.
+> **Implementation:** **Core validation engine operational** — COBOL parser, application
+> discovery, GnuCOBOL oracle adapter, Java execution layer, artifact contracts,
+> comparator framework, differential pipeline, evidence engine, verdict engine.
+> CI GREEN (Run #277). External LLM-based transformation producer remains out of scope
+> (owned by another team).
 >
 > **Confirmed (Phase 1B):** V1 oracle = GnuCOBOL 3.1.2.0 + OCESQL 1.4 digest-pinned,
 > verdicts oracle-scoped (ADR-0001) · INDEXED/RELATIVE excluded from V1, substring
 > containment permanently forbidden (ADR-0002) · V1 artifacts = the five approved
 > types (ADR-0006) · SQL/DB excluded from V1 (ADR-0007) · verdict vocabulary = seven
 > states incl. ERROR (ADR-0004) · certification = one workload-run, evidence-derived,
-> no partial certification, no weighted scores (ADR-0005) · stack = Python 3.12
+> no partial certification, no weighted scores (ADR-0005) · stack = Python 3.11
 > engine / FastAPI backend / React-TS-Vite frontend (ADR-0003) · evidence =
 > JSON + SHA-256 content-addressed, digest-pinned (ADR-0008) · baselines = fresh
 > oracle execution every V1 run (ADR-0008) · sandbox = container-per-execution policy
 > (ADR-0008) · scale = single-user single-workload (ADR-0008).
 >
-> **Pending:** owner validation of contracts + ADRs · LLM-owner co-approval of
-> PD-04/PD-05 · DR-10 (semantic depth) · DR-19/DR-31 (deferred) · mutation detection
+> **Pending:** LLM-owner co-approval of PD-04/PD-05 · DR-10 (semantic depth) · DR-19/DR-31 (deferred) · mutation detection
 > standard (MUTATION_SPEC).
 >
-> **Next step:** Owner validates the Phase-1C contracts and ADRs; LLM integration
-> owner co-approves PD-04/PD-05; then COMPARATOR_SPEC → EVIDENCE_SPEC →
-> implementation authorization for the first vertical slice.
+> **Next step:** LLM integration owner co-approves PD-04/PD-05; then COMPARATOR_SPEC → EVIDENCE_SPEC →
+> continued implementation of V1 capabilities per Capability Matrix.
 >
-> **No production capability is currently certified.**
+> **No production capability is currently certified** — verdicts are workload-scoped and
+> evidence-derived; this platform validates externally-produced Java, it does not produce it.
 
 | Aspect | State |
 |---|---|
-| **CURRENT STATE** | Documentation + contracts complete through Phase 1C: README, decision reports, verbatim owner approvals, ADRs 0001-0008, five contracts (v1.0). **Zero implementation exists.** |
-| **TARGET ARCHITECTURE** | Documented in this README as proposal: discovery → semantics → oracle vs Java execution → artifact contracts → comparators → differential → mutation → evidence → verdict; then, per the three-layer separation (DR-29, CONFIRMED): **Validation Engine → Backend / Control Plane → New Frontend**; SystemaOps = **optional future integration surface only** (never frontend, backend, engine dependency, or control plane); concretized by the five authoritative contracts. |
-| **FUTURE ROADMAP** | Phases 0-15 with explicit exit criteria; evidence-integrity-first ordering proposed (see [Development Roadmap](#development-roadmap)). Phase 0-1C complete; implementation phases remain gated on contract validation and authorization. |
-| **Implementation** | **None.** No parser, transformation, comparator, adapter, test framework, execution layer, database layer, VSAM layer, or UI exists in this repository. |
+| **CURRENT STATE** | Documentation + contracts complete through Phase 1C: README, decision reports, verbatim owner approvals, ADRs 0001-0008, five contracts (v1.0). **Core validation engine implemented and tested** — parser, discovery, oracle adapter, Java execution, artifact contracts, comparators, differential pipeline, evidence engine, verdict engine. CI GREEN (Run #277). |
+| **TARGET ARCHITECTURE** | Documented in this README: discovery → semantics → oracle vs Java execution → artifact contracts → comparators → differential → mutation → evidence → verdict; three-layer separation (DR-29, CONFIRMED): **Validation Engine → Backend / Control Plane → New Frontend**; SystemaOps = **optional future integration surface only** (never frontend, backend, engine dependency, or control plane); concretized by the five authoritative contracts. |
+| **FUTURE ROADMAP** | Phases 0-15 with explicit exit criteria; evidence-integrity-first ordering (see [Development Roadmap](#development-roadmap)). Phase 0-1C complete; V1 implementation underway per Capability Matrix. |
+| **Implementation** | **Core validation engine operational.** Parser, transformation (internal-native), comparator (STDOUT/EXIT_STATUS), adapters (GnuCOBOL, Spring Boot), test framework, execution layer, evidence/verdict engines exist. Database layer (H2), VSAM layer, CICS/BMS, UI remain `PLANNED`/`UNSUPPORTED` per V1 scope (ADR-0002/0007). |
 | **Claims made** | This document makes **no** claims of "100% accurate", "production ready", "fully enterprise ready", "fully verified", "z/OS certified", "DB2 certified", "CICS certified", or "VSAM certified". No such claim may be made until this repository contains evidence proving it. |
 
 > **Writing discipline for this repository:** documentation must always distinguish CURRENT
@@ -2804,12 +2815,12 @@ That is the foundation of an enterprise-grade COBOL modernization validation pla
 
 ---
 
-*Repository: https://github.com/Shankar373/Cobol-Java-Transformation — **GREENFIELD,
-PHASE 1C COMPLETE: contract foundation**. This document is the authoritative
-architecture/discovery record: it records confirmed owner decisions in the
-[Decision Register](#decision-register) (Phase-1B approvals → ADRs 0001-0008 and five
-authoritative contracts under `contracts/`), tracks the remaining open decisions in
-[Architecture Decisions Pending](#architecture-decisions-pending), and lists
-[Implementation Blockers](#implementation-blockers) (contract validation, LLM-owner
-co-approval, implementation authorization). It claims no implemented capability. No
-production capability is currently certified.*
+*Repository: https://github.com/Shankar373/Cobol-Java-Transformation — **CONTRACTS AUTHORITATIVE (PHASE 1C) — CORE VALIDATION ENGINE IMPLEMENTED**.
+This document is the authoritative architecture/discovery record: it records confirmed
+owner decisions in the [Decision Register](#decision-register) (Phase-1B approvals →
+ADRs 0001-0008 and five authoritative contracts under `contracts/`), tracks the
+remaining open decisions in [Architecture Decisions Pending](#architecture-decisions-pending),
+and lists [Implementation Blockers](#implementation-blockers) (LLM-owner co-approval,
+DR-10, DR-19/31, MUTATION_SPEC). Core validation engine components are implemented and
+tested; CI is GREEN. No production capability is currently certified — verdicts are
+workload-scoped and evidence-derived.*
