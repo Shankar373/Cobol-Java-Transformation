@@ -44,9 +44,44 @@ logger = logging.getLogger(__name__)
 # Legacy source tree root markers — first match wins.
 SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl", "main.COB", "main.CBL"}
 
+# Direct-upload resource bounds. Enforced in the HTTP layer (streamed) and
+# again here as defense in depth, so a non-HTTP caller cannot bypass them.
+MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024  # 50 MB per file
+MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024  # 100 MB total per request
+MAX_UPLOAD_FILES = 100  # max files per request
+
 
 class ServiceError(Exception):
     """Raised when a service operation fails."""
+
+
+class UploadLimitError(ServiceError):
+    """Raised when an upload exceeds an explicit resource bound."""
+
+
+def enforce_upload_limits(files: dict[str, bytes]) -> None:
+    """Reject uploads that exceed the declared per-request resource bounds.
+
+    Raises UploadLimitError (a ServiceError) so callers fail closed with an
+    explicit reason instead of accepting unbounded input.
+    """
+    if len(files) > MAX_UPLOAD_FILES:
+        raise UploadLimitError(
+            f"Too many files: maximum {MAX_UPLOAD_FILES} files per request"
+        )
+    total = 0
+    for name, content in files.items():
+        if len(content) > MAX_UPLOAD_FILE_BYTES:
+            raise UploadLimitError(
+                f"File {name or 'unknown'} exceeds maximum size of "
+                f"{MAX_UPLOAD_FILE_BYTES} bytes"
+            )
+        total += len(content)
+        if total > MAX_UPLOAD_TOTAL_BYTES:
+            raise UploadLimitError(
+                f"Total upload size exceeds maximum of "
+                f"{MAX_UPLOAD_TOTAL_BYTES} bytes"
+            )
 
 
 class Service:
@@ -162,6 +197,7 @@ class Service:
     def upload_cobol_source(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
         """Write COBOL source files into a temp directory and update the record."""
         app = self.get_application(app_id)
+        enforce_upload_limits(files)
 
         base = Path(tempfile.mkdtemp(prefix=f"cobol-{app_id}-"))
         for name, content in files.items():
@@ -177,11 +213,12 @@ class Service:
     def upload_java_candidate(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
         """Write Java candidate files into a temp directory and update the record.
 
-        Internal/test-only: the normal modernization workflow never requires
-        an uploaded candidate. Uploaded files are validated only when the
-        modernize endpoint is explicitly called with use_uploaded_candidate.
+        Internal/test-only: the normal modernization workflow never requires an
+        uploaded candidate. Uploaded files are validated only when the modernize
+        endpoint is explicitly called with use_uploaded_candidate.
         """
         app = self.get_application(app_id)
+        enforce_upload_limits(files)
 
         base = Path(tempfile.mkdtemp(prefix=f"java-{app_id}-"))
         for name, content in files.items():

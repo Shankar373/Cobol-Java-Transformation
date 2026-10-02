@@ -131,6 +131,35 @@ class TestIngestArchiveLimit:
         assert "exceeds maximum size" in resp.json()["detail"]
 
 
+class TestRequestBodyLimit:
+    """Declared body size is rejected before the multipart parser buffers it."""
+
+    def test_default_bound_is_declared(self):
+        assert app_mod.MAX_REQUEST_BODY_BYTES == (
+            app_mod.MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024
+        )
+
+    def test_oversized_declared_body_returns_413(self, app_id, monkeypatch):
+        monkeypatch.setattr(app_mod, "MAX_REQUEST_BODY_BYTES", 16)
+        resp = client.post(
+            f"/applications/{app_id}/upload",
+            files=_files(1, b"x" * 4096),
+        )
+        assert resp.status_code == 413
+        assert "Request body exceeds maximum size" in resp.json()["detail"]
+
+    def test_helper_rejects_invalid_content_length(self):
+        assert app_mod._body_limit_error("abc") == "Invalid Content-Length header"
+        assert app_mod._body_limit_error("-1") == "Invalid Content-Length header"
+
+    def test_helper_accepts_absent_content_length(self):
+        assert app_mod._body_limit_error(None) is None
+
+    def test_helper_accepts_exact_limit_and_rejects_over(self):
+        assert app_mod._body_limit_error("100", limit=100) is None
+        assert "exceeds maximum size" in app_mod._body_limit_error("101", limit=100)
+
+
 class TestServiceLayerDefenseInDepth:
     """The service layer enforces the same bounds independently of HTTP."""
 

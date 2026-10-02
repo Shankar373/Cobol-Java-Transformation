@@ -141,6 +141,43 @@ async def _read_upload_files(files: list[UploadFile]) -> dict[str, bytes]:
     return file_contents
 
 
+# Multipart framing overhead allowed on top of the file payload bound, so an
+# oversized declared body is rejected before the multipart parser buffers it.
+MAX_REQUEST_BODY_BYTES = MAX_UPLOAD_TOTAL_BYTES + (1024 * 1024)
+
+
+def _body_limit_error(content_length: str | None, limit: int | None = None) -> str | None:
+    """Return an error message when a request body must be rejected.
+
+    Malformed and oversized declared body sizes are rejected before the
+    multipart parser buffers the body. A missing Content-Length (chunked
+    transfer) passes this gate; the per-file and per-request bounds applied by
+    the upload handlers remain authoritative for those requests.
+    """
+    if content_length is None:
+        return None
+    if limit is None:
+        limit = MAX_REQUEST_BODY_BYTES
+    try:
+        declared = int(content_length)
+    except ValueError:
+        return "Invalid Content-Length header"
+    if declared < 0:
+        return "Invalid Content-Length header"
+    if declared > limit:
+        return f"Request body exceeds maximum size of {limit} bytes"
+    return None
+
+
+@app.middleware("http")
+async def enforce_request_body_limit(request: Request, call_next):
+    """Fail closed on malformed or oversized declared request bodies."""
+    problem = _body_limit_error(request.headers.get("content-length"))
+    if problem is not None:
+        return JSONResponse(status_code=413, content={"detail": problem})
+    return await call_next(request)
+
+
 def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
     """Map an internal record to the API response (provenance preserved)."""
     return ApplicationResponse(
@@ -219,7 +256,7 @@ def list_application_runs(app_id: str) -> list[RunResponse]:
 
 
 @app.post("/applications/{app_id}/upload", response_model=UploadResponse, status_code=201)
-async def upload_cobol_source(app_id: str, request: Request, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_cobol_source(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
     """Upload COBOL source files for an application."""
     try:
         file_contents = await _read_upload_files(files)
@@ -237,7 +274,7 @@ async def upload_cobol_source(app_id: str, request: Request, files: list[UploadF
 
 
 @app.post("/applications/{app_id}/candidate", response_model=UploadResponse, status_code=201)
-async def upload_java_candidate(app_id: str, request: Request, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_java_candidate(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
     """Upload Java candidate files for an application."""
     try:
         file_contents = await _read_upload_files(files)
