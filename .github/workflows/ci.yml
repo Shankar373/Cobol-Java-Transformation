@@ -69,6 +69,11 @@ jobs:
           docker run --rm --network none maven-offline-springboot:latest mvn -version | tee test-artifacts/maven-version.txt
       - name: Install backend and test dependencies
         run: python -m pip install -r requirements.txt
+      - name: Record Python environment used for this run
+        run: |
+          mkdir -p test-artifacts
+          python --version > test-artifacts/python-version.txt
+          python -m pip freeze > test-artifacts/python-freeze.txt
       - name: Run backend, oracle, and integration tests
         shell: bash
         run: |
