@@ -12,24 +12,57 @@ SQLite file so applications and runs survive process restarts.
 Only metadata is persisted. Binary generated artifacts stay on the
 filesystem; the database keeps their stable paths
 (``generated_app_path`` etc.). Evidence manifests and verdicts are
-persisted as opaque blobs (pickle) because the engine types expose
-``to_dict()`` but no ``from_dict()`` round-trip; they are rehydrated into
-the identical in-memory objects on load.
+persisted as a versioned **JSON envelope** (canonical, sorted keys) and
+rehydrated through ``EvidenceManifest.from_storage_dict`` /
+``Verdict.from_dict``. Pickle is no longer read or written: evidence must
+stay reconstructable outside Python and must never be able to execute
+code on load. Legacy pickle rows are refused explicitly (fail closed)
+rather than silently dropped.
 """
 
 from __future__ import annotations
 
 import json
-import pickle
 import sqlite3
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from api.models import RunStage
 from engine.evidence.models import EvidenceManifest
 from engine.verdict.derivation import Verdict
+
+# Envelope identity for persisted blobs. ``version`` is bumped whenever the
+# payload shape changes; readers reject unknown formats/versions.
+BLOB_FORMAT = "systemaops.control-plane.blob"
+BLOB_VERSION = 1
+
+KIND_EVIDENCE_MANIFEST = "evidence_manifest"
+KIND_VERDICT = "verdict"
+KIND_VERDICT_PAYLOAD = "verdict_payload"
+
+
+class StoreError(Exception):
+    """Raised when persisted data cannot be decoded safely."""
+
+
+class _VerdictPayload:
+    """Read-back wrapper for a stored verdict that is not an engine ``Verdict``.
+
+    Test doubles and other ``to_dict()``-only verdict objects round-trip
+    through this wrapper so ``run.verdict.to_dict()`` keeps working.
+    """
+
+    __slots__ = ("_payload",)
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self._payload)
+
 
 
 @dataclass
@@ -120,15 +153,87 @@ def _decode_str_tuple(raw: str | None) -> tuple[str, ...]:
 
 
 def _dumps_blob(obj: object | None) -> bytes | None:
+    """Serialize an engine object to a versioned JSON envelope.
+
+    Only ``EvidenceManifest`` and ``Verdict`` (and other ``to_dict()``
+    objects) are accepted; anything else fails closed instead of falling
+    back to a non-portable encoding.
+    """
     if obj is None:
         return None
-    return pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
+
+    if isinstance(obj, EvidenceManifest):
+        kind = KIND_EVIDENCE_MANIFEST
+        payload = obj.to_storage_dict()
+    elif isinstance(obj, Verdict):
+        kind = KIND_VERDICT
+        payload = obj.to_dict()
+    elif hasattr(obj, "to_dict"):
+        kind = KIND_VERDICT_PAYLOAD
+        payload = obj.to_dict()
+    else:
+        raise StoreError(
+            f"cannot persist {type(obj).__name__}: no to_dict() serialization"
+        )
+
+    envelope = {
+        "format": BLOB_FORMAT,
+        "version": BLOB_VERSION,
+        "kind": kind,
+        "payload": payload,
+    }
+    # Canonical: sorted keys, no insignificant whitespace, UTF-8 — identical
+    # content always produces identical bytes.
+    return json.dumps(
+        envelope, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
 
 
 def _loads_blob(raw: bytes | None) -> object | None:
+    """Deserialize a persisted blob.
+
+    JSON envelopes are decoded through the engine's ``from_dict`` /
+    ``from_storage_dict`` constructors. Non-JSON bytes (legacy pickle or
+    attacker-controlled data) are **refused** — loading pickle would execute
+    arbitrary code from the database.
+    """
     if raw is None:
         return None
-    return pickle.loads(bytes(raw))
+    data = bytes(raw)
+    if data.lstrip()[:1] not in (b"{", b"["):
+        raise StoreError(
+            "refusing to load non-JSON evidence blob (legacy pickle is no "
+            "longer accepted); re-run validation to regenerate persisted "
+            "evidence"
+        )
+    try:
+        envelope = json.loads(data.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise StoreError(f"corrupt persisted blob: {exc}") from exc
+    if not isinstance(envelope, dict):
+        raise StoreError("corrupt persisted blob: envelope is not an object")
+    if envelope.get("format") != BLOB_FORMAT:
+        raise StoreError(
+            f"unsupported blob format: {envelope.get('format')!r}"
+        )
+    if envelope.get("version") != BLOB_VERSION:
+        raise StoreError(
+            f"unsupported blob version: {envelope.get('version')!r}"
+        )
+    kind = envelope.get("kind")
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise StoreError("corrupt persisted blob: payload is not an object")
+    try:
+        if kind == KIND_EVIDENCE_MANIFEST:
+            return EvidenceManifest.from_storage_dict(payload)
+        if kind == KIND_VERDICT:
+            return Verdict.from_dict(payload)
+        if kind == KIND_VERDICT_PAYLOAD:
+            return _VerdictPayload(payload)
+    except ValueError as exc:
+        raise StoreError(f"invalid persisted {kind} payload: {exc}") from exc
+    raise StoreError(f"unknown persisted blob kind: {kind!r}")
 
 
 def _dumps_dict(obj: dict | None) -> bytes | None:

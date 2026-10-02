@@ -55,6 +55,40 @@ class Verdict:
             "differences": list(self.differences),
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Verdict:
+        """Rebuild a verdict from ``to_dict`` output.
+
+        Round-trips every field so persisted verdicts can be rehydrated
+        without pickle. Raises ``ValueError`` on a malformed payload.
+        """
+        if not isinstance(data, dict):
+            raise ValueError("verdict payload must be an object")
+        try:
+            return cls(
+                state=VerdictState(str(data["state"])),
+                workload_id=WorkloadId(str(data["workload_id"])),
+                run_id=str(data["run_id"]),
+                source_hash=str(data["source_hash"]),
+                candidate_hash=(
+                    str(data["candidate_hash"])
+                    if data.get("candidate_hash") is not None else None
+                ),
+                oracle_id=str(data["oracle_id"]),
+                oracle_digest=str(data["oracle_digest"]),
+                executed_check_count=int(data["executed_check_count"]),
+                skipped_count=int(data["skipped_count"]),
+                unavailable_count=int(data["unavailable_count"]),
+                supported_scope_statement=str(data["supported_scope_statement"]),
+                evidence_manifest_hash=str(data["evidence_manifest_hash"]),
+                derivation_timestamp=str(data["derivation_timestamp"]),
+                differences=tuple(
+                    str(v) for v in (data.get("differences") or [])
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"incomplete verdict payload: {exc}") from exc
+
 
 class VerdictDeriver:
     """Derives verdicts from evidence manifests. Pure function — no side effects."""
