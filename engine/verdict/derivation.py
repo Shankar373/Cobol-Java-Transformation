@@ -96,10 +96,17 @@ class VerdictDeriver:
     def __init__(self) -> None:
         self._supported_scope = (
             "V1 validation scope: "
-            "GnuCOBOL 3.1.2.0 oracle, plain Java candidate, "
+            "GnuCOBOL 3.1.2.0 oracle (identity pinned by image digest, "
+            "reported as oracle_digest), plain Java candidate, "
             "artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; "
             "INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); "
-            "substring containment permanently forbidden."
+            "substring containment permanently forbidden. "
+            "Oracle authority is scoped, not platform equivalence: observed "
+            "GnuCOBOL behavior is the reference for this scope only; it does "
+            "not establish IBM Enterprise COBOL, z/OS, CICS, DB2, JCL, VSAM, "
+            "or any mainframe behavior, and a verdict applies only to "
+            "evidence produced by the pinned oracle identity recorded in "
+            "this verdict."
         )
 
     def derive(self, manifest: EvidenceManifest) -> Verdict:

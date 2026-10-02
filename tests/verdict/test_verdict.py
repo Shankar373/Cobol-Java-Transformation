@@ -455,6 +455,51 @@ class TestVerdictDeriver:
         assert verdict.oracle_digest == sample_oracle_identity.image_digest
         assert verdict.supported_scope_statement != ""
 
+    def test_scope_statement_limits_oracle_authority(
+        self,
+        sample_run_id: RunId,
+        sample_workload_id: WorkloadId,
+        sample_source_identity: SourceIdentity,
+        sample_oracle_identity: OracleIdentity,
+        sample_candidate_identity: CandidateIdentity,
+        sample_input_identity: InputIdentity,
+        successful_oracle_execution: ExecutionEvidence,
+        successful_candidate_execution: ExecutionEvidence,
+        matching_comparison: ComparisonEvidence,
+    ):
+        """The scope statement must not imply mainframe/mainframe-equivalent authority."""
+        manifest = EvidenceManifest(
+            manifest_version="1.0",
+            run_id=sample_run_id,
+            workload_id=sample_workload_id,
+            source_identity=sample_source_identity,
+            candidate_identity=sample_candidate_identity,
+            oracle_identity=sample_oracle_identity,
+            environment_identities=(),
+            controlled_input=sample_input_identity,
+            execution_evidence=(successful_oracle_execution, successful_candidate_execution),
+            artifact_evidence=(),
+            comparison_evidence=(matching_comparison,),
+        )
+        scope = derive_verdict(manifest).supported_scope_statement
+
+        assert "GnuCOBOL 3.1.2.0" in scope
+        assert "image digest" in scope
+        assert "scoped, not platform equivalence" in scope
+        assert "mainframe" in scope
+        for excluded_platform in (
+            "IBM Enterprise COBOL",
+            "z/OS",
+            "CICS",
+            "DB2",
+            "JCL",
+            "VSAM",
+        ):
+            assert excluded_platform in scope
+        assert "INDEXED/RELATIVE/SQL/DATABASE excluded" in scope
+        assert "substring containment permanently forbidden" in scope
+        assert derive_verdict(manifest).supported_scope_statement == scope
+
     def test_verdict_to_dict(
         self,
         sample_run_id: RunId,
