@@ -1,4 +1,7 @@
-FROM maven:3.9-eclipse-temurin-21
+# Build image pinned by digest so `docker build --pull` reproduces the same
+# Maven/JDK toolchain on every run. CI re-verifies `mvn -version` and
+# `java -version` after the build.
+FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320
 
 # Pre-cache Spring Boot dependencies for offline build
 RUN mkdir -p /tmp/precache/src/main/java/precache && \

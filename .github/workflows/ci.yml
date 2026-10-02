@@ -64,6 +64,7 @@ jobs:
           mkdir -p test-artifacts
           docker image inspect gnucobol-ocesql:latest maven-offline-springboot:latest eclipse-temurin:21-jdk > test-artifacts/docker-images.json
           docker run --rm --network none gnucobol-ocesql:latest cobc --version | tee test-artifacts/gnucobol-version.txt
+          grep -F "3.1.2.0" test-artifacts/gnucobol-version.txt
           docker run --rm --network none eclipse-temurin:21-jdk java -version 2>&1 | tee test-artifacts/java-version.txt
           docker run --rm --network none maven-offline-springboot:latest mvn -version | tee test-artifacts/maven-version.txt
       - name: Install backend and test dependencies
