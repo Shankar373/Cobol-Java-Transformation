@@ -59,13 +59,40 @@ class DockerOracleAdapter(OracleAdapter):
         self._verified_image_digest = ""
         self._observed_compiler_version = ""
         self._observed_docker_version = ""
+        self._identity_failure_reason = ""
         if self._docker_available:
             self._resolve_runtime_identity()
 
+    @staticmethod
+    def compiler_matches_declared(observed: str, declared: str) -> bool:
+        """Return True when the observed cobc banner proves the declared version.
+
+        The observed value is the first ``cobc --version`` banner line (for
+        example ``cobc (GnuCOBOL) 3.1.2.0``); the declared value is the
+        ``PipelineConfig.oracle_compiler_version`` this configuration claims
+        to run (for example ``3.1.2.0``).
+        """
+        return bool(declared) and bool(observed) and declared in observed
+
+    def _unverified(self, reason: str) -> None:
+        """Fail closed: drop any resolved identity and record why."""
+        self._verified_image_ref = ""
+        self._verified_image_digest = ""
+        self._observed_compiler_version = ""
+        self._observed_docker_version = ""
+        self._identity_failure_reason = reason
+
+    @property
+    def identity_failure_reason(self) -> str:
+        """Why runtime identity verification failed ("" when verified)."""
+        return self._identity_failure_reason
+
     def _resolve_runtime_identity(self) -> None:
         """Resolve and verify the exact image used by Oracle execution."""
+        self._identity_failure_reason = ""
         expected = self._config.image_digest.strip()
         if not expected.startswith("sha256:"):
+            self._unverified("no pinned image digest configured")
             return
         try:
             inspect = subprocess.run(
@@ -74,9 +101,11 @@ class DockerOracleAdapter(OracleAdapter):
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
             if inspect.returncode != 0:
+                self._unverified("oracle image is not present locally")
                 return
             payload = json.loads(inspect.stdout.decode(errors="replace"))
             if not payload:
+                self._unverified("docker image inspect returned no metadata")
                 return
             repo_digests = payload[0].get("RepoDigests") or []
             image_id = payload[0].get("Id") or ""
@@ -84,6 +113,7 @@ class DockerOracleAdapter(OracleAdapter):
             if not matching and image_id == expected:
                 matching = [image_id]
             if not matching:
+                self._unverified("local oracle image digest does not match the pinned digest")
                 return
             observed_digest = (
                 matching[0].rsplit("@", 1)[-1]
@@ -91,6 +121,7 @@ class DockerOracleAdapter(OracleAdapter):
                 else matching[0]
             )
             if observed_digest != expected:
+                self._unverified("local oracle image digest does not match the pinned digest")
                 return
             self._verified_image_digest = observed_digest
             self._verified_image_ref = matching[0]
@@ -105,6 +136,16 @@ class DockerOracleAdapter(OracleAdapter):
                     if "cobc" in line.lower() or "version" in line.lower():
                         self._observed_compiler_version = line.strip()
                         break
+            if not self.compiler_matches_declared(
+                self._observed_compiler_version, self._config.compiler_version
+            ):
+                observed = self._observed_compiler_version or "<no cobc banner>"
+                self._unverified(
+                    "observed compiler version does not match the declared "
+                    f"oracle compiler version {self._config.compiler_version!r} "
+                    f"(observed {observed!r})"
+                )
+                return
             version = subprocess.run(
                 ["docker", "version", "--format", "{{.Server.Version}}"],
                 capture_output=True, timeout=10,
@@ -112,11 +153,8 @@ class DockerOracleAdapter(OracleAdapter):
             )
             if version.returncode == 0:
                 self._observed_docker_version = version.stdout.decode(errors="replace").strip()
-        except (OSError, ValueError, subprocess.TimeoutExpired, json.JSONDecodeError):
-            self._verified_image_ref = ""
-            self._verified_image_digest = ""
-            self._observed_compiler_version = ""
-            self._observed_docker_version = ""
+        except (OSError, ValueError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            self._unverified(f"runtime identity verification failed: {type(exc).__name__}")
 
     @property
     def verified_image_digest(self) -> str:
@@ -355,6 +393,9 @@ class DockerOracleAdapter(OracleAdapter):
 
         if not self._verified_image_ref:
             end_time = datetime.now(timezone.utc)
+            reason = self._identity_failure_reason or (
+                "runtime image could not be verified against expected digest"
+            )
             return OracleExecutionResult(
                 execution_id=execution_id,
                 run_id=run_id,
@@ -362,7 +403,7 @@ class DockerOracleAdapter(OracleAdapter):
                 status=AdapterStatus.UNAVAILABLE,
                 exit_code=None,
                 stdout=b"",
-                stderr=b"Oracle runtime image could not be verified against expected digest",
+                stderr=f"Oracle runtime identity is unverified: {reason}".encode(),
                 start_time=start_time.isoformat(),
                 end_time=end_time.isoformat(),
                 termination_status="error",
