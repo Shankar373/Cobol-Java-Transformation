@@ -29,6 +29,62 @@ from engine.transformation.cobol_parser import CobolParseError, CobolParser
 from engine.transformation.diagnostics import DiagnosticCollector
 from engine.transformation.java_generator import JavaGenerator
 
+# Capability metadata for this producer. These lists must stay disjoint and
+# must agree with the actual lowering in cobol_to_java_mapping.py and with
+# the generated Java (each entry below was checked against emitted code):
+#   supported   — lowered to Java with full observable semantics
+#   partial     — lowered, but semantics are incomplete or degraded
+#   unsupported — no working semantic Java lowering (skipped, comment-only,
+#                 rejected by the parser, or emits non-compiling Java)
+# This is a static declaration about the producer's language coverage; it is
+# NOT a certification of any particular transformation.
+_SUPPORTED_CONSTRUCTS = (
+    "IDENTIFICATION DIVISION",
+    "ENVIRONMENT DIVISION",
+    "FILE-CONTROL",
+    "DATA DIVISION",
+    "FILE SECTION",
+    "WORKING-STORAGE",
+    "PIC X(n)",
+    "PIC 9(n)",
+    "OPEN",
+    "READ",
+    "WRITE",
+    "MOVE",
+    "ADD",
+    "SUBTRACT",
+    "MULTIPLY",
+    "DIVIDE ... BY ... GIVING",
+    "COMPUTE",
+    "IF/ELSE",
+    "PERFORM",
+    "DISPLAY",
+    "STOP RUN",
+    "CALL (static literal target)",
+)
+
+# Partially lowered constructs. EVALUATE is declared partial, not supported:
+# the subject form with arm bodies on their own lines lowers correctly, but
+# `EVALUATE TRUE` and arm bodies written on the WHEN line are flattened into
+# an invalid condition, so not every EVALUATE form is safe to transform.
+_PARTIAL_CONSTRUCTS = (
+    "OCCURS",
+    "STRING",
+    "UNSTRING",
+    "EVALUATE",
+)
+
+_UNSUPPORTED_CONSTRUCTS = (
+    "SORT",
+    "ACCEPT",
+    "CLOSE",
+    "INDEXED files",
+    "RELATIVE files",
+    "GO TO",
+    "dynamic CALL",
+    "DIVIDE ... INTO",
+)
+
 
 class InternalNativeJavaProducer(TransformationProducer):
     """Primary transformation producer — generates standalone native Java.
@@ -85,41 +141,9 @@ class InternalNativeJavaProducer(TransformationProducer):
                 entrypoint=generated_files[0].class_name if generated_files else "",
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
-                supported_constructs=(
-                    "IDENTIFICATION DIVISION",
-                    "ENVIRONMENT DIVISION",
-                    "FILE-CONTROL",
-                    "DATA DIVISION",
-                    "FILE SECTION",
-                    "WORKING-STORAGE",
-                    "PIC X(n)",
-                    "PIC 9(n)",
-                    "OCCURS",
-                    "OPEN",
-                    "READ",
-                    "WRITE",
-                    "MOVE",
-                    "ADD",
-                    "DIVIDE",
-                    "IF/ELSE",
-                    "PERFORM",
-                    "DISPLAY",
-                    "GO TO",
-                    "STOP RUN",
-                    "STRING",
-                    "UNSTRING",
-                ),
-                unsupported_constructs=(
-                    "COMPUTE",
-                    "SUBTRACT",
-                    "MULTIPLY",
-                    "SORT",
-                    "CALL",
-                    "EVALUATE",
-                    "ACCEPT",
-                    "INDEXED files",
-                    "RELATIVE files",
-                ),
+                supported_constructs=_SUPPORTED_CONSTRUCTS,
+                unsupported_constructs=_UNSUPPORTED_CONSTRUCTS,
+                partial_constructs=_PARTIAL_CONSTRUCTS,
                 diagnostics=tuple(
                     {
                         "level": d.level.value,
