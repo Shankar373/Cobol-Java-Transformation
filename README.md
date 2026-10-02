@@ -14,7 +14,9 @@
 > + ADRs 0001-0008.
 >
 > **Implementation status:** Core validation engine components are implemented and tested.
-> CI is GREEN (Run #277). The following are operational: COBOL parser, application
+> CI status is reported by the `SystemaOps CI` workflow
+> ([.github/workflows/ci.yml](.github/workflows/ci.yml)) — read the latest run rather than a
+> recorded run number. The following are operational: COBOL parser, application
 > discovery, GnuCOBOL oracle adapter, Java execution layer, artifact contracts,
 > comparator framework, differential testing pipeline, evidence engine, verdict engine.
 > External LLM-based transformation producer remains out of scope (owned by another team).
@@ -29,7 +31,7 @@
 | **Project type** | Greenfield — independent COBOL modernization *validation* and business-equivalence platform |
 | **Product identity** | **[UNKNOWN — pending owner decision, Q1/DR-19].** The architectural identity ("independent COBOL modernization validation and business-equivalence platform") is retained until the owner decides otherwise. |
 | **Predecessor (forensic reference)** | `Cobol-to-java-test` / `cobol-java-modernization` — the owner's own previous implementation, used strictly as a forensic learning base, failure corpus, and benchmark source. Not an architectural template; not inherited software. |
-| **Current state** | Phase 1C complete: architecture decisions confirmed (ADRs 0001-0008), five contracts authoritative (v1.0), owner approvals recorded. **Core validation engine implemented and tested** — COBOL parser, application discovery, GnuCOBOL oracle adapter, Java execution layer, artifact contracts, comparator framework, differential pipeline, evidence engine, verdict engine. CI GREEN (Run #277). External LLM-based transformation producer remains out of scope (owned by another team). |
+| **Current state** | Phase 1C complete: architecture decisions confirmed (ADRs 0001-0008), five contracts authoritative (v1.0), owner approvals recorded. **Core validation engine implemented and tested** — COBOL parser, application discovery, GnuCOBOL oracle adapter, Java execution layer, artifact contracts, comparator framework, differential pipeline, evidence engine, verdict engine. CI status: latest run of the `SystemaOps CI` workflow ([.github/workflows/ci.yml](.github/workflows/ci.yml)). External LLM-based transformation producer remains out of scope (owned by another team). |
 | **Primary engineering responsibility** | Business equivalence, testing, validation, execution, evidence, certification, and enterprise-grade application engineering |
 
 ---
@@ -819,7 +821,7 @@ Not in V1 scope (per ADR-0002/0006/0007):
 - Transaction model (CICS excluded from V1)
 
 **Implementation:** `engine/transformation/cobol_parser.py`, `engine/transformation/ir.py`.
-Tested via `tests/transformation/test_cobol_parser.py`, `tests/test_agent2_control_flow.py`.
+Tested via `tests/transformation/test_parser.py`, `tests/transformation/test_parser_failure_contract.py`, `tests/test_agent2_control_flow.py`.
 
 ---
 
@@ -924,8 +926,6 @@ generated Java (the transformation's output) under controlled conditions. It cap
 - `engine/candidate/docker_spring_boot_adapter.py` — DockerSpringBootCandidateAdapter (Maven build in Docker, JAR execution in disposable container, network disabled, resource limits)
 - `engine/candidate/docker_java_adapter.py` — DockerJavaCandidateAdapter (plain Java compilation/execution in Docker)
 - `engine/pipeline.py` — VerticalSlicePipeline orchestrating oracle + candidate execution
-
-### Four distinct concepts that must never be conflated
 
 ### Four distinct concepts that must never be conflated
 
@@ -1044,8 +1044,9 @@ Comparison is performed by a **Comparator Registry**: artifact types map to regi
 typed comparators via the artifact contract. No generic comparator may override declared
 artifact semantics.
 
-**Implementation:** `engine/comparators/framework.py` (ComparatorRegistry, base classes),
-`engine/comparators/stdout_comparator.py`, `engine/comparators/exit_status_comparator.py`.
+**Implementation:** `engine/comparators/framework.py` (ComparatorRegistry, base classes,
+and the `StdoutComparator`, `StderrComparator`, `ExitStatusComparator`,
+`TextFileComparator`, `FixedRecordComparator` implementations).
 
 ### Implemented registry (V1 scope per ADR-0006)
 
@@ -1323,7 +1324,12 @@ flowchart TD
 
 ## Golden Master and Baselines
 
-> STATUS: PLANNED.
+> STATUS: **POLICY IMPLEMENTED — baseline storage PLANNED.**
+>
+> The V1 policy that is implemented is *fresh oracle execution every run with no baseline
+> reuse* (`engine/pipeline.py`; ADR-0008 / DR-17), which is what makes a "golden master"
+> unnecessary in the first slice. Storing, versioning and identity-bound reuse of baselines
+> for a regression suite remain `PLANNED` (`BASELINE_SPEC.md` has not been written).
 
 A **baseline** (golden master) is the authoritative record of COBOL behavior for a defined
 workload. Baseline strategy must be robust against the predecessor project's failure modes
@@ -1392,7 +1398,10 @@ rejected by the gate, not warned about.
 
 ## Evidence Engine
 
-> STATUS: PLANNED.
+> STATUS: **IMPLEMENTED (core)** — evidence manifest + content integrity
+> (`engine/evidence/models.py`, `engine/evidence/integrity.py`). Evidence lifecycle and
+> the evidence state machine remain `PLANNED` (see
+> [Evidence State Machine](#evidence-state-machine)).
 
 **Evidence is a first-class subsystem.** A verdict without complete, reconstructable
 evidence is an opinion, not a certification.
@@ -1470,7 +1479,8 @@ flowchart TD
 
 ## Verdict Engine
 
-> STATUS: PLANNED.
+> STATUS: **IMPLEMENTED (core)** — seven-state strict derivation from an evidence manifest
+> (`engine/verdict/derivation.py`; tests: `tests/verdict/test_verdict.py`).
 
 The verdict engine derives certification outcomes **only from complete evidence**. Verdict
 states are strict and non-degradable.
@@ -1609,7 +1619,8 @@ holds the verdict at the corresponding non-verified state (`UNAVAILABLE`, `UNPRO
 
 ## Database Validation
 
-> STATUS: PLANNED.
+> STATUS: **EXCLUDED FROM V1 (`UNSUPPORTED`, ADR-0007)** — V2 only, after the six entry
+> criteria. Not `PLANNED`-in-V1: it is out of V1 scope.
 
 When database state is part of the business contract, the platform must compare **actual
 observed database state**, not mocks, not logs, not declared intent.
@@ -1750,20 +1761,34 @@ flowchart TD
 
 ## CALL and Multi-Program Validation
 
-> STATUS: PLANNED.
+> STATUS: **PARTIALLY SUPPORTED** — static `CALL` with a literal program name is
+> implemented and tested end to end; dynamic `CALL` is `UNSUPPORTED` and fails closed.
+
+Implemented today:
+
+- static `CALL 'PROGRAM-ID'` — discovered as a call edge, lowered to a positioned Java
+  call, generated, built and executed end to end
+  (`tests/test_call_execution_p0.py`, including a Docker-gated build and runtime run)
+- multi-module linking on the oracle side
+  (`tests/integration/test_oracle_multiprogram.py`)
+- call chains across modules inside one generated application
+  (`TestCallJavaMapping` / `TestGeneratedCallProject` in `tests/test_call_execution_p0.py`)
+- the internal-native producer declares `CALL (static literal target)` in
+  `supported_constructs` and `dynamic CALL` in `unsupported_constructs`
+  (`engine/transformation/producers/internal_native.py`)
+
+Not evidenced in this repository — do not claim:
+
+- dynamic `CALL` (target held in a data item) — explicitly `UNSUPPORTED`
+- `BY CONTENT` / `BY VALUE` write-back equivalence as a differentially proven property
+- return values
+- multi-program workloads certified as separate, independently-evidenced units
 
 Future validation requirements for:
 
-- static `CALL`
-- dynamic `CALL`
-- `CALL USING`
-- `BY REFERENCE`
-- `BY CONTENT`
-- `BY VALUE`
-- parameter mutation (write-back semantics)
+- parameter mutation (write-back semantics) proven against the oracle
 - return values
-- call chains
-- multi-program workloads
+- multi-program certification scope
 
 **Hard rule:** Unknown CALL targets must never silently become no-ops (Lesson 22). A CALL
 to an unresolved program is a fail-closed condition: the workload cannot be certified
@@ -1773,7 +1798,17 @@ because part of its behavior was never executed.
 
 ## JCL / CICS / BMS / DB2
 
-> STATUS: PLANNED. **Not currently supported. Do not claim otherwise.**
+> STATUS: **PARTIALLY IMPLEMENTED (transformation/discovery only) — runtime validation
+> NOT SUPPORTED. Do not claim otherwise.**
+>
+> Implemented: JCL discovery and JCL → Spring Batch generation
+> (`engine/transformation/jcl_discovery.py`, `jcl_parser.py`, `jcl_to_spring_batch.py`;
+> tests `tests/test_jcl_*.py`), and a CICS modernization lane with an explicit
+> supported-subset contract (`engine/cics/`, `engine/transformation/cics_parser.py`;
+> tests `tests/test_cics_*.py`) that states **no CICS TS runtime equivalence is claimed**.
+>
+> Not supported: any runtime *validation* of CICS, BMS, DB2 or VSAM behaviour, and any
+> JCL/CICS/BMS/DB2 equivalence verdict.
 
 Enterprise modernization requires treating these as **connected application dependencies**,
 not as isolated concerns. The future platform should eventually understand:
@@ -2267,7 +2302,7 @@ are caught through the real path, and the verdict is reconstructable from the ma
 ## Capability Matrix
 
 > STATUS: **IMPLEMENTATION UNDERWAY**. Core validation engine components are implemented
-> and tested. CI is GREEN (Run #277). This matrix reflects actual implementation status
+> and tested. CI status is reported by the `SystemaOps CI` workflow ([.github/workflows/ci.yml](.github/workflows/ci.yml)). This matrix reflects actual implementation status
 > with evidence in this repository.
 
 ### Capability status vs run verdict — two different concepts
@@ -2293,7 +2328,7 @@ Legend: `PLANNED` (design intent, no implementation) · `IN DEVELOPMENT` · `SUP
 | Architecture and contract definition | **DONE through Phase 1C** | README + ADRs 0001-0008 + five authoritative v1.0 contracts |
 | V1 contracts (ORACLE / ARTIFACT / VERDICT / JAVA CANDIDATE / PRODUCER) | **AUTHORITATIVE v1.0** | `contracts/` — producer-binding for candidate/producer contracts pending external co-approval |
 | Application ingestion / discovery | **SUPPORTED** | `engine/transformation/application_discovery.py`, `api/ingestion.py`; tests: `test_ingestion_diagnostics.py` |
-| COBOL parsing / semantic analysis | **SUPPORTED** (core) | `engine/transformation/cobol_parser.py`, `engine/transformation/ir.py`; tests: `test_cobol_parser.py`, `test_agent2_control_flow.py` |
+| COBOL parsing / semantic analysis | **SUPPORTED** (core) | `engine/transformation/cobol_parser.py`, `engine/transformation/ir.py`; tests: `test_parser.py`, `test_parser_failure_contract.py`, `test_agent2_control_flow.py` |
 | Canonical semantic model (IR) | **SUPPORTED** | `engine/transformation/ir.py` |
 | Oracle adapter framework (GnuCOBOL) | **SUPPORTED** | `engine/oracle/docker_adapter.py`; tests: `test_oracle_multiprogram.py`, `test_call_execution_p0.py` |
 | Oracle adapters (z/OS, z390, Hercules) | `UNPROVEN` | Infrastructure-dependent; no access evidence |
@@ -2303,15 +2338,14 @@ Legend: `PLANNED` (design intent, no implementation) · `IN DEVELOPMENT` · `SUP
 | Differential testing | **SUPPORTED** | `engine/pipeline.py` (VerticalSlicePipeline) |
 | Business-equivalence engine | **PARTIALLY SUPPORTED** | Verdict engine + comparator registry + differential pipeline |
 | Mutation validation (production path) | `IN DEVELOPMENT` | Negative tests implemented; production-path gated on MUTATION_SPEC |
-| Golden master / baselines | **SUPPORTED** (fresh-execution policy) | `engine/pipeline.py` enforces fresh oracle execution per run (ADR-0008) |
+| Golden master / baselines | **SUPPORTED** (fresh-execution policy) | `engine/pipeline.py` executes the oracle fresh every run with no baseline reuse (ADR-0008 / DR-17); baseline storage `PLANNED` |
 | Evidence engine / manifests | **SUPPORTED** | `engine/evidence/models.py`, `engine/evidence/integrity.py` |
 | Verdict engine | **SUPPORTED** | `engine/verdict/derivation.py` (seven-state strict derivation) |
 | Database validation (H2/PostgreSQL/DB2) | `UNSUPPORTED` (V1) | Excluded per ADR-0007 |
 | VSAM / INDEXED / RELATIVE files | `UNSUPPORTED` (V1) | Excluded per ADR-0002; substring containment forbidden |
-| CICS / BMS / JCL validation | `PARTIALLY SUPPORTED` (JCL discovery) | `engine/transformation/jcl_discovery.py`; CICS/BMS `PLANNED` |
-| VSAM / KSDS / RRDS / ESDS logical equivalence | `PLANNED` |
-| CALL / multi-program validation | `PLANNED` |
-| JCL / CICS / BMS validation | `PLANNED` |
+| CICS / BMS / JCL validation | `PARTIALLY SUPPORTED` (discovery + transformation only; no runtime validation) | `engine/transformation/jcl_discovery.py`, `engine/cics/`; tests: `test_jcl_*.py`, `test_cics_*.py` |
+| VSAM / KSDS / RRDS / ESDS logical equivalence | `PLANNED` (V2; representation strategy still an OPEN ADR) | ADR-0002 — no comparator may be written before the ADR is resolved |
+| CALL / multi-program validation | `PARTIALLY SUPPORTED` (static literal `CALL`; dynamic `CALL` `UNSUPPORTED`) | `engine/transformation/cobol_to_java_mapping.py`; tests: `test_call_execution_p0.py`, `tests/integration/test_oracle_multiprogram.py` |
 | EBCDIC / encoding handling | `PLANNED` |
 | Industrial benchmark estate | `PLANNED` |
 | Model evaluation / comparison | `PLANNED` (secondary) |
@@ -2470,7 +2504,7 @@ A capability is considered production-ready **only when all of the following hol
 > retained as historical record; facts below are `[FACT]` as verified at discovery time.
 > Current-state summary lives in [Current Status](#current-status).
 
-### Current greenfield state [FACT]
+### Greenfield state at Phase-0 discovery [FACT — historical]
 
 - The repository is greenfield and **documentation-only**: at Phase-0 discovery it
   contained **README.md only**; since then the Phase-1 decision package
@@ -2541,7 +2575,7 @@ owner.
 | DR-04 | Business equivalence is the central engineering objective | **CONFIRMED** | Owner instruction | ME | — |
 | DR-05 | Evidence is first-class; certification must be evidence-driven; fail-closed architecture | **CONFIRMED** | Owner instruction; predecessor audit root-cause findings | ME | — |
 | DR-06 | Final verdict vocabulary (six states vs adding `ERROR`) | **CONFIRMED** — seven states incl. `ERROR` ([ADR-0004](docs/decisions/ADR-0001_0004.md)) | Owner approval PD-07 (Phase 1B, [approvals](docs/decisions/PHASE1B_OWNER_APPROVALS.md)) | ME | Resolved |
-| DR-07 | Platform implementation language and build system | **CONFIRMED** — Python 3.12 engine / FastAPI backend / React+TS+Vite frontend, project-owned design system ([ADR-0003](docs/decisions/ADR-0001_0004.md)) | Owner approval PD-08 | ME | Resolved |
+| DR-07 | Platform implementation language and build system | **CONFIRMED** — Python 3.12 engine / FastAPI backend / React+TS+Vite frontend, project-owned design system ([ADR-0003](docs/decisions/ADR-0001_0004.md)) · **Python version deviation open:** ADR-0003 pins 3.12, but the operational pin is **Python 3.11** (`.python-version`, `.github/workflows/ci.yml`) — resolve by pinning 3.12 or recording an ADR amendment | Owner approval PD-08 | ME | Version deviation open |
 | DR-08 | Authoritative COBOL oracle | **CONFIRMED** — GnuCOBOL 3.1.2.0 + OCESQL 1.4, digest-pinned, verdicts oracle-scoped; never z/OS claims ([ADR-0001](docs/decisions/ADR-0001_0004.md), [ORACLE_CONTRACT](../contracts/ORACLE_CONTRACT.md)) | Owner approval PD-01 | ME | Resolved |
 | DR-09 | INDEXED/RELATIVE representation strategy | **CONFIRMED** — excluded from V1 (`UNSUPPORTED`); V2 oracle-stage dump; substring containment permanently forbidden ([ADR-0002](docs/decisions/ADR-0001_0004.md)) | Owner approval PD-02 | ME | Resolved |
 | DR-10 | Required semantic-analysis depth for V1 | **OPEN** | Full parser vs discovery-only vs data-division depth; P1 — blocks the semantic layer only, not contracts | ME | Semantic layer only |
@@ -2719,7 +2753,7 @@ evidence format, baseline policy, scale.
 > **Implementation:** **Core validation engine operational** — COBOL parser, application
 > discovery, GnuCOBOL oracle adapter, Java execution layer, artifact contracts,
 > comparator framework, differential pipeline, evidence engine, verdict engine.
-> CI GREEN (Run #277). External LLM-based transformation producer remains out of scope
+> CI status is reported by the `SystemaOps CI` workflow ([.github/workflows/ci.yml](.github/workflows/ci.yml)). External LLM-based transformation producer remains out of scope
 > (owned by another team).
 >
 > **Confirmed (Phase 1B):** V1 oracle = GnuCOBOL 3.1.2.0 + OCESQL 1.4 digest-pinned,
@@ -2728,7 +2762,7 @@ evidence format, baseline policy, scale.
 > types (ADR-0006) · SQL/DB excluded from V1 (ADR-0007) · verdict vocabulary = seven
 > states incl. ERROR (ADR-0004) · certification = one workload-run, evidence-derived,
 > no partial certification, no weighted scores (ADR-0005) · stack = Python 3.11
-> engine / FastAPI backend / React-TS-Vite frontend (ADR-0003) · evidence =
+> engine (operational pin: `.python-version` + CI; ADR-0003 records 3.12 — deviation open) / FastAPI backend / React-TS-Vite frontend (ADR-0003) · evidence =
 > JSON + SHA-256 content-addressed, digest-pinned (ADR-0008) · baselines = fresh
 > oracle execution every V1 run (ADR-0008) · sandbox = container-per-execution policy
 > (ADR-0008) · scale = single-user single-workload (ADR-0008).
@@ -2744,10 +2778,11 @@ evidence format, baseline policy, scale.
 
 | Aspect | State |
 |---|---|
-| **CURRENT STATE** | Documentation + contracts complete through Phase 1C: README, decision reports, verbatim owner approvals, ADRs 0001-0008, five contracts (v1.0). **Core validation engine implemented and tested** — parser, discovery, oracle adapter, Java execution, artifact contracts, comparators, differential pipeline, evidence engine, verdict engine. CI GREEN (Run #277). |
+| **CURRENT STATE** | Documentation + contracts complete through Phase 1C: README, decision reports, verbatim owner approvals, ADRs 0001-0008, five contracts (v1.0). **Core validation engine implemented and tested** — parser, discovery, oracle adapter, Java execution, artifact contracts, comparators, differential pipeline, evidence engine, verdict engine. CI status: latest run of the `SystemaOps CI` workflow ([.github/workflows/ci.yml](.github/workflows/ci.yml)). |
 | **TARGET ARCHITECTURE** | Documented in this README: discovery → semantics → oracle vs Java execution → artifact contracts → comparators → differential → mutation → evidence → verdict; three-layer separation (DR-29, CONFIRMED): **Validation Engine → Backend / Control Plane → New Frontend**; SystemaOps = **optional future integration surface only** (never frontend, backend, engine dependency, or control plane); concretized by the five authoritative contracts. |
 | **FUTURE ROADMAP** | Phases 0-15 with explicit exit criteria; evidence-integrity-first ordering (see [Development Roadmap](#development-roadmap)). Phase 0-1C complete; V1 implementation underway per Capability Matrix. |
-| **Implementation** | **Core validation engine operational.** Parser, transformation (internal-native), comparator (STDOUT/EXIT_STATUS), adapters (GnuCOBOL, Spring Boot), test framework, execution layer, evidence/verdict engines exist. Database layer (H2), VSAM layer, CICS/BMS, UI remain `PLANNED`/`UNSUPPORTED` per V1 scope (ADR-0002/0007). |
+| **Implementation** | **Core validation engine operational.** Parser, transformation (internal-native), comparator (STDOUT/EXIT_STATUS), adapters (GnuCOBOL, Spring Boot), test framework, execution layer, evidence/verdict engines exist. Database/VSAM validation remain `UNSUPPORTED` per V1 scope (ADR-0002/0007); CICS and JCL are
+transformation/discovery only with no runtime equivalence claim; UI remains `PLANNED`. |
 | **Claims made** | This document makes **no** claims of "100% accurate", "production ready", "fully enterprise ready", "fully verified", "z/OS certified", "DB2 certified", "CICS certified", or "VSAM certified". No such claim may be made until this repository contains evidence proving it. |
 
 > **Writing discipline for this repository:** documentation must always distinguish CURRENT
@@ -2822,5 +2857,6 @@ ADRs 0001-0008 and five authoritative contracts under `contracts/`), tracks the
 remaining open decisions in [Architecture Decisions Pending](#architecture-decisions-pending),
 and lists [Implementation Blockers](#implementation-blockers) (LLM-owner co-approval,
 DR-10, DR-19/31, MUTATION_SPEC). Core validation engine components are implemented and
-tested; CI is GREEN. No production capability is currently certified — verdicts are
+tested; CI runs the `SystemaOps CI` workflow ([.github/workflows/ci.yml](.github/workflows/ci.yml))
+on every push — read the latest run for current status. No production capability is currently certified — verdicts are
 workload-scoped and evidence-derived.*
