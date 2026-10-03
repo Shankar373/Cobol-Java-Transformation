@@ -1817,6 +1817,7 @@ def map_cobol_program_to_java(
             code=sc.code,
             label=sc.label,
             counter_name=_label_to_counter_name(sc.label),
+            field_name=sc.field_name.replace("-", "_"),
         )
         for sc in program.status_codes
     )
@@ -1900,12 +1901,37 @@ def map_cobol_program_to_java(
     # Determine generation mode from capabilities
     caps = _derive_generation_mode(program)
 
-    # Input record fields (from first InputRecordMapping)
+    # Match the primary input resource, rather than the first UNSTRING in
+    # source order (a lookup file may be loaded before the primary file).
     input_record_fields: tuple[str, ...] = ()
+    input_amount_field = ""
     if program.input_record_mappings:
+        primary_input = next((r for r in file_resources if r.access_mode in (
+            JavaFileAccessMode.READ, JavaFileAccessMode.READ_WRITE,
+        )), None)
+        mapping = next((m for m in program.input_record_mappings
+                        if primary_input is not None and m.file_name == primary_input.name),
+                       program.input_record_mappings[0])
         input_record_fields = tuple(
-            f.replace("-", "_") for f in program.input_record_mappings[0].fields
+            f.replace("-", "_") for f in mapping.fields
         )
+        if program.threshold_rules:
+            amount = program.threshold_rules[0].field_name
+            if amount in mapping.fields:
+                input_amount_field = amount.replace("-", "_")
+            else:
+                def walk(statements):
+                    for statement in statements:
+                        yield statement
+                        for attr in ("body", "then_body", "else_body", "at_end_body",
+                                     "not_at_end_body", "invalid_key_body", "not_invalid_key_body"):
+                            yield from walk(getattr(statement, attr, ()))
+                for paragraph in program.paragraphs:
+                    for statement in walk(paragraph.statements):
+                        if isinstance(statement, MoveStatement) and amount in (
+                            statement.targets or (statement.target,)
+                        ) and statement.source in mapping.fields:
+                            input_amount_field = statement.source.replace("-", "_")
 
     return JavaProgram(
         program_id=program.program_id,
@@ -1920,6 +1946,7 @@ def map_cobol_program_to_java(
         match_outcomes=match_outcomes,
         generation_mode=caps,
         input_record_fields=input_record_fields,
+        input_amount_field=input_amount_field,
         copybooks=program.copybooks,
         calls=program.called_programs,
         entry_points=program.entry_points,

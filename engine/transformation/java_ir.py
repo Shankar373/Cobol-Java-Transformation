@@ -475,6 +475,7 @@ class JavaStatusCodeMapping:
     code: str  # e.g. "R", "P", "A"
     label: str  # e.g. "REJECTED", "PENDING"
     counter_name: str  # Java variable name for the counter (e.g. "rejected")
+    field_name: str = ""  # field tested by the source condition
 
 
 @dataclass(frozen=True)
@@ -569,6 +570,7 @@ class JavaProgram:
     generation_mode: str = ""  # "decision", "file_io", or "minimal"
     # Input record field names (positional — which fields are parsed from input records)
     input_record_fields: tuple[str, ...] = ()
+    input_amount_field: str = ""  # threshold operand traced to the input record
 
 
 @dataclass(frozen=True)

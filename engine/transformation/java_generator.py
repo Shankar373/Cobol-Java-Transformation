@@ -229,6 +229,7 @@ class JavaGenerator:
         status_java = self._build_status_checks_java_from_ir(
             program.status_codes, program.match_outcomes,
             program.summary_fields, field_map, program.input_record_fields,
+            program.input_amount_field,
         )
 
         # Summary output
@@ -257,6 +258,8 @@ class JavaGenerator:
         id_var = input_fields[0] if len(input_fields) > 0 else "field_0"
         status_var = input_fields[1] if len(input_fields) > 1 else "field_1"
         amt_str_var = input_fields[-1] if len(input_fields) > 0 else "field_last"
+        status_var = program.status_codes[0].field_name or status_var
+        amt_str_var = program.input_amount_field or amt_str_var
 
         # Report write
         report_write = self._build_record_write_java_from_ir(
@@ -612,6 +615,7 @@ public class {class_name} {{
         summary_fields: tuple[JavaSummaryField, ...],
         field_map: dict[str, JavaField],
         input_record_fields: tuple[str, ...] = (),
+        input_amount_field: str = "",
     ) -> str:
         """Generate Java if/else chain from Java IR status codes."""
         if not status_codes:
@@ -644,6 +648,9 @@ public class {class_name} {{
             id_var = self._derive_field_var_simple(field_map, 0, "field_0")
             status_var = self._derive_field_var_simple(field_map, 1, "field_1")
             amt_str_var = self._derive_field_var_simple(field_map, -1, "field_last")
+
+        status_var = status_codes[0].field_name or status_var
+        amt_str_var = input_amount_field or amt_str_var
 
         lines = []
         first = True
