@@ -129,6 +129,42 @@ def _make_adapter() -> DockerOracleAdapter:
 
 @needs_docker
 class TestDockerOracleFormats:
+    def test_compiler_warnings_are_retained_separately_from_runtime(self, tmp_path):
+        import base64
+        from engine.domain.identities import ContentHash, RunId
+
+        source = tmp_path / "WARN.cob"
+        # Missing final newline deliberately produces a compiler warning.
+        source.write_bytes(
+            b'IDENTIFICATION DIVISION.\nPROGRAM-ID. WARN.\n'
+            b'PROCEDURE DIVISION.\nDISPLAY "runtime error" UPON STDERR.\nSTOP RUN.'
+        )
+        outcome = _make_adapter().execute(RunId(value="run-compile-warning"), str(source))
+        assert outcome.exit_code == 0
+        assert outcome.stdout == b""
+        assert outcome.stderr == b"runtime error\n"
+        diagnostics = outcome.compilation_diagnostics
+        assert diagnostics["exit_code"] == "0"
+        assert b"line not terminated by a newline" in base64.b64decode(diagnostics["stderr_base64"])
+        assert base64.b64decode(diagnostics["stdout_base64"]) == b""
+        evidence = outcome.to_execution_evidence()
+        assert evidence.stderr_hash == ContentHash.from_bytes(b"runtime error\n")
+        assert evidence.to_dict()["compilation_diagnostics"] == diagnostics
+        assert outcome.source_tree_hash_before == outcome.source_tree_hash_after
+
+    def test_compile_failure_remains_failed_and_retains_diagnostics(self, tmp_path):
+        import base64
+        from engine.domain.identities import AdapterStatus, RunId
+
+        source = tmp_path / "BAD.cob"
+        source.write_bytes(b"IDENTIFICATION DIVISION.\nPROGRAM-ID. BAD.\nPROCEDURE DIVISION.\nDISPLAY UNDECLARED-DATA.\nSTOP RUN.\n")
+        outcome = _make_adapter().execute(RunId(value="run-compile-error"), str(source))
+        assert outcome.status == AdapterStatus.FAILED
+        assert outcome.exit_code != 0
+        assert outcome.stderr
+        assert outcome.compilation_diagnostics["exit_code"] != "0"
+        assert base64.b64decode(outcome.compilation_diagnostics["stderr_base64"]) == outcome.stderr
+
     def test_free_format_workload_compiles_and_runs(self) -> None:
         """BLOCKER A regression: free-format source compiles via the oracle."""
         from engine.domain.identities import RunId

@@ -498,6 +498,8 @@ class EvidenceIntegrityValidator:
                     "exit_code": e.exit_code,
                     "stdout_hash": str(e.stdout_hash),
                     "stderr_hash": str(e.stderr_hash),
+                    **({"compilation_diagnostics": e.compilation_diagnostics}
+                       if e.compilation_diagnostics is not None else {}),
                     "generated_files": {k: str(v) for k, v in e.generated_files.items()},
                 }
                 for e in manifest.execution_evidence

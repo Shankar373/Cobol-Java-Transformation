@@ -107,6 +107,7 @@ class OracleExecutionResult:
     generated_files: dict[str, bytes] | None = None
     source_tree_hash_before: ContentHash | None = None
     source_tree_hash_after: ContentHash | None = None
+    compilation_diagnostics: dict[str, str] | None = None
 
     def to_execution_evidence(self) -> ExecutionEvidence:
         """Convert to execution evidence."""
@@ -130,6 +131,7 @@ class OracleExecutionResult:
             exit_code=self.exit_code,
             stdout_hash=stdout_hash,
             stderr_hash=stderr_hash,
+            compilation_diagnostics=self.compilation_diagnostics,
             generated_files=generated_files_hashed,
             source_tree_hash_before=self.source_tree_hash_before or ContentHash.from_string(""),
             source_tree_hash_after=self.source_tree_hash_after or ContentHash.from_string(""),

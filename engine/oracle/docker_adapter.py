@@ -315,6 +315,8 @@ class DockerOracleAdapter(OracleAdapter):
 
                 output_dir = Path(tmpdir) / "output"
                 output_dir.mkdir()
+                diagnostics_dir = Path(tmpdir) / "compilation"
+                diagnostics_dir.mkdir()
 
                 input_dir = Path(tmpdir) / "input"
                 input_mount_args: list[str] = []
@@ -339,7 +341,13 @@ class DockerOracleAdapter(OracleAdapter):
                 )
                 compile_cmd = (
                     f"cd {container_src} && "
-                    f"cobc -x {format_flag}{compile_units} -o /tmp/oracle_prog && "
+                    f"cobc -x {format_flag}{compile_units} -o /tmp/oracle_prog "
+                    f">/workspace/compilation/stdout 2>/workspace/compilation/stderr; "
+                    f"compile_status=$?; "
+                    f"printf '%s' \"$compile_status\" >/workspace/compilation/exit_code; "
+                    f"if [ $compile_status -ne 0 ]; then "
+                    f"cat /workspace/compilation/stdout; "
+                    f"cat /workspace/compilation/stderr >&2; exit $compile_status; fi; "
                     f"cd /workspace && "
                     f"/tmp/oracle_prog"
                 )
@@ -353,6 +361,7 @@ class DockerOracleAdapter(OracleAdapter):
                     "--workdir", "/workspace",
                     "-v", f"{os.path.abspath(tmpdir)}/src:{container_src}:ro",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
+                    "-v", f"{os.path.abspath(diagnostics_dir)}:/workspace/compilation",
                     *input_mount_args,
                     self.V1_IMAGE,
                     "sh", "-c", compile_cmd,
@@ -377,6 +386,18 @@ class DockerOracleAdapter(OracleAdapter):
                     termination = "timeout"
 
                 generated_files: dict[str, bytes] = {}
+                compilation_diagnostics = None
+                if (diagnostics_dir / "exit_code").is_file():
+                    import base64
+                    compilation_diagnostics = {
+                        "exit_code": (diagnostics_dir / "exit_code").read_text(),
+                        "stdout_base64": base64.b64encode(
+                            (diagnostics_dir / "stdout").read_bytes()
+                        ).decode("ascii"),
+                        "stderr_base64": base64.b64encode(
+                            (diagnostics_dir / "stderr").read_bytes()
+                        ).decode("ascii"),
+                    }
                 if output_dir.is_dir():
                     for f in sorted(output_dir.rglob("*")):
                         if f.is_file():
@@ -402,6 +423,7 @@ class DockerOracleAdapter(OracleAdapter):
                 generated_files=generated_files if generated_files else None,
                 source_tree_hash_before=source_hash_before,
                 source_tree_hash_after=source_hash_after,
+                compilation_diagnostics=compilation_diagnostics,
             )
 
         except Exception as e:

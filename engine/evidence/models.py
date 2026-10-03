@@ -86,10 +86,11 @@ class ExecutionEvidence:
     termination_status: str  # normal, timeout, nonzero_exit, error
     timeout_applied: bool
     timeout_duration: int | None = None
+    compilation_diagnostics: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
-        return {
+        result = {
             "execution_id": self.execution_id.value,
             "run_id": self.run_id.value,
             "runtime_id": self.runtime_id,
@@ -108,6 +109,9 @@ class ExecutionEvidence:
             "timeout_applied": self.timeout_applied,
             "timeout_duration": self.timeout_duration,
         }
+        if self.compilation_diagnostics is not None:
+            result["compilation_diagnostics"] = self.compilation_diagnostics
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +272,8 @@ class EvidenceManifest:
                     "exit_code": e.exit_code,
                     "stdout_hash": str(e.stdout_hash),
                     "stderr_hash": str(e.stderr_hash),
+                    **({"compilation_diagnostics": e.compilation_diagnostics}
+                       if e.compilation_diagnostics is not None else {}),
                 }
                 for e in self.execution_evidence
             ],
