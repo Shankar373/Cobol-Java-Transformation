@@ -171,8 +171,10 @@ def _extract_app_output(raw: str) -> list[str]:
 
 
 def _normalize_numbers(text: str) -> str:
-    """Strip leading zeros from numeric values for comparison."""
-    return re.sub(r"=(\d+)", lambda m: "=" + (m.group(1).lstrip("0") or "0"), text)
+    """Strip leading zeros from numeric values and trailing spaces from PIC 9(n) formatting for comparison."""
+    text = re.sub(r"=(\d+)", lambda m: "=" + (m.group(1).lstrip("0") or "0"), text)
+    text = re.sub(r"(\d+)\s*$", r"\1", text)
+    return text
 
 
 # ============================================================
