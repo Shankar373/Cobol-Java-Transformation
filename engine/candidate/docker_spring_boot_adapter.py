@@ -350,7 +350,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     # Bind-mount output dir (Python-owned — receives the JAR)
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     self._config.build_image,
-                    "sh", "-c", f"{maven_cmd} && cp target/*.jar /workspace/output/ 2>/dev/null || true",
+                    "sh", "-c", f"{maven_cmd} && cp target/*.jar /workspace/output/",
                 ]
 
                 proc = None
@@ -363,11 +363,12 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     )
 
                     if proc.returncode != 0:
+                        stdout = proc.stdout.decode(errors="replace")
                         stderr = proc.stderr.decode(errors="replace")
                         return CompilationResult(
                             success=False,
                             class_files={},
-                            compilation_errors=(f"Maven build failed: {stderr}",),
+                            compilation_errors=(f"Maven build failed (exit {proc.returncode}):\n{stdout}\n{stderr}",),
                             compilation_time_ms=int(
                                 (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                             ),
