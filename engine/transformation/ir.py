@@ -303,14 +303,31 @@ class OpenStatement:
 
 
 @dataclass(frozen=True)
+class CloseStatement:
+    """CLOSE file."""
+    file_name: str
+
+
+@dataclass(frozen=True)
 class ReadStatement:
     """READ file AT END / NOT AT END / INVALID KEY / NOT INVALID KEY."""
     file_name: str
     record_name: str
     key: str = ""  # READ with key for indexed/relative
     into_field: str = ""  # READ INTO field
+    read_next: bool = False  # READ NEXT RECORD
     at_end_body: tuple[Statement, ...] = ()
     not_at_end_body: tuple[Statement, ...] = ()
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class StartStatement:
+    """START file KEY IS [relational-operator] key."""
+    file_name: str
+    key: str = ""
+    operator: str = ""  # "=", "<", "<=", ">", ">="
     invalid_key_body: tuple[Statement, ...] = ()
     not_invalid_key_body: tuple[Statement, ...] = ()
 
@@ -321,6 +338,8 @@ class WriteStatement:
     record_name: str
     file_name: str
     from_field: str = ""  # WRITE FROM field
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -343,14 +362,12 @@ class DeleteStatement:
 
 @dataclass(frozen=True)
 class MoveStatement:
-    """MOVE source TO target.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """MOVE source TO one or more targets."""
     source: str
     target: str
-    source_expr: Expression | None = None  # structured source expression
-    target_ref: FieldReference | None = None  # structured target reference
+    source_expr: Expression | None = None
+    target_ref: FieldReference | None = None
+    targets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,6 +380,39 @@ class AddStatement:
     target: str
     source_expr: Expression | None = None  # structured source expression
     target_ref: FieldReference | None = None  # structured target reference
+    giving_target: str | None = None  # ADD ... GIVING result
+
+
+@dataclass(frozen=True)
+class SubtractStatement:
+    """SUBTRACT source FROM from_field [GIVING to_field]."""
+    source: str
+    from_field: str
+    to_field: str | None = None
+    source_expr: Expression | None = None
+    from_ref: FieldReference | None = None
+    to_ref: FieldReference | None = None
+    sources: tuple[str, ...] = ()  # multi-source SUBTRACT A B C FROM D
+
+
+@dataclass(frozen=True)
+class MultiplyStatement:
+    """MULTIPLY source BY multiplicand [GIVING target]."""
+    source: str
+    multiplicand: str
+    target: str | None = None
+    source_expr: Expression | None = None
+    multiplicand_ref: FieldReference | None = None
+    target_ref: FieldReference | None = None
+
+
+@dataclass(frozen=True)
+class CallStatement:
+    """CALL a statically or dynamically named COBOL program."""
+    program_name: str
+    arguments: tuple[str, ...] = ()
+    passing_modes: tuple[str, ...] = ()
+    is_dynamic: bool = False
 
 
 @dataclass(frozen=True)
@@ -406,13 +456,13 @@ class IfStatement:
 
 @dataclass(frozen=True)
 class PerformStatement:
-    """PERFORM paragraph-name UNTIL condition, or PERFORM paragraph-name.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """PERFORM paragraph/inline block with optional UNTIL, TIMES, VARYING or THRU."""
     paragraph_name: str
     until_condition: str | None = None
-    structured_condition: Condition | None = None  # structured condition tree
+    structured_condition: Condition | None = None
+    body: tuple[Statement, ...] = ()
+    thru_target: str | None = None
+    test_after: bool = False  # WITH TEST AFTER → do-while; default (BEFORE) → while
 
 
 @dataclass(frozen=True)
@@ -476,12 +526,17 @@ class StopRunStatement:
 # Union type for all statements
 Statement = (
     OpenStatement
+    | CloseStatement
     | ReadStatement
+    | StartStatement
     | WriteStatement
     | RewriteStatement
     | DeleteStatement
     | MoveStatement
     | AddStatement
+    | SubtractStatement
+    | MultiplyStatement
+    | CallStatement
     | DivideStatement
     | IfStatement
     | PerformStatement
@@ -778,9 +833,11 @@ class CobolProgram:
     summary_fields: tuple[str, ...] = ()
     report_header: str = ""
     # Dependency information
-    called_programs: tuple[str, ...] = ()  # PROGRAM-IDs called via CALL
+    called_programs: tuple[str, ...] = ()
     copybooks: tuple[str, ...] = ()  # COPY references
     entry_points: tuple[str, ...] = ()  # ENTRY statements
+    linkage_section: tuple[DataItem, ...] = ()
+    using_parameters: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------

@@ -155,6 +155,8 @@ class ApplicationDiscovery:
                 match_outcome_labels=program.match_outcome_labels,
                 summary_fields=program.summary_fields,
                 report_header=program.report_header,
+                linkage_section=program.linkage_section,
+                using_parameters=program.using_parameters,
                 called_programs=tuple(c.target for c in calls),
                 copybooks=tuple(cb.copybook_name for cb in copybooks),
                 entry_points=tuple(entry_points),
@@ -201,12 +203,13 @@ class ApplicationDiscovery:
                 args_str = using_match.group(1).strip()
                 arguments = tuple(args_str.split())
 
+            is_literal = bool(match.group(1) or match.group(2))
             calls.append(ProgramCall(
                 caller=caller_id,
                 target=target,
                 arguments=arguments,
-                call_type="STATIC",
-                resolution="UNRESOLVED",  # Will be resolved later
+                call_type="STATIC" if is_literal else "DYNAMIC",
+                resolution="UNRESOLVED",
             ))
 
         return calls
@@ -316,14 +319,19 @@ class ApplicationDiscovery:
         known_programs = {p.program_id for p in program_units}
 
         for unit in program_units:
-            # Add CALL edges
+            # Add CALL edges. Dynamic CALLs (CALL data-item) never resolve
+            # to a static edge even when the item name coincides with a
+            # program-id — the target is a runtime value.
             for call in unit.calls:
-                resolution = "RESOLVED" if call.target in known_programs else "UNRESOLVED"
+                if call.call_type == "DYNAMIC":
+                    resolution = "UNRESOLVED"
+                else:
+                    resolution = "RESOLVED" if call.target in known_programs else "UNRESOLVED"
                 edges.append(DependencyEdge(
                     source=unit.program_id,
                     target=call.target,
                     edge_type="CALL",
-                    metadata=f"resolution={resolution}",
+                    metadata=f"resolution={resolution};call_type={call.call_type}",
                 ))
 
             # Add COPY edges

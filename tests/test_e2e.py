@@ -17,6 +17,7 @@ No mocks. No fake results. Real engine execution only.
 from __future__ import annotations
 
 import io
+import time
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,24 @@ client = TestClient(app)
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "workload-arithmetic"
 COBOL_SOURCE = FIXTURES / "cobol" / "ARITH.cob"
 JAVA_CANDIDATE = FIXTURES / "java-candidate" / "Arithmetic.java"
+
+
+def _await_run(run_id: str, timeout_s: float = 240.0) -> dict:
+    """Poll GET /runs/{run_id} until COMPLETED or FAILED.
+
+    E2E tests run real Docker (GnuCOBOL + Spring Boot Maven build),
+    so they need a generous timeout.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        body = client.get(f"/runs/{run_id}").json()
+        if body.get("stage") in ("COMPLETED", "FAILED"):
+            return body
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"run {run_id} stuck at '{body.get('stage')}' after {timeout_s}s"
+            )
+        time.sleep(2)
 
 
 @pytest.fixture(autouse=True)
@@ -87,14 +106,9 @@ class TestArithRealE2E:
         resp = client.post(f"/applications/{app_id}/modernize")
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
-        stage = resp.json()["stage"]
-        assert stage in ("COMPLETED", "FAILED")
 
-        # 5. Verify run status
-        resp = client.get(f"/runs/{run_id}")
-        assert resp.status_code == 200
-        run = resp.json()
-        assert run["id"] == run_id
+        # 5. Poll until the background worker completes
+        run = _await_run(run_id)
         assert run["stage"] == "COMPLETED", f"Run failed: {run.get('error')}"
 
         # 6. Get artifacts - must have real artifacts from engine
@@ -155,6 +169,8 @@ class TestArithRealE2E:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
 
+        _await_run(run_id)
+
         resp = client.get(f"/runs/{run_id}/verdict")
         assert resp.status_code == 200
         assert resp.json()["state"] == "VERIFIED"
@@ -192,8 +208,8 @@ class TestTransformRealE2E:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
 
-        resp = client.get(f"/runs/{run_id}")
-        run = resp.json()
+        # Poll until the background worker reaches terminal state
+        run = _await_run(run_id)
 
         # The run must complete (may be FAILED due to transform output)
         assert run["stage"] in ("COMPLETED", "FAILED")
@@ -287,10 +303,8 @@ class TestRunLifecycle:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
 
-        # Run must be completed
-        resp = client.get(f"/runs/{run_id}")
-        assert resp.status_code == 200
-        run = resp.json()
+        # Run must be completed — poll until background worker finishes
+        run = _await_run(run_id)
         assert run["stage"] == "COMPLETED"
         assert run["completed_at"] is not None
         assert run["error"] is None
@@ -316,6 +330,8 @@ class TestRunLifecycle:
 
         resp = client.post(f"/applications/{app_id}/modernize")
         run_id = resp.json()["run_id"]
+
+        _await_run(run_id)
 
         resp = client.get(f"/runs/{run_id}/verdict")
         v = resp.json()
@@ -402,8 +418,7 @@ class TestZipIngestionE2E:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
 
-        resp = client.get(f"/runs/{run_id}")
-        run = resp.json()
+        run = _await_run(run_id)
         assert run["stage"] in ("COMPLETED", "FAILED")
 
         # Verdict must be valid
@@ -438,6 +453,8 @@ class TestZipIngestionE2E:
 
         resp = client.post(f"/applications/{app_id}/modernize")
         run_id = resp.json()["run_id"]
+
+        _await_run(run_id)
 
         resp = client.get(f"/runs/{run_id}/download")
         assert resp.status_code == 200

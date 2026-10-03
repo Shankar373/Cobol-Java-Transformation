@@ -282,6 +282,8 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
         dependency_edges=discovery.dependency_edges,
         source_file_count=discovery.source_file_count,
         total_size_bytes=discovery.total_size_bytes,
+        discovery_success=discovery.discovery_success,
+        discovery_errors=discovery.discovery_errors,
     )
 
 

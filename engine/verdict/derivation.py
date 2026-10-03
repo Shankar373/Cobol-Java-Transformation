@@ -62,7 +62,8 @@ class VerdictDeriver:
     def __init__(self) -> None:
         self._supported_scope = (
             "V1 validation scope: "
-            "GnuCOBOL 3.1.2.0 oracle, plain Java candidate, "
+            "GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate "
+            "(DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), "
             "artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; "
             "INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); "
             "substring containment permanently forbidden."

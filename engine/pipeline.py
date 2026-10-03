@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,8 +77,13 @@ class PipelineConfig:
     java_candidate_path: str
     java_entrypoint: str
     workload: WorkloadDefinition | None = None
-    oracle_image: str = "gnucobol-ocesql:latest"
-    oracle_digest: str = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+    oracle_image: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_IMAGE", "gnucobol-ocesql:latest"
+    )
+    oracle_digest: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_DIGEST",
+        "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+    )
     oracle_compiler_version: str = "3.1.2.0"
     javac_path: str = "javac"
     java_path: str = "java"
@@ -218,7 +225,7 @@ class VerticalSlicePipeline:
             source_hash=str(source_hash),
             generated_files=generated_files,
             entrypoint=self._config.java_entrypoint,
-            java_version="25",
+            java_version="21",
         )
 
     def _extract_artifact_content(
@@ -226,32 +233,38 @@ class VerticalSlicePipeline:
         artifact_type: str,
         output_path: str | None,
         execution_result: object,
-    ) -> bytes:
-        """Extract artifact content from execution result based on artifact type."""
+    ) -> bytes | None:
+        """Extract artifact content; missing declared files return None."""
         if artifact_type == "STDOUT":
             return execution_result.stdout
         if artifact_type == "STDERR":
             return execution_result.stderr
         if artifact_type == "EXIT_STATUS":
-            return str(execution_result.exit_code or -1).encode()
+            _ec = execution_result.exit_code
+            return str(_ec if _ec is not None else -1).encode()
         if artifact_type in ("TEXT_FILE", "FIXED_RECORD"):
             generated = getattr(execution_result, "generated_files", None) or {}
             if output_path and output_path in generated:
                 return generated[output_path]
-            return b""
-        return b""
+            return None
+        return None
 
     def _capture_artifact(
         self,
         artifact_type: str,
         output_path: str | None,
         execution_id: ExecutionId,
-        content: bytes,
+        content: bytes | None,
         logical_name: str,
         producer_role: str,
         record_length: int | None = None,
     ) -> CapturedArtifact:
-        """Capture an artifact using the appropriate capturer method."""
+        """Capture an artifact; None content means the artifact is absent."""
+        if content is None:
+            return self._capturer.capture_missing(
+                execution_id, artifact_type, logical_name, producer_role,
+                record_length=record_length,
+            )
         if artifact_type == "STDOUT":
             return self._capturer.capture_stdout(
                 execution_id, content, logical_name, producer_role
@@ -296,6 +309,8 @@ class VerticalSlicePipeline:
             normalization_applied=comp_result.normalization_applied,
             differences=tuple(d.description for d in comp_result.differences),
             field_level_results=(),
+            ordering_applied=getattr(comp_result, "ordering_applied", "SEQUENTIAL"),
+            failure_policy=getattr(comp_result, "failure_policy", ""),
             content_hash=ContentHash.from_string(json.dumps({
                 "result": comp_result.result.value,
                 "differences": [
@@ -361,9 +376,17 @@ class VerticalSlicePipeline:
                 )
 
             # Compare
+            normalization = (
+                artifact_def.normalization.allowed_normalizations
+                if artifact_def.normalization else ()
+            )
+            ordering = artifact_def.ordering.order if artifact_def.ordering else "SEQUENTIAL"
             comp_result = comparator.compare(
                 oracle_ca.artifact, oracle_ca.content,
                 candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=normalization,
+                ordering=ordering,
+                failure_policy=artifact_def.failure,
             )
             comparison_evidence.append(self._make_comparison_evidence(
                 run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
@@ -393,7 +416,18 @@ class VerticalSlicePipeline:
                 files[source.name] = source.read_bytes()
         return files if files else None
 
-    def run(self, controlled_input: bytes | None = None) -> PipelineResult:
+    def run(
+        self,
+        controlled_input: bytes | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> PipelineResult:
+        """Run the full validation pipeline.
+
+        The optional progress callback receives phase names
+        (EXECUTING_ORACLE, BUILDING, EXECUTING_GENERATED, COMPARING,
+        VALIDATING_EVIDENCE) as each phase STARTS. It changes nothing
+        about execution, comparison, evidence, or verdict semantics.
+        """
         run_id = RunId(value=f"run-{self._config.workload_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
         workload_id = WorkloadId(value=self._config.workload_id)
 
@@ -401,6 +435,8 @@ class VerticalSlicePipeline:
 
         input_files = self._load_input_files()
 
+        if progress is not None:
+            progress("EXECUTING_ORACLE")
         oracle_result = self._oracle_adapter.execute(
             run_id=run_id,
             source_path=self._config.cobol_source_path,
@@ -411,6 +447,8 @@ class VerticalSlicePipeline:
 
         candidate_identity = self._compute_candidate_identity(source_identity.source_hash)
 
+        if progress is not None:
+            progress("BUILDING")
         compilation = self._candidate_adapter.compile(
             candidate_path=self._config.java_candidate_path,
             manifest=self._build_candidate_manifest(source_identity.source_hash),
@@ -423,6 +461,8 @@ class VerticalSlicePipeline:
                     class_file.parent.mkdir(parents=True, exist_ok=True)
                     class_file.write_bytes(bytecode)
 
+                if progress is not None:
+                    progress("EXECUTING_GENERATED")
                 candidate_result = self._candidate_adapter.execute(
                     run_id=run_id,
                     compiled_path=tmpdir,
@@ -447,6 +487,8 @@ class VerticalSlicePipeline:
 
         candidate_evidence = candidate_result.to_execution_evidence()
 
+        if progress is not None:
+            progress("COMPARING")
         if self._config.workload is not None:
             artifact_evidence, comparison_evidence, _, _ = self._run_declaration_driven(
                 run_id, workload_id, oracle_result, candidate_result,
@@ -478,6 +520,8 @@ class VerticalSlicePipeline:
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation
+        if progress is not None:
+            progress("VALIDATING_EVIDENCE")
         validation_result = self._integrity_validator.validate(manifest)
         if isinstance(validation_result, list):
             # Trust boundary violated — untrusted evidence cannot produce VERIFIED
@@ -543,8 +587,9 @@ class VerticalSlicePipeline:
         oracle_stderr_artifact = self._capturer.capture_stderr(
             oracle_result.execution_id, oracle_result.stderr, "oracle-stderr", "ORACLE"
         )
+        _oracle_ec = oracle_result.exit_code
         oracle_exit_artifact = self._capturer.capture_exit_status(
-            oracle_result.execution_id, oracle_result.exit_code or -1, "ORACLE"
+            oracle_result.execution_id, _oracle_ec if _oracle_ec is not None else -1, "ORACLE"
         )
 
         candidate_stdout_artifact = self._capturer.capture_stdout(
@@ -553,8 +598,9 @@ class VerticalSlicePipeline:
         candidate_stderr_artifact = self._capturer.capture_stderr(
             candidate_result.execution_id, candidate_result.stderr, "candidate-stderr", "CANDIDATE"
         )
+        _cand_ec = candidate_result.exit_code
         candidate_exit_artifact = self._capturer.capture_exit_status(
-            candidate_result.execution_id, candidate_result.exit_code or -1, "CANDIDATE"
+            candidate_result.execution_id, _cand_ec if _cand_ec is not None else -1, "CANDIDATE"
         )
 
         oracle_artifacts_list = [

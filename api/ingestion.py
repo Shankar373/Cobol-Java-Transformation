@@ -54,6 +54,12 @@ class DiscoveryResult:
     dependency_edges: list[dict] = field(default_factory=list)
     source_file_count: int = 0
     total_size_bytes: int = 0
+    discovery_errors: list[dict] = field(default_factory=list)
+
+    @property
+    def discovery_success(self) -> bool:
+        """Whether all discovery stages completed without errors."""
+        return not self.discovery_errors
 
     def to_dict(self) -> dict:
         return {
@@ -66,6 +72,8 @@ class DiscoveryResult:
             "dependency_edges": self.dependency_edges,
             "source_file_count": self.source_file_count,
             "total_size_bytes": self.total_size_bytes,
+            "discovery_success": self.discovery_success,
+            "discovery_errors": self.discovery_errors,
         }
 
 
@@ -197,8 +205,11 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                 "target": edge.target,
                 "edge_type": edge.edge_type,
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        result.discovery_errors.append({
+            "stage": "COBOL_DISCOVERY",
+            "message": str(exc),
+        })
 
     # Discover JCL
     try:
@@ -232,7 +243,10 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                     "target": dep.target,
                     "edge_type": dep.dependency_type,
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        result.discovery_errors.append({
+            "stage": "JCL_DISCOVERY",
+            "message": str(exc),
+        })
 
     return result

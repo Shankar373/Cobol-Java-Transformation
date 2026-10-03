@@ -53,6 +53,8 @@ class ComparatorResult:
     normalization_applied: tuple[str, ...]
     field_level_results: tuple[dict[str, Any], ...] = ()
     evidence_hash: ContentHash | None = None
+    ordering_applied: str = "SEQUENTIAL"
+    failure_policy: str = ""
 
     def to_comparison_evidence(self, run_id: RunId) -> ComparisonEvidence:
         """Convert to comparison evidence."""
@@ -109,10 +111,66 @@ class TypedComparator(ABC):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare two artifacts. Must be deterministic and reproducible."""
         ...
+
+    def _handle_missing(
+        self,
+        oracle_artifact: ArtifactIdentity,
+        candidate_artifact: ArtifactIdentity,
+        oracle_content: bytes | None,
+        candidate_content: bytes | None,
+        failure_policy: object | None,
+    ) -> ComparatorResult | None:
+        """Return a result if either artifact is missing/unavailable; else None."""
+        oracle_missing = oracle_content is None
+        candidate_missing = candidate_content is None
+        if not oracle_missing and not candidate_missing:
+            return None
+        policy = getattr(failure_policy, "on_missing", "UNAVAILABLE")
+        result = (
+            ComparisonResult.INCONCLUSIVE
+            if policy == "UNAVAILABLE"
+            else ComparisonResult.MISMATCH
+        )
+        if oracle_missing and candidate_missing:
+            description = "Both declared artifacts are missing/unavailable"
+        elif oracle_missing:
+            description = "Oracle declared artifact is missing/unavailable"
+        else:
+            description = "Candidate declared artifact is missing/unavailable"
+        return ComparatorResult(
+            comparator_id=self._comparator_id,
+            oracle_artifact=oracle_artifact,
+            candidate_artifact=candidate_artifact,
+            result=result,
+            differences=(
+                ComparisonDifference(
+                    location="artifact",
+                    expected="PRESENT" if not oracle_missing else "MISSING",
+                    actual="PRESENT" if not candidate_missing else "MISSING",
+                    description=description,
+                ),
+            ),
+            normalization_applied=(),
+            ordering_applied="SEQUENTIAL",
+            failure_policy=policy,
+        )
+
+    @staticmethod
+    def _apply_ordering(content: bytes, ordering: str) -> bytes:
+        """Sort lines when ordering is SORTED or UNORDERED; pass through SEQUENTIAL."""
+        if ordering == "SEQUENTIAL":
+            return content
+        if ordering in ("SORTED", "UNORDERED"):
+            return b"".join(sorted(content.splitlines(keepends=True)))
+        raise ValueError(f"Unsupported ordering policy: {ordering}")
 
     def _normalize(self, content: bytes, normalizations: tuple[str, ...]) -> bytes:
         """Apply normalizations to content."""
@@ -165,12 +223,22 @@ class StdoutComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare STDOUT artifacts."""
-        normalizations = ("crlf_to_lf",)
-        oracle_normalized = self._normalize(oracle_content, normalizations)
-        candidate_normalized = self._normalize(candidate_content, normalizations)
+        missing = self._handle_missing(
+            oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy
+        )
+        if missing is not None:
+            return missing
+        assert candidate_content is not None
+        normalizations = normalization_policy if normalization_policy is not None else ("crlf_to_lf",)
+        oracle_normalized = self._apply_ordering(self._normalize(oracle_content, normalizations), ordering)
+        candidate_normalized = self._apply_ordering(self._normalize(candidate_content, normalizations), ordering)
 
         if oracle_normalized == candidate_normalized:
             return ComparatorResult(
@@ -180,6 +248,7 @@ class StdoutComparator(TypedComparator):
                 result=ComparisonResult.MATCH,
                 differences=(),
                 normalization_applied=normalizations,
+                ordering_applied=ordering,
             )
         else:
             return ComparatorResult(
@@ -196,6 +265,7 @@ class StdoutComparator(TypedComparator):
                     ),
                 ),
                 normalization_applied=normalizations,
+                ordering_applied=ordering,
             )
 
 
@@ -210,12 +280,22 @@ class StderrComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare STDERR artifacts."""
-        normalizations = ("crlf_to_lf",)
-        oracle_normalized = self._normalize(oracle_content, normalizations)
-        candidate_normalized = self._normalize(candidate_content, normalizations)
+        missing = self._handle_missing(
+            oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy
+        )
+        if missing is not None:
+            return missing
+        assert candidate_content is not None
+        normalizations = normalization_policy if normalization_policy is not None else ("crlf_to_lf",)
+        oracle_normalized = self._apply_ordering(self._normalize(oracle_content, normalizations), ordering)
+        candidate_normalized = self._apply_ordering(self._normalize(candidate_content, normalizations), ordering)
 
         if oracle_normalized == candidate_normalized:
             return ComparatorResult(
@@ -225,6 +305,7 @@ class StderrComparator(TypedComparator):
                 result=ComparisonResult.MATCH,
                 differences=(),
                 normalization_applied=normalizations,
+                ordering_applied=ordering,
             )
         else:
             return ComparatorResult(
@@ -241,6 +322,7 @@ class StderrComparator(TypedComparator):
                     ),
                 ),
                 normalization_applied=normalizations,
+                ordering_applied=ordering,
             )
 
 
@@ -255,9 +337,19 @@ class ExitStatusComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare EXIT_STATUS artifacts."""
+        missing = self._handle_missing(
+            oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy
+        )
+        if missing is not None:
+            return missing
+        assert candidate_content is not None
         try:
             oracle_exit = int(oracle_content.strip())
             candidate_exit = int(candidate_content.strip())
@@ -316,12 +408,22 @@ class TextFileComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare TEXT_FILE artifacts."""
-        normalizations = ("crlf_to_lf",)
-        oracle_normalized = self._normalize(oracle_content, normalizations)
-        candidate_normalized = self._normalize(candidate_content, normalizations)
+        missing = self._handle_missing(
+            oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy
+        )
+        if missing is not None:
+            return missing
+        assert candidate_content is not None
+        normalizations = normalization_policy if normalization_policy is not None else ("crlf_to_lf",)
+        oracle_normalized = self._apply_ordering(self._normalize(oracle_content, normalizations), ordering)
+        candidate_normalized = self._apply_ordering(self._normalize(candidate_content, normalizations), ordering)
 
         if oracle_normalized == candidate_normalized:
             return ComparatorResult(
@@ -331,6 +433,7 @@ class TextFileComparator(TypedComparator):
                 result=ComparisonResult.MATCH,
                 differences=(),
                 normalization_applied=normalizations,
+                ordering_applied=ordering,
             )
         else:
             return ComparatorResult(
@@ -347,6 +450,7 @@ class TextFileComparator(TypedComparator):
                     ),
                 ),
                 normalization_applied=normalizations,
+                ordering_applied=ordering,
             )
 
 
@@ -366,9 +470,19 @@ class FixedRecordComparator(TypedComparator):
         oracle_artifact: ArtifactIdentity,
         oracle_content: bytes,
         candidate_artifact: ArtifactIdentity,
-        candidate_content: bytes,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
     ) -> ComparatorResult:
         """Compare FIXED_RECORD artifacts record-by-record."""
+        missing = self._handle_missing(
+            oracle_artifact, candidate_artifact, oracle_content, candidate_content, failure_policy
+        )
+        if missing is not None:
+            return missing
+        assert candidate_content is not None
         oracle_rl = oracle_artifact.record_count
         candidate_rl = candidate_artifact.record_count
 

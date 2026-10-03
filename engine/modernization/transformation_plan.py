@@ -192,14 +192,22 @@ class TransformationPlanGenerator:
         program_id: str,
         capability: 'ComponentCapability | None',
     ) -> ComponentPlan:
-        """Plan a single program's transformation."""
+        """Plan a single program's transformation.
+
+        Fail-closed contract:
+            SUPPORTED   → TRANSFORM (the only path to transformation)
+            PARTIAL     → SKIP  (partial support must not silently proceed)
+            UNSUPPORTED → SKIP
+            UNAVAILABLE → SKIP
+            None/unknown → SKIP (missing capability is not a green light)
+        """
         if capability is None:
             return ComponentPlan(
                 component_id=program_id,
                 component_type="PROGRAM",
-                action=TransformationAction.TRANSFORM,
-                transformer=TransformerType.INTERNAL_NATIVE,
-                reason="No capability analysis — default transformable",
+                action=TransformationAction.SKIP,
+                transformer=TransformerType.SKIP,
+                reason="No capability analysis result — transformation blocked (unknown capability)",
             )
 
         if capability.level == CapabilityLevel.SUPPORTED:
@@ -211,12 +219,14 @@ class TransformationPlanGenerator:
                 reason="All constructs supported",
             )
         if capability.level == CapabilityLevel.PARTIAL:
+            # PARTIAL support must not silently proceed as if fully supported.
+            # The generated candidate would be incomplete; transformation is blocked.
             return ComponentPlan(
                 component_id=program_id,
                 component_type="PROGRAM",
-                action=TransformationAction.TRANSFORM,
-                transformer=TransformerType.INTERNAL_NATIVE,
-                reason=f"Partial support: {capability.reason}",
+                action=TransformationAction.SKIP,
+                transformer=TransformerType.SKIP,
+                reason=f"Partial support — transformation blocked: {capability.reason}",
             )
         if capability.level == CapabilityLevel.UNSUPPORTED:
             return ComponentPlan(
@@ -234,11 +244,13 @@ class TransformationPlanGenerator:
                 transformer=TransformerType.SKIP,
                 reason=f"Unavailable: {capability.reason}",
             )
+        # Unknown/unexpected capability level — fail closed.
         return ComponentPlan(
             component_id=program_id,
             component_type="PROGRAM",
-            action=TransformationAction.TRANSFORM,
-            transformer=TransformerType.INTERNAL_NATIVE,
+            action=TransformationAction.SKIP,
+            transformer=TransformerType.SKIP,
+            reason=f"Unknown capability level '{capability.level}' — transformation blocked",
         )
 
     def _topological_sort(self, application: CobolApplication) -> list:
