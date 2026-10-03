@@ -157,6 +157,8 @@ class ComparisonEvidence:
     differences: tuple[str, ...]
     field_level_results: tuple[dict[str, Any], ...]
     content_hash: ContentHash
+    ordering_applied: str = "SEQUENTIAL"
+    failure_policy: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -171,6 +173,8 @@ class ComparisonEvidence:
             "normalization_applied": list(self.normalization_applied),
             "differences": list(self.differences),
             "field_level_results": list(self.field_level_results),
+            "ordering_applied": self.ordering_applied,
+            "failure_policy": self.failure_policy,
         }
 
 
