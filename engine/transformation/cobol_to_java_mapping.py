@@ -1833,12 +1833,21 @@ def map_cobol_program_to_java(
 
     # Summary fields → JavaSummaryField
     ws_lookup = {item.name: item for item in program.working_storage}
+    summary_items = dict(ws_lookup)
+    for paragraph in program.paragraphs:
+        for statement in paragraph.statements:
+            if isinstance(statement, DisplayStatement) and len(statement.parts) == 2:
+                label, reference = statement.parts
+                if label.startswith(("'", '"')) and label.endswith(label[0]):
+                    item = ws_lookup.get(reference)
+                    if item is not None:
+                        summary_items[label[1:-1].removesuffix("=")] = item
     summary_fields = tuple(
         JavaSummaryField(
             field_name=field,
             java_var_name=_cobol_field_to_java_var(field),
-            format_width=ws_lookup[field].format_width if field in ws_lookup else 0,
-            is_numeric=ws_lookup[field].is_numeric if field in ws_lookup else True,
+            format_width=summary_items[field].format_width if field in summary_items else 0,
+            is_numeric=summary_items[field].is_numeric if field in summary_items else True,
         )
         for field in program.summary_fields
     )
