@@ -43,6 +43,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from engine.transformation.ir import FieldProvenance
+
 
 # ---------------------------------------------------------------------------
 # Java type system
@@ -217,6 +219,13 @@ class JavaWhile(JavaStatement):
 
 
 @dataclass(frozen=True)
+class JavaDoWhile(JavaStatement):
+    """Do-while loop (PERFORM UNTIL WITH TEST AFTER)."""
+    condition: JavaExpression
+    body: tuple[JavaStatement, ...] = ()
+
+
+@dataclass(frozen=True)
 class JavaFor(JavaStatement):
     """For loop."""
     init: JavaStatement | None = None
@@ -289,6 +298,8 @@ class JavaField:
     is_final: bool = False
     modifiers: tuple[str, ...] = ()  # additional modifiers
     format_width: int = 0  # PIC display width for numeric formatting (0 = no formatting)
+    decimal_places: int = 0  # PIC V scale preserved from COBOL numeric metadata
+    source_provenance: FieldProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -325,6 +336,7 @@ class JavaClass:
     extends: str = ""  # superclass name
     implements: tuple[str, ...] = ()  # interface names
     imports: tuple[str, ...] = ()  # import statements
+    source_copybook: str = ""  # originating COPYBOOK stem (models only)
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +479,7 @@ class JavaStatusCodeMapping:
     code: str  # e.g. "R", "P", "A"
     label: str  # e.g. "REJECTED", "PENDING"
     counter_name: str  # Java variable name for the counter (e.g. "rejected")
+    field_name: str = ""  # source field tested by this status code
 
 
 @dataclass(frozen=True)
@@ -510,6 +523,7 @@ class JavaReportConfig:
     # Record format: field names and literal delimiters for printf
     report_format_fields: tuple[str, ...] = ()  # alternates: field names and literals
     output_format_fields: tuple[str, ...] = ()  # alternates: field names and literals
+    outcome_field_name: str = ""  # source field receiving decision/settlement outcomes
 
 
 @dataclass(frozen=True)
@@ -561,6 +575,11 @@ class JavaProgram:
     generation_mode: str = ""  # "decision", "file_io", or "minimal"
     # Input record field names (positional — which fields are parsed from input records)
     input_record_fields: tuple[str, ...] = ()
+    # Source-derived outcome used by the implicit ELSE/default decision branch.
+    default_status_label: str = ""
+    # Canonical Java counter projection for the same source-defined default
+    # outcome. Kept explicit so generation never invents a fallback identifier.
+    default_status_counter_name: str = ""
 
 
 @dataclass(frozen=True)

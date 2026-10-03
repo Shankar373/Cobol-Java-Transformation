@@ -44,9 +44,44 @@ logger = logging.getLogger(__name__)
 # Legacy source tree root markers — first match wins.
 SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl", "main.COB", "main.CBL"}
 
+# Direct-upload resource bounds. Enforced in the HTTP layer (streamed) and
+# again here as defense in depth, so a non-HTTP caller cannot bypass them.
+MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024  # 50 MB per file
+MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024  # 100 MB total per request
+MAX_UPLOAD_FILES = 100  # max files per request
+
 
 class ServiceError(Exception):
     """Raised when a service operation fails."""
+
+
+class UploadLimitError(ServiceError):
+    """Raised when an upload exceeds an explicit resource bound."""
+
+
+def enforce_upload_limits(files: dict[str, bytes]) -> None:
+    """Reject uploads that exceed the declared per-request resource bounds.
+
+    Raises UploadLimitError (a ServiceError) so callers fail closed with an
+    explicit reason instead of accepting unbounded input.
+    """
+    if len(files) > MAX_UPLOAD_FILES:
+        raise UploadLimitError(
+            f"Too many files: maximum {MAX_UPLOAD_FILES} files per request"
+        )
+    total = 0
+    for name, content in files.items():
+        if len(content) > MAX_UPLOAD_FILE_BYTES:
+            raise UploadLimitError(
+                f"File {name or 'unknown'} exceeds maximum size of "
+                f"{MAX_UPLOAD_FILE_BYTES} bytes"
+            )
+        total += len(content)
+        if total > MAX_UPLOAD_TOTAL_BYTES:
+            raise UploadLimitError(
+                f"Total upload size exceeds maximum of "
+                f"{MAX_UPLOAD_TOTAL_BYTES} bytes"
+            )
 
 
 class Service:
@@ -162,6 +197,7 @@ class Service:
     def upload_cobol_source(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
         """Write COBOL source files into a temp directory and update the record."""
         app = self.get_application(app_id)
+        enforce_upload_limits(files)
 
         base = Path(tempfile.mkdtemp(prefix=f"cobol-{app_id}-"))
         for name, content in files.items():
@@ -177,11 +213,12 @@ class Service:
     def upload_java_candidate(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
         """Write Java candidate files into a temp directory and update the record.
 
-        Internal/test-only: the normal modernization workflow never requires
-        an uploaded candidate. Uploaded files are validated only when the
-        modernize endpoint is explicitly called with use_uploaded_candidate.
+        Internal/test-only: the normal modernization workflow never requires an
+        uploaded candidate. Uploaded files are validated only when the modernize
+        endpoint is explicitly called with use_uploaded_candidate.
         """
         app = self.get_application(app_id)
+        enforce_upload_limits(files)
 
         base = Path(tempfile.mkdtemp(prefix=f"java-{app_id}-"))
         for name, content in files.items():
@@ -282,7 +319,10 @@ class Service:
                 )
 
                 adapter = DockerSpringBootCandidateAdapter()
-            self._run_validation(app, run, java_dir, entrypoint, adapter)
+            self._run_validation(
+                app, run, java_dir, entrypoint, adapter,
+                require_trusted_provenance=not use_uploaded_candidate,
+            )
 
             # Terminal state is set here; VALIDATING_EVIDENCE itself is
             # emitted by the pipeline progress hook at the true point.
@@ -373,7 +413,11 @@ class Service:
 
                 adapter = DockerSpringBootCandidateAdapter()
             self._run_validation(
-                app, run, candidate_dir, entrypoint, adapter
+                app, run, candidate_dir, entrypoint, adapter,
+                require_trusted_provenance=(
+                    app.generated_app_path is not None
+                    and str(candidate_dir) == app.generated_app_path
+                ),
             )
             run.stage = RunStage.COMPLETED
             run.completed_at = datetime.now(timezone.utc).isoformat()
@@ -489,6 +533,7 @@ class Service:
         java_dir: Path,
         entrypoint: str,
         candidate_adapter=None,
+        require_trusted_provenance: bool = False,
     ) -> None:
         """Run the validation pipeline and persist evidence + verdict.
 
@@ -522,6 +567,11 @@ class Service:
             ),
         )
 
+        pipeline_report = run.modernization_report.get("pipeline_report", {}) if run.modernization_report else {}
+        transformation_report = pipeline_report.get("transformation", {})
+        producer_identity = transformation_report.get("producer_identity")
+        producer_version = transformation_report.get("producer_version")
+
         config = PipelineConfig(
             workload_id=app.workload_id,
             cobol_source_path=app.cobol_source_path,
@@ -529,6 +579,9 @@ class Service:
             java_entrypoint=entrypoint,
             workload=workload_def,
             use_docker_java=True,
+            producer_identity=producer_identity,
+            producer_version=producer_version,
+            require_trusted_provenance=require_trusted_provenance,
         )
 
         phase_to_stage = {

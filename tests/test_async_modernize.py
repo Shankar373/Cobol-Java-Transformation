@@ -135,7 +135,7 @@ def _make_mock_generate(expected_programs=("PROG-1",)):
 
 def _make_mock_validation():
     """Return a mock _run_validation that sets evidence stage and verdict."""
-    def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+    def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
         from api.models import RunStage
         run.stage = RunStage.VALIDATING_EVIDENCE
         run.verdict = _StubVerdict(run.id, run.workload_id)
@@ -262,9 +262,14 @@ class TestFailedRun:
         app_id = _create_and_upload_app()
         with patch.object(Service, "_generate_application", _fail_generate):
             resp = client.post(f"/applications/{app_id}/modernize")
-        run_id = resp.json()["run_id"]
+            run_id = resp.json()["run_id"]
 
-        body = _wait_for_terminal(run_id, timeout=15)
+            # Keep the patch active until the background worker reaches a
+            # terminal state. The worker is asynchronous, so allowing the
+            # context manager to restore the real generator immediately
+            # after POST introduces a race in which the real generator can
+            # run instead of the injected failure.
+            body = _wait_for_terminal(run_id, timeout=15)
         assert body["stage"] == "FAILED"
         assert "mock generation failure" in body["error"]
         assert body["completed_at"] is not None

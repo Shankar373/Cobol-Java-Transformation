@@ -82,7 +82,7 @@ class _StubVerdict:
         }
 
 
-def _mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+def _mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
     """Fast mock: set evidence stage and persist a mock verdict."""
     run.stage = RunStage.VALIDATING_EVIDENCE
     run.verdict = _StubVerdict(run.id, run.workload_id)

@@ -63,6 +63,7 @@ class ViolationType(Enum):
     ORPHAN_ARTIFACT = "orphan_artifact"
     ORPHAN_COMPARISON = "orphan_comparison"
     MALFORMED_EVIDENCE = "malformed_evidence"
+    PROVENANCE_MISMATCH = "provenance_mismatch"
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,7 @@ class EvidenceIntegrityValidator:
 
         # 6. Comparison-artifact binding
         violations.extend(self._validate_comparison_artifact_binding(manifest))
+        violations.extend(self._validate_comparison_execution_binding(manifest))
 
         # 7. EXIT_STATUS completeness (FINDING F)
         violations.extend(self._validate_exit_status_completeness(manifest))
@@ -147,6 +149,10 @@ class EvidenceIntegrityValidator:
 
         # 9. Required evidence presence
         violations.extend(self._validate_required_evidence(manifest))
+
+        # 10. Trusted provenance is required for production certification.
+        if manifest.require_trusted_provenance:
+            violations.extend(self._validate_trusted_provenance(manifest))
 
         if violations:
             return violations
@@ -338,6 +344,61 @@ class EvidenceIntegrityValidator:
         return violations
 
     # ------------------------------------------------------------------
+    # Comparison-execution binding
+    # ------------------------------------------------------------------
+
+    def _validate_comparison_execution_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Ensure each comparison is tied to the executions that produced its artifacts."""
+        violations: list[IntegrityViolation] = []
+        artifacts = {a.artifact.artifact_id: a for a in manifest.artifact_evidence}
+        executions = {e.execution_id.value: e for e in manifest.execution_evidence}
+
+        for i, comparison in enumerate(manifest.comparison_evidence):
+            oracle = artifacts.get(comparison.oracle_artifact_id)
+            candidate = artifacts.get(comparison.candidate_artifact_id)
+            if oracle is None or candidate is None:
+                continue
+            if oracle.artifact.producer_role != "ORACLE" or candidate.artifact.producer_role != "CANDIDATE":
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                    description="Comparison artifact roles do not match oracle/candidate positions",
+                    field_path=f"comparison_evidence[{i}]",
+                    expected="ORACLE artifact followed by CANDIDATE artifact",
+                    actual=f"{oracle.artifact.producer_role}/{candidate.artifact.producer_role}",
+                ))
+            oracle_exec = executions.get(oracle.execution_id.value)
+            candidate_exec = executions.get(candidate.execution_id.value)
+            if oracle_exec is None or candidate_exec is None:
+                continue
+            if not oracle_exec.runtime_id.startswith("oracle"):
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                    description="Comparison oracle artifact is bound to a non-oracle execution",
+                    field_path=f"comparison_evidence[{i}].oracle_artifact_id",
+                    expected="oracle execution",
+                    actual=oracle_exec.runtime_id,
+                ))
+            if not candidate_exec.runtime_id.startswith("candidate"):
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                    description="Comparison candidate artifact is bound to a non-candidate execution",
+                    field_path=f"comparison_evidence[{i}].candidate_artifact_id",
+                    expected="candidate execution",
+                    actual=candidate_exec.runtime_id,
+                ))
+
+        for i, artifact in enumerate(manifest.artifact_evidence):
+            if artifact.content_hash != artifact.artifact.content_hash:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.CONTENT_HASH_MISMATCH,
+                    description="Artifact evidence content hash differs from artifact identity hash",
+                    field_path=f"artifact_evidence[{i}].content_hash",
+                    expected=str(artifact.artifact.content_hash),
+                    actual=str(artifact.content_hash),
+                ))
+        return violations
+
+    # ------------------------------------------------------------------
     # FINDING F: EXIT_STATUS completeness
     # ------------------------------------------------------------------
 
@@ -384,23 +445,275 @@ class EvidenceIntegrityValidator:
     # ------------------------------------------------------------------
 
     def _validate_manifest_integrity(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """Verify manifest hash covers the complete evidence graph."""
+        """Verify the sealed digest against the current canonical evidence graph."""
         violations: list[IntegrityViolation] = []
-
-        # The current manifest_hash is computed from summary fields.
-        # We verify it is at least consistent with those fields.
-        computed_hash = manifest.manifest_hash
-
-        # Verify the hash is deterministic
-        recomputed = manifest.manifest_hash
-        if computed_hash != recomputed:
+        expected = manifest.stored_manifest_hash
+        if expected is None:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MANIFEST_HASH_MISMATCH,
-                description="Manifest hash is non-deterministic",
+                description="Evidence manifest has no sealed expected digest",
+                field_path="stored_manifest_hash",
+                expected="sha256:<digest>",
+                actual="<missing>",
+            ))
+            return violations
+
+        recomputed = manifest._compute_manifest_hash()
+        if expected != recomputed:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MANIFEST_HASH_MISMATCH,
+                description="Canonical evidence graph does not match its sealed digest",
                 field_path="manifest_hash",
-                expected=str(computed_hash),
+                expected=str(expected),
                 actual=str(recomputed),
             ))
+
+        return violations
+
+
+    # ------------------------------------------------------------------
+    # Trusted runtime / producer provenance
+    # ------------------------------------------------------------------
+
+    def _validate_trusted_provenance(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Require observed runtime and producer identity for certification."""
+        violations: list[IntegrityViolation] = []
+
+        if not manifest.producer_identity or not manifest.producer_version:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Required transformation producer identity/version is missing",
+                field_path="producer_identity",
+                expected="non-empty producer identity and version",
+                actual=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+            ))
+
+        candidate = manifest.candidate_identity
+        if candidate is None:
+            return violations
+
+        if (
+            candidate.producer_identity != manifest.producer_identity
+            or candidate.producer_version != manifest.producer_version
+        ):
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Candidate producer identity does not match manifest producer identity",
+                field_path="candidate_identity.producer_identity",
+                expected=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+                actual=f"{candidate.producer_identity!r}/{candidate.producer_version!r}",
+            ))
+
+        if not candidate.runtime_image_digest:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Candidate identity has no immutable runtime image identity",
+                field_path="candidate_identity.runtime_image_digest",
+                expected="immutable image digest or image ID",
+                actual="None",
+            ))
+        if not candidate.java_version:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROVENANCE_MISMATCH,
+                description="Candidate identity has no observed Java runtime identity",
+                field_path="candidate_identity.java_version",
+                expected="observed Java version",
+                actual="None",
+            ))
+
+        oracle_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("oracle")]
+        candidate_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("candidate")]
+
+        for i, execution in enumerate(oracle_execs):
+            if not execution.image_digest:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution has no observed image digest",
+                    field_path=f"execution_evidence[oracle:{i}].image_digest",
+                    expected=manifest.oracle_identity.image_digest,
+                    actual="None",
+                ))
+            elif execution.image_digest != manifest.oracle_identity.image_digest:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution image digest differs from oracle identity",
+                    field_path=f"execution_evidence[oracle:{i}].image_digest",
+                    expected=manifest.oracle_identity.image_digest,
+                    actual=execution.image_digest,
+                ))
+            if not execution.docker_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution has no observed Docker runtime identity",
+                    field_path=f"execution_evidence[oracle:{i}].docker_version",
+                    expected="observed Docker daemon version",
+                    actual="None",
+                ))
+            if not execution.cobol_compiler:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution has no observed compiler identity",
+                    field_path=f"execution_evidence[oracle:{i}].cobol_compiler",
+                    expected="observed compiler version",
+                    actual="None",
+                ))
+            elif execution.cobol_compiler != manifest.oracle_identity.compiler_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Oracle execution compiler differs from oracle identity",
+                    field_path=f"execution_evidence[oracle:{i}].cobol_compiler",
+                    expected=manifest.oracle_identity.compiler_version,
+                    actual=execution.cobol_compiler,
+                ))
+
+        for i, execution in enumerate(candidate_execs):
+            if not execution.producer_identity or not execution.producer_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no producer identity",
+                    field_path=f"execution_evidence[candidate:{i}].producer_identity",
+                    expected=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+                    actual=f"{execution.producer_identity!r}/{execution.producer_version!r}",
+                ))
+            elif (
+                execution.producer_identity != manifest.producer_identity
+                or execution.producer_version != manifest.producer_version
+            ):
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution producer identity differs from manifest",
+                    field_path=f"execution_evidence[candidate:{i}].producer_identity",
+                    expected=f"{manifest.producer_identity!r}/{manifest.producer_version!r}",
+                    actual=f"{execution.producer_identity!r}/{execution.producer_version!r}",
+                ))
+
+            if not execution.docker_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no observed Docker runtime identity",
+                    field_path=f"execution_evidence[candidate:{i}].docker_version",
+                    expected="observed Docker daemon version",
+                    actual="None",
+                ))
+            if not execution.image_digest:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no immutable runtime image identity",
+                    field_path=f"execution_evidence[candidate:{i}].image_digest",
+                    expected="immutable image digest or image ID",
+                    actual="None",
+                ))
+            if candidate.maven_version is not None and not execution.maven_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate build Maven identity is required but missing from execution evidence",
+                    field_path=f"execution_evidence[candidate:{i}].maven_version",
+                    expected=candidate.maven_version,
+                    actual="None",
+                ))
+            if not execution.java_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate execution has no observed Java runtime identity",
+                    field_path=f"execution_evidence[candidate:{i}].java_version",
+                    expected="observed Java version",
+                    actual="None",
+                ))
+            elif candidate.java_version and execution.java_version != candidate.java_version:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Candidate Java runtime differs from candidate identity",
+                    field_path=f"execution_evidence[candidate:{i}].java_version",
+                    expected=candidate.java_version,
+                    actual=execution.java_version,
+                ))
+
+            if candidate.runtime_image_digest:
+                if execution.image_digest != candidate.runtime_image_digest:
+                    violations.append(IntegrityViolation(
+                        violation_type=ViolationType.PROVENANCE_MISMATCH,
+                        description="Candidate runtime image differs from candidate identity",
+                        field_path=f"execution_evidence[candidate:{i}].image_digest",
+                        expected=candidate.runtime_image_digest,
+                        actual=execution.image_digest or "None",
+                    ))
+
+        for i, env in enumerate(manifest.environment_identities):
+            execution = next(
+                (e for e in manifest.execution_evidence if e.runtime_id == env.runtime_id),
+                None,
+            )
+            if execution is None:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Environment identity is not bound to an execution",
+                    field_path=f"environment_identities[{i}].runtime_id",
+                    expected="runtime_id present in execution evidence",
+                    actual=env.runtime_id,
+                ))
+                continue
+            observed = {
+                "java_version": execution.java_version,
+                "maven_version": execution.maven_version,
+                "python_version": execution.python_version,
+                "docker_version": execution.docker_version,
+                "cobol_compiler": execution.cobol_compiler,
+                "image_digest": execution.image_digest,
+            }
+            for field_name, expected_value in (
+                ("java_version", env.java_version),
+                ("maven_version", env.maven_version),
+                ("python_version", env.python_version),
+                ("docker_version", env.docker_version),
+                ("cobol_compiler", env.cobol_compiler),
+                ("image_digest", env.image_digest),
+            ):
+                if expected_value != observed[field_name]:
+                    violations.append(IntegrityViolation(
+                        violation_type=ViolationType.PROVENANCE_MISMATCH,
+                        description=f"Environment {field_name} differs from execution observation",
+                        field_path=f"environment_identities[{i}].{field_name}",
+                        expected=str(observed[field_name]),
+                        actual=str(expected_value),
+                    ))
+
+        for i, execution in enumerate(manifest.execution_evidence):
+            payload = {
+                "execution_id": execution.execution_id.value,
+                "run_id": execution.run_id.value,
+                "runtime_id": execution.runtime_id,
+                "command": execution.command,
+                "working_directory": execution.working_directory,
+                "environment_variables": dict(execution.environment_variables),
+                "start_time": execution.start_time,
+                "end_time": execution.end_time,
+                "exit_code": execution.exit_code,
+                "stdout_hash": str(execution.stdout_hash),
+                "stderr_hash": str(execution.stderr_hash),
+                "generated_files": {k: str(v) for k, v in execution.generated_files.items()},
+                "source_tree_hash_before": str(execution.source_tree_hash_before),
+                "source_tree_hash_after": str(execution.source_tree_hash_after),
+                "termination_status": execution.termination_status,
+                "timeout_applied": execution.timeout_applied,
+                "timeout_duration": execution.timeout_duration,
+                "java_version": execution.java_version,
+                "maven_version": execution.maven_version,
+                "python_version": execution.python_version,
+                "docker_version": execution.docker_version,
+                "cobol_compiler": execution.cobol_compiler,
+                "image_digest": execution.image_digest,
+                "producer_identity": execution.producer_identity,
+                "producer_version": execution.producer_version,
+            }
+            expected_hash = ContentHash.from_string(json.dumps(payload, sort_keys=True))
+            if execution.provenance_hash != expected_hash:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROVENANCE_MISMATCH,
+                    description="Execution provenance hash does not match observed identity fields",
+                    field_path=f"execution_evidence[{i}].provenance_hash",
+                    expected=str(expected_hash),
+                    actual=str(execution.provenance_hash),
+                ))
 
         return violations
 
@@ -472,6 +785,9 @@ class EvidenceIntegrityValidator:
             "manifest_version": manifest.manifest_version,
             "run_id": manifest.run_id.value,
             "workload_id": manifest.workload_id.value,
+            "producer_identity": manifest.producer_identity,
+            "producer_version": manifest.producer_version,
+            "require_trusted_provenance": manifest.require_trusted_provenance,
             "source_identity": {
                 "source_id": manifest.source_identity.source_id,
                 "source_hash": str(manifest.source_identity.source_hash),
@@ -499,6 +815,15 @@ class EvidenceIntegrityValidator:
                     "stdout_hash": str(e.stdout_hash),
                     "stderr_hash": str(e.stderr_hash),
                     "generated_files": {k: str(v) for k, v in e.generated_files.items()},
+                    "java_version": e.java_version,
+                    "maven_version": e.maven_version,
+                    "python_version": e.python_version,
+                    "docker_version": e.docker_version,
+                    "cobol_compiler": e.cobol_compiler,
+                    "image_digest": e.image_digest,
+                    "producer_identity": e.producer_identity,
+                    "producer_version": e.producer_version,
+                    "provenance_hash": str(e.provenance_hash) if e.provenance_hash else None,
                 }
                 for e in manifest.execution_evidence
             ],
@@ -534,6 +859,11 @@ class EvidenceIntegrityValidator:
                 "candidate_id": manifest.candidate_identity.candidate_id,
                 "candidate_hash": str(manifest.candidate_identity.candidate_hash),
                 "source_hash": str(manifest.candidate_identity.source_hash),
+                "producer_identity": manifest.candidate_identity.producer_identity,
+                "producer_version": manifest.candidate_identity.producer_version,
+                "runtime_image_digest": manifest.candidate_identity.runtime_image_digest,
+                "java_version": manifest.candidate_identity.java_version,
+                "maven_version": manifest.candidate_identity.maven_version,
             }
 
         # Add environment identities
@@ -541,7 +871,14 @@ class EvidenceIntegrityValidator:
             {
                 "runtime_id": ei.runtime_id,
                 "java_version": ei.java_version,
+                "maven_version": ei.maven_version,
+                "python_version": ei.python_version,
+                "docker_version": ei.docker_version,
                 "cobol_compiler": ei.cobol_compiler,
+                "image_digest": ei.image_digest,
+                "os_base": ei.os_base,
+                "network_policy": ei.network_policy,
+                "resource_limits": dict(ei.resource_limits),
             }
             for ei in manifest.environment_identities
         ]

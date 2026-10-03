@@ -295,6 +295,13 @@ class TestClaimsInputVariation:
         lines = [l for l in content.strip().split("\n") if l.strip()]
         assert len(lines) == 5
 
+    def test_generated_java_preserves_implicit_default_status(self, cobol_source: str):
+        """The source-defined ELSE outcome is preserved in generated decision logic."""
+        result = TransformationProducer().transform(cobol_source)
+        assert result.success
+        source = result.generated_files[0].source_code
+        assert 'result = "APPROVED";' in source
+
     def test_generated_java_handles_alternate_input(self, cobol_source: str):
         """Generated Java produces correct output when given alternate input."""
         if not os.environ.get("RUN_DOCKER_TESTS"):

@@ -205,6 +205,8 @@ class DiscoveryResponse(BaseModel):
     dependency_edges: list[dict]
     source_file_count: int
     total_size_bytes: int
+    discovery_success: bool = True
+    discovery_errors: list[dict] = Field(default_factory=list)
 
 
 class RunDetailResponse(BaseModel):

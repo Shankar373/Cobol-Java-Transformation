@@ -83,12 +83,17 @@ class SourceIdentity:
 
 @dataclass(frozen=True)
 class CandidateIdentity:
-    """Identity of a Java candidate package."""
+    """Identity of a Java candidate package and its transformation producer."""
     candidate_id: str
     candidate_hash: ContentHash
     source_hash: ContentHash  # binding to the COBOL source
     file_count: int
     total_size_bytes: int
+    producer_identity: str | None = None
+    producer_version: str | None = None
+    runtime_image_digest: str | None = None
+    java_version: str | None = None
+    maven_version: str | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_id:
@@ -115,10 +120,19 @@ class OracleIdentity:
 
 @dataclass(frozen=True)
 class EnvironmentIdentity:
-    """Identity of the execution environment."""
+    """Observed identity of an execution environment.
+
+    Values are observations from the runtime actually used for execution.
+    Missing values remain None rather than being inferred from declared
+    configuration.
+    """
     runtime_id: str
     java_version: str | None = None
+    maven_version: str | None = None
+    python_version: str | None = None
+    docker_version: str | None = None
     cobol_compiler: str | None = None
+    image_digest: str | None = None
     os_base: str | None = None
     network_policy: str = "none"
     resource_limits: dict[str, str] = field(default_factory=dict)
@@ -153,6 +167,7 @@ class ArtifactIdentity:
     content_hash: ContentHash
     size_bytes: int
     record_count: int | None = None
+    availability: str = "PRESENT"
 
     def __post_init__(self) -> None:
         valid_types = {"STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD"}
@@ -160,6 +175,8 @@ class ArtifactIdentity:
             raise ValueError(f"artifact_type must be one of {valid_types}, got {self.artifact_type}")
         if self.producer_role not in ("ORACLE", "CANDIDATE"):
             raise ValueError(f"producer_role must be ORACLE or CANDIDATE, got {self.producer_role}")
+        if self.availability not in ("PRESENT", "MISSING", "UNAVAILABLE", "FAILED"):
+            raise ValueError(f"Invalid artifact availability: {self.availability}")
 
 
 @dataclass(frozen=True)

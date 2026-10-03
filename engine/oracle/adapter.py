@@ -107,6 +107,9 @@ class OracleExecutionResult:
     generated_files: dict[str, bytes] | None = None
     source_tree_hash_before: ContentHash | None = None
     source_tree_hash_after: ContentHash | None = None
+    observed_compiler_version: str | None = None
+    observed_docker_version: str | None = None
+    runtime_image_digest: str | None = None
 
     def to_execution_evidence(self) -> ExecutionEvidence:
         """Convert to execution evidence."""
@@ -136,6 +139,9 @@ class OracleExecutionResult:
             termination_status=self.termination_status,
             timeout_applied=self.timeout_applied,
             timeout_duration=self.timeout_duration,
+            docker_version=self.observed_docker_version,
+            cobol_compiler=self.observed_compiler_version,
+            image_digest=self.runtime_image_digest,
         )
 
 

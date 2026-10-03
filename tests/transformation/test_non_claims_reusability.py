@@ -185,5 +185,6 @@ class TestNonClaimsReusability:
         assert 'String.format("%05d", WS_RESULT)' in java_code
         # PIC 9(3) -> String.format("%03d", WS_COUNTER)
         assert 'String.format("%03d", WS_COUNTER)' in java_code
-        # PIC X(10) alphanumeric -> no formatting
-        assert 'println("STATUS=" + WS_STATUS' in java_code
+        # PIC X(10) is fixed-width COBOL storage, so DISPLAY preserves
+        # its declared width with right-padding/truncation.
+        assert 'String.format("%-10s", WS_STATUS)' in java_code

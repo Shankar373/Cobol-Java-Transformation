@@ -188,7 +188,15 @@ class TransformationProducer:
             "generated_files": generated_files_manifest,
             "entrypoint": result.generated_files[0].class_name if result.generated_files else "Unknown",
             "java_version": "17",
-            "supported_scope": "Generic COBOL semantic constructs: MOVE, ADD, IF/ELSE, DISPLAY, FILE I/O, UNSTRING, PERFORM, STOP RUN",
+            "supported_scope": (
+                "Generic COBOL semantic subset: MOVE, ADD, SUBTRACT, MULTIPLY, "
+                "DIVIDE ... BY ... GIVING, COMPUTE, IF/ELSE, PERFORM, DISPLAY, "
+                "sequential file OPEN/READ/WRITE, STOP RUN, "
+                "static CALL 'literal'. "
+                "Partial: OCCURS, STRING, UNSTRING, EVALUATE. "
+                "Not lowered: GO TO, SORT, ACCEPT, CLOSE, DIVIDE ... INTO, "
+                "INDEXED files, RELATIVE files, dynamic CALL."
+            ),
             "transformation_timestamp": result.transformation_timestamp,
             "mutation_regeneration_capability": True,
         }

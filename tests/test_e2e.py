@@ -33,6 +33,20 @@ COBOL_SOURCE = FIXTURES / "cobol" / "ARITH.cob"
 JAVA_CANDIDATE = FIXTURES / "java-candidate" / "Arithmetic.java"
 
 
+def _await_terminal(client: TestClient, run_id: str, timeout_s: float = 180.0) -> dict:
+    """Poll the asynchronous API until the run reaches a terminal state."""
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        response = client.get(f"/runs/{run_id}")
+        assert response.status_code == 200
+        run = response.json()
+        if run["stage"] in ("COMPLETED", "FAILED"):
+            return run
+        time.sleep(0.1)
+    raise TimeoutError(f"run {run_id} did not reach a terminal state")
+
 @pytest.fixture(autouse=True)
 def _reset_store():
     """Reset module-level singletons for test isolation."""
@@ -88,12 +102,10 @@ class TestArithRealE2E:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
         stage = resp.json()["stage"]
-        assert stage in ("COMPLETED", "FAILED")
+        assert stage == "CREATED"
 
-        # 5. Verify run status
-        resp = client.get(f"/runs/{run_id}")
-        assert resp.status_code == 200
-        run = resp.json()
+        # 5. Wait for the asynchronous worker to finish, then verify status.
+        run = _await_terminal(client, run_id)
         assert run["id"] == run_id
         assert run["stage"] == "COMPLETED", f"Run failed: {run.get('error')}"
 
@@ -155,6 +167,7 @@ class TestArithRealE2E:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
 
+        _await_terminal(client, run_id)
         resp = client.get(f"/runs/{run_id}/verdict")
         assert resp.status_code == 200
         assert resp.json()["state"] == "VERIFIED"
@@ -192,8 +205,7 @@ class TestTransformRealE2E:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
 
-        resp = client.get(f"/runs/{run_id}")
-        run = resp.json()
+        run = _await_terminal(client, run_id)
 
         # The run must complete (may be FAILED due to transform output)
         assert run["stage"] in ("COMPLETED", "FAILED")
@@ -287,10 +299,8 @@ class TestRunLifecycle:
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
 
-        # Run must be completed
-        resp = client.get(f"/runs/{run_id}")
-        assert resp.status_code == 200
-        run = resp.json()
+        # Run must be completed before asserting terminal fields.
+        run = _await_terminal(client, run_id)
         assert run["stage"] == "COMPLETED"
         assert run["completed_at"] is not None
         assert run["error"] is None
@@ -316,6 +326,7 @@ class TestRunLifecycle:
 
         resp = client.post(f"/applications/{app_id}/modernize")
         run_id = resp.json()["run_id"]
+        _await_terminal(client, run_id)
 
         resp = client.get(f"/runs/{run_id}/verdict")
         v = resp.json()
@@ -401,9 +412,7 @@ class TestZipIngestionE2E:
         resp = client.post(f"/applications/{app_id}/modernize")
         assert resp.status_code == 202
         run_id = resp.json()["run_id"]
-
-        resp = client.get(f"/runs/{run_id}")
-        run = resp.json()
+        run = _await_terminal(client, run_id)
         assert run["stage"] in ("COMPLETED", "FAILED")
 
         # Verdict must be valid
@@ -438,6 +447,7 @@ class TestZipIngestionE2E:
 
         resp = client.post(f"/applications/{app_id}/modernize")
         run_id = resp.json()["run_id"]
+        _await_terminal(client, run_id)
 
         resp = client.get(f"/runs/{run_id}/download")
         assert resp.status_code == 200

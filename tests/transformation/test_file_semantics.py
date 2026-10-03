@@ -593,13 +593,15 @@ class TestRecordParsing:
 
     def test_fd_record_items(self) -> None:
         fd = self._parse_file_def(SEQUENTIAL_FILE_SOURCE)
-        assert len(fd.record_items) == 2
+        assert len(fd.record_items) == 1
+        assert len(fd.record_items[0].children) == 2
 
     def test_fd_record_item_names(self) -> None:
         fd = self._parse_file_def(SEQUENTIAL_FILE_SOURCE)
-        names = [item.name for item in fd.record_items]
-        assert "RECORD-ID" in names
-        assert "RECORD-DATA" in names
+        record = fd.record_items[0]
+        names = [item.name for item in record.children]
+        assert record.name == "INPUT-REC"
+        assert names == ["RECORD-ID", "RECORD-DATA"]
 
 
 class TestSequentialSemantics:

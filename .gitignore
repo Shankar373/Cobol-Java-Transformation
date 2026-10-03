@@ -164,6 +164,7 @@ coverage.xml
 # Test artifacts
 *.prof
 *.cover
+test-artifacts/
 
 # IDE / Editor
 .idea/
@@ -337,6 +338,8 @@ kubeconfig
 # Database
 *.dump
 *.sql
+# Managed workload fixtures must be tracked despite the *.sql ignore above.
+!fixtures/**/*.sql
 
 # Logs
 *.log

@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +46,7 @@ from engine.comparators.framework import (
 from engine.domain.identities import (
     AdapterStatus,
     CandidateIdentity,
+    EnvironmentIdentity,
     ContentHash,
     ExecutionId,
     InputIdentity,
@@ -75,13 +78,20 @@ class PipelineConfig:
     java_candidate_path: str
     java_entrypoint: str
     workload: WorkloadDefinition | None = None
-    oracle_image: str = "gnucobol-ocesql:latest"
-    oracle_digest: str = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+    oracle_image: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_IMAGE", DockerOracleAdapter.V1_IMAGE
+    )
+    oracle_digest: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_DIGEST", DockerOracleAdapter.V1_DIGEST
+    )
     oracle_compiler_version: str = "3.1.2.0"
     javac_path: str = "javac"
     java_path: str = "java"
     timeout_seconds: int = 30
     use_docker_java: bool = True
+    producer_identity: str | None = None
+    producer_version: str | None = None
+    require_trusted_provenance: bool = False
 
 
 @dataclass
@@ -198,6 +208,12 @@ class VerticalSlicePipeline:
             source_hash=source_hash,
             file_count=file_count,
             total_size_bytes=total_size,
+            producer_identity=self._config.producer_identity,
+            producer_version=self._config.producer_version,
+            runtime_image_digest=getattr(self._candidate_adapter, "resolved_digest", None)
+            or getattr(self._candidate_adapter, "runtime_identity", None),
+            java_version=getattr(self._candidate_adapter, "java_version", None) or None,
+            maven_version=getattr(self._candidate_adapter, "maven_version", None) or None,
         )
 
     def _build_candidate_manifest(self, source_hash: ContentHash) -> CandidateManifest:
@@ -218,7 +234,9 @@ class VerticalSlicePipeline:
             source_hash=str(source_hash),
             generated_files=generated_files,
             entrypoint=self._config.java_entrypoint,
-            java_version="25",
+            java_version=getattr(self._candidate_adapter, "java_version", "") or "",
+            producer_identity=self._config.producer_identity or "",
+            producer_version=self._config.producer_version or "",
         )
 
     def _extract_artifact_content(
@@ -226,8 +244,8 @@ class VerticalSlicePipeline:
         artifact_type: str,
         output_path: str | None,
         execution_result: object,
-    ) -> bytes:
-        """Extract artifact content from execution result based on artifact type."""
+    ) -> bytes | None:
+        """Extract artifact content; missing declared files remain missing."""
         if artifact_type == "STDOUT":
             return execution_result.stdout
         if artifact_type == "STDERR":
@@ -238,20 +256,25 @@ class VerticalSlicePipeline:
             generated = getattr(execution_result, "generated_files", None) or {}
             if output_path and output_path in generated:
                 return generated[output_path]
-            return b""
-        return b""
+            return None
+        return None
 
     def _capture_artifact(
         self,
         artifact_type: str,
         output_path: str | None,
         execution_id: ExecutionId,
-        content: bytes,
+        content: bytes | None,
         logical_name: str,
         producer_role: str,
         record_length: int | None = None,
     ) -> CapturedArtifact:
-        """Capture an artifact using the appropriate capturer method."""
+        """Capture an artifact using explicit presence/absence semantics."""
+        if content is None:
+            return self._capturer.capture_missing(
+                execution_id, artifact_type, logical_name, producer_role,
+                status="MISSING", record_length=record_length,
+            )
         if artifact_type == "STDOUT":
             return self._capturer.capture_stdout(
                 execution_id, content, logical_name, producer_role
@@ -296,6 +319,8 @@ class VerticalSlicePipeline:
             normalization_applied=comp_result.normalization_applied,
             differences=tuple(d.description for d in comp_result.differences),
             field_level_results=(),
+            ordering_applied=getattr(comp_result, "ordering_applied", "SEQUENTIAL"),
+            failure_policy=getattr(comp_result, "failure_policy", ""),
             content_hash=ContentHash.from_string(json.dumps({
                 "result": comp_result.result.value,
                 "differences": [
@@ -361,9 +386,14 @@ class VerticalSlicePipeline:
                 )
 
             # Compare
+            normalization = artifact_def.normalization.allowed_normalizations if artifact_def.normalization else ()
+            ordering = artifact_def.ordering.order if artifact_def.ordering else "SEQUENTIAL"
             comp_result = comparator.compare(
                 oracle_ca.artifact, oracle_ca.content,
                 candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=normalization,
+                ordering=ordering,
+                failure_policy=artifact_def.failure,
             )
             comparison_evidence.append(self._make_comparison_evidence(
                 run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
@@ -393,7 +423,18 @@ class VerticalSlicePipeline:
                 files[source.name] = source.read_bytes()
         return files if files else None
 
-    def run(self, controlled_input: bytes | None = None) -> PipelineResult:
+    def run(
+        self,
+        controlled_input: bytes | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> PipelineResult:
+        """Run the full validation pipeline.
+
+        The optional progress callback receives phase names
+        (EXECUTING_ORACLE, BUILDING, EXECUTING_GENERATED, COMPARING,
+        VALIDATING_EVIDENCE) as each phase STARTS. It changes nothing
+        about execution, comparison, evidence, or verdict semantics.
+        """
         run_id = RunId(value=f"run-{self._config.workload_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
         workload_id = WorkloadId(value=self._config.workload_id)
 
@@ -401,6 +442,8 @@ class VerticalSlicePipeline:
 
         input_files = self._load_input_files()
 
+        if progress is not None:
+            progress("EXECUTING_ORACLE")
         oracle_result = self._oracle_adapter.execute(
             run_id=run_id,
             source_path=self._config.cobol_source_path,
@@ -411,6 +454,8 @@ class VerticalSlicePipeline:
 
         candidate_identity = self._compute_candidate_identity(source_identity.source_hash)
 
+        if progress is not None:
+            progress("BUILDING")
         compilation = self._candidate_adapter.compile(
             candidate_path=self._config.java_candidate_path,
             manifest=self._build_candidate_manifest(source_identity.source_hash),
@@ -423,6 +468,8 @@ class VerticalSlicePipeline:
                     class_file.parent.mkdir(parents=True, exist_ok=True)
                     class_file.write_bytes(bytecode)
 
+                if progress is not None:
+                    progress("EXECUTING_GENERATED")
                 candidate_result = self._candidate_adapter.execute(
                     run_id=run_id,
                     compiled_path=tmpdir,
@@ -447,6 +494,8 @@ class VerticalSlicePipeline:
 
         candidate_evidence = candidate_result.to_execution_evidence()
 
+        if progress is not None:
+            progress("COMPARING")
         if self._config.workload is not None:
             artifact_evidence, comparison_evidence, _, _ = self._run_declaration_driven(
                 run_id, workload_id, oracle_result, candidate_result,
@@ -457,7 +506,26 @@ class VerticalSlicePipeline:
                 run_id, oracle_result, candidate_result,
             )
 
-        environment_identities = ()
+        oracle_identity = self._oracle_adapter.get_identity()
+        environment_identities = (
+            EnvironmentIdentity(
+                runtime_id=oracle_evidence.runtime_id,
+                cobol_compiler=oracle_evidence.cobol_compiler,
+                docker_version=oracle_evidence.docker_version,
+                image_digest=oracle_evidence.image_digest,
+                network_policy="none",
+                resource_limits={"memory": "512m", "cpus": "1.0", "pids": "256"},
+            ),
+            EnvironmentIdentity(
+                runtime_id=candidate_evidence.runtime_id,
+                java_version=candidate_evidence.java_version,
+                maven_version=candidate_evidence.maven_version,
+                docker_version=candidate_evidence.docker_version,
+                image_digest=candidate_evidence.image_digest,
+                network_policy="none" if self._config.use_docker_java else "host",
+                resource_limits={"memory": "512m", "cpus": "1.0", "pids": "256"} if self._config.use_docker_java else {},
+            ),
+        )
         controlled_input_identity = InputIdentity(
             input_id=f"input-{run_id.value}",
             stdin_hash=ContentHash.from_bytes(controlled_input or b""),
@@ -469,8 +537,11 @@ class VerticalSlicePipeline:
             workload_id=workload_id,
             source_identity=source_identity,
             candidate_identity=candidate_identity,
-            oracle_identity=self._oracle_adapter.get_identity(),
+            oracle_identity=oracle_identity,
             environment_identities=environment_identities,
+            producer_identity=self._config.producer_identity,
+            producer_version=self._config.producer_version,
+            require_trusted_provenance=self._config.require_trusted_provenance,
             controlled_input=controlled_input_identity,
             execution_evidence=(oracle_evidence, candidate_evidence),
             artifact_evidence=artifact_evidence,
@@ -478,6 +549,8 @@ class VerticalSlicePipeline:
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation
+        if progress is not None:
+            progress("VALIDATING_EVIDENCE")
         validation_result = self._integrity_validator.validate(manifest)
         if isinstance(validation_result, list):
             # Trust boundary violated — untrusted evidence cannot produce VERIFIED
@@ -509,7 +582,7 @@ class VerticalSlicePipeline:
             run_id=run_id,
             workload_id=workload_id,
             source_identity=source_identity,
-            oracle_identity=self._oracle_adapter.get_identity(),
+            oracle_identity=oracle_identity,
             candidate_identity=candidate_identity,
             oracle_evidence=oracle_evidence,
             candidate_evidence=candidate_evidence,

@@ -15,13 +15,14 @@ from __future__ import annotations
 import ast
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.cobol_parser import CobolParseError, CobolParser
 from engine.transformation.cobol_to_java_mapping import (
     map_cobol_programs_to_application,
 )
@@ -57,6 +58,9 @@ from engine.evidence.models import (
     ExecutionEvidence,
 )
 from engine.verdict.derivation import derive_verdict
+from engine.pipeline import PipelineConfig, VerticalSlicePipeline
+from engine.workload import WorkloadArtifact, WorkloadDefinition
+from engine.contracts.models import FailurePolicy, NormalizationPolicy, OrderingPolicy
 
 # ============================================================
 # CONSTANTS
@@ -469,17 +473,17 @@ class TestSourceMutationMatrix:
                                  'MOVE "ITEM999" TO WS-ITEM-CODE')
         parser = CobolParser()
         prog = parser.parse(mutated)
-        # Find the MOVE statement with the mutated value (recursive into nested IF/EVALUATE)
+        # Walk the canonical statement tree, including structured EVALUATE arms.
         def _find_move(stmts):
             for stmt in stmts:
-                if type(stmt).__name__ == "MoveStatement":
-                    if stmt.source == '"ITEM999"':
+                if type(stmt).__name__ == "MoveStatement" and stmt.source == '"ITEM999"':
+                    return True
+                for attr in ("then_body", "else_body", "body"):
+                    nested = getattr(stmt, attr, ())
+                    if nested and _find_move(nested):
                         return True
-                if hasattr(stmt, 'then_body'):
-                    if _find_move(stmt.then_body):
-                        return True
-                if hasattr(stmt, 'else_body'):
-                    if _find_move(stmt.else_body):
+                for arm in getattr(stmt, "arms", ()):
+                    if _find_move(arm.body):
                         return True
             return False
         found = any(_find_move(para.statements) for para in prog.paragraphs)
@@ -495,19 +499,18 @@ class TestNegativeTests:
     """Prove malformed/unsupported input fails safely."""
 
     def test_invalid_cobol_no_identification(self):
-        """Invalid COBOL without IDENTIFICATION DIVISION parses to UNKNOWN."""
+        """Invalid COBOL fails authoritatively without returning an IR."""
         parser = CobolParser()
-        prog = parser.parse("THIS IS NOT COBOL AT ALL")
-        # Parser is tolerant — returns UNKNOWN program_id
-        assert prog.program_id == "UNKNOWN"
+        with pytest.raises(CobolParseError) as caught:
+            parser.parse("THIS IS NOT COBOL AT ALL")
+        assert any(d.code.value == "PARSE_ERROR" for d in caught.value.diagnostics)
 
     def test_empty_source_fails_safely(self):
-        """Empty source parses safely to UNKNOWN."""
+        """Empty source fails with structured parse diagnostics."""
         parser = CobolParser()
-        prog = parser.parse("")
-        assert prog.program_id == "UNKNOWN"
-        assert len(prog.file_definitions) == 0
-        assert len(prog.working_storage) == 0
+        with pytest.raises(CobolParseError) as caught:
+            parser.parse("")
+        assert any(d.code.value == "PARSE_ERROR" for d in caught.value.diagnostics)
 
     def test_minimal_cobol_parses(self):
         """Minimal valid COBOL parses successfully."""
@@ -857,12 +860,12 @@ class TestGeneratedJavaMutation:
     A. Validator integrity proof — tampered evidence is rejected
        PROVEN by calling the real EvidenceIntegrityValidator.
 
-    B. Runtime behavioral mutation proof — BLOCKED / NOT VERIFIED
-       because Docker execution is not available on this host.
+    B. Runtime behavioral mutation proof — executed when Docker is available.
 
     This split is intentional. A textual difference in source code
-    is NOT behavioral evidence. Only execution + comparison can
-    prove behavioral equivalence, and that requires Docker.
+    is NOT behavioral evidence. The test therefore executes a real
+    baseline candidate and then a behavior-changing mutation through
+    the production validation pipeline.
     """
 
     def _h(self, s: str) -> ContentHash:
@@ -1390,21 +1393,77 @@ class TestGeneratedJavaMutation:
                  ↓
             verdict
 
-        BLOCKED because Docker execution is not available on this host.
-
-        The validator integrity proof above (tests A.1-A.10) proves that
-        the validator can detect evidence tampering. The actual behavioral
-        mutation detection requires executing both oracle and candidate
-        binaries and comparing their outputs, which requires Docker.
-
-        This test documents the limitation honestly rather than fabricating
-        a behavioral claim.
+        Docker is probed at runtime. If the required oracle or candidate
+        container is unavailable, the test reports that infrastructure
+        limitation explicitly rather than claiming behavioral proof.
         """
-        pytest.skip(
-            "Docker execution BLOCKED / NOT VERIFIED — "
-            "runtime behavioral mutation detection requires "
-            "Docker container execution of both oracle and candidate"
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cobol = root / "mutation.cob"
+            cobol.write_text(
+                "IDENTIFICATION DIVISION.\nPROGRAM-ID. MUTATION.\n"
+                "PROCEDURE DIVISION.\nMAIN.\nDISPLAY \"1\".\nSTOP RUN.\n",
+                encoding="utf-8",
+            )
+            program = CobolParser().parse(
+                cobol.read_text(encoding="utf-8"),
+                source_name="mutation.cob",
+            )
+            generated = __import__(
+                "engine.transformation.java_generator",
+                fromlist=["JavaGenerator"],
+            ).JavaGenerator().generate(program)[0]
+            candidate = root / "candidate"
+            candidate.mkdir()
+            candidate_file = candidate / generated.filename
+            candidate_file.write_text(generated.source_code, encoding="utf-8")
+            workload = WorkloadDefinition(
+                workload_id="runtime-mutation",
+                description="Real Docker behavioral mutation",
+                artifacts=(WorkloadArtifact(
+                    logical_name="stdout",
+                    artifact_type="STDOUT",
+                    comparator_id="STDOUT_COMPARATOR",
+                    normalization=NormalizationPolicy(()),
+                    ordering=OrderingPolicy("SEQUENTIAL"),
+                    failure=FailurePolicy(on_missing="UNAVAILABLE"),
+                ),),
+            )
+            pipeline = VerticalSlicePipeline(PipelineConfig(
+                workload_id="runtime-mutation-baseline",
+                cobol_source_path=str(cobol),
+                java_candidate_path=str(candidate),
+                java_entrypoint=generated.class_name,
+                workload=workload,
+                use_docker_java=True,
+            ))
+            if pipeline._oracle_adapter.probe().value == "UNAVAILABLE":
+                pytest.skip("Oracle Docker capability is UNAVAILABLE")
+            if not pipeline._candidate_adapter.available:
+                pytest.skip("Candidate Docker capability is UNAVAILABLE")
+
+            baseline = pipeline.run()
+            assert baseline.oracle_stdout.strip() == b"1"
+            assert baseline.candidate_stdout.strip() == b"1"
+            assert baseline.verdict.state == VerdictState.VERIFIED
+
+            mutated_source = generated.source_code.replace(
+                'System.out.println("1")',
+                'System.out.println("2")',
+                1,
+            )
+            assert mutated_source != generated.source_code
+            candidate_file.write_text(mutated_source, encoding="utf-8")
+
+            mutated = pipeline.run()
+            assert mutated.oracle_stdout.strip() == b"1"
+            assert mutated.candidate_stdout.strip() == b"2"
+            assert mutated.verdict.state == VerdictState.FAILED
+            assert any(
+                "differs" in difference.lower()
+                for comp in mutated.comparison_evidence
+                for difference in comp.differences
+            )
 
 
 # ============================================================

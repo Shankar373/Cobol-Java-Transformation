@@ -6,7 +6,7 @@ This workload exercises all 5 V1 artifact types with truly fixed-width records.
 
 from __future__ import annotations
 
-from engine.contracts.models import NormalizationPolicy, OrderingPolicy
+from engine.contracts.models import FailurePolicy, NormalizationPolicy, OrderingPolicy
 from engine.workload import WorkloadArtifact, WorkloadDefinition
 
 
@@ -42,6 +42,11 @@ def inventory_workload() -> WorkloadDefinition:
                 output_path="report.txt",
                 normalization=NormalizationPolicy(allowed_normalizations=("crlf_to_lf",)),
                 ordering=OrderingPolicy(order="SEQUENTIAL"),
+                failure=FailurePolicy(
+                    on_missing="FAILED",
+                    on_malformed="MISMATCH",
+                    on_extra="MISMATCH",
+                ),
             ),
             WorkloadArtifact(
                 logical_name="inventory-records",

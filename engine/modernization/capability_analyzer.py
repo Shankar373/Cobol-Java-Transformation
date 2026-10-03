@@ -36,6 +36,7 @@ class CapabilityLevel(Enum):
     PARTIAL = "PARTIAL"
     UNSUPPORTED = "UNSUPPORTED"
     UNAVAILABLE = "UNAVAILABLE"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -221,11 +222,13 @@ class CapabilityAnalyzer:
         silently treated as supported.
         """
         from engine.transformation.ir import (
+            EvaluateStatement,
             GoToStatement,
             IfStatement,
             PerformStatement,
             ReadStatement,
             StopRunStatement,
+            UnstringStatement,
         )
 
         components: list[ComponentCapability] = []
@@ -261,9 +264,6 @@ class CapabilityAnalyzer:
                 has_unsupported = True
                 unsupported_reasons.append(f"GO TO {stmt.target}")
             if isinstance(stmt, PerformStatement):
-                if stmt.test_after:
-                    has_unsupported = True
-                    unsupported_reasons.append("PERFORM WITH TEST AFTER")
                 if stmt.thru_target:
                     known = {para.name for para in program.paragraphs}
                     if stmt.paragraph_name not in known or stmt.thru_target not in known:
@@ -272,6 +272,10 @@ class CapabilityAnalyzer:
                             f"PERFORM THRU unresolved range "
                             f"{stmt.paragraph_name} THRU {stmt.thru_target}"
                         )
+            if isinstance(stmt, EvaluateStatement):
+                for arm in stmt.arms:
+                    for s in arm.body:
+                        _walk(s)
             if isinstance(stmt, IfStatement):
                 for s in stmt.then_body:
                     _walk(s)
@@ -289,6 +293,46 @@ class CapabilityAnalyzer:
         for paragraph in program.paragraphs:
             for stmt in paragraph.statements:
                 _walk(stmt)
+
+        # UNSTRING currently maps only to a Java comment, so treating a
+        # program containing it as fully supported would overstate the
+        # transformation contract. Keep this explicit and fail closed at
+        # capability-analysis time until a semantic lowering exists.
+        for paragraph in program.paragraphs:
+            for stmt in paragraph.statements:
+                for nested in self._flatten_for_capability(stmt):
+                    if isinstance(nested, UnstringStatement):
+                        has_unsupported = True
+                        unsupported_reasons.append("UNSTRING has no semantic Java lowering")
+
+        # Data semantics that are represented in the IR but are not preserved
+        # faithfully by the current Java data model must be reported as
+        # PARTIAL rather than allowing the program to appear fully supported.
+        for item in self._all_data_items(program):
+            if item.is_table:
+                has_partial = True
+                partial_reasons.append(f"OCCURS table semantics are partial ({item.name})")
+            if item.redefines:
+                has_partial = True
+                partial_reasons.append(
+                    f"REDEFINES storage-overlay semantics are partial ({item.name})"
+                )
+            if item.is_condition_name:
+                has_partial = True
+                partial_reasons.append(
+                    f"level-88 condition-name semantics are partial ({item.name})"
+                )
+            usage = (item.usage or "DISPLAY").upper()
+            if usage in {"COMP", "COMP-3", "BINARY", "PACKED-DECIMAL"}:
+                has_partial = True
+                partial_reasons.append(
+                    f"{usage} numeric storage semantics are partial ({item.name})"
+                )
+            if item.decimal_places > 0:
+                has_partial = True
+                partial_reasons.append(
+                    f"fixed-point precision/scale semantics are partial ({item.name})"
+                )
 
         # Implicit fall-through reliance: the generator executes the driver
         # (first) paragraph; a multi-paragraph program whose driver does not
@@ -337,6 +381,35 @@ class CapabilityAnalyzer:
             ))
 
         return components
+
+    @staticmethod
+    def _flatten_for_capability(stmt) -> tuple[object, ...]:
+        """Flatten nested statement bodies for capability classification."""
+        result: list[object] = [stmt]
+        for attr in ("then_body", "else_body", "body", "not_at_end_body",
+                     "at_end_body", "not_invalid_key_body", "invalid_key_body"):
+            for nested in getattr(stmt, attr, ()) or ():
+                result.extend(CapabilityAnalyzer._flatten_for_capability(nested))
+        for arm in getattr(stmt, "arms", ()) or ():
+            for nested in arm.body:
+                result.extend(CapabilityAnalyzer._flatten_for_capability(nested))
+        return tuple(result)
+
+    @staticmethod
+    def _all_data_items(program) -> tuple[object, ...]:
+        """Return every nested data item across active COBOL storage sections."""
+        result: list[object] = []
+
+        def visit(items) -> None:
+            for item in items or ():
+                result.append(item)
+                visit(item.children)
+
+        visit(program.working_storage)
+        visit(program.linkage_section)
+        for fd in program.file_definitions:
+            visit(fd.record_items)
+        return tuple(result)
 
     def _derive_overall_level(self, components: list[ComponentCapability]) -> CapabilityLevel:
         """Derive overall application capability level."""

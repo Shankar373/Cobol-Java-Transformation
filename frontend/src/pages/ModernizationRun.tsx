@@ -240,6 +240,13 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
     (m) => m !== run.stage && m !== (run.error ?? '\0'),
   );
 
+  const showCapabilityReport = !!report?.report?.capability_report;
+  const showTransformationPlan = !!report?.report?.transformation_plan;
+  const reportLimitations = report?.report?.limitations;
+  const showLimitations = Array.isArray(reportLimitations) && reportLimitations.length > 0;
+  const reportRecommendations = report?.report?.recommendations;
+  const showRecommendations = Array.isArray(reportRecommendations) && reportRecommendations.length > 0;
+
   return (
     <PageContainer
       title={appName}
@@ -388,39 +395,39 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       </SectionCard>
 
       {/* Error — terminal failure explanation with run context */}
-      {run.error && (
+      {typeof run.error === 'string' && run.error.length > 0 && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Error">
             <p style={{ color: tokens.colors.error, fontSize: tokens.font.sizes.sm, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-              {run.error}
+              {String(run.error)}
             </p>
             <p style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>
-              Run ID: {run.id} \u2022 Application: {run.application_id}
+              Run ID: {String(run.id)} \u2022 Application: {String(run.application_id)}
             </p>
           </SectionCard>
         </>
       )}
 
       {/* Run detail — served by GET /runs/{id}/detail when available */}
-      {detail && (
+      {detail !== null && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Run Details">
             <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.xs, fontSize: tokens.font.sizes.sm }}>
               <div>
                 <span style={{ color: tokens.colors.textMuted }}>Application: </span>
-                <span style={{ fontWeight: tokens.font.weights.medium }}>{detail.application_name ?? run.application_id}</span>
+                <span style={{ fontWeight: tokens.font.weights.medium }}>{String(detail.application_name ?? run.application_id)}</span>
               </div>
               <div>
                 <span style={{ color: tokens.colors.textMuted }}>Workload: </span>
-                <span>{detail.workload_id}</span>
+                <span>{String(detail.workload_id)}</span>
               </div>
               {detail.verdict_state && (
                 <div>
                   <span style={{ color: tokens.colors.textMuted }}>Verdict: </span>
                   <Badge variant={detail.verdict_state === 'VERIFIED' ? 'success' : detail.verdict_state === 'FAILED' || detail.verdict_state === 'ERROR' ? 'error' : 'warning'} size="sm">
-                    {detail.verdict_state}
+                    {String(detail.verdict_state)}
                   </Badge>
                 </div>
               )}
@@ -429,7 +436,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
                   <div style={{ color: tokens.colors.textMuted }}>Stage messages:</div>
                   <ul style={{ margin: `${tokens.spacing.xs} 0 0`, paddingLeft: 20 }}>
                     {extraStageMessages.map((m, i) => (
-                      <li key={i} style={{ color: tokens.colors.textSecondary }}>{m}</li>
+                      <li key={i} style={{ color: tokens.colors.textSecondary }}>{String(m)}</li>
                     ))}
                   </ul>
                 </div>
@@ -441,7 +448,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
                   </div>
                   <ul style={{ margin: `${tokens.spacing.xs} 0 0`, paddingLeft: 20, fontFamily: 'monospace', fontSize: tokens.font.sizes.xs }}>
                     {detail.generated_files.map((f) => (
-                      <li key={f} style={{ color: tokens.colors.textSecondary }}>{f}</li>
+                      <li key={f} style={{ color: tokens.colors.textSecondary }}>{String(f)}</li>
                     ))}
                   </ul>
                 </div>
@@ -605,7 +612,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Capability Analysis — from universal pipeline report */}
-      {report?.report?.capability_report && (
+      {showCapabilityReport && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Capability Analysis">
@@ -627,7 +634,7 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Transformation Plan — from universal pipeline report */}
-      {report?.report?.transformation_plan && (
+      {showTransformationPlan && (
         <>
           <div style={{ height: tokens.spacing.md }} />
           <SectionCard title="Transformation Plan">
@@ -658,13 +665,13 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Limitations — from universal pipeline report */}
-      {report?.report?.limitations && Array.isArray(report.report.limitations) && (report.report.limitations as unknown[]).length > 0 && (
+      {showLimitations && (
         <>
           <div style={{ height: tokens.spacing.md }} />
-          <SectionCard title="Limitations" count={(report.report.limitations as unknown[]).length}>
+          <SectionCard title="Limitations" count={(reportLimitations as unknown[]).length}>
             <ul style={{ margin: 0, paddingLeft: 20, fontSize: tokens.font.sizes.sm }}>
-              {(report.report.limitations as string[]).map((lim, i) => (
-                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{lim}</li>
+              {(reportLimitations as string[]).map((lim, i) => (
+                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{String(lim)}</li>
               ))}
             </ul>
           </SectionCard>
@@ -672,13 +679,13 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
       )}
 
       {/* Recommendations — from universal pipeline report */}
-      {report?.report?.recommendations && Array.isArray(report.report.recommendations) && (report.report.recommendations as unknown[]).length > 0 && (
+      {showRecommendations && (
         <>
           <div style={{ height: tokens.spacing.md }} />
-          <SectionCard title="Recommendations" count={(report.report.recommendations as unknown[]).length}>
+          <SectionCard title="Recommendations" count={(reportRecommendations as unknown[]).length}>
             <ul style={{ margin: 0, paddingLeft: 20, fontSize: tokens.font.sizes.sm }}>
-              {(report.report.recommendations as string[]).map((rec, i) => (
-                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{rec}</li>
+              {(reportRecommendations as string[]).map((rec, i) => (
+                <li key={i} style={{ color: tokens.colors.textSecondary, marginBottom: tokens.spacing.xs }}>{String(rec)}</li>
               ))}
             </ul>
           </SectionCard>

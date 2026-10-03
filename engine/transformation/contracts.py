@@ -74,8 +74,14 @@ class TransformationResult:
     producer_identity: str = ""
     producer_version: str = ""
     diagnostics: tuple[Diagnostic, ...] = ()
+    # Capability metadata contract. The three tuples must be disjoint:
+    #   supported   — construct is lowered to Java with full semantics
+    #   partial     — construct is lowered but semantics are incomplete
+    #   unsupported — construct has no semantic Java lowering
+    # A construct must never appear in more than one of these lists.
     supported_constructs: tuple[str, ...] = ()
     unsupported_constructs: tuple[str, ...] = ()
+    partial_constructs: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
