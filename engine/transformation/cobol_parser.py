@@ -1095,6 +1095,17 @@ class CobolParser:
         line = lines[start].strip().rstrip(".")
         upper = line.upper()
 
+        header_end = start + 1
+        if re.match(r"PERFORM\s+VARYING\b", upper):
+            # FROM/BY/UNTIL may continue a VARYING header on later lines.
+            # Consuming them as body statements loses the stopping condition.
+            while header_end < len(lines) and re.match(
+                r"^(FROM|BY|UNTIL)\b", lines[header_end].strip(), re.IGNORECASE,
+            ):
+                line += " " + lines[header_end].strip().rstrip(".")
+                header_end += 1
+            upper = line.upper()
+
         # WITH TEST AFTER / WITH TEST BEFORE (strip before form matching)
         test_after = False
         test_m = re.search(r"\bWITH\s+TEST\s+(AFTER|BEFORE)\b", line, re.IGNORECASE)
@@ -1117,7 +1128,13 @@ class CobolParser:
                 or bool(re.match(r"\d+\s+TIMES", rest))
             )
         if inline:
-            if " UNTIL " in upper:
+            if upper.startswith("PERFORM VARYING "):
+                suffix = line[len("PERFORM "):].strip()
+                structured_condition = (
+                    self._build_condition(line.split(" UNTIL ", 1)[1].strip())
+                    if " UNTIL " in upper else None
+                )
+            elif " UNTIL " in upper:
                 suffix = line.split(" UNTIL ", 1)[1].strip()
                 structured_condition = self._build_condition(suffix)
             else:
@@ -1126,7 +1143,7 @@ class CobolParser:
                 if re.search(r"\s+TIMES$", upper):
                     suffix = f"TIMES={suffix[: -len('TIMES')].strip()}"
             body = []
-            i = start + 1
+            i = header_end
             while i < len(lines):
                 if lines[i].strip().upper().startswith("END-PERFORM"):
                     return PerformStatement(paragraph_name="", until_condition=suffix,
