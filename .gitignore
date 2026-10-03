@@ -164,6 +164,7 @@ coverage.xml
 # Test artifacts
 *.prof
 *.cover
+test-artifacts/
 
 # IDE / Editor
 .idea/
