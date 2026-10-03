@@ -20,16 +20,12 @@ const s: Record<string, React.CSSProperties> = {
     gap: tokens.spacing.sm,
   },
   logo: {
-    width: 32,
-    height: 32,
-    borderRadius: tokens.radii.sm,
-    background: tokens.colors.gradient,
+    width: 36,
+    height: 36,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#fff',
-    fontWeight: tokens.font.weights.bold,
-    fontSize: tokens.font.sizes.sm,
+    flexShrink: 0,
   },
   title: {
     fontSize: tokens.font.sizes.md,
@@ -56,6 +52,19 @@ const s: Record<string, React.CSSProperties> = {
   },
 };
 
+
+function SystemaOpsLogo() {
+  return (
+    <svg viewBox="0 0 190 190" width="36" height="36" role="img" aria-label="SystemaOps logo">
+      <polygon points="36,55 96,27 157,57 98,88" fill="#29908f" />
+      <polygon points="98,88 157,57 157,106 98,137" fill="#1b8281" />
+      <polygon points="36,55 98,88 98,137 36,106" fill="#248787" />
+      <polygon points="36,106 98,137 157,106 98,80" fill="#1d8180" />
+      <circle cx="98" cy="96" r="11" fill="#e8ba32" />
+    </svg>
+  );
+}
+
 interface HeaderProps {
   onNavigate?: (page: string) => void;
   currentPage?: string;
@@ -65,10 +74,11 @@ export function Header({ onNavigate, currentPage }: HeaderProps) {
   return (
     <header style={s.header}>
       <div style={s.brand}>
-        <div style={s.logo}>CJ</div>
+        <div style={s.logo}><SystemaOpsLogo /></div>
         <div>
-          <div style={s.title}>COBOL → Java</div>
-          <div style={s.subtitle}>Modernization Platform</div>
+          <div style={s.title}>SystemaOps</div>
+          <div style={s.subtitle}>COBOL → Java</div>
+          <div style={{ ...s.subtitle, fontSize: 10 }}>Modernization Platform</div>
         </div>
       </div>
       <nav style={s.nav}>

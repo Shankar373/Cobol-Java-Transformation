@@ -45,6 +45,35 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 3;
  *  flagged as long-running. No polling behavior changes. */
 const LONG_RUN_MS = 10 * 60 * 1000;
 
+/**
+ * User-facing pipeline: one node per original modernization phase.
+ * Backend completion markers are authoritative lifecycle states, but they
+ * are intentionally collapsed into their parent phase in the UI.
+ */
+const DISPLAY_PIPELINE: Array<{ key: string; label: string; stages: RunResponse['stage'][] }> = [
+  { key: 'CREATED', label: 'Created', stages: ['CREATED'] },
+  { key: 'DISCOVERING', label: 'Discovering', stages: ['DISCOVERING', 'DISCOVERY_COMPLETED'] },
+  { key: 'ANALYZING', label: 'Analyzing', stages: ['ANALYZING', 'ANALYSIS_COMPLETED'] },
+  { key: 'PLANNING', label: 'Planning', stages: ['PLANNING', 'PLAN_COMPLETED'] },
+  { key: 'TRANSFORMING', label: 'Transforming', stages: ['TRANSFORMING'] },
+  { key: 'GENERATING', label: 'Generating', stages: ['GENERATING'] },
+  { key: 'ASSEMBLING', label: 'Assembling', stages: ['ASSEMBLING', 'ASSEMBLY_COMPLETED'] },
+  { key: 'EXECUTING_ORACLE', label: 'Executing Oracle', stages: ['EXECUTING_ORACLE'] },
+  { key: 'BUILDING', label: 'Building', stages: ['BUILDING'] },
+  { key: 'EXECUTING_GENERATED', label: 'Executing Generated', stages: ['EXECUTING_GENERATED'] },
+  { key: 'COMPARING', label: 'Comparing', stages: ['COMPARING'] },
+  { key: 'VALIDATING_EVIDENCE', label: 'Validating Evidence', stages: ['VALIDATING_EVIDENCE'] },
+  { key: 'COMPLETED', label: 'Completed', stages: ['COMPLETED'] },
+];
+
+const DISPLAY_COMPLETION_STAGES = new Set<RunResponse['stage']>([
+  'DISCOVERY_COMPLETED',
+  'ANALYSIS_COMPLETED',
+  'PLAN_COMPLETED',
+  'ASSEMBLY_COMPLETED',
+  'COMPLETED',
+]);
+
 function sanitizeFilenameStem(name: string, fallback: string): string {
   const stem = (name || '').trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   return stem || fallback;
@@ -227,7 +256,6 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
     );
   }
 
-  const stageIndex = run.stage === 'FAILED' ? RUN_STAGES.length : RUN_STAGES.indexOf(run.stage);
   const isTerminal = isTerminalStage(run.stage);
   const showPollWarning = pollFailures >= MAX_CONSECUTIVE_POLL_FAILURES && !isTerminal;
   const createdAtMs = Date.parse(run.created_at);
@@ -303,95 +331,46 @@ export function ModernizationRun({ runId, applicationId, ingest, pollIntervalMs 
         </>
       )}
 
-      {/* Progress — exact backend emission order */}
+      {/* Progress — simplified original modernization phases; backend lifecycle sub-states are collapsed. */}
       <SectionCard title="Progress">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          {RUN_STAGES.map((stage, i) => {
-            const isActive = i === stageIndex;
-            const isDone = stageIndex >= 0 && i < stageIndex;
-            const isFailed = run.stage === 'FAILED' && i === stageIndex;
+        <div style={pipelineViewportStyle} aria-label="Modernization pipeline">
+          <div style={pipelineTrackStyle}>
+            {DISPLAY_PIPELINE.map((phase, i) => {
+              const currentIndex = DISPLAY_PIPELINE.findIndex((p) => p.stages.includes(run.stage));
+              const isTerminalSuccess = run.stage === 'COMPLETED';
+              const phaseContainsCurrentStage = phase.stages.includes(run.stage);
+              const phaseIsCompletionState = phaseContainsCurrentStage && DISPLAY_COMPLETION_STAGES.has(run.stage);
+              const isDone = isTerminalSuccess || currentIndex > i || (currentIndex === i && phaseIsCompletionState);
+              const isActive = currentIndex === i && !isDone && !isTerminal;
+              const state = isActive ? 'active' : isDone ? 'complete' : 'pending';
 
-            return (
-              <div
-                key={stage}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: tokens.spacing.sm,
-                  padding: '6px 12px',
-                  borderRadius: tokens.radii.sm,
-                  background: isActive
-                    ? tokens.colors.primarySoft
-                    : isDone
-                      ? tokens.colors.successSoft
-                      : 'transparent',
-                  transition: 'background 0.2s',
-                }}
-              >
-                <div
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: tokens.font.sizes.xs,
-                    fontWeight: tokens.font.weights.semibold,
-                    background: isDone
-                      ? tokens.colors.success
-                      : isActive
-                        ? tokens.colors.primary
-                        : isFailed
-                          ? tokens.colors.error
-                          : tokens.colors.divider,
-                    color: isDone || isActive || isFailed ? '#fff' : tokens.colors.textMuted,
-                    flexShrink: 0,
-                  }}
-                  aria-hidden="true"
-                >
-                  {isDone ? '\u2713' : isActive && !isFailed ? '\u25b6' : isFailed ? '\u2717' : i + 1}
-                </div>
-                <span
-                  style={{
-                    fontSize: tokens.font.sizes.sm,
-                    fontWeight: isActive ? tokens.font.weights.semibold : tokens.font.weights.normal,
-                    color: isDone
-                      ? tokens.colors.success
-                      : isActive
-                        ? tokens.colors.textPrimary
-                        : isFailed
-                          ? tokens.colors.error
-                          : tokens.colors.textMuted,
-                  }}
-                >
-                  {STAGE_LABELS[stage]}
-                </span>
-                {isActive && !isTerminal && (
-                  <span style={{ marginLeft: 'auto' }} aria-label="In progress">
-                    <LoadingSpinner size={14} />
-                  </span>
-                )}
-              </div>
-            );
-          })}
-          {run.stage === 'FAILED' && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: tokens.spacing.sm,
-                padding: '6px 12px',
-                borderRadius: tokens.radii.sm,
-                background: tokens.colors.errorBg,
-              }}
-            >
-              <span style={{ fontSize: tokens.font.sizes.sm, fontWeight: tokens.font.weights.semibold, color: tokens.colors.error }}>
-                Failed — see error details below
-              </span>
-            </div>
-          )}
+              return (
+                <React.Fragment key={phase.key}>
+                  <div style={pipelineNodeStyle}>
+                    <div style={pipelineCircleStyle(state)} aria-current={isActive ? 'step' : undefined}>
+                      {isDone ? '✓' : isActive ? '•' : i + 1}
+                    </div>
+                    <span style={pipelineLabelStyle(state)}>{phase.label}</span>
+                    {isActive && (
+                      <span style={pipelineActiveStyle} aria-label="In progress">
+                        <LoadingSpinner size={12} />
+                      </span>
+                    )}
+                  </div>
+                  {i < DISPLAY_PIPELINE.length - 1 && (
+                    <div style={pipelineConnectorStyle(isDone)} aria-hidden="true" />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
         </div>
+        {run.stage === 'FAILED' && (
+          <div style={pipelineFailureStyle}>
+            <strong>Run failed — see error details below</strong>
+            <span>{run.error ? String(run.error) : 'The modernization run stopped before completion.'}</span>
+          </div>
+        )}
       </SectionCard>
 
       {/* Error — terminal failure explanation with run context */}
@@ -748,6 +727,94 @@ function StatBadge({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
+
+const pipelineViewportStyle: React.CSSProperties = {
+  overflowX: 'auto',
+  padding: '8px 4px 12px',
+  scrollbarWidth: 'thin',
+};
+
+const pipelineTrackStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  minWidth: 1040,
+  padding: '10px 4px 4px',
+};
+
+const pipelineNodeStyle: React.CSSProperties = {
+  width: 72,
+  flex: '0 0 72px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  position: 'relative',
+  textAlign: 'center',
+};
+
+function pipelineCircleStyle(state: 'complete' | 'active' | 'pending'): React.CSSProperties {
+  return {
+    width: 30,
+    height: 30,
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 11,
+    fontWeight: 700,
+    background:
+      state === 'complete' ? '#2dd4bf'
+        : state === 'active' ? '#1f8cff'
+          : '#21364d',
+    color: state === 'pending' ? '#6f91b2' : '#06101c',
+    border: state === 'active' ? '3px solid rgba(111,196,255,0.28)' : '1px solid rgba(255,255,255,0.08)',
+    boxSizing: 'border-box',
+  };
+}
+
+function pipelineLabelStyle(state: 'complete' | 'active' | 'pending'): React.CSSProperties {
+  return {
+    marginTop: 8,
+    minHeight: 30,
+    width: 86,
+    color:
+      state === 'complete' ? '#2dd4bf'
+        : state === 'active' ? '#fff'
+          : '#6f91b2',
+    fontSize: 9,
+    lineHeight: 1.25,
+    fontWeight: state === 'active' ? 700 : 500,
+  };
+}
+
+const pipelineActiveStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 38,
+  right: -2,
+};
+
+function pipelineConnectorStyle(done: boolean): React.CSSProperties {
+  return {
+    flex: '1 0 18px',
+    minWidth: 18,
+    height: 2,
+    marginTop: 14,
+    background: done ? '#2dd4bf' : '#29445f',
+    opacity: done ? 0.8 : 0.75,
+  };
+}
+
+const pipelineFailureStyle: React.CSSProperties = {
+  marginTop: 8,
+  padding: '10px 12px',
+  borderRadius: 8,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+  background: '#35131a',
+  border: '1px solid #7f3340',
+  color: '#ff8797',
+  fontSize: tokens.font.sizes.xs,
+};
 
 const subheadingStyle: React.CSSProperties = {
   fontSize: tokens.font.sizes.sm,
