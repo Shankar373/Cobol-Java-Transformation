@@ -1,4 +1,5 @@
-export { Header } from './Header';
+export { Header, HeaderMetaItem } from './Header';
+export type { BreadcrumbItem } from './Header';
 export { PageContainer } from './PageContainer';
 export { StatCard } from './StatCard';
 export { SectionCard } from './SectionCard';
@@ -8,4 +9,8 @@ export { FileUpload } from './FileUpload';
 export { StageIndicator } from './StageIndicator';
 export { EmptyState } from './EmptyState';
 export { VerdictDisplay } from './VerdictDisplay';
+export { ValidationScope } from './ValidationScope';
 export { LoadingSpinner } from './LoadingSpinner';
+export { Sidebar } from './Sidebar';
+export { PipelineStepper } from './PipelineStepper';
+export { CopyButton } from './CopyButton';

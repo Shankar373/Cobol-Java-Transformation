@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Header } from './components';
+import { Sidebar } from './components';
 import { Dashboard, NewModernization, ModernizationRun } from './pages';
 import type { ApplicationResponse, RunResponse } from './api/client';
 import type { IngestSummary } from './api/stages';
@@ -151,9 +151,10 @@ export default function App() {
   };
 
   return (
-    <div style={{ minHeight: '100vh' }}>
-      <Header onNavigate={(p) => navigate(p)} currentPage={page} />
-      <main>
+    <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <Sidebar currentPage={page} onNavigate={(p, id) => navigate(p, id)} />
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <main style={{ flex: 1 }}>
         {submitError && page === 'new' && (
           <div style={{ maxWidth: 1100, margin: '0 auto', padding: `${tokens.spacing.md} ${tokens.spacing.xl} 0` }}>
             <div
@@ -200,16 +201,18 @@ export default function App() {
           />
         )}
         {page === 'new' && (
-          <NewModernization onSubmit={handleSubmit} loading={creating} />
+          <NewModernization onSubmit={handleSubmit} loading={creating} onNavigate={navigate} />
         )}
         {page === 'run' && selectedRunId && (
           <ModernizationRun
             runId={selectedRunId}
             applicationId={selectedAppId || ''}
             ingest={selectedAppId ? (ingestByApp[selectedAppId] ?? null) : null}
+            onNavigate={navigate}
           />
         )}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
