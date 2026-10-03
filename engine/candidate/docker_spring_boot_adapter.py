@@ -342,7 +342,12 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace/project",
+                    # Bind-mount the source (Maven reads from here)
                     "-v", f"{os.path.abspath(staged_project)}:/workspace/project",
+                    # Maven writes target/ inside the container only (tmpfs),
+                    # preventing root-owned files on the host tmpdir.
+                    "--tmpfs", "/workspace/project/target:rw,exec,size=512m",
+                    # Bind-mount output dir (Python-owned — receives the JAR)
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     self._config.build_image,
                     "sh", "-c", f"{maven_cmd} && cp target/*.jar /workspace/output/ 2>/dev/null || true",

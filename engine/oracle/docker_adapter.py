@@ -273,6 +273,14 @@ class DockerOracleAdapter(OracleAdapter):
                     dest = Path(tmpdir) / "src" / cobol_source.name
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(cobol_source.read_bytes())
+                    # Stage adjacent copybooks (.cpy/.cbl that are NOT .cob programs)
+                    # so that COPY statements in the selected source can be resolved.
+                    # We do NOT compile adjacent .cob sibling programs.
+                    for sibling in cobol_source.parent.iterdir():
+                        if sibling.is_file() and sibling.suffix.lower() in (".cpy", ".cbl") \
+                                and sibling.suffix.lower() != ".cob" \
+                                and sibling != cobol_source:
+                            (dest.parent / sibling.name).write_bytes(sibling.read_bytes())
                     container_src = "/workspace/src"
                 else:
                     import shutil

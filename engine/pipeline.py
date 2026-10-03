@@ -225,7 +225,7 @@ class VerticalSlicePipeline:
             source_hash=str(source_hash),
             generated_files=generated_files,
             entrypoint=self._config.java_entrypoint,
-            java_version="25",
+            java_version="21",
         )
 
     def _extract_artifact_content(
@@ -240,7 +240,8 @@ class VerticalSlicePipeline:
         if artifact_type == "STDERR":
             return execution_result.stderr
         if artifact_type == "EXIT_STATUS":
-            return str(execution_result.exit_code or -1).encode()
+            _ec = execution_result.exit_code
+            return str(_ec if _ec is not None else -1).encode()
         if artifact_type in ("TEXT_FILE", "FIXED_RECORD"):
             generated = getattr(execution_result, "generated_files", None) or {}
             if output_path and output_path in generated:
@@ -571,8 +572,9 @@ class VerticalSlicePipeline:
         oracle_stderr_artifact = self._capturer.capture_stderr(
             oracle_result.execution_id, oracle_result.stderr, "oracle-stderr", "ORACLE"
         )
+        _oracle_ec = oracle_result.exit_code
         oracle_exit_artifact = self._capturer.capture_exit_status(
-            oracle_result.execution_id, oracle_result.exit_code or -1, "ORACLE"
+            oracle_result.execution_id, _oracle_ec if _oracle_ec is not None else -1, "ORACLE"
         )
 
         candidate_stdout_artifact = self._capturer.capture_stdout(
@@ -581,8 +583,9 @@ class VerticalSlicePipeline:
         candidate_stderr_artifact = self._capturer.capture_stderr(
             candidate_result.execution_id, candidate_result.stderr, "candidate-stderr", "CANDIDATE"
         )
+        _cand_ec = candidate_result.exit_code
         candidate_exit_artifact = self._capturer.capture_exit_status(
-            candidate_result.execution_id, candidate_result.exit_code or -1, "CANDIDATE"
+            candidate_result.execution_id, _cand_ec if _cand_ec is not None else -1, "CANDIDATE"
         )
 
         oracle_artifacts_list = [

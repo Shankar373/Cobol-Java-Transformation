@@ -103,6 +103,28 @@ def fresh_service():
     return svc
 
 
+def _await_terminal(run_id: str, timeout_s: float = 120.0) -> dict:
+    """Poll GET /runs/{id} until the background worker reaches a terminal
+    state (COMPLETED or FAILED).  Tolerates CI runners under load.
+
+    Returns the final run body dict."""
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    body: dict = {}
+    while True:
+        resp = client.get(f"/runs/{run_id}")
+        body = resp.json()
+        if body.get("stage") in ("COMPLETED", "FAILED"):
+            return body
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"run {run_id} stuck at stage '{body.get('stage')}' "
+                f"after {timeout_s}s"
+            )
+        time.sleep(0.5)
+
+
 @pytest.fixture()
 def sample_cobol_bytes():
     return SAMPLE_COBOL.encode("utf-8")
@@ -272,16 +294,8 @@ class TestGetRun:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Poll until background worker completes
-        for _ in range(30):
-            resp = client.get(f"/runs/{run_id}")
-            body = resp.json()
-            if body["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        body = _await_terminal(run_id)
 
-        assert resp.status_code == 200
-        body = resp.json()
         assert body["id"] == run_id
         assert body["application_id"] == app_id
         assert body["stage"] in ("COMPLETED", "FAILED")
@@ -313,12 +327,7 @@ class TestGetArtifacts:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Wait for background modernization to complete
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        _await_terminal(run_id)
 
         resp = client.get(f"/runs/{run_id}/artifacts")
         assert resp.status_code == 200
@@ -353,12 +362,7 @@ class TestGetVerdict:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Wait for background modernization to complete
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        _await_terminal(run_id)
 
         resp = client.get(f"/runs/{run_id}/verdict")
         assert resp.status_code == 200
@@ -400,12 +404,7 @@ class TestValidateRun:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Wait for background modernization to complete
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        _await_terminal(run_id)
 
         resp = client.post(f"/runs/{run_id}/validate")
         assert resp.status_code == 202
@@ -418,12 +417,7 @@ class TestValidateRun:
             "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE",
             "COMPLETED", "FAILED",
         )
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
-        assert run_resp.json()["stage"] in ("COMPLETED", "FAILED")
+        _await_terminal(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -456,14 +450,9 @@ class TestFullLifecycle:
         assert mod_resp.json()["stage"] == "CREATED"
 
         # 4. Poll until terminal stage
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        run_data = _await_terminal(run_id)
 
-        assert run_resp.status_code == 200
-        assert run_resp.json()["stage"] in ("COMPLETED", "FAILED")
+        assert run_data["stage"] in ("COMPLETED", "FAILED")
 
         # 5. Get artifacts
         art_resp = client.get(f"/runs/{run_id}/artifacts")
