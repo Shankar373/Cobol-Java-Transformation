@@ -1952,6 +1952,21 @@ def map_cobol_program_to_java(
                         ) and statement.source in mapping.fields:
                             input_amount_field = statement.source.replace("-", "_")
 
+    decision_result_field = ""
+    decision_result_width = 0
+    if program.status_codes:
+        label = program.status_codes[0].label
+        for paragraph in program.paragraphs:
+            for statement in walk(paragraph.statements):
+                if isinstance(statement, MoveStatement) and statement.source in (f"'{label}'", f'"{label}"'):
+                    item = ws_lookup.get(statement.target)
+                    if item is not None:
+                        decision_result_field = statement.target.replace("-", "_")
+                        decision_result_width = item.pic_length
+                        break
+            if decision_result_field:
+                break
+
     return JavaProgram(
         program_id=program.program_id,
         java_class=java_class,
@@ -1966,6 +1981,8 @@ def map_cobol_program_to_java(
         generation_mode=caps,
         input_record_fields=input_record_fields,
         input_amount_field=input_amount_field,
+        decision_result_field=decision_result_field,
+        decision_result_width=decision_result_width,
         copybooks=program.copybooks,
         calls=program.called_programs,
         entry_points=program.entry_points,

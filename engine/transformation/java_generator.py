@@ -270,6 +270,11 @@ class JavaGenerator:
         output_write = self._build_record_write_java_from_ir(
             "out", report_config.output_format_fields, field_map,
         )
+        result_assignment = ""
+        if program.decision_result_field:
+            expression = (f"padRight(result, {program.decision_result_width})"
+                          if program.decision_result_width > 0 else "result")
+            result_assignment = f"            {program.decision_result_field} = {expression};"
 
         # Stderr diagnostics
         stderr_java = self._build_stderr_java_from_ir(
@@ -325,6 +330,7 @@ public class {class_name} {{
             int lookupMatch = 0;
 
 {status_java}
+{result_assignment}
 
 {report_write}
 

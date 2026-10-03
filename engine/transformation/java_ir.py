@@ -573,6 +573,8 @@ class JavaProgram:
     # Input record field names (positional — which fields are parsed from input records)
     input_record_fields: tuple[str, ...] = ()
     input_amount_field: str = ""  # threshold operand traced to the input record
+    decision_result_field: str = ""  # receiving field of source outcome MOVEs
+    decision_result_width: int = 0
 
 
 @dataclass(frozen=True)
