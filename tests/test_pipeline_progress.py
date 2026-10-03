@@ -334,7 +334,17 @@ class TestAsyncAPIStagePersistence:
         assert len(observed) >= 1
 
     def test_full_stage_sequence_observed(self):
-        """Stages observed via polling respect canonical ordering."""
+        """Every persisted stage respects the documented lifecycle order."""
+        stages_seen = []
+        completed = threading.Event()
+        original_update = Store.update_run
+
+        def record_update(store, run):
+            stages_seen.append(run.stage.value)
+            result = original_update(store, run)
+            if run.stage in (RunStage.COMPLETED, RunStage.FAILED):
+                completed.set()
+            return result
         def mock_generate(self_svc, app, run):
             run.stage = RunStage.DISCOVERING
             run.stage = RunStage.DISCOVERY_COMPLETED
@@ -355,24 +365,27 @@ class TestAsyncAPIStagePersistence:
         mock_adapter = MagicMock()
         with patch.object(Service, "_generate_application", mock_generate), \
              patch.object(Service, "_run_validation", mock_validation), \
+             patch.object(Store, "update_run", record_update), \
              patch("engine.candidate.docker_spring_boot_adapter.DockerSpringBootCandidateAdapter", return_value=mock_adapter):
             resp = client.post(f"/applications/{app_id}/modernize")
             run_id = resp.json()["run_id"]
+            assert completed.wait(timeout=10), "Modernization worker did not finish"
+            assert client.get(f"/runs/{run_id}").json()["stage"] == "COMPLETED"
 
-        stages_seen = []
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            stage = client.get(f"/runs/{run_id}").json()["stage"]
-            if stage not in stages_seen:
-                stages_seen.append(stage)
-            if stage in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.05)
-
+        # Authoritative order: VerticalSlicePipeline.run() documents oracle
+        # execution before BUILDING; frontend/src/api/stages.ts agrees.
         canonical_order = [
             "CREATED", "INGESTING", "DISCOVERING", "DISCOVERY_COMPLETED",
-            "TRANSFORMING", "GENERATING", "BUILDING", "EXECUTING_ORACLE",
+            "ANALYZING", "ANALYSIS_COMPLETED", "PLANNING", "PLAN_COMPLETED",
+            "TRANSFORMING", "GENERATING", "ASSEMBLING", "ASSEMBLY_COMPLETED",
+            "EXECUTING_ORACLE", "BUILDING",
             "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE", "COMPLETED",
+        ]
+        validation_stages = [stage for stage in stages_seen if stage in (
+            "EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE",
+        )]
+        assert validation_stages == [
+            "EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE",
         ]
         last_idx = -1
         for s in stages_seen:

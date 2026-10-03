@@ -457,7 +457,13 @@ class TestBehavioralEquivalence:
         candidate_adapter = DockerSpringBootCandidateAdapter()
         pipeline = VerticalSlicePipeline(config, candidate_adapter=candidate_adapter)
 
-        return pipeline.run()
+        phases = []
+        result = pipeline.run(progress=phases.append)
+        assert phases == [
+            "EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED",
+            "COMPARING", "VALIDATING_EVIDENCE",
+        ]
+        return result
 
     def test_exit_codes_match(self, pipeline_result):
         """Candidate and oracle have same exit code."""
