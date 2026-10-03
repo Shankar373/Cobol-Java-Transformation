@@ -681,12 +681,12 @@ class TestPicMapping:
     def test_default_alphanumeric(self):
         item = DataItem(name="WS-NAME", pic_type=PicType.ALPHANUMERIC, pic_length=20)
         d = map_pic_to_java_default(item)
-        assert d == '""'
+        assert d == '"                    "'
 
     def test_default_alphanumeric_with_value(self):
         item = DataItem(name="WS-NAME", pic_type=PicType.ALPHANUMERIC, pic_length=20, value="'HELLO'")
         d = map_pic_to_java_default(item)
-        assert d == '"HELLO"'
+        assert d == '"HELLO               "'
 
 
 # ============================================================

@@ -131,6 +131,11 @@ def map_pic_to_java_default(item: DataItem) -> str:
         if item.value:
             return item.value.strip("'\"")
         return "0"
+    if item.is_alphanumeric and item.pic_length > 0:
+        value = item.value.strip(chr(39) + chr(34)) if item.value else ""
+        if item.value and item.value.upper() in ("SPACE", "SPACES"):
+            value = ""
+        return '"' + value[:item.pic_length].ljust(item.pic_length) + '"'
     if item.value:
         return f'"{item.value.strip(chr(39) + chr(34))}"'
     return '""'
@@ -859,9 +864,22 @@ def map_cobol_statement(
         # assignment, so ``targets`` is the authoritative list.
         move_targets = stmt.targets or ((stmt.target,) if stmt.target else ())
         for move_target in move_targets:
+            expression = source
+            item = _find_data_item(program, move_target)
+            if item is not None and item.is_alphanumeric and item.pic_length > 0:
+                # MOVE stores exactly the receiving PIC X width: pad on the
+                # right, or truncate on the right before any subsequent use.
+                padded = JavaMethodCall(
+                    class_name="String", method_name="format", is_static=True,
+                    arguments=(_str_lit(f"%-{item.pic_length}s"), source),
+                )
+                expression = JavaMethodCall(
+                    object_ref=padded, method_name="substring",
+                    arguments=(_int_lit(0), _int_lit(item.pic_length)),
+                )
             result.append(JavaAssignment(
                 target=move_target.replace("-", "_"),
-                expression=source,
+                expression=expression,
             ))
 
     elif isinstance(stmt, AddStatement):
