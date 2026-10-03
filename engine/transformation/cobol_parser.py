@@ -1633,10 +1633,14 @@ class CobolParser:
         while i < len(lines):
             stripped = lines[i].strip()
             if stripped.upper().startswith("STRING"):
+                if "END-STRING" in stripped.upper():
+                    joined_lines.append(stripped)
+                    i += 1
+                    continue
                 # Collect entire STRING ... END-STRING block
                 block = stripped
                 i += 1
-                while i < len(lines):
+                while i < len(lines) and "END-STRING" not in block.upper():
                     next_stripped = lines[i].strip()
                     block += " " + next_stripped
                     if "END-STRING" in next_stripped.upper():
@@ -1698,14 +1702,20 @@ class CobolParser:
         """
         # Find all STRING INTO record names
         record_names: list[str] = []
+        block = ""
         for line in lines:
             upper = line.upper()
-            if "STRING " in upper and "INTO " in upper:
-                match = re.search(r"INTO\s+(\S+)", line, re.IGNORECASE)
+            if upper.strip().startswith("STRING "):
+                block = line
+            elif block:
+                block += " " + line
+            if block:
+                match = re.search(r"INTO\s+(\S+)", block, re.IGNORECASE)
                 if match:
                     name = match.group(1).rstrip(".")
                     if name not in record_names:
                         record_names.append(name)
+                    block = ""
 
         # Extract record format for each found record
         formats: list[OutputFormat] = []
