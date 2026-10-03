@@ -1822,15 +1822,40 @@ def map_cobol_program_to_java(
         for sc in program.status_codes
     )
 
-    # Threshold rules → JavaThresholdRule
-    threshold_rules = tuple(
-        JavaThresholdRule(
+    def walk(statements):
+        for statement in statements:
+            yield statement
+            for attr in ("body", "then_body", "else_body", "at_end_body",
+                         "not_at_end_body", "invalid_key_body", "not_invalid_key_body"):
+                yield from walk(getattr(statement, attr, ()))
+
+    counter_labels = {
+        statement.parts[1]: _cobol_field_to_java_var(statement.parts[0][1:-1].removesuffix("="))
+        for paragraph in program.paragraphs for statement in paragraph.statements
+        if isinstance(statement, DisplayStatement) and len(statement.parts) == 2
+        and statement.parts[0].startswith(("'", '"'))
+    }
+    threshold_rules_list = []
+    for tr in program.threshold_rules:
+        pass_label = ""
+        pass_counter = ""
+        for paragraph in program.paragraphs:
+            for statement in walk(paragraph.statements):
+                if isinstance(statement, IfStatement) and statement.condition == f"{tr.field_name} {tr.operator} {tr.value}":
+                    for branch_statement in statement.else_body:
+                        if isinstance(branch_statement, MoveStatement) and branch_statement.source.startswith(("'", '"')):
+                            pass_label = branch_statement.source[1:-1]
+                        if isinstance(branch_statement, AddStatement) and branch_statement.source == "1":
+                            pass_counter = counter_labels.get(branch_statement.target, "")
+                            break
+        threshold_rules_list.append(JavaThresholdRule(
             field_name=tr.field_name,
             operator=tr.operator,
             value=tr.value,
-        )
-        for tr in program.threshold_rules
-    )
+            pass_label=pass_label,
+            pass_counter_name=pass_counter,
+        ))
+    threshold_rules = tuple(threshold_rules_list)
 
     # Summary fields → JavaSummaryField
     ws_lookup = {item.name: item for item in program.working_storage}
@@ -1920,12 +1945,6 @@ def map_cobol_program_to_java(
             if amount in mapping.fields:
                 input_amount_field = amount.replace("-", "_")
             else:
-                def walk(statements):
-                    for statement in statements:
-                        yield statement
-                        for attr in ("body", "then_body", "else_body", "at_end_body",
-                                     "not_at_end_body", "invalid_key_body", "not_invalid_key_body"):
-                            yield from walk(getattr(statement, attr, ()))
                 for paragraph in program.paragraphs:
                     for statement in walk(paragraph.statements):
                         if isinstance(statement, MoveStatement) and amount in (

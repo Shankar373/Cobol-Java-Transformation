@@ -489,6 +489,8 @@ class JavaThresholdRule:
     operator: str  # ">", "<", ">=", "<="
     value: int
     constant_name: str = "THRESHOLD"  # Java constant name
+    pass_label: str = ""  # outcome in the source threshold's ELSE branch
+    pass_counter_name: str = ""
 
 
 @dataclass(frozen=True)

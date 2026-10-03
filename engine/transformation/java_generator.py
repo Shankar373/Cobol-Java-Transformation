@@ -230,6 +230,8 @@ class JavaGenerator:
             program.status_codes, program.match_outcomes,
             program.summary_fields, field_map, program.input_record_fields,
             program.input_amount_field,
+            program.threshold_rules[0].pass_label if program.threshold_rules else "",
+            program.threshold_rules[0].pass_counter_name if program.threshold_rules else "",
         )
 
         # Summary output
@@ -616,13 +618,15 @@ public class {class_name} {{
         field_map: dict[str, JavaField],
         input_record_fields: tuple[str, ...] = (),
         input_amount_field: str = "",
+        threshold_pass_label: str = "",
+        threshold_pass_counter: str = "",
     ) -> str:
         """Generate Java if/else chain from Java IR status codes."""
         if not status_codes:
             return ""
 
         first_label = status_codes[0].label
-        approval_label = status_codes[-1].label
+        approval_label = threshold_pass_label or status_codes[-1].label
 
         # Get match outcome labels
         paid_label = match_outcomes[0].paid_label if match_outcomes else approval_label
@@ -631,6 +635,8 @@ public class {class_name} {{
 
         # Build label → counter mapping
         label_to_counter = {sc.label: sc.counter_name for sc in status_codes}
+        if threshold_pass_counter:
+            label_to_counter[approval_label] = threshold_pass_counter
         for mo in match_outcomes:
             if mo.paid_label:
                 label_to_counter[mo.paid_label] = self._label_to_counter_name(mo.paid_label)
