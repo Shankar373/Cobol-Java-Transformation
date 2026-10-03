@@ -145,6 +145,21 @@ class CobolParser:
                 code_lines.append(cleaned)
 
         # Parse divisions
+        # These clauses continue an operation header; they are not new
+        # statements. Both structured parsing and semantic extraction need
+        # the same logical header (without rewriting the original source).
+        logical_lines = []
+        for line in code_lines:
+            if logical_lines and (
+                re.match(r"^(MOVE|ADD)\b", logical_lines[-1], re.IGNORECASE)
+                and re.match(r"^TO\b", line, re.IGNORECASE)
+                or re.match(r"^IF\b", logical_lines[-1], re.IGNORECASE)
+                and re.match(r"^(?:=|<>|<=|>=|<|>|AND\b|OR\b)", line, re.IGNORECASE)
+            ):
+                logical_lines[-1] += " " + line
+            else:
+                logical_lines.append(line)
+        code_lines = logical_lines
         program_id = self._parse_program_id(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
