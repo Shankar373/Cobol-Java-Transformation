@@ -256,14 +256,23 @@ class TestFailedRun:
     """Failing pipeline ends with FAILED."""
 
     def test_run_ends_failed_on_generation_error(self):
+        entered = threading.Event()
+        release = threading.Event()
+
         def _fail_generate(self_svc, app, run):
+            entered.set()
+            assert release.wait(timeout=10), "generation mock was not released"
             raise RuntimeError("mock generation failure")
 
         app_id = _create_and_upload_app()
         with patch.object(Service, "_generate_application", _fail_generate):
             resp = client.post(f"/applications/{app_id}/modernize")
-        run_id = resp.json()["run_id"]
+            try:
+                assert entered.wait(timeout=10), "background worker did not enter generation"
+            finally:
+                release.set()
 
+        run_id = resp.json()["run_id"]
         body = _wait_for_terminal(run_id, timeout=15)
         assert body["stage"] == "FAILED"
         assert "mock generation failure" in body["error"]
