@@ -1595,7 +1595,7 @@ public class {class_name} {{
     @staticmethod
     def _java_numeric_default_for_item(item) -> str:
         """Choose a Java initializer while preserving signed/decimal VALUE text."""
-        return item.value.strip("'"") if item.value else "0"
+        return item.value.strip("'\"") if item.value else "0"
 
     def _gen_io_variable_declarations(
         self,
@@ -1634,7 +1634,7 @@ public class {class_name} {{
             else:
                 default = '""'
                 if item.value:
-                    default = '"' + item.value.strip("'"") + '"'
+                    default = '"' + item.value.strip("'\"") + '"'
                 lines.append(f'    static String {java_name} = {default};')
         return "\n".join(lines)
 

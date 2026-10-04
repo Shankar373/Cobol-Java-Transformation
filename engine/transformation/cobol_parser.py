@@ -437,7 +437,7 @@ class CobolParser:
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
-                            signed=self._pic_is_signed(pic_match.group(1)),
+                                signed=self._pic_is_signed(pic_match.group(1)),
                             ))
                 elif current_fd and re.match(r"\d{2}\s+", upper):
                     # Handle sub-level items (05, 10, 15, etc.)
@@ -454,7 +454,7 @@ class CobolParser:
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
-                            signed=self._pic_is_signed(pic_match.group(1)),
+                                signed=self._pic_is_signed(pic_match.group(1)),
                             ))
                 elif upper.startswith(("WORKING-STORAGE", "PROCEDURE")):
                     if current_fd and current_record:
@@ -602,7 +602,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
-                            signed=self._pic_is_signed(pic_match.group(1)),
+                                signed=self._pic_is_signed(pic_match.group(1)),
                             value=value,
                         ))
                     else:
@@ -612,7 +612,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
-                            signed=self._pic_is_signed(pic_match.group(1)),
+                                signed=self._pic_is_signed(pic_match.group(1)),
                             value=value,
                             occurs=occurs,
                         ))
@@ -634,7 +634,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
-                            signed=self._pic_is_signed(pic_match.group(1)),
+                                signed=self._pic_is_signed(pic_match.group(1)),
                         ))
 
         return items
