@@ -223,9 +223,17 @@ class CapabilityAnalyzer:
             name = type(stmt).__name__
             capability = classify_statement_capability(stmt)
             if capability == "PARTIAL":
-                partial.append(f"{name} mapping is not fully semantically generated")
+                if name == "UnstringStatement":
+                    partial.append("UNSTRING mapping is not semantically generated")
+                else:
+                    partial.append(f"{name} mapping is not fully semantically generated")
             elif capability == "UNSUPPORTED":
-                unsupported.append(f"{name} is outside the mapper-backed deterministic subset")
+                if name == "GoToStatement":
+                    unsupported.append("GO TO has no semantic Java control-flow mapping")
+                elif name == "PerformTimesStatement":
+                    unsupported.append("PERFORM TIMES has no direct mapper IR path")
+                else:
+                    unsupported.append(f"Unrecognized/unmapped IR statement {name}")
             if name == "CallStatement" and stmt.is_dynamic:
                 unsupported.append("Dynamic CALL has no static dispatch")
 

@@ -536,6 +536,7 @@ Statement = (
     | AddStatement
     | SubtractStatement
     | MultiplyStatement
+    | ComputeStatement
     | CallStatement
     | DivideStatement
     | IfStatement
