@@ -49,6 +49,8 @@ from engine.transformation.ir import (
     StartStatement,
     StopRunStatement,
     StringStatement,
+    Statement,
+    PerformTimesStatement,
     SubtractStatement,
     UnstringStatement,
     WriteStatement,
@@ -825,6 +827,31 @@ def _expand_thru_range(stmt, program) -> list[str]:
                 return names[lo:hi + 1]
     return [first] if first else []
 
+
+
+# Mapper-backed capability contract. Keep this alongside the actual mapper so
+# capability analysis cannot silently drift from transformation support.
+STATEMENT_CAPABILITY_SUPPORTED = frozenset({
+    MoveStatement, AddStatement, SubtractStatement, MultiplyStatement,
+    DivideStatement, ComputeStatement, DisplayStatement, IfStatement,
+    PerformStatement, ReadStatement, WriteStatement, OpenStatement, CloseStatement,
+    StartStatement, RewriteStatement, DeleteStatement, StringStatement,
+    StopRunStatement, CallStatement,
+})
+STATEMENT_CAPABILITY_PARTIAL = frozenset({UnstringStatement})
+STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement, PerformTimesStatement})
+
+
+def classify_statement_capability(stmt: Statement) -> str:
+    """Return the mapper-backed capability for one semantic IR statement."""
+    statement_type = type(stmt)
+    if statement_type in STATEMENT_CAPABILITY_UNSUPPORTED:
+        return "UNSUPPORTED"
+    if statement_type in STATEMENT_CAPABILITY_PARTIAL:
+        return "PARTIAL"
+    if statement_type in STATEMENT_CAPABILITY_SUPPORTED:
+        return "SUPPORTED"
+    return "UNSUPPORTED"
 
 def map_cobol_statement(
     stmt: Statement,

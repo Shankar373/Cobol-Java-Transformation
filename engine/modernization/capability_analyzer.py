@@ -98,16 +98,6 @@ class CapabilityAnalyzer:
         report = analyzer.analyze(application)
     """
 
-    # These sets describe the capability vocabulary. Actual classification is
-    # performed from semantic IR and downstream mapping evidence below.
-    SUPPORTED_STATEMENTS = frozenset({
-        "MOVE", "ADD", "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE",
-        "DISPLAY", "IF", "PERFORM", "READ", "WRITE", "OPEN", "CLOSE",
-        "START", "REWRITE", "DELETE", "STRING", "STOP RUN", "CALL",
-    })
-    PARTIAL_STATEMENTS = frozenset({"UNSTRING", "PERFORM VARYING"})
-    UNSUPPORTED_STATEMENTS = frozenset({"GO TO", "PERFORM TIMES", "UNKNOWN"})
-
     def __init__(
         self,
         producer_capabilities: tuple[object, ...] = (),
@@ -227,26 +217,16 @@ class CapabilityAnalyzer:
         program = unit.program
         unsupported: list[str] = []
         partial: list[str] = []
-        known = {
-            "MoveStatement", "AddStatement", "SubtractStatement", "MultiplyStatement",
-            "DivideStatement", "ComputeStatement", "DisplayStatement", "IfStatement",
-            "ReadStatement", "WriteStatement", "OpenStatement", "CloseStatement",
-            "StartStatement", "RewriteStatement", "DeleteStatement", "StringStatement",
-            "StopRunStatement", "CallStatement", "PerformStatement",
-        }
+        from engine.transformation.cobol_to_java_mapping import classify_statement_capability
 
         def walk(stmt) -> None:
             name = type(stmt).__name__
-            if name not in known:
-                if name == "UnstringStatement":
-                    partial.append("UNSTRING mapping is not semantically generated")
-                elif name == "GoToStatement":
-                    unsupported.append("GO TO has no semantic Java control-flow mapping")
-                elif name == "PerformTimesStatement":
-                    unsupported.append("PERFORM TIMES has no direct mapper IR path")
-                else:
-                    unsupported.append(f"Unrecognized/unmapped IR statement {name}")
-            elif name == "CallStatement" and stmt.is_dynamic:
+            capability = classify_statement_capability(stmt)
+            if capability == "PARTIAL":
+                partial.append(f"{name} mapping is not fully semantically generated")
+            elif capability == "UNSUPPORTED":
+                unsupported.append(f"{name} is outside the mapper-backed deterministic subset")
+            if name == "CallStatement" and stmt.is_dynamic:
                 unsupported.append("Dynamic CALL has no static dispatch")
 
             fields = getattr(stmt, "__dataclass_fields__", {})

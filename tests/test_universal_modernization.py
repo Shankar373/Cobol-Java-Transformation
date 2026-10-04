@@ -152,6 +152,27 @@ class TestCapabilityAnalysis:
         assert len(cb_caps) == 1
         assert cb_caps[0].level == CapabilityLevel.SUPPORTED
 
+    def test_statement_capability_contract_matches_ir(self):
+        from typing import get_args
+        from engine.transformation import ir
+        from engine.transformation.cobol_to_java_mapping import (
+            STATEMENT_CAPABILITY_PARTIAL,
+            STATEMENT_CAPABILITY_SUPPORTED,
+            STATEMENT_CAPABILITY_UNSUPPORTED,
+        )
+
+        statement_types = set(get_args(ir.Statement))
+        classified_types = (
+            set(STATEMENT_CAPABILITY_SUPPORTED)
+            | set(STATEMENT_CAPABILITY_PARTIAL)
+            | set(STATEMENT_CAPABILITY_UNSUPPORTED)
+        )
+        assert statement_types == classified_types
+        assert ir.PerformStatement in STATEMENT_CAPABILITY_SUPPORTED
+        assert ir.UnstringStatement in STATEMENT_CAPABILITY_PARTIAL
+        assert ir.PerformTimesStatement in STATEMENT_CAPABILITY_UNSUPPORTED
+        assert ir.GoToStatement in STATEMENT_CAPABILITY_UNSUPPORTED
+
     def test_report_to_dict(self):
         app = self._get_application()
         analyzer = CapabilityAnalyzer(docker_available=False)
