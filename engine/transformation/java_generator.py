@@ -922,7 +922,7 @@ public class {class_name} {{
     def _expr_to_string(self, expr) -> str:
         """Convert a Java IR expression to a Java source string."""
         from engine.transformation.java_ir import (
-            JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
+            JavaCast, JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
             JavaStringConcat, JavaUnaryOp,
         )
         if isinstance(expr, JavaLiteral):
@@ -949,6 +949,8 @@ public class {class_name} {{
             return expr.value
         if isinstance(expr, JavaVariableRef):
             return expr.name
+        if isinstance(expr, JavaCast):
+            return f"({expr.target_type.to_source()})({self._expr_to_string(expr.expression)})"
         if isinstance(expr, JavaBinaryOp):
             left = self._expr_to_string(expr.left)
             right = self._expr_to_string(expr.right)

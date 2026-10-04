@@ -381,6 +381,7 @@ class AddStatement:
     source_expr: Expression | None = None  # structured source expression
     target_ref: FieldReference | None = None  # structured target reference
     giving_target: str | None = None  # ADD ... GIVING result
+    rounded: bool = False  # ROUNDED on the receiving item
 
 
 @dataclass(frozen=True)
@@ -393,6 +394,7 @@ class SubtractStatement:
     from_ref: FieldReference | None = None
     to_ref: FieldReference | None = None
     sources: tuple[str, ...] = ()  # multi-source SUBTRACT A B C FROM D
+    rounded: bool = False  # ROUNDED on the receiving item
 
 
 @dataclass(frozen=True)
@@ -404,6 +406,7 @@ class MultiplyStatement:
     source_expr: Expression | None = None
     multiplicand_ref: FieldReference | None = None
     target_ref: FieldReference | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
 
 
 @dataclass(frozen=True)
@@ -428,6 +431,7 @@ class DivideStatement:
     source_expr: Expression | None = None
     divisor_expr: Expression | None = None
     target_ref: FieldReference | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
 
 
 @dataclass(frozen=True)
@@ -440,6 +444,7 @@ class ComputeStatement:
     expression: str
     target_ref: FieldReference | None = None
     expression_expr: Expression | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
 
 
 @dataclass(frozen=True)

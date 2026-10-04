@@ -62,6 +62,7 @@ from engine.transformation.java_ir import (
     JavaBasicType,
     JavaBinaryOp,
     JavaBlock,
+    JavaCast,
     JavaClass,
     JavaComment,
     JavaDatabaseResource,
@@ -601,6 +602,90 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     return JavaVariableRef(name=java_name)
 
 
+def _promote_numeric_expression_to_double(expr: JavaExpression) -> JavaExpression:
+    """Promote arithmetic operands to double for decimal receiver calculations."""
+    if isinstance(expr, JavaBinaryOp):
+        return JavaBinaryOp(
+            left=_promote_numeric_expression_to_double(expr.left),
+            operator=expr.operator,
+            right=_promote_numeric_expression_to_double(expr.right),
+        )
+    if isinstance(expr, JavaUnaryOp):
+        return JavaUnaryOp(
+            operator=expr.operator,
+            operand=_promote_numeric_expression_to_double(expr.operand),
+        )
+    if isinstance(expr, JavaLiteral) and expr.java_type and expr.java_type.basic_type == JavaBasicType.DOUBLE:
+        return expr
+    return JavaCast(
+        target_type=JavaType(basic_type=JavaBasicType.DOUBLE),
+        expression=expr,
+    )
+
+
+def _expression_requires_fractional_type(
+    expr: JavaExpression,
+    program: CobolProgram | None,
+) -> bool:
+    """Return whether an arithmetic expression can produce a fractional value."""
+    if isinstance(expr, JavaLiteral):
+        return bool(
+            expr.java_type
+            and expr.java_type.basic_type == JavaBasicType.DOUBLE
+        )
+    if isinstance(expr, JavaVariableRef):
+        item = _find_data_item(program, expr.name)
+        return bool(item and item.decimal_places > 0)
+    if isinstance(expr, JavaBinaryOp):
+        return _expression_requires_fractional_type(expr.left, program) or _expression_requires_fractional_type(expr.right, program)
+    if isinstance(expr, JavaUnaryOp):
+        return _expression_requires_fractional_type(expr.operand, program)
+    return True
+
+
+def _apply_numeric_receiver_semantics(
+    expression: JavaExpression,
+    target: str,
+    program: CobolProgram | None,
+    rounded: bool = False,
+) -> JavaExpression:
+    """Apply COBOL final-result scale/truncation semantics to an arithmetic receiver."""
+    item = _find_data_item(program, target)
+    if item is None or not item.is_numeric:
+        return expression
+
+    if item.decimal_places > 0:
+        # Decimal receivers require fractional arithmetic even when all source
+        # operands are integer PICs, so division is not accidentally integer division.
+        expression = _promote_numeric_expression_to_double(expression)
+    elif not _expression_requires_fractional_type(expression, program):
+        # Keep pure integer/long arithmetic native; this also avoids losing
+        # precision by routing large integral values through BigDecimal.valueOf(double).
+        return expression
+
+    rounding_mode = (
+        "java.math.RoundingMode.HALF_UP" if rounded else "java.math.RoundingMode.DOWN"
+    )
+    scaled = JavaMethodCall(
+        object_ref=JavaMethodCall(
+            class_name="java.math.BigDecimal",
+            method_name="valueOf",
+            arguments=(expression,),
+            is_static=True,
+        ),
+        method_name="setScale",
+        arguments=(
+            JavaLiteral(value=str(item.decimal_places)),
+            JavaVariableRef(name=rounding_mode),
+        ),
+    )
+    if item.decimal_places > 0:
+        return JavaMethodCall(object_ref=scaled, method_name="doubleValue", arguments=())
+
+    narrow_method = "longValue" if item.pic_length > 9 else "intValue"
+    return JavaMethodCall(object_ref=scaled, method_name=narrow_method, arguments=())
+
+
 def _map_cobol_expression_to_java(expr) -> JavaExpression:
     """Map a structured COBOL IR Expression to a Java expression.
 
@@ -939,19 +1024,21 @@ def map_cobol_statement(
         if stmt.giving_target:
             result.append(JavaAssignment(
                 target=target,
-                expression=JavaBinaryOp(
-                    left=source_a,
-                    operator="+",
-                    right=source_b,
+                expression=_apply_numeric_receiver_semantics(
+                    JavaBinaryOp(left=source_a, operator="+", right=source_b),
+                    target,
+                    program,
+                    stmt.rounded,
                 ),
             ))
         else:
             result.append(JavaAssignment(
                 target=target,
-                expression=JavaBinaryOp(
-                    left=source_b,
-                    operator="+",
-                    right=source_a,
+                expression=_apply_numeric_receiver_semantics(
+                    JavaBinaryOp(left=source_b, operator="+", right=source_a),
+                    target,
+                    program,
+                    stmt.rounded,
                 ),
             ))
 
@@ -968,7 +1055,10 @@ def map_cobol_statement(
         expr: JavaExpression = JavaVariableRef(name=stmt.from_field.replace("-", "_"))
         for src in java_sources:
             expr = JavaBinaryOp(left=expr, operator="-", right=src)
-        result.append(JavaAssignment(target=target, expression=expr))
+        result.append(JavaAssignment(
+            target=target,
+            expression=_apply_numeric_receiver_semantics(expr, target, program, stmt.rounded),
+        ))
 
     elif isinstance(stmt, MultiplyStatement):
         # MULTIPLY A BY B GIVING C → C = A * B
@@ -983,10 +1073,15 @@ def map_cobol_statement(
         source = map_cobol_expr_to_java(stmt.source)
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(
-                left=source,
-                operator="*",
-                right=JavaVariableRef(name=stmt.multiplicand.replace("-", "_")),
+            expression=_apply_numeric_receiver_semantics(
+                JavaBinaryOp(
+                    left=source,
+                    operator="*",
+                    right=JavaVariableRef(name=stmt.multiplicand.replace("-", "_")),
+                ),
+                target,
+                program,
+                stmt.rounded,
             ),
         ))
 
@@ -996,20 +1091,33 @@ def map_cobol_statement(
         divisor = map_cobol_expr_to_java(stmt.divisor)
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(left=source, operator="/", right=divisor),
+            expression=_apply_numeric_receiver_semantics(
+                JavaBinaryOp(left=source, operator="/", right=divisor),
+                target,
+                program,
+                stmt.rounded,
+            ),
         ))
         # REMAINDER target = source % divisor
         if stmt.remainder:
             remainder_target = stmt.remainder.replace("-", "_")
             result.append(JavaAssignment(
                 target=remainder_target,
-                expression=JavaBinaryOp(left=source, operator="%", right=divisor),
+                expression=_apply_numeric_receiver_semantics(
+                    JavaBinaryOp(left=source, operator="%", right=divisor),
+                    remainder_target,
+                    program,
+                    stmt.rounded,
+                ),
             ))
 
     elif isinstance(stmt, ComputeStatement):
         target = stmt.target.replace("-", "_")
         expression = map_cobol_expr_to_java(stmt.expression)
-        result.append(JavaAssignment(target=target, expression=expression))
+        result.append(JavaAssignment(
+            target=target,
+            expression=_apply_numeric_receiver_semantics(expression, target, program, stmt.rounded),
+        ))
 
     elif isinstance(stmt, DisplayStatement):
         parts: list[JavaExpression] = []

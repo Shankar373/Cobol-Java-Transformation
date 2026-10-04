@@ -905,15 +905,23 @@ class CobolParser:
         """Parse ADD source TO target statement."""
         line = lines[start].strip()
 
-        match = re.search(r"ADD\s+(.+?)\s+TO\s+(\S+)", line, re.IGNORECASE)
+        match = re.search(
+            r"ADD\s+(.+?)\s+TO\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
+            line,
+            re.IGNORECASE,
+        )
         if match:
             source = match.group(1).strip().rstrip(".")
             target = match.group(2).strip().rstrip(".")
+            giving_target = match.group(3).strip().rstrip(".") if match.group(3) else None
+            rounded = bool(re.search(r"\sROUNDED(?:\s*\.|\s*)$", line, re.IGNORECASE))
             return AddStatement(
                 source=source,
                 target=target,
                 source_expr=self._build_expression(source),
                 target_ref=FieldReference(name=target),
+                giving_target=giving_target,
+                rounded=rounded,
             ), start + 1
 
         return AddStatement(source="", target=""), start + 1
@@ -921,12 +929,17 @@ class CobolParser:
     def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
         """Parse SUBTRACT source FROM field [GIVING target]."""
         line = lines[start].strip()
-        match = re.search(r"SUBTRACT\s+(\S+)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
+        match = re.search(
+            r"SUBTRACT\s+(\S+)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
+            line,
+            re.IGNORECASE,
+        )
         if not match:
             return SubtractStatement(source="", from_field=""), start + 1
         source = match.group(1).rstrip(".")
         from_field = match.group(2).rstrip(".")
         to_field = match.group(3).rstrip(".") if match.group(3) else None
+        rounded = bool(re.search(r"\sROUNDED(?:\s*\.|\s*)$", line, re.IGNORECASE))
         return SubtractStatement(
             source=source,
             from_field=from_field,
@@ -934,17 +947,23 @@ class CobolParser:
             source_expr=self._build_expression(source),
             from_ref=FieldReference(name=from_field),
             to_ref=FieldReference(name=to_field) if to_field else None,
+            rounded=rounded,
         ), start + 1
 
     def _parse_multiply(self, lines: list[str], start: int) -> tuple[MultiplyStatement, int]:
         """Parse MULTIPLY source BY field [GIVING target]."""
         line = lines[start].strip()
-        match = re.search(r"MULTIPLY\s+(\S+)\s+BY\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
+        match = re.search(
+            r"MULTIPLY\s+(\S+)\s+BY\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
+            line,
+            re.IGNORECASE,
+        )
         if not match:
             return MultiplyStatement(source="", multiplicand=""), start + 1
         source = match.group(1).rstrip(".")
         multiplicand = match.group(2).rstrip(".")
         target = match.group(3).rstrip(".") if match.group(3) else None
+        rounded = bool(re.search(r"\sROUNDED(?:\s*\.|\s*)$", line, re.IGNORECASE))
         return MultiplyStatement(
             source=source,
             multiplicand=multiplicand,
@@ -952,6 +971,7 @@ class CobolParser:
             source_expr=self._build_expression(source),
             multiplicand_ref=FieldReference(name=multiplicand),
             target_ref=FieldReference(name=target) if target else None,
+            rounded=rounded,
         ), start + 1
 
     def _parse_call(self, lines: list[str], start: int) -> tuple[CallStatement, int]:
@@ -990,7 +1010,7 @@ class CobolParser:
 
         # Match with optional REMAINDER
         match = re.search(
-            r"DIVIDE\s+(\S+)\s+BY\s+(\S+)\s+GIVING\s+(\S+)(?:\s+REMAINDER\s+(\S+))?",
+            r"DIVIDE\s+(\S+)\s+BY\s+(\S+)\s+GIVING\s+(\S+)(?:\s+ROUNDED)?(?:\s+REMAINDER\s+(\S+))?",
             line, re.IGNORECASE,
         )
         if match:
@@ -998,6 +1018,7 @@ class CobolParser:
             divisor = match.group(2).strip().rstrip(".")
             target = match.group(3).strip().rstrip(".")
             remainder = match.group(4).strip().rstrip(".") if match.group(4) else ""
+            rounded = bool(re.search(r"\sROUNDED(?:\s+REMAINDER\b|\s*\.|\s*)", line, re.IGNORECASE))
             return DivideStatement(
                 source=source,
                 divisor=divisor,
@@ -1006,6 +1027,7 @@ class CobolParser:
                 source_expr=self._build_expression(source),
                 divisor_expr=self._build_expression(divisor),
                 target_ref=FieldReference(name=target),
+                rounded=rounded,
             ), start + 1
 
         return DivideStatement(source="", divisor="", target=""), start + 1
@@ -1016,15 +1038,21 @@ class CobolParser:
 
         line = lines[start].strip()
 
-        match = re.search(r"COMPUTE\s+(\S+)\s*=\s*(.+?)\.?\s*$", line, re.IGNORECASE)
+        match = re.search(
+            r"COMPUTE\s+(\S+)(?:\s+(ROUNDED))?\s*=\s*(.+?)\.?\s*$",
+            line,
+            re.IGNORECASE,
+        )
         if match:
             target = match.group(1).strip().rstrip(".")
-            expression = match.group(2).strip().rstrip(".")
+            expression = match.group(3).strip().rstrip(".")
+            rounded = bool(match.group(2))
             return ComputeStatement(
                 target=target,
                 expression=expression,
                 target_ref=FieldReference(name=target),
                 expression_expr=self._build_expression(expression),
+                rounded=rounded,
             ), start + 1
 
         return ComputeStatement(target="", expression=""), start + 1
