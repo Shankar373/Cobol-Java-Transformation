@@ -833,7 +833,7 @@ def _expand_thru_range(stmt, program) -> list[str]:
 # capability analysis cannot silently drift from transformation support.
 STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     MoveStatement, AddStatement, SubtractStatement, MultiplyStatement,
-    ComputeStatement, DivideStatement, ComputeStatement, DisplayStatement, IfStatement,
+    ComputeStatement, DivideStatement, DisplayStatement, IfStatement,
     PerformStatement, ReadStatement, WriteStatement, OpenStatement, CloseStatement,
     StartStatement, RewriteStatement, DeleteStatement, StringStatement,
     StopRunStatement, CallStatement,
