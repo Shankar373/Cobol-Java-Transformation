@@ -645,3 +645,68 @@ class TestModernizationPlannerEdgeCases:
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))
+
+class TestCapabilityTruthP0:
+    """P0 regression tests for evidence-backed, fail-closed capability truth."""
+
+    def test_string_and_unstring_are_not_contradictory(self):
+        from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityLevel
+        from engine.transformation.ir import CobolApplication, CobolProgram, CobolProgramUnit, Paragraph, StringStatement, UnstringStatement
+        program = CobolProgram(program_id="STRING-APP", paragraphs=(Paragraph(name="MAIN", statements=(
+            StringStatement(parts=('"A"',), target="OUT"),
+            UnstringStatement(source="OUT", delimiter="|", targets=("A",)),
+        )),))
+        app = CobolApplication(application_id="APP", programs=(CobolProgramUnit(program_id="STRING-APP", source_path="MAIN.cob", program=program),))
+        report = CapabilityAnalyzer(docker_available=True).analyze(app)
+        cap = next(c for c in report.components if c.component_type == "PROGRAM")
+        assert cap.level == CapabilityLevel.PARTIAL
+        assert "UNSTRING" in cap.reason
+
+    def test_unknown_ir_statement_fails_closed(self):
+        from dataclasses import dataclass
+        from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityLevel
+        from engine.transformation.ir import CobolApplication, CobolProgram, CobolProgramUnit, Paragraph
+        @dataclass(frozen=True)
+        class FutureStatement:
+            value: str = "future"
+        program = CobolProgram(program_id="FUTURE-APP", paragraphs=(Paragraph(name="MAIN", statements=(FutureStatement(),)),))
+        app = CobolApplication(application_id="APP", programs=(CobolProgramUnit(program_id="FUTURE-APP", source_path="MAIN.cob", program=program),))
+        report = CapabilityAnalyzer(docker_available=True).analyze(app)
+        cap = next(c for c in report.components if c.component_type == "PROGRAM")
+        assert cap.level == CapabilityLevel.UNSUPPORTED
+        assert "Unrecognized/unmapped IR statement" in cap.reason
+
+    def test_copybook_dependency_is_not_claimed_supported(self):
+        from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityLevel
+        from engine.transformation.ir import CobolApplication, CobolProgram, CobolProgramUnit, CopybookReference, Paragraph
+        program = CobolProgram(program_id="COPY-APP", paragraphs=(Paragraph(name="MAIN", statements=()),), copybooks=("COMMON",))
+        unit = CobolProgramUnit(program_id="COPY-APP", source_path="MAIN.cob", program=program, copybooks=(CopybookReference(source_program="COPY-APP", copybook_name="COMMON"),))
+        app = CobolApplication(application_id="APP", programs=(unit,), copybooks=("COMMON",))
+        report = CapabilityAnalyzer(docker_available=True).analyze(app)
+        pc = next(c for c in report.components if c.component_type == "PROGRAM")
+        cc = next(c for c in report.components if c.component_type == "COPYBOOK")
+        assert pc.level == CapabilityLevel.UNSUPPORTED
+        assert cc.level == CapabilityLevel.UNSUPPORTED
+
+    def test_indexed_file_is_outside_certified_boundary(self):
+        from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityLevel
+        from engine.transformation.ir import CobolApplication, CobolProgram, CobolProgramUnit, FileDefinition, FileDependency, FileOrganization, FileAccessMode, Paragraph
+        program = CobolProgram(program_id="INDEXED-APP", file_definitions=(FileDefinition(name="F", container_path="/tmp/f", record_name="REC", organization=FileOrganization.INDEXED, access_mode=FileAccessMode.RANDOM),), paragraphs=(Paragraph(name="MAIN", statements=()),))
+        unit = CobolProgramUnit(program_id="INDEXED-APP", source_path="MAIN.cob", program=program, file_dependencies=(FileDependency(program_id="INDEXED-APP", file_name="F", operation="READ"),))
+        app = CobolApplication(application_id="APP", programs=(unit,))
+        report = CapabilityAnalyzer(docker_available=True).analyze(app)
+        pc = next(c for c in report.components if c.component_type == "PROGRAM")
+        fc = next(c for c in report.components if c.component_type == "FILE")
+        assert pc.level == CapabilityLevel.UNSUPPORTED
+        assert fc.level == CapabilityLevel.UNSUPPORTED
+
+    def test_unknown_capability_is_fail_closed_in_transformation_plan(self):
+        from engine.modernization.capability_analyzer import CapabilityLevel, CapabilityReport, ComponentCapability
+        from engine.modernization.transformation_plan import TransformationAction, TransformationPlanGenerator, TransformerType
+        from engine.transformation.ir import CobolApplication, CobolProgram, CobolProgramUnit, MoveStatement, Paragraph
+        program = CobolProgram(program_id="UNKNOWN-APP", paragraphs=(Paragraph(name="MAIN", statements=(MoveStatement(source="1", target="A"),)),))
+        app = CobolApplication(application_id="APP", programs=(CobolProgramUnit(program_id="UNKNOWN-APP", source_path="MAIN.cob", program=program),))
+        report = CapabilityReport(application_id="APP", components=(ComponentCapability(component_id="UNKNOWN-APP", component_type="PROGRAM", level=CapabilityLevel.UNKNOWN, reason="synthetic unknown"),), overall_level=CapabilityLevel.UNKNOWN)
+        plan = TransformationPlanGenerator().generate(app, report)
+        assert plan.components[0].action == TransformationAction.SKIP
+        assert plan.components[0].transformer == TransformerType.SKIP

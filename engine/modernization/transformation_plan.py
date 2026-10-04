@@ -135,13 +135,30 @@ class TransformationPlanGenerator:
         # Plan copybooks
         for cb_name in application.copybooks:
             cap = capability_lookup.get(cb_name)
-            components.append(ComponentPlan(
-                component_id=cb_name,
-                component_type="COPYBOOK",
-                action=TransformationAction.TRANSFORM,
-                transformer=TransformerType.INTERNAL_NATIVE,
-                reason="Copybook resolution",
-            ))
+            if cap is None:
+                components.append(ComponentPlan(
+                    component_id=cb_name,
+                    component_type="COPYBOOK",
+                    action=TransformationAction.SKIP,
+                    transformer=TransformerType.SKIP,
+                    reason="No capability analysis result — copybook transformation blocked",
+                ))
+            elif cap.level == CapabilityLevel.SUPPORTED:
+                components.append(ComponentPlan(
+                    component_id=cb_name,
+                    component_type="COPYBOOK",
+                    action=TransformationAction.TRANSFORM,
+                    transformer=TransformerType.INTERNAL_NATIVE,
+                    reason=cap.reason,
+                ))
+            else:
+                components.append(ComponentPlan(
+                    component_id=cb_name,
+                    component_type="COPYBOOK",
+                    action=TransformationAction.SKIP,
+                    transformer=TransformerType.SKIP,
+                    reason=f"{cap.level.value}: {cap.reason}",
+                ))
 
         # Plan unresolved calls
         for edge in application.edges:
