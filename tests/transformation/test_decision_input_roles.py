@@ -14,9 +14,9 @@ from engine.transformation.java_ir import JavaApplication
 @pytest.mark.parametrize("reverse_mappings", [False, True])
 def test_primary_record_and_operand_roles_are_source_derived(tmp_path, reverse_mappings):
     source = Path("fixtures/workload-claims/cobol/CLAIMS.cob").read_text()
-    for old, new in (("WS-CR-AMOUNT-STR", "INPUT-NUMBER"),
+    for old, new in (("WS-CR-AMOUNT-STR", "INPUT-VALUE"),
                      ("WS-CR-STATUS", "INPUT-STATE"),
-                     ("WS-CLAIM-AMOUNT", "WORK-AMOUNT")):
+                     ("WS-CLAIM-AMOUNT", "WORK-VALUE")):
         source = source.replace(old, new)
     program = CobolParser().parse(source)
     if reverse_mappings:
@@ -24,9 +24,9 @@ def test_primary_record_and_operand_roles_are_source_derived(tmp_path, reverse_m
     java = map_cobol_program_to_java(program)
     assert java.input_record_fields == (
         "WS_CR_CLAIM_ID", "WS_CR_PATIENT_NAME", "WS_CR_SERVICE_DATE",
-        "INPUT_NUMBER", "INPUT_STATE", "WS_CR_CATEGORY",
+        "INPUT_VALUE", "INPUT_STATE", "WS_CR_CATEGORY",
     )
-    assert java.input_amount_field == "INPUT_NUMBER"
+    assert java.input_amount_field == "INPUT_VALUE"
     assert {code.field_name for code in java.status_codes} == {"INPUT_STATE"}
     generated = JavaGenerator().generate_from_java(JavaApplication(
         application_id="roles", programs=(java,),

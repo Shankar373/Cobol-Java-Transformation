@@ -475,7 +475,7 @@ class CobolParser:
                 pic_type, pic_length, decimals = self._parse_pic_details(pic.group(1))
             else:
                 pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
-            value_m = re.search(r"\bVALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
+            value_m = re.search(r"(?:^|\s)VALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
             occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
             redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
             parsed.append((level, DataItem(
@@ -567,7 +567,7 @@ class CobolParser:
 
                 # Check for PIC clause
                 pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                value_match = re.search(r"VALUE\s+(.+?)(?:\s+|$|\.|,)", line, re.IGNORECASE)
+                value_match = re.search(r"(?:^|\s)VALUE\s+(.+?)(?:\s+|$|\.|,)", line, re.IGNORECASE)
                 occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
 
                 if pic_match:
