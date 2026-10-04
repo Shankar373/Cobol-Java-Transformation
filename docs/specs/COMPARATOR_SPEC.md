@@ -3,7 +3,7 @@
 # COMPARATOR SPECIFICATION — V1
 
 > **Status:** SPECIFICATION (Phase 1C foundation). This document defines the comparator
-> subsystem design. Implementation is a later phase. Specification version: **1.0**.
+> subsystem design. The current repository contains the corresponding implementation. Specification version: **1.0**.
 > Authority chain: [ARTIFACT_CONTRACT_SPEC.md](../../contracts/ARTIFACT_CONTRACT_SPEC.md)
 > → this specification.
 
