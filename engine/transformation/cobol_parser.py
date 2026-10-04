@@ -1416,9 +1416,10 @@ class CobolParser:
             if code in seen:
                 continue
 
-            # Must be followed by MOVE 'LABEL' TO <any-target> within 3 lines
+            # The first statement must assign the outcome. Searching ahead
+            # can misattribute a nested branch's outcome to this condition.
             label = None
-            for j in range(i + 1, min(i + 5, len(lines))):
+            for j in range(i + 1, min(i + 2, len(lines))):
                 move_match = re.search(
                     r"MOVE\s+'([^']+)'\s+TO\s+(\S+)",
                     lines[j], re.IGNORECASE,
