@@ -644,6 +644,108 @@ def _expression_requires_fractional_type(
     return True
 
 
+def _expression_integral_digit_width(
+    expr: JavaExpression,
+    program: CobolProgram | None,
+) -> int:
+    """Conservatively estimate decimal digits needed for an integral expression."""
+    if isinstance(expr, JavaVariableRef):
+        item = _find_data_item(program, expr.name)
+        return item.pic_length if item and item.is_numeric else 0
+    if isinstance(expr, JavaLiteral):
+        value = expr.value.strip().lstrip("+-")
+        if value and value.replace(".", "").isdigit():
+            return len(value.replace(".", ""))
+        return 0
+    if isinstance(expr, JavaUnaryOp) and expr.operator == "-":
+        return _expression_integral_digit_width(expr.operand, program)
+    if isinstance(expr, JavaBinaryOp):
+        left = _expression_integral_digit_width(expr.left, program)
+        right = _expression_integral_digit_width(expr.right, program)
+        if expr.operator in ("+", "-"):
+            return max(left, right) + 1
+        if expr.operator == "*":
+            return left + right
+        if expr.operator in ("/", "%"):
+            return left
+    return 0
+
+
+def _protect_integral_overflow(
+    expression: JavaExpression,
+    target_item: DataItem,
+    program: CobolProgram | None,
+) -> JavaExpression:
+    """Prevent Java integral overflow when an expression can exceed target type."""
+    target_digits = 9 if target_item.pic_length <= 9 else 18
+
+    if isinstance(expression, JavaBinaryOp):
+        left = _protect_integral_overflow(expression.left, target_item, program)
+        right = _protect_integral_overflow(expression.right, target_item, program)
+        candidate = JavaBinaryOp(left=left, operator=expression.operator, right=right)
+        width = _expression_integral_digit_width(candidate, program)
+        if width > target_digits:
+            exact_methods = {
+                "+": "addExact",
+                "-": "subtractExact",
+                "*": "multiplyExact",
+            }
+            method_name = exact_methods.get(expression.operator)
+            if method_name:
+                return JavaMethodCall(
+                    class_name="Math",
+                    method_name=method_name,
+                    arguments=(left, right),
+                    is_static=True,
+                )
+        return candidate
+
+    if isinstance(expression, JavaUnaryOp):
+        operand = _protect_integral_overflow(expression.operand, target_item, program)
+        candidate = JavaUnaryOp(operator=expression.operator, operand=operand)
+        if expression.operator == "-" and _expression_integral_digit_width(candidate, program) > target_digits:
+            return JavaMethodCall(
+                class_name="Math",
+                method_name="negateExact",
+                arguments=(operand,),
+                is_static=True,
+            )
+        return candidate
+
+    width = _expression_integral_digit_width(expression, program)
+    if target_digits == 9 and width > target_digits:
+        return JavaMethodCall(
+            class_name="Math",
+            method_name="toIntExact",
+            arguments=(expression,),
+            is_static=True,
+        )
+    return expression
+
+
+def _is_numeric_expression(
+    expression: JavaExpression,
+    program: CobolProgram | None,
+) -> bool:
+    """Return whether an expression is numeric and safe for receiver semantics."""
+    if isinstance(expression, JavaLiteral):
+        return bool(
+            expression.java_type
+            and expression.java_type.basic_type != JavaBasicType.STRING
+        )
+    if isinstance(expression, JavaVariableRef):
+        item = _find_data_item(program, expression.name)
+        return bool(item and item.is_numeric)
+    if isinstance(expression, JavaBinaryOp):
+        return expression.operator in ("+", "-", "*", "/", "%") and (
+            _is_numeric_expression(expression.left, program)
+            and _is_numeric_expression(expression.right, program)
+        )
+    if isinstance(expression, JavaUnaryOp):
+        return _is_numeric_expression(expression.operand, program)
+    return False
+
+
 def _apply_numeric_receiver_semantics(
     expression: JavaExpression,
     target: str,
@@ -660,9 +762,9 @@ def _apply_numeric_receiver_semantics(
         # operands are integer PICs, so division is not accidentally integer division.
         expression = _promote_numeric_expression_to_double(expression)
     elif not _expression_requires_fractional_type(expression, program):
-        # Keep pure integer/long arithmetic native; this also avoids losing
-        # precision by routing large integral values through BigDecimal.valueOf(double).
-        return expression
+        # Keep ordinary integral operations native, but make a potentially
+        # overflowing expression fail explicitly instead of silently wrapping.
+        return _protect_integral_overflow(expression, item, program)
 
     rounding_mode = (
         "java.math.RoundingMode.HALF_UP" if rounded else "java.math.RoundingMode.DOWN"
@@ -1000,6 +1102,12 @@ def map_cobol_statement(
         for move_target in move_targets:
             expression = source
             item = _find_data_item(program, move_target)
+            if item is not None and item.is_numeric and _is_numeric_expression(expression, program):
+                expression = _apply_numeric_receiver_semantics(
+                    expression,
+                    move_target,
+                    program,
+                )
             if item is not None and item.is_alphanumeric and item.pic_length > 0:
                 # MOVE stores exactly the receiving PIC X width: pad on the
                 # right, or truncate on the right before any subsequent use.

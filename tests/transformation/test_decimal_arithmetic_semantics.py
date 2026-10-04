@@ -162,3 +162,42 @@ MAIN.
     java = _parse_map(cobol)
     source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
     assert source.endswith(".intValueExact();")
+
+
+def test_large_integral_receiver_uses_exact_java_arithmetic():
+    cobol = """\
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. NUMERIC-OVERFLOW.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-A PIC 9(10) VALUE 9000000000.
+01 WS-B PIC 9(10) VALUE 9000000000.
+01 WS-RESULT PIC 9(10) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    ADD WS-A TO WS-B GIVING WS-RESULT.
+    STOP RUN.
+"""
+    java = _parse_map(cobol)
+    source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
+    assert "Math.addExact" in source
+
+
+def test_large_integral_source_to_int_receiver_uses_exact_narrowing():
+    cobol = """\
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. NUMERIC-NARROW.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-LARGE PIC 9(10) VALUE 9000000000.
+01 WS-RESULT PIC 9(9) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    MOVE WS-LARGE TO WS-RESULT.
+    STOP RUN.
+"""
+    java = _parse_map(cobol)
+    source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
+    assert "Math.toIntExact" in source

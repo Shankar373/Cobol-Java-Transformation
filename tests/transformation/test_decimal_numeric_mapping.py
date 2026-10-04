@@ -278,3 +278,37 @@ MAIN.
     assert "static long INPUT_LONG = 0;" in declarations
     assert "INPUT_AMOUNT = Double.parseDouble(rec[0].trim());" in parsing
     assert "INPUT_LONG = Long.parseLong(rec[1].trim());" in parsing
+
+
+def test_file_decimal_move_to_integer_receiver_preserves_numeric_semantics():
+    cobol = """\
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. FILE-DECIMAL-MOVE.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT INPUT-FILE ASSIGN TO "/tmp/input.dat"
+        ORGANIZATION IS LINE SEQUENTIAL.
+DATA DIVISION.
+FILE SECTION.
+FD INPUT-FILE.
+01 INPUT-REC.
+   05 INPUT-AMOUNT PIC S9(5)V99 COMP-3.
+WORKING-STORAGE SECTION.
+01 WS-RESULT PIC S9(5) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    MOVE INPUT-AMOUNT TO WS-RESULT.
+    STOP RUN.
+"""
+    java = map_cobol_program_to_java(CobolParser().parse(cobol))
+    source = JavaGenerator()._stmt_to_string(
+        next(
+            stmt
+            for stmt in java.java_class.methods[0].body_statements
+            if getattr(stmt, "target", None) == "WS_RESULT"
+        )
+    )
+    assert "setScale(0, java.math.RoundingMode.DOWN)" in source
+    assert source.endswith(".intValueExact();")
