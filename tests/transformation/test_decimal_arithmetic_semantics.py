@@ -59,7 +59,7 @@ MAIN.
     source = JavaGenerator()._stmt_to_string(assignment)
 
     assert "setScale(0, java.math.RoundingMode.HALF_UP)" in source
-    assert source.endswith(".intValue();")
+    assert source.endswith(".intValueExact();")
 
 
 def test_decimal_receiver_default_is_truncation_for_negative_values():
@@ -140,3 +140,25 @@ MAIN.
     java = _parse_map(cobol)
     source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
     assert source == "WS_RESULT = (WS_A / WS_B);"
+
+    
+def test_signed_pic_metadata_is_preserved_and_integer_narrowing_is_exact():
+    cobol = """\
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. NUMERIC-SIGNED.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-AMOUNT PIC S9(4)V99 VALUE -12.34.
+01 WS-RESULT PIC S9(4) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    COMPUTE WS-RESULT ROUNDED = WS-AMOUNT.
+    STOP RUN.
+"""
+    program = CobolParser().parse(cobol)
+    amount = next(item for item in program.working_storage if item.name == "WS-AMOUNT")
+    assert amount.signed is True
+    java = _parse_map(cobol)
+    source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
+    assert source.endswith(".intValueExact();")

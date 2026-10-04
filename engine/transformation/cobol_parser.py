@@ -437,6 +437,7 @@ class CobolParser:
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
+                            signed=self._pic_is_signed(pic_match.group(1)),
                             ))
                 elif current_fd and re.match(r"\d{2}\s+", upper):
                     # Handle sub-level items (05, 10, 15, etc.)
@@ -453,6 +454,7 @@ class CobolParser:
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
+                            signed=self._pic_is_signed(pic_match.group(1)),
                             ))
                 elif upper.startswith(("WORKING-STORAGE", "PROCEDURE")):
                     if current_fd and current_record:
@@ -487,6 +489,7 @@ class CobolParser:
             parsed.append((level, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
+                signed=self._pic_is_signed(pic.group(1)) if pic else False,
                 value=value_m.group(1).strip().rstrip(".") if value_m else None,
                 occurs=int(occurs_m.group(1)) if occurs_m else None,
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
@@ -501,7 +504,7 @@ class CobolParser:
             children = tuple(replacement if c is target else replace_node(c, target, replacement) for c in root.children)
             return DataItem(name=root.name, level=root.level, pic_type=root.pic_type,
                             pic_length=root.pic_length, decimal_places=root.decimal_places,
-                            value=root.value, occurs=root.occurs, redefines=root.redefines,
+                            signed=root.signed, value=root.value, occurs=root.occurs, redefines=root.redefines,
                             children=children)
         for level, item in parsed:
             while stack and stack[-1][0] >= level:
@@ -512,12 +515,17 @@ class CobolParser:
                 parent_level, parent = stack[-1]
                 updated = DataItem(name=parent.name, level=parent.level, pic_type=parent.pic_type,
                                    pic_length=parent.pic_length, decimal_places=parent.decimal_places,
-                                   value=parent.value, occurs=parent.occurs, redefines=parent.redefines,
+                                   signed=parent.signed, value=parent.value, occurs=parent.occurs, redefines=parent.redefines,
                                    children=parent.children + (item,))
                 roots = [replace_node(r, parent, updated) for r in roots]
                 stack[-1] = (parent_level, updated)
             stack.append((level, item))
         return roots
+
+    @staticmethod
+    def _pic_is_signed(pic_str: str) -> bool:
+        """Return True when a PIC has an explicit leading S sign."""
+        return pic_str.strip().upper().startswith("S")
 
     def _parse_pic_details(self, pic_str: str) -> tuple[PicType, int, int]:
         pic = pic_str.strip().rstrip(".").upper()
@@ -594,6 +602,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
+                            signed=self._pic_is_signed(pic_match.group(1)),
                             value=value,
                         ))
                     else:
@@ -603,6 +612,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
+                            signed=self._pic_is_signed(pic_match.group(1)),
                             value=value,
                             occurs=occurs,
                         ))
@@ -624,6 +634,7 @@ class CobolParser:
                             pic_type=pic_type,
                             pic_length=pic_length,
                             decimal_places=decimal_places,
+                            signed=self._pic_is_signed(pic_match.group(1)),
                         ))
 
         return items

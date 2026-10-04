@@ -10,7 +10,7 @@ from engine.transformation.cobol_to_java_mapping import (
     map_cobol_statement,
     map_pic_to_java_type,
 )
-from engine.transformation.ir import DataItem, Literal, PicType, ReadStatement
+from engine.transformation.ir import DataItem, InputRecordMapping, Literal, PicType, ReadStatement
 from engine.transformation.java_generator import JavaGenerator
 from engine.transformation.java_ir import (
     JavaApplication,
@@ -241,3 +241,40 @@ MAIN.
     assert item.pic_length == 4
     assert item.decimal_places == 0
     assert map_pic_to_java_type(item).basic_type == JavaBasicType.INT
+    
+def test_file_section_decimal_mapping_is_used_by_generic_file_io_generator():
+    cobol = """\
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. FILE-DECIMAL.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT INPUT-FILE ASSIGN TO "/tmp/input.dat"
+        ORGANIZATION IS LINE SEQUENTIAL.
+DATA DIVISION.
+FILE SECTION.
+FD INPUT-FILE.
+01 INPUT-REC.
+   05 INPUT-AMOUNT PIC S9(5)V99 COMP-3.
+   05 INPUT-LONG PIC S9(10) COMP-3.
+WORKING-STORAGE SECTION.
+01 WS-DUMMY PIC X VALUE SPACE.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+"""
+    generator = JavaGenerator()
+    program = CobolParser().parse(cobol)
+    mapping = InputRecordMapping(
+        record_name="INPUT-REC",
+        file_name="INPUT-FILE",
+        delimiter="|",
+        fields=("INPUT-AMOUNT", "INPUT-LONG"),
+    )
+    declarations = generator._gen_io_variable_declarations(program, (mapping,))
+    parsing = generator._gen_unstring_parsing_java(mapping, program)
+    assert "static double INPUT_AMOUNT = 0;" in declarations
+    assert "static long INPUT_LONG = 0;" in declarations
+    assert "INPUT_AMOUNT = Double.parseDouble(rec[0].trim());" in parsing
+    assert "INPUT_LONG = Long.parseLong(rec[1].trim());" in parsing

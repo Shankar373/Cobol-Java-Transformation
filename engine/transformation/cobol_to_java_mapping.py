@@ -683,7 +683,7 @@ def _apply_numeric_receiver_semantics(
     if item.decimal_places > 0:
         return JavaMethodCall(object_ref=scaled, method_name="doubleValue", arguments=())
 
-    narrow_method = "longValue" if item.pic_length > 9 else "intValue"
+    narrow_method = "longValueExact" if item.pic_length > 9 else "intValueExact"
     return JavaMethodCall(object_ref=scaled, method_name=narrow_method, arguments=())
 
 

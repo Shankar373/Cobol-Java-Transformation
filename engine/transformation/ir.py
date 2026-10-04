@@ -191,6 +191,7 @@ class DataItem:
     pic_type: PicType = PicType.ALPHANUMERIC
     pic_length: int = 0
     decimal_places: int = 0  # V clause: digits after decimal point
+    signed: bool = False  # explicit S sign in PIC
     value: str | None = None
     occurs: int | None = None
     redefines: str | None = None  # REDEFINES clause

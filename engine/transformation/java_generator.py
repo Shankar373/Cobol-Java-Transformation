@@ -1573,70 +1573,86 @@ public class {class_name} {{
 }}
 '''
 
+    def _lookup_cobol_data_item(self, program: CobolProgram, name: str):
+        """Find a data item by normalized COBOL name in WS or FILE SECTION."""
+        normalized = name.replace("-", "_").upper()
+        for item in program.working_storage:
+            if item.name.replace("-", "_").upper() == normalized:
+                return item
+        for fd in program.file_definitions:
+            for item in fd.record_items:
+                if item.name.replace("-", "_").upper() == normalized:
+                    return item
+        return None
+
+    @staticmethod
+    def _java_numeric_type_for_item(item) -> str:
+        """Choose Java numeric storage type from COBOL PIC metadata."""
+        if item.decimal_places > 0:
+            return "double"
+        return "long" if item.pic_length > 9 else "int"
+
+    @staticmethod
+    def _java_numeric_default_for_item(item) -> str:
+        """Choose a Java initializer while preserving signed/decimal VALUE text."""
+        return item.value.strip("'"") if item.value else "0"
+
     def _gen_io_variable_declarations(
         self,
         program: CobolProgram,
         mappings: tuple[InputRecordMapping, ...],
     ) -> str:
-        """Generate Java variable declarations from InputRecordMappings and WORKING-STORAGE.
-
-        Uses PIC types from WORKING-STORAGE to determine int vs String.
-        """
+        """Generate type-aware declarations from WS and FILE SECTION metadata."""
         lines = []
-        # Build lookup: field name → DataItem from WORKING-STORAGE
-        ws_lookup: dict[str, object] = {}
-        for item in program.working_storage:
-            ws_lookup[item.name] = item
 
-        # Declare variables from first InputRecordMapping (main input)
         if mappings:
             seen: set[str] = set()
             for field in mappings[0].fields:
                 java_name = field.replace("-", "_")
-                if java_name not in seen:
-                    seen.add(java_name)
-                    # Check WORKING-STORAGE for type
-                    ws_item = ws_lookup.get(field)
-                    if ws_item and ws_item.is_numeric:
-                        default = "0"
-                        if ws_item.value:
-                            default = ws_item.value.strip("'\"")
-                        lines.append(f'    static int {java_name} = {default};')
-                    else:
-                        lines.append(f'    static String {java_name} = "";')
-        # Also declare any additional WORKING-STORAGE items not already declared
-        declared = {m.replace("-", "_") for m in mappings[0].fields} if mappings else set()
+                if java_name in seen:
+                    continue
+                seen.add(java_name)
+                item = self._lookup_cobol_data_item(program, field)
+                if item and item.is_numeric:
+                    java_type = self._java_numeric_type_for_item(item)
+                    default = self._java_numeric_default_for_item(item)
+                    lines.append(f'    static {java_type} {java_name} = {default};')
+                else:
+                    lines.append(f'    static String {java_name} = "";')
+
+        declared = {
+            m.replace("-", "_") for m in mappings[0].fields
+        } if mappings else set()
         for item in program.working_storage:
             java_name = item.name.replace("-", "_")
-            if java_name not in declared:
-                if item.is_numeric:
-                    default = "0"
-                    if item.value:
-                        default = item.value.strip("'\"")
-                    lines.append(f'    static int {java_name} = {default};')
-                else:
-                    default = '""'
-                    if item.value:
-                        default = '"' + item.value.strip("'\"") + '"'
-                    lines.append(f'    static String {java_name} = {default};')
+            if java_name in declared:
+                continue
+            if item.is_numeric:
+                java_type = self._java_numeric_type_for_item(item)
+                default = self._java_numeric_default_for_item(item)
+                lines.append(f'    static {java_type} {java_name} = {default};')
+            else:
+                default = '""'
+                if item.value:
+                    default = '"' + item.value.strip("'"") + '"'
+                lines.append(f'    static String {java_name} = {default};')
         return "\n".join(lines)
 
     def _gen_unstring_parsing_java(self, mapping: InputRecordMapping, program: CobolProgram) -> str:
-        """Generate Java parsing code from an InputRecordMapping.
-
-        Generates: field = rec[index].trim(); for String fields,
-                   field = Integer.parseInt(rec[index].trim()); for int fields.
-        """
-        ws_lookup: dict[str, object] = {}
-        for item in program.working_storage:
-            ws_lookup[item.name] = item
-
+        """Generate type-aware parsing from WS and FILE SECTION PIC metadata."""
         lines = []
         for i, field in enumerate(mapping.fields):
             java_name = field.replace("-", "_")
-            ws_item = ws_lookup.get(field)
-            if ws_item and ws_item.is_numeric:
-                lines.append(f'            {java_name} = Integer.parseInt(rec[{i}].trim());')
+            item = self._lookup_cobol_data_item(program, field)
+            if item and item.is_numeric:
+                parse_method = (
+                    "Double.parseDouble" if item.decimal_places > 0
+                    else "Long.parseLong" if item.pic_length > 9
+                    else "Integer.parseInt"
+                )
+                lines.append(
+                    f'            {java_name} = {parse_method}(rec[{i}].trim());'
+                )
             else:
                 lines.append(f'            {java_name} = rec[{i}].trim();')
         return "\n".join(lines)
