@@ -1,123 +1,50 @@
 # Known Issues
 
-## Frontend Production Build Blocker — TypeScript JSX Fragment Typing Bug
+Current baseline: 4513881bc3dff50df4e81910dbc2d28fe5308dbc
+CI Run #306: GREEN
 
-**Status:** OPEN — CI Blocker
-**Severity:** HIGH
-**Affects:** Frontend production build only (`npm run build`)
-**Does Not Affect:** Frontend unit tests (`npm test` — 81/81 pass), runtime behavior
+## Open material issues
 
----
+### P0 — Capability truth can drift
+Capability classifications are manually maintained and can become inconsistent with parser,
+IR, mapper, generator and runtime evidence. Contradictory classifications must be eliminated.
 
-### Error Summary
+### P0 — Numeric semantic risk
+PIC/sign/V, COMP/COMP-3, precision/scale, truncation, rounding, overflow and formatting
+remain high-risk areas requiring broader differential proof.
 
-```
-src/pages/ModernizationRun.tsx(390,7): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
-src/pages/ModernizationRun.tsx(391,7): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
-src/pages/ModernizationRun.tsx(405,7): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
-src/pages/ModernizationRun.tsx(406,7): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
-```
+### P1 — Planning semantics
+Copybook planning and entrypoint selection require continued review so plans cannot include
+non-transformable units or select an entrypoint that cannot execute.
 
-### Location
+### P1 — CALL and lifecycle proof
+CALL chains, multi-program behavior and lifecycle transitions need broader end-to-end testing.
 
-`frontend/src/pages/ModernizationRun.tsx` — two conditional fragment render blocks:
-- Lines 390–403: Error panel (conditional on `run.error`)
-- Lines 405–451: Detail panel (conditional on `detail !== null`)
+### P1 — Evidence/verdict hardening
+The evidence validator and verdict engine exist, but production-path coverage, tamper/replay
+testing and mutation proof should be expanded.
 
----
+### P1 — Persistence/security
+SQLite/filesystem persistence is functional but is not yet a production-grade security boundary.
+Unsafe serialization, authorization, retention, audit logging, rate limiting, migration and
+concurrency controls require hardening.
 
-### Root Cause
+### P1 — Enterprise runtime boundaries
+JCL, CICS, DB2 and indexed/relative file semantics remain outside broad behavioral certification
+until their runtime semantics are proven.
 
-**TypeScript compiler bug** with the new JSX transform (`jsx: react-jsx`), observed in TypeScript 5.0.4 through 7.0.2.
+### P2 — CI depth
+CI is green but can be strengthened with coverage thresholds, lint/type checks, security and
+dependency scanning, contract/schema checks and mutation testing.
 
-When a conditional expression uses the short-circuit `&&` operator and the true branch returns a JSX Fragment (`<>...</>`), TypeScript incorrectly infers the entire expression type as `unknown` instead of `ReactNode | false` (which is assignable to `ReactNode`).
+## Resolved / historical
 
-```tsx
-// TypeScript infers `unknown` for this expression:
-{typeof run.error === 'string' && run.error.length > 0 && (
-  <>
-    <SectionCard>...</SectionCard>
-  </>
-)}
-```
+### TypeScript JSX build blocker — RESOLVED
+The old TypeScript JSX fragment/build issue is no longer an active CI blocker. Run #306 passes
+the frontend production build.
 
-This is a **compiler type inference bug**, not a code defect. The runtime behavior is correct — all 81 frontend tests pass.
+### Docker-unavailable local verification — HISTORICAL
+Earlier reports described Docker as unavailable locally. Current CI successfully exercises the
+Docker backend/oracle path, so those reports are not current project state.
 
----
-
-### Reproduction
-
-The project reproduces the TS2322 failure with the following tested compiler versions:
-- TypeScript 5.7.2 (project default)
-- TypeScript 5.3.3
-- TypeScript 5.0.4
-- TypeScript 7.0.2 (also tested, reproduces the failure)
-
-All produce identical TS2322 errors on the same four lines.
-
----
-
-### Upstream Tracking
-
-- **TypeScript Issue:** [#62358](https://github.com/microsoft/TypeScript/issues/62358) — "JSX Fragment type inference fails with conditional `&&` in react-jsx transform" (tracking reference; independently verified status pending)
-- **Related:** [#59044](https://github.com/microsoft/TypeScript/issues/59044), [#58973](https://github.com/microsoft/TypeScript/issues/58973)
-- **Associated with:** JSX/react-jsx typing path (`jsx: react-jsx` in tsconfig.json)
-
----
-
-### Attempted Fixes (All Failed)
-
-| Approach | Result |
-|----------|--------|
-| Ternary operator (`condition ? <>...</> : null`) | TS2322 persists |
-| Explicit `React.ReactNode` typed variables | TS2322 persists |
-| Helper component extraction | TS2322 persists |
-| `React.createElement` / `React.Fragment` | TS2322 persists |
-| Array spread (`{...(panel ? [panel] : [])}`) | TS2322 persists |
-| Safe casts (`as React.ReactNode`) | TS2322 persists |
-| `Boolean()` / `!!` wrappers | TS2322 persists |
-| JSX transform change (`react-jsx` → `react`) | TS2322 persists |
-| Strict mode modifications | TS2322 persists |
-
-**No safe source-level fix exists** under current project constraints (no `@ts-ignore`, `@ts-expect-error`, unsafe casts, or compiler suppression directives).
-
----
-
-### Workarounds (Not Applied Per Policy)
-
-The only functional workaround requires suppression directives:
-
-```tsx
-// @ts-expect-error TS2322 — TypeScript 5.x bug: infers `unknown` for conditional fragments
-{typeof run.error === 'string' && run.error.length > 0 && (
-  <>...</>
-)}
-```
-
-**Policy:** Suppression directives (`@ts-ignore`, `@ts-expect-error`) and unsafe casts are prohibited by project AGENTS.md rules.
-
----
-
-### Impact Assessment
-
-- **Phase 1/2 Regression:** NO — this is a pre-existing toolchain issue
-- **CI Status:** BLOCKED — production build fails
-- **Test Status:** PASS — 81/81 frontend tests pass
-- **Runtime:** CORRECT — no behavioral change
-- **Scope:** Single file, two conditional render blocks
-
----
-
-### Recommended Resolution Path
-
-1. **Short-term:** Await TypeScript upstream fix (tracked in #62358)
-2. **Medium-term:** Evaluate TypeScript downgrade to 4.9.x (breaks modern JSX transform)
-3. **Policy Decision:** Determine if suppression directive exception is warranted for compiler bugs
-
----
-
-### Files Referenced
-
-- `frontend/src/pages/ModernizationRun.tsx` (lines 390–451)
-- `frontend/tsconfig.json` (`jsx: react-jsx`)
-- `frontend/package.json` (`"typescript": "^5.7.2"`)
+Historical forensic reports remain evidence of what was true at their recorded time.
