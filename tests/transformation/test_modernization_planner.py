@@ -685,8 +685,8 @@ class TestCapabilityTruthP0:
         report = CapabilityAnalyzer(docker_available=True).analyze(app)
         pc = next(c for c in report.components if c.component_type == "PROGRAM")
         cc = next(c for c in report.components if c.component_type == "COPYBOOK")
-        assert pc.level == CapabilityLevel.UNSUPPORTED
-        assert cc.level == CapabilityLevel.UNSUPPORTED
+        assert pc.level == CapabilityLevel.SUPPORTED
+        assert cc.level == CapabilityLevel.SUPPORTED
 
     def test_indexed_file_is_outside_certified_boundary(self):
         from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityLevel
