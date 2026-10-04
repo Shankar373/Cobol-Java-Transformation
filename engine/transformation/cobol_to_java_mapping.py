@@ -249,15 +249,16 @@ def _cobol_call(method: str, *args: JavaExpression) -> JavaMethodCall:
 
 
 def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
-    """Data item by COBOL name (WORKING-STORAGE first, then FD records)."""
+    """Data item by COBOL/Java-normalized name (WORKING-STORAGE first, then FD records)."""
     if program is None or not name:
         return None
+    normalized = name.replace("-", "_").upper()
     for item in program.working_storage:
-        if item.name == name:
+        if item.name.replace("-", "_").upper() == normalized:
             return item
     for fd in program.file_definitions:
         for item in fd.record_items:
-            if item.name == name:
+            if item.name.replace("-", "_").upper() == normalized:
                 return item
     return None
 
