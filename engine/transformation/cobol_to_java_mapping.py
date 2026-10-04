@@ -118,7 +118,9 @@ def map_pic_to_java_type(item: DataItem) -> JavaType:
         return JavaType(basic_type=JavaBasicType.STRING)
 
     if item.is_numeric:
-        # Check for decimal (V clause implied by pic_length > integer digits)
+        # Fixed-point PIC values require a decimal-capable Java type.
+        if item.decimal_places > 0:
+            return JavaType(basic_type=JavaBasicType.DOUBLE)
         if item.pic_length > 9:
             return JavaType(basic_type=JavaBasicType.LONG)
         return JavaType(basic_type=JavaBasicType.INT)
