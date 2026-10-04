@@ -201,3 +201,24 @@ MAIN.
     java = _parse_map(cobol)
     source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
     assert "Math.toIntExact" in source
+
+
+def test_nested_integral_expression_keeps_parent_overflow_protection():
+    cobol = """\
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. NUMERIC-NESTED-OVERFLOW.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-A PIC 9(9) VALUE 900000000.
+01 WS-B PIC 9(9) VALUE 900000000.
+01 WS-C PIC 9(9) VALUE 900000000.
+01 WS-RESULT PIC 9(9) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    COMPUTE WS-RESULT = WS-A + WS-B + WS-C.
+    STOP RUN.
+"""
+    java = _parse_map(cobol)
+    source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
+    assert source.count("Math.addExact") == 2

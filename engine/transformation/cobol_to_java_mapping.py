@@ -680,10 +680,12 @@ def _protect_integral_overflow(
     target_digits = 9 if target_item.pic_length <= 9 else 18
 
     if isinstance(expression, JavaBinaryOp):
+        # Measure the source tree before recursively wrapping children so a
+        # parent's width cannot be hidden by a child Math.* call.
+        width = _expression_integral_digit_width(expression, program)
         left = _protect_integral_overflow(expression.left, target_item, program)
         right = _protect_integral_overflow(expression.right, target_item, program)
         candidate = JavaBinaryOp(left=left, operator=expression.operator, right=right)
-        width = _expression_integral_digit_width(candidate, program)
         if width > target_digits:
             exact_methods = {
                 "+": "addExact",
