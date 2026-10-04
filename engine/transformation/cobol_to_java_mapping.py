@@ -145,6 +145,12 @@ def map_pic_to_java_default(item: DataItem) -> str:
     return '""'
 
 
+def _numeric_literal_java_type(value: str) -> JavaType:
+    """Return the Java type implied by a numeric literal spelling."""
+    basic_type = JavaBasicType.DOUBLE if "." in value else JavaBasicType.INT
+    return JavaType(basic_type=basic_type)
+
+
 # ---------------------------------------------------------------------------
 # COBOL statement → Java statement mapping
 # ---------------------------------------------------------------------------
@@ -564,7 +570,7 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
 
     # Check if it's a simple number
     if expr.replace(".", "").replace("-", "").isdigit():
-        return JavaLiteral(value=expr, java_type=JavaType(basic_type=JavaBasicType.INT))
+        return JavaLiteral(value=expr, java_type=_numeric_literal_java_type(expr))
 
     # Try to parse binary expressions: left OP right (operators must have spaces)
     binary_match = _re.match(
@@ -578,13 +584,13 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
 
         left: JavaExpression
         if left_str.replace(".", "").replace("-", "").isdigit():
-            left = JavaLiteral(value=left_str, java_type=JavaType(basic_type=JavaBasicType.INT))
+            left = JavaLiteral(value=left_str, java_type=_numeric_literal_java_type(left_str))
         else:
             left = JavaVariableRef(name=left_str.replace("-", "_"))
 
         right: JavaExpression
         if right_str.replace(".", "").replace("-", "").isdigit():
-            right = JavaLiteral(value=right_str, java_type=JavaType(basic_type=JavaBasicType.INT))
+            right = JavaLiteral(value=right_str, java_type=_numeric_literal_java_type(right_str))
         else:
             right = JavaVariableRef(name=right_str.replace("-", "_"))
 
@@ -617,7 +623,7 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
         if expr.is_numeric:
             return JavaLiteral(
                 value=expr.value,
-                java_type=JavaType(basic_type=JavaBasicType.INT),
+                java_type=_numeric_literal_java_type(expr.value),
             )
         return JavaLiteral(
             value=expr.value,

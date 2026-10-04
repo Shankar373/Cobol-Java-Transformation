@@ -4,11 +4,13 @@ from pathlib import Path
 
 from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.cobol_to_java_mapping import (
+    _map_cobol_expression_to_java,
+    map_cobol_expr_to_java,
     map_cobol_program_to_java,
     map_cobol_statement,
     map_pic_to_java_type,
 )
-from engine.transformation.ir import DataItem, PicType, ReadStatement
+from engine.transformation.ir import DataItem, Literal, PicType, ReadStatement
 from engine.transformation.java_generator import JavaGenerator
 from engine.transformation.java_ir import (
     JavaApplication,
@@ -19,6 +21,7 @@ from engine.transformation.java_ir import (
     JavaFileAccessMode,
     JavaFileResource,
     JavaIf,
+    JavaLiteral,
     JavaProgram,
     JavaType,
 )
@@ -175,6 +178,50 @@ def test_ir_decision_input_assignment_converts_decimal_field_with_double_parse()
     )
 
     assert "Double.parseDouble(rec[0].trim())" in source
+
+
+def test_decimal_expression_literals_map_to_double():
+    for value in ("3.14", "-0.25"):
+        java_expr = map_cobol_expr_to_java(value)
+        assert java_expr.java_type.basic_type == JavaBasicType.DOUBLE
+
+
+def test_structured_decimal_literal_maps_to_double():
+    java_expr = _map_cobol_expression_to_java(
+        Literal(value="12.50", is_numeric=True)
+    )
+    assert java_expr.java_type.basic_type == JavaBasicType.DOUBLE
+
+
+def test_decimal_literal_type_is_preserved_through_active_file_io_generation():
+    java_program = JavaProgram(
+        program_id="DECIMAL-GENERATION",
+        java_class=JavaClass(
+            name="Decimal_Generation",
+            fields=(
+                JavaField(
+                    name="WS_AMOUNT",
+                    java_type=JavaType(basic_type=JavaBasicType.DOUBLE),
+                    initializer=JavaLiteral(value="12.50"),
+                ),
+            ),
+        ),
+        file_resources=(
+            JavaFileResource(
+                name="INPUT-FILE",
+                path="/tmp/input.dat",
+                access_mode=JavaFileAccessMode.READ,
+            ),
+        ),
+        generation_mode="file_io",
+    )
+
+    source = JavaGenerator().generate_from_java(
+        JavaApplication(application_id="DECIMAL-GENERATION", programs=(java_program,))
+    )[0].source_code
+
+    assert "static double WS_AMOUNT = 12.50;" in source
+    assert "WS_AMOUNT = Double.parseDouble(rec[0].trim());" in source
 
 
 def test_signed_integer_pic_is_still_parsed_without_decimal_places():
