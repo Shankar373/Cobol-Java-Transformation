@@ -255,6 +255,27 @@ def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
     return None
 
 
+def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaMethodCall:
+    """Parse a fixed-format COBOL numeric field using its PIC metadata."""
+    trimmed = JavaMethodCall(
+        object_ref=value,
+        method_name="trim",
+        arguments=(),
+    )
+    if item.decimal_places > 0:
+        class_name, method_name = "Double", "parseDouble"
+    elif item.pic_length > 9:
+        class_name, method_name = "Long", "parseLong"
+    else:
+        class_name, method_name = "Integer", "parseInt"
+    return JavaMethodCall(
+        class_name=class_name,
+        method_name=method_name,
+        arguments=(trimmed,),
+        is_static=True,
+    )
+
+
 def _record_layout(fd: FileDefinition | None) -> list[tuple[str, int, bool, bool]]:
     """(java_name, width, is_numeric, is_long) per elementary record item.
 
@@ -470,32 +491,32 @@ def _disassembly_statements(
     never break ``substring``; numeric fields are trimmed then parsed
     into int/long exactly as ``map_pic_to_java_type`` typed them.
     """
-    layout = _record_layout(fd)
-    if not layout:
+    items = [
+        item for item in (fd.record_items if fd is not None else ())
+        if not item.is_condition_name and not item.is_group
+    ]
+    if not items:
         return []
-    total = sum(width for _, width, _, _ in layout)
+    widths = [
+        item.format_width if item.is_numeric else item.pic_length
+        for item in items
+    ]
+    total = sum(widths)
     padded = _cobol_call(
         "pad", JavaVariableRef(name=read_var), _int_lit(total), _bool_lit(False),
     )
     stmts: list[JavaStatement] = []
     offset = 0
-    for name, width, numeric, is_long in layout:
+    for item, width in zip(items, widths):
+        name = item.name.replace("-", "_")
         window = JavaMethodCall(
             object_ref=padded,
             method_name="substring",
             arguments=(_int_lit(offset), _int_lit(offset + width)),
         )
-        if numeric:
-            expr: JavaExpression = JavaMethodCall(
-                class_name="Long" if is_long else "Integer",
-                method_name="parseLong" if is_long else "parseInt",
-                arguments=(
-                    JavaMethodCall(object_ref=window, method_name="trim", arguments=()),
-                ),
-                is_static=True,
-            )
-        else:
-            expr = window
+        expr: JavaExpression = (
+            _numeric_parse_call(item, window) if item.is_numeric else window
+        )
         stmts.append(JavaAssignment(target=name, expression=expr))
         offset += width
     return stmts
@@ -513,17 +534,9 @@ def _into_statement(
     if item is None:
         return JavaAssignment(target=target, expression=ref)
     if item.is_numeric:
-        is_long = item.pic_length > 9
         return JavaAssignment(
             target=target,
-            expression=JavaMethodCall(
-                class_name="Long" if is_long else "Integer",
-                method_name="parseLong" if is_long else "parseInt",
-                arguments=(
-                    JavaMethodCall(object_ref=ref, method_name="trim", arguments=()),
-                ),
-                is_static=True,
-            ),
+            expression=_numeric_parse_call(item, ref),
         )
     if item.pic_length > 0:
         return JavaAssignment(

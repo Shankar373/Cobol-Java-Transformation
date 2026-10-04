@@ -1,13 +1,40 @@
-"""Focused regression tests for decimal PIC type preservation (Numeric P0 N1)."""
+"""Focused regression tests for Numeric P0 N1+N2: decimal PIC parsing/type and input conversion."""
+
+from pathlib import Path
 
 from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.cobol_to_java_mapping import (
     map_cobol_program_to_java,
+    map_cobol_statement,
     map_pic_to_java_type,
 )
-from engine.transformation.ir import DataItem, PicType
+from engine.transformation.ir import DataItem, PicType, ReadStatement
 from engine.transformation.java_generator import JavaGenerator
-from engine.transformation.java_ir import JavaApplication, JavaBasicType
+from engine.transformation.java_ir import (
+    JavaApplication,
+    JavaAssignment,
+    JavaBasicType,
+    JavaClass,
+    JavaField,
+    JavaFileAccessMode,
+    JavaFileResource,
+    JavaIf,
+    JavaProgram,
+    JavaType,
+)
+
+
+def _find_double_parse(assignments):
+    for assignment in assignments:
+        if not isinstance(assignment, JavaAssignment):
+            continue
+        expression = assignment.expression
+        if (
+            getattr(expression, "class_name", "") == "Double"
+            and expression.method_name == "parseDouble"
+        ):
+            return assignment
+    return None
 
 
 def test_decimal_pic_maps_to_double():
@@ -23,40 +50,147 @@ def test_decimal_pic_maps_to_double():
     assert java_type.basic_type == JavaBasicType.DOUBLE
 
 
-def test_decimal_pic_preserves_decimal_metadata_and_generates_double_field():
-    cobol = """>>SOURCE FORMAT FREE
+def test_real_comp3_fixture_preserves_decimal_metadata_and_java_type():
+    source = Path("fixtures/workload-comp3/cobol/MAIN.cob").read_text(encoding="utf-8")
+    program = CobolParser().parse(source)
+
+    expected = {
+        "WS-PACKED-1": (7, 2, "12345.67"),
+        "WS-PACKED-2": (7, 2, "-987.65"),
+        "WS-PACKED-3": (6, 2, "100.00"),
+        "WS-RESULT": (9, 2, "0"),
+    }
+    for name, (width, decimals, value) in expected.items():
+        item = next(item for item in program.working_storage if item.name == name)
+        assert item.pic_length == width
+        assert item.decimal_places == decimals
+        assert item.value == value
+        assert map_pic_to_java_type(item).basic_type == JavaBasicType.DOUBLE
+
+    java_program = map_cobol_program_to_java(program)
+    fields = {field.name: field for field in java_program.java_class.fields}
+    assert all(
+        fields[name.replace("-", "_")].java_type.basic_type == JavaBasicType.DOUBLE
+        for name in expected
+    )
+
+
+def test_file_section_decimal_pic_preserves_metadata_and_read_uses_double_parse():
+    cobol = """
+>>SOURCE FORMAT FREE
 IDENTIFICATION DIVISION.
-PROGRAM-ID. DECIMAL-N1.
+PROGRAM-ID. DECIMAL-READ.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT INPUT-FILE ASSIGN TO "/tmp/input.dat"
+        ORGANIZATION IS LINE SEQUENTIAL.
 DATA DIVISION.
+FILE SECTION.
+FD INPUT-FILE.
+01 INPUT-REC.
+   05 INPUT-AMOUNT PIC S9(5)V99 COMP-3.
 WORKING-STORAGE SECTION.
-01 WS-AMOUNT PIC S9(5)V99 COMP-3 VALUE 12345.67.
-01 WS-RATE   PIC 9(3)V9 COMP-3 VALUE 12.3.
+01 WS-AMOUNT PIC S9(5)V99 COMP-3 VALUE 0.
 PROCEDURE DIVISION.
 MAIN.
-    DISPLAY WS-AMOUNT.
-    DISPLAY WS-RATE.
     STOP RUN.
 """
 
     program = CobolParser().parse(cobol)
+    record_amount = next(
+        item
+        for fd in program.file_definitions
+        for item in fd.record_items
+        if item.name == "INPUT-AMOUNT"
+    )
+    assert record_amount.pic_length == 7
+    assert record_amount.decimal_places == 2
 
-    amount = next(item for item in program.working_storage if item.name == "WS-AMOUNT")
-    rate = next(item for item in program.working_storage if item.name == "WS-RATE")
+    read_stmt = ReadStatement(
+        file_name="INPUT-FILE",
+        record_name="INPUT-REC",
+        read_next=True,
+        into_field="WS-AMOUNT",
+    )
+    mapped = map_cobol_statement(read_stmt, program)
+    read_if = next(stmt for stmt in mapped if isinstance(stmt, JavaIf))
+    assignments = [stmt for stmt in read_if.then_body if isinstance(stmt, JavaAssignment)]
+    assert _find_double_parse(assignments) is not None
 
-    assert amount.decimal_places == 2
-    assert rate.decimal_places == 1
 
-    java_program = map_cobol_program_to_java(program)
-    fields = {field.name: field for field in java_program.java_class.fields}
-
-    assert fields["WS_AMOUNT"].java_type.basic_type == JavaBasicType.DOUBLE
-    assert fields["WS_RATE"].java_type.basic_type == JavaBasicType.DOUBLE
-
+def test_ir_file_input_converts_decimal_record_field_with_double_parse():
+    java_program = JavaProgram(
+        program_id="DECIMAL-INPUT",
+        java_class=JavaClass(
+            name="Decimal_Input",
+            fields=(
+                JavaField(
+                    name="WS_AMOUNT",
+                    java_type=JavaType(basic_type=JavaBasicType.DOUBLE),
+                ),
+                JavaField(
+                    name="WS_COUNT",
+                    java_type=JavaType(basic_type=JavaBasicType.INT),
+                ),
+            ),
+        ),
+        file_resources=(
+            JavaFileResource(
+                name="INPUT-FILE",
+                path="/tmp/input.dat",
+                access_mode=JavaFileAccessMode.READ,
+            ),
+        ),
+        generation_mode="file_io",
+    )
     application = JavaApplication(
-        application_id="DECIMAL-N1",
+        application_id="DECIMAL-INPUT",
         programs=(java_program,),
     )
+
     source = JavaGenerator().generate_from_java(application)[0].source_code
 
-    assert "static double WS_AMOUNT = 12345.67;" in source
-    assert "static double WS_RATE = 12.3;" in source
+    assert "Double.parseDouble(rec[0].trim())" in source
+    assert "Integer.parseInt(rec[1].trim())" in source
+
+
+def test_ir_decision_input_assignment_converts_decimal_field_with_double_parse():
+    generator = JavaGenerator()
+    java_program = JavaProgram(
+        program_id="DECIMAL-DECISION",
+        java_class=JavaClass(
+            name="Decimal_Decision",
+            fields=(
+                JavaField(
+                    name="WS_AMOUNT",
+                    java_type=JavaType(basic_type=JavaBasicType.DOUBLE),
+                ),
+            ),
+        ),
+        input_record_fields=("WS_AMOUNT",),
+    )
+    source = generator._generate_field_assignments_from_ir(
+        java_program, java_program.java_class
+    )
+
+    assert "Double.parseDouble(rec[0].trim())" in source
+
+
+def test_signed_integer_pic_is_still_parsed_without_decimal_places():
+    cobol = """
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SIGNED-INT.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-COUNT PIC S9(4) COMP-3 VALUE -12.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+"""
+    item = CobolParser().parse(cobol).working_storage[0]
+    assert item.pic_type == PicType.NUMERIC
+    assert item.pic_length == 4
+    assert item.decimal_places == 0
+    assert map_pic_to_java_type(item).basic_type == JavaBasicType.INT

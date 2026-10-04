@@ -598,6 +598,8 @@ public class {class_name} {{
             field = field_map.get(field_name)
             if field and field.java_type.basic_type and field.java_type.basic_type.value == "int":
                 lines.append(f'            {field_name} = Integer.parseInt(rec[{i}].trim());')
+            elif field and field.java_type.basic_type and field.java_type.basic_type.value == "double":
+                lines.append(f'            {field_name} = Double.parseDouble(rec[{i}].trim());')
             else:
                 lines.append(f'            {field_name} = rec[{i}].trim();')
         return "\n".join(lines) if lines else ""
@@ -839,6 +841,8 @@ public class {class_name} {{
         for i, field in enumerate(java_class.fields):
             if field.java_type.basic_type and field.java_type.basic_type.value == "int":
                 lines.append(f'            {field.name} = Integer.parseInt(rec[{i}].trim());')
+            elif field.java_type.basic_type and field.java_type.basic_type.value == "double":
+                lines.append(f'            {field.name} = Double.parseDouble(rec[{i}].trim());')
             else:
                 lines.append(f'            {field.name} = rec[{i}].trim();')
         return "\n".join(lines)

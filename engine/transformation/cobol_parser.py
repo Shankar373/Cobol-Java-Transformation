@@ -429,11 +429,14 @@ class CobolParser:
                         current_record = parts[1].rstrip(".")
                         pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
                         if pic_match:
-                            pic_type, pic_length = _parse_pic(pic_match.group(1))
+                            pic_type, pic_length, decimal_places = self._parse_pic_details(
+                                pic_match.group(1)
+                            )
                             current_items.append(DataItem(
                                 name=current_record,
                                 pic_type=pic_type,
                                 pic_length=pic_length,
+                                decimal_places=decimal_places,
                             ))
                 elif current_fd and re.match(r"\d{2}\s+", upper):
                     # Handle sub-level items (05, 10, 15, etc.)
@@ -442,11 +445,14 @@ class CobolParser:
                         item_name = parts[1].rstrip(".")
                         pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
                         if pic_match:
-                            pic_type, pic_length = _parse_pic(pic_match.group(1))
+                            pic_type, pic_length, decimal_places = self._parse_pic_details(
+                                pic_match.group(1)
+                            )
                             current_items.append(DataItem(
                                 name=item_name,
                                 pic_type=pic_type,
                                 pic_length=pic_length,
+                                decimal_places=decimal_places,
                             ))
                 elif upper.startswith(("WORKING-STORAGE", "PROCEDURE")):
                     if current_fd and current_record:
@@ -571,7 +577,9 @@ class CobolParser:
                 occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
 
                 if pic_match:
-                    pic_type, pic_length = _parse_pic(pic_match.group(1))
+                    pic_type, pic_length, decimal_places = self._parse_pic_details(
+                        pic_match.group(1)
+                    )
                     value = value_match.group(1).strip().rstrip(".") if value_match else None
                     occurs = int(occurs_match.group(1)) if occurs_match else None
 
@@ -581,6 +589,7 @@ class CobolParser:
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
                             value=value,
                         ))
                     else:
@@ -589,6 +598,7 @@ class CobolParser:
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
                             value=value,
                             occurs=occurs,
                         ))
@@ -602,11 +612,14 @@ class CobolParser:
                 elif level == 10 and current_group_name:
                     # Level 10 under a group — children
                     if pic_match:
-                        pic_type, pic_length = _parse_pic(pic_match.group(1))
+                        pic_type, pic_length, decimal_places = self._parse_pic_details(
+                            pic_match.group(1)
+                        )
                         current_group_children.append(DataItem(
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
                         ))
 
         return items
