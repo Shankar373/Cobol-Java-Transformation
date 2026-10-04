@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** Comparator implementation exists in the current repository. This specification remains normative; see docs/CONTRACT_STATUS.md for reconciliation.
+
 # COMPARATOR SPECIFICATION — V1
 
 > **Status:** SPECIFICATION (Phase 1C foundation). This document defines the comparator
