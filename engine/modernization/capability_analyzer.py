@@ -127,8 +127,9 @@ class CapabilityAnalyzer:
 
         # Analyze each program unit from semantic IR. Parser recognition alone
         # never grants capability.
+        known_program_ids = {p.program_id.upper() for p in application.programs}
         for unit in application.programs:
-            components.extend(self._analyze_program_unit(unit))
+            components.extend(self._analyze_program_unit(unit, known_program_ids))
 
         # COPYBOOK is a dependency relationship, not an independently generated
         # program. Discovery/resolution of the dependency is supported; the
@@ -206,7 +207,11 @@ class CapabilityAnalyzer:
             return CapabilityLevel.UNAVAILABLE
         return CapabilityLevel.SUPPORTED
 
-    def _analyze_program_unit(self, unit: CobolProgramUnit) -> list[ComponentCapability]:
+    def _analyze_program_unit(
+        self,
+        unit: CobolProgramUnit,
+        known_program_ids: set[str],
+    ) -> list[ComponentCapability]:
         """Classify a program from semantic IR and fail closed on gaps."""
         from engine.transformation.ir import FileOrganization, FileAccessMode
 
@@ -258,7 +263,6 @@ class CapabilityAnalyzer:
             for stmt in paragraph.statements:
                 walk(stmt)
 
-        known_program_ids = {p.program_id.upper() for p in application.programs}
         for call in unit.calls:
             if call.call_type.upper() == "DYNAMIC":
                 unsupported.append(f"Dynamic CALL target {call.target}")
