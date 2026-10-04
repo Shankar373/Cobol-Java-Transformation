@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** The evidence subsystem is implemented in the current repository. The original specification remains normative; see docs/CONTRACT_STATUS.md for the implementation-status reconciliation.
+
 # EVIDENCE SPECIFICATION — V1
 
 > **Status:** SPECIFICATION (Phase 1C foundation). This document defines the evidence
