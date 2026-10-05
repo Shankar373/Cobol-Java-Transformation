@@ -141,7 +141,23 @@ class ApplicationDiscovery:
         """Parse a single COBOL file into a program unit."""
         try:
             source = cobol_file.read_text(encoding="utf-8")
+            diagnostics = getattr(self._parser, "_diagnostics", None)
+            if diagnostics is not None:
+                diagnostics.clear()
             program = self._parser.parse(source)
+            if diagnostics is not None:
+                fatal = [
+                    diagnostic for diagnostic in diagnostics.all
+                    if diagnostic.level.value == "ERROR"
+                    or diagnostic.code.value == "UNSUPPORTED_CONSTRUCT"
+                ]
+                if fatal:
+                    details = "; ".join(
+                        f"{d.code.value}: {d.message}" for d in fatal
+                    )
+                    raise ValueError(
+                        f"unsupported or invalid COBOL source: {details}"
+                    )
 
             # Extract dependencies from source
             calls = self._extract_calls(source, program.program_id)

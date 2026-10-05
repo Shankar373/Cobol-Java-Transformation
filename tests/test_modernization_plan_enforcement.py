@@ -20,6 +20,7 @@ def test_pipeline_blocks_transformation_when_plan_skips_program(tmp_path):
         programs=(SimpleNamespace(program_id="BLOCKED"),),
         copybooks=(),
         edges=(),
+        discovery_errors=(),
     )
 
     capability = CapabilityReport(

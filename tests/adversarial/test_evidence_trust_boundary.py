@@ -137,8 +137,8 @@ def _manifest(
     candidate_source_hash_str: str | None = None,
     oracle_execs: tuple[ExecutionEvidence, ...] | None = None,
     candidate_execs: tuple[ExecutionEvidence, ...] | None = None,
-    artifacts: tuple[ArtifactEvidence, ...] = (),
-    comparisons: tuple[ComparisonEvidence, ...] = (),
+    artifacts: tuple[ArtifactEvidence, ...] | None = None,
+    comparisons: tuple[ComparisonEvidence, ...] | None = None,
     include_candidate: bool = True,
     oracle_id_str: str = "gnucobol-3.1.2",
     oracle_digest: str = "sha256:" + "a" * 64,
@@ -152,6 +152,16 @@ def _manifest(
         candidate_execs = (_exec(run_id, "candidate-exec-1", runtime_id="candidate-java"),)
 
     cand_source_hash = candidate_source_hash_str if candidate_source_hash_str is not None else source_hash_str
+
+    if artifacts is None:
+        artifacts = (
+            _art_ev("art-o", "STDOUT", "ORACLE", "output-data", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "output-data", "candidate-exec-1"),
+        )
+    if comparisons is None:
+        comparisons = (
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
+        )
 
     return EvidenceManifest(
         manifest_version="1.0",
@@ -255,7 +265,16 @@ class TestAdversarial02_ReplacedArtifactContent:
         # Validator checks structural bindings, not byte-level content.
         # The manifest_hash covers content_hash fields, so any change
         # to the hash field changes the manifest integrity.
-        manifest = _manifest(run_id=run_id, artifacts=(art,))
+        manifest = _manifest(
+            run_id=run_id,
+            artifacts=(
+                art,
+                _art_ev("art-c", "STDOUT", "CANDIDATE", "candidate-hash", "candidate-exec-1"),
+            ),
+            comparisons=(
+                _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
+            ),
+        )
 
         result = validator.validate(manifest)
         assert isinstance(result, ValidatedEvidenceManifest)
@@ -301,8 +320,13 @@ class TestAdversarial03_CrossRunArtifactReplay:
                 input_id="inp", stdin_hash=_h("inp"),
             ),
             execution_evidence=(oracle_b, candidate_b),
-            artifact_evidence=(stolen_artifact,),
-            comparison_evidence=(),
+            artifact_evidence=(
+                stolen_artifact,
+                _art_ev("art-shared-c", "STDOUT", "CANDIDATE", "data-b", "candidate-exec-1"),
+            ),
+            comparison_evidence=(
+                _comp(run_b, result="MATCH", oracle_id="art-shared-id", candidate_id="art-shared-c"),
+            ),
         )
 
         result = validator.validate(manifest)
@@ -959,6 +983,9 @@ class TestAdversarial18_ReplaySameArtifactIdsDifferentOwnership:
                 _art_ev("art-shared-id", "STDOUT", "ORACLE", "data-a", "oracle-exec-1"),
                 _art_ev("art-shared-c", "STDOUT", "CANDIDATE", "data-a", "candidate-exec-1"),
             ),
+            comparisons=(
+                _comp(run_a, result="MATCH", oracle_id="art-shared-id", candidate_id="art-shared-c"),
+            ),
         )
 
         # Manifest B tries to use same artifact_id but from run_A's execution
@@ -1169,9 +1196,15 @@ class TestManifestHashStrengthened:
         run_id = RunId(value="run-hash-art")
         m1 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data1", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
         m2 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data2", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
         assert m1.manifest_hash != m2.manifest_hash
 
