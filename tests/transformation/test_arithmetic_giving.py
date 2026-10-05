@@ -372,8 +372,8 @@ MAIN.
         assert expr.class_name == "Math"
         assert expr.method_name == "multiplyExact"
         assert len(expr.arguments) == 2
-        assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
-        assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
+        assert hasattr(expr.arguments[0], 'name') and expr.arguments[0].name == 'WS_A'
+        assert hasattr(expr.arguments[1], 'name') and expr.arguments[1].name == 'WS_B'
 
     def test_inplace_target_is_multiplicand(self):
         cobol = """\
@@ -717,5 +717,5 @@ MAIN.
         assert assignment is not None
         expr = assignment.expression
         assert expr.operator == "/"
-        assert hasattr(expr.arguments[0], 'name') and expr.arguments[0].name == 'WS_A'
-        assert hasattr(expr.arguments[1], 'name') and expr.arguments[1].name == 'WS_B'
+        assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
+        assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
