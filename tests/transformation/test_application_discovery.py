@@ -1004,18 +1004,19 @@ class TestForensicSearch:
 # CI #400 regression tests — discovery fail-closed contract
 # ============================================================
 
-# A COBOL program that uses S9(5) signed numeric PIC — this raises
-# CobolParseError in the current parser because _parse_pic doesn't handle
-# the S9 (signed) format.  The discovery layer MUST still register this
-# program in CobolApplication.programs instead of silently dropping it.
-PROGRAM_SIGNED_PIC = """\
+# A COBOL program that uses PIC A(10) (alphabetic type) — this raises
+# CobolParseError because _parse_pic() only handles X(n), 9(n), and
+# signed S9(n) formats. Alphabetic PIC A is not in the supported set.
+# The discovery layer MUST still register this program in
+# CobolApplication.programs instead of silently dropping it.
+PROGRAM_UNSUPPORTED_PIC = """\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. SIGNED-PROG.
+       PROGRAM-ID. UNSUP-PROG.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
-       01 WS-AMOUNT PIC S9(7) VALUE ZERO.
+       01 WS-NAME PIC A(10) VALUE SPACES.
        PROCEDURE DIVISION.
-           DISPLAY WS-AMOUNT.
+           DISPLAY WS-NAME.
            STOP RUN.
 """
 
@@ -1074,7 +1075,7 @@ class TestDiscoveryFailClosedRegression:
 
     Root cause: _parse_program_unit() had a blanket except Exception handler
     that returned None for ANY exception, including CobolParseError raised
-    by unsupported sub-constructs (e.g. PIC S9(5)).  A program with an
+    by unsupported sub-constructs (e.g. PIC A(10) alphabetic type).  A program with an
     unsupported sub-construct should still be registered in the application so
     the capability analyzer can classify it as UNSUPPORTED — not silently
     omitted, which caused downstream planner/CALL/entrypoint failures.
@@ -1087,9 +1088,9 @@ class TestDiscoveryFailClosedRegression:
         Regression: before the fix, discover() dropped such programs entirely.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "SIGNED.cob").write_text(PROGRAM_SIGNED_PIC)
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
             discovery = ApplicationDiscovery()
-            app = discovery.discover(tmpdir, application_id="SIGNED-APP")
+            app = discovery.discover(tmpdir, application_id="UNSUP-APP")
 
             # The program MUST appear in the application, not be dropped.
             assert len(app.programs) == 1, (
@@ -1097,7 +1098,7 @@ class TestDiscoveryFailClosedRegression:
                 "(CobolParseError regression). Expected 1 program, got 0."
             )
             unit = app.programs[0]
-            assert unit.program_id == "SIGNED-PROG"
+            assert unit.program_id == "UNSUP-PROG"
             # parse_error must be set indicating the stub IR
             assert unit.parse_error, (
                 "parse_error should be non-empty for a stub-IR program unit"
@@ -1114,13 +1115,13 @@ class TestDiscoveryFailClosedRegression:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "MAIN.cob").write_text(CALL_MAIN_PROG)
-            (Path(tmpdir) / "SIGNED.cob").write_text(PROGRAM_SIGNED_PIC)
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
             discovery = ApplicationDiscovery()
             app = discovery.discover(tmpdir, application_id="MIXED-APP")
 
             program_ids = {u.program_id for u in app.programs}
             assert "CALL-MAIN" in program_ids, "Fully-parseable program was dropped"
-            assert "SIGNED-PROG" in program_ids, (
+            assert "UNSUP-PROG" in program_ids, (
                 "Program with unsupported PIC clause was silently dropped (regression)"
             )
             assert len(app.programs) == 2
@@ -1130,7 +1131,7 @@ class TestDiscoveryFailClosedRegression:
         so the capability analyzer can inspect it without crashing.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "SIGNED.cob").write_text(PROGRAM_SIGNED_PIC)
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
             discovery = ApplicationDiscovery()
             app = discovery.discover(tmpdir, application_id="STUB-APP")
 
@@ -1142,7 +1143,7 @@ class TestDiscoveryFailClosedRegression:
             assert unit.program is not None, (
                 "Stub IR program must have program != None"
             )
-            assert unit.program.program_id == "SIGNED-PROG"
+            assert unit.program.program_id == "UNSUP-PROG"
 
     def test_call_dependency_edge_from_main_to_sub(self):
         """CALL edge must be registered in the application dependency graph."""
@@ -1263,12 +1264,12 @@ class TestDiscoveryFailClosedRegression:
             )
 
     def test_genuinely_unsupported_source_is_fail_closed(self):
-        """A program with genuinely unsupported constructs (PIC S9) is included
-        in discovery but marked with parse_error so the capability analyzer
-        classifies it as UNSUPPORTED (fail-closed), not SUPPORTED.
+        """A program with genuinely unsupported constructs (PIC A(10) alphabetic)
+        is included in discovery but marked with parse_error so the capability
+        analyzer classifies it as UNSUPPORTED (fail-closed), not SUPPORTED.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "SIGNED.cob").write_text(PROGRAM_SIGNED_PIC)
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
             discovery = ApplicationDiscovery()
             app = discovery.discover(tmpdir, application_id="FC-APP")
 
