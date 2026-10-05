@@ -369,7 +369,9 @@ MAIN.
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
         expr = stmts[0].expression
-        assert expr.operator == "*"
+        assert expr.class_name == "Math"
+        assert expr.method_name == "multiplyExact"
+        assert len(expr.arguments) == 2
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
         assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
 
@@ -392,7 +394,9 @@ MAIN.
                  if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(stmts) == 1
         expr = stmts[0].expression
-        assert expr.operator == "*"
+        assert expr.class_name == "Math"
+        assert expr.method_name == "multiplyExact"
+        assert len(expr.arguments) == 2
 
     def test_both_operands_unchanged_after_giving(self):
         """GIVING must not mutate A or B."""
@@ -686,7 +690,9 @@ MAIN.
         assignment = self._get_assignment(java, "WS_C")
         assert assignment is not None
         expr = assignment.expression
-        assert expr.operator == "*"
+        assert expr.class_name == "Math"
+        assert expr.method_name == "multiplyExact"
+        assert len(expr.arguments) == 2
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
         assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
 
