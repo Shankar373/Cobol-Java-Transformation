@@ -213,6 +213,18 @@ class TestParserExpressionBuilding:
         assert expr.operator == "NOT"
         assert expr.operand.name == "flag"
 
+    def test_build_arithmetic_respects_precedence_and_associativity(self):
+        """COBOL arithmetic preserves precedence and left associativity."""
+        parser = CobolParser()
+        expr = parser._build_expression("WS-TOTAL * 10 / 100")
+        assert isinstance(expr, BinaryExpression)
+        assert expr.operator == "/"
+        assert isinstance(expr.left, BinaryExpression)
+        assert expr.left.operator == "*"
+        assert expr.left.left.name == "WS-TOTAL"
+        assert expr.left.right.value == "10"
+        assert expr.right.value == "100"
+
     def test_build_comparison(self):
         """Parser builds Comparison from comparison text."""
         parser = CobolParser()
