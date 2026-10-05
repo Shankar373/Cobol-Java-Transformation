@@ -3,12 +3,19 @@
 Implements the strict seven-state verdict model as defined by VERDICT_CONTRACT.md.
 Verdict derivation MUST be driven by evidence.
 Verdict derivation is deterministic and testable as a pure function over the evidence model.
+
+Trust-boundary contract:
+    Raw EvidenceManifest MUST pass through EvidenceIntegrityValidator before
+    reaching VerdictDeriver.  Use derive_verdict_validated() in all new code.
+    derive_verdict() is retained for backward compatibility with existing tests
+    that exercise the pure derivation logic on raw manifests, but it bypasses
+    the trust boundary and must NOT be used in production paths.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.domain.identities import VerdictState, WorkloadId
 from engine.evidence.models import EvidenceManifest
@@ -69,8 +76,35 @@ class VerdictDeriver:
             "substring containment permanently forbidden."
         )
 
+    def derive_from_validated(self, validated: "ValidatedEvidenceManifest") -> Verdict:
+        """Derive a verdict from a *validated* evidence manifest.
+
+        This is the trust-boundary-enforcing entry point.  ``validated`` must
+        be the output of ``EvidenceIntegrityValidator.validate()``.  Calling
+        code that bypasses the validator cannot produce an incorrect verdict
+        via this method.
+        """
+        # ValidatedEvidenceManifest.manifest is the underlying raw evidence
+        return self.derive(validated.manifest)
+
+    def derive_unsafe_from_raw(self, manifest: EvidenceManifest) -> Verdict:
+        """Derive a verdict from a raw manifest without trust-boundary enforcement.
+
+        INTERNAL USE ONLY.  This bypasses the integrity validator and is only
+        permissible in the pipeline's error-override path where the validation
+        result is already known to be a list of violations and the verdict is
+        immediately checked for override.  Do not add new callers of this
+        method.
+        """
+        return self.derive(manifest)
+
     def derive(self, manifest: EvidenceManifest) -> Verdict:
-        """Derive a verdict from an evidence manifest. Pure function."""
+        """Derive a verdict from an evidence manifest. Pure function.
+
+        Prefer ``derive_from_validated()`` for new code.  This method accepts
+        a raw manifest and is retained for backward compatibility with tests
+        that exercise the pure derivation logic directly.
+        """
         # Step 1: Check for platform/validator errors first
         error_state = self._check_for_errors(manifest)
         if error_state is not None:
@@ -228,10 +262,32 @@ class VerdictDeriver:
 
 
 # ---------------------------------------------------------------------------
-# Convenience function
+# Convenience functions
 # ---------------------------------------------------------------------------
 
 def derive_verdict(manifest: EvidenceManifest) -> Verdict:
-    """Derive a verdict from an evidence manifest. Pure function."""
+    """Derive a verdict from a raw evidence manifest.
+
+    BACKWARD COMPATIBLE: retained for existing tests that exercise the pure
+    derivation logic on raw manifests.  Do NOT use in new production code.
+    Production paths must call ``derive_verdict_validated()`` instead.
+    """
     deriver = VerdictDeriver()
     return deriver.derive(manifest)
+
+
+def derive_verdict_validated(validated: "ValidatedEvidenceManifest") -> Verdict:
+    """Derive a verdict from a *validated* evidence manifest.
+
+    This is the trust-boundary-enforcing public API.  ``validated`` must be
+    the output of ``EvidenceIntegrityValidator.validate()``.  Use this in all
+    new production code and new tests to prove that the trust boundary holds.
+    """
+    deriver = VerdictDeriver()
+    return deriver.derive_from_validated(validated)
+
+
+# Late import to avoid circular dependency at module load time.
+# ValidatedEvidenceManifest is only used in type annotations above.
+if TYPE_CHECKING:
+    from engine.evidence.integrity import ValidatedEvidenceManifest

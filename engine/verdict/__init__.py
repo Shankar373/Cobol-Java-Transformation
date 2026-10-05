@@ -5,6 +5,7 @@ from engine.verdict.derivation import (
     VerdictDerivationError,
     VerdictDeriver,
     derive_verdict,
+    derive_verdict_validated,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "VerdictDerivationError",
     "VerdictDeriver",
     "derive_verdict",
+    "derive_verdict_validated",
 ]

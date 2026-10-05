@@ -32,7 +32,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.cobol_parser import CobolParser, CobolParseError
+from engine.transformation.copybook_resolver import (
+    AmbiguousCopybookError,
+    CopybookResolutionError,
+    resolve_copybook,
+)
 from engine.transformation.ir import (
     CobolApplication,
     CobolProgram,
@@ -87,22 +92,16 @@ class ApplicationDiscovery:
         # Parse each program
         program_units: list[CobolProgramUnit] = []
         all_copybooks: set[str] = set()
-        discovery_errors: list[str] = []
+        copybook_dirs = self._copybook_search_dirs(source_path)
 
         for cobol_file in cobol_files:
-            unit = self._parse_program_unit(cobol_file, source_path)
+            unit = self._parse_program_unit(cobol_file, source_path, copybook_dirs)
             if unit is not None:
                 program_units.append(unit)
                 for cb in unit.copybooks:
                     all_copybooks.add(cb.copybook_name)
-            else:
-                discovery_errors.append(
-                    f"{cobol_file.relative_to(source_path)}: COBOL source could not be parsed"
-                )
 
-        # Build dependency graph only from successfully parsed units. The
-        # explicit discovery_errors field prevents a partial graph from being
-        # mistaken for a complete application.
+        # Build dependency graph
         edges = self._build_dependency_graph(program_units)
 
         return CobolApplication(
@@ -110,8 +109,31 @@ class ApplicationDiscovery:
             programs=tuple(program_units),
             copybooks=tuple(sorted(all_copybooks)),
             edges=tuple(edges),
-            discovery_errors=tuple(discovery_errors),
         )
+
+    def _copybook_search_dirs(self, source_path: Path) -> tuple[Path, ...]:
+        """Directories searched for COPY targets.
+
+        The resolver is deliberately non-recursive per directory, so every
+        directory that holds a source file is offered; the discovery root
+        comes first so it wins a precedence tie deterministically.
+        """
+        dirs: list[Path] = [source_path]
+        seen: set[Path] = {source_path.resolve()}
+        try:
+            candidates = sorted({p.parent for p in source_path.rglob("*") if p.is_file()})
+        except OSError:
+            candidates = []
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            dirs.append(candidate)
+        return tuple(dirs)
 
     def _find_cobol_files(self, source_path: Path) -> list[Path]:
         """Find all COBOL source files in the directory tree."""
@@ -137,30 +159,47 @@ class ApplicationDiscovery:
         self,
         cobol_file: Path,
         source_root: Path,
+        copybook_dirs: tuple[Path, ...] | None = None,
     ) -> CobolProgramUnit | None:
-        """Parse a single COBOL file into a program unit."""
+        """Parse a single COBOL file into a program unit.
+
+        Fail-closed contract:
+        - Files that contain no identifiable COBOL structure (no
+          IDENTIFICATION DIVISION / no PROGRAM-ID) are excluded (return None).
+          These are genuinely not COBOL programs.
+        - Files that have a valid COBOL identity but contain unsupported
+          sub-constructs (e.g. signed PIC clauses, unsupported divisions) are
+          included with a stub IR and source_text preserved so that
+          CapabilityAnalyzer can classify them via source scan.  Dropping them
+          here would hide them from the capability graph and produce incorrect
+          "empty application" results downstream.
+        - Unexpected I/O errors or internal errors still produce None (the file
+          cannot be processed at all).
+        """
         try:
             source = cobol_file.read_text(encoding="utf-8")
-            diagnostics = getattr(self._parser, "_diagnostics", None)
-            if diagnostics is not None:
-                diagnostics.clear()
+        except OSError as e:
+            print(f"Warning: Cannot read {cobol_file}: {e}")
+            return None
+
+        # Always extract the program ID directly from source text — this is
+        # robust even when the full parser fails on unsupported constructs.
+        program_id = self._extract_program_id_from_source(source)
+        if not program_id:
+            # No IDENTIFICATION DIVISION / PROGRAM-ID found — not a COBOL
+            # source file; exclude it from discovery.
+            return None
+
+        try:
             program = self._parser.parse(source)
-            if diagnostics is not None:
-                fatal = [
-                    diagnostic for diagnostic in diagnostics.all
-                    if diagnostic.level.value == "ERROR"
-                ]
-                if fatal:
-                    details = "; ".join(
-                        f"{d.code.value}: {d.message}" for d in fatal
-                    )
-                    raise ValueError(
-                        f"unsupported or invalid COBOL source: {details}"
-                    )
 
             # Extract dependencies from source
             calls = self._extract_calls(source, program.program_id)
-            copybooks = self._extract_copybooks(source, program.program_id)
+            copybooks = self._extract_copybooks(
+                source,
+                program.program_id,
+                search_dirs=copybook_dirs or (source_root, cobol_file.parent),
+            )
             entry_points = self._extract_entry_points(source)
             file_deps = self._extract_file_dependencies(source, program.program_id)
 
@@ -193,12 +232,71 @@ class ApplicationDiscovery:
                 copybooks=tuple(copybooks),
                 entry_points=tuple(entry_points),
                 file_dependencies=tuple(file_deps),
+                source_text=source,
+            )
+
+        except CobolParseError as e:
+            # The file has valid COBOL identity but contains an unsupported
+            # construct that the parser cannot represent in the IR (e.g. a
+            # signed PIC clause, an unsupported division).  Do NOT exclude it
+            # from the application — that would silently remove it from the
+            # capability graph, causing downstream planner/CALL/entrypoint
+            # failures.  Instead, register it with a minimal stub IR and
+            # preserve source_text so CapabilityAnalyzer can classify it via
+            # source scan as UNSUPPORTED.
+            print(
+                f"Info: {cobol_file} has unsupported construct (will be "
+                f"classified UNSUPPORTED by capability analyzer): {e}"
+            )
+            calls = self._extract_calls(source, program_id)
+            copybooks = self._extract_copybooks(
+                source,
+                program_id,
+                search_dirs=copybook_dirs or (source_root, cobol_file.parent),
+            )
+            entry_points = self._extract_entry_points(source)
+            file_deps = self._extract_file_dependencies(source, program_id)
+            stub_program = CobolProgram(
+                program_id=program_id,
+                called_programs=tuple(c.target for c in calls),
+                copybooks=tuple(cb.copybook_name for cb in copybooks),
+                entry_points=tuple(entry_points),
+            )
+            return CobolProgramUnit(
+                program_id=program_id,
+                source_path=str(cobol_file.relative_to(source_root)),
+                program=stub_program,
+                calls=tuple(calls),
+                copybooks=tuple(copybooks),
+                entry_points=tuple(entry_points),
+                file_dependencies=tuple(file_deps),
+                source_text=source,
+                parse_error=str(e),
             )
 
         except Exception as e:
-            # Log error but continue with other files
-            print(f"Warning: Failed to parse {cobol_file}: {e}")
+            # Unexpected internal error — we cannot safely process this file.
+            print(f"Warning: Unexpected error parsing {cobol_file}: {e}")
             return None
+
+
+    @staticmethod
+    def _extract_program_id_from_source(source: str) -> str:
+        """Extract PROGRAM-ID directly from COBOL source text.
+
+        Returns the program ID string, or empty string if no IDENTIFICATION
+        DIVISION / PROGRAM-ID is found.  This is intentionally a lightweight
+        regex scan that does NOT require a full parser pass so it succeeds even
+        when the parser would raise CobolParseError.
+        """
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("*") or not stripped:
+                continue
+            m = re.match(r"PROGRAM-ID[.\s]+([A-Z0-9][A-Z0-9\-]*)", stripped, re.IGNORECASE)
+            if m:
+                return m.group(1).rstrip(".").strip()
+        return ""
 
     def _extract_calls(self, source: str, caller_id: str) -> list[ProgramCall]:
         """Extract CALL statements from COBOL source."""
@@ -237,8 +335,17 @@ class ApplicationDiscovery:
 
         return calls
 
-    def _extract_copybooks(self, source: str, source_program: str) -> list[CopybookReference]:
-        """Extract COPY statements from COBOL source."""
+    def _extract_copybooks(
+        self,
+        source: str,
+        source_program: str,
+        search_dirs: tuple[Path, ...] = (),
+    ) -> list[CopybookReference]:
+        """Extract COPY statements from COBOL source and resolve them on disk.
+
+        Resolution is recorded, never guessed: a reference is RESOLVED only
+        when exactly one candidate matches the resolver's precedence rules.
+        """
         copybooks: list[CopybookReference] = []
 
         # Find COPY statements
@@ -254,12 +361,40 @@ class ApplicationDiscovery:
             if copybook_name.upper() == "REPLACING":
                 continue
 
+            resolution, resolved_path = self._resolve_copybook(
+                copybook_name, source_program, search_dirs
+            )
             copybooks.append(CopybookReference(
                 source_program=source_program,
                 copybook_name=copybook_name,
+                resolution=resolution,
+                resolved_path=resolved_path,
             ))
 
         return copybooks
+
+    @staticmethod
+    def _resolve_copybook(
+        copybook_name: str,
+        source_program: str,
+        search_dirs: tuple[Path, ...],
+    ) -> tuple[str, str]:
+        """Resolve one COPY reference.
+
+        Returns ``(resolution, path)`` where resolution is one of
+        ``RESOLVED`` / ``UNRESOLVED`` / ``AMBIGUOUS``.
+        """
+        if not search_dirs:
+            return "UNRESOLVED", ""
+        try:
+            resolved = resolve_copybook(
+                copybook_name, search_dirs, program_id=source_program
+            )
+        except AmbiguousCopybookError:
+            return "AMBIGUOUS", ""
+        except CopybookResolutionError:
+            return "UNRESOLVED", ""
+        return "RESOLVED", str(resolved.path)
 
     def _extract_entry_points(self, source: str) -> list[str]:
         """Extract ENTRY statements from COBOL source."""

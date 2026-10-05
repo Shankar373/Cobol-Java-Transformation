@@ -545,6 +545,7 @@ Statement = (
     | ComputeStatement
     | CallStatement
     | DivideStatement
+    | ComputeStatement
     | IfStatement
     | PerformStatement
     | PerformTimesStatement
@@ -873,6 +874,11 @@ class CopybookReference:
     source_program: str  # PROGRAM-ID of program containing COPY
     copybook_name: str  # name of the copybook
     location: str = ""  # line/column if available
+    # Resolution outcome recorded at discovery time.  "RESOLVED" means a
+    # single on-disk match; "UNRESOLVED" means no candidate; "AMBIGUOUS"
+    # means more than one candidate with equal precedence.
+    resolution: str = "UNRESOLVED"
+    resolved_path: str = ""  # absolute path when resolution == "RESOLVED"
 
 
 @dataclass(frozen=True)
@@ -912,6 +918,15 @@ class CobolProgramUnit:
     copybooks: tuple[CopybookReference, ...] = ()
     entry_points: tuple[str, ...] = ()
     file_dependencies: tuple[FileDependency, ...] = ()
+    # Raw source of this unit.  Capability analysis scans it directly so that
+    # constructs the parser never turns into IR (CLOSE, REWRITE, SORT, ...)
+    # cannot be reported as supported.
+    source_text: str = ""
+    # Non-empty when discovery could only produce a stub IR because the parser
+    # raised CobolParseError on an unsupported sub-construct.  The capability
+    # analyzer treats this as an additional signal to classify the program via
+    # source scan rather than IR walk alone.
+    parse_error: str = ""
 
 
 @dataclass(frozen=True)

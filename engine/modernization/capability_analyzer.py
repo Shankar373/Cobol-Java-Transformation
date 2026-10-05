@@ -1,11 +1,25 @@
 """Capability analyzer — inspects the Application Semantic Graph and produces
 a CapabilityReport classifying every component and construct.
 
-Classification levels:
+Classification levels (defined by ``engine.transformation.semantic_capability``):
     SUPPORTED   — transformer can handle this construct fully
     PARTIAL     — transformer handles a subset; remainder is degraded
     UNSUPPORTED — transformer cannot handle this construct at all
     UNAVAILABLE — infrastructure (Docker, oracle) is not present
+    UNKNOWN     — support cannot be determined; fail closed
+
+Construct levels are not hard-coded here.  They come from the authoritative
+registry in ``engine.transformation.semantic_capability``, which is also the
+source used by the transformation producers.  The analyzer combines three
+independent evidence channels per program:
+
+    1. IR walk      — what the parser actually produced (including nested
+                      IF branches, inline PERFORM bodies and file handlers)
+    2. Source scan  — what the COBOL source actually contains, which is what
+                      catches constructs CobolParser silently drops
+    3. Structure    — unresolved PERFORM THRU, implicit paragraph
+                      fall-through, uncaptured OPEN targets, unmapped IR
+                      statement classes
 
 The analyzer is a pure function over the discovered application graph and the
 available infrastructure. It does NOT transform anything.
@@ -14,27 +28,37 @@ available infrastructure. It does NOT transform anything.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from pathlib import Path
 
+from engine.transformation.contracts import ProducerCapability
 from engine.transformation.ir import (
     CobolApplication,
     CobolProgramUnit,
     CopybookReference,
     DependencyEdge,
     FileDependency,
+    FileOrganization,
     ProgramCall,
 )
 from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.contracts import TransformationProducer
+from engine.transformation.semantic_capability import (
+    CONSTRUCT_REGISTRY,
+    IR_TYPE_TO_CONSTRUCT,
+    PARTIAL_CONSTRUCTS,
+    SUPPORTED_CONSTRUCTS,
+    UNSUPPORTED_CONSTRUCTS,
+    CapabilityLevel,
+    scan_constructs,
+    worst_level,
+)
 
-
-class CapabilityLevel(Enum):
-    """Classification of a capability."""
-    SUPPORTED = "SUPPORTED"
-    PARTIAL = "PARTIAL"
-    UNKNOWN = "UNKNOWN"
-    UNSUPPORTED = "UNSUPPORTED"
-    UNAVAILABLE = "UNAVAILABLE"
+__all__ = [
+    "CapabilityLevel",
+    "ComponentCapability",
+    "CapabilityReport",
+    "CapabilityAnalyzer",
+]
 
 
 @dataclass(frozen=True)
@@ -70,6 +94,11 @@ class CapabilityReport:
     def unavailable_count(self) -> int:
         return sum(1 for c in self.components if c.level == CapabilityLevel.UNAVAILABLE)
 
+    @property
+    def unknown_count(self) -> int:
+        """Components whose support could not be determined (fail closed)."""
+        return sum(1 for c in self.components if c.level == CapabilityLevel.UNKNOWN)
+
     def to_dict(self) -> dict:
         return {
             "application_id": self.application_id,
@@ -78,6 +107,7 @@ class CapabilityReport:
             "partial": self.partial_count,
             "unsupported": self.unsupported_count,
             "unavailable": self.unavailable_count,
+            "unknown": self.unknown_count,
             "components": [
                 {
                     "component_id": c.component_id,
@@ -98,9 +128,15 @@ class CapabilityAnalyzer:
         report = analyzer.analyze(application)
     """
 
+    # Registry projections — mutually exclusive, derived from the single
+    # authoritative construct registry (reachable/source level).
+    SUPPORTED_STATEMENTS = SUPPORTED_CONSTRUCTS
+    PARTIAL_STATEMENTS = PARTIAL_CONSTRUCTS
+    UNSUPPORTED_STATEMENTS = UNSUPPORTED_CONSTRUCTS
+
     def __init__(
         self,
-        producer_capabilities: tuple[object, ...] = (),
+        producer_capabilities: tuple[ProducerCapability, ...] = (),
         docker_available: bool = False,
         cobol_parser: CobolParser | None = None,
     ) -> None:
@@ -115,54 +151,30 @@ class CapabilityAnalyzer:
         # Check infrastructure first
         infra_level = self._check_infrastructure()
 
-        # Analyze each program unit from semantic IR. Parser recognition alone
-        # never grants capability.
-        known_program_ids = {p.program_id.upper() for p in application.programs}
+        # Analyze each program unit
+        program_levels: dict[str, CapabilityLevel] = {}
         for unit in application.programs:
-            components.extend(self._analyze_program_unit(unit, known_program_ids))
+            unit_components = self._analyze_program_unit(unit)
+            components.extend(unit_components)
+            for comp in unit_components:
+                if comp.component_type == "PROGRAM":
+                    program_levels[comp.component_id] = comp.level
 
-        # COPYBOOK is a dependency relationship, not an independently generated
-        # program. Discovery/resolution of the dependency is supported; the
-        # copybook itself must not be emitted as a Java program. The consuming
-        # program remains governed by the semantic IR produced for that program.
+        # Analyze copybook references (resolution is recorded at discovery)
         for cb_name in application.copybooks:
-            components.append(ComponentCapability(
-                component_id=cb_name,
-                component_type="COPYBOOK",
-                level=CapabilityLevel.SUPPORTED,
-                reason="Copybook dependency discovered; declarations are consumed as program source context and no standalone Java class is generated",
-            ))
+            components.append(self._analyze_copybook(application, cb_name))
 
-        # Analyze CALL edges using exact metadata tokens. Dynamic, unresolved
-        # and cyclic dispatch are never transformable. Static calls to programs
-        # present in the same application are resolved even if the discovery
-        # object preserves the original call record as UNRESOLVED.
+        # Analyze dependency edges (exact resolution match — note that
+        # "UNRESOLVED" contains "RESOLVED" as a substring, so a substring
+        # test here would misclassify every unresolved call as supported).
         for edge in application.edges:
             if edge.edge_type == "CALL":
-                metadata = edge.metadata or ""
-                target_known = edge.target.upper() in {p.program_id.upper() for p in application.programs}
-                is_resolved = "resolution=RESOLVED" in metadata or target_known
-                is_dynamic = "call_type=DYNAMIC" in metadata
-                is_self_call = edge.source == edge.target
-                if is_dynamic:
-                    level = CapabilityLevel.UNSUPPORTED
-                    reason = "Dynamic CALL (data-item target) has no static dispatch"
-                elif is_self_call:
-                    level = CapabilityLevel.UNSUPPORTED
-                    reason = "Recursive/self CALL is out of scope"
-                elif not is_resolved:
-                    level = CapabilityLevel.PARTIAL
-                    reason = "Unresolved static call target"
-                else:
-                    level = CapabilityLevel.SUPPORTED
-                    reason = "Resolved static CALL dependency"
-                components.append(ComponentCapability(
-                    component_id=f"{edge.source}->{edge.target}",
-                    component_type="CALL",
-                    level=level,
-                    reason=reason,
-                ))
+                components.append(
+                    self._analyze_call(edge, program_levels)
+                )
 
+        # Multi-program CALL cycles (A→B→A) cannot be reproduced with static
+        # Java dispatch faithfully; flag them explicitly.
         for cycle in application.detect_cycles():
             components.append(ComponentCapability(
                 component_id="->".join(cycle),
@@ -197,98 +209,160 @@ class CapabilityAnalyzer:
             return CapabilityLevel.UNAVAILABLE
         return CapabilityLevel.SUPPORTED
 
-    def _analyze_program_unit(
-        self,
-        unit: CobolProgramUnit,
-        known_program_ids: set[str],
-    ) -> list[ComponentCapability]:
-        """Classify a program from semantic IR and fail closed on gaps."""
-        from engine.transformation.ir import FileOrganization, FileAccessMode
+    # ------------------------------------------------------------------
+    # Program classification
+    # ------------------------------------------------------------------
+
+    def _analyze_program_unit(self, unit: CobolProgramUnit) -> list[ComponentCapability]:
+        """Analyze a single program unit for capabilities.
+
+        Combines the IR walk, the source scan and the structural rules, then
+        aggregates with worst-case severity so a nested or source-only
+        construct can never be hidden by an outer supported statement.
+        """
+        from engine.transformation.ir import (
+            DeleteStatement,
+            IfStatement,
+            OpenStatement,
+            PerformStatement,
+            ReadStatement,
+            RewriteStatement,
+            StartStatement,
+            StopRunStatement,
+            WriteStatement,
+        )
 
         components: list[ComponentCapability] = []
+
         if unit.program is None:
-            return [ComponentCapability(
+            components.append(ComponentCapability(
                 component_id=unit.program_id,
                 component_type="PROGRAM",
                 level=CapabilityLevel.UNSUPPORTED,
                 reason="Failed to parse program",
-            )]
+            ))
+            return components
 
         program = unit.program
-        unsupported: list[str] = []
-        partial: list[str] = []
-        from engine.transformation.cobol_to_java_mapping import classify_statement_capability
+        findings: list[tuple[str, CapabilityLevel, str]] = []
+        ir_types_seen: set[str] = set()
 
-        def walk(stmt) -> None:
+        # If discovery produced only a stub IR (parse_error is set), seed the
+        # findings with the error so the program is correctly classified as
+        # UNSUPPORTED even if the source scan does not catch the exact construct
+        # that caused the CobolParseError.
+        if unit.parse_error:
+            findings.append((
+                "parse_error",
+                CapabilityLevel.UNSUPPORTED,
+                f"Parser raised CobolParseError: {unit.parse_error}",
+            ))
+
+        def _note_ir(name: str) -> None:
+            ir_types_seen.add(name)
+            key = IR_TYPE_TO_CONSTRUCT.get(name)
+            if key is None:
+                findings.append((
+                    name,
+                    CapabilityLevel.UNKNOWN,
+                    f"IR statement type {name} has no registry mapping",
+                ))
+                return
+            entry = CONSTRUCT_REGISTRY[key]
+            findings.append((key, entry.level, entry.evidence))
+
+        def _walk(stmt) -> None:
             name = type(stmt).__name__
-            capability = classify_statement_capability(stmt)
-            if capability == "PARTIAL":
-                if name == "UnstringStatement":
-                    partial.append("UNSTRING mapping is not semantically generated")
-                else:
-                    partial.append(f"{name} mapping is not fully semantically generated")
-            elif capability == "UNSUPPORTED":
-                if name == "GoToStatement":
-                    unsupported.append("GO TO has no semantic Java control-flow mapping")
-                elif name == "PerformTimesStatement":
-                    unsupported.append("PERFORM TIMES has no direct mapper IR path")
-                else:
-                    unsupported.append(f"Unrecognized/unmapped IR statement {name}")
-            if name == "CallStatement" and stmt.is_dynamic:
-                unsupported.append("Dynamic CALL has no static dispatch")
+            _note_ir(name)
 
-            fields = getattr(stmt, "__dataclass_fields__", {})
-            for field_name in fields:
-                child = getattr(stmt, field_name)
-                if isinstance(child, tuple):
-                    for item in child:
-                        if hasattr(item, "__dataclass_fields__") and type(item).__name__.endswith("Statement"):
-                            walk(item)
-                elif hasattr(child, "__dataclass_fields__") and type(child).__name__.endswith("Statement"):
-                    walk(child)
+            for attr in ("invalid_key_body", "not_invalid_key_body"):
+                if getattr(stmt, attr, None):
+                    ir_types_seen.add("InvalidKeyScope")
+                    break
+
+            if isinstance(stmt, PerformStatement):
+                if stmt.thru_target:
+                    known = {para.name for para in program.paragraphs}
+                    if stmt.paragraph_name not in known or stmt.thru_target not in known:
+                        findings.append((
+                            "PERFORM THRU",
+                            CapabilityLevel.UNSUPPORTED,
+                            "PERFORM THRU unresolved range "
+                            f"{stmt.paragraph_name} THRU {stmt.thru_target}",
+                        ))
+                for nested in stmt.body:
+                    _walk(nested)
+            elif isinstance(stmt, IfStatement):
+                for nested in stmt.then_body:
+                    _walk(nested)
+                for nested in stmt.else_body:
+                    _walk(nested)
+            elif isinstance(stmt, ReadStatement):
+                for attr in ("at_end_body", "not_at_end_body",
+                             "invalid_key_body", "not_invalid_key_body"):
+                    for nested in getattr(stmt, attr, ()) or ():
+                        _walk(nested)
+            elif isinstance(stmt, (WriteStatement, StartStatement,
+                                   RewriteStatement, DeleteStatement)):
+                for attr in ("invalid_key_body", "not_invalid_key_body"):
+                    for nested in getattr(stmt, attr, ()) or ():
+                        _walk(nested)
+
+            if isinstance(stmt, OpenStatement) and not stmt.file_name:
+                findings.append((
+                    "OPEN",
+                    CapabilityLevel.PARTIAL,
+                    "OPEN statement target was not captured by CobolParser "
+                    f"(mode={stmt.mode})",
+                ))
 
         for paragraph in program.paragraphs:
             for stmt in paragraph.statements:
-                walk(stmt)
+                _walk(stmt)
 
-        for call in unit.calls:
-            if call.call_type.upper() == "DYNAMIC":
-                unsupported.append(f"Dynamic CALL target {call.target}")
-            elif call.target.upper() not in known_program_ids:
-                partial.append(f"Unresolved CALL target {call.target}")
+        # Implicit fall-through reliance: the generator executes the driver
+        # (first) paragraph; a multi-paragraph program whose driver does not
+        # terminate (no top-level STOP RUN) relies on fall-through into the
+        # next paragraph, which is not reproduced.
+        if len(program.paragraphs) > 1:
+            driver_stmts = program.paragraphs[0].statements
+            if not any(isinstance(s, StopRunStatement) for s in driver_stmts):
+                findings.append((
+                    "paragraph fall-through",
+                    CapabilityLevel.PARTIAL,
+                    "implicit paragraph fall-through",
+                ))
 
-        # A COPY reference is already part of the parsed program's source
-        # context. It is not itself a generated program, so it does not block
-        # the consuming program. Missing/failed COPY resolution is handled by
-        # discovery/parsing before this capability stage.
+        # Source evidence: constructs present in COBOL that produced no IR.
+        ir_construct_keys = {
+            IR_TYPE_TO_CONSTRUCT[name]
+            for name in ir_types_seen
+            if name in IR_TYPE_TO_CONSTRUCT
+        }
+        if unit.source_text:
+            for key in sorted(scan_constructs(unit.source_text)):
+                entry = CONSTRUCT_REGISTRY.get(key)
+                if entry is None:
+                    continue
+                if key in ir_construct_keys:
+                    # The parser produced IR for this construct; the registry
+                    # IR level is the authoritative verdict.
+                    continue
+                findings.append((key, entry.effective_source_level, entry.evidence))
 
-        file_defs = {fd.name: fd for fd in program.file_definitions}
-        for fd in unit.file_dependencies:
-            definition = file_defs.get(fd.file_name)
-            if definition is None:
-                unsupported.append(f"File dependency {fd.file_name} has no FILE definition")
-                continue
-            if definition.organization != FileOrganization.SEQUENTIAL:
-                unsupported.append(
-                    f"{definition.organization.value} file {fd.file_name} is outside the certified file boundary"
-                )
-            if definition.access_mode == FileAccessMode.DYNAMIC:
-                unsupported.append(
-                    f"Dynamic access mode for {fd.file_name} is outside the certified file boundary"
-                )
-            if fd.operation.upper() == "REWRITE" and definition.organization == FileOrganization.SEQUENTIAL:
-                unsupported.append(f"Sequential REWRITE for {fd.file_name} is explicitly unsupported by the file runtime")
+        # Unresolved COPY references block the referencing program.
+        unresolved_copybooks = sorted({
+            cb.copybook_name for cb in unit.copybooks
+            if cb.resolution != "RESOLVED"
+        })
+        for cb_name in unresolved_copybooks:
+            findings.append((
+                f"COPY {cb_name}",
+                CapabilityLevel.UNSUPPORTED,
+                f"Unsupported: copybook {cb_name} is missing and could not be resolved",
+            ))
 
-        if unsupported:
-            level = CapabilityLevel.UNSUPPORTED
-            reason = "Contains unsupported capabilities: " + "; ".join(unsupported)
-        elif partial:
-            level = CapabilityLevel.PARTIAL
-            reason = "Contains partially certified capabilities: " + "; ".join(partial)
-        else:
-            level = CapabilityLevel.SUPPORTED
-            reason = "All parsed constructs are within the currently certified deterministic subset"
-
+        level, reason = self._aggregate(findings)
         components.append(ComponentCapability(
             component_id=unit.program_id,
             component_type="PROGRAM",
@@ -300,45 +374,257 @@ class CapabilityAnalyzer:
                 "file_count": str(len(program.file_definitions)),
                 "call_count": str(len(unit.calls)),
                 "copybook_count": str(len(unit.copybooks)),
+                "constructs": ", ".join(sorted({key for key, _, _ in findings})),
             },
         ))
 
+        # Check file dependencies
         for fd in unit.file_dependencies:
-            definition = file_defs.get(fd.file_name)
-            if definition is None:
-                level = CapabilityLevel.UNSUPPORTED
-                reason = "No FILE definition found for dependency"
-            elif definition.organization != FileOrganization.SEQUENTIAL or definition.access_mode == FileAccessMode.DYNAMIC:
-                level = CapabilityLevel.UNSUPPORTED
-                reason = "Indexed/relative/dynamic file semantics are outside the certified boundary"
-            elif fd.operation.upper() == "REWRITE":
-                level = CapabilityLevel.UNSUPPORTED
-                reason = "Sequential REWRITE is unsupported by the deterministic file runtime"
-            else:
-                level = CapabilityLevel.SUPPORTED
-                reason = "Sequential file operation within certified boundary"
+            file_level, file_reason = self._file_capability(unit, fd)
             components.append(ComponentCapability(
                 component_id=f"{unit.program_id}:{fd.file_name}",
                 component_type="FILE",
-                level=level,
-                reason=reason,
+                level=file_level,
+                reason=file_reason,
             ))
 
         return components
 
+    @staticmethod
+    def _aggregate(
+        findings: list[tuple[str, CapabilityLevel, str]],
+    ) -> tuple[CapabilityLevel, str]:
+        """Combine findings into one program level and an honest reason."""
+        if not findings:
+            return CapabilityLevel.SUPPORTED, "All constructs supported"
+
+        worst = worst_level([level for _, level, _ in findings])
+        assert worst is not None
+
+        def _named(level: CapabilityLevel) -> list[str]:
+            return sorted({
+                f"{key} ({evidence})"
+                for key, found, evidence in findings
+                if found is level
+            })
+
+        if worst is CapabilityLevel.UNKNOWN:
+            return (
+                CapabilityLevel.UNKNOWN,
+                "Support cannot be determined for: "
+                + ", ".join(sorted({key for key, lv, _ in findings if lv is worst})),
+            )
+        if worst is CapabilityLevel.UNSUPPORTED:
+            return (
+                CapabilityLevel.UNSUPPORTED,
+                "Contains unsupported constructs: " + "; ".join(_named(worst)),
+            )
+        if worst is CapabilityLevel.PARTIAL:
+            return (
+                CapabilityLevel.PARTIAL,
+                "Contains partially supported constructs: " + "; ".join(_named(worst)),
+            )
+        if worst is CapabilityLevel.UNAVAILABLE:
+            return (
+                CapabilityLevel.UNAVAILABLE,
+                "; ".join(_named(worst)),
+            )
+        return CapabilityLevel.SUPPORTED, "All constructs supported"
+
+    def _file_capability(
+        self,
+        unit: CobolProgramUnit,
+        fd: FileDependency,
+    ) -> tuple[CapabilityLevel, str]:
+        """Classify one discovered file dependency by real file semantics."""
+        program = unit.program
+        file_defs = {f.name: f for f in program.file_definitions}
+        definition = file_defs.get(fd.file_name)
+        organization = (
+            definition.organization if definition is not None
+            else FileOrganization.SEQUENTIAL
+        )
+
+        if organization in (FileOrganization.INDEXED, FileOrganization.RELATIVE):
+            return (
+                CapabilityLevel.PARTIAL,
+                f"{organization.value} file {fd.operation} on {fd.file_name}: "
+                "keyed/relative access semantics are not reproduced by the "
+                "sequential file I/O path",
+            )
+
+        if fd.operation == "OPEN" and fd.mode in ("I-O", "EXTEND"):
+            return (
+                CapabilityLevel.PARTIAL,
+                f"OPEN {fd.mode} on {fd.file_name} is not reproduced by CobolParser",
+            )
+
+        return (
+            CapabilityLevel.SUPPORTED,
+            f"Sequential file {fd.operation} supported",
+        )
+
+    # ------------------------------------------------------------------
+    # Copybook classification
+    # ------------------------------------------------------------------
+
+    def _analyze_copybook(
+        self,
+        application: CobolApplication,
+        cb_name: str,
+    ) -> ComponentCapability:
+        refs: list[CopybookReference] = [
+            cb
+            for unit in application.programs
+            for cb in unit.copybooks
+            if cb.copybook_name == cb_name
+        ]
+        resolved_paths = [
+            cb.resolved_path for cb in refs
+            if cb.resolution == "RESOLVED" and cb.resolved_path
+        ]
+
+        if not resolved_paths:
+            resolutions = {cb.resolution for cb in refs}
+            resolution = "AMBIGUOUS" if "AMBIGUOUS" in resolutions else "UNRESOLVED"
+            return ComponentCapability(
+                component_id=cb_name,
+                component_type="COPYBOOK",
+                level=CapabilityLevel.UNSUPPORTED,
+                reason=(
+                    f"Unsupported: copybook {cb_name} is missing and could "
+                    "not be resolved"
+                ),
+                details={"resolution": resolution},
+            )
+
+        content = ""
+        read_error = ""
+        for path in resolved_paths:
+            try:
+                content = Path(path).read_text(encoding="utf-8", errors="replace")
+                break
+            except OSError as exc:
+                read_error = str(exc)
+
+        if not content and read_error:
+            return ComponentCapability(
+                component_id=cb_name,
+                component_type="COPYBOOK",
+                level=CapabilityLevel.UNSUPPORTED,
+                reason=(
+                    f"Unsupported: copybook {cb_name} could not be read "
+                    f"({read_error})"
+                ),
+                details={"resolution": "RESOLVED", "path": resolved_paths[0]},
+            )
+
+        detected = sorted(scan_constructs(content, restrict_to_procedure=False))
+        levels = [
+            CONSTRUCT_REGISTRY[key].effective_source_level
+            for key in detected
+            if key in CONSTRUCT_REGISTRY
+        ]
+        worst = worst_level(levels)
+
+        if worst is None:
+            return ComponentCapability(
+                component_id=cb_name,
+                component_type="COPYBOOK",
+                level=CapabilityLevel.SUPPORTED,
+                reason="Copybook resolved and contains no unsupported constructs",
+                details={
+                    "resolution": "RESOLVED",
+                    "path": resolved_paths[0],
+                },
+            )
+
+        entry_keys = sorted({
+            key for key in detected
+            if key in CONSTRUCT_REGISTRY
+            and CONSTRUCT_REGISTRY[key].effective_source_level is worst
+        })
+        if worst is CapabilityLevel.UNKNOWN:
+            reason = "Support cannot be determined for: " + ", ".join(entry_keys)
+        elif worst is CapabilityLevel.UNSUPPORTED:
+            reason = "Copybook contains unsupported constructs: " + ", ".join(entry_keys)
+        elif worst is CapabilityLevel.PARTIAL:
+            reason = "Copybook contains partially supported constructs: " + ", ".join(entry_keys)
+        else:
+            reason = f"Copybook contents classify as {worst.value}"
+
+        return ComponentCapability(
+            component_id=cb_name,
+            component_type="COPYBOOK",
+            level=worst,
+            reason=reason,
+            details={
+                "resolution": "RESOLVED",
+                "path": resolved_paths[0],
+                "constructs": ", ".join(detected),
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # CALL classification
+    # ------------------------------------------------------------------
+
+    def _analyze_call(
+        self,
+        edge: DependencyEdge,
+        program_levels: dict[str, CapabilityLevel],
+    ) -> ComponentCapability:
+        metadata = edge.metadata or ""
+        is_resolved = "resolution=RESOLVED" in metadata
+        is_dynamic = "call_type=DYNAMIC" in metadata
+        is_self_call = edge.source == edge.target
+
+        if is_dynamic:
+            level = CapabilityLevel.UNSUPPORTED
+            reason = "Dynamic CALL (data-item target) has no static dispatch"
+        elif is_self_call:
+            level = CapabilityLevel.UNSUPPORTED
+            reason = "Recursive/self CALL is out of scope"
+        elif not is_resolved:
+            level = CapabilityLevel.PARTIAL
+            reason = "Unresolved static call target"
+        else:
+            # A resolved call is only as transformable as its callee.
+            callee = program_levels.get(edge.target)
+            if callee is None or callee is CapabilityLevel.SUPPORTED:
+                level = CapabilityLevel.SUPPORTED
+                reason = "Resolved"
+            elif callee in (CapabilityLevel.PARTIAL, CapabilityLevel.UNAVAILABLE):
+                level = CapabilityLevel.PARTIAL
+                reason = (
+                    f"Callee {edge.target} is not fully supported "
+                    f"({callee.value})"
+                )
+            else:
+                level = callee
+                reason = (
+                    f"Callee {edge.target} cannot be transformed "
+                    f"({callee.value})"
+                )
+
+        return ComponentCapability(
+            component_id=f"{edge.source}->{edge.target}",
+            component_type="CALL",
+            level=level,
+            reason=reason,
+        )
+
+    # ------------------------------------------------------------------
+    # Aggregation
+    # ------------------------------------------------------------------
+
     def _derive_overall_level(self, components: list[ComponentCapability]) -> CapabilityLevel:
-        """Derive overall application capability level."""
+        """Derive overall application capability level.
+
+        Most severe component wins; UNKNOWN outranks everything because an
+        undetermined construct must never be presented as safe.
+        """
         if not components:
-            return CapabilityLevel.UNKNOWN
+            return CapabilityLevel.SUPPORTED
 
-        has_unsupported = any(c.level == CapabilityLevel.UNSUPPORTED for c in components)
-        has_unavailable = any(c.level == CapabilityLevel.UNAVAILABLE for c in components)
-        has_partial = any(c.level == CapabilityLevel.PARTIAL for c in components)
-
-        if has_unavailable:
-            return CapabilityLevel.UNAVAILABLE
-        if has_unsupported:
-            return CapabilityLevel.UNSUPPORTED
-        if has_partial:
-            return CapabilityLevel.PARTIAL
-        return CapabilityLevel.SUPPORTED
+        return worst_level([c.level for c in components]) or CapabilityLevel.SUPPORTED

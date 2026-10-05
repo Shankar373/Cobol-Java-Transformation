@@ -65,7 +65,7 @@ from engine.evidence.models import (
 from engine.execution.artifacts import ArtifactCapturer, CapturedArtifact
 from engine.oracle.adapter import OracleAdapterConfig
 from engine.oracle.docker_adapter import DockerOracleAdapter
-from engine.verdict.derivation import Verdict, derive_verdict
+from engine.verdict.derivation import Verdict, VerdictDeriver, derive_verdict, derive_verdict_validated
 from engine.workload import WorkloadDefinition
 
 
@@ -528,7 +528,7 @@ class VerticalSlicePipeline:
             # Derive the natural verdict from evidence structure, but override
             # VERIFIED to ERROR when validation fails. This prevents forged or
             # replayed evidence from achieving certification.
-            verdict = derive_verdict(manifest)
+            verdict = VerdictDeriver().derive_unsafe_from_raw(manifest)
             if verdict.state == VerdictState.VERIFIED:
                 verdict = Verdict(
                     state=VerdictState.ERROR,
@@ -547,7 +547,7 @@ class VerticalSlicePipeline:
                     differences=tuple(v.description for v in validation_result),
                 )
         else:
-            verdict = derive_verdict(manifest)
+            verdict = derive_verdict_validated(validation_result)
 
         return PipelineResult(
             run_id=run_id,
