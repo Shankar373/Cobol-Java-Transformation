@@ -1623,6 +1623,49 @@ class TestIndependentValidation:
             termination_status="normal",
             timeout_applied=False,
         )
+        oracle_artifact = ArtifactEvidence(
+            artifact=ArtifactIdentity(
+                artifact_id="artifact-oracle-val",
+                artifact_type="STDOUT",
+                logical_name="oracle-stdout",
+                producer_role="ORACLE",
+                content_hash=self._h("oracle-artifact-val"),
+                size_bytes=10,
+            ),
+            execution_id=oracle_exec.execution_id,
+            capture_time="2026-09-15T00:00:01Z",
+            content_hash=self._h("oracle-artifact-val"),
+            size_bytes=10,
+        )
+        candidate_artifact = ArtifactEvidence(
+            artifact=ArtifactIdentity(
+                artifact_id="artifact-candidate-val",
+                artifact_type="STDOUT",
+                logical_name="candidate-stdout",
+                producer_role="CANDIDATE",
+                content_hash=self._h("candidate-artifact-val"),
+                size_bytes=10,
+            ),
+            execution_id=candidate_exec.execution_id,
+            capture_time="2026-09-15T00:00:01Z",
+            content_hash=self._h("candidate-artifact-val"),
+            size_bytes=10,
+        )
+        comparison = ComparisonEvidence(
+            comparison_id="comparison-val",
+            run_id=run_id,
+            comparator_id="test-comparator",
+            comparator_version="1",
+            oracle_artifact_id=oracle_artifact.artifact.artifact_id,
+            candidate_artifact_id=candidate_artifact.artifact.artifact_id,
+            artifact_type="STDOUT",
+            result="MATCH",
+            normalization_applied=(),
+            differences=(),
+            field_level_results=(),
+            content_hash=self._h("comparison-val"),
+        )
+
         return EvidenceManifest(
             manifest_version="1.0",
             run_id=run_id,
@@ -1651,8 +1694,8 @@ class TestIndependentValidation:
                 stdin_hash=self._h("input-data"),
             ),
             execution_evidence=(oracle_exec, candidate_exec),
-            artifact_evidence=(),
-            comparison_evidence=(),
+            artifact_evidence=(oracle_artifact, candidate_artifact),
+            comparison_evidence=(comparison,),
         )
 
     def test_valid_manifest_accepted(self):
