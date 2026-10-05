@@ -925,6 +925,7 @@ class CobolApplication:
     programs: tuple[CobolProgramUnit, ...] = ()
     copybooks: tuple[str, ...] = ()  # discovered copybook names
     edges: tuple[DependencyEdge, ...] = ()  # dependency graph edges
+    discovery_errors: tuple[str, ...] = ()  # source units omitted from discovery
 
     def get_program(self, program_id: str) -> CobolProgramUnit | None:
         """Find a program by its PROGRAM-ID."""

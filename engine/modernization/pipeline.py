@@ -212,6 +212,14 @@ class UniversalModernizationPipeline:
         except Exception as e:
             report.limitations = (f"Discovery failed: {e}",)
             return report
+
+        if application.discovery_errors:
+            report.limitations = (
+                "Discovery incomplete; transformation is fail-closed.",
+                *application.discovery_errors,
+            )
+            return report
+
         if progress:
             progress("DISCOVERY_COMPLETED")
 

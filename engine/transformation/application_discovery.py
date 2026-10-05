@@ -87,6 +87,7 @@ class ApplicationDiscovery:
         # Parse each program
         program_units: list[CobolProgramUnit] = []
         all_copybooks: set[str] = set()
+        discovery_errors: list[str] = []
 
         for cobol_file in cobol_files:
             unit = self._parse_program_unit(cobol_file, source_path)
@@ -94,8 +95,14 @@ class ApplicationDiscovery:
                 program_units.append(unit)
                 for cb in unit.copybooks:
                     all_copybooks.add(cb.copybook_name)
+            else:
+                discovery_errors.append(
+                    f"{cobol_file.relative_to(source_path)}: COBOL source could not be parsed"
+                )
 
-        # Build dependency graph
+        # Build dependency graph only from successfully parsed units. The
+        # explicit discovery_errors field prevents a partial graph from being
+        # mistaken for a complete application.
         edges = self._build_dependency_graph(program_units)
 
         return CobolApplication(
@@ -103,6 +110,7 @@ class ApplicationDiscovery:
             programs=tuple(program_units),
             copybooks=tuple(sorted(all_copybooks)),
             edges=tuple(edges),
+            discovery_errors=tuple(discovery_errors),
         )
 
     def _find_cobol_files(self, source_path: Path) -> list[Path]:

@@ -409,21 +409,20 @@ class EvidenceIntegrityValidator:
     # ------------------------------------------------------------------
 
     def _validate_required_evidence(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """Validate that required evidence is present."""
+        """Validate the minimum evidence contract required for certification."""
         violations: list[IntegrityViolation] = []
-
-        # Must have at least one execution
-        if len(manifest.execution_evidence) == 0:
+        if not manifest.execution_evidence:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
                 description="No execution evidence in manifest",
                 field_path="execution_evidence",
-                expected="at least 1 execution evidence",
+                expected="oracle and candidate execution evidence",
                 actual="0",
             ))
+            return violations
 
-        # Must have at least one oracle execution
         oracle_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("oracle")]
+        candidate_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("candidate")]
         if not oracle_execs:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
@@ -432,9 +431,6 @@ class EvidenceIntegrityValidator:
                 expected="at least 1 oracle execution",
                 actual="0 oracle executions",
             ))
-
-        # Must have at least one candidate execution
-        candidate_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("candidate")]
         if not candidate_execs:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
@@ -444,6 +440,49 @@ class EvidenceIntegrityValidator:
                 actual="0 candidate executions",
             ))
 
+        oracle_ids = {e.execution_id.value for e in oracle_execs}
+        candidate_ids = {e.execution_id.value for e in candidate_execs}
+        oracle_artifacts = [a for a in manifest.artifact_evidence if a.execution_id.value in oracle_ids]
+        candidate_artifacts = [a for a in manifest.artifact_evidence if a.execution_id.value in candidate_ids]
+        if not oracle_artifacts:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                description="No oracle artifact evidence",
+                field_path="artifact_evidence",
+                expected="at least 1 oracle artifact",
+                actual="0 oracle artifacts",
+            ))
+        if not candidate_artifacts:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                description="No candidate artifact evidence",
+                field_path="artifact_evidence",
+                expected="at least 1 candidate artifact",
+                actual="0 candidate artifacts",
+            ))
+
+        compared_ids = {
+            artifact_id
+            for comparison in manifest.comparison_evidence
+            for artifact_id in (comparison.oracle_artifact_id, comparison.candidate_artifact_id)
+        }
+        for artifact in manifest.artifact_evidence:
+            if artifact.artifact.artifact_id not in compared_ids:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                    description=f"Artifact '{artifact.artifact.artifact_id}' is not covered by any comparison",
+                    field_path="comparison_evidence",
+                    expected=f"comparison referencing {artifact.artifact.artifact_id}",
+                    actual="artifact is unreferenced",
+                ))
+        if not manifest.comparison_evidence:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                description="No comparison evidence in manifest",
+                field_path="comparison_evidence",
+                expected="at least 1 comparison",
+                actual="0 comparisons",
+            ))
         return violations
 
     # ------------------------------------------------------------------
