@@ -1,8 +1,20 @@
 """Authoritative semantic capability registry for deterministic COBOL transformation.
 
-The registry is consumed by the modernization capability analyzer. A source-only
-finding for a construct that normally requires parsed IR is fail-closed as
-UNKNOWN; unsupported constructs remain explicitly unsupported.
+The registry is consumed by the modernization capability analyzer.  Each entry
+carries two levels:
+
+* ``level`` — the verdict for an instance the parser actually produced (IR).
+* ``effective_source_level`` — the verdict for an instance found only in COBOL
+  source with no corresponding IR (the parser silently dropped it).  For a
+  construct the chain can implement (``_supported``) this defaults to UNKNOWN
+  so a dropped instance can never be reported as supported; helpers may lower
+  it to UNSUPPORTED when absence of IR proves the mapper will never see it.
+
+Some source constructs are legitimately *realised* by a different IR node
+(EVALUATE is lowered to IfStatement; PERFORM ... TIMES/VARYING is parsed into
+PerformStatement).  ``CONSTRUCT_IR_COVERAGE`` records those relations so the
+analyzer skips a source finding when the realising IR is present instead of
+mis-reporting the construct as unrepresented.
 """
 
 from __future__ import annotations
@@ -52,11 +64,15 @@ class ConstructCapability:
     effective_source_level: CapabilityLevel
 
 
-def _supported(evidence: str) -> ConstructCapability:
+def _supported(
+    evidence: str,
+    *,
+    source_only: CapabilityLevel = CapabilityLevel.UNKNOWN,
+) -> ConstructCapability:
     return ConstructCapability(
         CapabilityLevel.SUPPORTED,
         evidence,
-        CapabilityLevel.UNKNOWN,
+        source_only,
     )
 
 
@@ -98,8 +114,25 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "STOP RUN": _supported("STOP RUN terminates generated execution"),
     "CALL": _supported("Static CALL has an explicit application dependency mapping"),
     "GO TO": _unsupported("GO TO has no semantic Java control-flow mapping"),
-    "PERFORM TIMES": _unsupported("PERFORM TIMES/VARYING has no certified direct mapping"),
-    "EVALUATE": _partial("EVALUATE is recognized but remains outside the certified transformation subset"),
+    "PERFORM TIMES": _supported(
+        "PERFORM ... TIMES/VARYING parses into PerformStatement and is mapped "
+        "to bounded Java loop semantics",
+        # An instance present in source with no PerformStatement anywhere in
+        # the program was dropped by the parser, so the mapper will never see
+        # it — absence of IR proves this instance is not transformable.
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "PERFORM TIMES IR": _unsupported(
+        "PerformTimesStatement legacy IR node is not implemented by the "
+        "deterministic mapper"
+    ),
+    "EVALUATE": _supported(
+        "EVALUATE is lowered to IfStatement by CobolParser and mapped "
+        "through IF/ELSE semantics",
+        # An EVALUATE in source with no IfStatement in the program means the
+        # lowering never ran for it; the mapper will never see it.
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "EXEC CICS": _unsupported("EXEC CICS is outside the certified deterministic Java lane"),
     "EXEC SQL": _unsupported("EXEC SQL requires the separate DB2/SQL semantic lane"),
     "SORT": _unsupported("SORT is not implemented in the deterministic mapper"),
@@ -130,7 +163,7 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     MultiplyStatement.__name__: "MULTIPLY",
     OpenStatement.__name__: "OPEN",
     PerformStatement.__name__: "PERFORM",
-    PerformTimesStatement.__name__: "PERFORM TIMES",
+    PerformTimesStatement.__name__: "PERFORM TIMES IR",
     ReadStatement.__name__: "READ",
     RewriteStatement.__name__: "REWRITE",
     StartStatement.__name__: "START",
@@ -156,24 +189,43 @@ UNSUPPORTED_CONSTRUCTS = frozenset(
 )
 
 
+# COBOL words are hyphen-delimited: every pattern anchors on word boundaries
+# that also refuse adjacent hyphens so that paragraph/file names such as
+# SET-PARA, END-EVALUATE or SORT-AREA are never mistaken for the verb.
 _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("EXEC CICS", re.compile(r"\bEXEC\s+CICS\b", re.IGNORECASE)),
-    ("EXEC SQL", re.compile(r"\bEXEC\s+SQL\b", re.IGNORECASE)),
-    ("EVALUATE", re.compile(r"\bEVALUATE\b", re.IGNORECASE)),
-    ("GO TO", re.compile(r"\bGO\s+TO\b|\bGOTO\b", re.IGNORECASE)),
-    ("SORT", re.compile(r"\bSORT\b", re.IGNORECASE)),
-    ("MERGE", re.compile(r"\bMERGE\b", re.IGNORECASE)),
-    ("ACCEPT", re.compile(r"\bACCEPT\b", re.IGNORECASE)),
-    ("INITIALIZE", re.compile(r"\bINITIALIZE\b", re.IGNORECASE)),
-    ("INSPECT", re.compile(r"\bINSPECT\b", re.IGNORECASE)),
-    ("SEARCH", re.compile(r"\bSEARCH(?:\s+ALL)?\b", re.IGNORECASE)),
-    ("SET", re.compile(r"\bSET\b", re.IGNORECASE)),
-    ("ALTER", re.compile(r"\bALTER\b", re.IGNORECASE)),
-    ("NEXT SENTENCE", re.compile(r"\bNEXT\s+SENTENCE\b", re.IGNORECASE)),
-    ("GOBACK", re.compile(r"\bGOBACK\b", re.IGNORECASE)),
-    ("SIZE ERROR", re.compile(r"\b(?:ON\s+)?SIZE\s+ERROR\b", re.IGNORECASE)),
-    ("PERFORM TIMES", re.compile(r"\bPERFORM\b[^.\n]*(?:\bTIMES\b|\bVARYING\b)", re.IGNORECASE)),
+    ("EXEC CICS", re.compile(r"(?<![\w-])EXEC\s+CICS(?![\w-])", re.IGNORECASE)),
+    ("EXEC SQL", re.compile(r"(?<![\w-])EXEC\s+SQL(?![\w-])", re.IGNORECASE)),
+    ("EVALUATE", re.compile(r"(?<![\w-])EVALUATE(?![\w-])", re.IGNORECASE)),
+    ("GO TO", re.compile(r"(?<![\w-])GO\s+TO(?![\w-])|(?<![\w-])GOTO(?![\w-])", re.IGNORECASE)),
+    ("SORT", re.compile(r"(?<![\w-])SORT(?![\w-])", re.IGNORECASE)),
+    ("MERGE", re.compile(r"(?<![\w-])MERGE(?![\w-])", re.IGNORECASE)),
+    ("ACCEPT", re.compile(r"(?<![\w-])ACCEPT(?![\w-])", re.IGNORECASE)),
+    ("INITIALIZE", re.compile(r"(?<![\w-])INITIALIZE(?![\w-])", re.IGNORECASE)),
+    ("INSPECT", re.compile(r"(?<![\w-])INSPECT(?![\w-])", re.IGNORECASE)),
+    ("SEARCH", re.compile(r"(?<![\w-])SEARCH(?:\s+ALL)?(?![\w-])", re.IGNORECASE)),
+    ("SET", re.compile(r"(?<![\w-])SET(?![\w-])", re.IGNORECASE)),
+    ("ALTER", re.compile(r"(?<![\w-])ALTER(?![\w-])", re.IGNORECASE)),
+    ("NEXT SENTENCE", re.compile(r"(?<![\w-])NEXT\s+SENTENCE(?![\w-])", re.IGNORECASE)),
+    ("GOBACK", re.compile(r"(?<![\w-])GOBACK(?![\w-])", re.IGNORECASE)),
+    ("SIZE ERROR", re.compile(r"(?<![\w-])(?:ON\s+)?SIZE\s+ERROR(?![\w-])", re.IGNORECASE)),
+    ("PERFORM TIMES", re.compile(r"(?<![\w-])PERFORM\b[^.\n]*(?:\bTIMES\b|\bVARYING\b)(?![\w-])", re.IGNORECASE)),
 )
+
+
+# Source constructs that the parser legitimately realises through a different
+# IR node.  When the realising IR key is present in the program the source
+# finding is redundant — the construct IS represented.  Granularity is
+# program-level: coverage is claimed when the realising node exists anywhere
+# in the parsed program.
+CONSTRUCT_IR_COVERAGE: dict[str, tuple[str, ...]] = {
+    "EVALUATE": ("IF/ELSE",),
+    "PERFORM TIMES": ("PERFORM",),
+}
+
+
+def ir_covers(source_key: str, ir_keys: set[str]) -> bool:
+    """True when parsed IR contains a node that realises this source construct."""
+    return any(key in ir_keys for key in CONSTRUCT_IR_COVERAGE.get(source_key, ()))
 
 
 def _strip_literals_and_comments(source: str) -> str:
@@ -228,11 +280,13 @@ def worst_level(
 __all__ = [
     "CapabilityLevel",
     "ConstructCapability",
+    "CONSTRUCT_IR_COVERAGE",
     "CONSTRUCT_REGISTRY",
     "IR_TYPE_TO_CONSTRUCT",
     "PARTIAL_CONSTRUCTS",
     "SUPPORTED_CONSTRUCTS",
     "UNSUPPORTED_CONSTRUCTS",
+    "ir_covers",
     "scan_constructs",
     "worst_level",
 ]

@@ -38,6 +38,7 @@ from engine.transformation.ir import (
     DependencyEdge,
     FileDependency,
     FileOrganization,
+    FileAccessMode,
     ProgramCall,
 )
 from engine.transformation.cobol_parser import CobolParser
@@ -49,6 +50,7 @@ from engine.transformation.semantic_capability import (
     SUPPORTED_CONSTRUCTS,
     UNSUPPORTED_CONSTRUCTS,
     CapabilityLevel,
+    ir_covers,
     scan_constructs,
     worst_level,
 )
@@ -262,10 +264,13 @@ class CapabilityAnalyzer:
             ir_types_seen.add(name)
             key = IR_TYPE_TO_CONSTRUCT.get(name)
             if key is None:
+                # No registry mapping means the deterministic mapper has no
+                # path for this statement class (classify_statement_capability
+                # falls back to UNSUPPORTED) — fail closed as UNSUPPORTED.
                 findings.append((
                     name,
-                    CapabilityLevel.UNKNOWN,
-                    f"IR statement type {name} has no registry mapping",
+                    CapabilityLevel.UNSUPPORTED,
+                    f"Unrecognized/unmapped IR statement {name}",
                 ))
                 return
             entry = CONSTRUCT_REGISTRY[key]
@@ -348,19 +353,33 @@ class CapabilityAnalyzer:
                     # The parser produced IR for this construct; the registry
                     # IR level is the authoritative verdict.
                     continue
+                if ir_covers(key, ir_construct_keys):
+                    # The construct is legitimately realised by a different
+                    # IR node (e.g. EVALUATE -> IfStatement, PERFORM ... TIMES
+                    # -> PerformStatement); the IR walk already classified it.
+                    continue
                 findings.append((key, entry.effective_source_level, entry.evidence))
 
-        # Unresolved COPY references block the referencing program.
-        unresolved_copybooks = sorted({
-            cb.copybook_name for cb in unit.copybooks
-            if cb.resolution != "RESOLVED"
-        })
-        for cb_name in unresolved_copybooks:
-            findings.append((
-                f"COPY {cb_name}",
+        # A COPY reference is part of the parsed program's source context; it
+        # is not itself a generated program, so an unresolved resolution
+        # status does not block the consuming program here.  Resolution
+        # failures are recorded by discovery and reported on the COPYBOOK
+        # component.
+
+        # Blocking file semantics propagate into the program findings BEFORE
+        # aggregation, so a program can never be claimed transformable while
+        # one of its file operations is outside the certified boundary.  The
+        # per-file verdict is additionally emitted as its own FILE component.
+        file_verdicts: list[tuple[FileDependency, CapabilityLevel, str]] = []
+        for fd in unit.file_dependencies:
+            file_level, file_reason = self._file_capability(unit, fd)
+            file_verdicts.append((fd, file_level, file_reason))
+            if file_level in (
                 CapabilityLevel.UNSUPPORTED,
-                f"Unsupported: copybook {cb_name} is missing and could not be resolved",
-            ))
+                CapabilityLevel.PARTIAL,
+                CapabilityLevel.UNKNOWN,
+            ):
+                findings.append((f"file {fd.file_name}", file_level, file_reason))
 
         level, reason = self._aggregate(findings)
         components.append(ComponentCapability(
@@ -378,9 +397,7 @@ class CapabilityAnalyzer:
             },
         ))
 
-        # Check file dependencies
-        for fd in unit.file_dependencies:
-            file_level, file_reason = self._file_capability(unit, fd)
+        for fd, file_level, file_reason in file_verdicts:
             components.append(ComponentCapability(
                 component_id=f"{unit.program_id}:{fd.file_name}",
                 component_type="FILE",
@@ -436,32 +453,52 @@ class CapabilityAnalyzer:
         unit: CobolProgramUnit,
         fd: FileDependency,
     ) -> tuple[CapabilityLevel, str]:
-        """Classify one discovered file dependency by real file semantics."""
+        """Classify one discovered file dependency by real file semantics.
+
+        Anything outside the certified sequential boundary fails closed as
+        UNSUPPORTED; only benign sequential operations are SUPPORTED.
+        """
         program = unit.program
         file_defs = {f.name: f for f in program.file_definitions}
         definition = file_defs.get(fd.file_name)
-        organization = (
-            definition.organization if definition is not None
-            else FileOrganization.SEQUENTIAL
-        )
 
-        if organization in (FileOrganization.INDEXED, FileOrganization.RELATIVE):
+        if definition is None:
             return (
-                CapabilityLevel.PARTIAL,
-                f"{organization.value} file {fd.operation} on {fd.file_name}: "
-                "keyed/relative access semantics are not reproduced by the "
-                "sequential file I/O path",
+                CapabilityLevel.UNSUPPORTED,
+                f"File dependency {fd.file_name} has no FILE definition",
+            )
+
+        if definition.organization != FileOrganization.SEQUENTIAL:
+            return (
+                CapabilityLevel.UNSUPPORTED,
+                f"{definition.organization.value} file {fd.file_name} is "
+                "outside the certified file boundary",
+            )
+
+        if definition.access_mode == FileAccessMode.DYNAMIC:
+            return (
+                CapabilityLevel.UNSUPPORTED,
+                f"Dynamic access mode for {fd.file_name} is outside the "
+                "certified file boundary",
+            )
+
+        if fd.operation.upper() == "REWRITE":
+            return (
+                CapabilityLevel.UNSUPPORTED,
+                f"Sequential REWRITE for {fd.file_name} is explicitly "
+                "unsupported by the file runtime",
             )
 
         if fd.operation == "OPEN" and fd.mode in ("I-O", "EXTEND"):
             return (
                 CapabilityLevel.PARTIAL,
-                f"OPEN {fd.mode} on {fd.file_name} is not reproduced by CobolParser",
+                f"OPEN {fd.mode} on {fd.file_name} is not reproduced by the "
+                "sequential file runtime",
             )
 
         return (
             CapabilityLevel.SUPPORTED,
-            f"Sequential file {fd.operation} supported",
+            f"Sequential file {fd.operation} within certified boundary",
         )
 
     # ------------------------------------------------------------------
@@ -485,15 +522,22 @@ class CapabilityAnalyzer:
         ]
 
         if not resolved_paths:
+            # A COPY reference is a dependency relationship, not a generated
+            # program: the relationship is tracked and no standalone Java class
+            # is emitted from the copybook.  Resolution status stays visible
+            # here (resolution=...) and on the consuming program's reference;
+            # it does not turn the consuming program's own parsed constructs
+            # into unsupported ones.
             resolutions = {cb.resolution for cb in refs}
             resolution = "AMBIGUOUS" if "AMBIGUOUS" in resolutions else "UNRESOLVED"
             return ComponentCapability(
                 component_id=cb_name,
                 component_type="COPYBOOK",
-                level=CapabilityLevel.UNSUPPORTED,
+                level=CapabilityLevel.SUPPORTED,
                 reason=(
-                    f"Unsupported: copybook {cb_name} is missing and could "
-                    "not be resolved"
+                    "Copybook dependency discovered; declarations are consumed "
+                    "as program source context and no standalone Java class is "
+                    f"generated (resolution={resolution})"
                 ),
                 details={"resolution": resolution},
             )

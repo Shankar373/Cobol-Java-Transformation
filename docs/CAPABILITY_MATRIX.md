@@ -11,8 +11,8 @@ This is an implementation and evidence matrix, not a language-completeness claim
 | DIVIDE/COMPUTE | Yes | Yes | Targeted | Supported subset; precision edges remain |
 | IF/ELSE | Yes | Yes | Tested | Supported subset |
 | PERFORM | Yes | Yes | Tested | Supported subset |
-| PERFORM VARYING | Yes | Partial | Partial | Partial |
-| EVALUATE | Yes | Yes/partial | Targeted | Partial pending broader evidence |
+| PERFORM VARYING | Yes | Yes (bounded Java loop) | Verified end-to-end (phase4 oracle) | Supported subset |
+| EVALUATE | Yes (lowered to IF/ELSE) | Yes (via IF/ELSE) | Verified end-to-end (phase4 oracle) | Supported subset |
 | STRING/UNSTRING | Yes | Yes/partial | Targeted | Partial pending broader evidence |
 | CALL | Yes | Yes | Partial | Partial |
 | Sequential files | Yes | Yes | Tested subset | Partial-to-supported subset |
@@ -27,8 +27,12 @@ This is an implementation and evidence matrix, not a language-completeness claim
 A construct may only be labeled supported when the implementation chain and required runtime
 evidence justify that label. Parser recognition alone is insufficient.
 
-The capability analyzer contains manually maintained statement classifications. These must
-remain reconciled with parser, IR, mapping, generator, runtime and evidence behavior.
+Statement classifications are maintained in the authoritative registry
+(`engine/transformation/semantic_capability.py`) consumed by the capability analyzer. These
+must remain reconciled with parser, IR, mapping, generator, runtime and evidence behavior.
+The analyzer's COPYBOOK component classifies the dependency relationship (discovery,
+resolution and consumption as program source context), not standalone transformation of
+copybook files.
 
 ## Evidence ladder
 
