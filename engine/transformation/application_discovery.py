@@ -91,15 +91,20 @@ class ApplicationDiscovery:
 
         # Parse each program
         program_units: list[CobolProgramUnit] = []
+        discovery_errors: list[str] = []
         all_copybooks: set[str] = set()
         copybook_dirs = self._copybook_search_dirs(source_path)
 
         for cobol_file in cobol_files:
-            unit = self._parse_program_unit(cobol_file, source_path, copybook_dirs)
+            unit, error = self._parse_program_unit(
+                cobol_file, source_path, copybook_dirs
+            )
             if unit is not None:
                 program_units.append(unit)
                 for cb in unit.copybooks:
                     all_copybooks.add(cb.copybook_name)
+            if error is not None:
+                discovery_errors.append(error)
 
         # Build dependency graph
         edges = self._build_dependency_graph(program_units)
@@ -109,6 +114,7 @@ class ApplicationDiscovery:
             programs=tuple(program_units),
             copybooks=tuple(sorted(all_copybooks)),
             edges=tuple(edges),
+            discovery_errors=tuple(discovery_errors),
         )
 
     def _copybook_search_dirs(self, source_path: Path) -> tuple[Path, ...]:
@@ -160,35 +166,46 @@ class ApplicationDiscovery:
         cobol_file: Path,
         source_root: Path,
         copybook_dirs: tuple[Path, ...] | None = None,
-    ) -> CobolProgramUnit | None:
+    ) -> tuple[CobolProgramUnit | None, str | None]:
         """Parse a single COBOL file into a program unit.
+
+        Returns ``(unit, error)`` where ``error`` is a discovery_errors entry
+        when the file could not be processed at all.
 
         Fail-closed contract:
         - Files that contain no identifiable COBOL structure (no
-          IDENTIFICATION DIVISION / no PROGRAM-ID) are excluded (return None).
-          These are genuinely not COBOL programs.
+          IDENTIFICATION DIVISION / no PROGRAM-ID) are excluded (return
+          ``(None, None)``).  These are genuinely not COBOL programs.
         - Files that have a valid COBOL identity but contain unsupported
           sub-constructs (e.g. signed PIC clauses, unsupported divisions) are
           included with a stub IR and source_text preserved so that
           CapabilityAnalyzer can classify them via source scan.  Dropping them
           here would hide them from the capability graph and produce incorrect
           "empty application" results downstream.
-        - Unexpected I/O errors or internal errors still produce None (the file
-          cannot be processed at all).
+        - Files whose bytes cannot be read or decoded as UTF-8 (declared COBOL
+          source that cannot even be parsed) are excluded AND recorded as a
+          discovery error so downstream pipeline stages fail closed instead of
+          presenting a silently incomplete application.
+        - Unexpected internal errors are excluded and recorded the same way.
         """
         try:
             source = cobol_file.read_text(encoding="utf-8")
-        except OSError as e:
+        except (OSError, UnicodeError) as e:
+            # Declared COBOL source that cannot be read or decoded can never
+            # be parsed — record it instead of silently shrinking the app.
             print(f"Warning: Cannot read {cobol_file}: {e}")
-            return None
+            return None, (
+                f"{cobol_file.relative_to(source_root)}: "
+                "COBOL source could not be parsed"
+            )
 
         # Always extract the program ID directly from source text — this is
         # robust even when the full parser fails on unsupported constructs.
         program_id = self._extract_program_id_from_source(source)
         if not program_id:
             # No IDENTIFICATION DIVISION / PROGRAM-ID found — not a COBOL
-            # source file; exclude it from discovery.
-            return None
+            # source file; exclude it from discovery (not an error).
+            return None, None
 
         try:
             program = self._parser.parse(source)
@@ -233,7 +250,7 @@ class ApplicationDiscovery:
                 entry_points=tuple(entry_points),
                 file_dependencies=tuple(file_deps),
                 source_text=source,
-            )
+            ), None
 
         except CobolParseError as e:
             # The file has valid COBOL identity but contains an unsupported
@@ -272,12 +289,16 @@ class ApplicationDiscovery:
                 file_dependencies=tuple(file_deps),
                 source_text=source,
                 parse_error=str(e),
-            )
+            ), None
 
         except Exception as e:
             # Unexpected internal error — we cannot safely process this file.
+            # Record it so discovery reports an incomplete application.
             print(f"Warning: Unexpected error parsing {cobol_file}: {e}")
-            return None
+            return None, (
+                f"{cobol_file.relative_to(source_root)}: "
+                "COBOL source could not be parsed"
+            )
 
 
     @staticmethod

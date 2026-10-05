@@ -13,13 +13,17 @@ def test_discovery_records_unparseable_source_and_pipeline_fails_closed(tmp_path
         "    STOP RUN.\n",
         encoding="utf-8",
     )
-    (tmp_path / "BROKEN.cob").write_text(
-        "IDENTIFICATION DIVISION.\n"
-        "PROGRAM-ID. BROKEN.\n"
-        "PROCEDURE DIVISION.\n"
-        "MAIN.\n"
-        "    NOT-A-REAL-STATEMENT.\n",
-        encoding="utf-8",
+    # Declared COBOL source whose bytes cannot be decoded as UTF-8: the file
+    # cannot be parsed at all (text-level malformation alone is tolerated by
+    # the tolerant parser, which skips unrecognized statements with a
+    # diagnostic), so discovery must record it as a discovery error instead
+    # of silently shrinking the application.
+    (tmp_path / "BROKEN.cob").write_bytes(
+        b"IDENTIFICATION DIVISION.\n"
+        b"PROGRAM-ID. BROKEN.\n"
+        b"PROCEDURE DIVISION.\n"
+        b"MAIN.\n"
+        b"    DISPLAY \xff\xfe BROKEN.\n"
     )
 
     application = ApplicationDiscovery().discover(tmp_path, application_id="partial")
