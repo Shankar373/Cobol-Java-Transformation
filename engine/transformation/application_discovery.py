@@ -149,6 +149,7 @@ class ApplicationDiscovery:
                 fatal = [
                     diagnostic for diagnostic in diagnostics.all
                     if diagnostic.level.value == "ERROR"
+                    or diagnostic.code.value == "UNSUPPORTED_CONSTRUCT"
                 ]
                 if fatal:
                     details = "; ".join(
