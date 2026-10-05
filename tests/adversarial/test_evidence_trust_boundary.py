@@ -1014,23 +1014,29 @@ class TestAdversarial18_ReplaySameArtifactIdsDifferentOwnership:
                 input_id="inp", stdin_hash=_h("inp"),
             ),
             execution_evidence=(
-                _exec(run_b, "oracle-exec-1"),  # Same exec_id but different run_id
-                _exec(run_b, "candidate-exec-1", runtime_id="candidate-java"),
+                _exec(run_b, "oracle-exec-B"),
+                _exec(run_b, "candidate-exec-B", runtime_id="candidate-java"),
             ),
-            artifact_evidence=(stolen_artifact,),
-            comparison_evidence=(),
+            artifact_evidence=(
+                stolen_artifact,
+                _art_ev("art-shared-c", "STDOUT", "CANDIDATE", "data-b", "candidate-exec-B"),
+            ),
+            comparison_evidence=(
+                _comp(run_b, result="MATCH", oracle_id="art-shared-id", candidate_id="art-shared-c"),
+            ),
         )
 
         # Manifest A validates
         result_a = validator.validate(manifest_a)
         assert isinstance(result_a, ValidatedEvidenceManifest)
 
-        # Manifest B validates (oracle-exec-1 is in its execution evidence)
+        # Manifest B must reject the stolen artifact because its execution belongs to run A.
         result_b = validator.validate(manifest_b)
-        assert isinstance(result_b, ValidatedEvidenceManifest)
-
-        # But they produce different integrity hashes
-        assert result_a.integrity_hash != result_b.integrity_hash
+        assert isinstance(result_b, list)
+        assert any(
+            violation.violation_type == ViolationType.CROSS_RUN_REPLAY
+            for violation in result_b
+        )
 
 
 class TestAdversarial19_OmittedRequiredEvidence:
@@ -1252,9 +1258,15 @@ class TestIntegrityHashCoversEvidenceGraph:
         run_id = RunId(value="run-integ-art")
         m1 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data1", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
         m2 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data2", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
 
         r1 = validator.validate(m1)
