@@ -554,54 +554,102 @@ def _into_statement(
     return JavaAssignment(target=target, expression=ref)
 
 def map_cobol_expr_to_java(expr: str) -> JavaExpression:
-    """Map a COBOL expression string to a Java expression.
+    """Map a COBOL arithmetic expression string to Java IR.
 
-    Handles:
-    - Field references (DASH_UNDERSCORE conversion)
-    - Literals
-    - Arithmetic operators (+, -, *, /)
+    Supports identifiers, numeric literals, parentheses, and standard
+    arithmetic precedence. Multi-operator expressions remain structured
+    JavaBinaryOp trees so semantic overflow/scale checks see the full tree.
     """
     import re as _re
+
     expr = expr.strip()
 
-    # Literal
     if expr.startswith("'") and expr.endswith("'"):
         return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
     if expr.startswith('"') and expr.endswith('"'):
         return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
 
-    # Check if it's a simple number
+    def _atom(token: str) -> JavaExpression:
+        if token.replace(".", "").replace("-", "").isdigit():
+            return JavaLiteral(value=token, java_type=_numeric_literal_java_type(token))
+        return JavaVariableRef(name=token.replace("-", "_"))
+
     if expr.replace(".", "").replace("-", "").isdigit():
-        return JavaLiteral(value=expr, java_type=_numeric_literal_java_type(expr))
+        return _atom(expr)
 
-    # Try to parse binary expressions: left OP right (operators must have spaces)
-    binary_match = _re.match(
-        r'^([\w][\w-]*)\s+(\+|\-|\*|/)\s+([\w][\w-]*)$',
-        expr,
-    )
-    if binary_match:
-        left_str = binary_match.group(1).strip()
-        op = binary_match.group(2).strip()
-        right_str = binary_match.group(3).strip()
+    token_pattern = _re.compile(r"\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_-]*|[()+\-*/]")
+    tokens = [match.group(0) for match in token_pattern.finditer(expr)]
+    if not tokens:
+        return JavaVariableRef(name=expr.replace("-", "_"))
+    if "".join(tokens) != _re.sub(r"\s+", "", expr):
+        return JavaVariableRef(name=expr.replace("-", "_"))
 
-        left: JavaExpression
-        if left_str.replace(".", "").replace("-", "").isdigit():
-            left = JavaLiteral(value=left_str, java_type=_numeric_literal_java_type(left_str))
+    precedence = {"+": 1, "-": 1, "*": 2, "/": 2}
+    output: list[JavaExpression | str] = []
+    operators: list[str] = []
+    expect_operand = True
+
+    for token in tokens:
+        if token == "(":
+            if not expect_operand:
+                return JavaVariableRef(name=expr.replace("-", "_"))
+            operators.append(token)
+            continue
+        if token == ")":
+            if expect_operand:
+                return JavaVariableRef(name=expr.replace("-", "_"))
+            while operators and operators[-1] != "(":
+                output.append(operators.pop())
+            if not operators:
+                return JavaVariableRef(name=expr.replace("-", "_"))
+            operators.pop()
+            expect_operand = False
+            continue
+        if token in precedence:
+            if expect_operand:
+                if token != "-":
+                    return JavaVariableRef(name=expr.replace("-", "_"))
+                operators.append("u-")
+                continue
+            while (
+                operators
+                and operators[-1] not in ("(", "u-")
+                and precedence[operators[-1]] >= precedence[token]
+            ):
+                output.append(operators.pop())
+            operators.append(token)
+            expect_operand = True
+            continue
+        if not expect_operand:
+            return JavaVariableRef(name=expr.replace("-", "_"))
+        output.append(_atom(token))
+        while operators and operators[-1] == "u-":
+            output.append(operators.pop())
+        expect_operand = False
+
+    if expect_operand:
+        return JavaVariableRef(name=expr.replace("-", "_"))
+    while operators:
+        op = operators.pop()
+        if op == "(":
+            return JavaVariableRef(name=expr.replace("-", "_"))
+        output.append(op)
+
+    stack: list[JavaExpression] = []
+    for item in output:
+        if isinstance(item, JavaExpression):
+            stack.append(item)
+        elif item == "u-":
+            if not stack:
+                return JavaVariableRef(name=expr.replace("-", "_"))
+            stack.append(JavaUnaryOp(operator="-", operand=stack.pop()))
         else:
-            left = JavaVariableRef(name=left_str.replace("-", "_"))
-
-        right: JavaExpression
-        if right_str.replace(".", "").replace("-", "").isdigit():
-            right = JavaLiteral(value=right_str, java_type=_numeric_literal_java_type(right_str))
-        else:
-            right = JavaVariableRef(name=right_str.replace("-", "_"))
-
-        return JavaBinaryOp(left=left, operator=op, right=right)
-
-    # Field reference (single name)
-    java_name = expr.replace("-", "_")
-    return JavaVariableRef(name=java_name)
-
+            if len(stack) < 2:
+                return JavaVariableRef(name=expr.replace("-", "_"))
+            right = stack.pop()
+            left = stack.pop()
+            stack.append(JavaBinaryOp(left=left, operator=item, right=right))
+    return stack[0] if len(stack) == 1 else JavaVariableRef(name=expr.replace("-", "_"))
 
 def _promote_numeric_expression_to_double(expr: JavaExpression) -> JavaExpression:
     """Promote arithmetic operands to double for decimal receiver calculations."""
@@ -677,7 +725,7 @@ def _protect_integral_overflow(
     program: CobolProgram | None,
 ) -> JavaExpression:
     """Prevent Java integral overflow when an expression can exceed target type."""
-    target_digits = 9 if target_item.pic_length <= 9 else 18
+    target_digits = target_item.pic_length
 
     if isinstance(expression, JavaBinaryOp):
         # Measure the source tree before recursively wrapping children so a
