@@ -1842,6 +1842,22 @@ class TestIndependentValidation:
         """Verdict is derived from evidence content, not from stored hash."""
         run_id = RunId(value="run-val-6")
         manifest = self._make_base_manifest(run_id)
+        # This test derives the verdict for content with no comparisons, so
+        # rebuild the manifest without comparison evidence (the shared base
+        # manifest now carries a MATCH comparison for other tests).
+        manifest = EvidenceManifest(
+            manifest_version=manifest.manifest_version,
+            run_id=manifest.run_id,
+            workload_id=manifest.workload_id,
+            source_identity=manifest.source_identity,
+            candidate_identity=manifest.candidate_identity,
+            oracle_identity=manifest.oracle_identity,
+            environment_identities=manifest.environment_identities,
+            controlled_input=manifest.controlled_input,
+            execution_evidence=manifest.execution_evidence,
+            artifact_evidence=manifest.artifact_evidence,
+            comparison_evidence=(),
+        )
         # Verdict derivation uses the manifest content directly
         verdict = derive_verdict(manifest)
         # With no comparisons, verdict is UNPROVEN
