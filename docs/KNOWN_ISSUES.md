@@ -1,7 +1,7 @@
 # Known Issues
 
-Current baseline: 4513881bc3dff50df4e81910dbc2d28fe5308dbc
-CI Run #306: GREEN
+Known-issues baseline: 4513881bc3dff50df4e81910dbc2d28fe5308dbc (Phase A), CI Run #306 GREEN.
+Lifecycle/persistence/API security hardening has since been applied on top of this baseline.
 
 ## Open material issues
 
@@ -25,9 +25,14 @@ The evidence validator and verdict engine exist, but production-path coverage, t
 testing and mutation proof should be expanded.
 
 ### P1 — Persistence/security
-SQLite/filesystem persistence is functional but is not yet a production-grade security boundary.
-Unsafe serialization, authorization, retention, audit logging, rate limiting, migration and
-concurrency controls require hardening.
+Control-plane persistence now uses versioned JSON payloads (no pickle) with seal checks,
+a fail-closed lifecycle state machine with single-flight revalidation, bounded and
+optionally token-authenticated API endpoints, and startup reconciliation of interrupted
+runs. Still open for production: a durable job queue with resume across restarts,
+per-client rate limiting, retention/TTL, audit logging, external secret management for
+`CONTROL_PLANE_API_TOKEN` (the token is an env-var deployment control, not a user/role
+model), TLS and egress policy at the deployment boundary, and multi-node coordination
+(SQLite is single-node).
 
 ### P1 — Enterprise runtime boundaries
 JCL, CICS, DB2 and indexed/relative file semantics remain outside broad behavioral certification

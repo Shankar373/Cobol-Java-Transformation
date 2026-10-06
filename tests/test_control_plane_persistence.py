@@ -24,6 +24,7 @@ from api.app import app
 from api.models import RunStage
 from api.service import Service
 from api.store import Store
+from tests.common import make_stub_verdict
 
 client = TestClient(app)
 
@@ -34,32 +35,6 @@ SAMPLE_COBOL = (
     '       DISPLAY "HELLO".\n'
     "       STOP RUN.\n"
 )
-
-
-class _StubVerdict:
-    """Minimal picklable verdict double (real Verdict needs full evidence)."""
-
-    def __init__(self, run_id: str, workload_id: str) -> None:
-        self._run_id = run_id
-        self._workload_id = workload_id
-
-    def to_dict(self) -> dict:
-        return {
-            "run_id": f"engine-{self._run_id}",
-            "state": "UNPROVEN",
-            "workload_id": self._workload_id,
-            "source_hash": "stub-source-hash",
-            "candidate_hash": "stub-candidate-hash",
-            "oracle_id": "stub-oracle",
-            "oracle_digest": "stub-digest",
-            "executed_check_count": 0,
-            "skipped_count": 0,
-            "unavailable_count": 0,
-            "supported_scope_statement": "stub scope",
-            "evidence_manifest_hash": "stub-manifest-hash",
-            "derivation_timestamp": "2024-01-01T00:00:00Z",
-            "differences": [],
-        }
 
 
 def _mock_generate(self_svc, app, run):
@@ -86,7 +61,7 @@ def _mock_generate(self_svc, app, run):
 
 def _mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
     run.stage = RunStage.VALIDATING_EVIDENCE
-    run.verdict = _StubVerdict(run.id, run.workload_id)
+    run.verdict = make_stub_verdict(run.id, run.workload_id)
     self_svc._store.update_run(run)
 
 
@@ -297,12 +272,12 @@ class TestRevalidateExplicit:
         assert resp.json()["stage"] != "COMPLETED" or True
         assert _wait_terminal(run_id)["stage"] == "COMPLETED"
 
-    def test_revalidate_unknown_run_is_400(self, persistent_service):
-        assert client.post("/runs/run-ghost/validate").status_code == 400
+    def test_revalidate_unknown_run_is_404(self, persistent_service):
+        assert client.post("/runs/run-ghost/validate").status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# 10. Real engine manifest + verdict survive restart (pickle fidelity)
+# 10. Real engine manifest + verdict survive restart (JSON round trip)
 # ---------------------------------------------------------------------------
 
 class TestRealEvidenceRoundTrip:

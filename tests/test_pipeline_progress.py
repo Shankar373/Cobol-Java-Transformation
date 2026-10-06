@@ -228,7 +228,11 @@ class TestServiceRunValidationProgress:
             id="run-test",
             application_id="app-test",
             workload_id="wl-test",
-            stage=RunStage.VALIDATING_EVIDENCE,  # Pre-set by _modernize_background
+            # Run state when validation starts: the modernization phases have
+            # already persisted DISCOVERING → ... → ASSEMBLY_COMPLETED, and
+            # the pipeline's first validation phase (EXECUTING_ORACLE) must
+            # follow it forward.
+            stage=RunStage.ASSEMBLY_COMPLETED,
         )
         store.add_run(run)
 

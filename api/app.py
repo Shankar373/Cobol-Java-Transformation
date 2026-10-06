@@ -15,41 +15,58 @@ Endpoints:
   GET    /runs/{id}/artifacts                    — artifact metadata
   POST   /runs/{id}/validate                     — re-run validation (async)
   GET    /runs/{id}/verdict                      — verdict
+  GET    /runs/{id}/report                       — modernization report
   GET    /runs/{id}/download                     — download generated ZIP
+  GET    /health                                 — liveness probe
+
+Security / abuse controls (Phase B):
+  * optional bearer-token auth — set ``CONTROL_PLANE_API_TOKEN`` and every
+    route except ``/health`` requires ``Authorization: Bearer <token>``
+    (constant-time comparison; no token configured means auth is off, which
+    is the documented development default);
+  * bounded upload reads — ``CONTROL_PLANE_MAX_REQUEST_BYTES``,
+    ``CONTROL_PLANE_MAX_FILE_BYTES`` and ``CONTROL_PLANE_MAX_UPLOAD_FILES``
+    reject oversized payloads before they are buffered;
+  * typed service errors map to explicit HTTP statuses
+    (404/409/413/429/400/500) instead of a generic 400/500.
 """
 
 from __future__ import annotations
 
+import hmac
 import io
+import logging
 import os
 import re
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from api.errors import ApiError, PayloadTooLargeError
+from api.ingestion import IngestionError
 from api.models import (
     ApplicationCreate,
     ApplicationResponse,
     ArtifactsResponse,
     ArtifactMetadata,
+    ComparisonDetail,
+    DiscoveryResponse,
+    IngestResponse,
     ModernizeOptions,
     ModernizeResponse,
     ModernizationReportResponse,
     RunDetailResponse,
     RunResponse,
-    RunStage,
     UploadResponse,
     ValidateResponse,
     VerdictResponse,
-    ComparisonDetail,
-    IngestResponse,
-    DiscoveryResponse,
 )
-from api.service import Service, ServiceError
-from api.ingestion import IngestionError
+from api.service import Service
 from api.store import ApplicationRecord, Store
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Singletons (MVP — module-level, no DI framework)
@@ -57,6 +74,10 @@ from api.store import ApplicationRecord, Store
 
 _DEF_DB_DIR = Path(__file__).resolve().parent.parent / "data"
 _DEF_DB_PATH = str(_DEF_DB_DIR / "control-plane.db")
+
+_DEFAULT_MAX_REQUEST_BYTES = 50 * 1024 * 1024
+_DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024
+_DEFAULT_MAX_UPLOAD_FILES = 1000
 
 
 def _store_path() -> str:
@@ -68,14 +89,76 @@ def _store_path() -> str:
     return os.environ.get("CONTROL_PLANE_DB", _DEF_DB_PATH)
 
 
+def _env_limit(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using %d", name, raw, default)
+        return default
+    return value if value > 0 else default
+
+
 _store = Store(_store_path())
 _service = Service(_store)
+
+# A daemon worker dies with its process, so any run left non-terminal in the
+# persisted store has no worker left to finish it: fail those runs at startup
+# instead of letting clients poll them forever.
+try:
+    _interrupted = _store.mark_interrupted_runs()
+    if _interrupted:
+        logger.warning(
+            "Marked %d interrupted run(s) as FAILED at startup", _interrupted
+        )
+except Exception:
+    logger.exception("Startup reconciliation of interrupted runs failed")
 
 app = FastAPI(
     title="COBOL-Java Transformation Control Plane",
     version="0.1.0",
     description="Thin orchestration API over the validation engine.",
 )
+
+
+# ---------------------------------------------------------------------------
+# Security middleware
+# ---------------------------------------------------------------------------
+
+def _expected_token() -> str | None:
+    """Bearer token required for every route except /health (None = off)."""
+    token = os.environ.get("CONTROL_PLANE_API_TOKEN")
+    return token if token else None
+
+
+@app.middleware("http")
+async def _require_api_token(request: Request, call_next):
+    token = _expected_token()
+    if token is None or request.url.path == "/health":
+        return await call_next(request)
+
+    header = request.headers.get("Authorization", "")
+    provided = header[7:] if header.startswith("Bearer ") else ""
+    if not provided:
+        provided = request.headers.get("X-API-Key", "")
+    if not provided or not hmac.compare_digest(provided, token):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Not authenticated"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
+
+
+@app.exception_handler(ApiError)
+async def _api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
+    """Map typed service/store errors to their explicit HTTP status."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.public_detail},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +171,71 @@ def _svc() -> Service:
 
 def _error(status: int, msg: str) -> HTTPException:
     return HTTPException(status_code=status, detail=msg)
+
+
+def _guard_content_length(request: Request) -> None:
+    """Reject oversized requests from the header before reading any body."""
+    raw = request.headers.get("content-length", "")
+    if not raw.isdigit():
+        return
+    limit = _env_limit("CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES)
+    if int(raw) > limit:
+        raise PayloadTooLargeError(
+            f"Request body exceeds the {limit} byte limit"
+        )
+
+
+async def _read_upload_bounded(
+    upload: UploadFile,
+    *,
+    remaining: list[int],
+) -> bytes:
+    """Read one upload in chunks, enforcing per-file and total budgets.
+
+    ``remaining`` is a single-element list holding the bytes still allowed
+    for the whole request, so the budget is shared across files.
+    """
+    limit = _env_limit("CONTROL_PLANE_MAX_FILE_BYTES", _DEFAULT_MAX_FILE_BYTES)
+    name = upload.filename or "upload"
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = await upload.read(64 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        remaining[0] -= len(chunk)
+        if size > limit:
+            raise PayloadTooLargeError(
+                f"File {name!r} exceeds the {limit} byte limit"
+            )
+        if remaining[0] < 0:
+            raise PayloadTooLargeError(
+                "Combined upload exceeds the configured request size limit"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _read_files_bounded(request: Request, files: list[UploadFile]) -> dict[str, bytes]:
+    """Read a multipart file list with request/file/count limits enforced."""
+    _guard_content_length(request)
+    max_files = _env_limit(
+        "CONTROL_PLANE_MAX_UPLOAD_FILES", _DEFAULT_MAX_UPLOAD_FILES
+    )
+    if len(files) > max_files:
+        raise PayloadTooLargeError(
+            f"Too many files in one upload ({len(files)} > {max_files})"
+        )
+    request_limit = _env_limit(
+        "CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES
+    )
+    remaining = [request_limit]
+    contents: dict[str, bytes] = {}
+    for index, upload in enumerate(files):
+        name = upload.filename or f"file_{index}"
+        contents[name] = await _read_upload_bounded(upload, remaining=remaining)
+    return contents
 
 
 def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
@@ -112,6 +260,13 @@ def _safe_download_stem(name: str, fallback: str) -> str:
     """Sanitise an application name for use as a download filename stem."""
     stem = re.sub(r"[^A-Za-z0-9._-]+", "-", (name or "").strip()).strip("-")
     return stem or fallback
+
+
+def _contract_source(contract_id: str | None) -> str | None:
+    """``declared``/``default`` prefix of a recorded certification contract."""
+    if not contract_id:
+        return None
+    return contract_id.split(":", 1)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -139,20 +294,13 @@ def list_applications() -> list[ApplicationResponse]:
 @app.get("/applications/{app_id}", response_model=ApplicationResponse)
 def get_application(app_id: str) -> ApplicationResponse:
     """Return application detail including generation provenance."""
-    try:
-        rec = _svc().get_application(app_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
-    return _to_app_response(rec)
+    return _to_app_response(_svc().get_application(app_id))
 
 
 @app.get("/applications/{app_id}/runs", response_model=list[RunResponse])
 def list_application_runs(app_id: str) -> list[RunResponse]:
     """List all runs for an application (persisted, ordered by creation)."""
-    try:
-        runs = _svc().list_runs(app_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    runs = _svc().list_runs(app_id)
     return [
         RunResponse(
             id=r.id,
@@ -168,18 +316,14 @@ def list_application_runs(app_id: str) -> list[RunResponse]:
 
 
 @app.post("/applications/{app_id}/upload", response_model=UploadResponse, status_code=201)
-async def upload_cobol_source(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_cobol_source(
+    app_id: str,
+    request: Request,
+    files: list[UploadFile] = File(...),
+) -> UploadResponse:
     """Upload COBOL source files for an application."""
-    try:
-        file_contents: dict[str, bytes] = {}
-        for f in files:
-            content = await f.read()
-            name = f.filename or f"file_{len(file_contents)}"
-            file_contents[name] = content
-
-        _app, count = _svc().upload_cobol_source(app_id, file_contents)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    file_contents = await _read_files_bounded(request, files)
+    _app, count = _svc().upload_cobol_source(app_id, file_contents)
 
     return UploadResponse(
         application_id=_app.id,
@@ -189,18 +333,14 @@ async def upload_cobol_source(app_id: str, files: list[UploadFile] = File(...)) 
 
 
 @app.post("/applications/{app_id}/candidate", response_model=UploadResponse, status_code=201)
-async def upload_java_candidate(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_java_candidate(
+    app_id: str,
+    request: Request,
+    files: list[UploadFile] = File(...),
+) -> UploadResponse:
     """Upload Java candidate files for an application."""
-    try:
-        file_contents: dict[str, bytes] = {}
-        for f in files:
-            content = await f.read()
-            name = f.filename or f"file_{len(file_contents)}"
-            file_contents[name] = content
-
-        _app, count = _svc().upload_java_candidate(app_id, file_contents)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    file_contents = await _read_files_bounded(request, files)
+    _app, count = _svc().upload_java_candidate(app_id, file_contents)
 
     return UploadResponse(
         application_id=_app.id,
@@ -219,15 +359,12 @@ def modernize_application(
     validates the GENERATED artifact. The optional body flag is internal/
     test-only and never sent by the UI.
     """
-    try:
-        run = _svc().modernize(
-            app_id,
-            use_uploaded_candidate=(
-                options.use_uploaded_candidate if options else False
-            ),
-        )
-    except ServiceError as exc:
-        raise _error(400, str(exc))
+    run = _svc().modernize(
+        app_id,
+        use_uploaded_candidate=(
+            options.use_uploaded_candidate if options else False
+        ),
+    )
 
     return ModernizeResponse(
         run_id=run.id,
@@ -237,17 +374,26 @@ def modernize_application(
 
 
 @app.post("/applications/{app_id}/ingest", response_model=IngestResponse, status_code=201)
-async def ingest_application(app_id: str, file: UploadFile = File(...)) -> IngestResponse:
+async def ingest_application(
+    app_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+) -> IngestResponse:
     """Ingest a ZIP archive containing legacy application source.
 
     Extracts the archive, runs application discovery, detects the project
     name, and returns structured results about the discovered source tree.
     """
-    content = await file.read()
+    _guard_content_length(request)
+    content = await _read_upload_bounded(file, remaining=[
+        _env_limit("CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES)
+    ])
     zip_filename = file.filename or "upload.zip"
     try:
         discovery = _svc().ingest_application(app_id, content, zip_filename)
-    except (ServiceError, IngestionError) as exc:
+    except IngestionError as exc:
+        # Malformed archive / unreadable source tree: explicit 400.
+        # Service-level errors (404/409/...) map through the ApiError handler.
         raise _error(400, str(exc))
 
     app = _svc().get_application(app_id)
@@ -294,10 +440,7 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
 @app.get("/runs/{run_id}", response_model=RunResponse)
 def get_run(run_id: str) -> RunResponse:
     """Get run status and summary."""
-    try:
-        run = _svc().get_run(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    run = _svc().get_run(run_id)
 
     return RunResponse(
         id=run.id,
@@ -313,10 +456,7 @@ def get_run(run_id: str) -> RunResponse:
 @app.get("/runs/{run_id}/detail", response_model=RunDetailResponse)
 def get_run_detail(run_id: str) -> RunDetailResponse:
     """Get coherent run detail: state, app identity, discovery, files, verdict."""
-    try:
-        detail = _svc().get_run_detail(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    detail = _svc().get_run_detail(run_id)
 
     return RunDetailResponse(
         id=detail["id"],
@@ -337,10 +477,7 @@ def get_run_detail(run_id: str) -> RunDetailResponse:
 @app.get("/runs/{run_id}/artifacts", response_model=ArtifactsResponse)
 def get_run_artifacts(run_id: str) -> ArtifactsResponse:
     """Get artifact metadata for a run."""
-    try:
-        artifacts = _svc().get_artifacts(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    artifacts = _svc().get_artifacts(run_id)
 
     return ArtifactsResponse(
         run_id=run_id,
@@ -352,14 +489,11 @@ def get_run_artifacts(run_id: str) -> ArtifactsResponse:
 def validate_run(run_id: str) -> ValidateResponse:
     """Re-run validation on an existing run (asynchronous).
 
-    Explicit behavior: mirrors modernize — the run resets to CREATED and a
-    background thread re-executes validation of the GENERATED artifact.
-    Poll GET /runs/{id} until a terminal stage.
+    Only terminal runs can be revalidated: an in-flight run answers 409 so
+    two workers never race on one run. The reset clears the previous verdict
+    before the new attempt starts; poll GET /runs/{id} until terminal.
     """
-    try:
-        run = _svc().revalidate(run_id)
-    except ServiceError as exc:
-        raise _error(400, str(exc))
+    run = _svc().revalidate(run_id)
 
     return ValidateResponse(run_id=run.id, stage=run.stage)
 
@@ -367,13 +501,11 @@ def validate_run(run_id: str) -> ValidateResponse:
 @app.get("/runs/{run_id}/verdict", response_model=VerdictResponse)
 def get_run_verdict(run_id: str) -> VerdictResponse:
     """Get the verdict for a run."""
-    try:
-        v = _svc().get_verdict(run_id)
-        comparisons_raw = _svc().get_comparisons(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    v = _svc().get_verdict(run_id)
+    comparisons_raw = _svc().get_comparisons(run_id)
 
     comparisons = [ComparisonDetail(**c) for c in comparisons_raw]
+    contract_id = v.get("certification_contract")
 
     return VerdictResponse(
         run_id=v["run_id"],
@@ -392,6 +524,8 @@ def get_run_verdict(run_id: str) -> VerdictResponse:
         derivation_timestamp=v["derivation_timestamp"],
         differences=v.get("differences", []),
         comparisons=comparisons,
+        certification_contract=contract_id,
+        contract_source=_contract_source(contract_id),
     )
 
 
@@ -403,10 +537,7 @@ def get_run_report(run_id: str) -> ModernizationReportResponse:
     and recommendations produced by the universal pipeline. Only
     returned when the pipeline ran — never fabricated.
     """
-    try:
-        report = _svc().get_run_report(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    report = _svc().get_run_report(run_id)
 
     run = _svc().get_run(run_id)
     return ModernizationReportResponse(

@@ -172,6 +172,12 @@ class VerdictResponse(BaseModel):
     derivation_timestamp: str
     differences: list[str]
     comparisons: list[ComparisonDetail] = Field(default_factory=list)
+    # Certification contract the run was validated against:
+    # "declared:<fixture>" for a repository-declared workload or
+    # "default:stdout-exit-status" for the explicit fallback contract.
+    # contract_source is the "declared"/"default" prefix (informational).
+    certification_contract: str | None = None
+    contract_source: str | None = None
 
 
 # ---------------------------------------------------------------------------

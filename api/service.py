@@ -22,12 +22,24 @@ used by validation.
 Production validation constraint: candidates are always executed inside
 Docker (use_docker_java=True). Host javac/java is never used for validation.
 Java candidate upload remains internal/test-only and out of the UI workflow.
+
+Phase B controls implemented here:
+  * certification contract resolved from the trusted fixture registry (or an
+    explicit default) instead of a hard-coded artifact set;
+  * revalidation is single-flight: only terminal runs can be reset, the reset
+    clears evidence/verdict/error atomically and bumps validation_generation;
+  * stale background workers are rejected by the store (generation check);
+  * background jobs are counted against a configurable concurrency limit
+    (``CONTROL_PLANE_MAX_CONCURRENT_JOBS``) so retries cannot stack;
+  * uploads keep their directory hierarchy, reject traversal and never
+    silently overwrite a colliding path;
+  * a verdict served for a run must hash-match that run's evidence manifest.
 """
 
 from __future__ import annotations
 
 import logging
-import shutil
+import os
 import tempfile
 import threading
 import uuid
@@ -35,18 +47,77 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from api.errors import (
+    BusyError,
+    NotFoundError,
+    PersistenceCorruptionError,
+    ServiceError,
+)
 from api.models import RunStage
 from api.store import ApplicationRecord, RunRecord, Store
+from api.workload_contract import resolve_certification_contract
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
+
+__all__ = ["Service", "ServiceError"]
 
 logger = logging.getLogger(__name__)
 
 # Legacy source tree root markers — first match wins.
 SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl", "main.COB", "main.CBL"}
 
+#: Default cap on background jobs running per Service instance.
+DEFAULT_MAX_CONCURRENT_JOBS = 4
 
-class ServiceError(Exception):
-    """Raised when a service operation fails."""
+#: Upper bound for files accepted by the upload endpoints (defense in depth;
+#: the HTTP layer enforces the same limit before reading bodies).
+DEFAULT_MAX_UPLOAD_FILES = 1000
+
+
+def _job_limit() -> int:
+    """Effective background job limit (env read per call so it is testable)."""
+    raw = os.environ.get("CONTROL_PLANE_MAX_CONCURRENT_JOBS")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_CONCURRENT_JOBS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning(
+            "Invalid CONTROL_PLANE_MAX_CONCURRENT_JOBS=%r; using %d",
+            raw,
+            DEFAULT_MAX_CONCURRENT_JOBS,
+        )
+        return DEFAULT_MAX_CONCURRENT_JOBS
+
+
+def _upload_file_limit() -> int:
+    raw = os.environ.get("CONTROL_PLANE_MAX_UPLOAD_FILES")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_UPLOAD_FILES
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_MAX_UPLOAD_FILES
+
+
+def _safe_relative_path(name: str) -> Path:
+    """Normalise an uploaded entry name into a safe relative path.
+
+    Accepts nested paths (``src/PROG.cob``) but rejects absolute paths,
+    drive letters and ``..`` segments so an upload can never escape the
+    workspace directory.
+    """
+    raw = (name or "").replace("\\", "/")
+    if len(raw) >= 2 and raw[1] == ":":
+        raise ServiceError(f"Upload entry {name!r} contains a drive letter")
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    if not parts:
+        raise ServiceError(f"Upload entry {name!r} has no usable file name")
+    if any(p == ".." for p in parts):
+        raise ServiceError(f"Upload entry {name!r} contains a '..' segment")
+    relative = Path(*parts)
+    if relative.is_absolute():
+        raise ServiceError(f"Upload entry {name!r} resolves to an absolute path")
+    return relative
 
 
 class Service:
@@ -54,6 +125,36 @@ class Service:
 
     def __init__(self, store: Store) -> None:
         self._store = store
+        self._jobs_lock = threading.Lock()
+        self._active_jobs = 0
+
+    # -- background job slots ------------------------------------------------
+
+    def _acquire_job_slot(self) -> None:
+        """Reserve a background job slot or fail fast with ``BusyError``."""
+        limit = _job_limit()
+        with self._jobs_lock:
+            if self._active_jobs >= limit:
+                raise BusyError(
+                    f"Concurrent job limit reached ({limit}); retry after"
+                    " the running jobs finish"
+                )
+            self._active_jobs += 1
+
+    def _launch(self, target: str, args: tuple, *, name: str) -> None:
+        """Start ``getattr(self, target)(*args)`` releasing its slot on exit.
+
+        The slot is released in a wrapper ``finally`` so it is returned even
+        when the worker method is replaced (e.g. by tests) or raises.
+        """
+        def _runner() -> None:
+            try:
+                getattr(self, target)(*args)
+            finally:
+                with self._jobs_lock:
+                    self._active_jobs -= 1
+
+        threading.Thread(target=_runner, daemon=True, name=name).start()
 
     # -- applications -------------------------------------------------------
 
@@ -77,7 +178,7 @@ class Service:
     def get_application(self, app_id: str) -> ApplicationRecord:
         rec = self._store.get_application(app_id)
         if rec is None:
-            raise ServiceError(f"Application {app_id!r} not found")
+            raise NotFoundError(f"Application {app_id!r} not found")
         return rec
 
     def ingest_application(self, app_id: str, data: bytes, zip_filename: str = "") -> dict:
@@ -159,17 +260,58 @@ class Service:
         # Fallback: workspace itself
         return workspace
 
-    def upload_cobol_source(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
-        """Write COBOL source files into a temp directory and update the record."""
-        app = self.get_application(app_id)
+    # -- uploads -------------------------------------------------------------
 
-        base = Path(tempfile.mkdtemp(prefix=f"cobol-{app_id}-"))
+    @staticmethod
+    def _validate_upload(files: dict[str, bytes]) -> list[tuple[str, Path]]:
+        """Normalise and de-collide upload entry names (fail closed)."""
+        if not files:
+            raise ServiceError("No files supplied")
+        if len(files) > _upload_file_limit():
+            raise ServiceError(
+                f"Too many files in one upload"
+                f" ({len(files)} > {_upload_file_limit()})"
+            )
+
+        resolved: list[tuple[str, Path]] = []
+        seen: dict[Path, str] = {}
         for name, content in files.items():
-            safe_name = Path(name).name
-            if not safe_name:
-                continue
-            (base / safe_name).write_bytes(content)
+            if not isinstance(content, (bytes, bytearray)):
+                raise ServiceError(f"Upload entry {name!r} is not binary content")
+            relative = _safe_relative_path(name)
+            if relative in seen:
+                raise ServiceError(
+                    f"Upload entries {seen[relative]!r} and {name!r} resolve to"
+                    f" the same path {relative.as_posix()!r}"
+                )
+            seen[relative] = name
+            resolved.append((name, relative))
+        return resolved
 
+    def _write_upload(
+        self,
+        files: dict[str, bytes],
+        prefix: str,
+        app_id: str,
+    ) -> Path:
+        """Write validated entries to a fresh temp dir, hierarchy preserved."""
+        resolved = self._validate_upload(files)
+        base = Path(tempfile.mkdtemp(prefix=f"{prefix}-{app_id}-"))
+        for name, relative in resolved:
+            target = base / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(bytes(files[name]))
+        return base
+
+    def upload_cobol_source(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
+        """Write COBOL source files into a temp directory and update the record.
+
+        Directory structure is preserved (``src/A.cob`` and ``copy/A.cob``
+        stay distinct); traversal is rejected and colliding paths are an
+        explicit error instead of a silent overwrite.
+        """
+        app = self.get_application(app_id)
+        base = self._write_upload(files, "cobol", app_id)
         app.cobol_source_path = str(base)
         self._store.update_application(app)
         return app, len(files)
@@ -182,14 +324,7 @@ class Service:
         modernize endpoint is explicitly called with use_uploaded_candidate.
         """
         app = self.get_application(app_id)
-
-        base = Path(tempfile.mkdtemp(prefix=f"java-{app_id}-"))
-        for name, content in files.items():
-            safe_name = Path(name).name
-            if not safe_name:
-                continue
-            (base / safe_name).write_bytes(content)
-
+        base = self._write_upload(files, "java", app_id)
         app.java_candidate_path = str(base)
         self._store.update_application(app)
         return app, len(files)
@@ -208,11 +343,24 @@ class Service:
         (or FAILED).  The frontend polls GET /runs/{id} to observe progress.
         Each stage is recorded as its underlying operation starts; no
         stage is emitted without the operation actually running.
+
+        Fails before a run is created when the application is unknown (404),
+        has no source (400), its certification contract cannot be resolved
+        (400) or the job limit is reached (429).
         """
         app = self.get_application(app_id)
 
         if app.cobol_source_path is None:
             raise ServiceError("No COBOL source uploaded for this application")
+
+        # Pre-flight: resolve the certification contract before creating a
+        # run so an unusable workload fails the request instead of failing
+        # a run in the background.
+        resolve_certification_contract(
+            app.workload_id, description=f"API-driven workload for {app.name}"
+        )
+
+        self._acquire_job_slot()
 
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         run = RunRecord(
@@ -221,20 +369,23 @@ class Service:
             workload_id=app.workload_id,
             stage=RunStage.CREATED,
         )
-        self._store.add_run(run)
+        try:
+            self._store.add_run(run)
+        except Exception:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+            raise
 
         # Return a snapshot so the caller sees CREATED regardless of how
         # quickly the background thread advances the live record.
         snapshot = replace(run)
 
         # Launch background worker — daemon thread dies with the process.
-        thread = threading.Thread(
-            target=self._modernize_background,
-            args=(app_id, run_id, use_uploaded_candidate),
-            daemon=True,
+        self._launch(
+            "_modernize_background",
+            (app_id, run_id, use_uploaded_candidate),
             name=f"modernize-{run_id}",
         )
-        thread.start()
 
         return snapshot
 
@@ -257,10 +408,7 @@ class Service:
 
         app = self._store.get_application(app_id)
         if app is None:
-            run.stage = RunStage.FAILED
-            run.error = f"Application {app_id!r} not found"
-            run.completed_at = datetime.now(timezone.utc).isoformat()
-            self._store.update_run(run)
+            self._finish_failed(run, f"Application {app_id!r} not found")
             return
 
         try:
@@ -294,7 +442,23 @@ class Service:
             run.error = str(exc)
             run.completed_at = datetime.now(timezone.utc).isoformat()
 
-        self._store.update_run(run)
+        self._persist_final(run)
+
+    def _finish_failed(self, run: RunRecord, message: str) -> None:
+        run.stage = RunStage.FAILED
+        run.error = message
+        run.completed_at = datetime.now(timezone.utc).isoformat()
+        self._persist_final(run)
+
+    def _persist_final(self, run: RunRecord) -> None:
+        """Persist a terminal transition, logging (never hiding) failures."""
+        try:
+            self._store.update_run(run)
+        except Exception:
+            # e.g. a concurrent revalidation bumped validation_generation.
+            logger.exception(
+                "Failed to persist terminal state for run %s", run.id
+            )
 
     # -- validate (re-run) --------------------------------------------------
 
@@ -302,42 +466,50 @@ class Service:
         """Re-run validation on an existing run's artifacts.
 
         Explicit behavior: consistent with :meth:`modernize`, revalidation
-        is asynchronous. The run is reset to ``CREATED`` (clearing the
-        previous terminal state) and a background daemon thread — the same
-        minimal mechanism used by modernization — re-executes validation of
-        the GENERATED artifact (``generated_app_path``, falling back to the
-        legacy ``java_candidate_path``). Callers poll ``GET /runs/{id}``
-        until a terminal stage; the returned snapshot always shows the
-        stage at call time.
+        is asynchronous. Only TERMINAL runs (``COMPLETED``/``FAILED``) may be
+        revalidated — that check is the single-flight guard, so a second
+        request while one is in flight gets ``409 Conflict`` instead of two
+        workers racing on one run.
+
+        :meth:`Store.begin_revalidation` performs the reset atomically: it
+        clears the previous verdict/evidence/error in the same statement that
+        returns the run to ``CREATED`` (a client can never observe a new
+        attempt carrying the old verdict) and increments
+        ``validation_generation`` so any stale worker can no longer write.
         """
         run = self._store.get_run(run_id)
         if run is None:
-            raise ServiceError(f"Run {run_id!r} not found")
+            raise NotFoundError(f"Run {run_id!r} not found")
 
         app = self._store.get_application(run.application_id)
         if app is None:
-            raise ServiceError(f"Application {run.application_id!r} not found")
+            raise NotFoundError(f"Application {run.application_id!r} not found")
 
         candidate_path = app.generated_app_path or app.java_candidate_path
         if app.cobol_source_path is None or candidate_path is None:
             raise ServiceError("Run lacks source or candidate paths for re-validation")
 
-        run.stage = RunStage.CREATED
-        run.completed_at = None
-        run.error = None
-        self._store.update_run(run)
-
-        snapshot = replace(run)
-
-        thread = threading.Thread(
-            target=self._revalidate_background,
-            args=(run_id,),
-            daemon=True,
-            name=f"revalidate-{run_id}",
+        # Resolve the contract BEFORE resetting the run so an unusable
+        # workload cannot destroy the terminal result.
+        contract = resolve_certification_contract(
+            app.workload_id, description=f"API-driven workload for {app.name}"
         )
-        thread.start()
 
-        return snapshot
+        # Slot first: a failed reset must not leave a reserved slot behind,
+        # and a reset must never happen without a worker to finish it.
+        self._acquire_job_slot()
+        try:
+            reset = self._store.begin_revalidation(
+                run_id, certification_contract=contract.contract_id
+            )
+        except Exception:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+            raise
+
+        self._launch("_revalidate_background", (run_id,), name=f"revalidate-{run_id}")
+
+        return reset
 
     def _revalidate_background(self, run_id: str) -> None:
         """Background worker: re-execute validation for a reset run."""
@@ -348,10 +520,7 @@ class Service:
 
         app = self._store.get_application(run.application_id)
         if app is None:
-            run.stage = RunStage.FAILED
-            run.error = f"Application {run.application_id!r} not found"
-            run.completed_at = datetime.now(timezone.utc).isoformat()
-            self._store.update_run(run)
+            self._finish_failed(run, f"Application {run.application_id!r} not found")
             return
 
         try:
@@ -383,7 +552,7 @@ class Service:
             run.error = str(exc)
             run.completed_at = datetime.now(timezone.utc).isoformat()
 
-        self._store.update_run(run)
+        self._persist_final(run)
 
     # -- internal -----------------------------------------------------------
 
@@ -434,7 +603,14 @@ class Service:
             stage = stage_map.get(phase)
             if stage is not None:
                 run.stage = stage
-                self._store.update_run(run)
+                try:
+                    self._store.update_run(run)
+                except Exception:
+                    logger.exception(
+                        "Failed to persist stage %s for run %s",
+                        stage.value,
+                        run.id,
+                    )
 
         pipeline = UniversalModernizationPipeline(pipeline_config)
         report = pipeline.execute(progress=_pipeline_progress)
@@ -502,25 +678,17 @@ class Service:
 
         Comparison/evidence/verdict stay inside the pipeline trust boundary;
         this method only orchestrates and persists the pipeline result.
-        """
-        from engine.workload import WorkloadDefinition, WorkloadArtifact
 
-        workload_def = WorkloadDefinition(
-            workload_id=app.workload_id,
-            description=f"API-driven workload for {app.name}",
-            artifacts=(
-                WorkloadArtifact(
-                    logical_name="stdout",
-                    artifact_type="STDOUT",
-                    comparator_id="stdout-exact",
-                ),
-                WorkloadArtifact(
-                    logical_name="exit-status",
-                    artifact_type="EXIT_STATUS",
-                    comparator_id="exit-status-exact",
-                ),
-            ),
+        The certification contract comes from
+        :func:`api.workload_contract.resolve_certification_contract` — the
+        trusted fixture registry when the workload declares one, otherwise
+        the explicit default — and is recorded on the run record.
+        """
+        contract = resolve_certification_contract(
+            app.workload_id, description=f"API-driven workload for {app.name}"
         )
+        run.certification_contract = contract.contract_id
+        workload_def = contract.workload
 
         config = PipelineConfig(
             workload_id=app.workload_id,
@@ -543,7 +711,14 @@ class Service:
             stage = phase_to_stage.get(phase)
             if stage is not None:
                 run.stage = stage
-                self._store.update_run(run)
+                try:
+                    self._store.update_run(run)
+                except Exception:
+                    logger.exception(
+                        "Failed to persist stage %s for run %s",
+                        stage.value,
+                        run.id,
+                    )
 
         pipeline = VerticalSlicePipeline(
             config, candidate_adapter=candidate_adapter
@@ -552,14 +727,34 @@ class Service:
 
         run.evidence_manifest = result.evidence_manifest
         run.verdict = result.verdict
+        self._check_evidence_verdict_consistency(run)
         self._store.update_run(run)
+
+    @staticmethod
+    def _check_evidence_verdict_consistency(run: RunRecord) -> None:
+        """Fail closed when a verdict does not hash-match its evidence.
+
+        When both artifacts are present, the verdict's
+        ``evidence_manifest_hash`` must equal the manifest hash the engine
+        computed; a mismatch means the pair was not produced together (for
+        example a stale verdict surviving a reset).
+        """
+        if run.verdict is None or run.evidence_manifest is None:
+            return
+        expected = str(run.evidence_manifest.manifest_hash)
+        actual = str(run.verdict.evidence_manifest_hash)
+        if actual != expected:
+            raise PersistenceCorruptionError(
+                f"Verdict for run {run.id!r} does not match its evidence"
+                " manifest (hash mismatch)"
+            )
 
     # -- queries ------------------------------------------------------------
 
     def get_run(self, run_id: str) -> RunRecord:
         rec = self._store.get_run(run_id)
         if rec is None:
-            raise ServiceError(f"Run {run_id!r} not found")
+            raise NotFoundError(f"Run {run_id!r} not found")
         return rec
 
     def get_artifacts(self, run_id: str) -> list[dict]:
@@ -587,10 +782,15 @@ class Service:
         with ``GET /runs/{id}`` polling. The engine pipeline mints its own
         internal run ID; it is preserved as ``engine_run_id`` and never
         alters verdict semantics.
+
+        Raises ``NotFoundError`` when no verdict exists yet and
+        ``PersistenceCorruptionError`` when the stored verdict does not
+        hash-match the stored evidence manifest.
         """
         run = self.get_run(run_id)
         if run.verdict is None:
-            raise ServiceError("No verdict available for this run")
+            raise NotFoundError("No verdict available for this run")
+        self._check_evidence_verdict_consistency(run)
         data = dict(run.verdict.to_dict())
         engine_run_id = data.get("run_id")
         data["run_id"] = run.id
@@ -598,6 +798,7 @@ class Service:
             data["engine_run_id"] = engine_run_id
         else:
             data.setdefault("engine_run_id", None)
+        data["certification_contract"] = run.certification_contract
         return data
 
     def get_comparisons(self, run_id: str) -> list[dict]:
@@ -623,7 +824,7 @@ class Service:
 
     def list_runs(self, app_id: str) -> list[RunRecord]:
         """Return all runs for an application ordered by creation time."""
-        self.get_application(app_id)  # raise ServiceError for unknown apps
+        self.get_application(app_id)  # raise NotFoundError for unknown apps
         return self._store.list_runs_for_application(app_id)
 
     def get_run_report(self, run_id: str) -> dict:
@@ -635,9 +836,7 @@ class Service:
         """
         run = self.get_run(run_id)
         if run.modernization_report is None:
-            raise ServiceError(
-                "No modernization report available for this run"
-            )
+            raise NotFoundError("No modernization report available for this run")
         return run.modernization_report
 
     def get_run_detail(self, run_id: str) -> dict:
