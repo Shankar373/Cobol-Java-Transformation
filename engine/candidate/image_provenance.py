@@ -52,6 +52,19 @@ def is_repo_digest(value: str) -> bool:
     return bool(_REPO_DIGEST_PATTERN.match((value or "").strip()))
 
 
+def digest_of_identity(identity: str) -> str:
+    """Return the bare sha256 digest of an immutable identity reference.
+
+    Accepts ``repo@sha256:<hex>`` or ``sha256:<hex>`` and returns the
+    canonical ``sha256:<hex>`` form; returns ``""`` for anything that is not
+    a syntactically valid immutable identity (never a floating tag).
+    """
+    value = (identity or "").strip()
+    if "@" in value:
+        value = value.split("@", 1)[1]
+    return value if is_image_id(value) else ""
+
+
 def _select_identity(
     repo_digests: tuple[str, ...], image_id: str
 ) -> tuple[str, str]:

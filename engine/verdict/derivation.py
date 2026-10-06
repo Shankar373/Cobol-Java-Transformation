@@ -25,6 +25,13 @@ class VerdictDerivationError(Exception):
     """Raised when verdict derivation fails."""
 
 
+def _utc_now_iso() -> str:
+    """Current UTC time as an ISO-8601 string."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
 @dataclass(frozen=True)
 class Verdict:
     """A derived verdict with complete scope."""
@@ -98,6 +105,44 @@ class VerdictDeriver:
         """
         return self.derive(manifest)
 
+    def derive_untrusted(
+        self,
+        manifest: EvidenceManifest,
+        violations: list[Any] | tuple[Any, ...],
+    ) -> Verdict:
+        """Derive a verdict for evidence that FAILED integrity validation.
+
+        This is the production trust-boundary clamp: the natural verdict is
+        still derived from the evidence structure (so operators see what the
+        evidence claims), but a natural VERIFIED is replaced by ERROR —
+        untrusted evidence can never certify equivalence. Violation
+        descriptions are surfaced as the verdict differences.
+        """
+        verdict = self.derive_unsafe_from_raw(manifest)
+        if verdict.state != VerdictState.VERIFIED:
+            return verdict
+        return Verdict(
+            state=VerdictState.ERROR,
+            workload_id=manifest.workload_id,
+            run_id=manifest.run_id.value,
+            source_hash=str(manifest.source_identity.source_hash),
+            candidate_hash=(
+                str(manifest.candidate_identity.candidate_hash)
+                if manifest.candidate_identity else None
+            ),
+            oracle_id=manifest.oracle_identity.oracle_id,
+            oracle_digest=manifest.oracle_identity.image_digest,
+            executed_check_count=0,
+            skipped_count=0,
+            unavailable_count=0,
+            supported_scope_statement="Evidence trust boundary violation",
+            evidence_manifest_hash=str(manifest.manifest_hash),
+            derivation_timestamp=_utc_now_iso(),
+            differences=tuple(
+                getattr(v, "description", str(v)) for v in violations
+            ),
+        )
+
     def derive(self, manifest: EvidenceManifest) -> Verdict:
         """Derive a verdict from an evidence manifest. Pure function.
 
@@ -153,6 +198,7 @@ class VerdictDeriver:
         differences = []
         has_mismatch = False
         has_inconclusive = False
+        has_unknown = False
 
         for comp in manifest.comparison_evidence:
             if comp.result == "MISMATCH":
@@ -160,9 +206,20 @@ class VerdictDeriver:
                 differences.extend(comp.differences)
             elif comp.result == "INCONCLUSIVE":
                 has_inconclusive = True
+            elif comp.result != "MATCH":
+                # Unrecognised comparison result: never read as a match.
+                has_unknown = True
+                differences.append(
+                    f"Unknown comparison result {comp.result!r} for "
+                    f"comparison {comp.comparison_id!r}"
+                )
 
         # Step 7: Derive final verdict
-        if has_mismatch:
+        if has_unknown:
+            # Evidence outside the result domain is a platform/validator
+            # error, not proof of equivalence.
+            state = VerdictState.ERROR
+        elif has_mismatch:
             state = VerdictState.FAILED
         elif has_inconclusive:
             state = VerdictState.PARTIAL
@@ -285,6 +342,20 @@ def derive_verdict_validated(validated: "ValidatedEvidenceManifest") -> Verdict:
     """
     deriver = VerdictDeriver()
     return deriver.derive_from_validated(validated)
+
+
+def derive_verdict_untrusted(
+    manifest: EvidenceManifest,
+    violations: list[Any] | tuple[Any, ...],
+) -> Verdict:
+    """Derive a verdict for evidence that failed integrity validation.
+
+    Guarantees the result is never ``VERIFIED``: the natural verdict is
+    preserved unless it would certify equivalence, in which case ERROR is
+    returned with the violation descriptions as differences.
+    """
+    deriver = VerdictDeriver()
+    return deriver.derive_untrusted(manifest, violations)
 
 
 # Late import to avoid circular dependency at module load time.

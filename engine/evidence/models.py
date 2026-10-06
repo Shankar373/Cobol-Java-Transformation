@@ -87,6 +87,16 @@ class ExecutionEvidence:
     timeout_applied: bool
     timeout_duration: int | None = None
     compilation_diagnostics: dict[str, str] | None = None
+    # Bound identity: the workload this execution belongs to (None when the
+    # producing adapter had no workload context; validators only enforce the
+    # binding when the field is populated).
+    workload_id: WorkloadId | None = None
+    # Immutable image identity (sha256:...) the container image resolved to at
+    # execution time (None for non-containerized executions).
+    image_digest: str | None = None
+    # EXECUTE = the candidate program really ran; BUILD = compile-only
+    # evidence. A build failure is never execution evidence.
+    execution_phase: str = "EXECUTE"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
@@ -108,6 +118,9 @@ class ExecutionEvidence:
             "termination_status": self.termination_status,
             "timeout_applied": self.timeout_applied,
             "timeout_duration": self.timeout_duration,
+            "workload_id": self.workload_id.value if self.workload_id else None,
+            "image_digest": self.image_digest,
+            "execution_phase": self.execution_phase,
         }
         if self.compilation_diagnostics is not None:
             result["compilation_diagnostics"] = self.compilation_diagnostics
@@ -163,6 +176,10 @@ class ComparisonEvidence:
     content_hash: ContentHash
     ordering_applied: str = "SEQUENTIAL"
     failure_policy: str = ""
+    # Bound identity: the workload this comparison belongs to (None when the
+    # producer had no workload context; validators only enforce the binding
+    # when the field is populated).
+    workload_id: WorkloadId | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -179,6 +196,7 @@ class ComparisonEvidence:
             "field_level_results": list(self.field_level_results),
             "ordering_applied": self.ordering_applied,
             "failure_policy": self.failure_policy,
+            "workload_id": self.workload_id.value if self.workload_id else None,
         }
 
 
@@ -217,6 +235,143 @@ class VerdictEvidence:
 # Evidence manifest
 # ---------------------------------------------------------------------------
 
+def canonical_evidence_graph(manifest: EvidenceManifest) -> dict[str, Any]:
+    """Deterministic representation of the complete evidence graph.
+
+    Covers every field that can influence verdict derivation or identity:
+    top-level identities, controlled inputs, environment identities, and all
+    nested execution, artifact, and comparison evidence including command,
+    source-tree hashes, comparator binding, and image identity.
+
+    Deliberately excluded:
+    - ``created_at``: construction timestamp, not evidence content, so two
+      manifests of identical evidence compare equal.
+    - ``verdict_evidence``: derivation *output*, never an input to derivation.
+    - ``sealed_hash``: the seal itself.
+    """
+    return {
+        "manifest_version": manifest.manifest_version,
+        "run_id": manifest.run_id.value,
+        "workload_id": manifest.workload_id.value,
+        "source_identity": {
+            "source_id": manifest.source_identity.source_id,
+            "source_hash": str(manifest.source_identity.source_hash),
+            "file_count": manifest.source_identity.file_count,
+            "total_size_bytes": manifest.source_identity.total_size_bytes,
+        },
+        "candidate_identity": (
+            {
+                "candidate_id": manifest.candidate_identity.candidate_id,
+                "candidate_hash": str(manifest.candidate_identity.candidate_hash),
+                "source_hash": str(manifest.candidate_identity.source_hash),
+                "file_count": manifest.candidate_identity.file_count,
+                "total_size_bytes": manifest.candidate_identity.total_size_bytes,
+            }
+            if manifest.candidate_identity is not None else None
+        ),
+        "oracle_identity": (
+            {
+                "oracle_id": manifest.oracle_identity.oracle_id,
+                "image_digest": manifest.oracle_identity.image_digest,
+                "compiler_version": manifest.oracle_identity.compiler_version,
+                "preprocessor_version": manifest.oracle_identity.preprocessor_version,
+                "base_image": manifest.oracle_identity.base_image,
+            }
+            if manifest.oracle_identity is not None else None
+        ),
+        "environment_identities": [
+            {
+                "runtime_id": env.runtime_id,
+                "java_version": env.java_version,
+                "cobol_compiler": env.cobol_compiler,
+                "os_base": env.os_base,
+                "network_policy": env.network_policy,
+                "resource_limits": dict(env.resource_limits),
+            }
+            for env in manifest.environment_identities
+        ],
+        "controlled_input": {
+            "input_id": manifest.controlled_input.input_id,
+            "stdin_hash": (
+                str(manifest.controlled_input.stdin_hash)
+                if manifest.controlled_input.stdin_hash else None
+            ),
+            "input_files": {
+                key: str(value)
+                for key, value in manifest.controlled_input.input_files.items()
+            },
+        },
+        "execution_evidence": [
+            {
+                "execution_id": e.execution_id.value,
+                "run_id": e.run_id.value,
+                "workload_id": e.workload_id.value if e.workload_id else None,
+                "runtime_id": e.runtime_id,
+                "command": e.command,
+                "working_directory": e.working_directory,
+                "environment_variables": dict(e.environment_variables),
+                "start_time": e.start_time,
+                "end_time": e.end_time,
+                "exit_code": e.exit_code,
+                "stdout_hash": str(e.stdout_hash),
+                "stderr_hash": str(e.stderr_hash),
+                "generated_files": {k: str(v) for k, v in e.generated_files.items()},
+                "source_tree_hash_before": str(e.source_tree_hash_before),
+                "source_tree_hash_after": str(e.source_tree_hash_after),
+                "termination_status": e.termination_status,
+                "timeout_applied": e.timeout_applied,
+                "timeout_duration": e.timeout_duration,
+                "compilation_diagnostics": e.compilation_diagnostics,
+                "image_digest": e.image_digest,
+                "execution_phase": e.execution_phase,
+            }
+            for e in manifest.execution_evidence
+        ],
+        "artifact_evidence": [
+            {
+                "artifact_id": a.artifact.artifact_id,
+                "artifact_type": a.artifact.artifact_type,
+                "logical_name": a.artifact.logical_name,
+                "producer_role": a.artifact.producer_role,
+                "content_hash": str(a.content_hash),
+                "size_bytes": a.size_bytes,
+                "record_count": a.record_count,
+                "execution_id": a.execution_id.value,
+                "capture_time": a.capture_time,
+            }
+            for a in manifest.artifact_evidence
+        ],
+        "comparison_evidence": [
+            {
+                "comparison_id": c.comparison_id,
+                "run_id": c.run_id.value,
+                "workload_id": c.workload_id.value if c.workload_id else None,
+                "comparator_id": c.comparator_id,
+                "comparator_version": c.comparator_version,
+                "oracle_artifact_id": c.oracle_artifact_id,
+                "candidate_artifact_id": c.candidate_artifact_id,
+                "artifact_type": c.artifact_type,
+                "result": c.result,
+                "normalization_applied": list(c.normalization_applied),
+                "differences": list(c.differences),
+                "field_level_results": list(c.field_level_results),
+                "ordering_applied": c.ordering_applied,
+                "failure_policy": c.failure_policy,
+                "content_hash": str(c.content_hash),
+            }
+            for c in manifest.comparison_evidence
+        ],
+    }
+
+
+def _graph_hash(manifest: EvidenceManifest) -> ContentHash:
+    """Hash the canonical evidence graph."""
+    content_bytes = json.dumps(
+        canonical_evidence_graph(manifest), sort_keys=True, default=str
+    ).encode("utf-8")
+    return ContentHash.from_bytes(content_bytes)
+
+
 @dataclass
 class EvidenceManifest:
     """Complete evidence manifest for a workload-run."""
@@ -233,81 +388,29 @@ class EvidenceManifest:
     comparison_evidence: tuple[ComparisonEvidence, ...]
     verdict_evidence: VerdictEvidence | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    # Seal captured at construction. Integrity validation recomputes the
+    # canonical graph and compares it against this seal, so any in-place
+    # mutation of evidence after construction is detected. Not part of the
+    # graph (a seal never covers itself).
+    sealed_hash: ContentHash | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        self.sealed_hash = _graph_hash(self)
 
     @property
     def manifest_hash(self) -> ContentHash:
         """Compute hash covering the complete evidence graph.
 
-        Covers: all identity fields, all execution evidence,
-        all artifact identities and content hashes, all comparison
-        evidence and content hashes. Any modification to any evidence
-        field changes this hash.
+        Covers: all identity fields, controlled inputs, environment
+        identities, all execution evidence (including command, source-tree
+        hashes, image identity, execution phase), all artifact identities
+        and content hashes, and all comparison evidence (including the
+        comparator identity that produced each result). Any modification to
+        any evidence field changes this hash.
         """
-        graph: dict[str, Any] = {
-            "manifest_version": self.manifest_version,
-            "run_id": self.run_id.value,
-            "workload_id": self.workload_id.value,
-            "source_identity": {
-                "source_id": self.source_identity.source_id,
-                "source_hash": str(self.source_identity.source_hash),
-                "file_count": self.source_identity.file_count,
-                "total_size_bytes": self.source_identity.total_size_bytes,
-            },
-            "oracle_identity": {
-                "oracle_id": self.oracle_identity.oracle_id if self.oracle_identity else None,
-                "image_digest": self.oracle_identity.image_digest if self.oracle_identity else None,
-                "compiler_version": self.oracle_identity.compiler_version if self.oracle_identity else None,
-            } if self.oracle_identity else None,
-            "controlled_input": {
-                "input_id": self.controlled_input.input_id,
-                "stdin_hash": str(self.controlled_input.stdin_hash) if self.controlled_input.stdin_hash else None,
-            },
-            "execution_evidence": [
-                {
-                    "execution_id": e.execution_id.value,
-                    "run_id": e.run_id.value,
-                    "runtime_id": e.runtime_id,
-                    "termination_status": e.termination_status,
-                    "timeout_applied": e.timeout_applied,
-                    "exit_code": e.exit_code,
-                    "stdout_hash": str(e.stdout_hash),
-                    "stderr_hash": str(e.stderr_hash),
-                    **({"compilation_diagnostics": e.compilation_diagnostics}
-                       if e.compilation_diagnostics is not None else {}),
-                }
-                for e in self.execution_evidence
-            ],
-            "artifact_evidence": [
-                {
-                    "artifact_id": a.artifact.artifact_id,
-                    "artifact_type": a.artifact.artifact_type,
-                    "producer_role": a.artifact.producer_role,
-                    "content_hash": str(a.content_hash),
-                    "execution_id": a.execution_id.value,
-                }
-                for a in self.artifact_evidence
-            ],
-            "comparison_evidence": [
-                {
-                    "comparison_id": c.comparison_id,
-                    "run_id": c.run_id.value,
-                    "oracle_artifact_id": c.oracle_artifact_id,
-                    "candidate_artifact_id": c.candidate_artifact_id,
-                    "result": c.result,
-                    "artifact_type": c.artifact_type,
-                    "content_hash": str(c.content_hash),
-                }
-                for c in self.comparison_evidence
-            ],
-        }
-        if self.candidate_identity is not None:
-            graph["candidate_identity"] = {
-                "candidate_id": self.candidate_identity.candidate_id,
-                "candidate_hash": str(self.candidate_identity.candidate_hash),
-                "source_hash": str(self.candidate_identity.source_hash),
-            }
-        content_bytes = json.dumps(graph, sort_keys=True, default=str).encode("utf-8")
-        return ContentHash.from_bytes(content_bytes)
+        return _graph_hash(self)
 
     def is_complete(self) -> bool:
         """Check if manifest is complete for VERIFIED verdict.

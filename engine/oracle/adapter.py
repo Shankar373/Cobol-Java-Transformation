@@ -27,13 +27,24 @@ from engine.evidence.models import ExecutionEvidence
 
 @dataclass(frozen=True)
 class OracleAdapterConfig:
-    """Configuration for oracle adapter."""
+    """Configuration for oracle adapter.
+
+    ``image`` is the declared (mutable) image reference used only as a lookup
+    key; execution identity comes from ``image_digest``.
+
+    ``image_digest`` is the declared immutable pin (``sha256:...``). An empty
+    value means "auto-pin": the adapter resolves the image's immutable
+    identity at execution time and records it as the executed identity. A
+    non-empty value must equal the resolved identity exactly, otherwise
+    execution fails closed.
+    """
     oracle_id: str  # V1: "gnucobol-3.1.2"
-    image_digest: str  # sha256:...
+    image_digest: str  # sha256:... or "" to auto-pin at execution time
     compiler_version: str
     preprocessor_version: str | None = None
     base_image: str | None = None
     timeout_seconds: int = 30
+    image: str = "gnucobol-ocesql:latest"
 
     def validate(self) -> list[str]:
         """Validate oracle configuration."""
@@ -108,6 +119,9 @@ class OracleExecutionResult:
     source_tree_hash_before: ContentHash | None = None
     source_tree_hash_after: ContentHash | None = None
     compilation_diagnostics: dict[str, str] | None = None
+    # Immutable identity (sha256:...) of the image actually executed;
+    # None when no container was run or identity could not be resolved.
+    image_digest: str | None = None
 
     def to_execution_evidence(self) -> ExecutionEvidence:
         """Convert to execution evidence."""
@@ -138,6 +152,7 @@ class OracleExecutionResult:
             termination_status=self.termination_status,
             timeout_applied=self.timeout_applied,
             timeout_duration=self.timeout_duration,
+            image_digest=self.image_digest,
         )
 
 

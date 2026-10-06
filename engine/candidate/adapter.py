@@ -115,6 +115,9 @@ class CandidateExecutionResult:
     timeout_applied: bool
     timeout_duration: int | None = None
     generated_files: dict[str, bytes] | None = None
+    # Immutable identity (sha256:...) of the image actually executed;
+    # None when no container was run or identity could not be resolved.
+    image_digest: str | None = None
 
     def to_execution_evidence(self) -> ExecutionEvidence:
         """Convert to execution evidence."""
@@ -144,6 +147,7 @@ class CandidateExecutionResult:
             termination_status=self.termination_status,
             timeout_applied=self.timeout_applied,
             timeout_duration=self.timeout_duration,
+            image_digest=self.image_digest,
         )
 
 

@@ -83,7 +83,7 @@ def successful_oracle_execution(sample_run_id: RunId) -> ExecutionEvidence:
         stderr_hash=make_hash("oracle-stderr"),
         generated_files={},
         source_tree_hash_before=make_hash("source-before"),
-        source_tree_hash_after=make_hash("source-after"),
+        source_tree_hash_after=make_hash("source-before"),
         termination_status="normal",
         timeout_applied=False,
     )
@@ -104,7 +104,7 @@ def successful_candidate_execution(sample_run_id: RunId) -> ExecutionEvidence:
         stderr_hash=make_hash("candidate-stderr"),
         generated_files={},
         source_tree_hash_before=make_hash("source-before"),
-        source_tree_hash_after=make_hash("source-after"),
+        source_tree_hash_after=make_hash("source-before"),
         termination_status="normal",
         timeout_applied=False,
     )
@@ -326,7 +326,7 @@ class TestVerdictDeriver:
             stderr_hash=make_hash("error"),
             generated_files={},
             source_tree_hash_before=make_hash("source-before"),
-            source_tree_hash_after=make_hash("source-after"),
+            source_tree_hash_after=make_hash("source-before"),
             termination_status="nonzero_exit",
             timeout_applied=False,
         )
@@ -370,7 +370,7 @@ class TestVerdictDeriver:
             stderr_hash=make_hash("timeout"),
             generated_files={},
             source_tree_hash_before=make_hash("source-before"),
-            source_tree_hash_after=make_hash("source-after"),
+            source_tree_hash_after=make_hash("source-before"),
             termination_status="timeout",
             timeout_applied=True,
             timeout_duration=30,

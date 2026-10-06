@@ -75,8 +75,8 @@ def _exec(
         stdout_hash=_h(f"stdout-{exec_id}"),
         stderr_hash=_h(f"stderr-{exec_id}"),
         generated_files={},
-        source_tree_hash_before=_h("before"),
-        source_tree_hash_after=_h("after"),
+        source_tree_hash_before=_h("source-tree"),
+        source_tree_hash_after=_h("source-tree"),
         termination_status=status,
         timeout_applied=timeout,
     )

@@ -28,6 +28,7 @@ from engine.candidate.adapter import (
     CandidateManifest,
     CompilationResult,
 )
+from engine.candidate.image_provenance import digest_of_identity
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
@@ -169,7 +170,10 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
             result = subprocess.run(
                 [
                     "docker", "run", "--rm", "--network", "none",
-                    self._config.image, "java", "-version",
+                    # Execute by immutable identity when resolved; the version
+                    # probe must never run an image selected by floating tag.
+                    self._resolved_digest or self._config.image,
+                    "java", "-version",
                 ],
                 capture_output=True,
                 timeout=30,
@@ -330,7 +334,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "--workdir", "/workspace",
                     "-v", f"{os.path.abspath(staged_source)}:/workspace/source:ro",
                     "-v", f"{os.path.abspath(staged_output)}:/workspace/classes",
-                    self._config.image,
+                    self._resolved_digest,
                     "sh", "-c", compile_cmd,
                 ]
 
@@ -496,7 +500,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "-v", f"{os.path.abspath(staged_classes)}:/workspace/classes:ro",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     *input_mount_args,
-                    self._config.image,
+                    self._resolved_digest,
                     "sh", "-c", java_cmd,
                 ]
 
@@ -580,6 +584,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     timeout_applied=termination == "timeout",
                     timeout_duration=self._config.timeout_seconds if termination == "timeout" else None,
                     generated_files=generated_files if generated_files else None,
+                    image_digest=digest_of_identity(self._resolved_digest) or None,
                 )
 
         except Exception as e:
@@ -595,4 +600,5 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 end_time=end_time.isoformat(),
                 termination_status="error",
                 timeout_applied=False,
+                image_digest=digest_of_identity(self._resolved_digest) or None,
             )

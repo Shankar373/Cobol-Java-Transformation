@@ -109,7 +109,7 @@ def sample_execution_evidence(sample_run_id: RunId) -> ExecutionEvidence:
         stderr_hash=make_hash("stderr"),
         generated_files={},
         source_tree_hash_before=make_hash("source-before"),
-        source_tree_hash_after=make_hash("source-after"),
+        source_tree_hash_after=make_hash("source-before"),
         termination_status="normal",
         timeout_applied=False,
     )

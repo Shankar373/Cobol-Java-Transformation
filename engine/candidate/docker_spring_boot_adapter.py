@@ -44,6 +44,7 @@ from engine.candidate.adapter import (
 from engine.candidate.image_provenance import (
     DEFAULT_PROVENANCE_PATH,
     DockerImageObservation,
+    digest_of_identity,
     load_adapter_provenance,
     resolve_docker_image_identity,
     verify_image_identity,
@@ -158,11 +159,68 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
     def _resolve_runtime_observation(self) -> DockerImageObservation:
         return self._resolve_image_observation(self._config.runtime_image)
 
+    def _fresh_build_ref(self) -> tuple[str, str]:
+        """Re-resolve the build image immediately before running it.
+
+        Returns ``(run_ref, error)``. The build identity verified at
+        initialization is re-checked against a fresh Docker probe so a
+        rebuild of the tag between initialization and execution (TOCTOU)
+        cannot silently change what runs. If the probe cannot complete, the
+        init-time immutable identity is used (best effort). If the probe
+        completes with a *different* identity, execution fails closed.
+
+        An instance built without ``__init__`` (no observation attribute)
+        has no init-time identity to protect and runs the declared reference
+        as before.
+        """
+        observation = getattr(self, "_build_observation", None)
+        if observation is None:
+            return self._config.build_image, ""
+        if not observation.identity:
+            return "", (
+                f"build image {self._config.build_image!r} has no "
+                "immutable identity"
+            )
+        fresh = self._resolve_image_observation(self._config.build_image)
+        if fresh.is_complete and fresh.identity != observation.identity:
+            return "", (
+                "build image identity changed: verified "
+                f"{observation.identity}, observed {fresh.identity}; "
+                "refusing to run"
+            )
+        return observation.identity, ""
+
+    def _fresh_runtime_ref(self) -> tuple[str, str]:
+        """Re-resolve the runtime image immediately before running it.
+
+        Same contract as :meth:`_fresh_build_ref` for the execution image.
+        """
+        observation = getattr(self, "_runtime_observation", None)
+        if observation is None:
+            return self._config.runtime_image, ""
+        if not observation.identity:
+            return "", (
+                f"runtime image {self._config.runtime_image!r} has no "
+                "immutable identity"
+            )
+        fresh = self._resolve_image_observation(self._config.runtime_image)
+        if fresh.is_complete and fresh.identity != observation.identity:
+            return "", (
+                "runtime image identity changed: verified "
+                f"{observation.identity}, observed {fresh.identity}; "
+                "refusing to run"
+            )
+        return observation.identity, ""
+
     def _detect_java_version(self) -> str:
         try:
+            runtime_ref = self._runtime_observation.identity
+            if not runtime_ref:
+                # No immutable identity: never run a version probe by tag.
+                return ""
             result = subprocess.run(
                 ["docker", "run", "--rm", "--network", "none",
-                 self._config.runtime_image, "java", "-version"],
+                 runtime_ref, "java", "-version"],
                 capture_output=True,
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -178,9 +236,13 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
     def _detect_maven_version(self) -> str:
         try:
+            build_ref = self._build_observation.identity
+            if not build_ref:
+                # No immutable identity: never run a version probe by tag.
+                return ""
             result = subprocess.run(
                 ["docker", "run", "--rm", "--network", "none",
-                 self._config.build_image, "mvn", "-version"],
+                 build_ref, "mvn", "-version"],
                 capture_output=True,
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -309,6 +371,17 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         start_time = datetime.now(timezone.utc)
         _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
+        build_ref, build_ref_error = self._fresh_build_ref()
+        if build_ref_error:
+            return CompilationResult(
+                success=False,
+                class_files={},
+                compilation_errors=(build_ref_error,),
+                compilation_time_ms=int(
+                    (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                ),
+            )
+
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 candidate_dir = Path(candidate_path)
@@ -349,7 +422,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "--tmpfs", "/workspace/project/target:rw,exec,size=512m",
                     # Bind-mount output dir (Python-owned — receives the JAR)
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
-                    self._config.build_image,
+                    build_ref,
                     "sh", "-c", f"{maven_cmd} && cp target/*.jar /workspace/output/",
                 ]
 
@@ -469,6 +542,22 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 timeout_applied=False,
             )
 
+        run_ref, runtime_ref_error = self._fresh_runtime_ref()
+        if runtime_ref_error:
+            end_time = datetime.now(timezone.utc)
+            return CandidateExecutionResult(
+                execution_id=execution_id,
+                run_id=run_id,
+                status=AdapterStatus.FAILED,
+                exit_code=None,
+                stdout=b"",
+                stderr=runtime_ref_error.encode(),
+                start_time=start_time.isoformat(),
+                end_time=end_time.isoformat(),
+                termination_status="error",
+                timeout_applied=False,
+            )
+
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Stage JAR files
@@ -527,7 +616,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "-v", f"{os.path.abspath(staged_jars)}:/workspace/jars:ro",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     *input_mount_args,
-                    self._config.runtime_image,
+                    run_ref,
                     "sh", "-c", java_cmd,
                 ]
 
@@ -605,6 +694,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     timeout_applied=termination == "timeout",
                     timeout_duration=self._config.execution_timeout_seconds if termination == "timeout" else None,
                     generated_files=generated_files if generated_files else None,
+                    image_digest=digest_of_identity(run_ref) or None,
                 )
 
         except Exception as e:
@@ -620,4 +710,5 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 end_time=end_time.isoformat(),
                 termination_status="error",
                 timeout_applied=False,
+                image_digest=digest_of_identity(run_ref) or None,
             )

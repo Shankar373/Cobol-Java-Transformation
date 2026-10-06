@@ -21,10 +21,15 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from engine.candidate.image_provenance import (
+    digest_of_identity,
+    resolve_docker_image_identity,
+)
 from engine.domain.identities import (
     AdapterStatus,
     ContentHash,
     ExecutionId,
+    OracleIdentity,
     RunId,
 )
 from engine.oracle.adapter import (
@@ -45,12 +50,34 @@ class DockerOracleAdapter(OracleAdapter):
     before.
     """
 
-    V1_IMAGE = "gnucobol-ocesql:latest"
-    V1_DIGEST = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
-
     def __init__(self, config: OracleAdapterConfig) -> None:
         super().__init__(config)
         self._docker_available = self._check_docker()
+        # Immutable identity of the image actually executed (empty until an
+        # execution resolves it). Never a floating tag.
+        self._resolved_ref: str = ""
+        self._resolved_digest: str = ""
+        if self._docker_available:
+            self._resolved_ref, self._resolved_digest = self._resolve_image_identity()
+
+    @staticmethod
+    def _digest_of(identity: str) -> str:
+        """Return the sha256 digest portion of an immutable identity."""
+        return digest_of_identity(identity)
+
+    def _resolve_image_identity(self) -> tuple[str, str]:
+        """Resolve the declared image to (run_ref, digest).
+
+        The run reference is immutable (``repo@sha256:...`` or ``sha256:...``)
+        so a rebuild of the tag after resolution cannot change what runs.
+        Returns ("", "") when no immutable identity exists — callers must
+        fail closed.
+        """
+        observation = resolve_docker_image_identity(self._config.image)
+        if not observation.is_complete:
+            return "", ""
+        run_ref = observation.identity
+        return run_ref, self._digest_of(run_ref)
 
     def _check_docker(self) -> bool:
         try:
@@ -71,19 +98,50 @@ class DockerOracleAdapter(OracleAdapter):
 
         try:
             result = subprocess.run(
-                ["docker", "image", "inspect", self.V1_IMAGE],
+                ["docker", "image", "inspect", self._config.image],
                 capture_output=True,
                 timeout=10,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
-            if result.returncode == 0:
-                self._status = AdapterStatus.AVAILABLE
-            else:
+            if result.returncode != 0:
                 self._status = AdapterStatus.UNAVAILABLE
+                return self._status
         except Exception:
+            self._status = AdapterStatus.UNAVAILABLE
+            return self._status
+
+        # Availability requires a resolvable immutable identity that matches
+        # the declared pin (when one is declared).
+        run_ref, digest = self._resolve_image_identity()
+        declared = (self._config.image_digest or "").strip()
+        if run_ref and (not declared or declared == digest):
+            self._status = AdapterStatus.AVAILABLE
+        else:
             self._status = AdapterStatus.UNAVAILABLE
 
         return self._status
+
+    def get_identity(self) -> OracleIdentity:
+        """Oracle identity from the image actually executed.
+
+        Falls back to the declared pin before any execution; raises when
+        neither an executed nor a declared sha256 identity exists — the
+        platform never reports an unpinned oracle identity.
+        """
+        digest = self._resolved_digest or (self._config.image_digest or "")
+        if not digest.startswith("sha256:"):
+            raise ValueError(
+                "oracle image identity is not established: docker image "
+                f"{self._config.image!r} resolved to no immutable digest and "
+                "no sha256 pin was declared"
+            )
+        return OracleIdentity(
+            oracle_id=self._config.oracle_id,
+            image_digest=digest,
+            compiler_version=self._config.compiler_version,
+            preprocessor_version=self._config.preprocessor_version,
+            base_image=self._config.base_image,
+        )
 
     # Filenames that designate the application entry module by convention.
     # Mirrors the ingestion layer's source-root markers without importing it.
@@ -266,6 +324,61 @@ class DockerOracleAdapter(OracleAdapter):
                 source_tree_hash_after=source_hash_before,
             )
 
+        # Establish the immutable execution identity BEFORE running anything.
+        # Fail closed: no container starts without a resolvable identity that
+        # matches the declared pin (when one is declared).
+        run_ref, digest = self._resolve_image_identity()
+        if not run_ref:
+            end_time = datetime.now(timezone.utc)
+            return OracleExecutionResult(
+                execution_id=execution_id,
+                run_id=run_id,
+                oracle_id=self._config.oracle_id,
+                status=AdapterStatus.UNAVAILABLE,
+                exit_code=None,
+                stdout=b"",
+                stderr=(
+                    f"Oracle image {self._config.image!r} has no immutable "
+                    "digest identity; refusing to execute by tag"
+                ).encode(),
+                start_time=start_time.isoformat(),
+                end_time=end_time.isoformat(),
+                termination_status="error",
+                timeout_applied=False,
+                source_tree_hash_before=source_hash_before,
+                source_tree_hash_after=source_hash_before,
+            )
+
+        declared_pin = (self._config.image_digest or "").strip()
+        if declared_pin and declared_pin != digest:
+            # Declared pin does not match the image that would run: execute
+            # nothing. The recorded identity still reflects what Docker
+            # reported, so validation can prove the mismatch.
+            end_time = datetime.now(timezone.utc)
+            return OracleExecutionResult(
+                execution_id=execution_id,
+                run_id=run_id,
+                oracle_id=self._config.oracle_id,
+                status=AdapterStatus.UNAVAILABLE,
+                exit_code=None,
+                stdout=b"",
+                stderr=(
+                    f"Declared oracle image pin {declared_pin} does not match "
+                    f"resolved image identity {digest}; refusing to execute"
+                ).encode(),
+                start_time=start_time.isoformat(),
+                end_time=end_time.isoformat(),
+                termination_status="error",
+                timeout_applied=False,
+                source_tree_hash_before=source_hash_before,
+                source_tree_hash_after=source_hash_before,
+                image_digest=digest,
+            )
+
+        # Identity established for this execution: record it as executed.
+        self._resolved_ref = run_ref
+        self._resolved_digest = digest
+
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 cobol_source = Path(source_path)
@@ -311,6 +424,7 @@ class DockerOracleAdapter(OracleAdapter):
                         timeout_applied=False,
                         source_tree_hash_before=source_hash_before,
                         source_tree_hash_after=source_hash_before,
+                        image_digest=digest,
                     )
 
                 output_dir = Path(tmpdir) / "output"
@@ -363,7 +477,7 @@ class DockerOracleAdapter(OracleAdapter):
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     "-v", f"{os.path.abspath(diagnostics_dir)}:/workspace/compilation",
                     *input_mount_args,
-                    self.V1_IMAGE,
+                    run_ref,
                     "sh", "-c", compile_cmd,
                 ]
 
@@ -424,6 +538,7 @@ class DockerOracleAdapter(OracleAdapter):
                 source_tree_hash_before=source_hash_before,
                 source_tree_hash_after=source_hash_after,
                 compilation_diagnostics=compilation_diagnostics,
+                image_digest=digest,
             )
 
         except Exception as e:
@@ -442,4 +557,5 @@ class DockerOracleAdapter(OracleAdapter):
                 timeout_applied=False,
                 source_tree_hash_before=source_hash_before,
                 source_tree_hash_after=source_hash_before,
+                image_digest=self._resolved_digest or None,
             )

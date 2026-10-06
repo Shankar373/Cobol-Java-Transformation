@@ -173,12 +173,21 @@ class TypedComparator(ABC):
         raise ValueError(f"Unsupported ordering policy: {ordering}")
 
     def _normalize(self, content: bytes, normalizations: tuple[str, ...]) -> bytes:
-        """Apply normalizations to content."""
+        """Apply normalizations to content.
+
+        Fail-closed: a normalization that is not implemented is rejected
+        rather than silently skipped, so a mis-declared policy can never
+        weaken a comparison without being noticed.
+        """
         normalized = content
         for norm in normalizations:
             if norm == "crlf_to_lf":
                 normalized = normalized.replace(b"\r\n", b"\n")
-            # No other normalizations allowed in V1
+            else:
+                raise ValueError(
+                    f"Unsupported normalization {norm!r}; V1 implements only "
+                    f"'crlf_to_lf'"
+                )
         return normalized
 
 
@@ -622,3 +631,34 @@ def create_default_registry() -> ComparatorRegistry:
     registry.register(TextFileComparator())
     registry.register(FixedRecordComparator())
     return registry
+
+
+# ---------------------------------------------------------------------------
+# Comparator identity binding
+# ---------------------------------------------------------------------------
+
+#: artifact_type -> the id of the comparator registered for that type.
+CANONICAL_COMPARATOR_IDS: dict[str, str] = {
+    "STDOUT": "STDOUT_COMPARATOR",
+    "STDERR": "STDERR_COMPARATOR",
+    "EXIT_STATUS": "EXIT_STATUS_COMPARATOR",
+    "TEXT_FILE": "TEXT_FILE_COMPARATOR",
+    "FIXED_RECORD": "FIXED_RECORD_COMPARATOR",
+}
+
+#: Declared legacy comparator ids -> canonical comparator id. Workload
+#: declarations and legacy evidence use these aliases; they resolve to the
+#: same registered comparator for the same artifact type.
+COMPARATOR_ID_ALIASES: dict[str, str] = {
+    "stdout-exact": "STDOUT_COMPARATOR",
+    "stderr-exact": "STDERR_COMPARATOR",
+    "exit-status-exact": "EXIT_STATUS_COMPARATOR",
+    "text-file-exact": "TEXT_FILE_COMPARATOR",
+    "fixed-record-exact": "FIXED_RECORD_COMPARATOR",
+}
+
+
+def resolve_comparator_id(declared_id: str) -> str:
+    """Resolve a declared comparator id (canonical or legacy alias)."""
+    declared = (declared_id or "").strip()
+    return COMPARATOR_ID_ALIASES.get(declared, declared)
