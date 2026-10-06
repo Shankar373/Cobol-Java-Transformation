@@ -32,6 +32,7 @@ from engine.transformation.ir import (
     DataItem,
     DisplayStatement,
     DivideStatement,
+    ExitProgramStatement,
     Expression,
     FileAccessMode,
     FieldReference,
@@ -69,6 +70,33 @@ from engine.transformation.ir import (
 
 class CobolParseError(Exception):
     """Raised when COBOL source contains unsupported or invalid syntax."""
+
+
+# A statement's own closing delimiter (or a stand-alone paragraph/section
+# terminator).  These are structure, not constructs: recognising them keeps a
+# left-over END-* out of the unsupported-statement diagnostic channel, where it
+# would otherwise be reported as semantic loss.
+_SCOPE_TERMINATOR = re.compile(
+    r"^END-(?:READ|WRITE|REWRITE|DELETE|STRING|UNSTRING|PERFORM|IF|EVALUATE"
+    r"|SEARCH|CALL|EXEC|PARA(?:GRAPH)?|SECTION)\.?$"
+    r"|^(?:CONTINUE)\.?$",
+    re.IGNORECASE,
+)
+
+# Words that end in a period but are statements, not paragraph headings.
+# Treating them as paragraph names silently splits the program and drops the
+# statement itself, so the paragraph detector refuses them explicitly.
+_NON_PARAGRAPH_WORDS = frozenset({
+    "EXIT", "CONTINUE", "GOBACK", "STOP", "NEXT", "END",
+})
+
+
+def _is_paragraph_name(name: str) -> bool:
+    """True when ``name`` may be a paragraph heading rather than a statement."""
+    upper = name.upper()
+    if upper.startswith("END-"):
+        return False
+    return upper not in _NON_PARAGRAPH_WORDS
 
 
 def _clean_line(line: str) -> str:
@@ -134,6 +162,29 @@ class CobolParser:
         self._diagnostics = diagnostics or DiagnosticCollector()
         self._unsupported_statements: list[str] = []
 
+    @property
+    def diagnostics(self) -> DiagnosticCollector:
+        """Diagnostics produced by the most recent parse calls.
+
+        Callers that must not lose semantic information (application
+        discovery feeding capability analysis) read this collector so that a
+        statement the parser could not turn into IR stays visible downstream.
+        """
+        return self._diagnostics
+
+    def _emit_unparsed(self, statement: str, line: str) -> None:
+        """Record that a recognised statement produced no usable IR.
+
+        Without this the statement becomes an empty-but-present IR node that
+        still maps to a SUPPORTED registry key, so the capability analyzer
+        can never observe the loss.
+        """
+        self._diagnostics.warning(
+            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+            f"Statement did not parse into IR: {statement} ({line.strip()[:60]})",
+            location=statement,
+        )
+
     def parse(self, source: str) -> CobolProgram:
         """Parse COBOL source text into a CobolProgram IR."""
         lines = source.split("\n")
@@ -141,6 +192,16 @@ class CobolParser:
         code_lines = []
         for line in lines:
             cleaned = _strip_area_prefix(line)
+            # Fixed-format source carries a 6-column sequence number and a
+            # column-7 indicator.  Free-format source has no such prefix, so
+            # only lines that actually begin with six digits are rewritten.
+            # Without this every fixed-format source fails to parse.
+            area_match = re.match(r"^(\d{6})(.)(.*)$", cleaned)
+            if area_match:
+                indicator = area_match.group(2)
+                if indicator in ("*", "/"):
+                    continue  # comment line (column 7 is * or /)
+                cleaned = area_match.group(3).lstrip()
             if cleaned and not cleaned.startswith("*"):
                 code_lines.append(cleaned)
 
@@ -655,7 +716,7 @@ class CobolParser:
             para_match = re.match(r"([A-Z0-9][\w-]*)\.", line.strip())
             if para_match and "PIC" not in upper and "VALUE" not in upper:
                 name = para_match.group(1)
-                if not name.upper().startswith("END-"):
+                if _is_paragraph_name(name):
                     paragraph_names.add(name)
 
         # Second pass: parse with knowledge of all paragraph names
@@ -690,7 +751,7 @@ class CobolParser:
             para_match = re.match(r"([A-Z0-9][\w-]*)\.", line.strip())
             if para_match and "PIC" not in upper and "VALUE" not in upper:
                 name = para_match.group(1)
-                if not name.upper().startswith("END-"):
+                if _is_paragraph_name(name):
                     # Save previous paragraph
                     if current_paragraph:
                         paragraphs.append(Paragraph(
@@ -799,9 +860,23 @@ class CobolParser:
         if upper.startswith(("GO TO", "GOTO")):
             return self._parse_goto(lines, start)
 
+        # EXIT PROGRAM — terminate this program and return to the caller.
+        # Recognised explicitly so it reaches the IR instead of being dropped
+        # by the unknown-statement fallthrough.
+        if upper.startswith("EXIT PROGRAM"):
+            return ExitProgramStatement(), start + 1
+
         # STOP RUN
         if upper.startswith("STOP RUN"):
             return StopRunStatement(), start + 1
+
+        # Scope terminators left behind by a statement parser that returned
+        # before its closing delimiter.  They carry no executable semantics of
+        # their own, so consuming them here keeps them out of the
+        # unsupported-statement channel instead of degrading the program on a
+        # non-construct.
+        if _SCOPE_TERMINATOR.match(line):
+            return None, start + 1
 
         # Unknown statement — skip
         line = lines[start].strip()
@@ -831,7 +906,13 @@ class CobolParser:
         return OpenStatement(mode=mode, file_name=file_name), start + 1
 
     def _parse_read(self, lines: list[str], start: int) -> tuple[ReadStatement, int]:
-        """Parse READ ... AT END / NOT AT END statement."""
+        """Parse READ ... AT END / NOT AT END statement.
+
+        Consumption is bounded: the statement ends at its END-READ delimiter,
+        or — when no clause header has been seen yet — at the end of the READ
+        line itself.  An unbounded scan past the statement would swallow every
+        following statement with no diagnostic, which is silent semantic loss.
+        """
         line = lines[start].strip()
 
         # Extract file name
@@ -844,35 +925,93 @@ class CobolParser:
         at_end_body: list[Any] = []
         not_at_end_body: list[Any] = []
 
+        # A clause header may sit on the READ line itself.  Only then may the
+        # scan continue onto following lines looking for END-READ.
+        header = re.search(r"\bNOT\s+AT\s+END\b|\bAT\s+END\b", line, re.IGNORECASE)
+
         i = start + 1
         current_section = None
+        closed = False
+        if header is not None:
+            current_section = (
+                "not_at_end"
+                if re.match(r"NOT\s+AT\s+END", line[header.start():], re.IGNORECASE)
+                else "at_end"
+            )
+            inline_body = at_end_body if current_section == "at_end" else not_at_end_body
+            tail = line[header.end():]
+            end_marker = re.search(r"\bEND-READ\b", tail, re.IGNORECASE)
+            if end_marker:
+                tail = tail[:end_marker.start()]
+                closed = True
+            elif line.rstrip().endswith("."):
+                # No END-READ, but the sentence is terminated by the period,
+                # which also ends the AT END clause.
+                closed = True
+            for segment in [s for s in re.split(r"\s*\.\s*", tail) if s.strip()]:
+                stmt, _ = self._parse_statement([segment], 0)
+                if stmt is not None:
+                    inline_body.append(stmt)
+            if closed:
+                return ReadStatement(
+                    file_name=file_name,
+                    record_name=record_name,
+                    at_end_body=tuple(at_end_body),
+                    not_at_end_body=tuple(not_at_end_body),
+                ), start + 1
+        elif line.rstrip().endswith("."):
+            # Period-terminated READ with no clause: the statement is complete.
+            return ReadStatement(
+                file_name=file_name,
+                record_name=record_name,
+                at_end_body=(),
+                not_at_end_body=(),
+            ), start + 1
 
         while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
 
-            if "AT END" in u and "NOT AT END" not in u:
-                current_section = "at_end"
+            if not l or l.startswith("*"):
                 i += 1
                 continue
-            if "NOT AT END" in u:
+            if re.search(r"\bNOT\s+AT\s+END\b", u):
                 current_section = "not_at_end"
+                i += 1
+                continue
+            if re.search(r"\bAT\s+END\b", u):
+                current_section = "at_end"
                 i += 1
                 continue
             if u.startswith("END-READ"):
                 i += 1
+                closed = True
                 break
 
-            if current_section == "at_end":
-                stmt, i = self._parse_statement(lines, i)
-                if stmt is not None:
+            if current_section is None:
+                # No clause header yet: the READ statement already ended on a
+                # previous line.  Stop instead of consuming this statement.
+                break
+
+            stmt, i = self._parse_statement(lines, i)
+            if stmt is not None:
+                if current_section == "at_end":
                     at_end_body.append(stmt)
-            elif current_section == "not_at_end":
-                stmt, i = self._parse_statement(lines, i)
-                if stmt is not None:
+                else:
                     not_at_end_body.append(stmt)
-            else:
-                i += 1
+            if l.endswith("."):
+                # The period terminates the sentence, and with it the AT END
+                # clause (COBOL scope rule).
+                closed = True
+                break
+
+        if current_section is not None and not closed:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"READ {file_name}: END-READ not found; clause body may be "
+                "incomplete",
+                location=f"line {start + 1}",
+            )
 
         return ReadStatement(
             file_name=file_name,
@@ -910,6 +1049,7 @@ class CobolParser:
                 target_ref=FieldReference(name=target) if target else None,
             ), start + 1
 
+        self._emit_unparsed("MOVE", lines[start])
         return MoveStatement(source="", target=""), start + 1
 
     def _parse_add(self, lines: list[str], start: int) -> tuple[AddStatement, int]:
@@ -935,6 +1075,7 @@ class CobolParser:
                 rounded=rounded,
             ), start + 1
 
+        self._emit_unparsed("ADD", lines[start])
         return AddStatement(source="", target=""), start + 1
 
     def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
@@ -946,6 +1087,7 @@ class CobolParser:
             re.IGNORECASE,
         )
         if not match:
+            self._emit_unparsed("SUBTRACT", lines[start])
             return SubtractStatement(source="", from_field=""), start + 1
         source = match.group(1).rstrip(".")
         from_field = match.group(2).rstrip(".")
@@ -995,6 +1137,7 @@ class CobolParser:
         text = " ".join(parts).rstrip(".").strip()
         match = re.match(r"CALL\s+(?:'([^']+)'|\"([^\"]+)\"|(\S+))(?:\s+USING\s+(.+))?$", text, re.IGNORECASE)
         if not match:
+            self._emit_unparsed("CALL", text)
             return CallStatement(program_name="", is_dynamic=True), i + 1
         program_name = next((g for g in match.groups()[:3] if g), "")
         using = match.group(4) or ""
@@ -1041,6 +1184,37 @@ class CobolParser:
                 rounded=rounded,
             ), start + 1
 
+        # DIVIDE <a> INTO <b> [GIVING <c>]: result = b / a.
+        # With GIVING, <c> receives b / a and <b> is unchanged; without it
+        # <b> itself is overwritten.  Expressed with the same IR fields as the
+        # BY form (source = numerator, divisor = denominator).
+        into_match = re.search(
+            r"DIVIDE\s+(\S+)\s+INTO\s+(\S+)(?:\s+GIVING\s+(\S+))?"
+            r"(?:\s+ROUNDED)?(?:\s+REMAINDER\s+(\S+))?",
+            line, re.IGNORECASE,
+        )
+        if into_match:
+            numerator = into_match.group(2).strip().rstrip(".")
+            denominator = into_match.group(1).strip().rstrip(".")
+            target = (
+                into_match.group(3).strip().rstrip(".")
+                if into_match.group(3)
+                else numerator
+            )
+            remainder = into_match.group(4).strip().rstrip(".") if into_match.group(4) else ""
+            rounded = bool(re.search(r"\sROUNDED(?:\s+REMAINDER\b|\s*\.|\s*)", line, re.IGNORECASE))
+            return DivideStatement(
+                source=numerator,
+                divisor=denominator,
+                target=target,
+                remainder=remainder,
+                source_expr=self._build_expression(numerator),
+                divisor_expr=self._build_expression(denominator),
+                target_ref=FieldReference(name=target),
+                rounded=rounded,
+            ), start + 1
+
+        self._emit_unparsed("DIVIDE", lines[start])
         return DivideStatement(source="", divisor="", target=""), start + 1
 
     def _parse_compute(self, lines: list[str], start: int) -> tuple['ComputeStatement', int]:
@@ -1066,6 +1240,7 @@ class CobolParser:
                 rounded=rounded,
             ), start + 1
 
+        self._emit_unparsed("COMPUTE", lines[start])
         return ComputeStatement(target="", expression=""), start + 1
 
     def _parse_evaluate(self, lines: list[str], start: int) -> tuple[IfStatement, int]:
@@ -1250,6 +1425,7 @@ class CobolParser:
         m = re.match(r"PERFORM\s+([\w-]+)$", line, re.IGNORECASE)
         if m:
             return PerformStatement(paragraph_name=m.group(1), test_after=test_after), start + 1
+        self._emit_unparsed("PERFORM", lines[start])
         return PerformStatement(paragraph_name="", test_after=test_after), start + 1
 
     def _parse_unstring(self, lines: list[str], start: int) -> tuple[UnstringStatement, int]:

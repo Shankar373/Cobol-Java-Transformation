@@ -31,6 +31,7 @@ from engine.transformation.ir import (
     DeleteStatement,
     DisplayStatement,
     DivideStatement,
+    ExitProgramStatement,
     GoToStatement,
     IfStatement,
     MoveStatement,
@@ -104,14 +105,43 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "READ": _supported("READ is mapped to deterministic file-input semantics"),
     "WRITE": _supported("WRITE is mapped to deterministic file-output semantics"),
     "OPEN": _supported("OPEN is mapped to file-resource semantics"),
-    "CLOSE": _supported("CLOSE is mapped to file-resource semantics"),
-    "START": _supported("START has an explicit IR mapping"),
-    "REWRITE": _supported("REWRITE has an explicit IR mapping"),
-    "DELETE": _supported("DELETE has an explicit IR mapping"),
+    "CLOSE": _supported(
+        "CLOSE is mapped to file-resource semantics",
+        # The deterministic mapper has a CloseStatement branch, but
+        # CobolParser never constructs CloseStatement, so a CLOSE in source
+        # can never reach it.  Absence of IR proves the instance is dropped.
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "START": _supported(
+        "START has an explicit IR mapping",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "REWRITE": _supported(
+        "REWRITE has an explicit IR mapping",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "DELETE": _supported(
+        "DELETE has an explicit IR mapping",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "INVALID KEY": _supported(
+        "IR file nodes carry invalid_key_body and the mapper emits the "
+        "branch",
+        # CobolParser never populates invalid_key_body, so the clause body is
+        # dropped and the file verb behaves as if the condition never holds.
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "STRING": _supported("STRING is mapped to Java string construction"),
     "UNSTRING": _partial("UNSTRING is supported only for the certified delimited subset"),
     "DISPLAY": _supported("DISPLAY is mapped to deterministic output semantics"),
     "STOP RUN": _supported("STOP RUN terminates generated execution"),
+    "EXIT PROGRAM": _supported(
+        "EXIT PROGRAM is mapped to a Java return from the generated "
+        "program body",
+        # A source instance with no ExitProgramStatement means the parser
+        # dropped it and no Java return is emitted for that exit.
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "CALL": _supported("Static CALL has an explicit application dependency mapping"),
     "GO TO": _unsupported("GO TO has no semantic Java control-flow mapping"),
     "PERFORM TIMES": _supported(
@@ -168,6 +198,7 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     RewriteStatement.__name__: "REWRITE",
     StartStatement.__name__: "START",
     StopRunStatement.__name__: "STOP RUN",
+    ExitProgramStatement.__name__: "EXIT PROGRAM",
     StringStatement.__name__: "STRING",
     SubtractStatement.__name__: "SUBTRACT",
     UnstringStatement.__name__: "UNSTRING",
@@ -209,6 +240,12 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("GOBACK", re.compile(r"(?<![\w-])GOBACK(?![\w-])", re.IGNORECASE)),
     ("SIZE ERROR", re.compile(r"(?<![\w-])(?:ON\s+)?SIZE\s+ERROR(?![\w-])", re.IGNORECASE)),
     ("PERFORM TIMES", re.compile(r"(?<![\w-])PERFORM\b[^.\n]*(?:\bTIMES\b|\bVARYING\b)(?![\w-])", re.IGNORECASE)),
+    ("CLOSE", re.compile(r"(?<![\w-])CLOSE(?![\w-])", re.IGNORECASE)),
+    ("START", re.compile(r"(?<![\w-])START(?![\w-])", re.IGNORECASE)),
+    ("EXIT PROGRAM", re.compile(r"(?<![\w-])EXIT\s+PROGRAM(?![\w-])", re.IGNORECASE)),
+    ("REWRITE", re.compile(r"(?<![\w-])REWRITE(?![\w-])", re.IGNORECASE)),
+    ("DELETE", re.compile(r"(?<![\w-])DELETE(?![\w-])", re.IGNORECASE)),
+    ("INVALID KEY", re.compile(r"(?<![\w-])INVALID\s+KEY(?![\w-])", re.IGNORECASE)),
 )
 
 
@@ -220,6 +257,10 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 CONSTRUCT_IR_COVERAGE: dict[str, tuple[str, ...]] = {
     "EVALUATE": ("IF/ELSE",),
     "PERFORM TIMES": ("PERFORM",),
+    # Only the sentinel added by the capability walker when a statement
+    # actually carries a non-empty invalid_key_body proves the clause was
+    # represented; a bare ReadStatement/WriteStatement does not.
+    "INVALID KEY": ("InvalidKeyScope",),
 }
 
 

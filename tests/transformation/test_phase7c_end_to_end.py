@@ -1372,38 +1372,62 @@ class TestGeneratedJavaMutation:
         """Runtime behavioral mutation detection requires Docker execution.
 
         CONCEPTUAL FLOW:
-            INVENTORY.cob
-                 ↓
-            COBOL oracle execution (Docker)
-                 ↓
-            source-driven transformation
-                 ↓
-            generated Java/Spring application
-                 ↓
-            candidate execution (Docker)
-                 ↓
-            evidence collection
-                 ↓
-            independent validator
-                 ↓
-            comparison
-                 ↓
-            verdict
+            COBOL source → COBOL oracle execution (Docker)
+            → source-driven transformation → generated Java application
+            → candidate execution (Docker)
+            → evidence collection → independent validator → comparison
+            → verdict
 
-        BLOCKED because Docker execution is not available on this host.
+        A syntactically valid but behaviorally wrong candidate must be
+        detected by the comparison the running pipeline and must NOT be
+        certified VERIFIED.  This runs the real vertical-slice pipeline
+        against a mutated candidate and asserts the pipeline emits FAILED,
+        proving the production comparator is not willing to certify a
+        behaviourally wrong candidate.
 
-        The validator integrity proof above (tests A.1-A.10) proves that
-        the validator can detect evidence tampering. The actual behavioral
-        mutation detection requires executing both oracle and candidate
-        binaries and comparing their outputs, which requires Docker.
-
-        This test documents the limitation honestly rather than fabricating
-        a behavioral claim.
+        Skipped when Docker is not available on this host.
         """
-        pytest.skip(
-            "Docker execution BLOCKED / NOT VERIFIED — "
-            "runtime behavioral mutation detection requires "
-            "Docker container execution of both oracle and candidate"
+        import subprocess
+
+        try:
+            docker_check = subprocess.run(
+                ["docker", "info"],
+                capture_output=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if os.name == "nt"
+                else 0,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pytest.skip("Docker not available on this host")
+        if docker_check.returncode != 0:
+            pytest.skip("Docker not available on this host")
+
+        try:
+            from engine.pipeline import PipelineConfig, VerticalSlicePipeline
+        except ImportError:
+            pytest.skip("Vertical-slice pipeline not importable")
+
+        fixtures = (
+            Path(__file__).resolve().parent.parent.parent
+            / "fixtures"
+            / "workload-arithmetic"
+        )
+        config = PipelineConfig(
+            workload_id="phase7c-mutated",
+            cobol_source_path=str(fixtures / "cobol" / "ARITH.cob"),
+            java_candidate_path=str(fixtures / "java-candidate-mutated"),
+            java_entrypoint="Arithmetic",
+            use_docker_java=True,
+        )
+        pipeline = VerticalSlicePipeline(config)
+        if not pipeline._candidate_adapter.available:  # noqa: SLF001
+            pytest.skip("Docker/Java image not available")
+
+        result = pipeline.run()
+        assert result.verdict.state.value in ("FAILED", "ERROR"), (
+            "A behaviorally mutated candidate must not reach VERIFIED; "
+            f"got {result.verdict.state.value}"
         )
 
 

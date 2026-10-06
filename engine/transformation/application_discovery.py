@@ -207,8 +207,20 @@ class ApplicationDiscovery:
             # source file; exclude it from discovery (not an error).
             return None, None
 
+        # Snapshot so diagnostics raised by this unit can be attributed to it
+        # even though the parser instance is shared across files.
+        diags_before = self._parser.diagnostics.all
+        parse_diagnostics: tuple[str, ...] = ()
+
+        def _collected_diagnostics() -> tuple[str, ...]:
+            return tuple(
+                f"{d.code.name}: {d.message}"
+                for d in self._parser.diagnostics.all[len(diags_before):]
+            )
+
         try:
             program = self._parser.parse(source)
+            parse_diagnostics = _collected_diagnostics()
 
             # Extract dependencies from source
             calls = self._extract_calls(source, program.program_id)
@@ -250,6 +262,7 @@ class ApplicationDiscovery:
                 entry_points=tuple(entry_points),
                 file_dependencies=tuple(file_deps),
                 source_text=source,
+                parse_diagnostics=parse_diagnostics,
             ), None
 
         except CobolParseError as e:
@@ -289,6 +302,7 @@ class ApplicationDiscovery:
                 file_dependencies=tuple(file_deps),
                 source_text=source,
                 parse_error=str(e),
+                parse_diagnostics=_collected_diagnostics(),
             ), None
 
         except Exception as e:
@@ -314,7 +328,11 @@ class ApplicationDiscovery:
             stripped = line.strip()
             if stripped.startswith("*") or not stripped:
                 continue
-            m = re.match(r"PROGRAM-ID[.\s]+([A-Z0-9][A-Z0-9\-]*)", stripped, re.IGNORECASE)
+            # Fixed-format source carries a 6-column sequence number, so the
+            # verb does not start the (stripped) line.  Search rather than
+            # anchor on the column start, otherwise the file is silently
+            # excluded from discovery.
+            m = re.search(r"PROGRAM-ID[.\s]+([A-Z0-9][A-Z0-9\-]*)", stripped, re.IGNORECASE)
             if m:
                 return m.group(1).rstrip(".").strip()
         return ""

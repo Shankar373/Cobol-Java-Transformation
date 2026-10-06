@@ -260,6 +260,17 @@ class CapabilityAnalyzer:
                 f"Parser raised CobolParseError: {unit.parse_error}",
             ))
 
+        # Diagnostics emitted while parsing individual statements.  They mark
+        # constructs the parser recognised but could not turn into IR; without
+        # them an empty-but-present node still maps to a SUPPORTED registry key
+        # and the loss is invisible to every later gate.
+        for message in unit.parse_diagnostics:
+            findings.append((
+                "unparsed_statement",
+                CapabilityLevel.UNSUPPORTED,
+                message,
+            ))
+
         def _note_ir(name: str) -> None:
             ir_types_seen.add(name)
             key = IR_TYPE_TO_CONSTRUCT.get(name)
@@ -353,10 +364,23 @@ class CapabilityAnalyzer:
                     # The parser produced IR for this construct; the registry
                     # IR level is the authoritative verdict.
                     continue
-                if ir_covers(key, ir_construct_keys):
+                if ir_covers(key, ir_construct_keys | ir_types_seen):
                     # The construct is legitimately realised by a different
                     # IR node (e.g. EVALUATE -> IfStatement, PERFORM ... TIMES
                     # -> PerformStatement); the IR walk already classified it.
+                    continue
+                if entry.effective_source_level is CapabilityLevel.UNSUPPORTED:
+                    # The construct appears in source but the deterministic
+                    # parser never turns it into IR (it has no real mapping),
+                    # so the mapper can never see it.  Do not repeat the
+                    # registry's IR-level evidence here — it would read as
+                    # support for something the output can never contain.
+                    findings.append((
+                        key,
+                        CapabilityLevel.UNSUPPORTED,
+                        f"{key} is used in source but the deterministic "
+                        "parser has no IR for it; it cannot be transformed",
+                    ))
                     continue
                 findings.append((key, entry.effective_source_level, entry.evidence))
 

@@ -529,6 +529,11 @@ class StopRunStatement:
     """STOP RUN."""
 
 
+@dataclass(frozen=True)
+class ExitProgramStatement:
+    """EXIT PROGRAM — terminate this program and return to the caller."""
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
@@ -554,6 +559,7 @@ Statement = (
     | DisplayStatement
     | GoToStatement
     | StopRunStatement
+    | ExitProgramStatement
 )
 
 
@@ -927,6 +933,13 @@ class CobolProgramUnit:
     # analyzer treats this as an additional signal to classify the program via
     # source scan rather than IR walk alone.
     parse_error: str = ""
+    # Diagnostics emitted while this unit's statements were parsed, rendered as
+    # "CODE: message".  A statement the parser recognised but could not turn
+    # into IR would otherwise survive as an empty-but-present node that still
+    # maps to a SUPPORTED registry key, so capability analysis would report a
+    # loss it could never see.  Non-empty => the unit must not be reported as
+    # fully SUPPORTED on IR evidence alone.
+    parse_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

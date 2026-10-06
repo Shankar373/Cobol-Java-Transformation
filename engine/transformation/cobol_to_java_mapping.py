@@ -54,6 +54,7 @@ from engine.transformation.ir import (
     SubtractStatement,
     UnstringStatement,
     WriteStatement,
+    ExitProgramStatement,
 )
 
 from engine.transformation.java_ir import (
@@ -1048,6 +1049,7 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     PerformStatement, ReadStatement, WriteStatement, OpenStatement, CloseStatement,
     StartStatement, RewriteStatement, DeleteStatement, StringStatement,
     StopRunStatement, CallStatement,
+    ExitProgramStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset({UnstringStatement})
 STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement, PerformTimesStatement})
@@ -1305,6 +1307,11 @@ def map_cobol_statement(
         result.append(JavaComment(text=f"// GO TO {stmt.target}"))
 
     elif isinstance(stmt, StopRunStatement):
+        result.append(JavaReturn())
+
+    elif isinstance(stmt, ExitProgramStatement):
+        # EXIT PROGRAM returns control to the caller — a Java return from the
+        # generated program body.
         result.append(JavaReturn())
 
     elif isinstance(stmt, ReadStatement):
