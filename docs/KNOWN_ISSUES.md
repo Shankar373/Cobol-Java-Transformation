@@ -1,6 +1,6 @@
 # Known Issues
 
-Known-issues baseline: 90efdca6c9da3e36888c78f8c3b88757dbcc15f3 (Phase A), CI Run #306 GREEN.
+Known-issues baseline: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 (Phase A), Push CI #417 / PR CI #418 GREEN.
 Lifecycle/persistence/API security hardening has since been applied on top of this baseline.
 
 ## Open material issues
@@ -45,7 +45,7 @@ dependency scanning, contract/schema checks and mutation testing.
 ## Resolved / historical
 
 ### TypeScript JSX build blocker — RESOLVED
-The old TypeScript JSX fragment/build issue is no longer an active CI blocker. Run #306 passes
+The old TypeScript JSX fragment/build issue is no longer an active CI blocker. Push CI #417 / PR CI #418 passes
 the frontend production build.
 
 ### Docker-unavailable local verification — HISTORICAL

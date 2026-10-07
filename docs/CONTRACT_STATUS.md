@@ -1,6 +1,6 @@
 # Contract and Specification Status
 
-Baseline: 90efdca6c9da3e36888c78f8c3b88757dbcc15f3
+Baseline: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4
 
 The contracts were originally written during the greenfield phase. Their normative
 requirements remain relevant, but old statements saying implementation is a later phase are

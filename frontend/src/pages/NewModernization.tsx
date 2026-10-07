@@ -124,7 +124,7 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
         title="New Modernization"
         meta={
           <span style={{ fontSize: 12, color: tokens.colors.textMuted }}>
-            Upload a legacy COBOL application to begin the modernization pipeline
+            Upload a legacy COBOL application to begin the modernization pipeline. Upload → Discover → Understand → Plan → Transform → Validate → Certify. Compilation is not certification.
           </span>
         }
       />

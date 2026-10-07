@@ -1,8 +1,8 @@
 # Current Delivery Status
 
-**Authoritative baseline:** 90efdca6c9da3e36888c78f8c3b88757dbcc15f3  
+**Authoritative baseline:** fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4  
 **Branch:** codex/universal-core  
-**CI:** Run #306 — GREEN
+**CI:** Push CI #417 / PR CI #418 — GREEN
 
 This document is retained as the delivery-status entry point. Detailed current truth is now
 split into the authoritative documents below.
@@ -28,7 +28,7 @@ remain outside the proven certification boundary.
 
 ## CI
 
-Run #306 is green across ingestion, backend/COBOL-Java Docker validation and frontend/build.
+Push CI #417 / PR CI #418 is green across ingestion, backend/COBOL-Java Docker validation and frontend/build.
 The previous frontend TypeScript build blocker is historical/resolved.
 
 ## Documentation rule

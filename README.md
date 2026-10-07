@@ -2,11 +2,10 @@
 
 **SystemaOps deterministic COBOL to Java modernization and verification platform.**
 
-> CURRENT BASELINE: 90efdca6c9da3e36888c78f8c3b88757dbcc15f3 on codex/universal-core.
+> CURRENT BASELINE: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 on codex/universal-core.
 >
-> CI Run #306 is the last archived green run on record (historical provenance; the numeric
-> run ID refers to the pre-Phase-D baseline). Current Phase-D HEAD: 90efdca on
-> codex/universal-core.
+> Current CI: Push CI #417 GREEN, PR CI #418 GREEN.
+> Older CI run IDs (e.g. #306) and SHAs (e.g. 90efdca) are historical provenance only.
 >
 > This repository contains a working deterministic modernization pipeline, execution and
 > verification infrastructure, FastAPI control plane, React frontend, Docker-backed runtime
@@ -88,6 +87,7 @@ GnuCOBOL equivalence is not a blanket claim of z/OS or mainframe equivalence.
 
 ## Current documentation
 
+- docs/SYSTEMAOPS_PRODUCT_STATUS.md - canonical product status and positioning
 - docs/PROJECT_STATUS.md — current project truth
 - docs/ARCHITECTURE.md — current architecture
 - docs/REQUIREMENTS.md — current requirements and non-goals
@@ -103,7 +103,7 @@ Historical reports are not rewritten to make old results look current.
 
 ## CI baseline
 
-Run #306 is GREEN:
+Push CI #417 / PR CI #418 is GREEN:
 
 - Phase 1 ingestion: PASS
 - Backend + COBOL/Java Docker: PASS
