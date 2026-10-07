@@ -504,6 +504,7 @@ class JavaSummaryField:
     java_var_name: str  # Java variable name
     format_width: int = 0  # from PIC metadata — 0 means no formatting
     is_numeric: bool = True
+    format_spec: str = ""  # type-aware String.format specifier ("" = width only)
 
 
 @dataclass(frozen=True)

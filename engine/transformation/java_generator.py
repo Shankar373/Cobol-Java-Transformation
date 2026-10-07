@@ -34,8 +34,23 @@ from engine.transformation.java_ir import (
 
 from engine.transformation.numeric_semantics import (
     NumericValueError,
+    display_format_spec,
+    is_fractional_format_spec,
+    java_integral_suffix,
     normalize_value_for_pic,
 )
+
+
+# An integral Java literal may carry a type suffix (``123L``); such a value
+# is still a numeric literal and must never be quoted as a String.
+_JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
+
+
+def _format_call(spec: str, var: str, indent: str) -> str:
+    """Render a locale-safe ``String.format`` call for a numeric DISPLAY."""
+    if is_fractional_format_spec(spec):
+        return f"{indent}String.format(java.util.Locale.US, \"{spec}\", {var})"
+    return f"{indent}String.format(\"{spec}\", {var})"
 
 
 @dataclass
@@ -740,7 +755,12 @@ public class {class_name} {{
         """Build summary output lines from Java IR."""
         lines = []
         for sf in summary_fields:
-            if sf.format_width > 0:
+            if sf.format_spec and sf.is_numeric:
+                formatted = _format_call(sf.format_spec, sf.java_var_name, "")
+                lines.append(
+                    f'        System.out.println("{sf.field_name}=" + {formatted});'
+                )
+            elif sf.format_width > 0 and sf.is_numeric:
                 lines.append(
                     f'        System.out.println("{sf.field_name}=" + '
                     f'String.format("%0{sf.format_width}d", {sf.java_var_name}));'
@@ -946,7 +966,9 @@ public class {class_name} {{
             if len(expr.value) >= 2 and expr.value.startswith("'") and expr.value.endswith("'"):
                 return f'"{self._escape_java_string(expr.value[1:-1])}"'
             # If it looks like a string value (not a number, not a condition)
-            if not expr.value.replace(".", "").replace("-", "").isdigit():
+            if not expr.value.replace(".", "").replace("-", "").isdigit() and not (
+                _JAVA_LITERAL_SUFFIX_RE.match(expr.value)
+            ):
                 # Check if it's a condition expression (contains operators)
                 if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
                     return expr.value  # Don't quote conditions
@@ -1410,12 +1432,21 @@ public class {class_name} {{
         for field in summary_fields:
             java_var = self._cobol_field_to_java_var(field)
             data_item = ws_lookup.get(field)
-            if data_item and hasattr(data_item, "format_width"):
-                width = data_item.format_width
-                if width < 1:
-                    width = 1
+            spec = ""
+            if (
+                data_item is not None
+                and getattr(data_item, "is_numeric", False)
+                and data_item.pic_length > 0
+            ):
+                spec = display_format_spec(
+                    integer_digits=data_item.integer_digits,
+                    decimal_digits=data_item.decimal_places,
+                    signed=data_item.signed,
+                )
+            if spec:
+                formatted = _format_call(spec, java_var, "")
                 lines.append(
-                    f'        System.out.println("{field}=" + String.format("%0{width}d", {java_var}));'
+                    f'        System.out.println("{field}=" + {formatted});'
                 )
             else:
                 lines.append(
@@ -1604,17 +1635,22 @@ public class {class_name} {{
 
         Numeric VALUE literals are normalized deterministically (no Java
         octal ambiguity, fractional digits truncated to the PIC scale,
-        overflow keeps the least-significant declared digits).  An invalid
-        numeric VALUE raises :class:`NumericValueError` so generation fails
-        closed instead of emitting a bare Java identifier.
+        overflow keeps the least-significant declared digits, a signed
+        literal is rejected on an unsigned PIC, and a value outside Java's
+        ``int`` range carries the ``L`` suffix so the declaration
+        compiles).  An invalid numeric VALUE raises
+        :class:`NumericValueError` so generation fails closed instead of
+        emitting a bare Java identifier.
         """
         if not item.value:
             return "0"
-        return normalize_value_for_pic(
+        normalized = normalize_value_for_pic(
             item.value,
             integer_digits=item.integer_digits,
             decimal_digits=item.decimal_places,
+            signed=item.signed,
         )
+        return f"{normalized}{java_integral_suffix(normalized)}"
 
     def _gen_io_variable_declarations(
         self,

@@ -242,7 +242,9 @@ class TestTransformationChain:
         files, _ = _generate_springboot_project(ARITH_COBOL)
         svc = next(f for f in files if "Arithmetic.java" in f.path)
         assert "WS_SUM = (WS_A + WS_B)" in svc.source_code
-        assert "WS_DIFF = (WS_A - WS_B)" in svc.source_code
+        # Unsigned receiver: GnuCOBOL stores the magnitude of a negative
+        # difference, so the generator wraps the subtraction in Math.abs.
+        assert "WS_DIFF = Math.abs((WS_A - WS_B))" in svc.source_code
         assert "WS_PROD = (WS_A * WS_B)" in svc.source_code
         assert "WS_QUOT = (WS_A / WS_B)" in svc.source_code
         assert "WS_REM = (WS_A % WS_B)" in svc.source_code

@@ -7,8 +7,14 @@ Covers:
 - integer overflow keeps the least-significant declared digits;
 - ZERO / ZEROS / ZEROES map to 0;
 - non-numeric numeric VALUEs fail closed (NumericValueError);
+- a signed literal on an unsigned PIC fails closed (GnuCOBOL: 'data item
+  not signed');
+- integral literals outside Java's int range are typed long and suffixed L;
+- the DISPLAY String.format specifier reproduces the GnuCOBOL digit field
+  (sign column, zero fill, scale);
+- an unsigned receiver stores the magnitude of a negative result;
 - format_width/pic_length no longer double-count fractional digits;
-- generated Java contains the normalized literals.
+- generated Java contains the normalized literals and compiles/runs.
 """
 
 import subprocess
@@ -25,6 +31,9 @@ from engine.transformation.cobol_to_java_mapping import (
 from engine.transformation.java_generator import JavaGenerator
 from engine.transformation.numeric_semantics import (
     NumericValueError,
+    display_format_spec,
+    is_fractional_format_spec,
+    java_integral_suffix,
     normalize_numeric_literal,
     normalize_value_for_pic,
 )
@@ -71,41 +80,119 @@ class TestNormalizeNumericLiteral:
 
 class TestNormalizeValueForPic:
     @pytest.mark.parametrize(
-        ("source", "integer_digits", "decimal_digits", "expected"),
+        ("source", "integer_digits", "decimal_digits", "signed", "expected"),
         [
             # leading-zero literals are decimal, never Java-octal
-            ("007", 3, 0, "7"),
-            ("009", 3, 0, "9"),
-            ("000", 3, 0, "0"),
-            # sign is preserved
-            ("-12", 4, 0, "-12"),
-            ("+12", 4, 0, "12"),
+            ("007", 3, 0, False, "7"),
+            ("009", 3, 0, False, "9"),
+            ("000", 3, 0, False, "0"),
+            # sign is preserved (signed PIC only — see fail-closed test below)
+            ("-12", 4, 0, True, "-12"),
+            ("+12", 4, 0, True, "12"),
             # fractional digits are truncated (COBOL truncates, not rounds)
-            ("1.234", 2, 2, "1.23"),
-            ("-1.239", 3, 2, "-1.23"),
-            ("12.7", 3, 0, "12"),
-            ("000123.4", 6, 2, "123.40"),
+            ("1.234", 2, 2, False, "1.23"),
+            ("-1.239", 3, 2, True, "-1.23"),
+            ("12.7", 3, 0, False, "12"),
+            ("000123.4", 6, 2, False, "123.40"),
             # scale normalizes to exactly the declared fractional digits
-            ("1.2", 2, 2, "1.20"),
-            ("1", 2, 2, "1.00"),
-            ("0", 3, 2, "0.00"),
+            ("1.2", 2, 2, False, "1.20"),
+            ("1", 2, 2, False, "1.00"),
+            ("0", 3, 2, False, "0.00"),
             # integer overflow keeps least-significant declared digits
-            ("1234", 3, 0, "234"),
-            ("12345.67", 3, 2, "345.67"),
-            ("-1234", 3, 0, "-234"),
+            ("1234", 3, 0, False, "234"),
+            ("12345.67", 3, 2, False, "345.67"),
+            ("-1234", 3, 0, True, "-234"),
             # no overflow
-            ("123.45", 3, 2, "123.45"),
+            ("123.45", 3, 2, False, "123.45"),
         ],
     )
-    def test_value_against_pic(self, source, integer_digits, decimal_digits, expected):
+    def test_value_against_pic(
+        self, source, integer_digits, decimal_digits, signed, expected
+    ):
         assert (
             normalize_value_for_pic(
                 source,
                 integer_digits=integer_digits,
                 decimal_digits=decimal_digits,
+                signed=signed,
             )
             == expected
         )
+
+    @pytest.mark.parametrize("source", ["-5", "+007"])
+    def test_signed_literal_on_unsigned_pic_fails_closed(self, source):
+        """GnuCOBOL rejects ``PIC 9(3) VALUE -5`` with 'data item not signed'."""
+        with pytest.raises(NumericValueError, match="not signed"):
+            normalize_value_for_pic(
+                source, integer_digits=3, decimal_digits=0, signed=False
+            )
+
+
+class TestDisplayFormatSpec:
+    """The specifier must reproduce GnuCOBOL DISPLAY output byte for byte."""
+
+    @pytest.mark.parametrize(
+        ("integer_digits", "decimal_digits", "signed", "expected"),
+        [
+            (3, 0, False, "%03d"),
+            (4, 0, True, "%+05d"),
+            (6, 0, False, "%06d"),
+            (9, 0, True, "%+010d"),
+            (4, 2, False, "%07.2f"),
+            (3, 1, True, "%+06.1f"),
+            (5, 2, True, "%+09.2f"),
+            (7, 2, True, "%+011.2f"),
+        ],
+    )
+    def test_specifier_shape(self, integer_digits, decimal_digits, signed, expected):
+        assert (
+            display_format_spec(
+                integer_digits=integer_digits,
+                decimal_digits=decimal_digits,
+                signed=signed,
+            )
+            == expected
+        )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"integer_digits": 0, "decimal_digits": 0, "signed": False},
+            {"integer_digits": -1, "decimal_digits": 0, "signed": False},
+            {"integer_digits": 3, "decimal_digits": -1, "signed": False},
+        ],
+    )
+    def test_specifier_rejects_degenerate_pics(self, kwargs):
+        with pytest.raises(ValueError):
+            display_format_spec(**kwargs)
+
+    @pytest.mark.parametrize(
+        "spec", ["%03d", "%+05d", "%07.2f", "%+06.1f", "%06d", "%+011.2f"]
+    )
+    def test_fractional_specs_are_the_only_locale_sensitive_ones(self, spec):
+        assert is_fractional_format_spec(spec) is spec.endswith("f")
+
+
+class TestJavaIntegralSuffix:
+    @pytest.mark.parametrize(
+        ("canonical", "expected"),
+        [
+            ("0", ""),
+            ("7", ""),
+            ("999999999", ""),
+            ("-999999999", ""),
+            ("1000000000", ""),
+            ("2147483647", ""),
+            ("2147483648", "L"),
+            ("-2147483649", "L"),
+            ("12345678901", "L"),
+            ("123456789012345678", "L"),
+            ("123.45", ""),
+            ("-1.2", ""),
+        ],
+    )
+    def test_integral_suffix(self, canonical, expected):
+        assert java_integral_suffix(canonical) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +246,45 @@ def test_map_pic_default_invalid_numeric_value_fails_closed():
         map_pic_to_java_default(item)
 
 
+def test_signed_value_on_unsigned_pic_fails_closed():
+    """GnuCOBOL rejects ``PIC 9(3) VALUE -5`` with 'data item not signed'.
+
+    Accepting it would silently store a magnitude the oracle never stores,
+    so the mapping must raise instead of emitting a negative literal for an
+    unsigned Java field.
+    """
+    source = textwrap.dedent(
+        """\
+        IDENTIFICATION DIVISION.
+        PROGRAM-ID. SGNVAL.
+        DATA DIVISION.
+        WORKING-STORAGE SECTION.
+        01 BAD PIC 9(3) VALUE -5.
+        01 ALSO-BAD PIC 9(3) VALUE +007.
+        01 GOOD PIC S9(3) VALUE -5.
+        01 GOOD-TOO PIC 9(3) VALUE 007.
+        PROCEDURE DIVISION.
+        MAIN.
+            STOP RUN.
+        """
+    )
+    program = CobolParser().parse(source)
+    items = {item.name: item for item in program.working_storage}
+
+    with pytest.raises(NumericValueError, match="not signed"):
+        map_pic_to_java_default(items["BAD"])
+    with pytest.raises(NumericValueError, match="not signed"):
+        map_pic_to_java_default(items["ALSO-BAD"])
+
+    # Signed and plain unsigned literals keep working.
+    assert map_pic_to_java_default(items["GOOD"]) == "-5"
+    assert map_pic_to_java_default(items["GOOD-TOO"]) == "7"
+
+    # Generation fails closed rather than emitting a wrong-negated field.
+    with pytest.raises(NumericValueError, match="not signed"):
+        JavaGenerator().generate(program)
+
+
 # ---------------------------------------------------------------------------
 # Expression literals
 # ---------------------------------------------------------------------------
@@ -201,6 +327,46 @@ def test_generated_java_has_no_octal_and_scaled_defaults():
     assert "static int D = 007;" not in source
 
 
+def test_large_integral_literal_carries_long_suffix():
+    """A literal outside Java's int range must be typed and suffixed ``L``."""
+    from engine.transformation.java_ir import JavaBasicType
+
+    program = CobolParser().parse(
+        textwrap.dedent(
+            """\
+            IDENTIFICATION DIVISION.
+            PROGRAM-ID. BIGLIT.
+            DATA DIVISION.
+            WORKING-STORAGE SECTION.
+            01 BIG PIC 9(18) VALUE 123456789012345678.
+            01 MED PIC 9(11) VALUE 12345678901.
+            01 SMALL PIC 9(9) VALUE 123456789.
+            01 TRUNC PIC 9(10) VALUE 12345678901.
+            PROCEDURE DIVISION.
+            MAIN.
+                STOP RUN.
+            """
+        )
+    )
+    source = JavaGenerator().generate(program)[0].source_code
+    assert "static long BIG = 123456789012345678L;" in source
+    assert "static long MED = 12345678901L;" in source
+    assert "static int SMALL = 123456789;" in source
+    # PIC 9(10) cannot hold 11 digits: COBOL keeps the least-significant 10.
+    assert "static long TRUNC = 2345678901L;" in source
+    # The unsuffixed spelling is a compile error in Java.
+    assert "static long BIG = 123456789012345678;" not in source
+    assert "static long MED = 12345678901;" not in source
+
+    # Expression literals get the same treatment and the same Java type.
+    big = map_cobol_expr_to_java("123456789012345678")
+    assert big.value.endswith("L")
+    assert big.java_type.basic_type == JavaBasicType.LONG
+    small = map_cobol_expr_to_java("123456789")
+    assert not small.value.endswith("L")
+    assert small.java_type.basic_type == JavaBasicType.INT
+
+
 def _java_available() -> bool:
     for candidate in ("javac", "java"):
         try:
@@ -217,6 +383,58 @@ def _java_available() -> bool:
 needs_host_java = pytest.mark.skipif(
     not _java_available(), reason="host javac/java not available"
 )
+
+
+@needs_host_java
+def test_display_specifiers_reproduce_gnucobol_text(tmp_path):
+    """Java String.format with our specifiers equals the GnuCOBOL oracle text.
+
+    Oracle (GnuCOBOL DISPLAY) rows, emitted verbatim by the generator:
+    PIC 9(3)  7      -> 007        PIC S9(4) -12    -> -0012
+    PIC S9(4) 12     -> +0012      PIC 9(4)V99 12.5 -> 0012.50
+    PIC S9(3)V9 -1.2 -> -001.2     PIC S9(3)V9 1.2  -> +001.2
+    """
+    cases = [
+        (3, 0, False, 7.0, "007"),
+        (4, 0, True, -12.0, "-0012"),
+        (4, 0, True, 12.0, "+0012"),
+        (4, 2, False, 12.5, "0012.50"),
+        (3, 1, True, -1.2, "-001.2"),
+        (3, 1, True, 1.2, "+001.2"),
+        (5, 2, True, -987.65, "-00987.65"),
+        (7, 2, True, 11358.02, "+0011358.02"),
+        (4, 2, False, 100.0, "0100.00"),
+    ]
+    lines = ["public class SpecProbe {"]
+    lines.append("  public static void main(String[] a) {")
+    for ni, nd, signed, value, _ in cases:
+        spec = display_format_spec(
+            integer_digits=ni, decimal_digits=nd, signed=signed
+        )
+        literal = str(value) if is_fractional_format_spec(spec) else str(int(value))
+        lines.append(
+            f'    System.out.println(String.format(java.util.Locale.US, '
+            f'"{spec}", {literal}));'
+        )
+    lines.append("  }")
+    lines.append("}")
+    path = tmp_path / "SpecProbe.java"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    built = subprocess.run(
+        ["javac", str(path)], capture_output=True, timeout=120
+    )
+    assert built.returncode == 0, built.stderr.decode(errors="replace")
+    executed = subprocess.run(
+        ["java", "-cp", str(tmp_path), "SpecProbe"],
+        capture_output=True, timeout=120,
+    )
+    assert executed.returncode == 0, executed.stderr.decode(errors="replace")
+    produced = [
+        line.strip("[]").replace("'", "").strip()
+        for line in executed.stdout.decode().splitlines()
+        if line.strip()
+    ]
+    assert produced == [expected for *_, expected in cases]
 
 
 @needs_host_java
@@ -257,6 +475,104 @@ def test_generated_java_with_leading_zero_values_compiles(tmp_path):
     assert executed.returncode == 0, executed.stderr.decode(errors="replace")
     # 7 + 9 + 12 = 28 == COBOL semantics of the three VALUE literals.
     assert executed.stdout.decode(errors="replace").strip() == "000028"
+
+
+def _compile_and_run(tmp_path, program):
+    generated = JavaGenerator().generate(program)[0]
+    path = tmp_path / generated.filename
+    path.write_text(generated.source_code, encoding="utf-8")
+    built = subprocess.run(
+        ["javac", str(path)], capture_output=True, timeout=120
+    )
+    assert built.returncode == 0, built.stderr.decode(errors="replace")
+    executed = subprocess.run(
+        ["java", "-cp", str(tmp_path), generated.class_name],
+        capture_output=True,
+        timeout=120,
+    )
+    assert executed.returncode == 0, executed.stderr.decode(errors="replace")
+    return executed.stdout.decode(errors="replace").splitlines()
+
+
+@needs_host_java
+def test_generated_java_with_18_digit_value_compiles_and_displays(tmp_path):
+    """Without the ``L`` suffix javac rejects the literal (integer number too large)."""
+    program = CobolParser().parse(
+        textwrap.dedent(
+            """\
+            IDENTIFICATION DIVISION.
+            PROGRAM-ID. BIGCMP.
+            DATA DIVISION.
+            WORKING-STORAGE SECTION.
+            01 BIG PIC 9(18) VALUE 123456789012345678.
+            PROCEDURE DIVISION.
+            MAIN.
+                DISPLAY BIG.
+                STOP RUN.
+            """
+        )
+    )
+    assert _compile_and_run(tmp_path, program) == ["123456789012345678"]
+
+
+@needs_host_java
+def test_generated_signed_and_decimal_display_matches_gnucobol_text(tmp_path):
+    """The DISPLAY text matches the GnuCOBOL oracle without needing Docker."""
+    program = CobolParser().parse(
+        textwrap.dedent(
+            """\
+            IDENTIFICATION DIVISION.
+            PROGRAM-ID. DSPTXT.
+            DATA DIVISION.
+            WORKING-STORAGE SECTION.
+            01 INT-S PIC S9(4) VALUE -12.
+            01 INT-SP PIC S9(4) VALUE 12.
+            01 DEC-U PIC 9(4)V99 VALUE 12.5.
+            01 DEC-S PIC S9(3)V9 VALUE -1.29.
+            01 INT-U PIC 9(3) VALUE 007.
+            PROCEDURE DIVISION.
+            MAIN.
+                DISPLAY INT-S.
+                DISPLAY INT-SP.
+                DISPLAY DEC-U.
+                DISPLAY DEC-S.
+                DISPLAY INT-U.
+                STOP RUN.
+            """
+        )
+    )
+    assert _compile_and_run(tmp_path, program) == [
+        "-0012",
+        "+0012",
+        "0012.50",
+        "-001.2",
+        "007",
+    ]
+
+
+@needs_host_java
+def test_generated_unsigned_receiver_stores_magnitude(tmp_path):
+    """GnuCOBOL stores the magnitude of a negative result in an unsigned PIC."""
+    program = CobolParser().parse(
+        textwrap.dedent(
+            """\
+            IDENTIFICATION DIVISION.
+            PROGRAM-ID. MAGCMP.
+            DATA DIVISION.
+            WORKING-STORAGE SECTION.
+            01 SHORT PIC 9(3) VALUE 0.
+            01 UDEC PIC 9(3)V9 VALUE 0.
+            PROCEDURE DIVISION.
+            MAIN.
+                COMPUTE SHORT = 0 - 5.
+                COMPUTE UDEC = 0 - 1.25.
+                DISPLAY SHORT.
+                DISPLAY UDEC.
+                STOP RUN.
+            """
+        )
+    )
+    assert _compile_and_run(tmp_path, program) == ["005", "001.2"]
 
 
 # ---------------------------------------------------------------------------

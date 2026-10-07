@@ -60,7 +60,6 @@ from engine.transformation.ir import (
 from engine.transformation.numeric_semantics import (
     NumericValueError,
     display_format_spec,
-    is_fractional_format_spec,
     is_numeric_literal,
     java_integral_suffix,
     normalize_numeric_literal,
@@ -310,6 +309,17 @@ def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
             if item.name.replace("-", "_").upper() == normalized:
                 return item
     return None
+
+
+def _numeric_display_items(program: CobolProgram) -> list[DataItem]:
+    """Numeric items reachable by a ``DISPLAY`` statement, in declaration order."""
+    items = list(program.working_storage)
+    for fd in program.file_definitions:
+        items.extend(fd.record_items)
+    return [
+        item for item in items
+        if item.is_numeric and item.pic_length > 0 and not item.children
+    ]
 
 
 def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaMethodCall:
@@ -798,17 +808,85 @@ def _is_numeric_expression(
     return False
 
 
+def _expression_can_be_negative(
+    expr: JavaExpression,
+    program: CobolProgram | None,
+) -> bool:
+    """Conservatively report whether an integral/decimal expression can go below zero.
+
+    The result is only ever used to decide whether an *unsigned* COBOL
+    receiver needs the magnitude applied (see
+    :func:`_apply_numeric_receiver_semantics`), so it errs towards
+    ``True`` whenever an operand cannot be proven non-negative.
+    """
+    if isinstance(expr, JavaLiteral):
+        return expr.value.strip().startswith("-")
+    if isinstance(expr, JavaVariableRef):
+        item = _find_data_item(program, expr.name)
+        if item is None or not item.is_numeric:
+            # Unknown operand: assume the worst rather than drop the fix.
+            return True
+        return item.signed
+    if isinstance(expr, JavaUnaryOp):
+        if expr.operator == "-":
+            return True
+        if expr.operator == "+":
+            return _expression_can_be_negative(expr.operand, program)
+        return True
+    if isinstance(expr, JavaBinaryOp):
+        left_negative = _expression_can_be_negative(expr.left, program)
+        right_negative = _expression_can_be_negative(expr.right, program)
+        if expr.operator in ("+", "*", "/"):
+            return left_negative or right_negative
+        if expr.operator == "%":
+            # Java keeps the sign of the dividend.
+            return left_negative
+        return True
+    if isinstance(expr, JavaCast):
+        return _expression_can_be_negative(expr.expression, program)
+    if isinstance(expr, JavaMethodCall):
+        if expr.is_static and expr.class_name == "Math" and expr.method_name == "abs":
+            return False
+        return True
+    return True
+
+
 def _apply_numeric_receiver_semantics(
     expression: JavaExpression,
     target: str,
     program: CobolProgram | None,
     rounded: bool = False,
 ) -> JavaExpression:
-    """Apply COBOL final-result scale/truncation semantics to an arithmetic receiver."""
+    """Apply COBOL final-result scale/truncation semantics to an arithmetic receiver.
+
+    An unsigned receiving PIC stores the *magnitude* of a negative result
+    (GnuCOBOL oracle: ``COMPUTE UN = 0 - 5`` on ``PIC 9(3)`` stores
+    ``005``, and ``PIC 9(3)V9`` receives ``001.2`` for ``-1.25``), so the
+    magnitude is applied only when the receiver is unsigned *and* the
+    expression is not provably non-negative.
+    """
     item = _find_data_item(program, target)
     if item is None or not item.is_numeric:
         return expression
 
+    scaled = _scale_numeric_receiver(expression, item, program, rounded)
+    if item.signed or not _expression_can_be_negative(expression, program):
+        return scaled
+    return JavaMethodCall(
+        class_name="Math",
+        method_name="abs",
+        arguments=(scaled,),
+        is_static=True,
+    )
+
+
+def _scale_numeric_receiver(
+    expression: JavaExpression,
+    item: DataItem,
+    program: CobolProgram | None,
+    rounded: bool = False,
+) -> JavaExpression:
+    """Scale/truncate an expression to its receiving PIC (COBOL receiver semantics)."""
     if item.decimal_places > 0:
         # Decimal receivers require fractional arithmetic even when all source
         # operands are integer PICs, so division is not accidentally integer division.
@@ -1149,18 +1227,20 @@ def map_cobol_statement(
     """
     result: list[JavaStatement] = []
 
-    # Build field format width lookup if program provided
-    field_format_widths = {}
+    # Build the DISPLAY format lookup if program provided.  Each numeric
+    # item maps to the String.format specifier that reproduces GnuCOBOL's
+    # output for that PIC (digit field, zero fill, sign column, scale).
+    field_display_formats = {}
     if program is not None:
-        # Working storage items
-        for item in program.working_storage:
-            if item.is_numeric and item.format_width > 0:
-                field_format_widths[item.name.replace("-", "_")] = item.format_width
-        # FD record items (for numeric DISPLAY padding)
-        for fd in program.file_definitions:
-            for item in fd.record_items:
-                if item.is_numeric and item.format_width > 0:
-                    field_format_widths[item.name.replace("-", "_")] = item.format_width
+        for item in _numeric_display_items(program):
+            field_display_formats[item.name.replace("-", "_")] = (
+                display_format_spec(
+                    integer_digits=item.integer_digits,
+                    decimal_digits=item.decimal_places,
+                    signed=item.signed,
+                ),
+                item.decimal_places > 0,
+            )
 
     if isinstance(stmt, MoveStatement):
         source = map_cobol_expr_to_java(stmt.source)
@@ -1319,16 +1399,23 @@ def map_cobol_statement(
                     ))
             else:
                 java_name = part.replace("-", "_")
-                # Check if this field has a format width for numeric formatting
-                if java_name in field_format_widths:
-                    width = field_format_widths[java_name]
-                    var_ref = JavaVariableRef(name=java_name)
-                    # String.format("%0Nd", var) for zero-padded numeric display
-                    format_spec = JavaLiteral(value="%0{}d".format(width))
+                # Type-aware numeric formatting: the specifier reproduces the
+                # GnuCOBOL DISPLAY digit field (sign column + zero fill +
+                # scale) instead of assuming every numeric is an int.
+                if java_name in field_display_formats:
+                    spec, is_fractional = field_display_formats[java_name]
+                    arguments: tuple[JavaExpression, ...] = ()
+                    if is_fractional:
+                        # %f honours the platform locale; pin the separator.
+                        arguments += (JavaVariableRef(name="java.util.Locale.US"),)
+                    arguments += (
+                        JavaLiteral(value=spec),
+                        JavaVariableRef(name=java_name),
+                    )
                     parts.append(JavaMethodCall(
                         class_name="String",
                         method_name="format",
-                        arguments=(format_spec, var_ref),
+                        arguments=arguments,
                         is_static=True,
                     ))
                 else:
@@ -2231,12 +2318,22 @@ def map_cobol_program_to_java(
                     item = ws_lookup.get(reference)
                     if item is not None:
                         summary_items[label[1:-1].removesuffix("=")] = item
+    def _summary_format(item: DataItem | None) -> tuple[int, str]:
+        if item is None or not item.is_numeric or item.pic_length == 0:
+            return 0, ""
+        return item.format_width, display_format_spec(
+            integer_digits=item.integer_digits,
+            decimal_digits=item.decimal_places,
+            signed=item.signed,
+        )
+
     summary_fields = tuple(
         JavaSummaryField(
             field_name=field,
             java_var_name=_cobol_field_to_java_var(field),
-            format_width=summary_items[field].format_width if field in summary_items else 0,
+            format_width=_summary_format(summary_items.get(field))[0],
             is_numeric=summary_items[field].is_numeric if field in summary_items else True,
+            format_spec=_summary_format(summary_items.get(field))[1],
         )
         for field in program.summary_fields
     )

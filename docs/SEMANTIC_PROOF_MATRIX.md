@@ -63,20 +63,34 @@ initializer and numeric expression literal.  Contract (oracle-verified):
 |---|---|---|
 | leading-zero numeric literals are decimal | `VALUE 007`/`009` must never be emitted as Java octal (`007`) or a Java compile error (`009`) | GnuCOBOL DISPLAY `007`/`009`; generated Java `static int D = 7;` compiles and prints `000028` |
 | fractional digits are truncated, not rounded | `PIC 9(2)V99 VALUE 1.234` stores `1.23` | GnuCOBOL DISPLAY `01.23`; generated `static double F = 1.23;` |
-| overflow keeps least-significant declared digits | `PIC 9(3) VALUE 1234` stores `234` | GnuCOBOL DISPLAY `234` |
+| overflow keeps least-significant declared digits | `PIC 9(3) VALUE 1234` stores `234` | GnuCOBOL DISPLAY `234`; `PIC 9(10) VALUE 12345678901` → `2345678901` |
 | ZERO/ZEROS/ZEROES are `0` | figurative zero is a valid numeric VALUE | GnuCOBOL `VALUE ZEROS` displays `000` |
 | non-numeric numeric VALUE fails closed | `VALUE SPACE` on a numeric item is a GnuCOBOL compile error; the lane must not emit a bare Java identifier | `NumericValueError` raised; source reported UNSUPPORTED |
+| signed literal on an unsigned PIC fails closed | GnuCOBOL rejects `PIC 9(3) VALUE -5` / `+007` with `error: data item not signed`; accepting it would store a magnitude the oracle never stores | `NumericValueError` from `normalize_value_for_pic(signed=False)`; `test_signed_value_on_unsigned_pic_fails_closed` |
+| integral literal outside Java `int` range is typed `long` and suffixed `L` | `static long BIG = 123456789012345678;` is `error: integer number too large` even for a `long` target | GnuCOBOL stores `PIC 9(18) VALUE 123456789012345678`; generated `static long BIG = 123456789012345678L;` compiles and DISPLAYs byte-identically |
+| `DISPLAY` uses a type-aware `String.format` specifier | `String.format("%06d", <double>)` is `IllegalFormatConversionException`, and `%04d` of `-12` is `-012` instead of the oracle's `-0012` | `display_format_spec()`; GnuCOBOL vs generated Java stdout byte-identical for `007`, `-0012`, `+0012`, `0012.50`, `-001.2`, `+001.2`, `123456789012345678` |
+| an unsigned receiver stores the *magnitude* of a negative result | `COMPUTE UN = 0 - 5` on `PIC 9(3)` stores `005`, not `-5` | GnuCOBOL `005`/`001.2`; generated `Math.abs(...)` lane byte-identical (`test_unsigned_receiver_magnitude_byte_identical_to_gnucobol`) |
+| `%f` conversions are pinned to `java.util.Locale.US` | the platform locale can substitute its own decimal separator | fractional `DISPLAY` specs are emitted as `String.format(java.util.Locale.US, "%07.2f", X)` |
 | `format_width == pic_length` | width no longer double-counts fractional digits (was `pic_length + decimal_places`) | `PIC 9(6)V99`: `pic_length=8`, `format_width=8` |
 
 Runtime differential proof (Docker-gated): `tests/integration/test_numeric_oracle_proof.py`
 compiles the same sources with GnuCOBOL 3.1.2 and with the generated Java
 (temurin:21), and asserts `Decimal(DISPLAY)` equals the normalized literal and
-byte-identical integer DISPLAY stdout.
+byte-identical DISPLAY stdout across four lanes: the integer VALUE lane, the
+signed/decimal DISPLAY-shape lane, the unsigned-receiver magnitude lane, and the
+shipped `workload-comp` / `workload-comp3` fixtures.
 
-Boundary (documented, not fabricated): the stored *integer* VALUE/DISPLAY lane is
-PROVEN.  DISPLAY byte-equality and high-precision arithmetic for items with
-implied decimals (V) remain unproven on IEEE-754 `double`; they are not claimed
-until a decimal-exact runtime type is exercised.
+Host-Java (non-Docker) corroboration: `tests/transformation/test_numeric_semantics.py`
+compiles and runs the generated Java for the same shapes and checks the
+`String.format` specifiers against the oracle text.
+
+Boundary (documented, not fabricated): `DISPLAY` *text* for INTEGER and DECIMAL
+`DISPLAY` items (signed and unsigned, integer and implied-decimal PICs) is
+PROVEN byte-identical to GnuCOBOL, as is the stored *value* of a numeric
+literal/VALUE.  Still not claimed: high-precision arithmetic beyond what
+IEEE-754 `double` can represent, and the *record-area byte encoding* of
+`COMP`/`COMP-3`/`BINARY` items (packed sign overpunch, binary layout) — the
+record WRITE lane is proven separately and is untouched by D1.
 
 ## Known unverified limitations (pre-existing Phase B boundaries, unchanged)
 

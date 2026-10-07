@@ -23,7 +23,12 @@ Imports only:
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
+
+# Integral Java literals may carry a type suffix (``123L``); those are
+# still numeric literals and must never be quoted as Strings.
+_JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
 
 from engine.transformation.spring_boot_ir import (
     DataAccessStrategy,
@@ -654,7 +659,9 @@ public class {class_name} {{
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
                 return f'"{expr.value}"'
-            if not expr.value.replace(".", "").replace("-", "").isdigit():
+            if not expr.value.replace(".", "").replace("-", "").isdigit() and not (
+                _JAVA_LITERAL_SUFFIX_RE.match(expr.value)
+            ):
                 if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
                     return expr.value
                 if not (expr.value.startswith('"') or expr.value.startswith("'")):
