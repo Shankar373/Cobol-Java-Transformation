@@ -14,10 +14,10 @@ This is an implementation and evidence matrix, not a language-completeness claim
 | PERFORM VARYING | Yes | Yes (bounded Java loop) | Verified end-to-end (phase4 oracle) | Supported subset |
 | EVALUATE | Yes (lowered to IF/ELSE) | Yes (via IF/ELSE) | Verified end-to-end (phase4 oracle) | Supported subset |
 | STRING/UNSTRING | Yes | Yes/partial | Targeted | Partial pending broader evidence |
-| CALL | Yes | Yes | Partial | Partial |
+| CALL (static, resolved) | Yes | Yes | Verified end-to-end (Phase-D A->B->C proof, 6b5a866; unresolved/dynamic/cyclic/arity-mismatch expressly blocked, 90efdca) | Supported subset, fail-closed negatives |
 | Sequential files | Yes | Yes | Tested subset | Partial-to-supported subset |
 | Indexed/relative files | Partial | Partial | Limited | Not certified |
-| Copybooks | Yes | Yes | Partial | Partial |
+| Copybooks | Yes | Yes | Verified end-to-end (copybook-runtime VERIFIED; resolution/ambiguity/missing fail-closed) | Supported subset (shared Java model) |
 | JCL | Modeled | Partial | No broad runtime proof | Not certified |
 | CICS | Modeled | Partial | No broad runtime proof | Not certified |
 | DB2/SQL | Modeled | Partial | No DB2 runtime proof | Not certified |

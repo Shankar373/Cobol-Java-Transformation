@@ -1,6 +1,6 @@
 # Current Architecture
 
-Baseline: 4513881bc3dff50df4e81910dbc2d28fe5308dbc (Phase A trust hardening)
+Baseline: 90efdca6c9da3e36888c78f8c3b88757dbcc15f3 (Phase A trust hardening)
 Lifecycle, persistence and API security hardening applied on top of that baseline.
 
 ## System shape

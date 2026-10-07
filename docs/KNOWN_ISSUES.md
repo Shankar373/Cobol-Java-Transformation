@@ -1,6 +1,6 @@
 # Known Issues
 
-Known-issues baseline: 4513881bc3dff50df4e81910dbc2d28fe5308dbc (Phase A), CI Run #306 GREEN.
+Known-issues baseline: 90efdca6c9da3e36888c78f8c3b88757dbcc15f3 (Phase A), CI Run #306 GREEN.
 Lifecycle/persistence/API security hardening has since been applied on top of this baseline.
 
 ## Open material issues

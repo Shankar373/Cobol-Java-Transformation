@@ -2,10 +2,11 @@
 
 **SystemaOps deterministic COBOL to Java modernization and verification platform.**
 
-> CURRENT BASELINE: 4513881bc3dff50df4e81910dbc2d28fe5308dbc on codex/universal-core.
+> CURRENT BASELINE: 90efdca6c9da3e36888c78f8c3b88757dbcc15f3 on codex/universal-core.
 >
-> CI Run #306 is GREEN: Phase 1 ingestion, backend + COBOL/Java Docker tests, and frontend
-> TypeScript/build all pass.
+> CI Run #306 is the last archived green run on record (historical provenance; the numeric
+> run ID refers to the pre-Phase-D baseline). Current Phase-D HEAD: 90efdca on
+> codex/universal-core.
 >
 > This repository contains a working deterministic modernization pipeline, execution and
 > verification infrastructure, FastAPI control plane, React frontend, Docker-backed runtime
