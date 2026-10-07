@@ -954,7 +954,7 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
 
     # Try to parse simple binary conditions: left OP right
     binary_match = _re.match(
-        r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$',
+        r'^(\w+|"(?:[^"\\]|\\.)*")\s*(==|!=|>=|<=|>|<)\s*(\w+|"(?:[^"\\]|\\.)*")$',
         condition_str,
     )
     if binary_match:
@@ -962,17 +962,37 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
         op = binary_match.group(2)
         right_str = binary_match.group(3)
 
-        left_expr: JavaExpression
-        if left_name.replace(".", "").replace("-", "").isdigit():
-            left_expr = JavaLiteral(value=left_name)
-        else:
-            left_expr = JavaVariableRef(name=left_name)
+        def _operand(token: str) -> JavaExpression:
+            if token.startswith('"') or token.startswith("'"):
+                return JavaLiteral(value=token)
+            if token.replace(".", "").replace("-", "").isdigit():
+                return JavaLiteral(value=token)
+            return JavaVariableRef(name=token)
 
-        right_expr: JavaExpression
-        if right_str.replace(".", "").replace("-", "").isdigit():
-            right_expr = JavaLiteral(value=right_str)
-        else:
-            right_expr = JavaVariableRef(name=right_str)
+        left_expr = _operand(left_name)
+        right_expr = _operand(right_str)
+
+        # COBOL ``=`` on alphanumeric operands is content equality.  Java
+        # ``==`` compares String identity, so a MOVE-built field never equals
+        # a literal and the branch/loop takes the wrong side forever.
+        left_is_string = left_name.startswith(('"', "'"))
+        right_is_string = right_str.startswith(('"', "'"))
+        if op in ("==", "!=") and (left_is_string or right_is_string):
+            if left_is_string:
+                equals_call: JavaExpression = JavaMethodCall(
+                    object_ref=left_expr,
+                    method_name="equals",
+                    arguments=(right_expr,),
+                )
+            else:
+                equals_call = JavaMethodCall(
+                    object_ref=right_expr,
+                    method_name="equals",
+                    arguments=(left_expr,),
+                )
+            if op == "!=":
+                return JavaUnaryOp(operator="!", operand=equals_call)
+            return equals_call
 
         return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
 

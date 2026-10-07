@@ -44,9 +44,34 @@ from engine.transformation.ir import (
     CobolProgramUnit,
     CopybookReference,
     DependencyEdge,
+    FileDefinition,
     FileDependency,
     ProgramCall,
 )
+
+# ---------------------------------------------------------------------------
+# File-operation scanning patterns.
+#
+# Each verb is guarded by ``(?<![\w-])`` so that only a *statement* verb is
+# matched.  Without the guard ``READ`` inside ``END-READ`` and ``WRITE``
+# inside ``REWRITE`` are silently treated as file statements, which produced
+# phantom file dependencies with unresolvable names.
+# ---------------------------------------------------------------------------
+_FILE_VERB_OPEN = re.compile(
+    r"(?<![\w-])OPEN\s+(INPUT|OUTPUT|I-O|EXTEND)\s+([A-Za-z0-9][A-Za-z0-9_-]*)",
+    re.IGNORECASE,
+)
+_FILE_VERB_READ = re.compile(
+    r"(?<![\w-])READ\s+([A-Za-z0-9][A-Za-z0-9_-]*)",
+    re.IGNORECASE,
+)
+_FILE_VERB_WRITE = re.compile(
+    r"(?<![\w-])WRITE\s+([A-Za-z0-9][A-Za-z0-9_-]*)",
+    re.IGNORECASE,
+)
+_COBOL_STRING_LITERAL = re.compile(r'"[^"\n]*"|' r"'[^'\n]*'")
+_COBOL_COMMENT_LINE = re.compile(r"(?m)^[ \t]*\*")
+_COBOL_INLINE_COMMENT = re.compile(r"\*>.*$", re.MULTILINE)
 
 
 class ApplicationDiscovery:
@@ -230,9 +255,11 @@ class ApplicationDiscovery:
                 search_dirs=copybook_dirs or (source_root, cobol_file.parent),
             )
             entry_points = self._extract_entry_points(source)
-            file_deps = self._extract_file_dependencies(source, program.program_id)
-
-            # Update program with dependency information
+            file_deps = self._extract_file_dependencies(
+                source,
+                program.program_id,
+                file_definitions=program.file_definitions,
+            )
             program_with_deps = CobolProgram(
                 program_id=program.program_id,
                 file_definitions=program.file_definitions,
@@ -455,19 +482,41 @@ class ApplicationDiscovery:
         self,
         source: str,
         program_id: str,
+        file_definitions: tuple[FileDefinition, ...] = (),
     ) -> list[FileDependency]:
-        """Extract file access dependencies from COBOL source."""
+        """Extract file access dependencies from COBOL source.
+
+        The scanner only considers *statement* verbs.  String literals and
+        comment lines are removed first so that ``DISPLAY "READ: ..."`` or
+        ``DISPLAY "WRITE/READ DEMO STARTED"`` cannot produce a file
+        dependency, and the ``(?<![\\w-])`` guard keeps ``END-READ`` and
+        ``REWRITE`` from being read as ``READ`` / ``WRITE``.
+
+        ``WRITE`` (and ``READ`` when the record name is used) names a record,
+        not a file.  When the record belongs to a declared ``FD`` the record
+        name is resolved to its owning file so that CapabilityAnalyzer can
+        evaluate it against the FILE-CONTROL declarations.  Anything that
+        cannot be resolved to a declared file is kept verbatim and stays
+        fail-closed downstream (``File dependency X has no FILE definition``).
+        """
+        scan_source = _COBOL_STRING_LITERAL.sub(" ", source)
+        scan_source = _COBOL_COMMENT_LINE.sub(" ", scan_source)
+        scan_source = _COBOL_INLINE_COMMENT.sub(" ", scan_source)
+
+        record_to_file = {
+            fd.record_name: fd.name
+            for fd in file_definitions
+            if fd.record_name and fd.name
+        }
+
+        def _resolve(target: str) -> str:
+            return record_to_file.get(target, target)
+
         deps: list[FileDependency] = []
 
-        # Find OPEN statements
-        open_pattern = re.compile(
-            r"OPEN\s+(INPUT|OUTPUT|I-O|EXTEND)\s+(\S+)",
-            re.IGNORECASE,
-        )
-
-        for match in open_pattern.finditer(source):
+        for match in _FILE_VERB_OPEN.finditer(scan_source):
             mode = match.group(1).upper()
-            file_name = match.group(2).rstrip(".")
+            file_name = _resolve(match.group(2))
             deps.append(FileDependency(
                 program_id=program_id,
                 file_name=file_name,
@@ -475,31 +524,17 @@ class ApplicationDiscovery:
                 mode=mode,
             ))
 
-        # Find READ statements
-        read_pattern = re.compile(
-            r"READ\s+(\S+)",
-            re.IGNORECASE,
-        )
-
-        for match in read_pattern.finditer(source):
-            file_name = match.group(1).rstrip(".")
+        for match in _FILE_VERB_READ.finditer(scan_source):
             deps.append(FileDependency(
                 program_id=program_id,
-                file_name=file_name,
+                file_name=_resolve(match.group(1)),
                 operation="READ",
             ))
 
-        # Find WRITE statements
-        write_pattern = re.compile(
-            r"WRITE\s+(\S+)",
-            re.IGNORECASE,
-        )
-
-        for match in write_pattern.finditer(source):
-            record_name = match.group(1).rstrip(".")
+        for match in _FILE_VERB_WRITE.finditer(scan_source):
             deps.append(FileDependency(
                 program_id=program_id,
-                file_name=record_name,
+                file_name=_resolve(match.group(1)),
                 operation="WRITE",
             ))
 

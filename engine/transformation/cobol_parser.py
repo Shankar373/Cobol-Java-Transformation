@@ -172,6 +172,7 @@ class CobolParser:
     def __init__(self, diagnostics: DiagnosticCollector | None = None) -> None:
         self._diagnostics = diagnostics or DiagnosticCollector()
         self._unsupported_statements: list[str] = []
+        self._record_owner: dict[str, str] = {}
 
     @property
     def diagnostics(self) -> DiagnosticCollector:
@@ -235,6 +236,14 @@ class CobolParser:
         program_id = self._parse_program_id(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
+        # WRITE names a record, not a file.  Resolve record -> owning FD while
+        # parsing PROCEDURE DIVISION so the statement carries the real file
+        # name instead of a "-REC" -> "-FILE" naming guess.
+        self._record_owner = {
+            fd.record_name: fd.name
+            for fd in file_section
+            if fd.record_name and fd.name
+        }
         working_storage = self._parse_working_storage(code_lines)
         linkage_section = self._parse_linkage_section(code_lines)
         using_parameters = self._parse_procedure_using(code_lines)
@@ -1175,8 +1184,13 @@ class CobolParser:
         from_match = re.search(r"\bFROM\s+(\S+)", header_text, re.IGNORECASE)
         from_field = from_match.group(1).rstrip(".") if from_match else ""
 
-        # Determine file name from record name convention
-        file_name = record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
+        # Determine file name from the FILE SECTION record owner.  The
+        # "-REC" -> "-FILE" convention is only a fallback for programs whose
+        # record never appears in a FILE SECTION FD.
+        file_name = (
+            self._record_owner.get(record_name)
+            or record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
+        )
 
         sections, next_index = self._collect_file_clauses(
             lines, start, allowed, ("END-WRITE",), f"WRITE {record_name}",

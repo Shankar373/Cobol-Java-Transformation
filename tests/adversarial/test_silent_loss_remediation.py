@@ -60,8 +60,12 @@ class TestFileVerbClassification:
     )
     def test_file_construct_is_not_supported(self, verb_line: str) -> None:
         level, reason = _capability_levels(verb_line)
-        assert level in (CapabilityLevel.UNSUPPORTED, CapabilityLevel.UNKNOWN), (
+        assert level is not CapabilityLevel.SUPPORTED, (
             f"{verb_line!r} must not be classified SUPPORTED; got {level} "
+            f"({reason})"
+        )
+        assert level is not CapabilityLevel.PARTIAL, (
+            f"{verb_line!r} must not be classified PARTIAL; got {level} "
             f"({reason})"
         )
 
