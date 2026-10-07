@@ -107,28 +107,35 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "OPEN": _supported("OPEN is mapped to file-resource semantics"),
     "CLOSE": _supported(
         "CLOSE is mapped to file-resource semantics",
-        # The deterministic mapper has a CloseStatement branch, but
-        # CobolParser never constructs CloseStatement, so a CLOSE in source
-        # can never reach it.  Absence of IR proves the instance is dropped.
+        # CobolParser constructs CloseStatement for the single-file subset.
+        # A CLOSE in source with no CloseStatement IR was dropped (multi-file
+        # CLOSE or unparsed form) and the mapper will never see it.
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "START": _supported(
         "START has an explicit IR mapping",
+        # CobolParser constructs StartStatement for the symbolic-operator
+        # subset (=, >, >=, <, <=).  A source START with no IR was dropped.
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "REWRITE": _supported(
         "REWRITE has an explicit IR mapping",
+        # CobolParser constructs RewriteStatement for the deterministic
+        # subset.  A source REWRITE with no IR was dropped.
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "DELETE": _supported(
         "DELETE has an explicit IR mapping",
+        # CobolParser constructs DeleteStatement for the deterministic
+        # subset.  A source DELETE with no IR was dropped.
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "INVALID KEY": _supported(
         "IR file nodes carry invalid_key_body and the mapper emits the "
         "branch",
-        # CobolParser never populates invalid_key_body, so the clause body is
-        # dropped and the file verb behaves as if the condition never holds.
+        # CobolParser populates invalid_key_body for the deterministic file
+        # subset (READ/WRITE/START/REWRITE/DELETE).  An INVALID KEY in source
+        # with no InvalidKeyScope IR was dropped and behaves as unhandled.
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "STRING": _supported("STRING is mapped to Java string construction"),

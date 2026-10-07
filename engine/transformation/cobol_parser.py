@@ -9,8 +9,15 @@ It handles only the supported constructs:
 - PROCEDURE DIVISION (paragraphs, statements)
 - PIC X(n), PIC 9(n)
 - OCCURS clause
-- OPEN, READ, WRITE, MOVE, ADD, DIVIDE, IF/ELSE, PERFORM, UNSTRING, STRING
+- OPEN, CLOSE, READ, WRITE, START, REWRITE, DELETE, MOVE, ADD, DIVIDE,
+  IF/ELSE, PERFORM, UNSTRING, STRING
 - DISPLAY, GO TO, STOP RUN
+- File verbs carry AT END / NOT AT END (READ) and INVALID KEY /
+  NOT INVALID KEY (READ, WRITE, START, REWRITE, DELETE) clause bodies
+  for the deterministic single-file subset.  Alternate keys, multi-file
+  CLOSE, and relational-word START operators (GREATER/LESS/EQUAL) are
+  outside the subset: they emit diagnostics and stay fail-closed, never
+  silently mapped to the symbolic-operator runtime.
 
 Unsupported constructs will raise CobolParseError.
 """
@@ -49,6 +56,7 @@ from engine.transformation.ir import (
     MoveStatement,
     NegatedCondition,
     OpenStatement,
+    CloseStatement,
     OutputFieldDefinition,
     OutputFormat,
     Paragraph,
@@ -56,6 +64,9 @@ from engine.transformation.ir import (
     PicType,
     ReadStatement,
     RecordFormat,
+    StartStatement,
+    RewriteStatement,
+    DeleteStatement,
     StatusCodeMapping,
     StopRunStatement,
     StringStatement,
@@ -77,7 +88,7 @@ class CobolParseError(Exception):
 # left-over END-* out of the unsupported-statement diagnostic channel, where it
 # would otherwise be reported as semantic loss.
 _SCOPE_TERMINATOR = re.compile(
-    r"^END-(?:READ|WRITE|REWRITE|DELETE|STRING|UNSTRING|PERFORM|IF|EVALUATE"
+    r"^END-(?:READ|WRITE|REWRITE|DELETE|START|STRING|UNSTRING|PERFORM|IF|EVALUATE"
     r"|SEARCH|CALL|EXEC|PARA(?:GRAPH)?|SECTION)\.?$"
     r"|^(?:CONTINUE)\.?$",
     re.IGNORECASE,
@@ -804,6 +815,22 @@ class CobolParser:
         if upper.startswith("WRITE "):
             return self._parse_write(lines, start)
 
+        # CLOSE (single-file deterministic subset; multi-file CLOSE warns)
+        if upper.startswith("CLOSE "):
+            return self._parse_close(lines, start)
+
+        # START file KEY IS [op] key [INVALID KEY ...] (indexed/relative)
+        if upper.startswith("START "):
+            return self._parse_start(lines, start)
+
+        # REWRITE record [FROM field] [INVALID KEY ...]
+        if upper.startswith("REWRITE "):
+            return self._parse_rewrite(lines, start)
+
+        # DELETE file [RECORD] [INVALID KEY ...]
+        if upper.startswith("DELETE "):
+            return self._parse_delete(lines, start)
+
         # MOVE
         if upper.startswith("MOVE "):
             return self._parse_move(lines, start)
@@ -888,149 +915,401 @@ class CobolParser:
         return None, start + 1
 
     def _parse_open(self, lines: list[str], start: int) -> tuple[OpenStatement, int]:
-        """Parse OPEN INPUT/OUTPUT statement."""
+        """Parse OPEN INPUT/OUTPUT/I-O/EXTEND statement (single-file subset)."""
         line = lines[start].strip()
         upper = line.upper()
 
-        if "INPUT" in upper:
+        if re.search(r"\bI-O\b|\bI\s+O\b", upper):
+            mode = "I-O"
+        elif "INPUT" in upper:
             mode = "INPUT"
         elif "OUTPUT" in upper:
             mode = "OUTPUT"
+        elif "EXTEND" in upper:
+            mode = "EXTEND"
         else:
             mode = "INPUT"
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"OPEN: unrecognised mode, defaulting to INPUT (fail-closed): "
+                f"{line[:60]}",
+                location=f"line {start + 1}",
+            )
 
         # Extract file name
-        match = re.search(r"OPEN\s+(?:INPUT|OUTPUT)\s+(\S+)", line, re.IGNORECASE)
+        match = re.search(
+            r"OPEN\s+(?:INPUT|OUTPUT|I-O|I\s+O|EXTEND)\s+(\S+)",
+            line, re.IGNORECASE,
+        )
         file_name = match.group(1).rstrip(".") if match else ""
 
         return OpenStatement(mode=mode, file_name=file_name), start + 1
 
-    def _parse_read(self, lines: list[str], start: int) -> tuple[ReadStatement, int]:
-        """Parse READ ... AT END / NOT AT END statement.
+    # Clause headers for file verbs, longest match first so NOT-forms win
+    # over their bare counterparts.  Section names are collector-internal.
+    _FILE_CLAUSE_HEADERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+        ("not_at_end", re.compile(r"\bNOT\s+AT\s+END\b", re.IGNORECASE)),
+        ("at_end", re.compile(r"\bAT\s+END\b", re.IGNORECASE)),
+        ("not_invalid", re.compile(r"\bNOT\s+INVALID\s+KEY\b", re.IGNORECASE)),
+        ("invalid", re.compile(r"\bINVALID\s+KEY\b", re.IGNORECASE)),
+    )
 
-        Consumption is bounded: the statement ends at its END-READ delimiter,
-        or — when no clause header has been seen yet — at the end of the READ
-        line itself.  An unbounded scan past the statement would swallow every
-        following statement with no diagnostic, which is silent semantic loss.
+    # Quoted-literal mask for clause-header scanning.  Body statements such
+    # as DISPLAY "READ K999 INVALID KEY ..." carry clause keywords inside
+    # literals; scanning raw text misclassifies the body line as a clause
+    # header, silently dropping the statement.  Masking replaces each
+    # literal with equal-length blanks so match offsets stay valid for the
+    # original text (same discipline as semantic_capability scanning).
+    _QUOTED_LITERAL = re.compile(r"'(?:''|[^'])*'|\"[^\"]*\"")
+
+    @staticmethod
+    def _mask_quoted(text: str) -> str:
+        """Blank quoted literals, preserving string length/offsets."""
+        return CobolParser._QUOTED_LITERAL.sub(
+            lambda match: " " * len(match.group(0)), text,
+        )
+
+    def _collect_file_clauses(
+        self,
+        lines: list[str],
+        start: int,
+        allowed: tuple[str, ...],
+        end_markers: tuple[str, ...],
+        verb_label: str,
+    ) -> tuple[dict[str, list[Any]], int]:
+        """Collect AT END / INVALID KEY clause bodies for one file verb.
+
+        Deterministic single-statement subset: the verb header lives on
+        ``lines[start]``; clause headers (``allowed``) may sit on the verb
+        line or on following lines; bodies end at the scope terminator
+        (``end_markers``, e.g. END-READ) or at the terminating period
+        (COBOL scope rule).  Consumption is bounded: a line that is
+        neither a clause header, a scope terminator, nor a body statement
+        of an open clause ends the verb instead of being swallowed.
+        Unclosed clauses emit an UNSUPPORTED_CONSTRUCT diagnostic and stay
+        fail-closed (the partial body is kept, never silently completed).
         """
-        line = lines[start].strip()
+        sections: dict[str, list[Any]] = {name: [] for name in allowed}
+        headers = tuple(
+            (name, pattern)
+            for name, pattern in self._FILE_CLAUSE_HEADERS
+            if name in allowed
+        )
+        line0 = lines[start].strip()
 
-        # Extract file name
-        match = re.search(r"READ\s+(\S+)", line, re.IGNORECASE)
-        file_name = match.group(1).rstrip(".") if match else ""
+        def _header_at(text: str) -> tuple[str, re.Match[str]] | None:
+            masked = self._mask_quoted(text)
+            for name, pattern in headers:
+                match = pattern.search(masked)
+                if match:
+                    return name, match
+            return None
 
-        # Find record name from FILE SECTION (convention: FILE-NAME becomes record)
-        record_name = file_name.replace("-FILE", "-REC").replace("_FILE", "_REC")
-
-        at_end_body: list[Any] = []
-        not_at_end_body: list[Any] = []
-
-        # A clause header may sit on the READ line itself.  Only then may the
-        # scan continue onto following lines looking for END-READ.
-        header = re.search(r"\bNOT\s+AT\s+END\b|\bAT\s+END\b", line, re.IGNORECASE)
-
-        i = start + 1
-        current_section = None
-        closed = False
-        if header is not None:
-            current_section = (
-                "not_at_end"
-                if re.match(r"NOT\s+AT\s+END", line[header.start():], re.IGNORECASE)
-                else "at_end"
-            )
-            inline_body = at_end_body if current_section == "at_end" else not_at_end_body
-            tail = line[header.end():]
-            end_marker = re.search(r"\bEND-READ\b", tail, re.IGNORECASE)
-            if end_marker:
-                tail = tail[:end_marker.start()]
-                closed = True
-            elif line.rstrip().endswith("."):
-                # No END-READ, but the sentence is terminated by the period,
-                # which also ends the AT END clause.
-                closed = True
-            for segment in [s for s in re.split(r"\s*\.\s*", tail) if s.strip()]:
+        def _feed(section: str, text: str) -> None:
+            for segment in [s for s in re.split(r"\s*\.\s*", text) if s.strip()]:
                 stmt, _ = self._parse_statement([segment], 0)
                 if stmt is not None:
-                    inline_body.append(stmt)
-            if closed:
-                return ReadStatement(
-                    file_name=file_name,
-                    record_name=record_name,
-                    at_end_body=tuple(at_end_body),
-                    not_at_end_body=tuple(not_at_end_body),
-                ), start + 1
-        elif line.rstrip().endswith("."):
-            # Period-terminated READ with no clause: the statement is complete.
-            return ReadStatement(
-                file_name=file_name,
-                record_name=record_name,
-                at_end_body=(),
-                not_at_end_body=(),
-            ), start + 1
+                    sections[section].append(stmt)
 
+        def _cut_end(text: str) -> tuple[str, bool]:
+            masked = self._mask_quoted(text)
+            for marker in end_markers:
+                marker_match = re.search(
+                    r"\b" + re.escape(marker) + r"\b", masked, re.IGNORECASE,
+                )
+                if marker_match:
+                    return text[:marker_match.start()], True
+            return text, False
+
+        # Inline headers on the verb line itself (literals masked so a
+        # quoted keyword can never open a clause).
+        masked_line0 = self._mask_quoted(line0)
+        ordered: list[tuple[int, str, re.Match[str]]] = []
+        for name, pattern in headers:
+            for match in pattern.finditer(masked_line0):
+                ordered.append((match.start(), name, match))
+        ordered.sort(key=lambda item: item[0])
+        current_section: str | None = None
+        closed = False
+        if ordered:
+            for index, (_, name, match) in enumerate(ordered):
+                end = ordered[index + 1][0] if index + 1 < len(ordered) else len(line0)
+                tail = line0[match.end():end]
+                tail, saw_end = _cut_end(tail)
+                if saw_end:
+                    closed = True
+                _feed(name, tail)
+                current_section = name
+            if closed or line0.rstrip().endswith("."):
+                closed = True
+                return sections, start + 1
+        elif line0.rstrip().endswith("."):
+            # Period-terminated verb with no clause: the statement is complete.
+            return sections, start + 1
+
+        i = start + 1
         while i < len(lines):
-            l = lines[i].strip()
-            u = l.upper()
+            raw = lines[i].strip()
+            upper = raw.upper()
 
-            if not l or l.startswith("*"):
+            if not raw or raw.startswith("*"):
                 i += 1
                 continue
-            if re.search(r"\bNOT\s+AT\s+END\b", u):
-                current_section = "not_at_end"
-                i += 1
-                continue
-            if re.search(r"\bAT\s+END\b", u):
-                current_section = "at_end"
-                i += 1
-                continue
-            if u.startswith("END-READ"):
+            if any(
+                upper.startswith(marker) for marker in end_markers
+            ):
                 i += 1
                 closed = True
                 break
+            found = _header_at(raw)
+            if found is not None:
+                name, match = found
+                current_section = name
+                tail = raw[match.end():]
+                tail, saw_end = _cut_end(tail)
+                if tail.strip().strip("."):
+                    _feed(name, tail)
+                if saw_end or raw.rstrip().endswith("."):
+                    # A period ends the sentence and with it the clause
+                    # (COBOL scope rule); the scope terminator itself is left
+                    # for the dispatcher so no statement is swallowed.
+                    closed = True
+                    break
+                i += 1
+                continue
 
             if current_section is None:
-                # No clause header yet: the READ statement already ended on a
+                # No clause header yet: the verb statement already ended on a
                 # previous line.  Stop instead of consuming this statement.
                 break
 
             stmt, i = self._parse_statement(lines, i)
-            if stmt is not None:
-                if current_section == "at_end":
-                    at_end_body.append(stmt)
-                else:
-                    not_at_end_body.append(stmt)
-            if l.endswith("."):
-                # The period terminates the sentence, and with it the AT END
-                # clause (COBOL scope rule).
+            if stmt is not None and current_section is not None:
+                sections[current_section].append(stmt)
+            if raw.endswith("."):
+                # The period terminates the sentence, and with it the clause.
                 closed = True
                 break
 
         if current_section is not None and not closed:
             self._diagnostics.warning(
                 DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                f"READ {file_name}: END-READ not found; clause body may be "
+                f"{verb_label}: {end_markers[0]} not found; clause body may be "
                 "incomplete",
                 location=f"line {start + 1}",
             )
 
+        return sections, i
+
+    @staticmethod
+    def _verb_header_text(line: str, allowed: tuple[str, ...]) -> str:
+        """Return the verb-header portion of a file-verb line.
+
+        Everything from the first clause header on is clause tail, not
+        header: NEXT/KEY/INTO/FROM extraction must never read the body.
+        """
+        masked = CobolParser._mask_quoted(line)
+        cut = len(line)
+        for name, pattern in CobolParser._FILE_CLAUSE_HEADERS:
+            if name in allowed:
+                match = pattern.search(masked)
+                if match:
+                    cut = min(cut, match.start())
+        return line[:cut]
+
+    def _parse_read(self, lines: list[str], start: int) -> tuple[ReadStatement, int]:
+        """Parse READ [NEXT] [KEY IS k] [INTO w] with AT END / INVALID KEY.
+
+        Consumption is bounded (see :meth:`_collect_file_clauses`): the
+        statement ends at END-READ, at the terminating period, or — when no
+        clause header has been seen yet — at the end of the READ line itself.
+        An unbounded scan would swallow every following statement with no
+        diagnostic, which is silent semantic loss.
+        """
+        line = lines[start].strip()
+        allowed = ("at_end", "not_at_end", "invalid", "not_invalid")
+        header_text = self._verb_header_text(line, allowed)
+
+        # Extract file name (first token after READ; NEXT/RECORD are keywords)
+        match = re.search(r"READ\s+(\S+)", header_text, re.IGNORECASE)
+        raw_file = match.group(1).rstrip(".") if match else ""
+        if raw_file.upper() in ("NEXT", "RECORD", "KEY", "INTO"):
+            raw_file = ""
+        file_name = raw_file
+
+        # Find record name from FILE SECTION (convention: FILE-NAME becomes record)
+        record_name = file_name.replace("-FILE", "-REC").replace("_FILE", "_REC")
+
+        read_next = bool(re.search(r"\bNEXT\b", header_text, re.IGNORECASE))
+        key_match = re.search(
+            r"\bKEY\s+(?:IS\s+)?(\S+)", header_text, re.IGNORECASE,
+        )
+        key = key_match.group(1).rstrip(".") if key_match else ""
+        into_match = re.search(r"\bINTO\s+(\S+)", header_text, re.IGNORECASE)
+        into_field = into_match.group(1).rstrip(".") if into_match else ""
+
+        sections, next_index = self._collect_file_clauses(
+            lines, start, allowed, ("END-READ",), f"READ {file_name}",
+        )
+
         return ReadStatement(
             file_name=file_name,
             record_name=record_name,
-            at_end_body=tuple(at_end_body),
-            not_at_end_body=tuple(not_at_end_body),
-        ), i
+            key=key,
+            into_field=into_field,
+            read_next=read_next,
+            at_end_body=tuple(sections["at_end"]),
+            not_at_end_body=tuple(sections["not_at_end"]),
+            invalid_key_body=tuple(sections["invalid"]),
+            not_invalid_key_body=tuple(sections["not_invalid"]),
+        ), next_index
 
     def _parse_write(self, lines: list[str], start: int) -> tuple[WriteStatement, int]:
-        """Parse WRITE record statement."""
+        """Parse WRITE record [FROM field] with INVALID KEY clauses."""
         line = lines[start].strip()
+        allowed = ("invalid", "not_invalid")
+        header_text = self._verb_header_text(line, allowed)
 
-        match = re.search(r"WRITE\s+(\S+)", line, re.IGNORECASE)
+        match = re.search(r"WRITE\s+(\S+)", header_text, re.IGNORECASE)
         record_name = match.group(1).rstrip(".") if match else ""
+        from_match = re.search(r"\bFROM\s+(\S+)", header_text, re.IGNORECASE)
+        from_field = from_match.group(1).rstrip(".") if from_match else ""
 
         # Determine file name from record name convention
         file_name = record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
 
-        return WriteStatement(record_name=record_name, file_name=file_name), start + 1
+        sections, next_index = self._collect_file_clauses(
+            lines, start, allowed, ("END-WRITE",), f"WRITE {record_name}",
+        )
+
+        return WriteStatement(
+            record_name=record_name,
+            file_name=file_name,
+            from_field=from_field,
+            invalid_key_body=tuple(sections["invalid"]),
+            not_invalid_key_body=tuple(sections["not_invalid"]),
+        ), next_index
+
+    def _parse_close(self, lines: list[str], start: int) -> tuple[CloseStatement, int]:
+        """Parse CLOSE file (single-file deterministic subset)."""
+        line = lines[start].strip()
+        tokens = [
+            token.rstrip(".")
+            for token in re.split(r"\s+", line, flags=re.IGNORECASE)[1:]
+            if token.rstrip(".")
+        ]
+        file_name = tokens[0] if tokens else ""
+        if len(tokens) > 1:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "CLOSE lists multiple files; deterministic subset closes the "
+                f"first ({file_name}), remainder unsupported",
+                location=f"line {start + 1}",
+            )
+        return CloseStatement(file_name=file_name), start + 1
+
+    def _parse_start(self, lines: list[str], start: int) -> tuple[StartStatement, int]:
+        """Parse START file KEY IS [op] key with INVALID KEY clauses.
+
+        Supported operators: ``=``, ``>``, ``>=``, ``<``, ``<=`` (optionally
+        after KEY IS).  Relational-word operators (GREATER/LESS/EQUAL/NOT)
+        are outside the deterministic subset: they emit an
+        UNSUPPORTED_CONSTRUCT diagnostic and the operator passes through to
+        the runtime, which yields status ``23`` (observable INVALID KEY)
+        instead of silently positioning as ``=``.
+        """
+        line = lines[start].strip()
+        allowed = ("invalid", "not_invalid")
+        header_text = self._verb_header_text(line, allowed)
+
+        match = re.search(r"START\s+(\S+)", header_text, re.IGNORECASE)
+        file_name = match.group(1).rstrip(".") if match else ""
+
+        key = ""
+        operator = ""
+        key_match = re.search(
+            r"\bKEY\s+(?:IS\s+)?(>=|<=|>|<|=)?\s*(\S+)",
+            header_text, re.IGNORECASE,
+        )
+        if key_match:
+            operator = key_match.group(1) or ""
+            key = (key_match.group(2) or "").rstrip(".")
+        if re.search(
+            r"\b(GREATER|LESS|EQUAL|NOT\s+LESS|NOT\s+GREATER)\b",
+            header_text, re.IGNORECASE,
+        ):
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"START {file_name}: relational-word operator outside the "
+                "deterministic symbolic subset (=, >, >=, <, <=); runtime "
+                "yields status 23 (fail-closed INVALID KEY)",
+                location=f"line {start + 1}",
+            )
+            operator = operator if operator in ("=", ">", ">=", "<", "<=") else "UNSUPPORTED"
+            if not key or key.upper() in (
+                "GREATER", "LESS", "EQUAL", "THAN", "NOT",
+            ):
+                tail_tokens = [
+                    token.rstrip(".")
+                    for token in re.split(r"\s+", header_text)
+                    if token.rstrip(".")
+                ]
+                key = tail_tokens[-1] if tail_tokens else key
+
+        sections, next_index = self._collect_file_clauses(
+            lines, start, allowed, ("END-START",), f"START {file_name}",
+        )
+
+        return StartStatement(
+            file_name=file_name,
+            key=key,
+            operator=operator,
+            invalid_key_body=tuple(sections["invalid"]),
+            not_invalid_key_body=tuple(sections["not_invalid"]),
+        ), next_index
+
+    def _parse_rewrite(self, lines: list[str], start: int) -> tuple[RewriteStatement, int]:
+        """Parse REWRITE record [FROM field] with INVALID KEY clauses."""
+        line = lines[start].strip()
+        allowed = ("invalid", "not_invalid")
+        header_text = self._verb_header_text(line, allowed)
+
+        match = re.search(r"REWRITE\s+(\S+)", header_text, re.IGNORECASE)
+        record_name = match.group(1).rstrip(".") if match else ""
+        from_match = re.search(r"\bFROM\s+(\S+)", header_text, re.IGNORECASE)
+        from_field = from_match.group(1).rstrip(".") if from_match else ""
+        file_name = record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
+
+        sections, next_index = self._collect_file_clauses(
+            lines, start, allowed, ("END-REWRITE",), f"REWRITE {record_name}",
+        )
+
+        return RewriteStatement(
+            record_name=record_name,
+            file_name=file_name,
+            from_field=from_field,
+            invalid_key_body=tuple(sections["invalid"]),
+            not_invalid_key_body=tuple(sections["not_invalid"]),
+        ), next_index
+
+    def _parse_delete(self, lines: list[str], start: int) -> tuple[DeleteStatement, int]:
+        """Parse DELETE file [RECORD] with INVALID KEY clauses."""
+        line = lines[start].strip()
+        allowed = ("invalid", "not_invalid")
+        header_text = self._verb_header_text(line, allowed)
+
+        match = re.search(r"DELETE\s+(\S+)", header_text, re.IGNORECASE)
+        file_name = match.group(1).rstrip(".") if match else ""
+
+        sections, next_index = self._collect_file_clauses(
+            lines, start, allowed, ("END-DELETE",), f"DELETE {file_name}",
+        )
+
+        return DeleteStatement(
+            file_name=file_name,
+            invalid_key_body=tuple(sections["invalid"]),
+            not_invalid_key_body=tuple(sections["not_invalid"]),
+        ), next_index
 
     def _parse_move(self, lines: list[str], start: int) -> tuple[MoveStatement, int]:
         """Parse MOVE source TO target statement."""
@@ -1128,10 +1407,27 @@ class CobolParser:
         ), start + 1
 
     def _parse_call(self, lines: list[str], start: int) -> tuple[CallStatement, int]:
-        """Parse CALL literal/identifier USING arguments, including continuations."""
+        """Parse CALL literal/identifier USING arguments, including continuations.
+
+        Continuation stops at file-clause headers and file scope terminators
+        so a CALL body inside a file clause (e.g. under INVALID KEY) never
+        swallows the clause structure into its argument list.
+        """
         i = start
         parts = [lines[i].strip()]
         while i + 1 < len(lines) and not parts[-1].rstrip().endswith("."):
+            nxt = lines[i + 1].strip()
+            masked = self._mask_quoted(nxt)
+            if any(
+                pattern.search(masked)
+                for _, pattern in self._FILE_CLAUSE_HEADERS
+            ):
+                break
+            if re.match(
+                r"^END-(?:READ|WRITE|REWRITE|DELETE|START)\b",
+                nxt, re.IGNORECASE,
+            ):
+                break
             i += 1
             parts.append(lines[i].strip())
         text = " ".join(parts).rstrip(".").strip()
@@ -1448,12 +1744,20 @@ class CobolParser:
             target_str = target_str.rstrip(".")
             targets = [t.strip() for t in target_str.split() if t.strip() and t.strip() != "INTO"]
 
-        # Check for continuation lines with more targets
+        # Check for continuation lines with more targets.  File-clause
+        # headers and file scope terminators end the target list so an
+        # UNSTRING body inside a file clause never swallows the clause.
         i = start + 1
         while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
             if u.startswith(("END-UNSTRING", "MOVE", "IF", "WRITE")):
+                break
+            if u.startswith((
+                "END-READ", "END-WRITE", "END-START", "END-REWRITE",
+                "END-DELETE", "AT END", "NOT AT END",
+                "INVALID KEY", "NOT INVALID KEY",
+            )):
                 break
             if l and not u.startswith("*"):
                 more_targets = re.findall(r"([A-Z][\w-]*)", l.upper())
@@ -1540,12 +1844,18 @@ class CobolParser:
 
         # Keywords that open a new statement (or close a scope) — never
         # DISPLAY continuation. Missing CALL/PERFORM/EVALUATE here was the
-        # root cause of swallowed CALL statements.
+        # root cause of swallowed CALL statements.  File-clause headers
+        # (AT END / INVALID KEY and their NOT-forms) are included so a
+        # DISPLAY body inside a file clause never swallows the next clause:
+        # without this, `AT END DISPLAY "EOF"` followed by `INVALID KEY`
+        # loses the header (and the body) with no diagnostic.
         break_prefixes = (
             "END-", "ELSE", "IF", "MOVE", "DISPLAY", "WRITE", "STOP RUN",
             "CLOSE", "GO TO", "CALL", "PERFORM", "EVALUATE", "ADD",
             "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE", "READ", "OPEN",
             "STRING", "UNSTRING", "SET", "INITIALIZE", "WHEN",
+            "AT END", "NOT AT END", "INVALID KEY", "NOT INVALID KEY",
+            "START", "REWRITE", "DELETE",
         )
 
         i = start + 1
