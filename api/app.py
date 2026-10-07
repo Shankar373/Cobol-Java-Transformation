@@ -42,7 +42,9 @@ import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.errors import ApiError, PayloadTooLargeError
 from api.ingestion import IngestionError
@@ -126,6 +128,66 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # Security middleware
 # ---------------------------------------------------------------------------
+
+# CORS: deny by default. Configure CONTROL_PLANE_ALLOWED_ORIGINS as a
+# comma-separated list (e.g. "https://app.example.com,https://admin.example.com")
+# to enable cross-origin requests. Empty or unset = no CORS (same-origin only).
+_allowed_origins = [
+    o.strip() for o in os.environ.get("CONTROL_PLANE_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
+if _allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "X-API-Key", "Content-Type"],
+        max_age=600,
+    )
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # HSTS (only effective over HTTPS; harmless over HTTP)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Prevent MIME sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Clickjacking protection
+        response.headers["X-Frame-Options"] = "DENY"
+        # XSS protection (legacy but harmless)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Referrer policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Permissions policy (restrict powerful features)
+        response.headers["Permissions-Policy"] = (
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+            "magnetometer=(), microphone=(), payment=(), usb=()"
+        )
+        # Content Security Policy (restrictive; adjust if frontend needs inline scripts)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data:; "
+            "font-src 'self'; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
+        # Cache control for API responses (prevent caching of sensitive data)
+        if request.url.path != "/health":
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
+
 
 def _expected_token() -> str | None:
     """Bearer token required for every route except /health (None = off)."""

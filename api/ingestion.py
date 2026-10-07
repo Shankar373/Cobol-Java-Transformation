@@ -11,20 +11,52 @@ application discovery using the existing engine components.
 from __future__ import annotations
 
 import io
+import logging
+import os
 import re
 import zipfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 
 class IngestionError(Exception):
     """Raised when ingestion fails."""
 
 
-MAX_ZIP_ARCHIVE_BYTES = 100 * 1024 * 1024
-MAX_ZIP_ENTRIES = 5000
-MAX_TOTAL_EXTRACTED_BYTES = 500 * 1024 * 1024
+# Tightened ZIP limits for security (configurable via env for testing)
+# Default archive limit: 50MB (down from 100MB)
+# Default entry limit: 1000 (down from 5000)
+# Default extracted size limit: 200MB (down from 500MB)
+_MAX_ZIP_ARCHIVE_BYTES_DEFAULT = 50 * 1024 * 1024
+_MAX_ZIP_ENTRIES_DEFAULT = 1000
+_MAX_TOTAL_EXTRACTED_BYTES_DEFAULT = 200 * 1024 * 1024
+
+
+def _zip_limit(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using %d", name, raw, default)
+        return default
+    return value if value > 0 else default
+
+
+def _get_max_zip_archive_bytes() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_ZIP_ARCHIVE_BYTES", _MAX_ZIP_ARCHIVE_BYTES_DEFAULT)
+
+
+def _get_max_zip_entries() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_ZIP_ENTRIES", _MAX_ZIP_ENTRIES_DEFAULT)
+
+
+def _get_max_total_extracted_bytes() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_TOTAL_EXTRACTED_BYTES", _MAX_TOTAL_EXTRACTED_BYTES_DEFAULT)
 
 
 def _is_traversal(name: str) -> bool:
@@ -86,9 +118,10 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
     Security: extraction is path-traversal safe (Zip Slip protected), rejects
     absolute paths and symlink entries, and enforces archive entry/size limits.
     """
-    if len(data) > MAX_ZIP_ARCHIVE_BYTES:
+    max_archive = _get_max_zip_archive_bytes()
+    if len(data) > max_archive:
         raise IngestionError(
-            f"ZIP archive exceeds size limit of {MAX_ZIP_ARCHIVE_BYTES} bytes"
+            f"ZIP archive exceeds size limit of {max_archive} bytes"
         )
 
     workspace = Path(tempfile.mkdtemp(prefix=f"ingest-{application_id}-"))
@@ -96,12 +129,14 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             members = zf.infolist()
-            if len(members) > MAX_ZIP_ENTRIES:
+            max_entries = _get_max_zip_entries()
+            if len(members) > max_entries:
                 raise IngestionError(
-                    f"ZIP archive exceeds entry limit of {MAX_ZIP_ENTRIES} files"
+                    f"ZIP archive exceeds entry limit of {max_entries} files"
                 )
 
             total_size = 0
+            max_extracted = _get_max_total_extracted_bytes()
             for info in members:
                 if _is_traversal(info.filename):
                     raise IngestionError(
@@ -112,10 +147,10 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
                         f"Symlink ZIP entries are not allowed: {info.filename!r}"
                     )
                 total_size += info.file_size
-                if total_size > MAX_TOTAL_EXTRACTED_BYTES:
+                if total_size > max_extracted:
                     raise IngestionError(
                         f"ZIP exceeds total extracted size limit of "
-                        f"{MAX_TOTAL_EXTRACTED_BYTES} bytes"
+                        f"{max_extracted} bytes"
                     )
 
             workspace_resolved = workspace.resolve()

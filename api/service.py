@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import tempfile
 import threading
 import uuid
@@ -71,6 +72,30 @@ DEFAULT_MAX_CONCURRENT_JOBS = 4
 #: Upper bound for files accepted by the upload endpoints (defense in depth;
 #: the HTTP layer enforces the same limit before reading bodies).
 DEFAULT_MAX_UPLOAD_FILES = 1000
+
+
+def _cleanup_temp_dir(path: str | Path | None) -> None:
+    """Best-effort cleanup of a temporary directory.
+
+    Logs but never raises; temp directories are created with mkdtemp and
+    should be cleaned up when no longer needed. Failure to clean up is
+    not a functional error.
+    """
+    if path is None:
+        return
+    p = Path(path)
+    if not p.exists():
+        return
+    # Only clean up directories that look like our temp prefixes
+    name = p.name
+    if not (name.startswith("cobol-") or name.startswith("java-") or name.startswith("ingest-") or name.startswith("pipeline-output-")):
+        logger.debug("Skipping cleanup of non-temp directory: %s", p)
+        return
+    try:
+        shutil.rmtree(p, ignore_errors=False)
+        logger.debug("Cleaned up temp directory: %s", p)
+    except Exception as exc:
+        logger.warning("Failed to clean up temp directory %s: %s", p, exc)
 
 
 def _job_limit() -> int:
@@ -204,35 +229,43 @@ class Service:
         # 1. Extract ZIP to workspace
         workspace = ingest_zip(data, app_id)
 
-        # 2. Detect source root (top-level dir if ZIP contains a single root dir)
-        source_root = self._detect_source_root(workspace)
+        try:
+            # 2. Detect source root (top-level dir if ZIP contains a single root dir)
+            source_root = self._detect_source_root(workspace)
 
-        # 3. Run application discovery
-        discovery = discover_application(source_root, app_id)
+            # 3. Run application discovery
+            discovery = discover_application(source_root, app_id)
 
-        # 4. Persist paths on the application record
-        app.cobol_source_path = str(source_root)
+            # 4. Persist paths on the application record
+            # Clean up previous COBOL source temp directory if it was a temp dir
+            if app.cobol_source_path:
+                _cleanup_temp_dir(app.cobol_source_path)
+            app.cobol_source_path = str(source_root)
 
-        # 5. Update application name if it was auto-generated placeholder
-        #    or if the detected name is more specific (single dir override)
-        if detected_name and detected_name != "application":
-            # If the user didn't provide a meaningful name (empty or generic),
-            # use the detected name. Always deduplicate.
-            current_is_generic = not app.name or app.name == "application"
-            if current_is_generic:
-                app.name = self._store.unique_name(detected_name)
-            else:
-                # User provided a name — preserve it, but deduplicate if needed
-                existing = self._store.find_application_by_name(app.name)
-                if existing is not None and existing.id != app_id:
-                    app.name = self._store.unique_name(app.name)
+            # 5. Update application name if it was auto-generated placeholder
+            #    or if the detected name is more specific (single dir override)
+            if detected_name and detected_name != "application":
+                # If the user didn't provide a meaningful name (empty or generic),
+                # use the detected name. Always deduplicate.
+                current_is_generic = not app.name or app.name == "application"
+                if current_is_generic:
+                    app.name = self._store.unique_name(detected_name)
+                else:
+                    # User provided a name — preserve it, but deduplicate if needed
+                    existing = self._store.find_application_by_name(app.name)
+                    if existing is not None and existing.id != app_id:
+                        app.name = self._store.unique_name(app.name)
 
-        self._store.update_application(app)
+            self._store.update_application(app)
 
-        result = discovery.to_dict()
-        result["detected_name"] = detected_name
-        result["top_level_entries"] = top_entries
-        return result
+            result = discovery.to_dict()
+            result["detected_name"] = detected_name
+            result["top_level_entries"] = top_entries
+            return result
+        except Exception:
+            # Clean up workspace on failure
+            _cleanup_temp_dir(workspace)
+            raise
 
     def _detect_source_root(self, workspace: Path) -> Path:
         """Return the actual source root inside an extracted workspace.
@@ -311,6 +344,9 @@ class Service:
         explicit error instead of a silent overwrite.
         """
         app = self.get_application(app_id)
+        # Clean up previous COBOL source temp directory if it was a temp dir
+        if app.cobol_source_path:
+            _cleanup_temp_dir(app.cobol_source_path)
         base = self._write_upload(files, "cobol", app_id)
         app.cobol_source_path = str(base)
         self._store.update_application(app)
@@ -324,6 +360,9 @@ class Service:
         modernize endpoint is explicitly called with use_uploaded_candidate.
         """
         app = self.get_application(app_id)
+        # Clean up previous Java candidate temp directory if it was a temp dir
+        if app.java_candidate_path:
+            _cleanup_temp_dir(app.java_candidate_path)
         base = self._write_upload(files, "java", app_id)
         app.java_candidate_path = str(base)
         self._store.update_application(app)
@@ -613,14 +652,20 @@ class Service:
                     )
 
         pipeline = UniversalModernizationPipeline(pipeline_config)
-        report = pipeline.execute(progress=_pipeline_progress)
+        try:
+            report = pipeline.execute(progress=_pipeline_progress)
+        except Exception:
+            _cleanup_temp_dir(output_dir)
+            raise
 
         if not report.generation_success:
+            _cleanup_temp_dir(output_dir)
             raise ServiceError(
                 "Pipeline generation failed: " + "; ".join(report.generation_errors)
             )
 
         if not report.generated_project_dir:
+            _cleanup_temp_dir(output_dir)
             limit_detail = "; ".join(report.limitations) if report.limitations else "unknown"
             raise ServiceError(
                 f"Pipeline produced no generated project directory: {limit_detail}"
