@@ -409,7 +409,10 @@ public class {class_name} {{
                 init_expr = self._expr_to_string(field.initializer)
                 init_val = f" = {init_expr}"
             field_type = field.java_type.to_source() if field.java_type else "Object"
-            lines.append(f"    private {field_type} {field.name}{init_val};")
+            if "public" in (field.modifiers or ()):  # linkage fields
+                lines.append(f"    public static {field_type} {field.name}{init_val};")
+            else:
+                lines.append(f"    private {field_type} {field.name}{init_val};")
 
         if service.fields:
             lines.append("")

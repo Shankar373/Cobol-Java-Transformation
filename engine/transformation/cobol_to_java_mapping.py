@@ -59,6 +59,10 @@ from engine.transformation.ir import (
 
 from engine.transformation.numeric_semantics import (
     NumericValueError,
+    display_format_spec,
+    is_fractional_format_spec,
+    is_numeric_literal,
+    java_integral_suffix,
     normalize_numeric_literal,
     normalize_value_for_pic,
 )
@@ -144,17 +148,21 @@ def map_pic_to_java_default(item: DataItem) -> str:
     contract (leading-zero literals are never emitted as Java octal
     literals, fractional digits are truncated to the PIC scale, and
     overflow keeps the least-significant declared digits — matching
-    GnuCOBOL).  An invalid numeric VALUE raises :class:`NumericValueError`
-    so the lane fails closed instead of emitting a bare identifier.
+    GnuCOBOL).  A signed literal on an unsigned PIC and an invalid numeric
+    VALUE raise :class:`NumericValueError` so the lane fails closed instead
+    of emitting a bare identifier.  Integral values outside Java's ``int``
+    range carry the ``L`` suffix so the declaration compiles.
     """
     if item.is_numeric:
         if not item.value:
             return "0"
-        return normalize_value_for_pic(
+        normalized = normalize_value_for_pic(
             item.value,
             integer_digits=item.integer_digits,
             decimal_digits=item.decimal_places,
+            signed=item.signed,
         )
+        return f"{normalized}{java_integral_suffix(normalized)}"
     if item.is_alphanumeric and item.pic_length > 0:
         value = item.value.strip(chr(39) + chr(34)) if item.value else ""
         if item.value and item.value.upper() in ("SPACE", "SPACES"):
@@ -167,8 +175,29 @@ def map_pic_to_java_default(item: DataItem) -> str:
 
 def _numeric_literal_java_type(value: str) -> JavaType:
     """Return the Java type implied by a numeric literal spelling."""
-    basic_type = JavaBasicType.DOUBLE if "." in value else JavaBasicType.INT
-    return JavaType(basic_type=basic_type)
+    if "." in value:
+        return JavaType(basic_type=JavaBasicType.DOUBLE)
+    if java_integral_suffix(value):
+        # Outside Java's default int range: the literal must be typed long.
+        return JavaType(basic_type=JavaBasicType.LONG)
+    return JavaType(basic_type=JavaBasicType.INT)
+
+
+def _numeric_java_literal(text: str) -> JavaLiteral:
+    """Build a Java numeric literal with deterministic typing and suffix.
+
+    The normalized value carries the ``L`` suffix whenever it falls outside
+    Java's ``int`` range, so generated source compiles instead of failing
+    with ``error: integer number too large``.
+    """
+    try:
+        normalized = normalize_numeric_literal(text)
+    except NumericValueError:
+        normalized = text
+    return JavaLiteral(
+        value=f"{normalized}{java_integral_suffix(normalized)}",
+        java_type=_numeric_literal_java_type(normalized),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +209,7 @@ def _numeric_literal_java_type(value: str) -> JavaType:
 # nested TIMES loops in the same method never redeclare one another
 # (which would not compile in Java).
 import itertools as _itertools
+from dataclasses import replace as _dc_replace
 
 _times_loop_counter = _itertools.count()
 
@@ -590,12 +620,8 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
         return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
 
     # Check if it's a simple number
-    if expr.replace(".", "").replace("-", "").isdigit():
-        try:
-            normalized = normalize_numeric_literal(expr)
-        except NumericValueError:
-            normalized = expr
-        return JavaLiteral(value=normalized, java_type=_numeric_literal_java_type(expr))
+    if is_numeric_literal(expr):
+        return _numeric_java_literal(expr)
 
     # Try to parse binary expressions: left OP right (operators must have spaces)
     binary_match = _re.match(
@@ -608,22 +634,14 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
         right_str = binary_match.group(3).strip()
 
         left: JavaExpression
-        if left_str.replace(".", "").replace("-", "").isdigit():
-            try:
-                left_norm = normalize_numeric_literal(left_str)
-            except NumericValueError:
-                left_norm = left_str
-            left = JavaLiteral(value=left_norm, java_type=_numeric_literal_java_type(left_str))
+        if is_numeric_literal(left_str):
+            left = _numeric_java_literal(left_str)
         else:
             left = JavaVariableRef(name=left_str.replace("-", "_"))
 
         right: JavaExpression
-        if right_str.replace(".", "").replace("-", "").isdigit():
-            try:
-                right_norm = normalize_numeric_literal(right_str)
-            except NumericValueError:
-                right_norm = right_str
-            right = JavaLiteral(value=right_norm, java_type=_numeric_literal_java_type(right_str))
+        if is_numeric_literal(right_str):
+            right = _numeric_java_literal(right_str)
         else:
             right = JavaVariableRef(name=right_str.replace("-", "_"))
 
@@ -684,7 +702,8 @@ def _expression_integral_digit_width(
         item = _find_data_item(program, expr.name)
         return item.pic_length if item and item.is_numeric else 0
     if isinstance(expr, JavaLiteral):
-        value = expr.value.strip().lstrip("+-")
+        # A Java literal suffix (``123L``) is not a digit position.
+        value = expr.value.strip().lstrip("+-").rstrip("Ll")
         if value and value.replace(".", "").isdigit():
             return len(value.replace(".", ""))
         return 0
@@ -842,14 +861,7 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
         return map_cobol_expr_to_java(expr)
     if isinstance(expr, _cobol_ir.Literal):
         if expr.is_numeric:
-            try:
-                normalized = normalize_numeric_literal(expr.value)
-            except NumericValueError:
-                normalized = expr.value
-            return JavaLiteral(
-                value=normalized,
-                java_type=_numeric_literal_java_type(expr.value),
-            )
+            return _numeric_java_literal(expr.value)
         return JavaLiteral(
             value=expr.value,
             java_type=JavaType(basic_type=JavaBasicType.STRING),
@@ -2024,9 +2036,28 @@ def map_cobol_program_to_java(
     all_data_items = tuple(file_record_items) + program.working_storage
     fields = map_cobol_data_items_to_fields(all_data_items)
     if program.linkage_section:
+        linkage_names = {
+            item.name.replace("-", "_") for item in program.linkage_section
+        }
+        # Working-storage fields that duplicate linkage items (the parser
+        # mirrors them) still need public static rendering for
+        # cross-service sync access.
+        fields = tuple(
+            _dc_replace(f, modifiers=("public", "static"))
+            if f.name in linkage_names
+            else f
+            for f in fields
+        )
         existing = {f.name for f in fields}
         for link_field in map_cobol_data_items_to_fields(program.linkage_section):
             if link_field.name not in existing:
+                # Linkage fields are accessed cross-service (sync-in/out)
+                # as static fields, so they must be rendered publicly and
+                # statically by every generator. Working-storage fields
+                # keep their existing private instance rendering.
+                link_field = _dc_replace(
+                    link_field, modifiers=("public", "static")
+                )
                 fields = fields + (link_field,)
                 existing.add(link_field.name)
 
