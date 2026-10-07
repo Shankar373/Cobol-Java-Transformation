@@ -222,14 +222,25 @@ class DataItem:
         return self.level == 88
 
     @property
-    def format_width(self) -> int:
-        """Total display width for numeric formatting.
+    def integer_digits(self) -> int:
+        """Number of integer (whole) digit positions in the PIC.
 
-        Derived from PIC: integer digits + decimal places.
-        For PIC 9(6): width=6, decimal_places=0
-        For PIC 9(6)V99: width=8, decimal_places=2
+        ``pic_length`` counts every digit position (integer + fractional);
+        this is the integer-only subset.  PIC 9(6)V99 → 6.
         """
-        return self.pic_length + self.decimal_places
+        return self.pic_length - self.decimal_places
+
+    @property
+    def format_width(self) -> int:
+        """Total digit positions for numeric storage/display sizing.
+
+        Derived from PIC as every digit position: integer digits +
+        fractional digits.  Because ``pic_length`` already counts both, the
+        width is exactly ``pic_length`` — it must NOT add ``decimal_places``
+        a second time (that double-counted fractional digits for V/PIC).
+        PIC 9(6) → 6; PIC 9(6)V99 → 8.
+        """
+        return self.pic_length
 
     @property
     def is_decimal(self) -> bool:

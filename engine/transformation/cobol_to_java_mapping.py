@@ -57,6 +57,12 @@ from engine.transformation.ir import (
     ExitProgramStatement,
 )
 
+from engine.transformation.numeric_semantics import (
+    NumericValueError,
+    normalize_numeric_literal,
+    normalize_value_for_pic,
+)
+
 from engine.transformation.java_ir import (
     JavaApplication,
     JavaAssignment,
@@ -132,11 +138,23 @@ def map_pic_to_java_type(item: DataItem) -> JavaType:
 
 
 def map_pic_to_java_default(item: DataItem) -> str:
-    """Get the Java default value for a COBOL PIC type."""
+    """Get the Java default value for a COBOL PIC type.
+
+    Numeric VALUE clauses are normalized through the deterministic numeric
+    contract (leading-zero literals are never emitted as Java octal
+    literals, fractional digits are truncated to the PIC scale, and
+    overflow keeps the least-significant declared digits — matching
+    GnuCOBOL).  An invalid numeric VALUE raises :class:`NumericValueError`
+    so the lane fails closed instead of emitting a bare identifier.
+    """
     if item.is_numeric:
-        if item.value:
-            return item.value.strip("'\"")
-        return "0"
+        if not item.value:
+            return "0"
+        return normalize_value_for_pic(
+            item.value,
+            integer_digits=item.integer_digits,
+            decimal_digits=item.decimal_places,
+        )
     if item.is_alphanumeric and item.pic_length > 0:
         value = item.value.strip(chr(39) + chr(34)) if item.value else ""
         if item.value and item.value.upper() in ("SPACE", "SPACES"):
@@ -573,7 +591,11 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
 
     # Check if it's a simple number
     if expr.replace(".", "").replace("-", "").isdigit():
-        return JavaLiteral(value=expr, java_type=_numeric_literal_java_type(expr))
+        try:
+            normalized = normalize_numeric_literal(expr)
+        except NumericValueError:
+            normalized = expr
+        return JavaLiteral(value=normalized, java_type=_numeric_literal_java_type(expr))
 
     # Try to parse binary expressions: left OP right (operators must have spaces)
     binary_match = _re.match(
@@ -587,13 +609,21 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
 
         left: JavaExpression
         if left_str.replace(".", "").replace("-", "").isdigit():
-            left = JavaLiteral(value=left_str, java_type=_numeric_literal_java_type(left_str))
+            try:
+                left_norm = normalize_numeric_literal(left_str)
+            except NumericValueError:
+                left_norm = left_str
+            left = JavaLiteral(value=left_norm, java_type=_numeric_literal_java_type(left_str))
         else:
             left = JavaVariableRef(name=left_str.replace("-", "_"))
 
         right: JavaExpression
         if right_str.replace(".", "").replace("-", "").isdigit():
-            right = JavaLiteral(value=right_str, java_type=_numeric_literal_java_type(right_str))
+            try:
+                right_norm = normalize_numeric_literal(right_str)
+            except NumericValueError:
+                right_norm = right_str
+            right = JavaLiteral(value=right_norm, java_type=_numeric_literal_java_type(right_str))
         else:
             right = JavaVariableRef(name=right_str.replace("-", "_"))
 
@@ -812,8 +842,12 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
         return map_cobol_expr_to_java(expr)
     if isinstance(expr, _cobol_ir.Literal):
         if expr.is_numeric:
+            try:
+                normalized = normalize_numeric_literal(expr.value)
+            except NumericValueError:
+                normalized = expr.value
             return JavaLiteral(
-                value=expr.value,
+                value=normalized,
                 java_type=_numeric_literal_java_type(expr.value),
             )
         return JavaLiteral(

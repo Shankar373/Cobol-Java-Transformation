@@ -53,13 +53,38 @@ so such a program is reported UNSUPPORTED rather than silently SUPPORTED.
 - `tests/adversarial/test_semantic_mutations.py`
 - `tests/test_silent_loss_registry.py`
 
+## Phase-D proof: numeric VALUE/literal semantics (D1)
+
+Deterministic COBOL numeric VALUE semantics implemented in
+`engine/transformation/numeric_semantics.py` and applied to every numeric
+initializer and numeric expression literal.  Contract (oracle-verified):
+
+| Semantics | Rationale | Evidence |
+|---|---|---|
+| leading-zero numeric literals are decimal | `VALUE 007`/`009` must never be emitted as Java octal (`007`) or a Java compile error (`009`) | GnuCOBOL DISPLAY `007`/`009`; generated Java `static int D = 7;` compiles and prints `000028` |
+| fractional digits are truncated, not rounded | `PIC 9(2)V99 VALUE 1.234` stores `1.23` | GnuCOBOL DISPLAY `01.23`; generated `static double F = 1.23;` |
+| overflow keeps least-significant declared digits | `PIC 9(3) VALUE 1234` stores `234` | GnuCOBOL DISPLAY `234` |
+| ZERO/ZEROS/ZEROES are `0` | figurative zero is a valid numeric VALUE | GnuCOBOL `VALUE ZEROS` displays `000` |
+| non-numeric numeric VALUE fails closed | `VALUE SPACE` on a numeric item is a GnuCOBOL compile error; the lane must not emit a bare Java identifier | `NumericValueError` raised; source reported UNSUPPORTED |
+| `format_width == pic_length` | width no longer double-counts fractional digits (was `pic_length + decimal_places`) | `PIC 9(6)V99`: `pic_length=8`, `format_width=8` |
+
+Runtime differential proof (Docker-gated): `tests/integration/test_numeric_oracle_proof.py`
+compiles the same sources with GnuCOBOL 3.1.2 and with the generated Java
+(temurin:21), and asserts `Decimal(DISPLAY)` equals the normalized literal and
+byte-identical integer DISPLAY stdout.
+
+Boundary (documented, not fabricated): the stored *integer* VALUE/DISPLAY lane is
+PROVEN.  DISPLAY byte-equality and high-precision arithmetic for items with
+implied decimals (V) remain unproven on IEEE-754 `double`; they are not claimed
+until a decimal-exact runtime type is exercised.
+
 ## Known unverified limitations (pre-existing Phase B boundaries, unchanged)
 
-- Numeric `VALUE` literals with leading zeros are passed through as Java
-  literals; `COMP`/`COMP-3` items are numerics without a documented binary
-  encoding contract.
-- `pic_length` counts digits+decimal in `P`/`V` configurations that can
-  disagree with the Java numeric width; `format_width` values are advisory.
+- Numeric `VALUE` literals with leading zeros are now normalized through the
+  Phase-D contract (D1) and no longer leak Java-octal forms; the remaining
+  boundary is decimal arithmetic precision on `double`.
+- `COMP`/`COMP-3` items are numerics without a documented binary encoding
+  contract.
 - `EXIT PROGRAM` is realised as a Java return at statement level; PROGRAM
   STATUS/-level interoperability is not claimed.
 - Runtime proof is claimed only for the fixtures that ship generated-project

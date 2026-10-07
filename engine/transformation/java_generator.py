@@ -32,6 +32,12 @@ from engine.transformation.java_ir import (
 )
 
 
+from engine.transformation.numeric_semantics import (
+    NumericValueError,
+    normalize_value_for_pic,
+)
+
+
 @dataclass
 class GeneratedFile:
     """A generated Java source file."""
@@ -1594,8 +1600,21 @@ public class {class_name} {{
 
     @staticmethod
     def _java_numeric_default_for_item(item) -> str:
-        """Choose a Java initializer while preserving signed/decimal VALUE text."""
-        return item.value.strip("'\"") if item.value else "0"
+        """Choose a Java initializer while honoring the numeric literal contract.
+
+        Numeric VALUE literals are normalized deterministically (no Java
+        octal ambiguity, fractional digits truncated to the PIC scale,
+        overflow keeps the least-significant declared digits).  An invalid
+        numeric VALUE raises :class:`NumericValueError` so generation fails
+        closed instead of emitting a bare Java identifier.
+        """
+        if not item.value:
+            return "0"
+        return normalize_value_for_pic(
+            item.value,
+            integer_digits=item.integer_digits,
+            decimal_digits=item.decimal_places,
+        )
 
     def _gen_io_variable_declarations(
         self,
@@ -1699,10 +1718,9 @@ public class {class_name} {{
         for item in program.working_storage:
             java_name = item.name.replace("-", "_")
             if item.is_numeric:
-                default = "0"
-                if item.value:
-                    default = item.value.strip("'\"")
-                lines.append(f'    static int {java_name} = {default};')
+                java_type = self._java_numeric_type_for_item(item)
+                default = self._java_numeric_default_for_item(item)
+                lines.append(f'    static {java_type} {java_name} = {default};')
             else:
                 default = '""'
                 if item.value:
