@@ -32,6 +32,7 @@ from pathlib import Path
 
 from engine.transformation.contracts import ProducerCapability
 from engine.transformation.ir import (
+    CallStatement,
     CobolApplication,
     CobolProgramUnit,
     CopybookReference,
@@ -122,6 +123,99 @@ class CapabilityReport:
         }
 
 
+_LINKAGE_WALK_ATTRS = (
+    "body", "then_body", "else_body",
+    "at_end_body", "not_at_end_body", "invalid_key_body",
+    "not_invalid_key_body",
+)
+
+
+def _iter_call_statements(program) -> "list[CallStatement]":
+    """Collect every CallStatement in a program, recursing into known bodies."""
+    found: list[CallStatement] = []
+
+    def _walk(stmt) -> None:
+        if isinstance(stmt, CallStatement):
+            found.append(stmt)
+        for attr in _LINKAGE_WALK_ATTRS:
+            nested = getattr(stmt, attr, None)
+            if nested:
+                for child in nested:
+                    _walk(child)
+        # Evaluate/Perform-style collections
+        for attr in ("cases", "when_branches", "when_others_body"):
+            coll = getattr(stmt, attr, None)
+            if coll:
+                for item in coll:
+                    if isinstance(item, tuple):
+                        for sub in item:
+                            if hasattr(sub, "__class__"):
+                                try:
+                                    _walk(sub)
+                                except (AttributeError, TypeError):
+                                    pass
+                    elif hasattr(item, "statements"):
+                        for sub in item.statements:
+                            _walk(sub)
+                    elif isinstance(item, (list, tuple)):
+                        for sub in item:
+                            if hasattr(sub, "__class__"):
+                                try:
+                                    _walk(sub)
+                                except (AttributeError, TypeError):
+                                    pass
+
+    for paragraph in getattr(program, "paragraphs", ()):
+        for stmt in getattr(paragraph, "statements", ()):
+            _walk(stmt)
+    return found
+
+
+def _analyze_call_linkage_arity(
+    application: CobolApplication,
+) -> "list[ComponentCapability]":
+    """Deterministically flag caller/callee LINKAGE arity mismatches.
+
+    Only statically resolved CALLs are diagnosed. Dynamic calls, unresolved
+    calls, self-calls and cycles retain their existing classifications.
+    A mode (BY REFERENCE/BY CONTENT/BY VALUE) that cannot be proven
+    compatible is never guessed - it is simply not used to derive support.
+    """
+    by_id = {}
+    for unit in application.programs:
+        if unit.program is not None:
+            by_id[unit.program.program_id.upper()] = unit.program
+
+    findings: list[ComponentCapability] = []
+    for unit in application.programs:
+        if unit.program is None:
+            continue
+        for stmt in _iter_call_statements(unit.program):
+            if stmt.is_dynamic:
+                continue
+            target = stmt.program_name.rstrip(".").upper()
+            callee = by_id.get(target)
+            if callee is None:
+                continue  # existing unresolved-target path governs
+            declared = sum(
+                1 for item in callee.linkage_section
+                if getattr(item, "level", None) == 1
+            )
+            passed = len(stmt.arguments)
+            if passed != declared:
+                findings.append(ComponentCapability(
+                    component_id=f"{unit.program_id}->{target}",
+                    component_type="CALL",
+                    level=CapabilityLevel.UNSUPPORTED,
+                    reason=(
+                        f"CALL linkage arity mismatch: caller passes "
+                        f"{passed} argument(s) but callee {target} declares "
+                        f"{declared} top-level LINKAGE item(s)"
+                    ),
+                ))
+    return findings
+
+
 class CapabilityAnalyzer:
     """Analyzes a discovered COBOL application against available capabilities.
 
@@ -184,6 +278,13 @@ class CapabilityAnalyzer:
                 level=CapabilityLevel.UNSUPPORTED,
                 reason="Cyclic CALL dependency is out of scope",
             ))
+
+        # Static CALL linkage arity: every STATIC, resolved CALL whose
+        # caller USING argument count disagrees with the callee's declared
+        # LINKAGE SECTION top-level items is a deterministic mismatch and
+        # must NOT be treated as supported. Dynamic and unresolved calls
+        # keep their existing classifications.
+        components.extend(_analyze_call_linkage_arity(application))
 
         # Override with infrastructure unavailability (only for programs and calls)
         if infra_level == CapabilityLevel.UNAVAILABLE:
