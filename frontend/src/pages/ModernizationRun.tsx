@@ -13,6 +13,7 @@ import {
   PipelineStepper,
   StatCard,
   CopyButton,
+  IntegratedProof,
 } from '../components';
 import {
   IconCode,
@@ -30,6 +31,7 @@ import {
   ArtifactMetadata,
   RunDetailResponse,
   ModernizationReportResponse,
+  IntegratedProofResponse,
   getRun,
   getRunDetail,
   getVerdict,
@@ -37,6 +39,7 @@ import {
   getArtifacts,
   getReport,
   downloadGenerated,
+  getIntegratedProof,
 } from '../api/client';
 import {
   RUN_STAGES,
@@ -168,6 +171,7 @@ export function ModernizationRun({
   const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactMetadata[] | null>(null);
   const [report, setReport] = useState<ModernizationReportResponse | null>(null);
+  const [integratedProof, setIntegratedProof] = useState<IntegratedProofResponse | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pollFailures, setPollFailures] = useState(0);
@@ -199,7 +203,7 @@ export function ModernizationRun({
   }, [effectiveAppId, runId]);
 
   const loadTerminalData = useCallback(async () => {
-    const [v, a, d, rd, rpt] = await Promise.all([
+    const [v, a, d, rd, rpt, ip] = await Promise.all([
       getVerdict(runId).catch(() => null),
       getArtifacts(runId).catch(() => null),
       // Re-attempt discovery at terminal state in case the early fetch
@@ -209,8 +213,10 @@ export function ModernizationRun({
       getRunDetail(runId).catch(() => null),
       // Modernization report (capability analysis, transformation plan).
       getReport(runId).catch(() => null),
+      // Integrated proof (dependency ledger + central status).
+      getIntegratedProof(runId).catch(() => null),
     ]);
-    return { v, a, d, rd, rpt };
+    return { v, a, d, rd, rpt, ip };
   }, [runId, effectiveAppId]);
 
   const hasRunRef = useRef(false);
@@ -231,13 +237,14 @@ export function ModernizationRun({
 
     if (isTerminalStage(runData.stage)) {
       try {
-        const { v, a, d, rd, rpt } = await loadTerminalData();
+        const { v, a, d, rd, rpt, ip } = await loadTerminalData();
         if (v) setVerdict(v);
         // Render artifacts only when the backend actually returns them.
         if (a && a.artifacts.length > 0) setArtifacts(a.artifacts);
         if (d) setDiscovery((prev) => prev ?? d);
         if (rd) setDetail((prev) => prev ?? rd);
         if (rpt) setReport(rpt);
+        if (ip) setIntegratedProof(ip);
       } catch {
         // Partial terminal data is acceptable; run state itself is shown.
       }
@@ -870,6 +877,9 @@ export function ModernizationRun({
               </div>
             </SectionCard>
           )}
+
+          {/* Integrated Proof — dependency ledger + central status gate */}
+          {integratedProof && <IntegratedProof proof={integratedProof} />}
 
           {/* Validation Scope — verbatim backend scope statement + identity hashes */}
           {verdict && <ValidationScope verdict={verdict} />}

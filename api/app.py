@@ -56,6 +56,8 @@ from api.models import (
     ComparisonDetail,
     DiscoveryResponse,
     IngestResponse,
+    IntegratedProofResult,
+    IntegratedProofResponse,
     ModernizeOptions,
     ModernizeResponse,
     ModernizationReportResponse,
@@ -606,6 +608,67 @@ def get_run_report(run_id: str) -> ModernizationReportResponse:
         run_id=run_id,
         application_id=run.application_id,
         report=report,
+    )
+
+
+@app.get("/runs/{run_id}/integrated-proof", response_model=IntegratedProofResponse)
+def get_run_integrated_proof(run_id: str) -> IntegratedProofResponse:
+    """Get the integrated proof for a run.
+
+    Contains the dependency ledger and central status gate evaluating
+    proof state for each declared dependency (proven/blocked/partial/unproven).
+
+    The gate only ever downgrades:
+        central VERIFIED <= runtime verdict is VERIFIED
+                             AND evidence manifest is complete
+                             AND evidence integrity validated
+                             AND every required dependency is PROVEN
+
+    JCL, DB2 and CICS have no runtime lane in this repository, so they can
+    never reach PROVEN. A workload that declares them therefore resolves to
+    NOT VERIFIED at the application level even when the COBOL <-> Java runtime
+    lane itself is VERIFIED.
+    """
+    proof = _svc().get_integrated_proof(run_id)
+    p = proof["proof"]
+    run = _svc().get_run(run_id)
+
+    return IntegratedProofResponse(
+        run_id=run_id,
+        proof=IntegratedProofResult(
+            workload_id=p.get("workload_id", run.workload_id),
+            application_id=p.get("application_id", run.application_id),
+            central_status=p.get("central_status", "NOT_VERIFIED"),
+            blocking_reasons=p.get(
+                "blocking_reasons", p.get("reasons_for_not_verified", [])
+            ),
+            generation_success=bool(p.get("generation_success", False)),
+            overall_capability=p.get("overall_capability", "UNKNOWN"),
+            jcl_status=p.get("jcl_status", "NOT_PRESENT"),
+            runtime=p.get("runtime", {}),
+            dependency_ledger=p.get("dependency_ledger", []),
+            required_dependencies=p.get(
+                "required_dependencies",
+                [e for e in p.get("dependency_ledger", []) if e.get("required", False)],
+            ),
+            unproven_dependencies=p.get("unproven_dependencies", []),
+            runtime_verdict_is_verified=bool(p.get("runtime_verdict_is_verified", False)),
+        ),
+        application_id=run.application_id,
+        verdict_state=(p.get("runtime") or {}).get("verdict_state", "NOT_RUN"),
+        evidence_status="COMPLETE" if p.get("evidence_complete", False) else "INCOMPLETE",
+        runtime_proof_status=(
+            "VERIFIED" if p.get("runtime_verdict_is_verified", False) else "NOT_VERIFIED"
+        ),
+        reasons_for_not_verified=p.get("reasons_for_not_verified", []),
+        proven_dependencies=p.get("proven_dependencies", []),
+        unproven_dependencies=p.get("unproven_dependencies", []),
+        blocked_dependencies=p.get("blocked_dependencies", []),
+        unsupported_dependencies=p.get("unsupported_dependencies", []),
+        evidence_complete=bool(p.get("evidence_complete", False)),
+        evidence_integrity_valid=bool(p.get("evidence_integrity_valid", False)),
+        required_dependencies_proven=bool(p.get("required_dependencies_proven", False)),
+        overall_verification=p.get("overall_verification", "NOT_VERIFIED"),
     )
 
 

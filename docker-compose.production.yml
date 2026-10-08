@@ -46,6 +46,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Sandbox images must exist on the HOST daemon (built by CI or
       # scripts/deploy/build-production.sh); they are not inside this image.
+    # The API image runs as non-root uid/gid 10001, but the host daemon
+    # socket is typically srw-rw---- root:<docker-gid>. Without this the
+    # container CANNOT reach the daemon and the COBOL oracle lane fails
+    # closed at EXECUTING_ORACLE ("oracle image identity is not
+    # established"), so the deployed stack can never produce a verdict.
+    # DOCKER_GID must match the group owning /var/run/docker.sock on the
+    # host; the default 0 covers the standard root-owned socket.
+    group_add:
+      - "${DOCKER_GID:-0}"
     networks:
       - edge
       - sandbox-calls

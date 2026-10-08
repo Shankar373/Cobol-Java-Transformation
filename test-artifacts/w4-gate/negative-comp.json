@@ -1,0 +1,324 @@
+{
+  "mode": "negative-comp",
+  "workload": "comp",
+  "db": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\negative-comp\\control-plane.db",
+  "zip": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\negative-comp\\comp.zip",
+  "application_id": "app-6fe7d3b9c5c6",
+  "ingest": {
+    "application_id": "app-6fe7d3b9c5c6",
+    "workspace_path": "C:\\Users\\bandi\\AppData\\Local\\Temp\\ingest-app-6fe7d3b9c5c6-hbc3we01\\cobol",
+    "source_file_count": 2,
+    "total_size_bytes": 104959,
+    "discovery": {
+      "application_id": "app-6fe7d3b9c5c6",
+      "cobol_programs": [
+        {
+          "program_id": "COMP-DEMO",
+          "source_path": "MAIN.cob",
+          "file_dependencies": [],
+          "calls": [],
+          "copybooks": [],
+          "entry_points": []
+        }
+      ],
+      "copybooks": [],
+      "jcl_jobs": [],
+      "file_dependencies": [],
+      "call_dependencies": [],
+      "dependency_edges": [],
+      "source_file_count": 2,
+      "total_size_bytes": 104959,
+      "discovery_success": true,
+      "discovery_errors": [],
+      "detected_name": "cobol",
+      "top_level_entries": [
+        "cobol"
+      ]
+    },
+    "detected_name": "cobol",
+    "top_level_entries": [
+      "cobol"
+    ]
+  },
+  "modernize_status": 202,
+  "run_id": "run-5c2e04b55318",
+  "terminal": {
+    "run": {
+      "id": "run-5c2e04b55318",
+      "application_id": "app-6fe7d3b9c5c6",
+      "workload_id": "comp",
+      "stage": "COMPLETED",
+      "created_at": "2026-10-08T06:55:00.433126+00:00",
+      "completed_at": "2026-10-08T06:55:31.347895+00:00",
+      "error": null
+    },
+    "stages_seen": [
+      "ASSEMBLY_COMPLETED",
+      "EXECUTING_ORACLE",
+      "BUILDING",
+      "EXECUTING_GENERATED",
+      "COMPLETED"
+    ]
+  },
+  "run_stage": "COMPLETED",
+  "run_error": null,
+  "verdict_http": 200,
+  "verdict": {
+    "run_id": "run-5c2e04b55318",
+    "engine_run_id": "run-comp-20261008065503",
+    "state": "VERIFIED",
+    "workload_id": "comp",
+    "source_hash": "sha256:4ab1866157faa8a6e4b98dd35fea5077700877c31b122afd21c785bebfd0148f",
+    "candidate_hash": "sha256:b0893ba13b31eec74cec783b0eb9ffe68f299ac688e037f28e1e355c1717eedf",
+    "oracle_id": "gnucobol-3.1.2",
+    "oracle_digest": "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+    "executed_check_count": 3,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "supported_scope_statement": "V1 validation scope: GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate (DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); substring containment permanently forbidden.",
+    "evidence_manifest_hash": "sha256:249814257df559e928911a584f98c4a55fef70344e1374b4aaef8fdea0235636",
+    "derivation_timestamp": "2026-10-08T06:55:31.335254+00:00",
+    "differences": [],
+    "comparisons": [
+      {
+        "comparison_id": "comp-comp-stdout-run-comp-20261008065503",
+        "comparator_id": "STDOUT_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDOUT",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-comp-stderr-run-comp-20261008065503",
+        "comparator_id": "STDERR_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDERR",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-comp-exit-status-run-comp-20261008065503",
+        "comparator_id": "EXIT_STATUS_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "EXIT_STATUS",
+        "result": "MATCH",
+        "differences": []
+      }
+    ],
+    "certification_contract": "declared:workload-comp",
+    "contract_source": "declared"
+  },
+  "proof_http_process1": 200,
+  "proof_process1": {
+    "run_id": "run-5c2e04b55318",
+    "proof": {
+      "workload_id": "comp",
+      "application_id": "app-6fe7d3b9c5c6",
+      "central_status": "VERIFIED",
+      "blocking_reasons": [],
+      "generation_success": true,
+      "overall_capability": "SUPPORTED",
+      "jcl_status": "NOT_PRESENT",
+      "runtime": {
+        "artifact_results": [
+          [
+            "STDOUT",
+            "MATCH"
+          ],
+          [
+            "STDERR",
+            "MATCH"
+          ],
+          [
+            "EXIT_STATUS",
+            "MATCH"
+          ]
+        ],
+        "candidate_exit_code": 0,
+        "evidence_complete": true,
+        "evidence_integrity_valid": true,
+        "executed_check_count": 3,
+        "oracle_exit_code": 0,
+        "verdict_state": "VERIFIED"
+      },
+      "dependency_ledger": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COMP-DEMO",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "required_dependencies": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COMP-DEMO",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "unproven_dependencies": [],
+      "runtime_verdict_is_verified": true
+    },
+    "application_id": "app-6fe7d3b9c5c6",
+    "verdict_state": "VERIFIED",
+    "evidence_status": "COMPLETE",
+    "runtime_proof_status": "VERIFIED",
+    "reasons_for_not_verified": [],
+    "proven_dependencies": [
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "COMP-DEMO",
+        "kind": "PROGRAM",
+        "proof_state": "PROVEN",
+        "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      }
+    ],
+    "unproven_dependencies": [],
+    "blocked_dependencies": [],
+    "unsupported_dependencies": [],
+    "evidence_complete": true,
+    "evidence_integrity_valid": true,
+    "required_dependencies_proven": true,
+    "overall_verification": "VERIFIED"
+  },
+  "reload_run_http": 200,
+  "reload_run_stage": "COMPLETED",
+  "reload_verdict_http": 200,
+  "reload_verdict": {
+    "run_id": "run-5c2e04b55318",
+    "engine_run_id": "run-comp-20261008065503",
+    "state": "VERIFIED",
+    "workload_id": "comp",
+    "source_hash": "sha256:4ab1866157faa8a6e4b98dd35fea5077700877c31b122afd21c785bebfd0148f",
+    "candidate_hash": "sha256:b0893ba13b31eec74cec783b0eb9ffe68f299ac688e037f28e1e355c1717eedf",
+    "oracle_id": "gnucobol-3.1.2",
+    "oracle_digest": "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+    "executed_check_count": 3,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "supported_scope_statement": "V1 validation scope: GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate (DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); substring containment permanently forbidden.",
+    "evidence_manifest_hash": "sha256:249814257df559e928911a584f98c4a55fef70344e1374b4aaef8fdea0235636",
+    "derivation_timestamp": "2026-10-08T06:55:31.335254+00:00",
+    "differences": [],
+    "comparisons": [
+      {
+        "comparison_id": "comp-comp-stdout-run-comp-20261008065503",
+        "comparator_id": "STDOUT_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDOUT",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-comp-stderr-run-comp-20261008065503",
+        "comparator_id": "STDERR_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDERR",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-comp-exit-status-run-comp-20261008065503",
+        "comparator_id": "EXIT_STATUS_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "EXIT_STATUS",
+        "result": "MATCH",
+        "differences": []
+      }
+    ],
+    "certification_contract": "declared:workload-comp",
+    "contract_source": "declared"
+  },
+  "proof_http_process2": 200,
+  "proof_process2": {
+    "run_id": "run-5c2e04b55318",
+    "proof": {
+      "workload_id": "comp",
+      "application_id": "app-6fe7d3b9c5c6",
+      "central_status": "VERIFIED",
+      "blocking_reasons": [],
+      "generation_success": true,
+      "overall_capability": "SUPPORTED",
+      "jcl_status": "NOT_PRESENT",
+      "runtime": {
+        "artifact_results": [
+          [
+            "STDOUT",
+            "MATCH"
+          ],
+          [
+            "STDERR",
+            "MATCH"
+          ],
+          [
+            "EXIT_STATUS",
+            "MATCH"
+          ]
+        ],
+        "candidate_exit_code": 0,
+        "evidence_complete": true,
+        "evidence_integrity_valid": true,
+        "executed_check_count": 3,
+        "oracle_exit_code": 0,
+        "verdict_state": "VERIFIED"
+      },
+      "dependency_ledger": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COMP-DEMO",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "required_dependencies": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COMP-DEMO",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "unproven_dependencies": [],
+      "runtime_verdict_is_verified": true
+    },
+    "application_id": "app-6fe7d3b9c5c6",
+    "verdict_state": "VERIFIED",
+    "evidence_status": "COMPLETE",
+    "runtime_proof_status": "VERIFIED",
+    "reasons_for_not_verified": [],
+    "proven_dependencies": [
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "COMP-DEMO",
+        "kind": "PROGRAM",
+        "proof_state": "PROVEN",
+        "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      }
+    ],
+    "unproven_dependencies": [],
+    "blocked_dependencies": [],
+    "unsupported_dependencies": [],
+    "evidence_complete": true,
+    "evidence_integrity_valid": true,
+    "required_dependencies_proven": true,
+    "overall_verification": "VERIFIED"
+  },
+  "proof_identical_across_restart": true
+}

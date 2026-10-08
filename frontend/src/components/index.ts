@@ -14,3 +14,4 @@ export { LoadingSpinner } from './LoadingSpinner';
 export { Sidebar } from './Sidebar';
 export { PipelineStepper } from './PipelineStepper';
 export { CopyButton } from './CopyButton';
+export { IntegratedProof } from './IntegratedProof';

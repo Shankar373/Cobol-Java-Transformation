@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -144,6 +145,137 @@ def _safe_relative_path(name: str) -> Path:
     if relative.is_absolute():
         raise ServiceError(f"Upload entry {name!r} resolves to an absolute path")
     return relative
+
+
+def _capability_level(value: str):
+    """Parse a capability level string, failing closed to UNKNOWN."""
+    from engine.modernization.capability_analyzer import CapabilityLevel
+
+    try:
+        return CapabilityLevel(value)
+    except (ValueError, KeyError):
+        return CapabilityLevel.UNKNOWN
+
+
+def _report_facade(report: dict | None) -> object | None:
+    """Minimal report-like facade over a stored modernization report.
+
+    ``build_dependency_ledger``/``integrated_proof_from_pipelines`` only
+    need capability components plus ``generation_success``,
+    ``overall_capability`` and ``application_id``, all of which a stored
+    ``pipeline_report`` dict already carries.
+    """
+    from types import SimpleNamespace
+
+    if not report:
+        return None
+    pipeline = report.get("pipeline_report") or {}
+    if not pipeline:
+        return None
+    capability = pipeline.get("capability") or {}
+    components = tuple(
+        SimpleNamespace(
+            component_id=comp.get("component_id", ""),
+            component_type=comp.get("component_type", ""),
+            level=_capability_level(comp.get("level", "")),
+            reason=comp.get("reason", ""),
+        )
+        for comp in (capability.get("components") or [])
+    )
+    return SimpleNamespace(
+        application_id=pipeline.get("application_id", ""),
+        generation_success=bool((pipeline.get("transformation") or {}).get("success", False)),
+        overall_capability=capability.get("overall_level") or "",
+        capability_report=SimpleNamespace(components=components),
+    )
+
+
+def _jcl_status_for_source(source: str | Path | None) -> str:
+    """Best-effort JCL lane status for a source tree ("" when absent).
+
+    Returns ``NOT_PRESENT`` when no ``*.jcl`` file exists, otherwise the
+    JCL consumer status.  Never raises: an unusable JCL tree fails closed
+    to ``ERROR`` so the ledger keeps the lane visible and blocked.
+    """
+    if source is None:
+        return "NOT_PRESENT"
+    root = Path(source)
+    if not root.exists() or not root.is_dir():
+        return "NOT_PRESENT"
+    if not any(root.rglob("*.jcl")):
+        return "NOT_PRESENT"
+    from engine.transformation.jcl_consumer import modernize_jcl_workload
+
+    try:
+        return modernize_jcl_workload(root).status
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("JCL modernization failed for source %s", root)
+        return "ERROR"
+
+
+def _proof_payload(
+    workload_id: str,
+    report: object,
+    runtime,
+    jcl_status: str,
+) -> dict:
+    """Assemble the auditable integrated-proof payload.
+
+    Wallpaper: every ledger entry is flattened to its ``to_dict()`` and
+    bucketed (proven/unproven/blocked/unsupported) so the API and UI can
+    render without re-deriving engine internals.  Fail-closed semantics
+    live in the engine; this method only shapes the result.
+    """
+    from engine.modernization.integrated_proof import (
+        ProofState,
+        build_dependency_ledger,
+        evaluate_central_status,
+    )
+
+    ledger = build_dependency_ledger(report, runtime, jcl_status=jcl_status)
+    central_status, reasons = evaluate_central_status(
+        ledger,
+        runtime,
+        generation_success=report.generation_success,
+    )
+
+    def _bucket(state_value: str) -> list[dict]:
+        return [e.to_dict() for e in ledger if e.proof_state.value == state_value]
+
+    runtime_dict = {
+        "verdict_state": runtime.verdict_state,
+        "executed_check_count": runtime.executed_check_count,
+        "evidence_complete": runtime.evidence_complete,
+        "evidence_integrity_valid": runtime.evidence_integrity_valid,
+        "oracle_exit_code": runtime.oracle_exit_code,
+        "candidate_exit_code": runtime.candidate_exit_code,
+        "artifact_results": [list(a) for a in runtime.artifact_results],
+    }
+
+    return {
+        "workload_id": workload_id,
+        "application_id": report.application_id,
+        "central_status": central_status.value,
+        "blocking_reasons": list(reasons),
+        "reasons_for_not_verified": list(reasons),
+        "generation_success": bool(report.generation_success),
+        "overall_capability": report.overall_capability,
+        "jcl_status": jcl_status,
+        "runtime": runtime_dict,
+        "dependency_ledger": [e.to_dict() for e in ledger],
+        "required_dependencies": [e.to_dict() for e in ledger if e.required],
+        "runtime_verdict_is_verified": runtime.verdict_is_verified,
+        "proven_dependencies": _bucket("PROVEN"),
+        "unproven_dependencies": _bucket("UNPROVEN"),
+        "blocked_dependencies": _bucket("BLOCKED"),
+        "unsupported_dependencies": _bucket("UNSUPPORTED"),
+        "evidence_complete": runtime.evidence_complete,
+        "evidence_integrity_valid": runtime.evidence_integrity_valid,
+        "required_dependencies_proven": all(
+            e.proof_state is ProofState.PROVEN for e in ledger if e.required
+        ),
+        "overall_verification": central_status.value,
+    }
 
 
 class Service:
@@ -596,6 +728,70 @@ class Service:
 
     # -- internal -----------------------------------------------------------
 
+    def _resolve_entry_program(self, app: ApplicationRecord) -> str:
+        """Resolve the COBOL entry program id used for Spring Boot assembly.
+
+        ``ApplicationCreate.java_entrypoint`` is a client-supplied string that
+        defaults to the placeholder ``"Main"`` (the frontend never sends it).
+        The assembler only honours it when it matches a discovered COBOL
+        PROGRAM-ID; any unmatched value silently falls back to
+        "invoke every service", which hoists CALL targets to top-level
+        runners, reorders a CALL chain and produces behaviourally wrong Java
+        (surfacing downstream only as a STDOUT MISMATCH).
+
+        Resolution is therefore:
+
+        1. the declared value when it matches a discovered PROGRAM-ID
+           (compared with the assembler's own name normalisation);
+        2. otherwise the single discovered program that no CALL targets;
+        3. otherwise ``""`` — the assembler's existing behaviour, unchanged.
+
+        Never raises: discovery failure degrades to ``""`` rather than
+        failing the run.
+        """
+        declared = (app.java_entrypoint or "").strip()
+        if not app.cobol_source_path:
+            return declared
+
+        try:
+            from api.ingestion import discover_application
+
+            discovery = discover_application(Path(app.cobol_source_path), app.id)
+        except Exception:
+            logger.exception(
+                "Entry-program discovery failed for application %s; "
+                "falling back to the assembler's default",
+                app.id,
+            )
+            return declared
+
+        program_ids = [
+            str(program.get("program_id", ""))
+            for program in discovery.cobol_programs
+            if program.get("program_id")
+        ]
+        if not program_ids:
+            return declared
+
+        def _key(value: str) -> str:
+            return re.sub(r"[-_\s'\"`]+", "", value).upper()
+
+        keys = {_key(pid): pid for pid in program_ids}
+
+        if declared and _key(declared) in keys:
+            return keys[_key(declared)]
+
+        called = {
+            _key(str(edge.get("target", "")))
+            for edge in discovery.call_dependencies
+            if edge.get("target")
+        }
+        roots = [pid for pid in program_ids if _key(pid) not in called]
+        if len(roots) == 1:
+            return roots[0]
+
+        return declared
+
     def _generate_application(
         self,
         app: ApplicationRecord,
@@ -624,7 +820,7 @@ class Service:
             source_dir=app.cobol_source_path,
             output_dir=output_dir,
             application_id=app.id,
-            entrypoint=app.java_entrypoint or "",
+            entrypoint=self._resolve_entry_program(app),
             docker_available=True,
         )
 
@@ -774,7 +970,45 @@ class Service:
         run.evidence_manifest = result.evidence_manifest
         run.verdict = result.verdict
         self._check_evidence_verdict_consistency(run)
+
+        # Persist the integrated proof computed at validation time so the
+        # read path never re-runs pipelines.  The JCL lane status and the
+        # UniversalModernizationPipeline report are both already available;
+        # revalidation re-persists here so a refreshed verdict never leaves
+        # a stale proof behind.
+        self._persist_integrated_proof(app, run, result)
+
         self._store.update_run(run)
+
+    def _persist_integrated_proof(
+        self,
+        app: ApplicationRecord,
+        run: RunRecord,
+        result,
+    ) -> None:
+        """Compute and store ``run.modernization_report["integrated_proof"]``.
+
+        Fail closed on the reconstruction boundary: without a stored
+        pipeline report there is nothing to prove, so the proof is left
+        absent (the read path answers 404) instead of fabricating one.
+        """
+        from engine.modernization.integrated_proof import runtime_evidence_from_result
+
+        run_report = run.modernization_report or {}
+        facade = _report_facade(run_report)
+        if facade is None:
+            return
+
+        jcl_status = _jcl_status_for_source(app.cobol_source_path)
+        proof = _proof_payload(
+            app.workload_id,
+            facade,
+            runtime_evidence_from_result(result),
+            jcl_status,
+        )
+        run_report["integrated_proof"] = proof
+        run_report["jcl_status"] = jcl_status
+        run.modernization_report = run_report
 
     @staticmethod
     def _check_evidence_verdict_consistency(run: RunRecord) -> None:
@@ -897,6 +1131,54 @@ class Service:
         if run.modernization_report is None:
             raise NotFoundError("No modernization report available for this run")
         return run.modernization_report
+
+    def get_integrated_proof(self, run_id: str) -> dict:
+        """Return the integrated proof payload for a run.
+
+        Primary path: the proof persisted during validation
+        (``run.modernization_report["integrated_proof"]``).  Fallback: for
+        runs that predate proof persistence, recompute from the stored
+        pipeline report + stored verdict/evidence.  Raises ``NotFoundError``
+        when the run has no modernization report at all.
+        """
+        from engine.modernization.integrated_proof import runtime_evidence_from_result
+
+        run = self.get_run(run_id)
+        run_report = run.modernization_report
+        if run_report is None:
+            raise NotFoundError(
+                "No modernization report available for this run"
+            )
+
+        proof = run_report.get("integrated_proof")
+        if proof is not None:
+            return {"run_id": run.id, "proof": proof}
+
+        # Fallback: recompute from the stored report dict + stored verdict.
+        facade = _report_facade(run_report)
+        if facade is None:
+            raise NotFoundError(
+                "No modernization report available for this run"
+            )
+
+        class _ResultFacade:
+            evidence_manifest = run.evidence_manifest
+            verdict = run.verdict
+            oracle_exit_code = None
+            candidate_exit_code = None
+            comparison_evidence = (
+                run.evidence_manifest.comparison_evidence
+                if run.evidence_manifest is not None
+                else ()
+            )
+
+        app = self.get_application(run.application_id)
+        runtime = runtime_evidence_from_result(_ResultFacade())
+        jcl_status = run_report.get(
+            "jcl_status", _jcl_status_for_source(app.cobol_source_path)
+        )
+        proof = _proof_payload(app.workload_id, facade, runtime, jcl_status)
+        return {"run_id": run.id, "proof": proof}
 
     def get_run_detail(self, run_id: str) -> dict:
         """Return a coherent run-detail payload.

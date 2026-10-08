@@ -242,3 +242,56 @@ class ModernizationReportResponse(BaseModel):
     run_id: str
     application_id: str
     report: dict
+
+
+# ---------------------------------------------------------------------------
+# Integrated Proof
+# ---------------------------------------------------------------------------
+
+class IntegratedProofResult(BaseModel):
+    """Integrated application proof: dependency ledger + central status gate.
+
+    One realistic application exercising COPYBOOK, static CALL and sequential
+    FILE paths, plus a JCL job stream, joined into a single auditable result:
+
+        JCL -> MAIN -> COPYBOOK TAXREC + CALL CALC + LINE SEQUENTIAL FILE
+             -> UniversalModernizationPipeline (phases 1-5)
+             -> VerticalSlicePipeline          (phases 6-11)
+             -> dependency ledger -> central status
+
+    The COBOL <-> Java runtime lane is expected to reach a genuine, evidence
+    backed VERIFIED. The application-level central status is expected to be
+    NOT VERIFIED because JCL has no runtime lane in this repository, which is
+    the honest answer for a workload that declares JCL.
+    """
+    workload_id: str
+    application_id: str
+    central_status: str
+    blocking_reasons: list[str]
+    generation_success: bool
+    overall_capability: str
+    jcl_status: str
+    runtime: dict
+    dependency_ledger: list[dict]
+    required_dependencies: list[dict]
+    unproven_dependencies: list[dict]
+    runtime_verdict_is_verified: bool
+
+
+class IntegratedProofResponse(BaseModel):
+    """Integrated proof for a run — complete dependency ledger + central status."""
+    run_id: str
+    proof: IntegratedProofResult
+    application_id: str
+    verdict_state: str
+    evidence_status: str
+    runtime_proof_status: str
+    reasons_for_not_verified: list[str]
+    proven_dependencies: list[dict]
+    unproven_dependencies: list[dict]
+    blocked_dependencies: list[dict]
+    unsupported_dependencies: list[dict]
+    evidence_complete: bool
+    evidence_integrity_valid: bool
+    required_dependencies_proven: bool
+    overall_verification: str

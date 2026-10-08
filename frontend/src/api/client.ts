@@ -391,6 +391,59 @@ export async function getReport(
   return request<ModernizationReportResponse>(`/runs/${runId}/report`);
 }
 
+export interface DependencyLedgerEntry {
+  dependency_id: string;
+  kind: string;
+  visible: boolean;
+  capability_level: string;
+  proof_state: string;
+  required: boolean;
+  reason: string;
+}
+
+export interface IntegratedProofResult {
+  workload_id: string;
+  application_id: string;
+  central_status: string;
+  blocking_reasons: string[];
+  generation_success: boolean;
+  overall_capability: string;
+  jcl_status: string;
+  runtime: Record<string, unknown>;
+  dependency_ledger: DependencyLedgerEntry[];
+  required_dependencies: DependencyLedgerEntry[];
+  unproven_dependencies: DependencyLedgerEntry[];
+  runtime_verdict_is_verified: boolean;
+}
+
+export interface IntegratedProofResponse {
+  run_id: string;
+  application_id: string;
+  proof: IntegratedProofResult;
+  verdict_state: string;
+  evidence_status: string;
+  runtime_proof_status: string;
+  reasons_for_not_verified: string[];
+  proven_dependencies: DependencyLedgerEntry[];
+  unproven_dependencies: DependencyLedgerEntry[];
+  blocked_dependencies: DependencyLedgerEntry[];
+  unsupported_dependencies: DependencyLedgerEntry[];
+  evidence_complete: boolean;
+  evidence_integrity_valid: boolean;
+  required_dependencies_proven: boolean;
+  overall_verification: string;
+}
+
+// ---------------------------------------------------------------------------
+// Integrated Proof
+// ---------------------------------------------------------------------------
+
+export async function getIntegratedProof(
+  runId: string,
+): Promise<IntegratedProofResponse> {
+  return request<IntegratedProofResponse>(`/runs/${runId}/integrated-proof`);
+}
+
 // ---------------------------------------------------------------------------
 // Download
 // ---------------------------------------------------------------------------
