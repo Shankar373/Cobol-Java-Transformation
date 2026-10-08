@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="29" failures="0" skipped="0" tests="29" time="6.250" timestamp="2026-10-07T13:08:35.599977+00:00" hostname="runnervmmprz5"><testcase classname="" name="tests.integration.test_call_chain_runtime" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/integration/test_call_chain_runtime.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_call_chain_runtime.py:35: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.integration.test_copybook_runtime" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/integration/test_copybook_runtime.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_copybook_runtime.py:43: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.integration.test_numeric_oracle_proof" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/integration/test_numeric_oracle_proof.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_numeric_oracle_proof.py:27: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_pic_to_java_default
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.integration.test_phase7d_runtime" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/integration/test_phase7d_runtime.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_phase7d_runtime.py:43: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.integration.test_phase_d_integrated_proof" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/integration/test_phase_d_integrated_proof.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_phase_d_integrated_proof.py:27: in &lt;module&gt;
+    from engine.modernization.integrated_proof import (
+engine/modernization/integrated_proof.py:38: in &lt;module&gt;
+    from engine.modernization.pipeline import ModernizationReport
+engine/modernization/pipeline.py:36: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.integration.test_phase_d_negative_integration" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/integration/test_phase_d_negative_integration.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_phase_d_negative_integration.py:21: in &lt;module&gt;
+    from engine.modernization.integrated_proof import (
+engine/modernization/integrated_proof.py:38: in &lt;module&gt;
+    from engine.modernization.pipeline import ModernizationReport
+engine/modernization/pipeline.py:36: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.test_application_generator_p0" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/test_application_generator_p0.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_application_generator_p0.py:30: in &lt;module&gt;
+    from engine.transformation.application_generator import (
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.test_copybook_integration_m7" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/test_copybook_integration_m7.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_copybook_integration_m7.py:18: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.test_modernization_integration_p0" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/test_modernization_integration_p0.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_modernization_integration_p0.py:48: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerationResult
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.test_modernization_p0" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/test_modernization_p0.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_modernization_p0.py:60: in &lt;module&gt;
+    import engine.transformation.application_generator as ag
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.test_modernization_plan_enforcement" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/test_modernization_plan_enforcement.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_modernization_plan_enforcement.py:6: in &lt;module&gt;
+    from engine.modernization.pipeline import ModernizationConfig, UniversalModernizationPipeline
+engine/modernization/pipeline.py:36: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.test_p0_remediation" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/test_p0_remediation.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_p0_remediation.py:3: in &lt;module&gt;
+    from engine.modernization.pipeline import ModernizationConfig, UniversalModernizationPipeline
+engine/modernization/pipeline.py:36: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.test_universal_modernization" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/test_universal_modernization.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_universal_modernization.py:54: in &lt;module&gt;
+    from engine.modernization.pipeline import (
+engine/modernization/pipeline.py:36: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_arithmetic_giving" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_arithmetic_giving.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_arithmetic_giving.py:17: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_decimal_arithmetic_semantics" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_decimal_arithmetic_semantics.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_decimal_arithmetic_semantics.py:4: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_decimal_numeric_mapping" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_decimal_numeric_mapping.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_decimal_numeric_mapping.py:6: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_decision_input_roles" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_decision_input_roles.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_decision_input_roles.py:9: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_decision_result_records" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_decision_result_records.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_decision_result_records.py:7: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_domain_neutral_proof" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_domain_neutral_proof.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_domain_neutral_proof.py:39: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_file_invalid_key_lane" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_file_invalid_key_lane.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_file_invalid_key_lane.py:34: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_generator_string_literals" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_generator_string_literals.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_generator_string_literals.py:23: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_java_architecture" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_java_architecture.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_java_architecture.py:63: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_numeric_semantics" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_numeric_semantics.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_numeric_semantics.py:21: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_paragraphless_procedure" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_paragraphless_procedure.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_paragraphless_procedure.py:20: in &lt;module&gt;
+    from engine.transformation.application_generator import ApplicationGenerator
+engine/transformation/application_generator.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_phase3_generator_migration" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_phase3_generator_migration.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_phase3_generator_migration.py:56: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_phase4_multi_program" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_phase4_multi_program.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_phase4_multi_program.py:48: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_phase7c_end_to_end" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_phase7c_end_to_end.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_phase7c_end_to_end.py:25: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import (
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_summary_pic_width" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_summary_pic_width.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_summary_pic_width.py:8: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase><testcase classname="" name="tests.transformation.test_threshold_outcomes" time="0.000"><error message="collection failure">ImportError while importing test module '/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/tests/transformation/test_threshold_outcomes.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/transformation/test_threshold_outcomes.py:7: in &lt;module&gt;
+    from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+engine/transformation/cobol_to_java_mapping.py:60: in &lt;module&gt;
+    from engine.transformation.numeric_semantics import (
+E   ImportError: cannot import name 'display_format_spec' from 'engine.transformation.numeric_semantics' (/home/runner/work/Cobol-Java-Transformation/Cobol-Java-Transformation/engine/transformation/numeric_semantics.py)</error></testcase></testsuite></testsuites>

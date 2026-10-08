@@ -1,0 +1,17 @@
+{
+  "build_identity": "sha256:1515451c18529b930134894a4cba21eacbd36f4056430a8fbc05068c0f35384f",
+  "build_identity_kind": "image-id",
+  "build_image": "maven-offline-springboot:latest",
+  "build_image_id": "sha256:1515451c18529b930134894a4cba21eacbd36f4056430a8fbc05068c0f35384f",
+  "build_repo_digests": [],
+  "contract_version": "1.0",
+  "recorded_at": "2026-10-07T13:08:28.331013+00:00",
+  "runtime_identity": "eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026",
+  "runtime_identity_kind": "repo-digest",
+  "runtime_image": "eclipse-temurin:21-jdk",
+  "runtime_image_id": "sha256:b389ca026d545339a1ae02b3377cf9a60121811bf877ff0f8f296097031cccbf",
+  "runtime_repo_digests": [
+    "eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026"
+  ],
+  "source_path": "docker-image-provenance"
+}
