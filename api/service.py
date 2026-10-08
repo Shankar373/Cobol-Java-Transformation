@@ -57,6 +57,7 @@ from api.errors import (
 from api.models import RunStage
 from api.store import ApplicationRecord, RunRecord, Store
 from api.workload_contract import resolve_certification_contract
+from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
 
 __all__ = ["Service", "ServiceError"]
@@ -783,8 +784,21 @@ class Service:
         ``evidence_manifest_hash`` must equal the manifest hash the engine
         computed; a mismatch means the pair was not produced together (for
         example a stale verdict surviving a reset).
+
+        A VERIFIED verdict with no persisted evidence manifest has nothing
+        to hash-lock against, so it can never be served as certification:
+        VERIFIED always implies persisted, integrity-sealed evidence.
+        Non-certifying states (UNPROVEN/FAILED/UNAVAILABLE/...) may still
+        be served without a manifest for compatibility.
         """
-        if run.verdict is None or run.evidence_manifest is None:
+        if run.verdict is None:
+            return
+        if run.evidence_manifest is None:
+            if run.verdict.state == VerdictState.VERIFIED:
+                raise PersistenceCorruptionError(
+                    f"Run {run.id!r} claims VERIFIED without a persisted"
+                    " evidence manifest"
+                )
             return
         expected = str(run.evidence_manifest.manifest_hash)
         actual = str(run.verdict.evidence_manifest_hash)
@@ -921,10 +935,10 @@ class Service:
 
         verdict_state: str | None = None
         if run.verdict is not None:
-            try:
-                verdict_state = str(run.verdict.to_dict().get("state"))
-            except Exception:
-                verdict_state = None
+            # Serve verdict state only when the evidence<->verdict pair is
+            # consistent; otherwise fail closed like get_verdict does.
+            self._check_evidence_verdict_consistency(run)
+            verdict_state = str(run.verdict.to_dict().get("state"))
 
         stage_messages = [run.stage.value]
         if run.error:

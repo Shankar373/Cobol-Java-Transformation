@@ -408,6 +408,34 @@ class TestWorkloadBinding:
         assert isinstance(result, ValidatedEvidenceManifest)
 
 
+class TestTransitiveWorkloadBinding:
+    """Pin the architecture decision: nested evidence without an explicit
+    workload id inherits workload identity transitively (artifact ->
+    execution_id -> execution run_id -> manifest workload_id).
+
+    Evidence whose workload_id IS populated must match the manifest, but
+    evidence produced by adapters without workload context (None) is
+    intentionally valid and binds through the run/execution chain instead.
+    """
+
+    def test_nested_evidence_without_explicit_workload_validates(self) -> None:
+        manifest = _clean_manifest()
+        assert all(e.workload_id is None for e in manifest.execution_evidence)
+        assert all(c.workload_id is None for c in manifest.comparison_evidence)
+
+        result = validator.validate(manifest)
+        assert isinstance(result, ValidatedEvidenceManifest)
+
+    def test_artifacts_bind_transitively_via_execution_chain(self) -> None:
+        manifest = _clean_manifest()
+        valid_exec_ids = {e.execution_id.value for e in manifest.execution_evidence}
+        for artifact in manifest.artifact_evidence:
+            assert artifact.execution_id.value in valid_exec_ids
+
+        result = validator.validate(manifest)
+        assert isinstance(result, ValidatedEvidenceManifest)
+
+
 # ===========================================================================
 # Untrusted derivation can never certify
 # ===========================================================================
