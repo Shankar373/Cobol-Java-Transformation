@@ -157,7 +157,7 @@ export function Header({
     <header style={headerStyle}>
       <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.sm }}>
         <img
-          src="/logo.svg"
+          src={`${import.meta.env.BASE_URL}logo.svg`}
           alt="SystemaOps"
           width={28}
           height={28}

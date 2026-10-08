@@ -65,8 +65,9 @@ __all__ = ["Service", "ServiceError"]
 
 logger = logging.getLogger(__name__)
 
-# Legacy source tree root markers — first match wins.
-SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl", "main.COB", "main.CBL"}
+# Legacy source tree root markers — first match wins (case-insensitive,
+# see _detect_source_root; E-C/R11).
+SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl"}
 
 #: Default cap on background jobs running per Service instance.
 DEFAULT_MAX_CONCURRENT_JOBS = 4
@@ -366,14 +367,16 @@ class Service:
             # 2. Detect source root (top-level dir if ZIP contains a single root dir)
             source_root = self._detect_source_root(workspace)
 
-            # 3. Run application discovery
-            discovery = discover_application(source_root, app_id)
+            # 3. Run application discovery from the workspace root so that
+            # sibling trees (jcl/, copybooks/, nested cobol/) are visible
+            # to COBOL discovery, JCL discovery and COPY resolution (R11).
+            discovery = discover_application(workspace, app_id)
 
             # 4. Persist paths on the application record
             # Clean up previous COBOL source temp directory if it was a temp dir
             if app.cobol_source_path:
                 _cleanup_temp_dir(app.cobol_source_path)
-            app.cobol_source_path = str(source_root)
+            app.cobol_source_path = str(workspace)
 
             # 5. Update application name if it was auto-generated placeholder
             #    or if the detected name is more specific (single dir override)
@@ -415,12 +418,16 @@ class Service:
             return dirs[0]
 
         # Check for source markers at top level
-        if any(f.name in SOURCE_ROOT_MARKERS for f in files):
+        if any(f.name.lower() in SOURCE_ROOT_MARKERS for f in files):
             return workspace
 
         # Check one level down
         for d in dirs:
-            if any((d / m).exists() for m in SOURCE_ROOT_MARKERS):
+            if any((d / m).exists() for m in SOURCE_ROOT_MARKERS) or any(
+                c.name.lower() in SOURCE_ROOT_MARKERS
+                for c in d.iterdir()
+                if c.is_file()
+            ):
                 return d
 
         # Fallback: workspace itself

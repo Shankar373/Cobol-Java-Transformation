@@ -14,22 +14,37 @@ if [ ! -f "$SRC/control-plane.db" ] || [ ! -f "$SRC/workspaces.tar.gz" ]; then
   exit 1
 fi
 
+# Bind sources for `docker run -v` must be valid host paths; WSL mounts
+# (/mnt/<drive>/...) are not understood by the Windows Docker daemon, so
+# translate through wslpath when available.
+host_path() { # host_path <path>
+  if command -v wslpath >/dev/null 2>&1; then
+    wslpath -w "$1"
+  else
+    echo "$1"
+  fi
+}
+SRC_HOST="$(host_path "$PWD/$SRC")"
+
 docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" down
 
 # Snapshot current (possibly broken) state before overwriting.
 SNAP="./backups/pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$SNAP"
-docker run --rm -v systemaops-control-plane-data:/data:ro -v "$PWD/$SNAP:/out" \
-  alpine:3.20 tar -czf /out/data-vol.tar.gz -C /data . || true
+docker run --rm -v systemaops-control-plane-data:/data:ro -v "$(host_path "$PWD/$SNAP"):/out" \
+  alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc tar -czf /out/data-vol.tar.gz -C /data . || true
 echo "Pre-restore snapshot: $SNAP"
 
-# Restore DB + workspaces into fresh volumes.
+# Restore DB + workspaces into fresh volumes. The restored files are
+# chowned to uid/gid 10001 — the non-root user the production API runs
+# as. Without this the SQLite DB stays root-owned and the API crashes
+# with "attempt to write a readonly database" (found by the R10 drill).
 docker volume rm systemaops-control-plane-data systemaops-control-plane-work 2>/dev/null || true
 docker volume create systemaops-control-plane-data >/dev/null
 docker volume create systemaops-control-plane-work >/dev/null
-docker run --rm -v systemaops-control-plane-data:/data -v "$PWD/$SRC:/in" \
-  alpine:3.20 sh -c "cp /in/control-plane.db /data/control-plane.db"
-docker run --rm -v systemaops-control-plane-work:/work -v "$PWD/$SRC:/in" \
-  alpine:3.20 tar -xzf /in/workspaces.tar.gz -C /work
+docker run --rm -v systemaops-control-plane-data:/data -v "$SRC_HOST:/in" \
+  alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc sh -c "cp /in/control-plane.db /data/control-plane.db && chown -R 10001:10001 /data"
+docker run --rm -v systemaops-control-plane-work:/work -v "$SRC_HOST:/in" \
+  alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc sh -c "tar -xzf /in/workspaces.tar.gz -C /work && chown -R 10001:10001 /work"
 
 ENV_FILE="$ENV_FILE" ./scripts/deploy/start-production.sh

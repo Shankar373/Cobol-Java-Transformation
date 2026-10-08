@@ -26,10 +26,8 @@ Security model:
 
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
-import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -54,6 +52,7 @@ from engine.domain.identities import (
     ExecutionId,
     RunId,
 )
+from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
 
 
 @dataclass(frozen=True)
@@ -383,7 +382,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
             )
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with sandbox_staging_dir(prefix="maven-") as tmpdir:
                 candidate_dir = Path(candidate_path)
 
                 # Copy project to temp directory (writable for Maven)
@@ -416,12 +415,12 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace/project",
                     # Bind-mount the source (Maven reads from here)
-                    "-v", f"{os.path.abspath(staged_project)}:/workspace/project",
+                    *docker_volume_arg(staged_project, "/workspace/project", readonly=False),
                     # Maven writes target/ inside the container only (tmpfs),
                     # preventing root-owned files on the host tmpdir.
                     "--tmpfs", "/workspace/project/target:rw,exec,size=512m",
                     # Bind-mount output dir (Python-owned — receives the JAR)
-                    "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
+                    *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     build_ref,
                     "sh", "-c", f"{maven_cmd} && cp target/*.jar /workspace/output/",
                 ]
@@ -559,7 +558,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
             )
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with sandbox_staging_dir(prefix="jarexec-") as tmpdir:
                 # Stage JAR files
                 staged_jars = Path(tmpdir) / "jars"
                 staged_jars.mkdir()
@@ -597,9 +596,9 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     input_dir.mkdir()
                     for name, content in input_files.items():
                         (input_dir / name).write_bytes(content)
-                    input_mount_args = [
-                        "-v", f"{os.path.abspath(input_dir)}:/workspace/input:ro",
-                    ]
+                    input_mount_args = docker_volume_arg(
+                        input_dir, "/workspace/input", readonly=True
+                    )
 
                 container_name = f"java-{uuid.uuid4().hex[:12]}"
 
@@ -613,8 +612,8 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace",
-                    "-v", f"{os.path.abspath(staged_jars)}:/workspace/jars:ro",
-                    "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
+                    *docker_volume_arg(staged_jars, "/workspace/jars", readonly=True),
+                    *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     *input_mount_args,
                     run_ref,
                     "sh", "-c", java_cmd,

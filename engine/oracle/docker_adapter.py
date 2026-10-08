@@ -17,7 +17,6 @@ import os
 import re
 import shlex
 import subprocess
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +31,7 @@ from engine.domain.identities import (
     OracleIdentity,
     RunId,
 )
+from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
 from engine.oracle.adapter import (
     OracleAdapter,
     OracleAdapterConfig,
@@ -380,7 +380,11 @@ class DockerOracleAdapter(OracleAdapter):
         self._resolved_digest = digest
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            # Sandbox staging lives under SANDBOX_STAGING_DIR when configured
+            # so the host daemon can bind-mount it; file I/O below keeps
+            # using the container-visible path while -v args are translated
+            # to host paths via docker_volume_arg.
+            with sandbox_staging_dir(prefix="oracle-") as tmpdir:
                 cobol_source = Path(source_path)
                 if cobol_source.is_file():
                     dest = Path(tmpdir) / "src" / cobol_source.name
@@ -438,9 +442,9 @@ class DockerOracleAdapter(OracleAdapter):
                     input_dir.mkdir()
                     for name, content in input_files.items():
                         (input_dir / name).write_bytes(content)
-                    input_mount_args = [
-                        "-v", f"{os.path.abspath(input_dir)}:/workspace/input:ro",
-                    ]
+                    input_mount_args = docker_volume_arg(
+                        input_dir, "/workspace/input", readonly=True
+                    )
 
                 # Multi-module link: the entry module plus every other
                 # COBOL module, compiled/linked by GnuCOBOL from separate
@@ -473,9 +477,9 @@ class DockerOracleAdapter(OracleAdapter):
                     "--cpus", "1.0",
                     "--pids-limit", "256",
                     "--workdir", "/workspace",
-                    "-v", f"{os.path.abspath(tmpdir)}/src:{container_src}:ro",
-                    "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
-                    "-v", f"{os.path.abspath(diagnostics_dir)}:/workspace/compilation",
+                    *docker_volume_arg(Path(tmpdir) / "src", container_src, readonly=True),
+                    *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
+                    *docker_volume_arg(diagnostics_dir, "/workspace/compilation", readonly=False),
                     *input_mount_args,
                     run_ref,
                     "sh", "-c", compile_cmd,

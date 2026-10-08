@@ -115,7 +115,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
       >
         {/* Official logo mark — exact asset, no recreation */}
         <img
-          src="/logo.svg"
+          src={`${import.meta.env.BASE_URL}logo.svg`}
           alt="SystemaOps logo"
           width={36}
           height={36}

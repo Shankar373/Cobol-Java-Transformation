@@ -31,12 +31,31 @@ services:
     environment:
       CONTROL_PLANE_DB: /app/data/control-plane.db
       TMPDIR: /app/tmp
+      # Host-visible sandbox staging (R1 production execution topology).
+      # The engine stages every Docker bind-mount source under
+      # SANDBOX_STAGING_DIR (container view) and translates it to
+      # SANDBOX_HOST_STAGING_DIR (host view) before building `docker run`
+      # -v arguments, because bind sources are resolved by the HOST daemon.
+      # Staging under the /app/tmp tmpfs or a named volume is invisible to
+      # the host daemon, so oracle/candidate execution fails closed there.
+      # The bind below makes both names the same directory. No new Docker
+      # privileges are granted: the API keeps its existing caps, read-only
+      # mounts, tmpfs scratch, no-new-privileges and network isolation.
+      SANDBOX_STAGING_DIR: /app/sandbox-staging
+      SANDBOX_HOST_STAGING_DIR: ${HOST_SANDBOX_STAGING_DIR:-/opt/systemaops/sandbox-staging}
     expose:
       - "8000"
     # No direct host port: all ingress goes through nginx (:443).
     volumes:
       - control-plane-data:/app/data
       - control-plane-work:/app/workspaces
+      # Host-visible sandbox staging: HOST_SANDBOX_STAGING_DIR MUST be an
+      # absolute host path (same value the engine translates to). The host
+      # directory must exist and be writable by uid/gid 10001 (the API user)
+      # — see scripts/deploy/start-production.sh, which prepares it.
+      # /app/tmp stays a tmpfs (below), not a volume: non-sandbox scratch
+      # only, gone on stop. Sandbox staging MUST NOT live on that tmpfs.
+      - ${HOST_SANDBOX_STAGING_DIR:-/opt/systemaops/sandbox-staging}:/app/sandbox-staging
       # /app/tmp is a tmpfs (below), not a volume: scratch only, gone on stop.
       # Sandbox execution: the engine shells out to the host docker CLI,
       # so the API container needs the daemon socket. Privileged socket

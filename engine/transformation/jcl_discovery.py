@@ -174,11 +174,12 @@ class JclDiscovery:
 
     def _find_jcl_files(self, source_path: Path) -> list[Path]:
         """Find all JCL source files in the directory tree."""
-        jcl_extensions = {".jcl", ".JCL", ".jcllib"}
-        jcl_files: list[Path] = []
-
-        for ext in jcl_extensions:
-            jcl_files.extend(source_path.rglob(f"*{ext}"))
+        jcl_exts = {".jcl", ".jcllib"}
+        jcl_files: list[Path] = [
+            f
+            for f in source_path.rglob("*")
+            if f.is_file() and f.suffix.lower() in jcl_exts
+        ]
 
         # Also check for files with no extension that look like JCL
         for f in source_path.rglob("*"):

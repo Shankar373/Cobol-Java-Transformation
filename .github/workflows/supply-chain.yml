@@ -3,9 +3,10 @@ name: Supply chain (SBOM + vulnerability scanning)
 # Workstream-5 supply-chain hardening. Answers, per release:
 #   "What exact dependencies are contained in this release?"
 #   "Are there known critical/high vulnerabilities?"
-# Non-blocking by design (continue-on-error on scan steps): findings are
-# uploaded as artifacts and triaged via docs/supply-chain/DEPENDENCY_AUDIT.md.
-# Gating (fail on critical/high) is a follow-up once baselines are clean.
+# E-C: pip-audit and npm audit now GATE (no continue-on-error) - the
+# baselines in requirements.lock / package-lock.json are clean, so any
+# new known vulnerability fails the workflow. Findings remain uploaded
+# as artifacts and triaged via docs/supply-chain/DEPENDENCY_AUDIT.md.
 
 on:
   push:
@@ -38,7 +39,6 @@ jobs:
         run: python -m pip install "pip-audit>=2.7" "cyclonedx-bom>=7"
       - name: pip-audit (requirements.lock)
         id: pip-audit
-        continue-on-error: true
         run: |
           mkdir -p test-artifacts/supply-chain
           python -m pip_audit -r requirements.lock --format=json --desc \
@@ -79,7 +79,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
       - name: npm audit (JSON report)
-        continue-on-error: true
         run: |
           mkdir -p ../test-artifacts/supply-chain
           npm audit --json | tee ../test-artifacts/supply-chain/npm-audit.json

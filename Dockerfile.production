@@ -29,11 +29,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Debian bookworm ships no `docker-cli` package, so take the official
 # static client binary (CLI only, no daemon) instead of the fat docker.io.
 ARG DOCKER_CLI_VERSION=27.3.1
+# SHA-256 of the official static tarball, pinned 2026-10-08 (R9):
+#   curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.3.1.tgz | sha256sum
+ARG DOCKER_CLI_SHA256=9b4f6fe406e50f9085ee474c451e2bb5adb119a03591f467922d3b4e2ddf31d3
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/* && \
     curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_CLI_VERSION}.tgz" \
       -o /tmp/docker.tgz && \
+    echo "${DOCKER_CLI_SHA256}  /tmp/docker.tgz" | sha256sum -c - && \
     tar -xzf /tmp/docker.tgz -C /tmp docker/docker && \
     install -m 0755 /tmp/docker/docker /usr/local/bin/docker && \
     rm -rf /tmp/docker /tmp/docker.tgz && \
@@ -47,8 +51,8 @@ RUN groupadd --gid 10001 systemaops && \
 WORKDIR /app
 
 # Dependencies first (better layer caching).
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.lock /app/requirements.lock
+RUN pip install --no-cache-dir -r /app/requirements.lock
 
 # Application code. Explicit paths only — nothing else enters the image
 # (no tests/, no test-artifacts/, no frontend/, no local data/*.db).
@@ -59,7 +63,12 @@ COPY fixtures/ /app/fixtures/
 COPY scripts/record_docker_image_provenance.py /app/scripts/record_docker_image_provenance.py
 
 # Writable runtime dirs (backed by volumes in production).
-RUN mkdir -p /app/data /app/workspaces /app/tmp && \
+# /app/sandbox-staging is the host-visible Docker staging root: it MUST be
+# backed by a host bind mount at the same deployment (see
+# docker-compose.production.yml SANDBOX_* variables). Sandbox inputs staged
+# anywhere else (e.g. the /app/tmp tmpfs) are invisible to the host daemon
+# and oracle/candidate execution fails closed there.
+RUN mkdir -p /app/data /app/workspaces /app/tmp /app/sandbox-staging && \
     chown -R 10001:10001 /app
 
 USER 10001:10001

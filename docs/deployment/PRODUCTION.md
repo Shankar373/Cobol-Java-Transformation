@@ -5,11 +5,12 @@
 ```
 Internet
   ↓ :443 only (no :80 listener)
-nginx 1.27-alpine — TLS termination, body limits, static frontend
+nginx 1.27-alpine — TLS termination, body limits, static frontend (/app/)
   ↓ http://api:8000 (compose network `edge`)
 SystemaOps API — uvicorn, 1 worker, non-root (uid 10001)
   ├─→ SQLite: /app/data/control-plane.db (named volume, single-writer)
   ├─→ workspaces: /app/workspaces (named volume: uploads, generated apps)
+  ├─→ sandbox staging: /app/sandbox-staging (HOST BIND mount — see below)
   └─→ host docker via /var/run/docker.sock → sandbox containers
         (--network none, --memory/--cpus/--pids-limit, read-only mounts;
          enforced by engine code, NOT by this deployment — do not weaken it)
@@ -52,6 +53,60 @@ re-queueing them — that is the documented durability trade-off
    `systemaops-control-plane-data` (SQLite) and
    `systemaops-control-plane-work` (workspaces). `/app/tmp` is an
    ephemeral `tmpfs` (1g, `noexec,nosuid`).
+
+## Sandbox staging topology (host-visible workspace)
+
+The API reaches the Docker daemon through the mounted daemon socket, so
+`docker run -v <path>:...` bind sources are resolved by the **host**
+daemon on the **host** filesystem. Staging sandbox inputs under the
+container-private `/app/tmp` tmpfs or under a named volume is invisible
+to the host daemon: oracle/candidate execution then fails closed and the
+stack can never produce a verdict.
+
+Production therefore binds a host directory into the API container at the
+same deployment:
+
+- container view: `/app/sandbox-staging` (`SANDBOX_STAGING_DIR`)
+- host view: `HOST_SANDBOX_STAGING_DIR` (absolute host path, default
+  `/opt/systemaops/sandbox-staging`)
+
+The engine (`engine/execution/sandbox_paths.py`) stages every Docker
+bind-mount source under the container view and translates it to the host
+view before building `docker run -v` arguments; file I/O keeps using the
+container path. Translation is strictly prefix-scoped: paths outside the
+staging root pass through unchanged, so dev/host runs without the bind
+behave exactly as before.
+
+Operator requirements (enforced by `start-production.sh` /
+`verify-production.sh`, fail closed):
+
+1. `HOST_SANDBOX_STAGING_DIR` MUST be an absolute host path.
+2. The host directory MUST exist and be writable by uid/gid 10001 (the
+   non-root API user): `mkdir -p <dir> && chown 10001:10001 <dir>`.
+3. Sandbox staging MUST NOT live on the `/app/tmp` tmpfs (ephemeral,
+   container-local) or on a named volume (host-invisible path).
+4. Sandbox containers still run with `--network none`, memory/cpu/pids
+   caps, read-only source mounts, `no-new-privileges` and pinned image
+   digests — the staging bind grants no additional Docker privileges.
+
+## Frontend routing contract (nginx + Vite)
+
+The SPA is served under `/app/` (Vite `base: '/app/'`, so built assets
+are `/app/assets/*` and the logo resolves via `import.meta.env.BASE_URL`):
+
+| Request | Result |
+|---|---|
+| `GET /` | 302 to `/app/` |
+| `GET /app/` | `index.html` |
+| `GET /app/assets/*` | immutable long-cache static file |
+| `GET /app/<anything-else>` | SPA fallback to `/app/index.html` |
+| `GET /assets/*` (legacy) | 302 to the `/app/` counterpart |
+| `GET /health`, `/applications`, `/runs`, ... | proxied to the API |
+
+Static locations use `^~` longest-prefix matches with trailing-slash
+`alias` pairs, so API routes and static files can never shadow each
+other. Verified production-style with the pinned nginx image against a
+stub upstream (see Phase E-A report).
 
 ## Deploy / verify / roll back
 

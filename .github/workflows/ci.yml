@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install backend dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.lock
       - name: Run Phase 1 ingestion tests
         run: python -m pytest -q tests/test_ingestion_diagnostics.py
 
@@ -38,7 +38,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements.lock
       - name: Build GnuCOBOL oracle image
         run: docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
       - name: Build project Maven image
@@ -63,7 +63,7 @@ jobs:
           docker run --rm --network none eclipse-temurin:21-jdk java -version 2>&1 | tee test-artifacts/java-version.txt
           docker run --rm --network none maven-offline-springboot:latest mvn -version | tee test-artifacts/maven-version.txt
       - name: Install backend and test dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.lock
       - name: Run backend, oracle, and integration tests
         shell: bash
         env:

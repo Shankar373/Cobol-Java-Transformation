@@ -428,3 +428,8 @@ build/
 # Misc
 *.orig
 *.rej
+# E-C: production secrets/certs must never be committed
+.env.production
+deployment/tls/
+.env.rollback.*
+backups/
