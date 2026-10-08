@@ -1,0 +1,80 @@
+# SystemaOps Control Plane — production API image.
+#
+# What this image is:
+#   * the FastAPI control plane only (api/, engine/, contracts/, fixtures/)
+#   * sandbox images (gnucobol / maven-offline / pinned Java runtime) are
+#     built separately — see CI (.github/workflows/ci.yml) and
+#     scripts/deploy/build-production.sh
+#
+# What this image is NOT:
+#   * not a build image (no JDK/Maven/GnuCOBOL inside)
+#   * not a frontend server (serve frontend/dist from the reverse proxy
+#     or a static host — see deployment/nginx/systemaops.conf)
+#
+# Run as non-root; workspaces, SQLite and tmp all live under /app/* volumes.
+
+FROM python:3.11-slim-bookworm AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# docker CLI only (the engine shells out to `docker run` for the sandbox).
+# No daemon inside this container: /var/run/docker.sock is provided at
+# deploy time — see docker-compose.production.yml and
+# docs/security/PRODUCTION_SECURITY.md (socket risk + mitigations).
+# Debian bookworm ships no `docker-cli` package, so take the official
+# static client binary (CLI only, no daemon) instead of the fat docker.io.
+ARG DOCKER_CLI_VERSION=27.3.1
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_CLI_VERSION}.tgz" \
+      -o /tmp/docker.tgz && \
+    tar -xzf /tmp/docker.tgz -C /tmp docker/docker && \
+    install -m 0755 /tmp/docker/docker /usr/local/bin/docker && \
+    rm -rf /tmp/docker /tmp/docker.tgz && \
+    docker --version
+
+# Non-root service user. UID/GID are fixed so host volume permissions
+# (data/, workspaces/) are predictable — see docs/deployment/PRODUCTION.md.
+RUN groupadd --gid 10001 systemaops && \
+    useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin systemaops
+
+WORKDIR /app
+
+# Dependencies first (better layer caching).
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Application code. Explicit paths only — nothing else enters the image
+# (no tests/, no test-artifacts/, no frontend/, no local data/*.db).
+COPY api/ /app/api/
+COPY engine/ /app/engine/
+COPY contracts/ /app/contracts/
+COPY fixtures/ /app/fixtures/
+COPY scripts/record_docker_image_provenance.py /app/scripts/record_docker_image_provenance.py
+
+# Writable runtime dirs (backed by volumes in production).
+RUN mkdir -p /app/data /app/workspaces /app/tmp && \
+    chown -R 10001:10001 /app
+
+USER 10001:10001
+
+EXPOSE 8000
+
+# Single liveness probe path served by the app (no auth required on it).
+# Compose adds start_period + interval; readiness beyond "process is up"
+# is a documented gap — see docs/operations/RUNBOOK.md.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/health || exit 1
+
+# exec-form CMD so PID 1 receives SIGTERM directly (graceful shutdown via
+# uvicorn). One worker: the store is SQLite (single-writer) and background
+# jobs are in-process daemon threads — do NOT scale workers/replicas
+# without replacing the job queue (documented gap).
+CMD ["python", "-m", "uvicorn", "api.app:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]
