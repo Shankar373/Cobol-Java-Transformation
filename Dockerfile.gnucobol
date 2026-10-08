@@ -1,4 +1,6 @@
-FROM ubuntu:22.04
+# Pinned by digest 2026-10-08 (workstream-5 supply-chain hardening).
+# Same tag content as ubuntu:22.04; digest makes it immutable.
+FROM ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
 
 # Install GnuCOBOL 3.x — the project's V1 oracle runtime.
 # Uses Ubuntu 22.04 packages which provide gnucobol 3.1.2.0-1.

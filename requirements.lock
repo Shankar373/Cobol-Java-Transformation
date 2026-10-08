@@ -1,0 +1,36 @@
+# Pinned reproducible install for SystemaOps control plane.
+# Generated: 2026-10-08. Source of truth for releases; requirements.txt
+# keeps compatible ranges for development flexibility.
+# Verify on Python 3.11 (see .python-version):
+#   python -m pip install -r requirements.lock
+# Regenerate (Python 3.11, clean venv):
+#   python -m pip install -r requirements.txt && python -m pip freeze --exclude-editable > requirements.lock
+# Policy: minimal safe upgrades only; every bump needs CURRENT/TARGET/REASON/RISK/TEST.
+# Scope: workstream-5 supply-chain hardening. No application-semantics change.
+fastapi==0.141.1
+python-multipart==0.0.32
+uvicorn[standard]==0.52.3
+httpx==0.28.1
+pytest==8.4.2
+pytest-asyncio==0.26.0
+# --- transitive pins (closure of the six direct deps above) ---
+anyio==4.13.0
+annotated-types==0.7.0
+certifi==2026.4.22
+click==8.4.2
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.8.0
+idna==3.13
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+PyYAML==6.0.3
+starlette==1.2.1
+tomli==2.4.1
+typing-extensions==4.15.0
+typing-inspection==0.4.2
+watchfiles==1.2.0
+websockets==17.0.1
