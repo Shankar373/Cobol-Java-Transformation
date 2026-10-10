@@ -72,6 +72,11 @@ It must never contradict repository reality (§68) and must never be left mislea
   DATA DIVISION explicitly (the procedure-restricted scan cannot see these);
   `workload-redefines`/`workload-occurs` now classify UNKNOWN and
   `workload-level88` stays non-SUPPORTED.  No mapper/runtime change.
+- **BL-004 (P0) FIXED:** BY CONTENT / BY VALUE are no longer capability-invisible.
+  Registry keys at PARTIAL (sync-in / no-sync-out implemented, callee writes
+  lost — correct COBOL semantics — runtime proof pending); the analyzer inspects
+  `CallStatement.passing_modes`; `workload-by-content`/`workload-by-value` MAIN
+  now classify PARTIAL.  No mapper/runtime change.
 
 ### Files changed this session
 - `engine/transformation/producers/internal_native.py` (capability lists now
@@ -85,8 +90,10 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `tests/transformation/test_capability_registry_reconciliation.py` (new; 11 tests).
 - `tests/transformation/test_usage_capability.py` (new; 22 tests).
 - `tests/transformation/test_structural_capability.py` (new; 9 tests).
-- `docs/BACKLOG.md` (new; BL-002/BL-003 now FIXED).
-- `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family + REDEFINES/OCCURS/88-level rows).
+- `tests/transformation/test_passing_mode_capability.py` (new; 8 tests).
+- `docs/BACKLOG.md` (new; BL-002/BL-003/BL-004 now FIXED).
+- `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family + REDEFINES/OCCURS/88-level +
+  BY CONTENT/BY VALUE rows).
 - `opencode.md` (rewritten live checkpoint; now intended to be tracked).
 
 ### Tests run this session
@@ -95,9 +102,11 @@ It must never contradict repository reality (§68) and must never be left mislea
 - BL-002: `pytest -q tests/transformation/test_usage_capability.py` → **22 passed**.
 - BL-003: `pytest -q tests/transformation/test_structural_capability.py` → **9 passed**;
   `workload-redefines`/`workload-occurs` → UNKNOWN.
+- BL-004: `pytest -q tests/transformation/test_passing_mode_capability.py` → **8 passed**;
+  `workload-by-content`/`workload-by-value` MAIN → PARTIAL.
 - Regression: `pytest -q tests/transformation tests/adversarial
   tests/test_silent_loss_registry.py tests/test_copybook_m7.py
-  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1897 passed,
+  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1905 passed,
   11 skipped, 22 failed**; all 22 failures are environment-only `FileNotFoundError`
   from a missing `javac` (no JDK on this host), not regressions.
 - Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS
@@ -115,6 +124,9 @@ It must never contradict repository reality (§68) and must never be left mislea
   COMP/COMP-3 as PARTIAL (P0-2)") pushed: `f069498..dfcc725`. CI for
   `dfcc725`: Push CI #431 SUCCESS, PR CI #432 SUCCESS, Supply chain #13/#14
   SUCCESS.
+- `490eb5a` ("fix(capability): classify REDEFINES/OCCURS/88-level as UNKNOWN
+  (P0-3)") pushed: `dfcc725..490eb5a`. CI for `490eb5a`: Push CI #433
+  SUCCESS, PR CI #434 SUCCESS, Supply chain #15/#16 SUCCESS.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
@@ -147,10 +159,9 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 ### Next exact OpenCode action
-1. Commit BL-003 + tests + docs + checkpoint and push to `codex/universal-core`;
+1. Commit BL-004 + tests + docs + checkpoint and push to `codex/universal-core`;
    then verify GitHub Actions for the pushed commit.
-2. Continue the P0 backlog: implement BL-004 (BY CONTENT/BY VALUE) and BL-005
-   (ROUNDED) as scoped.
+2. Continue the P0 backlog: implement BL-005 (ROUNDED) as scoped.
 3. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 
 ---

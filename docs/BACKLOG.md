@@ -122,16 +122,27 @@ produced evidence, not re-run here).
 
 ### BL-004 — BY CONTENT / BY VALUE capability hole
 - **Type:** defect (capability truth)
-- **Status:** OPEN
+- **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** Mapper implements sync-in/no-sync-out for BY CONTENT/BY VALUE;
   fixtures exist; no registry key means capability UNKNOWN, and no dedicated runtime
   comparison was found.
 - **Expected behavior:** roadmap P0-4; honest classification of parameter modes.
-- **Affected files:** `engine/transformation/semantic_capability.py`, mapper.
+- **Affected files:** `engine/transformation/semantic_capability.py`,
+  `engine/modernization/capability_analyzer.py`, `docs/SEMANTIC_PROOF_MATRIX.md`.
 - **Impact:** Parameter-mode divergence is a classic silent-divergence source.
-- **Remediation (proposed):** Add keys (PARTIAL with lost-write note) or keep blocked;
-  add mode-specific runtime comparisons + arity/literal-by-reference negatives.
-- **Verification level:** STATIC only.
+- **Remediation (implemented):**
+  * Registry keys `BY CONTENT` / `BY VALUE` at PARTIAL (sync-in / no-sync-out
+    implemented, callee writes lost — correct COBOL semantics — runtime proof
+    pending).
+  * Analyzer inspects `CallStatement.passing_modes` and emits a PARTIAL finding
+    for CONTENT/VALUE; BY REFERENCE stays covered by the CALL SUPPORTED verdict.
+- **Acceptance criteria / tests:**
+  `tests/transformation/test_passing_mode_capability.py` (8 tests) — registry keys
+  PARTIAL, `workload-by-content`/`workload-by-value` MAIN PARTIAL, minimal
+  BY CONTENT/BY VALUE programs PARTIAL, BY REFERENCE not PARTIAL.
+- **Evidence:** `pytest tests/transformation/test_passing_mode_capability.py` →
+  8 passed; fixtures MAIN → PARTIAL (2026-10-10).
+- **Last verified commit:** (this session commit — see `opencode.md`).
 
 ### BL-005 — ROUNDED flag consumption unverified
 - **Type:** defect (capability truth)
@@ -252,3 +263,6 @@ produced evidence, not re-run here).
 - 2026-10-10 — BL-003 fixed: registry keys `REDEFINES`/`OCCURS`/`88-LEVEL` at
   UNKNOWN (fail-closed), data-division source scan in the analyzer, fixtures
   `workload-redefines`/`workload-occurs` now UNKNOWN (9 new tests).
+- 2026-10-10 — BL-004 fixed: registry keys `BY CONTENT`/`BY VALUE` at PARTIAL,
+  analyzer inspects `CallStatement.passing_modes`, fixtures
+  `workload-by-content`/`workload-by-value` MAIN now PARTIAL (8 new tests).

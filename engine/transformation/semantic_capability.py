@@ -234,6 +234,18 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "88-level condition-name lowering is not implemented by the "
         "deterministic mapper; unproven"
     ),
+    # Parameter passing modes.  The mapper implements sync-in for every mode and
+    # sync-out for BY REFERENCE only (correct COBOL value semantics), but no
+    # dedicated runtime differential proof exists yet, so the write-losing modes
+    # are honestly PARTIAL rather than SUPPORTED.
+    "BY CONTENT": _partial(
+        "BY CONTENT passes a value in; callee writes are lost (correct COBOL "
+        "semantics) but runtime proof is pending"
+    ),
+    "BY VALUE": _partial(
+        "BY VALUE passes a value in; callee writes are lost (correct COBOL "
+        "semantics) but runtime proof is pending"
+    ),
 }
 
 

@@ -33,6 +33,8 @@ so such a program is reported UNSUPPORTED rather than silently SUPPORTED.
 | REDEFINES | UNKNOWN | parser records `DataItem.redefines`; mapper has no overlay lowering (generated Java for `workload-redefines` does not compile) | marked UNKNOWN until full-ladder runtime proof; never SUPPORTED |
 | OCCURS | UNKNOWN | parser records `DataItem.occurs`; mapper has no table lowering (generated Java for `workload-occurs` does not compile) | marked UNKNOWN until full-ladder runtime proof; `OCCURS DEPENDING ON` blocked |
 | 88-LEVEL | UNKNOWN | parser records level-88 condition names; mapper has no condition-name lowering (generated Java for `workload-level88` does not compile) | marked UNKNOWN until full-ladder runtime proof; never SUPPORTED |
+| BY CONTENT | PARTIAL | mapper implements sync-in / no-sync-out (callee writes lost, correct COBOL semantics); runtime proof pending | marked PARTIAL; caller-visible divergence risk is the lost write |
+| BY VALUE | PARTIAL | mapper implements sync-in / no-sync-out; runtime proof pending | marked PARTIAL; caller-visible divergence risk is the lost write |
 | GO TO | UNSUPPORTED | `GO TO` has no Java mapping (emitted as a comment) | — |
 | GOBACK | UNSUPPORTED | registry entry; `GOBACK.` is no longer mistaken for a paragraph heading | — |
 | EXIT PROGRAM | SUPPORTED | parser → `ExitProgramStatement` → `JavaReturn` in the generated body | bare `EXIT.` is diagnosed as unsupported; paragraph/section `EXIT` inside PERFORM remains UNSUPPORTED |

@@ -131,6 +131,13 @@ _LINKAGE_WALK_ATTRS = (
     "not_invalid_key_body",
 )
 
+# CALL passing mode -> registry key.  Only the write-losing modes are tracked;
+# BY REFERENCE stays covered by the CALL SUPPORTED verdict.
+_PASSING_MODE_KEYS = {
+    "CONTENT": "BY CONTENT",
+    "VALUE": "BY VALUE",
+}
+
 
 def _iter_call_statements(program) -> "list[CallStatement]":
     """Collect every CallStatement in a program, recursing into known bodies."""
@@ -344,6 +351,7 @@ class CapabilityAnalyzer:
         construct can never be hidden by an outer supported statement.
         """
         from engine.transformation.ir import (
+            CallStatement,
             DeleteStatement,
             IfStatement,
             OpenStatement,
@@ -452,6 +460,17 @@ class CapabilityAnalyzer:
                     "OPEN statement target was not captured by CobolParser "
                     f"(mode={stmt.mode})",
                 ))
+
+            if isinstance(stmt, CallStatement):
+                # BY CONTENT / BY VALUE lose the callee's writes (correct COBOL
+                # semantics) but are not runtime-proven yet, so they classify
+                # PARTIAL rather than SUPPORTED.  BY REFERENCE writes flow back
+                # and stay covered by the CALL SUPPORTED verdict.
+                for mode in stmt.passing_modes or ():
+                    key = _PASSING_MODE_KEYS.get(mode.upper())
+                    if key is not None:
+                        entry = CONSTRUCT_REGISTRY[key]
+                        findings.append((key, entry.level, entry.evidence))
 
         for paragraph in program.paragraphs:
             for stmt in paragraph.statements:
