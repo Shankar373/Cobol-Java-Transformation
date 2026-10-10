@@ -40,6 +40,8 @@ Fix (deterministic, no LLM — tables and regexes only):
 - Registry key `FIGURATIVE CONSTANT` at SUPPORTED + source pattern + analyzer
   IR walk, so a dropped instance still fails closed via `effective_source_level`.
 
+- **Commit:** `6334095` — `fix(parser): represent figurative constants as values, not field references (BL-018)`, pushed to `codex/universal-core` (`b8a746f..6334095`). Exact-SHA CI (Push #469, Supply chain #51) queued at time of writing; **Phase 1 is NOT verified until those runs are green.**
+
 ### Files changed this session
 - `engine/transformation/figurative.py` (new — canonical semantics).
 - `engine/transformation/ir.py` (`FigurativeConstant` node).
