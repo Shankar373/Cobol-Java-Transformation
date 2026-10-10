@@ -1,5 +1,11 @@
 # Cobol-Java-Transformation
 
+> **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
+> below are a *dated snapshot* of the state when this document was written, not a
+> live pointer. The current verified commit, its CI run IDs and their conclusions are
+> recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
+> Do not treat the SHAs/CI numbers below as current without checking those two files.
+
 **SystemaOps deterministic COBOL to Java modernization and verification platform.**
 
 > CURRENT BASELINE: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 on codex/universal-core.

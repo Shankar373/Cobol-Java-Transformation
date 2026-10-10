@@ -1,5 +1,11 @@
 # Known Issues
 
+> **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
+> below are a *dated snapshot* of the state when this document was written, not a
+> live pointer. The current verified commit, its CI run IDs and their conclusions are
+> recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
+> Do not treat the SHAs/CI numbers below as current without checking those two files.
+
 Known-issues baseline: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 (Phase A), Push CI #417 / PR CI #418 GREEN.
 Lifecycle/persistence/API security hardening has since been applied on top of this baseline.
 

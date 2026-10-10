@@ -1,5 +1,11 @@
 # SystemaOps Product Status
 
+> **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
+> below are a *dated snapshot* of the state when this document was written, not a
+> live pointer. The current verified commit, its CI run IDs and their conclusions are
+> recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
+> Do not treat the SHAs/CI numbers below as current without checking those two files.
+
 Canonical product status and positioning document for SystemaOps.
 Supersedes scattered status statements. Branch: `codex/universal-core`.
 Baseline: `fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4`.
@@ -194,7 +200,14 @@ Supported subset, with runtime evidence where noted (see
 - Evidence/verdict production-path tamper/replay coverage can be expanded.
 - Persistence is single-node SQLite; durable queue, retention, rate limiting,
   audit logging, and TLS are deployment/production hardening items.
-- `integrated_proof_from_pipelines` not yet wired into `api/service.py` (Phase E).
+- The integrated proof **is** wired (corrected 2026-10-10, BL-008): `api/service.py`
+  builds it via `runtime_evidence_from_result` during validation (line ~1002-1013)
+  and persists it as `run.modernization_report["integrated_proof"]`, and
+  `get_integrated_proof` (line ~1142) serves it with a recompute fallback for runs
+  that predate persistence. It is exposed by `api/app.py:get_run_integrated_proof`
+  (line ~632). The earlier claim that it was "not yet wired into `api/service.py`"
+  contradicted the code and has been removed (Master README Section 78 — actual
+  repository state wins).
 
 ## 19. Current CI status
 

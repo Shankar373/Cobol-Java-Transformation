@@ -86,6 +86,22 @@ It must never contradict repository reality (§68) and must never be left mislea
 - **P0 capability backlog (BL-001…BL-005) is now closed.** No mapper/runtime
   behavior was changed in this whole sequence; all five items were capability/
   classification defects.
+- **BL-008 FIXED (documentation contradiction):** `docs/SYSTEMAOPS_PRODUCT_STATUS.md`
+  §18 claimed the integrated proof was "not yet wired into `api/service.py`". The
+  code contradicts that: `api/service.py` builds it via `runtime_evidence_from_result`
+  during validation and persists it as `run.modernization_report["integrated_proof"]`,
+  `get_integrated_proof` serves it with a recompute fallback, and `api/app.py`
+  exposes the route. The false claim was replaced with the real wiring and its
+  concrete locations (Master README Section 78 — actual repository state wins).
+- **BL-009 FIXED (stale baseline references):** ten live status documents
+  (`README.md`, `docs/{PROJECT,CURRENT_DELIVERY,VERIFICATION,ARCHITECTURE,CONTRACT,
+  SYSTEMAOPS_PRODUCT_STATUS,REMEDIATION_MATRIX,KNOWN_ISSUES}.md`,
+  `docs/reports/CURRENT_PROJECT_STATE.md`) all pinned baseline `fedb7dd` and
+  CI #417/#418. Each now carries a dated **Baseline note** marking those SHA/run IDs
+  as a snapshot and pointing to `opencode.md` / `docs/BACKLOG.md` for the live
+  pointer. Historical references were labelled, not rewritten. The universality
+  roadmap was deliberately left alone: its `fedb7dd` references are historical audit
+  narrative and rewriting them would destroy provenance.
 - **BL-011 FIXED:** the reconciliation guard now covers **both** producers under
   `engine/transformation/producers/`.  Deterministic-lane producers must agree
   with the registry in both directions; every producer must declare a non-empty
@@ -115,7 +131,9 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `tests/transformation/test_rounded_capability.py` (new; 7 tests).
 - `tests/transformation/test_producer_capability_consistency.py` (new; 16 tests).
 - `engine/transformation/producers/opensource4j.py` (declared tuples hoisted).
-- `docs/BACKLOG.md` (new; BL-002…BL-005 and BL-011 now FIXED).
+- `README.md` + 9 status docs (dated Baseline note; BL-009).
+- `docs/SYSTEMAOPS_PRODUCT_STATUS.md` (integrated-proof claim corrected; BL-008).
+- `docs/BACKLOG.md` (new; BL-002…BL-005, BL-008, BL-009, BL-011 now FIXED).
 - `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family + REDEFINES/OCCURS/88-level +
   BY CONTENT/BY VALUE + ROUNDED rows).
 - `opencode.md` (rewritten live checkpoint; now intended to be tracked).
@@ -160,6 +178,8 @@ It must never contradict repository reality (§68) and must never be left mislea
   pushed: `490eb5a..92cd314`.
 - `a63e359` ("fix(capability): register ROUNDED as SUPPORTED; correct BL-005
   premise (P0-5)") pushed: `92cd314..a63e359`.
+- `09375b2` ("test(capability): extend reconciliation guard to all producers
+  (BL-011)") pushed: `a63e359..09375b2`.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
@@ -192,13 +212,13 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 ### Next exact OpenCode action
-1. Commit BL-011 + tests + docs + checkpoint and push to `codex/universal-core`;
+1. Commit BL-008 + BL-009 + docs + checkpoint and push to `codex/universal-core`;
    then verify GitHub Actions for the pushed commit.
-2. Then address the remaining P1/P2 documentation contradictions: BL-008
-   (`docs/SYSTEMAOPS_PRODUCT_STATUS.md` §18 claims integrated_proof is not wired
-   into `api/service.py`, but it is) and BL-009 (live status docs cite the stale
-   baseline `fedb7dd` / CI #417/#418).
-3. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
+2. Remaining open items are BL-012 (CI depth: add the reconciliation gate as an
+   explicit CI step) and the P1 roadmap items (INITIALIZE, INSPECT, SEARCH, SET,
+   UNSTRING/STRING breadth, COPY REPLACING, indexed/relative runtime).
+3. Docker-dependent and Java/Node validation remain delegated to Linux CI (BL-010).
+4. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 
 ---
 

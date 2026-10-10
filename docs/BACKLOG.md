@@ -198,7 +198,7 @@ produced evidence, not re-run here).
 
 ### BL-008 — Integrated-proof wiring claim contradicts code
 - **Type:** documentation contradiction
-- **Status:** OPEN
+- **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** `docs/SYSTEMAOPS_PRODUCT_STATUS.md` §18 states
   "`integrated_proof_from_pipelines` not yet wired into `api/service.py` (Phase E)",
   but `api/service.py` now calls `integrated_proof_from_pipelines` /
@@ -210,27 +210,39 @@ produced evidence, not re-run here).
 - **Affected files:** `docs/SYSTEMAOPS_PRODUCT_STATUS.md` (and any doc echoing it).
 - **Impact:** Documentation understates implemented behavior; undermines trust in
   status docs.
-- **Remediation (proposed):** Update the status doc to reflect the wired proof path,
-  citing the API route and tests.
+- **Remediation (implemented):** `docs/SYSTEMAOPS_PRODUCT_STATUS.md` §18 now records
+  the wired proof path with its concrete locations (`api/service.py`
+  `runtime_evidence_from_result` during validation, persistence as
+  `run.modernization_report["integrated_proof"]`, `get_integrated_proof` with a
+  recompute fallback, and the `api/app.py` route), and explicitly notes that the
+  earlier "not yet wired" claim contradicted the code and was removed. No other
+  document echoed the stale claim, so nothing else needed changing.
 - **Verification level:** VERIFIED by static read of `api/service.py` lines 164, 230,
   986–1016, 1142–1160 and `api/app.py` line 615.
 
 ### BL-009 — Live status documents cite a stale baseline commit / CI run
 - **Type:** documentation contradiction
-- **Status:** OPEN
+- **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** `README.md`, `docs/PROJECT_STATUS.md`,
   `docs/SYSTEMAOPS_PRODUCT_STATUS.md`, `docs/CURRENT_DELIVERY_STATUS.md`,
   `docs/VERIFICATION_STATUS.md`, `docs/ARCHITECTURE.md`, `docs/CONTRACT_STATUS.md`,
-  `docs/KNOWN_ISSUES.md`, `docs/COBOL_UNIVERSALITY_ROADMAP.md` all cite baseline
-  `fedb7dd` / Push CI #417 / PR CI #418, while the current HEAD is `81e7955` with
-  Push CI #427 / PR CI #428 green.
+  `docs/KNOWN_ISSUES.md`, `docs/REMEDIATION_MATRIX.md`,
+  `docs/reports/CURRENT_PROJECT_STATE.md` all cited baseline `fedb7dd` /
+  Push CI #417 / PR CI #418, while HEAD had moved well past that.
 - **Expected behavior:** Master README Section 78 — every live status report must
   identify its verified commit and audit date.
 - **Impact:** Readers cannot tell which commit the status describes; drift risk.
-- **Remediation (proposed):** Bump live status docs' recorded baseline/CI to the
-  audited commit, or explicitly label the older references as of their date. Do not
-  rewrite historical reports.
-- **Verification level:** VERIFIED by static read; CI status VERIFIED via GitHub API.
+- **Remediation (implemented):** added a dated **Baseline note** to the header of
+  all ten live status documents, stating that their SHA / CI run IDs are a dated
+  snapshot rather than a live pointer, and that the current verified commit and
+  CI conclusions live in `opencode.md` and `docs/BACKLOG.md`.  The documented
+  remediation choice was "explicitly label the older references as of their date"
+  rather than rewriting historical references, so no historical run ID was
+  altered.  `docs/COBOL_UNIVERSALITY_ROADMAP.md` was deliberately **not**
+  annotated: its `fedb7dd` / #417 / #418 references are part of the historical
+  audit narrative (and it already tracks a newer baseline), so rewriting them
+  would destroy provenance.
+- **Verification level:** VERIFIED by static read of all ten files.
 
 ### BL-010 — Docker-dependent validation blocked on this host
 - **Type:** operations/environment
@@ -311,3 +323,8 @@ produced evidence, not re-run here).
   registry-key auto-classification and PARTIAL/UNKNOWN non-claiming guards added;
   opensource4j declared tuples hoisted to module scope; external-lane divergence
   pinned explicitly rather than forced to match the registry.
+- 2026-10-10 — BL-008 and BL-009 fixed: the false "integrated proof not wired"
+  claim was replaced with the real wiring + locations, and ten live status docs
+  now carry a dated Baseline note distinguishing their snapshot SHA/CI from the
+  live pointers in `opencode.md` / `docs/BACKLOG.md`. Historical references were
+  labelled, not rewritten.
