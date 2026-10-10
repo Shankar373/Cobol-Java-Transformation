@@ -183,10 +183,35 @@ It must never contradict repository reality (§68) and must never be left mislea
   (P0-3)") pushed: `dfcc725..490eb5a`. CI for `490eb5a`: Push CI #433
   SUCCESS, PR CI #434 SUCCESS, Supply chain #15/#16 SUCCESS.
 - `92cd314`, `a63e359`, `09375b2`, `f7c2e10` — pushed; CI runs #435–#442. The
-  **Backend and COBOL/Java Docker tests** job FAILED on #435/#436/#437/#438 with
-  `test_by_value_and_by_content_are_never_claimed_supported`. Root cause: the
+  **Backend and COBOL/Java Docker tests** job FAILED on #435–#438 and #441/#442
+  with `test_by_value_and_by_content_are_never_claimed_supported`. Root cause: the
   BL-004 registry keys violated a pre-existing negative contract (see above).
   Ingestion and frontend jobs were green throughout.
+- `24540f6` ("fix(capability): revert BY CONTENT/BY VALUE registry keys; honour
+  negative contract (BL-004)") pushed: `f7c2e10..24540f6`. Supply chain #25/#26
+  SUCCESS; Push CI #443 and PR CI #444 in progress at time of writing. This is
+  the first run of the full P0 sequence against the corrected baseline.
+
+### CI failure analysis (2026-10-10) — reusable finding
+- **Symptom:** "Backend and COBOL/Java Docker tests" failed on 4 consecutive runs
+  while every other job (ingestion, frontend, supply chain) stayed green.
+- **Root cause:** a single assertion —
+  `tests/integration/test_phase_d_negative_integration.py::
+  TestUnsupportedParameterContract::test_by_value_and_by_content_are_never_claimed_supported`.
+  It asserts no registry key contains "BY VALUE"/"BY CONTENT", i.e. the repo had
+  deliberately chosen the roadmap P0-4 option "keep blocked". My BL-004 change
+  added exactly those keys.
+- **Why the local suite missed it:** the guard lives in an integration test
+  inside the Docker-gated job; my local run also never exercises that file's full
+  context. **Local green is not sufficient for capability claims** — the Docker
+  job is the authority for this class of defect.
+- **Correction applied:** reverted the keys and the analyzer classification,
+  documented the decision in registry/analyzer/matrix, deleted the test that
+  encoded the wrong expectation.
+- **Method note (reusable):** CI job logs are admin-only via the API, but the run's
+  uploaded `backend-oracle-results` artifact contains `backend-tests.log` with the
+  exact failing assertion; fetching that artifact with the stored GCM credential
+  is the fastest path to root cause.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
