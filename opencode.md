@@ -1,0 +1,150 @@
+# opencode.md — SystemaOps Live Implementation Checkpoint
+
+Checkpoint authority (Master README §64): `MASTER_IMPLEMENTATION_README.md`
+defines what must be built; this file records **where implementation currently is**.
+It must never contradict repository reality (§68) and must never be left misleading.
+
+---
+
+## Session 2026-10-10 (current)
+
+### Baseline (verified this session)
+- Repository: `https://github.com/Shankar373/Cobol-Java-Transformation.git`
+- Branch: `codex/universal-core`
+- HEAD: `81e795584e42437e4194bcb317ca20594c621adc`
+  ("docs: strengthen master implementation audit and backlog contract")
+- Base branch: `main` (`a923c65`)
+- Working tree: dirty by design — untracked `opencode.md`, `test-artifacts/*`
+  evidence, and a modified `test-artifacts/docker-image-provenance.json`
+  (pre-existing, preserved). No tracked source files were modified before this session.
+- Local branch was one commit behind `origin` at session start; fast-forwarded
+  `7ae5873 → 81e7955` (docs-only). No reset, no force-push, no user files discarded.
+
+### CI status for the exact audited HEAD `81e7955` (verified via GitHub API)
+- Push CI #427 — SUCCESS
+- PR CI #428 — SUCCESS
+- Supply chain #9 (push) / #10 (PR) — SUCCESS
+- Last known green commit: `81e7955`.
+
+### Environment
+- OS: Windows 11 Home (Build 26200); git 2.55.0 at `C:\Program Files\Git\bin\git.exe`
+  (not on PATH).
+- Python 3.11.9 available; test venv `.venv-audit` (Windows; `uvloop` excluded
+  because it does not build on Windows).
+- Node/npm: NOT installed. Java/Maven: NOT installed.
+- Docker CLI present, but the Windows/WSL2 Docker bind-mount + cgroup issue remains an
+  environment blocker. Per instruction, do NOT retry Docker-in-Docker and do NOT change
+  WSL2/kernel/cgroup/Docker security settings; use Linux CI for Docker-dependent gates.
+
+### Current phase / status
+- No Master README phase is marked **VERIFIED COMPLETE** under §53 acceptance rules.
+- De facto coverage spans Phases 0–3 for the certified subset (secure ingestion,
+  discovery, parser/IR, deterministic COBOL→Java, CALL/copybook, sequential files),
+  with Phases 4–7 partial/modeled-only and Phases 8–12 partial or unverified.
+- **Current focus:** Phase 1–3 capability-truth remediation (roadmap P0 backlog),
+  which is the highest-priority confirmed-defect work. Reference:
+  `docs/BACKLOG.md`.
+
+### Completed this session
+- Ran the Master-README-mandated independent audit (§76) and produced the central
+  backlog (§77): `docs/BACKLOG.md` (BL-001 … BL-012). No-LLM gate (§79) checked —
+  no model-provider integration found in executable code/config; only documentation
+  references the prohibition.
+- **BL-001 (P0) FIXED:** `engine/transformation/producers/internal_native.py` declared
+  stale capability lists that contradicted the authoritative registry (`GO TO`
+  supported; `COMPUTE`/`SUBTRACT`/`MULTIPLY`/`CALL`/`EVALUATE` unsupported). Both lists
+  are now derived from `CONSTRUCT_REGISTRY` by level, so contradiction is impossible by
+  construction; PARTIAL constructs are claimed by neither list.
+- **Regression test added:** `tests/transformation/test_capability_registry_reconciliation.py`.
+- **BL-006 FIXED:** created `docs/BACKLOG.md` (no central backlog existed).
+- **BL-007 FIXED:** rewrote this stale checkpoint.
+- **BL-011 PARTIALLY FIXED:** reconciliation test now covers the internal native
+  producer (not yet all producers).
+
+### Files changed this session
+- `engine/transformation/producers/internal_native.py` (capability lists now
+  registry-derived).
+- `tests/transformation/test_capability_registry_reconciliation.py` (new; 11 tests).
+- `docs/BACKLOG.md` (new).
+- `opencode.md` (rewritten live checkpoint; now intended to be tracked).
+
+### Tests run this session
+- Focused: `pytest -q tests/transformation/test_capability_registry_reconciliation.py
+  tests/transformation/test_producer_contract.py` → **29 passed** (2026-10-10).
+- Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS unset)
+  → **IN PROGRESS at time of writing**; result appended below when complete. Docker
+  tests are skipped/blocked locally (see environment blocker).
+
+### Blockers
+- Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
+  locally. Not to be worked around by changing virtualization/Docker security.
+- Local full-suite runs are slow on this host; full Docker oracle/candidate/E2E proof
+  is delegated to Linux CI.
+
+### Known limitations / non-claims (unchanged, must be preserved)
+- Subset-certified, NOT universal COBOL / z/OS / JCL / DB2 / CICS equivalence.
+- GnuCOBOL oracle ≠ proof of complete z/OS behavioral equivalence.
+- COMP/COMP-3 storage encoding, REDEFINES/OCCURS/88-level mapping, BY CONTENT/BY VALUE
+  runtime, and ROUNDED consumption remain unproven (BL-002…BL-005).
+- Production gaps: durable queue/resume, retention/TTL, audit logging, TLS/egress at
+  boundary, multi-node coordination (SQLite single-node).
+
+### Architectural / open-source decisions
+- No architecture change this session. The canonical pipeline is preserved.
+- Fix follows the Master README rule "registry is the single source of capability
+  truth" and the roadmap instruction "registry should win".
+- No open-source component added or replaced.
+
+### Fresh E2E status
+- Not run locally (Docker blocked). Last recorded fresh/E2E evidence is historical
+  (PHASE7D report + CI run #427 backend/oracle job). No new fresh E2E claimed.
+
+### Do-not-redo list
+- Do not re-implement the parser/IR/mapper/generator/evidence/verdict architecture.
+- Do not re-do PHASE5–7D work absent a detected regression.
+- Do not retry Docker-in-Docker or alter WSL2/cgroup/Docker security settings.
+- Do not weaken/skip tests to obtain green.
+
+### Next exact OpenCode action
+1. Confirm the full local non-Docker regression result is green; append it here.
+2. Commit BL-001 + backlog + checkpoint and push to `codex/universal-core`; then verify
+   GitHub Actions for the pushed commit.
+3. Continue the P0 backlog: implement BL-002 (COMP/COMP-3 explicit diagnostic + registry
+   keys, PARTIAL, with parse-diagnostic tests), then BL-003/BL-004/BL-005 as scoped.
+4. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
+
+---
+
+## Historical: initial setup session (2026-10-10, before this audit)
+
+> Retained as history. Superseded by the session above; many statements here are no
+> longer current (e.g., Python is now installed and used).
+
+### Repository state at that time
+- Remote: https://github.com/Shankar373/Cobol-Java-Transformation.git
+- Branch: codex/universal-core
+- HEAD: 7ae5873 "docs: add master implementation README"
+- Working tree: clean (no uncommitted changes; tmp/ contains historical artifacts)
+- opencode.md: created 2026-10-10
+
+### Environment (at that time)
+- OS: Windows 11 Home 64-bit (Build 26200)
+- Git: 2.55.0.windows.5 (C:\Program Files\Git\bin\git.exe)
+- Docker CLI: not found (checked after install)
+- WSL: wsl.exe present, but wsl --status gave a registration error initially
+- Node.js/npm: not found
+- Python: Windows Apps python alias detected; real Python reported not installed
+- Java (JAVA_HOME/java): not found
+- Maven: not found
+- Hyper-V/Virtualization: CPU virtualization firmware enabled False; HypervisorPresent True
+
+### Key docs confirmed present
+- MASTER_IMPLEMENTATION_README.md, README.md, requirements.txt, requirements.lock,
+  .github/workflows/ci.yml, Dockerfile.gnucobol/.maven-offline/.production,
+  docker-compose.production.yml, scripts/deploy/*.sh,
+  engine/candidate/docker_spring_boot_adapter.py, scripts/record_docker_image_provenance.py
+
+### Setup plan (at that time)
+1. Inspect repo state — done. 2. Install prerequisites — pending.
+3. Clone/fetch safely — done. 4. Configure Docker images — pending.
+5. Install deps and verify — pending. 6. Report status — pending.
