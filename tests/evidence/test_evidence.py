@@ -27,6 +27,30 @@ from tests.common import make_hash
 # Test fixtures
 # ---------------------------------------------------------------------------
 
+def test_compilation_diagnostics_are_bound_to_manifest(
+    sample_run_id, sample_workload_id, sample_source_identity,
+    sample_oracle_identity, sample_input_identity, sample_execution_evidence,
+):
+    from dataclasses import replace
+    from engine.evidence.integrity import EvidenceIntegrityValidator
+
+    execution = replace(sample_execution_evidence, compilation_diagnostics={
+        "exit_code": "0", "stdout_base64": "", "stderr_base64": "d2FybmluZw==",
+    })
+    manifest = EvidenceManifest(
+        manifest_version="1.0", run_id=sample_run_id,
+        workload_id=sample_workload_id, source_identity=sample_source_identity,
+        candidate_identity=None, oracle_identity=sample_oracle_identity,
+        environment_identities=(), controlled_input=sample_input_identity,
+        execution_evidence=(execution,), artifact_evidence=(), comparison_evidence=(),
+    )
+    altered = replace(manifest, execution_evidence=(replace(
+        execution, compilation_diagnostics={**execution.compilation_diagnostics, "stderr_base64": ""},
+    ),))
+    assert manifest.manifest_hash != altered.manifest_hash
+    validator = EvidenceIntegrityValidator()
+    assert validator._compute_integrity_hash(manifest) != validator._compute_integrity_hash(altered)
+
 @pytest.fixture
 def sample_run_id() -> RunId:
     return RunId(value="run-001")
@@ -85,7 +109,7 @@ def sample_execution_evidence(sample_run_id: RunId) -> ExecutionEvidence:
         stderr_hash=make_hash("stderr"),
         generated_files={},
         source_tree_hash_before=make_hash("source-before"),
-        source_tree_hash_after=make_hash("source-after"),
+        source_tree_hash_after=make_hash("source-before"),
         termination_status="normal",
         timeout_applied=False,
     )

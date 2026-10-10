@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,17 +42,18 @@ from engine.candidate.java_adapter import RealJavaCandidateAdapter
 from engine.comparators.framework import (
     ComparatorRegistry,
     create_default_registry,
+    resolve_comparator_id,
 )
 from engine.domain.identities import (
     AdapterStatus,
     CandidateIdentity,
     ContentHash,
+    EnvironmentIdentity,
     ExecutionId,
     InputIdentity,
     OracleIdentity,
     RunId,
     SourceIdentity,
-    VerdictState,
     WorkloadId,
 )
 from engine.evidence.integrity import EvidenceIntegrityValidator
@@ -63,7 +66,11 @@ from engine.evidence.models import (
 from engine.execution.artifacts import ArtifactCapturer, CapturedArtifact
 from engine.oracle.adapter import OracleAdapterConfig
 from engine.oracle.docker_adapter import DockerOracleAdapter
-from engine.verdict.derivation import Verdict, derive_verdict
+from engine.verdict.derivation import (
+    Verdict,
+    derive_verdict_validated,
+    derive_verdict_untrusted,
+)
 from engine.workload import WorkloadDefinition
 
 
@@ -75,8 +82,13 @@ class PipelineConfig:
     java_candidate_path: str
     java_entrypoint: str
     workload: WorkloadDefinition | None = None
-    oracle_image: str = "gnucobol-ocesql:latest"
-    oracle_digest: str = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+    oracle_image: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_IMAGE", "gnucobol-ocesql:latest"
+    )
+    # Declared immutable pin. Empty means auto-pin: the oracle adapter
+    # resolves the image's immutable identity at execution time and records
+    # it as the executed identity (fail closed on mismatch when set).
+    oracle_digest: str = os.environ.get("SYSTEMAOPS_ORACLE_DIGEST", "")
     oracle_compiler_version: str = "3.1.2.0"
     javac_path: str = "javac"
     java_path: str = "java"
@@ -130,6 +142,7 @@ class VerticalSlicePipeline:
             image_digest=config.oracle_digest,
             compiler_version=config.oracle_compiler_version,
             timeout_seconds=config.timeout_seconds,
+            image=config.oracle_image,
         )
         self._oracle_adapter = DockerOracleAdapter(oracle_config)
 
@@ -218,7 +231,7 @@ class VerticalSlicePipeline:
             source_hash=str(source_hash),
             generated_files=generated_files,
             entrypoint=self._config.java_entrypoint,
-            java_version="25",
+            java_version="21",
         )
 
     def _extract_artifact_content(
@@ -226,32 +239,38 @@ class VerticalSlicePipeline:
         artifact_type: str,
         output_path: str | None,
         execution_result: object,
-    ) -> bytes:
-        """Extract artifact content from execution result based on artifact type."""
+    ) -> bytes | None:
+        """Extract artifact content; missing declared files return None."""
         if artifact_type == "STDOUT":
             return execution_result.stdout
         if artifact_type == "STDERR":
             return execution_result.stderr
         if artifact_type == "EXIT_STATUS":
-            return str(execution_result.exit_code or -1).encode()
+            _ec = execution_result.exit_code
+            return str(_ec if _ec is not None else -1).encode()
         if artifact_type in ("TEXT_FILE", "FIXED_RECORD"):
             generated = getattr(execution_result, "generated_files", None) or {}
             if output_path and output_path in generated:
                 return generated[output_path]
-            return b""
-        return b""
+            return None
+        return None
 
     def _capture_artifact(
         self,
         artifact_type: str,
         output_path: str | None,
         execution_id: ExecutionId,
-        content: bytes,
+        content: bytes | None,
         logical_name: str,
         producer_role: str,
         record_length: int | None = None,
     ) -> CapturedArtifact:
-        """Capture an artifact using the appropriate capturer method."""
+        """Capture an artifact; None content means the artifact is absent."""
+        if content is None:
+            return self._capturer.capture_missing(
+                execution_id, artifact_type, logical_name, producer_role,
+                record_length=record_length,
+            )
         if artifact_type == "STDOUT":
             return self._capturer.capture_stdout(
                 execution_id, content, logical_name, producer_role
@@ -296,6 +315,8 @@ class VerticalSlicePipeline:
             normalization_applied=comp_result.normalization_applied,
             differences=tuple(d.description for d in comp_result.differences),
             field_level_results=(),
+            ordering_applied=getattr(comp_result, "ordering_applied", "SEQUENTIAL"),
+            failure_policy=getattr(comp_result, "failure_policy", ""),
             content_hash=ContentHash.from_string(json.dumps({
                 "result": comp_result.result.value,
                 "differences": [
@@ -353,17 +374,42 @@ class VerticalSlicePipeline:
             oracle_artifacts_list.append(oracle_ca)
             candidate_artifacts_list.append(candidate_ca)
 
-            # Get comparator from registry
+            # Get comparator from registry (literal get call — tests assert
+            # dispatch is registry-driven, never direct instantiation).
             comparator = self._registry.get(artifact_def.artifact_type)
             if comparator is None:
                 raise ValueError(
                     f"No comparator registered for artifact_type={artifact_def.artifact_type!r}"
                 )
 
+            # Comparator binding: the comparator the declaration names (after
+            # alias resolution) must be exactly the comparator the registry
+            # dispatches for this artifact type. A disagreement means the
+            # evidence would be produced by an unbound comparator — fail closed.
+            declared_id = (getattr(artifact_def, "comparator_id", "") or "").strip()
+            if declared_id:
+                resolved_declared = resolve_comparator_id(declared_id)
+                registered_id = comparator.comparator_id.comparator_id
+                if resolved_declared != registered_id:
+                    raise ValueError(
+                        "Comparator binding mismatch for artifact_type="
+                        f"{artifact_def.artifact_type!r}: declaration "
+                        f"{declared_id!r} resolves to {resolved_declared!r} "
+                        f"but registry provides {registered_id!r}"
+                    )
+
             # Compare
+            normalization = (
+                artifact_def.normalization.allowed_normalizations
+                if artifact_def.normalization else ()
+            )
+            ordering = artifact_def.ordering.order if artifact_def.ordering else "SEQUENTIAL"
             comp_result = comparator.compare(
                 oracle_ca.artifact, oracle_ca.content,
                 candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=normalization,
+                ordering=ordering,
+                failure_policy=artifact_def.failure,
             )
             comparison_evidence.append(self._make_comparison_evidence(
                 run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
@@ -378,9 +424,14 @@ class VerticalSlicePipeline:
     def _load_input_files(self) -> dict[str, bytes] | None:
         """Load input files from workload declaration.
 
-        Returns dict keyed by filename (e.g. 'claims.dat'), which the
+        Returns dict keyed by file name (e.g. 'claims.dat'), which the
         oracle and candidate adapters write into a temp input directory
         mounted at /workspace/input/.
+
+        A declared input that does not exist on disk fails closed: silently
+        omitting it would validate a different workload than declared.
+        Duplicate staging names are rejected when the WorkloadDefinition is
+        constructed, so keys are unambiguous here.
         """
         workload = self._config.workload
         if not workload or not workload.inputs:
@@ -389,18 +440,95 @@ class VerticalSlicePipeline:
         files: dict[str, bytes] = {}
         for inp in workload.inputs:
             source = fixture_root / inp.source_path
-            if source.is_file():
-                files[source.name] = source.read_bytes()
+            if not source.is_file():
+                raise ValueError(
+                    f"Declared input {inp.source_path!r} (logical_name="
+                    f"{inp.logical_name!r}) not found at {source}: refusing "
+                    f"to run with a different input set than declared"
+                )
+            files[source.name] = source.read_bytes()
         return files if files else None
 
-    def run(self, controlled_input: bytes | None = None) -> PipelineResult:
+    def _input_file_identities(self) -> dict[str, ContentHash]:
+        """Hashes of declared input files, keyed by container path.
+
+        Keyed by the declared ``container_path`` (not the staging name) so
+        the recorded input identity matches the workload declaration.
+        """
+        workload = self._config.workload
+        if not workload or not workload.inputs:
+            return {}
+        fixture_root = Path(self._config.cobol_source_path).parent.parent
+        identities: dict[str, ContentHash] = {}
+        for inp in workload.inputs:
+            source = fixture_root / inp.source_path
+            if not source.is_file():
+                raise ValueError(
+                    f"Declared input {inp.source_path!r} (logical_name="
+                    f"{inp.logical_name!r}) not found at {source}: refusing "
+                    f"to record an input identity for missing input"
+                )
+            identities[inp.container_path] = ContentHash.from_bytes(source.read_bytes())
+        return identities
+
+    #: Directories excluded from the candidate source-tree mutation hash
+    #: (build outputs written during compile are not source).
+    _SOURCE_TREE_EXCLUDED_DIRS = frozenset({
+        "target", "build", "out", ".git", "__pycache__", "node_modules",
+    })
+
+    def _candidate_resource_limits(self) -> dict[str, str]:
+        """Resource limits of the configured candidate adapter (best effort)."""
+        cfg = getattr(self._candidate_adapter, "_config", None)
+        return {
+            "memory": str(getattr(cfg, "memory_limit", "512m")),
+            "cpus": str(getattr(cfg, "cpu_limit", "1.0")),
+            "pids_limit": str(getattr(cfg, "pids_limit", 256)),
+        }
+
+    def _candidate_source_tree_hash(self) -> ContentHash:
+        """Hash the candidate's source tree at call time (build outputs excluded).
+
+        Recorded before and after build/execute so evidence proves the
+        candidate sources were not rewritten during validation.
+        """
+        candidate_path = Path(self._config.java_candidate_path)
+        hasher = hashlib.sha256()
+        if candidate_path.is_file():
+            hasher.update(candidate_path.read_bytes())
+        elif candidate_path.is_dir():
+            for f in sorted(candidate_path.rglob("*")):
+                if not f.is_file():
+                    continue
+                rel = f.relative_to(candidate_path)
+                if any(part in self._SOURCE_TREE_EXCLUDED_DIRS for part in rel.parts):
+                    continue
+                hasher.update(str(rel).encode())
+                hasher.update(f.read_bytes())
+        return ContentHash(digest=hasher.hexdigest())
+
+    def run(
+        self,
+        controlled_input: bytes | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> PipelineResult:
+        """Run the full validation pipeline.
+
+        The optional progress callback receives phase names
+        (EXECUTING_ORACLE, BUILDING, EXECUTING_GENERATED, COMPARING,
+        VALIDATING_EVIDENCE) as each phase STARTS. It changes nothing
+        about execution, comparison, evidence, or verdict semantics.
+        """
         run_id = RunId(value=f"run-{self._config.workload_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
         workload_id = WorkloadId(value=self._config.workload_id)
 
         source_identity = self._compute_source_identity()
 
         input_files = self._load_input_files()
+        input_file_hashes = self._input_file_identities()
 
+        if progress is not None:
+            progress("EXECUTING_ORACLE")
         oracle_result = self._oracle_adapter.execute(
             run_id=run_id,
             source_path=self._config.cobol_source_path,
@@ -410,7 +538,10 @@ class VerticalSlicePipeline:
         oracle_evidence = oracle_result.to_execution_evidence()
 
         candidate_identity = self._compute_candidate_identity(source_identity.source_hash)
+        candidate_source_before = self._candidate_source_tree_hash()
 
+        if progress is not None:
+            progress("BUILDING")
         compilation = self._candidate_adapter.compile(
             candidate_path=self._config.java_candidate_path,
             manifest=self._build_candidate_manifest(source_identity.source_hash),
@@ -423,6 +554,8 @@ class VerticalSlicePipeline:
                     class_file.parent.mkdir(parents=True, exist_ok=True)
                     class_file.write_bytes(bytecode)
 
+                if progress is not None:
+                    progress("EXECUTING_GENERATED")
                 candidate_result = self._candidate_adapter.execute(
                     run_id=run_id,
                     compiled_path=tmpdir,
@@ -445,8 +578,24 @@ class VerticalSlicePipeline:
                 timeout_applied=False,
             )
 
+        candidate_source_after = self._candidate_source_tree_hash()
         candidate_evidence = candidate_result.to_execution_evidence()
 
+        # Bind both executions to the declared workload. Candidate evidence
+        # records the real source-tree hashes so a rewrite during build or
+        # execution is provable, and a compile failure is marked BUILD (it
+        # is not an execution of the candidate program).
+        oracle_evidence = replace(oracle_evidence, workload_id=workload_id)
+        candidate_evidence = replace(
+            candidate_evidence,
+            workload_id=workload_id,
+            source_tree_hash_before=candidate_source_before,
+            source_tree_hash_after=candidate_source_after,
+            execution_phase="EXECUTE" if compilation.success else "BUILD",
+        )
+
+        if progress is not None:
+            progress("COMPARING")
         if self._config.workload is not None:
             artifact_evidence, comparison_evidence, _, _ = self._run_declaration_driven(
                 run_id, workload_id, oracle_result, candidate_result,
@@ -456,11 +605,29 @@ class VerticalSlicePipeline:
             artifact_evidence, comparison_evidence = self._run_legacy(
                 run_id, oracle_result, candidate_result,
             )
+        comparison_evidence = tuple(
+            replace(c, workload_id=workload_id) for c in comparison_evidence
+        )
 
-        environment_identities = ()
+        environment_identities = (
+            EnvironmentIdentity(
+                runtime_id="oracle-gnucobol-3.1.2",
+                cobol_compiler=self._config.oracle_compiler_version,
+                os_base="gnucobol-ocesql",
+                network_policy="none",
+                resource_limits={"memory": "512m", "cpus": "1.0", "pids_limit": "256"},
+            ),
+            EnvironmentIdentity(
+                runtime_id="candidate-java",
+                java_version=getattr(self._candidate_adapter, "java_version", "") or None,
+                network_policy="none",
+                resource_limits=self._candidate_resource_limits(),
+            ),
+        )
         controlled_input_identity = InputIdentity(
             input_id=f"input-{run_id.value}",
             stdin_hash=ContentHash.from_bytes(controlled_input or b""),
+            input_files=input_file_hashes,
         )
 
         manifest = EvidenceManifest(
@@ -478,32 +645,16 @@ class VerticalSlicePipeline:
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation
+        if progress is not None:
+            progress("VALIDATING_EVIDENCE")
         validation_result = self._integrity_validator.validate(manifest)
         if isinstance(validation_result, list):
-            # Trust boundary violated — untrusted evidence cannot produce VERIFIED
-            # Derive the natural verdict from evidence structure, but override
-            # VERIFIED to ERROR when validation fails. This prevents forged or
-            # replayed evidence from achieving certification.
-            verdict = derive_verdict(manifest)
-            if verdict.state == VerdictState.VERIFIED:
-                verdict = Verdict(
-                    state=VerdictState.ERROR,
-                    workload_id=manifest.workload_id,
-                    run_id=manifest.run_id.value,
-                    source_hash=str(manifest.source_identity.source_hash),
-                    candidate_hash=str(manifest.candidate_identity.candidate_hash) if manifest.candidate_identity else None,
-                    oracle_id=manifest.oracle_identity.oracle_id,
-                    oracle_digest=manifest.oracle_identity.image_digest,
-                    executed_check_count=0,
-                    skipped_count=0,
-                    unavailable_count=0,
-                    supported_scope_statement="Evidence trust boundary violation",
-                    evidence_manifest_hash=str(manifest.manifest_hash),
-                    derivation_timestamp=datetime.now(timezone.utc).isoformat(),
-                    differences=tuple(v.description for v in validation_result),
-                )
+            # Trust boundary violated — untrusted evidence can never certify
+            # equivalence: derive the natural verdict for diagnostics, but
+            # clamp VERIFIED to ERROR with the violations as differences.
+            verdict = derive_verdict_untrusted(manifest, validation_result)
         else:
-            verdict = derive_verdict(manifest)
+            verdict = derive_verdict_validated(validation_result)
 
         return PipelineResult(
             run_id=run_id,
@@ -543,8 +694,9 @@ class VerticalSlicePipeline:
         oracle_stderr_artifact = self._capturer.capture_stderr(
             oracle_result.execution_id, oracle_result.stderr, "oracle-stderr", "ORACLE"
         )
+        _oracle_ec = oracle_result.exit_code
         oracle_exit_artifact = self._capturer.capture_exit_status(
-            oracle_result.execution_id, oracle_result.exit_code or -1, "ORACLE"
+            oracle_result.execution_id, _oracle_ec if _oracle_ec is not None else -1, "ORACLE"
         )
 
         candidate_stdout_artifact = self._capturer.capture_stdout(
@@ -553,8 +705,9 @@ class VerticalSlicePipeline:
         candidate_stderr_artifact = self._capturer.capture_stderr(
             candidate_result.execution_id, candidate_result.stderr, "candidate-stderr", "CANDIDATE"
         )
+        _cand_ec = candidate_result.exit_code
         candidate_exit_artifact = self._capturer.capture_exit_status(
-            candidate_result.execution_id, candidate_result.exit_code or -1, "CANDIDATE"
+            candidate_result.execution_id, _cand_ec if _cand_ec is not None else -1, "CANDIDATE"
         )
 
         oracle_artifacts_list = [

@@ -32,6 +32,27 @@ from engine.transformation.java_ir import (
 )
 
 
+from engine.transformation.numeric_semantics import (
+    NumericValueError,
+    display_format_spec,
+    is_fractional_format_spec,
+    java_integral_suffix,
+    normalize_value_for_pic,
+)
+
+
+# An integral Java literal may carry a type suffix (``123L``); such a value
+# is still a numeric literal and must never be quoted as a String.
+_JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
+
+
+def _format_call(spec: str, var: str, indent: str) -> str:
+    """Render a locale-safe ``String.format`` call for a numeric DISPLAY."""
+    if is_fractional_format_spec(spec):
+        return f"{indent}String.format(java.util.Locale.US, \"{spec}\", {var})"
+    return f"{indent}String.format(\"{spec}\", {var})"
+
+
 @dataclass
 class GeneratedFile:
     """A generated Java source file."""
@@ -229,6 +250,9 @@ class JavaGenerator:
         status_java = self._build_status_checks_java_from_ir(
             program.status_codes, program.match_outcomes,
             program.summary_fields, field_map, program.input_record_fields,
+            program.input_amount_field,
+            program.threshold_rules[0].pass_label if program.threshold_rules else "",
+            program.threshold_rules[0].pass_counter_name if program.threshold_rules else "",
         )
 
         # Summary output
@@ -257,6 +281,8 @@ class JavaGenerator:
         id_var = input_fields[0] if len(input_fields) > 0 else "field_0"
         status_var = input_fields[1] if len(input_fields) > 1 else "field_1"
         amt_str_var = input_fields[-1] if len(input_fields) > 0 else "field_last"
+        status_var = program.status_codes[0].field_name or status_var
+        amt_str_var = program.input_amount_field or amt_str_var
 
         # Report write
         report_write = self._build_record_write_java_from_ir(
@@ -265,6 +291,11 @@ class JavaGenerator:
         output_write = self._build_record_write_java_from_ir(
             "out", report_config.output_format_fields, field_map,
         )
+        result_assignment = ""
+        if program.decision_result_field:
+            expression = (f"padRight(result, {program.decision_result_width})"
+                          if program.decision_result_width > 0 else "result")
+            result_assignment = f"            {program.decision_result_field} = {expression};"
 
         # Stderr diagnostics
         stderr_java = self._build_stderr_java_from_ir(
@@ -320,6 +351,7 @@ public class {class_name} {{
             int lookupMatch = 0;
 
 {status_java}
+{result_assignment}
 
 {report_write}
 
@@ -446,26 +478,77 @@ public class {class_name} {{
 
         declarations = self._gen_field_declarations_from_ir(java_class)
 
-        # Build main body from methods
+        # Collect all method bodies (all non-main methods) and main body
+        all_methods_src: list[str] = []
         main_body = ""
+        uses_file_write = False
+        uses_cobol_file_io_stmt = False
+
         for method in java_class.methods:
-            if method.name != "main":
-                continue
+            method_stmts: list[str] = []
             for stmt in method.body_statements:
                 stmt_str = self._stmt_to_string(stmt)
                 if stmt_str:
-                    main_body += f"        {stmt_str}\n"
+                    method_stmts.append(stmt_str)
+                    if "_FileWriteHelper" in stmt_str:
+                        uses_file_write = True
+                    if "CobolFileIo." in stmt_str:
+                        uses_cobol_file_io_stmt = True
 
-        return f'''import java.io.PrintStream;
+            if method.name == "main":
+                main_body = "".join(f"        {s}\n" for s in method_stmts)
+            else:
+                params = ", ".join(
+                    f"{self._java_type_to_string(p.java_type)} {p.name}"
+                    for p in method.parameters
+                )
+                throws = " throws Exception" if method.exceptions else ""
+                body = "".join(f"        {s}\n" for s in method_stmts)
+                mods = " ".join(method.modifiers) if method.modifiers else "public static"
+                ret = self._java_type_to_string(method.return_type) if method.return_type else "void"
+                all_methods_src.append(
+                    f"\n    {mods} {ret} {method.name}({params}){throws} {{\n{body}    }}\n"
+                )
+
+        extra_methods = "".join(all_methods_src)
+
+        file_write_helper = ""
+        file_write_imports = ""
+        support_code = ""
+        uses_cobol_file_io = uses_file_write or uses_cobol_file_io_stmt
+        if uses_cobol_file_io:
+            from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
+            support_code = "\n" + COBOL_FILE_IO_JAVA + "\n"
+        if uses_file_write:
+            file_write_imports = (
+                "import java.io.FileWriter;\n"
+                "import java.io.PrintWriter;\n"
+            )
+            file_write_helper = (
+                "\n"
+                "    /** Append a text line to a file (sequential WRITE). */\n"
+                "    static void _FileWriteHelper_appendLine(String path, String line) throws Exception {\n"
+                "        try (PrintWriter _pw = new PrintWriter(new FileWriter(path, true))) {\n"
+                "            _pw.println(line);\n"
+                "        }\n"
+                "    }\n"
+            )
+            # Rewrite _FileWriteHelper.appendLine calls to use the actual method name
+            main_body = main_body.replace(
+                "_FileWriteHelper.appendLine(", "_FileWriteHelper_appendLine("
+            )
+            extra_methods = extra_methods.replace(
+                "_FileWriteHelper.appendLine(", "_FileWriteHelper_appendLine("
+            )
+
+        return f'''{file_write_imports}import java.io.PrintStream;
 
 public class {class_name} {{
 {declarations}
-
+{extra_methods}
     public static void main(String[] args) throws Exception {{
         PrintStream out = System.out;
-{main_body}
-    }}
-}}
+{main_body}    }}{file_write_helper}{support_code}}}
 '''
 
     # ================================================================
@@ -536,6 +619,8 @@ public class {class_name} {{
             field = field_map.get(field_name)
             if field and field.java_type.basic_type and field.java_type.basic_type.value == "int":
                 lines.append(f'            {field_name} = Integer.parseInt(rec[{i}].trim());')
+            elif field and field.java_type.basic_type and field.java_type.basic_type.value == "double":
+                lines.append(f'            {field_name} = Double.parseDouble(rec[{i}].trim());')
             else:
                 lines.append(f'            {field_name} = rec[{i}].trim();')
         return "\n".join(lines) if lines else ""
@@ -561,13 +646,16 @@ public class {class_name} {{
         summary_fields: tuple[JavaSummaryField, ...],
         field_map: dict[str, JavaField],
         input_record_fields: tuple[str, ...] = (),
+        input_amount_field: str = "",
+        threshold_pass_label: str = "",
+        threshold_pass_counter: str = "",
     ) -> str:
         """Generate Java if/else chain from Java IR status codes."""
         if not status_codes:
             return ""
 
         first_label = status_codes[0].label
-        approval_label = status_codes[-1].label
+        approval_label = threshold_pass_label or status_codes[-1].label
 
         # Get match outcome labels
         paid_label = match_outcomes[0].paid_label if match_outcomes else approval_label
@@ -576,6 +664,8 @@ public class {class_name} {{
 
         # Build label → counter mapping
         label_to_counter = {sc.label: sc.counter_name for sc in status_codes}
+        if threshold_pass_counter:
+            label_to_counter[approval_label] = threshold_pass_counter
         for mo in match_outcomes:
             if mo.paid_label:
                 label_to_counter[mo.paid_label] = self._label_to_counter_name(mo.paid_label)
@@ -593,6 +683,9 @@ public class {class_name} {{
             id_var = self._derive_field_var_simple(field_map, 0, "field_0")
             status_var = self._derive_field_var_simple(field_map, 1, "field_1")
             amt_str_var = self._derive_field_var_simple(field_map, -1, "field_last")
+
+        status_var = status_codes[0].field_name or status_var
+        amt_str_var = input_amount_field or amt_str_var
 
         lines = []
         first = True
@@ -662,7 +755,12 @@ public class {class_name} {{
         """Build summary output lines from Java IR."""
         lines = []
         for sf in summary_fields:
-            if sf.format_width > 0:
+            if sf.format_spec and sf.is_numeric:
+                formatted = _format_call(sf.format_spec, sf.java_var_name, "")
+                lines.append(
+                    f'        System.out.println("{sf.field_name}=" + {formatted});'
+                )
+            elif sf.format_width > 0 and sf.is_numeric:
                 lines.append(
                     f'        System.out.println("{sf.field_name}=" + '
                     f'String.format("%0{sf.format_width}d", {sf.java_var_name}));'
@@ -727,13 +825,29 @@ public class {class_name} {{
                         padRight(String.valueOf({amt_str_var}_num), 5));
             }}'''
 
+    def _java_type_to_string(self, java_type) -> str:
+        """Render a JavaType to its Java source string using the canonical renderer."""
+        if java_type is None:
+            return "void"
+        try:
+            return java_type.to_source()
+        except Exception:
+            return "void"
+
+    @staticmethod
+    def _escape_java_string(value: str) -> str:
+        """Escape a raw string value for embedding in a Java string literal."""
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
     def _gen_field_declarations_from_ir(self, java_class: JavaClass) -> str:
         """Generate Java variable declarations from JavaClass fields."""
         lines = []
         for field in java_class.fields:
             type_str = field.java_type.to_source()
-            if field.initializer:
-                default = field.initializer.value
+            if field.initializer is not None:
+                # Render through the literal renderer so String
+                # initializers are always quoted (never bare identifiers).
+                default = self._expr_to_string(field.initializer)
             elif type_str == "int":
                 default = "0"
             elif type_str == "String":
@@ -753,6 +867,8 @@ public class {class_name} {{
         for i, field in enumerate(java_class.fields):
             if field.java_type.basic_type and field.java_type.basic_type.value == "int":
                 lines.append(f'            {field.name} = Integer.parseInt(rec[{i}].trim());')
+            elif field.java_type.basic_type and field.java_type.basic_type.value == "double":
+                lines.append(f'            {field.name} = Double.parseDouble(rec[{i}].trim());')
             else:
                 lines.append(f'            {field.name} = rec[{i}].trim();')
         return "\n".join(lines)
@@ -761,10 +877,16 @@ public class {class_name} {{
         """Convert a Java IR statement to a Java source string."""
         from engine.transformation.java_ir import (
             JavaAssignment, JavaMethodCallStatement, JavaReturn,
-            JavaComment, JavaIf, JavaBlock,
+            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaDoWhile,
+            JavaFor, JavaLocalVarDecl,
         )
         if isinstance(stmt, JavaAssignment):
             return f"{stmt.target} = {self._expr_to_string(stmt.expression)};"
+        if isinstance(stmt, JavaLocalVarDecl):
+            init_str = ""
+            if stmt.initializer:
+                init_str = f" = {self._expr_to_string(stmt.initializer)}"
+            return f"{stmt.java_type.to_source()} {stmt.name}{init_str};"
         if isinstance(stmt, JavaMethodCallStatement):
             return self._method_call_to_string(stmt.call) + ";"
         if isinstance(stmt, JavaReturn):
@@ -787,36 +909,96 @@ public class {class_name} {{
                     lines.append(f"    {self._stmt_to_string(s)}")
             lines.append("}")
             return "\n".join(lines)
+        if isinstance(stmt, JavaDoWhile):
+            cond = self._expr_to_string(stmt.condition)
+            lines = ["do {"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append(f"}} while ({cond});")
+            return "\n".join(lines)
+        if isinstance(stmt, JavaFor):
+            init_str = self._stmt_to_string(stmt.init).rstrip(";") if stmt.init else ""
+            cond_str = self._expr_to_string(stmt.condition) if stmt.condition else ""
+            update_str = self._stmt_to_string(stmt.update).rstrip(";") if stmt.update else ""
+            lines = [f"for ({init_str}; {cond_str}; {update_str}) {{"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append("}")
+            return "\n".join(lines)
         if isinstance(stmt, JavaBlock):
             return "\n".join(self._stmt_to_string(s) for s in stmt.statements)
+        if isinstance(stmt, JavaWhile):
+            cond = self._expr_to_string(stmt.condition)
+            lines = [f"while ({cond}) {{"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append("}")
+            return "\n".join(lines)
         return ""
 
     def _expr_to_string(self, expr) -> str:
         """Convert a Java IR expression to a Java source string."""
         from engine.transformation.java_ir import (
-            JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
-            JavaStringConcat,
+            JavaCast, JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
+            JavaStringConcat, JavaUnaryOp,
         )
         if isinstance(expr, JavaLiteral):
+            if expr.value == "null" and not expr.java_type:
+                return "null"
+            if expr.value in ("true", "false") and not expr.java_type:
+                return expr.value
             # String literals need quotes; numeric literals don't
             # JavaLiteral without java_type may be a condition expression — don't quote
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
-                return f'"{expr.value}"'
+                return f'"{self._escape_java_string(expr.value)}"'
+            # A single-quoted value is a COBOL string literal spelling, not a
+            # Java char: normalize to a double-quoted Java string literal.
+            if len(expr.value) >= 2 and expr.value.startswith("'") and expr.value.endswith("'"):
+                return f'"{self._escape_java_string(expr.value[1:-1])}"'
             # If it looks like a string value (not a number, not a condition)
-            if not expr.value.replace(".", "").replace("-", "").isdigit():
+            if not expr.value.replace(".", "").replace("-", "").isdigit() and not (
+                _JAVA_LITERAL_SUFFIX_RE.match(expr.value)
+            ):
                 # Check if it's a condition expression (contains operators)
                 if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
                     return expr.value  # Don't quote conditions
-                if not (expr.value.startswith('"') or expr.value.startswith("'")):
-                    return f'"{expr.value}"'
+                if not expr.value.startswith('"'):
+                    return f'"{self._escape_java_string(expr.value)}"'
             return expr.value
         if isinstance(expr, JavaVariableRef):
             return expr.name
+        if isinstance(expr, JavaCast):
+            return f"({expr.target_type.to_source()})({self._expr_to_string(expr.expression)})"
         if isinstance(expr, JavaBinaryOp):
             left = self._expr_to_string(expr.left)
             right = self._expr_to_string(expr.right)
             return f"({left} {expr.operator} {right})"
+        if isinstance(expr, JavaUnaryOp):
+            operand = self._expr_to_string(expr.operand)
+            if any(op in operand for op in ("==", "!=", "&&", "||", ">=", "<=", "<", ">")):
+                depth = 0
+                grouped = False
+                for i, ch in enumerate(operand):
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                        if depth == 0:
+                            grouped = i == len(operand) - 1
+                            break
+                if not grouped:
+                    operand = f"({operand})"
+            return f"({expr.operator}{operand})"
         if isinstance(expr, JavaMethodCall):
             return self._method_call_to_string(expr)
         if isinstance(expr, JavaStringConcat):
@@ -1250,12 +1432,21 @@ public class {class_name} {{
         for field in summary_fields:
             java_var = self._cobol_field_to_java_var(field)
             data_item = ws_lookup.get(field)
-            if data_item and hasattr(data_item, "format_width"):
-                width = data_item.format_width
-                if width < 1:
-                    width = 1
+            spec = ""
+            if (
+                data_item is not None
+                and getattr(data_item, "is_numeric", False)
+                and data_item.pic_length > 0
+            ):
+                spec = display_format_spec(
+                    integer_digits=data_item.integer_digits,
+                    decimal_digits=data_item.decimal_places,
+                    signed=data_item.signed,
+                )
+            if spec:
+                formatted = _format_call(spec, java_var, "")
                 lines.append(
-                    f'        System.out.println("{field}=" + String.format("%0{width}d", {java_var}));'
+                    f'        System.out.println("{field}=" + {formatted});'
                 )
             else:
                 lines.append(
@@ -1419,70 +1610,104 @@ public class {class_name} {{
 }}
 '''
 
+    def _lookup_cobol_data_item(self, program: CobolProgram, name: str):
+        """Find a data item by normalized COBOL name in WS or FILE SECTION."""
+        normalized = name.replace("-", "_").upper()
+        for item in program.working_storage:
+            if item.name.replace("-", "_").upper() == normalized:
+                return item
+        for fd in program.file_definitions:
+            for item in fd.record_items:
+                if item.name.replace("-", "_").upper() == normalized:
+                    return item
+        return None
+
+    @staticmethod
+    def _java_numeric_type_for_item(item) -> str:
+        """Choose Java numeric storage type from COBOL PIC metadata."""
+        if item.decimal_places > 0:
+            return "double"
+        return "long" if item.pic_length > 9 else "int"
+
+    @staticmethod
+    def _java_numeric_default_for_item(item) -> str:
+        """Choose a Java initializer while honoring the numeric literal contract.
+
+        Numeric VALUE literals are normalized deterministically (no Java
+        octal ambiguity, fractional digits truncated to the PIC scale,
+        overflow keeps the least-significant declared digits, a signed
+        literal is rejected on an unsigned PIC, and a value outside Java's
+        ``int`` range carries the ``L`` suffix so the declaration
+        compiles).  An invalid numeric VALUE raises
+        :class:`NumericValueError` so generation fails closed instead of
+        emitting a bare Java identifier.
+        """
+        if not item.value:
+            return "0"
+        normalized = normalize_value_for_pic(
+            item.value,
+            integer_digits=item.integer_digits,
+            decimal_digits=item.decimal_places,
+            signed=item.signed,
+        )
+        return f"{normalized}{java_integral_suffix(normalized)}"
+
     def _gen_io_variable_declarations(
         self,
         program: CobolProgram,
         mappings: tuple[InputRecordMapping, ...],
     ) -> str:
-        """Generate Java variable declarations from InputRecordMappings and WORKING-STORAGE.
-
-        Uses PIC types from WORKING-STORAGE to determine int vs String.
-        """
+        """Generate type-aware declarations from WS and FILE SECTION metadata."""
         lines = []
-        # Build lookup: field name → DataItem from WORKING-STORAGE
-        ws_lookup: dict[str, object] = {}
-        for item in program.working_storage:
-            ws_lookup[item.name] = item
 
-        # Declare variables from first InputRecordMapping (main input)
         if mappings:
             seen: set[str] = set()
             for field in mappings[0].fields:
                 java_name = field.replace("-", "_")
-                if java_name not in seen:
-                    seen.add(java_name)
-                    # Check WORKING-STORAGE for type
-                    ws_item = ws_lookup.get(field)
-                    if ws_item and ws_item.is_numeric:
-                        default = "0"
-                        if ws_item.value:
-                            default = ws_item.value.strip("'\"")
-                        lines.append(f'    static int {java_name} = {default};')
-                    else:
-                        lines.append(f'    static String {java_name} = "";')
-        # Also declare any additional WORKING-STORAGE items not already declared
-        declared = {m.replace("-", "_") for m in mappings[0].fields} if mappings else set()
+                if java_name in seen:
+                    continue
+                seen.add(java_name)
+                item = self._lookup_cobol_data_item(program, field)
+                if item and item.is_numeric:
+                    java_type = self._java_numeric_type_for_item(item)
+                    default = self._java_numeric_default_for_item(item)
+                    lines.append(f'    static {java_type} {java_name} = {default};')
+                else:
+                    lines.append(f'    static String {java_name} = "";')
+
+        declared = {
+            m.replace("-", "_") for m in mappings[0].fields
+        } if mappings else set()
         for item in program.working_storage:
             java_name = item.name.replace("-", "_")
-            if java_name not in declared:
-                if item.is_numeric:
-                    default = "0"
-                    if item.value:
-                        default = item.value.strip("'\"")
-                    lines.append(f'    static int {java_name} = {default};')
-                else:
-                    default = '""'
-                    if item.value:
-                        default = f'"{item.value.strip("'\"")}"'
-                    lines.append(f'    static String {java_name} = {default};')
+            if java_name in declared:
+                continue
+            if item.is_numeric:
+                java_type = self._java_numeric_type_for_item(item)
+                default = self._java_numeric_default_for_item(item)
+                lines.append(f'    static {java_type} {java_name} = {default};')
+            else:
+                default = '""'
+                if item.value:
+                    default = '"' + item.value.strip("'\"") + '"'
+                lines.append(f'    static String {java_name} = {default};')
         return "\n".join(lines)
 
     def _gen_unstring_parsing_java(self, mapping: InputRecordMapping, program: CobolProgram) -> str:
-        """Generate Java parsing code from an InputRecordMapping.
-
-        Generates: field = rec[index].trim(); for String fields,
-                   field = Integer.parseInt(rec[index].trim()); for int fields.
-        """
-        ws_lookup: dict[str, object] = {}
-        for item in program.working_storage:
-            ws_lookup[item.name] = item
-
+        """Generate type-aware parsing from WS and FILE SECTION PIC metadata."""
         lines = []
         for i, field in enumerate(mapping.fields):
             java_name = field.replace("-", "_")
-            ws_item = ws_lookup.get(field)
-            if ws_item and ws_item.is_numeric:
-                lines.append(f'            {java_name} = Integer.parseInt(rec[{i}].trim());')
+            item = self._lookup_cobol_data_item(program, field)
+            if item and item.is_numeric:
+                parse_method = (
+                    "Double.parseDouble" if item.decimal_places > 0
+                    else "Long.parseLong" if item.pic_length > 9
+                    else "Integer.parseInt"
+                )
+                lines.append(
+                    f'            {java_name} = {parse_method}(rec[{i}].trim());'
+                )
             else:
                 lines.append(f'            {java_name} = rec[{i}].trim();')
         return "\n".join(lines)
@@ -1529,14 +1754,13 @@ public class {class_name} {{
         for item in program.working_storage:
             java_name = item.name.replace("-", "_")
             if item.is_numeric:
-                default = "0"
-                if item.value:
-                    default = item.value.strip("'\"")
-                lines.append(f'    static int {java_name} = {default};')
+                java_type = self._java_numeric_type_for_item(item)
+                default = self._java_numeric_default_for_item(item)
+                lines.append(f'    static {java_type} {java_name} = {default};')
             else:
                 default = '""'
                 if item.value:
-                    default = f'"{item.value.strip("'\"")}"'
+                    default = '"' + item.value.strip("'\"") + '"'
                 lines.append(f'    static String {java_name} = {default};')
         return "\n".join(lines)
 
@@ -1558,9 +1782,15 @@ public class {class_name} {{
             return f"        {target} = {source};"
 
         if isinstance(stmt, AddStatement):
-            target = stmt.target.replace("-", "_")
-            source = self._cobol_expr_to_java(stmt.source)
-            return f"        {target} += {source};"
+            # ADD A TO B GIVING C → C = A + B  (C receives result, B unchanged)
+            # ADD A TO B           → B = A + B  (in-place)
+            target = stmt.giving_target.replace("-", "_") if stmt.giving_target else stmt.target.replace("-", "_")
+            source_a = self._cobol_expr_to_java(stmt.source)
+            source_b = stmt.target.replace("-", "_")
+            if stmt.giving_target:
+                return f"        {target} = ({source_a} + {source_b});"
+            else:
+                return f"        {target} = ({source_b} + {source_a});"
 
         if isinstance(stmt, DivideStatement):
             target = stmt.target.replace("-", "_")

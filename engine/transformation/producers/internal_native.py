@@ -28,6 +28,64 @@ from engine.transformation.contracts import (
 from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.diagnostics import DiagnosticCollector
 from engine.transformation.java_generator import JavaGenerator
+from engine.transformation.semantic_capability import (
+    CONSTRUCT_REGISTRY,
+    CapabilityLevel,
+)
+
+
+# Structural constructs this producer understands that are not verbs in the
+# authoritative semantic capability registry (see
+# engine/transformation/semantic_capability.py).  They are kept as an explicit
+# producer-scope declaration because the registry classifies semantics, not
+# divisions or picture clauses.
+_SUPPORTED_STRUCTURE: tuple[str, ...] = (
+    "IDENTIFICATION DIVISION",
+    "ENVIRONMENT DIVISION",
+    "FILE-CONTROL",
+    "DATA DIVISION",
+    "FILE SECTION",
+    "WORKING-STORAGE",
+    "PIC X(n)",
+    "PIC 9(n)",
+)
+
+# Producer-scope limitations that have no standalone registry key: file
+# organizations are classified through their file verbs, so the registry does
+# not carry an "INDEXED files"/"RELATIVE files" entry.
+_UNSUPPORTED_SCOPE: tuple[str, ...] = (
+    "INDEXED files",
+    "RELATIVE files",
+)
+
+
+def _registry_constructs(level: CapabilityLevel) -> tuple[str, ...]:
+    """Return the sorted registry construct names for one capability level.
+
+    The registry is the single source of capability truth (see Master README
+    Section 14 and docs/COBOL_UNIVERSALITY_ROADMAP.md P0-1).  Deriving the
+    producer's declared lists from it makes a producer claim that contradicts
+    the registry impossible by construction.
+    """
+    return tuple(
+        sorted(
+            name
+            for name, entry in CONSTRUCT_REGISTRY.items()
+            if entry.level is level
+        )
+    )
+
+
+# Computed once: the registry is static.  Supported and unsupported lists only
+# carry constructs whose registry level is exactly SUPPORTED/UNSUPPORTED; a
+# PARTIAL construct (e.g. UNSTRING) is deliberately in neither list so the
+# producer never reports a bounded construct as fully supported or rejected.
+_PRODUCER_SUPPORTED_CONSTRUCTS: tuple[str, ...] = (
+    _SUPPORTED_STRUCTURE + _registry_constructs(CapabilityLevel.SUPPORTED)
+)
+_PRODUCER_UNSUPPORTED_CONSTRUCTS: tuple[str, ...] = (
+    _UNSUPPORTED_SCOPE + _registry_constructs(CapabilityLevel.UNSUPPORTED)
+)
 
 
 class InternalNativeJavaProducer(TransformationProducer):
@@ -85,41 +143,8 @@ class InternalNativeJavaProducer(TransformationProducer):
                 entrypoint=generated_files[0].class_name if generated_files else "",
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
-                supported_constructs=(
-                    "IDENTIFICATION DIVISION",
-                    "ENVIRONMENT DIVISION",
-                    "FILE-CONTROL",
-                    "DATA DIVISION",
-                    "FILE SECTION",
-                    "WORKING-STORAGE",
-                    "PIC X(n)",
-                    "PIC 9(n)",
-                    "OCCURS",
-                    "OPEN",
-                    "READ",
-                    "WRITE",
-                    "MOVE",
-                    "ADD",
-                    "DIVIDE",
-                    "IF/ELSE",
-                    "PERFORM",
-                    "DISPLAY",
-                    "GO TO",
-                    "STOP RUN",
-                    "STRING",
-                    "UNSTRING",
-                ),
-                unsupported_constructs=(
-                    "COMPUTE",
-                    "SUBTRACT",
-                    "MULTIPLY",
-                    "SORT",
-                    "CALL",
-                    "EVALUATE",
-                    "ACCEPT",
-                    "INDEXED files",
-                    "RELATIVE files",
-                ),
+                supported_constructs=_PRODUCER_SUPPORTED_CONSTRUCTS,
+                unsupported_constructs=_PRODUCER_UNSUPPORTED_CONSTRUCTS,
                 diagnostics=tuple(
                     {
                         "level": d.level.value,

@@ -1,4 +1,10 @@
-FROM maven:3.9-eclipse-temurin-21
+# Pinned by digest 2026-10-08 (workstream-5 supply-chain hardening).
+# Same tag content as maven:3.9-eclipse-temurin-21; digest makes it immutable.
+# Spring Boot precache version (3.2.5) is intentionally NOT bumped here:
+# the generator (engine/transformation/*, engine/modernization/*) emits
+# spring-boot-starter-parent 3.2.5, so changing it requires app-source
+# changes that are out of scope. See docs/supply-chain/DEPENDENCY_AUDIT.md.
+FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320
 
 # Pre-cache Spring Boot dependencies for offline build
 RUN mkdir -p /tmp/precache/src/main/java/precache && \

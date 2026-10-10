@@ -228,7 +228,11 @@ class TestServiceRunValidationProgress:
             id="run-test",
             application_id="app-test",
             workload_id="wl-test",
-            stage=RunStage.VALIDATING_EVIDENCE,  # Pre-set by _modernize_background
+            # Run state when validation starts: the modernization phases have
+            # already persisted DISCOVERING → ... → ASSEMBLY_COMPLETED, and
+            # the pipeline's first validation phase (EXECUTING_ORACLE) must
+            # follow it forward.
+            stage=RunStage.ASSEMBLY_COMPLETED,
         )
         store.add_run(run)
 
@@ -288,8 +292,13 @@ class TestAsyncAPIStagePersistence:
         resp = client.post(f"/applications/{app_id}/modernize")
         return resp.json()["run_id"]
 
-    def _wait_for_stage(self, run_id, timeout=10):
-        """Poll GET /runs/{run_id} until terminal, return list of observed stages."""
+    def _wait_for_stage(self, run_id, timeout=10, poll_interval=0.05):
+        """Poll GET /runs/{run_id} until terminal, return list of observed stages.
+
+        ``poll_interval`` is a parameter so a caller that has already
+        synchronized on the terminal-stage persistence event can poll once
+        without sleeping (see BL-017).
+        """
         observed = []
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -297,7 +306,7 @@ class TestAsyncAPIStagePersistence:
             observed.append(stage)
             if stage in ("COMPLETED", "FAILED"):
                 break
-            time.sleep(0.05)
+            time.sleep(poll_interval)
         return observed
 
     def test_all_pipeline_stages_observed_via_api(self):
@@ -320,13 +329,36 @@ class TestAsyncAPIStagePersistence:
 
         app_id = self._create_and_upload_app()
         mock_adapter = MagicMock()
+        # BL-017: this test used to poll GET /runs/{id} until a 10s deadline
+        # and then assert observed[-1] == "COMPLETED".  Under CPU contention
+        # the poll could expire while the background worker was still mid
+        # pipeline, so the last observed stage was EXECUTING_GENERATED and the
+        # test failed intermittently on an otherwise-green SHA.
+        #
+        # The fix removes the timing dependency rather than relaxing the
+        # assertion: synchronize on the terminal-stage persistence event (the
+        # same deterministic pattern the sibling test_full_stage_sequence_
+        # observed uses), and only then poll the API.  The assertion below is
+        # unchanged — a run that never reaches COMPLETED still fails.
+        completed = threading.Event()
+        original_update = Store.update_run
+
+        def record_update(store, run):
+            result = original_update(store, run)
+            if run.stage in (RunStage.COMPLETED, RunStage.FAILED):
+                completed.set()
+            return result
+
         with patch.object(Service, "_generate_application", mock_generate), \
              patch.object(Service, "_run_validation", mock_validation), \
+             patch.object(Store, "update_run", record_update), \
              patch("engine.candidate.docker_spring_boot_adapter.DockerSpringBootCandidateAdapter", return_value=mock_adapter):
             resp = client.post(f"/applications/{app_id}/modernize")
             run_id = resp.json()["run_id"]
-
-        observed = self._wait_for_stage(run_id)
+            assert completed.wait(timeout=30), (
+                "Modernization worker did not reach a terminal stage"
+            )
+            observed = self._wait_for_stage(run_id, poll_interval=0)
 
         # Run reached terminal state (mock runs instantly so intermediate
         # stages may be missed by polling)
@@ -334,7 +366,17 @@ class TestAsyncAPIStagePersistence:
         assert len(observed) >= 1
 
     def test_full_stage_sequence_observed(self):
-        """Stages observed via polling respect canonical ordering."""
+        """Every persisted stage respects the documented lifecycle order."""
+        stages_seen = []
+        completed = threading.Event()
+        original_update = Store.update_run
+
+        def record_update(store, run):
+            stages_seen.append(run.stage.value)
+            result = original_update(store, run)
+            if run.stage in (RunStage.COMPLETED, RunStage.FAILED):
+                completed.set()
+            return result
         def mock_generate(self_svc, app, run):
             run.stage = RunStage.DISCOVERING
             run.stage = RunStage.DISCOVERY_COMPLETED
@@ -355,24 +397,27 @@ class TestAsyncAPIStagePersistence:
         mock_adapter = MagicMock()
         with patch.object(Service, "_generate_application", mock_generate), \
              patch.object(Service, "_run_validation", mock_validation), \
+             patch.object(Store, "update_run", record_update), \
              patch("engine.candidate.docker_spring_boot_adapter.DockerSpringBootCandidateAdapter", return_value=mock_adapter):
             resp = client.post(f"/applications/{app_id}/modernize")
             run_id = resp.json()["run_id"]
+            assert completed.wait(timeout=10), "Modernization worker did not finish"
+            assert client.get(f"/runs/{run_id}").json()["stage"] == "COMPLETED"
 
-        stages_seen = []
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            stage = client.get(f"/runs/{run_id}").json()["stage"]
-            if stage not in stages_seen:
-                stages_seen.append(stage)
-            if stage in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.05)
-
+        # Authoritative order: VerticalSlicePipeline.run() documents oracle
+        # execution before BUILDING; frontend/src/api/stages.ts agrees.
         canonical_order = [
             "CREATED", "INGESTING", "DISCOVERING", "DISCOVERY_COMPLETED",
-            "TRANSFORMING", "GENERATING", "BUILDING", "EXECUTING_ORACLE",
+            "ANALYZING", "ANALYSIS_COMPLETED", "PLANNING", "PLAN_COMPLETED",
+            "TRANSFORMING", "GENERATING", "ASSEMBLING", "ASSEMBLY_COMPLETED",
+            "EXECUTING_ORACLE", "BUILDING",
             "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE", "COMPLETED",
+        ]
+        validation_stages = [stage for stage in stages_seen if stage in (
+            "EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE",
+        )]
+        assert validation_stages == [
+            "EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE",
         ]
         last_idx = -1
         for s in stages_seen:

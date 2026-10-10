@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** Deterministic verdict derivation exists in the current repository. This contract remains normative.
+
 # VERDICT CONTRACT — V1
 
 > **Status:** AUTHORITATIVE (approved via ADR-0004 + ADR-0005 / PD-07). Resolves

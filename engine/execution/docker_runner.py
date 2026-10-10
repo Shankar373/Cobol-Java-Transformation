@@ -23,6 +23,7 @@ from engine.execution.abstractions import (
     ExecutionCommand,
     ExecutionResult,
 )
+from engine.execution.sandbox_paths import to_host_path
 
 
 @dataclass(frozen=True)
@@ -94,7 +95,10 @@ class DockerRunner:
         ]
 
         for host_path, container_path in config.mount_ro:
-            docker_cmd.extend(["-v", f"{host_path}:{container_path}:ro"])
+            # Translate container-visible staging paths to the host-visible
+            # bind source so the host daemon resolves the intended workspace
+            # (identity mapping outside the configured staging root).
+            docker_cmd.extend(["-v", f"{to_host_path(host_path)}:{container_path}:ro"])
 
         for key, value in config.environment.items():
             docker_cmd.extend(["-e", f"{key}={value}"])

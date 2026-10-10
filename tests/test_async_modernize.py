@@ -23,6 +23,7 @@ from api.app import app
 from api.models import RunStage
 from api.service import Service
 from api.store import Store, RunRecord
+from tests.common import make_stub_verdict
 
 client = TestClient(app)
 
@@ -62,32 +63,6 @@ def _create_and_upload_app(name: str = "async-test") -> str:
         files=[("files", ("TEST.cob", io.BytesIO(SAMPLE_COBOL.encode()), "text/plain"))],
     )
     return app_id
-
-
-class _StubVerdict:
-    """Picklable verdict double (SQLite store persists verdicts as blobs)."""
-
-    def __init__(self, run_id: str, workload_id: str) -> None:
-        self._run_id = run_id
-        self._workload_id = workload_id
-
-    def to_dict(self) -> dict:
-        return {
-            "run_id": f"engine-{self._run_id}",
-            "state": "UNPROVEN",
-            "workload_id": self._workload_id,
-            "source_hash": "mock-source-hash",
-            "candidate_hash": "mock-candidate-hash",
-            "oracle_id": "mock-oracle",
-            "oracle_digest": "mock-digest",
-            "executed_check_count": 0,
-            "skipped_count": 0,
-            "unavailable_count": 0,
-            "supported_scope_statement": "mock scope",
-            "evidence_manifest_hash": "mock-manifest-hash",
-            "derivation_timestamp": "2024-01-01T00:00:00Z",
-            "differences": [],
-        }
 
 
 def _wait_for_terminal(run_id: str, timeout: float = 120.0) -> dict:
@@ -138,7 +113,7 @@ def _make_mock_validation():
     def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
         from api.models import RunStage
         run.stage = RunStage.VALIDATING_EVIDENCE
-        run.verdict = _StubVerdict(run.id, run.workload_id)
+        run.verdict = make_stub_verdict(run.id, run.workload_id)
     return mock_validation
 
 
@@ -256,14 +231,23 @@ class TestFailedRun:
     """Failing pipeline ends with FAILED."""
 
     def test_run_ends_failed_on_generation_error(self):
+        entered = threading.Event()
+        release = threading.Event()
+
         def _fail_generate(self_svc, app, run):
+            entered.set()
+            assert release.wait(timeout=10), "generation mock was not released"
             raise RuntimeError("mock generation failure")
 
         app_id = _create_and_upload_app()
         with patch.object(Service, "_generate_application", _fail_generate):
             resp = client.post(f"/applications/{app_id}/modernize")
-        run_id = resp.json()["run_id"]
+            try:
+                assert entered.wait(timeout=10), "background worker did not enter generation"
+            finally:
+                release.set()
 
+        run_id = resp.json()["run_id"]
         body = _wait_for_terminal(run_id, timeout=15)
         assert body["stage"] == "FAILED"
         assert "mock generation failure" in body["error"]
@@ -322,9 +306,9 @@ class TestStoreThreadSafety:
 
 
 class TestModernizeEndpoint:
-    def test_modernize_unknown_app_returns_400(self):
+    def test_modernize_unknown_app_returns_404(self):
         resp = client.post("/applications/app-nope/modernize")
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
     def test_modernize_no_upload_returns_400(self):
         app_resp = client.post("/applications", json={

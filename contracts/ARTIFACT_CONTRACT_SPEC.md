@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** Artifact capture/contract/comparison implementation exists in the current repository. This contract remains normative.
+
 # ARTIFACT CONTRACT SPEC — V1
 
 > **Status:** AUTHORITATIVE (approved via ADR-0002 + ADR-0006 / PD-02 + PD-03).

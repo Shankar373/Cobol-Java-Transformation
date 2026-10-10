@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,11 +27,13 @@ from engine.candidate.adapter import (
     CandidateManifest,
     CompilationResult,
 )
+from engine.candidate.image_provenance import digest_of_identity
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
     RunId,
 )
+from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
 
 # ---------------------------------------------------------------------------
 # Structured sandbox evidence
@@ -169,7 +170,10 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
             result = subprocess.run(
                 [
                     "docker", "run", "--rm", "--network", "none",
-                    self._config.image, "java", "-version",
+                    # Execute by immutable identity when resolved; the version
+                    # probe must never run an image selected by floating tag.
+                    self._resolved_digest or self._config.image,
+                    "java", "-version",
                 ],
                 capture_output=True,
                 timeout=30,
@@ -286,7 +290,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
         _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with sandbox_staging_dir(prefix="javac-") as tmpdir:
                 # Stage candidate source
                 candidate_dir = Path(candidate_path)
                 staged_source = Path(tmpdir) / "source"
@@ -328,9 +332,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace",
-                    "-v", f"{os.path.abspath(staged_source)}:/workspace/source:ro",
-                    "-v", f"{os.path.abspath(staged_output)}:/workspace/classes",
-                    self._config.image,
+                    *docker_volume_arg(staged_source, "/workspace/source", readonly=True),
+                    *docker_volume_arg(staged_output, "/workspace/classes", readonly=False),
+                    self._resolved_digest,
                     "sh", "-c", compile_cmd,
                 ]
 
@@ -449,7 +453,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
             )
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with sandbox_staging_dir(prefix="javaexec-") as tmpdir:
                 # Stage compiled classes
                 staged_classes = Path(tmpdir) / "classes"
                 staged_classes.mkdir()
@@ -477,9 +481,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     input_dir.mkdir()
                     for name, content in input_files.items():
                         (input_dir / name).write_bytes(content)
-                    input_mount_args = [
-                        "-v", f"{os.path.abspath(input_dir)}:/workspace/input:ro",
-                    ]
+                    input_mount_args = docker_volume_arg(
+                        input_dir, "/workspace/input", readonly=True
+                    )
 
                 # Deterministic container name for explicit cleanup
                 container_name = f"java-{uuid.uuid4().hex[:12]}"
@@ -493,10 +497,10 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace",
-                    "-v", f"{os.path.abspath(staged_classes)}:/workspace/classes:ro",
-                    "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
+                    *docker_volume_arg(staged_classes, "/workspace/classes", readonly=True),
+                    *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     *input_mount_args,
-                    self._config.image,
+                    self._resolved_digest,
                     "sh", "-c", java_cmd,
                 ]
 
@@ -580,6 +584,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     timeout_applied=termination == "timeout",
                     timeout_duration=self._config.timeout_seconds if termination == "timeout" else None,
                     generated_files=generated_files if generated_files else None,
+                    image_digest=digest_of_identity(self._resolved_digest) or None,
                 )
 
         except Exception as e:
@@ -595,4 +600,5 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 end_time=end_time.isoformat(),
                 termination_status="error",
                 timeout_applied=False,
+                image_digest=digest_of_identity(self._resolved_digest) or None,
             )

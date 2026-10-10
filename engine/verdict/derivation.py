@@ -3,12 +3,19 @@
 Implements the strict seven-state verdict model as defined by VERDICT_CONTRACT.md.
 Verdict derivation MUST be driven by evidence.
 Verdict derivation is deterministic and testable as a pure function over the evidence model.
+
+Trust-boundary contract:
+    Raw EvidenceManifest MUST pass through EvidenceIntegrityValidator before
+    reaching VerdictDeriver.  Use derive_verdict_validated() in all new code.
+    derive_verdict() is retained for backward compatibility with existing tests
+    that exercise the pure derivation logic on raw manifests, but it bypasses
+    the trust boundary and must NOT be used in production paths.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.domain.identities import VerdictState, WorkloadId
 from engine.evidence.models import EvidenceManifest
@@ -16,6 +23,13 @@ from engine.evidence.models import EvidenceManifest
 
 class VerdictDerivationError(Exception):
     """Raised when verdict derivation fails."""
+
+
+def _utc_now_iso() -> str:
+    """Current UTC time as an ISO-8601 string."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -62,14 +76,80 @@ class VerdictDeriver:
     def __init__(self) -> None:
         self._supported_scope = (
             "V1 validation scope: "
-            "GnuCOBOL 3.1.2.0 oracle, plain Java candidate, "
+            "GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate "
+            "(DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), "
             "artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; "
             "INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); "
             "substring containment permanently forbidden."
         )
 
+    def derive_from_validated(self, validated: "ValidatedEvidenceManifest") -> Verdict:
+        """Derive a verdict from a *validated* evidence manifest.
+
+        This is the trust-boundary-enforcing entry point.  ``validated`` must
+        be the output of ``EvidenceIntegrityValidator.validate()``.  Calling
+        code that bypasses the validator cannot produce an incorrect verdict
+        via this method.
+        """
+        # ValidatedEvidenceManifest.manifest is the underlying raw evidence
+        return self.derive(validated.manifest)
+
+    def derive_unsafe_from_raw(self, manifest: EvidenceManifest) -> Verdict:
+        """Derive a verdict from a raw manifest without trust-boundary enforcement.
+
+        INTERNAL USE ONLY.  This bypasses the integrity validator and is only
+        permissible in the pipeline's error-override path where the validation
+        result is already known to be a list of violations and the verdict is
+        immediately checked for override.  Do not add new callers of this
+        method.
+        """
+        return self.derive(manifest)
+
+    def derive_untrusted(
+        self,
+        manifest: EvidenceManifest,
+        violations: list[Any] | tuple[Any, ...],
+    ) -> Verdict:
+        """Derive a verdict for evidence that FAILED integrity validation.
+
+        This is the production trust-boundary clamp: the natural verdict is
+        still derived from the evidence structure (so operators see what the
+        evidence claims), but a natural VERIFIED is replaced by ERROR —
+        untrusted evidence can never certify equivalence. Violation
+        descriptions are surfaced as the verdict differences.
+        """
+        verdict = self.derive_unsafe_from_raw(manifest)
+        if verdict.state != VerdictState.VERIFIED:
+            return verdict
+        return Verdict(
+            state=VerdictState.ERROR,
+            workload_id=manifest.workload_id,
+            run_id=manifest.run_id.value,
+            source_hash=str(manifest.source_identity.source_hash),
+            candidate_hash=(
+                str(manifest.candidate_identity.candidate_hash)
+                if manifest.candidate_identity else None
+            ),
+            oracle_id=manifest.oracle_identity.oracle_id,
+            oracle_digest=manifest.oracle_identity.image_digest,
+            executed_check_count=0,
+            skipped_count=0,
+            unavailable_count=0,
+            supported_scope_statement="Evidence trust boundary violation",
+            evidence_manifest_hash=str(manifest.manifest_hash),
+            derivation_timestamp=_utc_now_iso(),
+            differences=tuple(
+                getattr(v, "description", str(v)) for v in violations
+            ),
+        )
+
     def derive(self, manifest: EvidenceManifest) -> Verdict:
-        """Derive a verdict from an evidence manifest. Pure function."""
+        """Derive a verdict from an evidence manifest. Pure function.
+
+        Prefer ``derive_from_validated()`` for new code.  This method accepts
+        a raw manifest and is retained for backward compatibility with tests
+        that exercise the pure derivation logic directly.
+        """
         # Step 1: Check for platform/validator errors first
         error_state = self._check_for_errors(manifest)
         if error_state is not None:
@@ -118,6 +198,7 @@ class VerdictDeriver:
         differences = []
         has_mismatch = False
         has_inconclusive = False
+        has_unknown = False
 
         for comp in manifest.comparison_evidence:
             if comp.result == "MISMATCH":
@@ -125,9 +206,20 @@ class VerdictDeriver:
                 differences.extend(comp.differences)
             elif comp.result == "INCONCLUSIVE":
                 has_inconclusive = True
+            elif comp.result != "MATCH":
+                # Unrecognised comparison result: never read as a match.
+                has_unknown = True
+                differences.append(
+                    f"Unknown comparison result {comp.result!r} for "
+                    f"comparison {comp.comparison_id!r}"
+                )
 
         # Step 7: Derive final verdict
-        if has_mismatch:
+        if has_unknown:
+            # Evidence outside the result domain is a platform/validator
+            # error, not proof of equivalence.
+            state = VerdictState.ERROR
+        elif has_mismatch:
             state = VerdictState.FAILED
         elif has_inconclusive:
             state = VerdictState.PARTIAL
@@ -227,10 +319,46 @@ class VerdictDeriver:
 
 
 # ---------------------------------------------------------------------------
-# Convenience function
+# Convenience functions
 # ---------------------------------------------------------------------------
 
 def derive_verdict(manifest: EvidenceManifest) -> Verdict:
-    """Derive a verdict from an evidence manifest. Pure function."""
+    """Derive a verdict from a raw evidence manifest.
+
+    BACKWARD COMPATIBLE: retained for existing tests that exercise the pure
+    derivation logic on raw manifests.  Do NOT use in new production code.
+    Production paths must call ``derive_verdict_validated()`` instead.
+    """
     deriver = VerdictDeriver()
     return deriver.derive(manifest)
+
+
+def derive_verdict_validated(validated: "ValidatedEvidenceManifest") -> Verdict:
+    """Derive a verdict from a *validated* evidence manifest.
+
+    This is the trust-boundary-enforcing public API.  ``validated`` must be
+    the output of ``EvidenceIntegrityValidator.validate()``.  Use this in all
+    new production code and new tests to prove that the trust boundary holds.
+    """
+    deriver = VerdictDeriver()
+    return deriver.derive_from_validated(validated)
+
+
+def derive_verdict_untrusted(
+    manifest: EvidenceManifest,
+    violations: list[Any] | tuple[Any, ...],
+) -> Verdict:
+    """Derive a verdict for evidence that failed integrity validation.
+
+    Guarantees the result is never ``VERIFIED``: the natural verdict is
+    preserved unless it would certify equivalence, in which case ERROR is
+    returned with the violation descriptions as differences.
+    """
+    deriver = VerdictDeriver()
+    return deriver.derive_untrusted(manifest, violations)
+
+
+# Late import to avoid circular dependency at module load time.
+# ValidatedEvidenceManifest is only used in type annotations above.
+if TYPE_CHECKING:
+    from engine.evidence.integrity import ValidatedEvidenceManifest

@@ -365,18 +365,47 @@ class TestIfElseEdges:
         from engine.transformation.cobol_to_java_mapping import (
             map_cobol_condition_to_java,
         )
-        from engine.transformation.java_ir import JavaBinaryOp, JavaLiteral
+        from engine.transformation.java_ir import (
+            JavaBinaryOp,
+            JavaLiteral,
+            JavaMethodCall,
+        )
 
         expr = map_cobol_condition_to_java("WS-F = 'N'")
-        # String-literal comparisons render as raw Java boolean text;
-        # what matters is the literal is double-quoted (Java string),
-        # never single-quoted (Java char, which would not compile).
-        if isinstance(expr, JavaBinaryOp):
+        # String-literal comparisons must never render as a Java char
+        # (single-quoted) and must never rely on reference equality for
+        # java.lang.String.  The preferred shape is "N".equals(WS_F); a raw
+        # boolean expression with a double-quoted literal is also accepted.
+        if isinstance(expr, JavaMethodCall):
+            assert expr.method_name == "equals"
+            assert expr.object_ref.value == '"N"', expr.object_ref
+            assert any(
+                getattr(argument, "name", None) == "WS_F"
+                for argument in expr.arguments
+            ), expr.arguments
+        elif isinstance(expr, JavaBinaryOp):
             assert expr.operator == "=="
         elif isinstance(expr, JavaLiteral):
             assert expr.value == 'WS_F == "N"', expr.value
         else:  # pragma: no cover
             pytest.fail(f"unexpected condition mapping: {expr!r}")
+        assert "'N'" not in repr(expr)
+
+    def test_string_inequality_uses_equals_not_reference_equality(self) -> None:
+        from engine.transformation.cobol_to_java_mapping import (
+            map_cobol_condition_to_java,
+        )
+        from engine.transformation.java_ir import JavaMethodCall, JavaUnaryOp
+
+        expr = map_cobol_condition_to_java("WS-F <> 'N'")
+        # Inequality on strings must be !("N".equals(WS_F)); reference
+        # inequality (!=) on two Strings compares identity, not content.
+        assert isinstance(expr, JavaUnaryOp), expr
+        assert expr.operator == "!"
+        assert isinstance(expr.operand, JavaMethodCall), expr.operand
+        assert expr.operand.method_name == "equals"
+        assert expr.operand.object_ref.value == '"N"', expr.operand.object_ref
+        assert "'N'" not in repr(expr)
 
     def test_nested_if_else_parses(self) -> None:
         prog = _parse(

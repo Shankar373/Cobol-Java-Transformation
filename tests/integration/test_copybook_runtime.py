@@ -28,6 +28,7 @@ from engine.candidate.docker_spring_boot_adapter import (
     DockerSpringBootCandidateAdapter,
     DockerSpringBootConfig,
 )
+from engine.candidate.image_provenance import load_adapter_provenance
 from engine.contracts.models import NormalizationPolicy, OrderingPolicy
 from engine.domain.identities import (
     AdapterStatus,
@@ -51,9 +52,7 @@ COPYBOOK_COBOL_DIR = Path("fixtures/workload-copybook/cobol")
 def _oracle_config() -> OracleAdapterConfig:
     return OracleAdapterConfig(
         oracle_id="gnucobol-3.1.2",
-        image_digest=(
-            "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
-        ),
+        image_digest="",
         compiler_version="3.1.2.0",
         timeout_seconds=30,
     )
@@ -170,8 +169,10 @@ def _extract_app_output(raw: str) -> list[str]:
 
 
 def _normalize_numbers(text: str) -> str:
-    """Strip leading zeros from numeric values for comparison."""
-    return re.sub(r"=(\d+)", lambda m: "=" + (m.group(1).lstrip("0") or "0"), text)
+    """Strip leading zeros from numeric values and trailing spaces from PIC 9(n) formatting for comparison."""
+    text = re.sub(r"=(\d+)", lambda m: "=" + (m.group(1).lstrip("0") or "0"), text)
+    text = re.sub(r"(\d+)\s*$", r"\1", text)
+    return text
 
 
 # ============================================================
@@ -188,16 +189,21 @@ class TestAdapterAvailability:
         assert adapter.status == AdapterStatus.AVAILABLE
 
     def test_build_digest_verified(self):
-        """Build image digest matches configured value."""
+        """Build image identity matches the provisioned immutable identity."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.build_resolved_digest
-        assert adapter.build_resolved_digest == DockerSpringBootConfig().build_digest
+        provenance = load_adapter_provenance()
+        assert provenance.validate() == []
+        assert "sha256:" in adapter.build_identity
+        assert adapter.build_identity == provenance.build_identity
+        assert adapter.build_identity_kind == provenance.build_identity_kind
 
     def test_runtime_digest_verified(self):
         """Runtime image digest matches configured value."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.runtime_resolved_digest
-        assert adapter.runtime_resolved_digest == DockerSpringBootConfig().runtime_digest
+        provenance = load_adapter_provenance()
+        assert provenance.runtime_identity == DockerSpringBootConfig().runtime_digest
+        assert "sha256:" in adapter.runtime_identity
+        assert adapter.runtime_identity == DockerSpringBootConfig().runtime_digest
 
 
 # ============================================================
@@ -449,7 +455,13 @@ class TestBehavioralEquivalence:
         candidate_adapter = DockerSpringBootCandidateAdapter()
         pipeline = VerticalSlicePipeline(config, candidate_adapter=candidate_adapter)
 
-        return pipeline.run()
+        phases = []
+        result = pipeline.run(progress=phases.append)
+        assert phases == [
+            "EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED",
+            "COMPARING", "VALIDATING_EVIDENCE",
+        ]
+        return result
 
     def test_exit_codes_match(self, pipeline_result):
         """Candidate and oracle have same exit code."""

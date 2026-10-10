@@ -332,7 +332,7 @@ class TestVerifiedVerdict:
         # --- Stage D: GnuCOBOL oracle (independent reference) ---
         oracle_cfg = OracleAdapterConfig(
             oracle_id="gnucobol-fresh",
-            image_digest="sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+            image_digest="",
             compiler_version="3.1.2.0",
         )
         oracle_adapter = DockerOracleAdapter(oracle_cfg)

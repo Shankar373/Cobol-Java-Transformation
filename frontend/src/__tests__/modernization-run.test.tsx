@@ -133,11 +133,15 @@ describe('ModernizationRun stage order', () => {
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
 
-    await waitFor(() => expect(screen.getByText('Transforming')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Transformation & Generation')).toBeInTheDocument());
 
-    const progress = screen.getByText('Progress').closest('div')!.parentElement!;
-    const text = progress.textContent ?? '';
-    expect(text.indexOf('Executing Oracle')).toBeLessThan(text.indexOf('Building'));
+    const pipelineList = screen.getByRole('list', { name: /modernization pipeline/i });
+
+    const text = pipelineList.textContent ?? '';
+    // EXECUTING_ORACLE and BUILDING both belong to the 'Execution & Comparison'
+    // group; verify that 'Discovery' appears before 'Execution & Comparison'
+    // to confirm the grouped stepper respects backend order.
+    expect(text.indexOf('Discovery')).toBeLessThan(text.indexOf('Execution & Comparison'));
   });
 
   it('never renders INGESTING as a run stage', async () => {
@@ -145,7 +149,7 @@ describe('ModernizationRun stage order', () => {
     mockGetDiscovery.mockRejectedValue(new Error('not yet'));
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
-    await waitFor(() => expect(screen.getByText('Discovering')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Discovery')).toBeInTheDocument());
 
     expect(screen.queryByText('Ingesting')).not.toBeInTheDocument();
   });
@@ -172,7 +176,7 @@ describe('ModernizationRun stage order', () => {
     mockGetDiscovery.mockRejectedValue(new Error('not yet'));
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
-    await waitFor(() => expect(screen.getByText('Created')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Discovery')).toBeInTheDocument());
 
     expect(screen.queryByText('Source Ingestion')).not.toBeInTheDocument();
   });
@@ -218,7 +222,8 @@ describe('ModernizationRun polling failures', () => {
     mockGetDiscovery.mockRejectedValue(new Error('not yet'));
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" pollIntervalMs={50} />);
-    expect(await screen.findByText('Transforming')).toBeInTheDocument();
+    // TRANSFORMING maps to the 'Transformation & Generation' customer group node
+    expect(await screen.findByText('Transformation & Generation')).toBeInTheDocument();
 
     expect(await screen.findByText('Live updates interrupted')).toBeInTheDocument();
     expect(screen.getByText(/network down/)).toBeInTheDocument();
@@ -240,7 +245,8 @@ describe('ModernizationRun polling failures', () => {
     await waitFor(() =>
       expect(mockGetRun.mock.calls.length).toBeGreaterThan(callsBefore),
     );
-    expect(await screen.findByText('Generating')).toBeInTheDocument();
+    // GENERATING maps to the 'Transformation & Generation' customer group node
+    expect(await screen.findByText('Transformation & Generation')).toBeInTheDocument();
   });
 
   it('initial load failure shows run context with retry', async () => {
@@ -410,7 +416,8 @@ describe('ModernizationRun discovery timing', () => {
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
 
     await waitFor(() => expect(screen.getByText('Discovery Results')).toBeInTheDocument());
-    expect(screen.getByText('Transforming')).toBeInTheDocument();
+    // TRANSFORMING maps to the 'Transformation & Generation' customer group node
+    expect(screen.getByText('Transformation & Generation')).toBeInTheDocument();
   });
 
   it('shows CALL and COPY edge counts from backend edges', async () => {
@@ -440,6 +447,7 @@ describe('ModernizationRun discovery timing', () => {
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
 
     await waitFor(() => expect(screen.getByText('Still running')).toBeInTheDocument());
-    expect(screen.getByText('Building')).toBeInTheDocument();
+    // BUILDING maps to the 'Execution & Comparison' customer group node
+    expect(screen.getByText('Execution & Comparison')).toBeInTheDocument();
   });
 });

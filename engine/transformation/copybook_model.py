@@ -524,6 +524,7 @@ def build_copybook_model_class(plan: CopybookModelPlan):
             JavaConstructor(class_name=plan.class_name, parameters=()),
         ),
         modifiers=("public",),
+        source_copybook=plan.copybook_name,
     )
 
 

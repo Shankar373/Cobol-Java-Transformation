@@ -49,8 +49,8 @@ def make_oracle_exec(
         stdout_hash=_hash(f"oracle-stdout-{exec_id}"),
         stderr_hash=_hash(f"oracle-stderr-{exec_id}"),
         generated_files={},
-        source_tree_hash_before=_hash("source-before"),
-        source_tree_hash_after=_hash("source-after"),
+        source_tree_hash_before=_hash("source-tree"),
+        source_tree_hash_after=_hash("source-tree"),
         termination_status=status,
         timeout_applied=timeout,
     )
@@ -75,8 +75,8 @@ def make_candidate_exec(
         stdout_hash=_hash(f"candidate-stdout-{exec_id}"),
         stderr_hash=_hash(f"candidate-stderr-{exec_id}"),
         generated_files={},
-        source_tree_hash_before=_hash("source-before"),
-        source_tree_hash_after=_hash("source-after"),
+        source_tree_hash_before=_hash("source-tree"),
+        source_tree_hash_after=_hash("source-tree"),
         termination_status=status,
         timeout_applied=timeout,
     )

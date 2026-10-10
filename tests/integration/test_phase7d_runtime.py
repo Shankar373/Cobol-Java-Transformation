@@ -29,6 +29,7 @@ from engine.candidate.docker_spring_boot_adapter import (
     DockerSpringBootCandidateAdapter,
     DockerSpringBootConfig,
 )
+from engine.candidate.image_provenance import load_adapter_provenance
 from engine.contracts.models import NormalizationPolicy, OrderingPolicy
 from engine.domain.identities import (
     AdapterStatus,
@@ -53,9 +54,7 @@ ARITH_COBOL = Path("fixtures/workload-arithmetic/cobol/ARITH.cob")
 def _oracle_config() -> OracleAdapterConfig:
     return OracleAdapterConfig(
         oracle_id="gnucobol-3.1.2",
-        image_digest=(
-            "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
-        ),
+        image_digest="",
         compiler_version="3.1.2.0",
         timeout_seconds=30,
     )
@@ -182,16 +181,21 @@ class TestAdapterAvailability:
         assert adapter.status == AdapterStatus.AVAILABLE
 
     def test_build_digest_verified(self):
-        """Build image digest matches configured value."""
+        """Build image identity matches the provisioned immutable identity."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.build_resolved_digest
-        assert adapter.build_resolved_digest == DockerSpringBootConfig().build_digest
+        provenance = load_adapter_provenance()
+        assert provenance.validate() == []
+        assert "sha256:" in adapter.build_identity
+        assert adapter.build_identity == provenance.build_identity
+        assert adapter.build_identity_kind == provenance.build_identity_kind
 
     def test_runtime_digest_verified(self):
         """Runtime image digest matches configured value."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.runtime_resolved_digest
-        assert adapter.runtime_resolved_digest == DockerSpringBootConfig().runtime_digest
+        provenance = load_adapter_provenance()
+        assert provenance.runtime_identity == DockerSpringBootConfig().runtime_digest
+        assert "sha256:" in adapter.runtime_identity
+        assert adapter.runtime_identity == DockerSpringBootConfig().runtime_digest
 
 
 # ============================================================
@@ -238,7 +242,9 @@ class TestTransformationChain:
         files, _ = _generate_springboot_project(ARITH_COBOL)
         svc = next(f for f in files if "Arithmetic.java" in f.path)
         assert "WS_SUM = (WS_A + WS_B)" in svc.source_code
-        assert "WS_DIFF = (WS_A - WS_B)" in svc.source_code
+        # Unsigned receiver: GnuCOBOL stores the magnitude of a negative
+        # difference, so the generator wraps the subtraction in Math.abs.
+        assert "WS_DIFF = Math.abs((WS_A - WS_B))" in svc.source_code
         assert "WS_PROD = (WS_A * WS_B)" in svc.source_code
         assert "WS_QUOT = (WS_A / WS_B)" in svc.source_code
         assert "WS_REM = (WS_A % WS_B)" in svc.source_code

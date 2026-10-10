@@ -17,6 +17,7 @@ Expression hierarchy:
     Expression
     ├── Literal (numeric/string literal)
     ├── FieldReference (COBOL field name)
+    ├── FigurativeConstant (ZERO / SPACES / HIGH-VALUE / ALL "x" / ...)
     ├── UnaryExpression (NOT, -)
     └── BinaryExpression (+, -, *, /, =, <>, >, <, >=, <=, AND, OR)
 
@@ -78,6 +79,64 @@ class FieldReference(Expression):
         AMOUNT
     """
     name: str  # the COBOL field name
+
+
+@dataclass(frozen=True)
+class FigurativeConstant(Expression):
+    """A COBOL figurative constant (Master README Section 16).
+
+    These are reserved words with fixed, colon-independent meaning:
+
+    ==========================  ==================================
+    Constant                    Meaning
+    ==========================  ==================================
+    ``ZERO``/``ZEROS``          all numeric digits ``0``
+    ``SPACE``/``SPACES``        all spaces
+    ``QUOTE``/``QUOTES``        all double quotes
+    ``LOW-VALUE``/``VALUES``    the lowest collating character
+    ``HIGH-VALUE``/``VALUES``   the highest collating character
+    ``ALL "x"``                 ``x`` repeated across the receiver
+    ==========================  ==================================
+
+    They are *values*, not variables.  Representing them as a
+    :class:`FieldReference` named ``ZERO`` is a semantic defect: the
+    receiving item is then filled from an undeclared Java identifier, so
+    the generated program does not compile and the construct is silently
+    lost.  This node keeps the construct explicit in the IR so the parser,
+    the mapper and the capability analyzer all observe it.
+
+    ``text`` preserves the spelling exactly as it appeared in the COBOL
+    source so traceability back to the source line is never lost.
+    """
+
+    #: Canonical semantic kind (see :mod:`engine.transformation.figurative`).
+    kind: str
+    #: The original COBOL spelling, e.g. ``SPACES`` or ``ALL "*"``.
+    text: str = ""
+
+    @property
+    def is_numeric(self) -> bool:
+        """True when the constant supplies a numeric value (ZERO family)."""
+        return self.kind in ("ZERO",)
+
+
+@dataclass(frozen=True)
+class IntrinsicCall(Expression):
+    """An intrinsic function call or unmapped operator form.
+
+    Represents ``FUNCTION MIN(1, 2)`` and exponentiation (``2 ** 3``) as a
+    *recognised, deliberately unmapped* construct rather than letting it fall
+    through to :class:`FieldReference`.
+
+    The mapper has no certified mapping for either form, so they are recorded
+    explicitly and diagnosed; a consumer can never mistake the intrinsic for
+    a variable that happens to be named ``FUNCTION MIN(1, 2)``.
+    """
+
+    #: Upper-case intrinsic name (e.g. ``MIN``), or ``"**"`` for exponentiation.
+    name: str
+    #: Verbatim source text, preserved for diagnostics and traceability.
+    arguments: str = ""
 
 
 @dataclass(frozen=True)
@@ -184,6 +243,7 @@ class DataItem:
     - PIC clauses (X, 9, etc.)
     - VALUE clauses
     - OCCURS clauses
+    - USAGE clauses (COMP / COMP-3 / COMP-5 / ...)
     - Group hierarchy (children)
     """
     name: str
@@ -191,9 +251,16 @@ class DataItem:
     pic_type: PicType = PicType.ALPHANUMERIC
     pic_length: int = 0
     decimal_places: int = 0  # V clause: digits after decimal point
+    signed: bool = False  # explicit S sign in PIC
     value: str | None = None
     occurs: int | None = None
     redefines: str | None = None  # REDEFINES clause
+    # Canonical USAGE token when a USAGE clause was declared (e.g. "COMP",
+    # "COMP-3", "COMP-5").  ``None`` means DISPLAY (the COBOL default) or no
+    # clause.  The value path (numeric value/DISPLAY semantics) is certified;
+    # the record-area byte *encoding* of the non-DISPLAY usages is not, so it
+    # is recorded explicitly rather than silently dropped.
+    usage: str | None = None
     children: tuple[DataItem, ...] = ()
 
     @property
@@ -221,14 +288,25 @@ class DataItem:
         return self.level == 88
 
     @property
-    def format_width(self) -> int:
-        """Total display width for numeric formatting.
+    def integer_digits(self) -> int:
+        """Number of integer (whole) digit positions in the PIC.
 
-        Derived from PIC: integer digits + decimal places.
-        For PIC 9(6): width=6, decimal_places=0
-        For PIC 9(6)V99: width=8, decimal_places=2
+        ``pic_length`` counts every digit position (integer + fractional);
+        this is the integer-only subset.  PIC 9(6)V99 → 6.
         """
-        return self.pic_length + self.decimal_places
+        return self.pic_length - self.decimal_places
+
+    @property
+    def format_width(self) -> int:
+        """Total digit positions for numeric storage/display sizing.
+
+        Derived from PIC as every digit position: integer digits +
+        fractional digits.  Because ``pic_length`` already counts both, the
+        width is exactly ``pic_length`` — it must NOT add ``decimal_places``
+        a second time (that double-counted fractional digits for V/PIC).
+        PIC 9(6) → 6; PIC 9(6)V99 → 8.
+        """
+        return self.pic_length
 
     @property
     def is_decimal(self) -> bool:
@@ -303,14 +381,31 @@ class OpenStatement:
 
 
 @dataclass(frozen=True)
+class CloseStatement:
+    """CLOSE file."""
+    file_name: str
+
+
+@dataclass(frozen=True)
 class ReadStatement:
     """READ file AT END / NOT AT END / INVALID KEY / NOT INVALID KEY."""
     file_name: str
     record_name: str
     key: str = ""  # READ with key for indexed/relative
     into_field: str = ""  # READ INTO field
+    read_next: bool = False  # READ NEXT RECORD
     at_end_body: tuple[Statement, ...] = ()
     not_at_end_body: tuple[Statement, ...] = ()
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class StartStatement:
+    """START file KEY IS [relational-operator] key."""
+    file_name: str
+    key: str = ""
+    operator: str = ""  # "=", "<", "<=", ">", ">="
     invalid_key_body: tuple[Statement, ...] = ()
     not_invalid_key_body: tuple[Statement, ...] = ()
 
@@ -321,6 +416,8 @@ class WriteStatement:
     record_name: str
     file_name: str
     from_field: str = ""  # WRITE FROM field
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -343,14 +440,12 @@ class DeleteStatement:
 
 @dataclass(frozen=True)
 class MoveStatement:
-    """MOVE source TO target.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """MOVE source TO one or more targets."""
     source: str
     target: str
-    source_expr: Expression | None = None  # structured source expression
-    target_ref: FieldReference | None = None  # structured target reference
+    source_expr: Expression | None = None
+    target_ref: FieldReference | None = None
+    targets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,6 +458,42 @@ class AddStatement:
     target: str
     source_expr: Expression | None = None  # structured source expression
     target_ref: FieldReference | None = None  # structured target reference
+    giving_target: str | None = None  # ADD ... GIVING result
+    rounded: bool = False  # ROUNDED on the receiving item
+
+
+@dataclass(frozen=True)
+class SubtractStatement:
+    """SUBTRACT source FROM from_field [GIVING to_field]."""
+    source: str
+    from_field: str
+    to_field: str | None = None
+    source_expr: Expression | None = None
+    from_ref: FieldReference | None = None
+    to_ref: FieldReference | None = None
+    sources: tuple[str, ...] = ()  # multi-source SUBTRACT A B C FROM D
+    rounded: bool = False  # ROUNDED on the receiving item
+
+
+@dataclass(frozen=True)
+class MultiplyStatement:
+    """MULTIPLY source BY multiplicand [GIVING target]."""
+    source: str
+    multiplicand: str
+    target: str | None = None
+    source_expr: Expression | None = None
+    multiplicand_ref: FieldReference | None = None
+    target_ref: FieldReference | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
+
+
+@dataclass(frozen=True)
+class CallStatement:
+    """CALL a statically or dynamically named COBOL program."""
+    program_name: str
+    arguments: tuple[str, ...] = ()
+    passing_modes: tuple[str, ...] = ()
+    is_dynamic: bool = False
 
 
 @dataclass(frozen=True)
@@ -378,6 +509,7 @@ class DivideStatement:
     source_expr: Expression | None = None
     divisor_expr: Expression | None = None
     target_ref: FieldReference | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
 
 
 @dataclass(frozen=True)
@@ -390,6 +522,7 @@ class ComputeStatement:
     expression: str
     target_ref: FieldReference | None = None
     expression_expr: Expression | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
 
 
 @dataclass(frozen=True)
@@ -406,13 +539,13 @@ class IfStatement:
 
 @dataclass(frozen=True)
 class PerformStatement:
-    """PERFORM paragraph-name UNTIL condition, or PERFORM paragraph-name.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """PERFORM paragraph/inline block with optional UNTIL, TIMES, VARYING or THRU."""
     paragraph_name: str
     until_condition: str | None = None
-    structured_condition: Condition | None = None  # structured condition tree
+    structured_condition: Condition | None = None
+    body: tuple[Statement, ...] = ()
+    thru_target: str | None = None
+    test_after: bool = False  # WITH TEST AFTER → do-while; default (BEFORE) → while
 
 
 @dataclass(frozen=True)
@@ -473,16 +606,28 @@ class StopRunStatement:
     """STOP RUN."""
 
 
+@dataclass(frozen=True)
+class ExitProgramStatement:
+    """EXIT PROGRAM — terminate this program and return to the caller."""
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
+    | CloseStatement
     | ReadStatement
+    | StartStatement
     | WriteStatement
     | RewriteStatement
     | DeleteStatement
     | MoveStatement
     | AddStatement
+    | SubtractStatement
+    | MultiplyStatement
+    | ComputeStatement
+    | CallStatement
     | DivideStatement
+    | ComputeStatement
     | IfStatement
     | PerformStatement
     | PerformTimesStatement
@@ -491,6 +636,7 @@ Statement = (
     | DisplayStatement
     | GoToStatement
     | StopRunStatement
+    | ExitProgramStatement
 )
 
 
@@ -778,9 +924,11 @@ class CobolProgram:
     summary_fields: tuple[str, ...] = ()
     report_header: str = ""
     # Dependency information
-    called_programs: tuple[str, ...] = ()  # PROGRAM-IDs called via CALL
+    called_programs: tuple[str, ...] = ()
     copybooks: tuple[str, ...] = ()  # COPY references
     entry_points: tuple[str, ...] = ()  # ENTRY statements
+    linkage_section: tuple[DataItem, ...] = ()
+    using_parameters: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -809,6 +957,11 @@ class CopybookReference:
     source_program: str  # PROGRAM-ID of program containing COPY
     copybook_name: str  # name of the copybook
     location: str = ""  # line/column if available
+    # Resolution outcome recorded at discovery time.  "RESOLVED" means a
+    # single on-disk match; "UNRESOLVED" means no candidate; "AMBIGUOUS"
+    # means more than one candidate with equal precedence.
+    resolution: str = "UNRESOLVED"
+    resolved_path: str = ""  # absolute path when resolution == "RESOLVED"
 
 
 @dataclass(frozen=True)
@@ -848,6 +1001,22 @@ class CobolProgramUnit:
     copybooks: tuple[CopybookReference, ...] = ()
     entry_points: tuple[str, ...] = ()
     file_dependencies: tuple[FileDependency, ...] = ()
+    # Raw source of this unit.  Capability analysis scans it directly so that
+    # constructs the parser never turns into IR (CLOSE, REWRITE, SORT, ...)
+    # cannot be reported as supported.
+    source_text: str = ""
+    # Non-empty when discovery could only produce a stub IR because the parser
+    # raised CobolParseError on an unsupported sub-construct.  The capability
+    # analyzer treats this as an additional signal to classify the program via
+    # source scan rather than IR walk alone.
+    parse_error: str = ""
+    # Diagnostics emitted while this unit's statements were parsed, rendered as
+    # "CODE: message".  A statement the parser recognised but could not turn
+    # into IR would otherwise survive as an empty-but-present node that still
+    # maps to a SUPPORTED registry key, so capability analysis would report a
+    # loss it could never see.  Non-empty => the unit must not be reported as
+    # fully SUPPORTED on IR evidence alone.
+    parse_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -861,6 +1030,7 @@ class CobolApplication:
     programs: tuple[CobolProgramUnit, ...] = ()
     copybooks: tuple[str, ...] = ()  # discovered copybook names
     edges: tuple[DependencyEdge, ...] = ()  # dependency graph edges
+    discovery_errors: tuple[str, ...] = ()  # source units omitted from discovery
 
     def get_program(self, program_id: str) -> CobolProgramUnit | None:
         """Find a program by its PROGRAM-ID."""

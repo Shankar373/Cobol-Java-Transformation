@@ -1,0 +1,719 @@
+{
+  "mode": "golden",
+  "workload": "integrated",
+  "db": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\golden\\control-plane.db",
+  "zip": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\golden\\integrated.zip",
+  "application_id": "app-60ffbea279da",
+  "ingest": {
+    "application_id": "app-60ffbea279da",
+    "workspace_path": "C:\\Users\\bandi\\AppData\\Local\\Temp\\ingest-app-60ffbea279da-3ai84bec\\cobol",
+    "source_file_count": 3,
+    "total_size_bytes": 3057,
+    "discovery": {
+      "application_id": "app-60ffbea279da",
+      "cobol_programs": [
+        {
+          "program_id": "INTGCALC",
+          "source_path": "CALC.cob",
+          "file_dependencies": [],
+          "calls": [],
+          "copybooks": [],
+          "entry_points": []
+        },
+        {
+          "program_id": "INTGMAIN",
+          "source_path": "MAIN.cob",
+          "file_dependencies": [
+            {
+              "name": "TAX-OUT",
+              "operation": "OPEN",
+              "mode": "OUTPUT"
+            },
+            {
+              "name": "TAX-IN",
+              "operation": "OPEN",
+              "mode": "INPUT"
+            },
+            {
+              "name": "TAX-IN",
+              "operation": "READ",
+              "mode": ""
+            },
+            {
+              "name": "TAX-OUT",
+              "operation": "WRITE",
+              "mode": ""
+            }
+          ],
+          "calls": [
+            {
+              "target": "INTGCALC",
+              "arguments": [
+                "TAX-AMOUNT",
+                "TAX-RATE",
+                "WS-TAX"
+              ]
+            }
+          ],
+          "copybooks": [
+            "TAXREC"
+          ],
+          "entry_points": []
+        }
+      ],
+      "copybooks": [
+        "TAXREC"
+      ],
+      "jcl_jobs": [],
+      "file_dependencies": [
+        {
+          "program_id": "INTGMAIN",
+          "file_name": "TAX-OUT",
+          "operation": "OPEN"
+        },
+        {
+          "program_id": "INTGMAIN",
+          "file_name": "TAX-IN",
+          "operation": "OPEN"
+        },
+        {
+          "program_id": "INTGMAIN",
+          "file_name": "TAX-IN",
+          "operation": "READ"
+        },
+        {
+          "program_id": "INTGMAIN",
+          "file_name": "TAX-OUT",
+          "operation": "WRITE"
+        }
+      ],
+      "call_dependencies": [
+        {
+          "caller": "INTGMAIN",
+          "target": "INTGCALC"
+        }
+      ],
+      "dependency_edges": [
+        {
+          "source": "INTGMAIN",
+          "target": "INTGCALC",
+          "edge_type": "CALL"
+        },
+        {
+          "source": "INTGMAIN",
+          "target": "TAXREC",
+          "edge_type": "COPY"
+        },
+        {
+          "source": "INTGMAIN",
+          "target": "TAX-OUT",
+          "edge_type": "FILE_WRITE"
+        },
+        {
+          "source": "INTGMAIN",
+          "target": "TAX-IN",
+          "edge_type": "FILE_WRITE"
+        },
+        {
+          "source": "INTGMAIN",
+          "target": "TAX-IN",
+          "edge_type": "FILE_READ"
+        },
+        {
+          "source": "INTGMAIN",
+          "target": "TAX-OUT",
+          "edge_type": "FILE_WRITE"
+        }
+      ],
+      "source_file_count": 3,
+      "total_size_bytes": 3057,
+      "discovery_success": true,
+      "discovery_errors": [],
+      "detected_name": "integrated",
+      "top_level_entries": [
+        "cobol",
+        "jcl"
+      ]
+    },
+    "detected_name": "integrated",
+    "top_level_entries": [
+      "cobol",
+      "jcl"
+    ]
+  },
+  "modernize_status": 202,
+  "run_id": "run-52e01d906bc2",
+  "terminal": {
+    "run": {
+      "id": "run-52e01d906bc2",
+      "application_id": "app-60ffbea279da",
+      "workload_id": "integrated",
+      "stage": "COMPLETED",
+      "created_at": "2026-10-08T06:51:23.623992+00:00",
+      "completed_at": "2026-10-08T06:52:02.598576+00:00",
+      "error": null
+    },
+    "stages_seen": [
+      "ASSEMBLY_COMPLETED",
+      "EXECUTING_ORACLE",
+      "BUILDING",
+      "EXECUTING_GENERATED",
+      "COMPLETED"
+    ]
+  },
+  "run_stage": "COMPLETED",
+  "run_error": null,
+  "verdict_http": 200,
+  "verdict": {
+    "run_id": "run-52e01d906bc2",
+    "engine_run_id": "run-integrated-20261008065127",
+    "state": "VERIFIED",
+    "workload_id": "integrated",
+    "source_hash": "sha256:3e1166c3ea421707ececa92119fcd61eb0300517180df0394d93ec40bc08f1fd",
+    "candidate_hash": "sha256:75776610f7953e45d699f27a6df37a93f566821188fd9312716c6bd4cd2bf39a",
+    "oracle_id": "gnucobol-3.1.2",
+    "oracle_digest": "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+    "executed_check_count": 4,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "supported_scope_statement": "V1 validation scope: GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate (DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); substring containment permanently forbidden.",
+    "evidence_manifest_hash": "sha256:748825898c09955bca4c3abeabc21ae6733fe2403a816db8f80d3bf7b827bfce",
+    "derivation_timestamp": "2026-10-08T06:52:02.571379+00:00",
+    "differences": [],
+    "comparisons": [
+      {
+        "comparison_id": "comp-integrated-stdout-run-integrated-20261008065127",
+        "comparator_id": "STDOUT_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDOUT",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-integrated-stderr-run-integrated-20261008065127",
+        "comparator_id": "STDERR_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDERR",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-integrated-exit-status-run-integrated-20261008065127",
+        "comparator_id": "EXIT_STATUS_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "EXIT_STATUS",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-integrated-output-run-integrated-20261008065127",
+        "comparator_id": "FIXED_RECORD_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "FIXED_RECORD",
+        "result": "MATCH",
+        "differences": []
+      }
+    ],
+    "certification_contract": "declared:workload-integrated",
+    "contract_source": "declared"
+  },
+  "proof_http_process1": 200,
+  "proof_process1": {
+    "run_id": "run-52e01d906bc2",
+    "proof": {
+      "workload_id": "integrated",
+      "application_id": "app-60ffbea279da",
+      "central_status": "VERIFIED",
+      "blocking_reasons": [],
+      "generation_success": true,
+      "overall_capability": "SUPPORTED",
+      "jcl_status": "NOT_PRESENT",
+      "runtime": {
+        "artifact_results": [
+          [
+            "STDOUT",
+            "MATCH"
+          ],
+          [
+            "STDERR",
+            "MATCH"
+          ],
+          [
+            "EXIT_STATUS",
+            "MATCH"
+          ],
+          [
+            "FIXED_RECORD",
+            "MATCH"
+          ]
+        ],
+        "candidate_exit_code": 0,
+        "evidence_complete": true,
+        "evidence_integrity_valid": true,
+        "executed_check_count": 4,
+        "oracle_exit_code": 0,
+        "verdict_state": "VERIFIED"
+      },
+      "dependency_ledger": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGCALC",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGMAIN",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-IN",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COPYBOOK:TAXREC",
+          "kind": "COPYBOOK",
+          "proof_state": "PROVEN",
+          "reason": "COPYBOOK capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "CALL:INTGMAIN->INTGCALC",
+          "kind": "CALL",
+          "proof_state": "PROVEN",
+          "reason": "CALL capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "required_dependencies": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGCALC",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGMAIN",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-IN",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COPYBOOK:TAXREC",
+          "kind": "COPYBOOK",
+          "proof_state": "PROVEN",
+          "reason": "COPYBOOK capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "CALL:INTGMAIN->INTGCALC",
+          "kind": "CALL",
+          "proof_state": "PROVEN",
+          "reason": "CALL capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "unproven_dependencies": [],
+      "runtime_verdict_is_verified": true
+    },
+    "application_id": "app-60ffbea279da",
+    "verdict_state": "VERIFIED",
+    "evidence_status": "COMPLETE",
+    "runtime_proof_status": "VERIFIED",
+    "reasons_for_not_verified": [],
+    "proven_dependencies": [
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "INTGCALC",
+        "kind": "PROGRAM",
+        "proof_state": "PROVEN",
+        "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "INTGMAIN",
+        "kind": "PROGRAM",
+        "proof_state": "PROVEN",
+        "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+        "kind": "FILE",
+        "proof_state": "PROVEN",
+        "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "FILE:INTGMAIN:TAX-IN",
+        "kind": "FILE",
+        "proof_state": "PROVEN",
+        "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "COPYBOOK:TAXREC",
+        "kind": "COPYBOOK",
+        "proof_state": "PROVEN",
+        "reason": "COPYBOOK capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "CALL:INTGMAIN->INTGCALC",
+        "kind": "CALL",
+        "proof_state": "PROVEN",
+        "reason": "CALL capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      }
+    ],
+    "unproven_dependencies": [],
+    "blocked_dependencies": [],
+    "unsupported_dependencies": [],
+    "evidence_complete": true,
+    "evidence_integrity_valid": true,
+    "required_dependencies_proven": true,
+    "overall_verification": "VERIFIED"
+  },
+  "reload_run_http": 200,
+  "reload_run_stage": "COMPLETED",
+  "reload_verdict_http": 200,
+  "reload_verdict": {
+    "run_id": "run-52e01d906bc2",
+    "engine_run_id": "run-integrated-20261008065127",
+    "state": "VERIFIED",
+    "workload_id": "integrated",
+    "source_hash": "sha256:3e1166c3ea421707ececa92119fcd61eb0300517180df0394d93ec40bc08f1fd",
+    "candidate_hash": "sha256:75776610f7953e45d699f27a6df37a93f566821188fd9312716c6bd4cd2bf39a",
+    "oracle_id": "gnucobol-3.1.2",
+    "oracle_digest": "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+    "executed_check_count": 4,
+    "skipped_count": 0,
+    "unavailable_count": 0,
+    "supported_scope_statement": "V1 validation scope: GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate (DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); substring containment permanently forbidden.",
+    "evidence_manifest_hash": "sha256:748825898c09955bca4c3abeabc21ae6733fe2403a816db8f80d3bf7b827bfce",
+    "derivation_timestamp": "2026-10-08T06:52:02.571379+00:00",
+    "differences": [],
+    "comparisons": [
+      {
+        "comparison_id": "comp-integrated-stdout-run-integrated-20261008065127",
+        "comparator_id": "STDOUT_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDOUT",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-integrated-stderr-run-integrated-20261008065127",
+        "comparator_id": "STDERR_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "STDERR",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-integrated-exit-status-run-integrated-20261008065127",
+        "comparator_id": "EXIT_STATUS_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "EXIT_STATUS",
+        "result": "MATCH",
+        "differences": []
+      },
+      {
+        "comparison_id": "comp-integrated-output-run-integrated-20261008065127",
+        "comparator_id": "FIXED_RECORD_COMPARATOR",
+        "comparator_version": "1.0.0",
+        "artifact_type": "FIXED_RECORD",
+        "result": "MATCH",
+        "differences": []
+      }
+    ],
+    "certification_contract": "declared:workload-integrated",
+    "contract_source": "declared"
+  },
+  "proof_http_process2": 200,
+  "proof_process2": {
+    "run_id": "run-52e01d906bc2",
+    "proof": {
+      "workload_id": "integrated",
+      "application_id": "app-60ffbea279da",
+      "central_status": "VERIFIED",
+      "blocking_reasons": [],
+      "generation_success": true,
+      "overall_capability": "SUPPORTED",
+      "jcl_status": "NOT_PRESENT",
+      "runtime": {
+        "artifact_results": [
+          [
+            "STDOUT",
+            "MATCH"
+          ],
+          [
+            "STDERR",
+            "MATCH"
+          ],
+          [
+            "EXIT_STATUS",
+            "MATCH"
+          ],
+          [
+            "FIXED_RECORD",
+            "MATCH"
+          ]
+        ],
+        "candidate_exit_code": 0,
+        "evidence_complete": true,
+        "evidence_integrity_valid": true,
+        "executed_check_count": 4,
+        "oracle_exit_code": 0,
+        "verdict_state": "VERIFIED"
+      },
+      "dependency_ledger": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGCALC",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGMAIN",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-IN",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COPYBOOK:TAXREC",
+          "kind": "COPYBOOK",
+          "proof_state": "PROVEN",
+          "reason": "COPYBOOK capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "CALL:INTGMAIN->INTGCALC",
+          "kind": "CALL",
+          "proof_state": "PROVEN",
+          "reason": "CALL capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "required_dependencies": [
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGCALC",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "INTGMAIN",
+          "kind": "PROGRAM",
+          "proof_state": "PROVEN",
+          "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "FILE:INTGMAIN:TAX-IN",
+          "kind": "FILE",
+          "proof_state": "PROVEN",
+          "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "COPYBOOK:TAXREC",
+          "kind": "COPYBOOK",
+          "proof_state": "PROVEN",
+          "reason": "COPYBOOK capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        },
+        {
+          "capability_level": "SUPPORTED",
+          "dependency_id": "CALL:INTGMAIN->INTGCALC",
+          "kind": "CALL",
+          "proof_state": "PROVEN",
+          "reason": "CALL capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+          "required": true,
+          "visible": true
+        }
+      ],
+      "unproven_dependencies": [],
+      "runtime_verdict_is_verified": true
+    },
+    "application_id": "app-60ffbea279da",
+    "verdict_state": "VERIFIED",
+    "evidence_status": "COMPLETE",
+    "runtime_proof_status": "VERIFIED",
+    "reasons_for_not_verified": [],
+    "proven_dependencies": [
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "INTGCALC",
+        "kind": "PROGRAM",
+        "proof_state": "PROVEN",
+        "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "INTGMAIN",
+        "kind": "PROGRAM",
+        "proof_state": "PROVEN",
+        "reason": "PROGRAM capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+        "kind": "FILE",
+        "proof_state": "PROVEN",
+        "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "FILE:INTGMAIN:TAX-IN",
+        "kind": "FILE",
+        "proof_state": "PROVEN",
+        "reason": "FILE capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "COPYBOOK:TAXREC",
+        "kind": "COPYBOOK",
+        "proof_state": "PROVEN",
+        "reason": "COPYBOOK capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      },
+      {
+        "capability_level": "SUPPORTED",
+        "dependency_id": "CALL:INTGMAIN->INTGCALC",
+        "kind": "CALL",
+        "proof_state": "PROVEN",
+        "reason": "CALL capability is SUPPORTED and behaviour was proven by the COBOL/Java runtime lane",
+        "required": true,
+        "visible": true
+      }
+    ],
+    "unproven_dependencies": [],
+    "blocked_dependencies": [],
+    "unsupported_dependencies": [],
+    "evidence_complete": true,
+    "evidence_integrity_valid": true,
+    "required_dependencies_proven": true,
+    "overall_verification": "VERIFIED"
+  },
+  "proof_identical_across_restart": true
+}

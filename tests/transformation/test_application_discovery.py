@@ -998,3 +998,300 @@ class TestForensicSearch:
 
             # Program ID comes from source, not filename
             assert app.programs[0].program_id == "ACCOUNT-MAIN"
+
+
+# ============================================================
+# CI #400 regression tests — discovery fail-closed contract
+# ============================================================
+
+# A COBOL program that uses PIC A(10) (alphabetic type) — this raises
+# CobolParseError because _parse_pic() only handles X(n), 9(n), and
+# signed S9(n) formats. Alphabetic PIC A is not in the supported set.
+# The discovery layer MUST still register this program in
+# CobolApplication.programs instead of silently dropping it.
+PROGRAM_UNSUPPORTED_PIC = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. UNSUP-PROG.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NAME PIC A(10) VALUE SPACES.
+       PROCEDURE DIVISION.
+           DISPLAY WS-NAME.
+           STOP RUN.
+"""
+
+# A pair of programs with a CALL dependency: the caller uses CALL and
+# the callee provides LINKAGE SECTION.
+CALL_MAIN_PROG = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALL-MAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-DATA PIC X(10).
+       PROCEDURE DIVISION.
+           MOVE "TEST" TO WS-DATA.
+           CALL "CALL-SUB" USING WS-DATA.
+           STOP RUN.
+"""
+
+CALL_SUB_PROG = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALL-SUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 LS-DATA PIC X(10).
+       PROCEDURE DIVISION USING LS-DATA.
+           DISPLAY LS-DATA.
+           EXIT PROGRAM.
+"""
+
+# Recursive CALL: A calls B, B calls A.
+RECURSIVE_A = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. REC-A.
+       PROCEDURE DIVISION.
+           CALL "REC-B".
+           STOP RUN.
+"""
+
+RECURSIVE_B = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. REC-B.
+       PROCEDURE DIVISION.
+           CALL "REC-A".
+           EXIT PROGRAM.
+"""
+
+# Program that truly has no IDENTIFICATION DIVISION — not COBOL at all.
+NOT_COBOL = """\
+This is a plain text file.
+It contains no COBOL structure whatsoever.
+DIVISION.  <- this keyword alone doesn't count.
+"""
+
+
+class TestDiscoveryFailClosedRegression:
+    """CI #400 regression: discovery must not silently drop valid COBOL programs.
+
+    Root cause: _parse_program_unit() had a blanket except Exception handler
+    that returned None for ANY exception, including CobolParseError raised
+    by unsupported sub-constructs (e.g. PIC A(10) alphabetic type).  A program with an
+    unsupported sub-construct should still be registered in the application so
+    the capability analyzer can classify it as UNSUPPORTED — not silently
+    omitted, which caused downstream planner/CALL/entrypoint failures.
+    """
+
+    def test_program_with_unsupported_pic_still_registered(self):
+        """A program whose PIC clause raises CobolParseError must still appear
+        in CobolApplication.programs (not be silently dropped).
+
+        Regression: before the fix, discover() dropped such programs entirely.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="UNSUP-APP")
+
+            # The program MUST appear in the application, not be dropped.
+            assert len(app.programs) == 1, (
+                "Discovery silently dropped a program with unsupported PIC clause "
+                "(CobolParseError regression). Expected 1 program, got 0."
+            )
+            unit = app.programs[0]
+            assert unit.program_id == "UNSUP-PROG"
+            # parse_error must be set indicating the stub IR
+            assert unit.parse_error, (
+                "parse_error should be non-empty for a stub-IR program unit"
+            )
+            # source_text must be preserved for capability scan
+            assert unit.source_text, "source_text must be preserved on stub IR unit"
+
+    def test_mixed_valid_and_unsupported_pic_programs(self):
+        """When one program has unsupported PIC and another is fully valid,
+        both must appear in CobolApplication.programs.
+
+        Regression: before the fix, the whole directory was silently reduced to
+        only the parseable programs.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "MAIN.cob").write_text(CALL_MAIN_PROG)
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="MIXED-APP")
+
+            program_ids = {u.program_id for u in app.programs}
+            assert "CALL-MAIN" in program_ids, "Fully-parseable program was dropped"
+            assert "UNSUP-PROG" in program_ids, (
+                "Program with unsupported PIC clause was silently dropped (regression)"
+            )
+            assert len(app.programs) == 2
+
+    def test_unsupported_pic_program_has_stub_ir_not_none(self):
+        """A stub IR program must have program != None (a real stub CobolProgram)
+        so the capability analyzer can inspect it without crashing.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="STUB-APP")
+
+            assert len(app.programs) == 1
+            unit = app.programs[0]
+            # program must not be None — that would cause capability_analyzer to
+            # use the old "Failed to parse program" path for truly missing IR,
+            # rather than the correct source-scan path for unsupported constructs.
+            assert unit.program is not None, (
+                "Stub IR program must have program != None"
+            )
+            assert unit.program.program_id == "UNSUP-PROG"
+
+    def test_call_dependency_edge_from_main_to_sub(self):
+        """CALL edge must be registered in the application dependency graph."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "MAIN.cob").write_text(CALL_MAIN_PROG)
+            (Path(tmpdir) / "SUB.cob").write_text(CALL_SUB_PROG)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="CALL-APP")
+
+            # Both programs must be discovered
+            program_ids = {u.program_id for u in app.programs}
+            assert "CALL-MAIN" in program_ids
+            assert "CALL-SUB" in program_ids
+
+            # CALL edge must be in the dependency graph
+            call_edges = [e for e in app.edges if e.edge_type == "CALL"]
+            assert len(call_edges) >= 1
+            assert any(
+                e.source == "CALL-MAIN" and e.target == "CALL-SUB"
+                for e in call_edges
+            ), "CALL dependency edge CALL-MAIN→CALL-SUB not registered"
+
+    def test_call_resolution_resolved_when_callee_present(self):
+        """When the callee is in the same application, the CALL edge metadata
+        must record resolution=RESOLVED.
+
+        Note: ProgramCall.resolution is always UNRESOLVED immediately after
+        _extract_calls(); resolution to RESOLVED is only recorded in
+        DependencyEdge.metadata by _build_dependency_graph() once all program
+        IDs are known.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "MAIN.cob").write_text(CALL_MAIN_PROG)
+            (Path(tmpdir) / "SUB.cob").write_text(CALL_SUB_PROG)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="CALL-APP")
+
+            # Resolution is recorded in the dependency edge metadata
+            call_edges = [
+                e for e in app.edges
+                if e.edge_type == "CALL"
+                and e.source == "CALL-MAIN"
+                and e.target == "CALL-SUB"
+            ]
+            assert len(call_edges) >= 1, "CALL edge CALL-MAIN→CALL-SUB not found"
+            edge = call_edges[0]
+            assert "resolution=RESOLVED" in edge.metadata, (
+                f"Expected 'resolution=RESOLVED' in edge metadata but got {edge.metadata!r}"
+            )
+
+    def test_call_resolution_unresolved_when_callee_missing(self):
+        """When the callee is not in the same application, the CALL edge
+        metadata must record resolution=UNRESOLVED.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Only write the main — SUB is absent
+            (Path(tmpdir) / "MAIN.cob").write_text(CALL_MAIN_PROG)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="UNRESOLVED-APP")
+
+            call_edges = [
+                e for e in app.edges
+                if e.edge_type == "CALL"
+                and e.source == "CALL-MAIN"
+                and e.target == "CALL-SUB"
+            ]
+            assert len(call_edges) >= 1, "CALL edge CALL-MAIN→CALL-SUB not found"
+            edge = call_edges[0]
+            assert "resolution=UNRESOLVED" in edge.metadata, (
+                f"Expected 'resolution=UNRESOLVED' in edge metadata but got {edge.metadata!r}"
+            )
+
+    def test_entrypoint_program_identified_by_stop_run(self):
+        """A program with STOP RUN in its PROCEDURE DIVISION is an entrypoint."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "MAIN.cob").write_text(CALL_MAIN_PROG)
+            (Path(tmpdir) / "SUB.cob").write_text(CALL_SUB_PROG)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="ENTRY-APP")
+
+            main_unit = app.get_program("CALL-MAIN")
+            assert main_unit is not None
+            # CALL-MAIN has STOP RUN → it's an entry program
+            # Entry points are recorded in unit.entry_points (may be empty for
+            # programs without ENTRY statements, but STOP RUN signals it's a
+            # top-level program via the planner)
+            assert main_unit.program_id == "CALL-MAIN"
+
+    def test_recursive_call_cycle_detected(self):
+        """Recursive CALL cycle A→B→A must be detected by detect_cycles()."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "A.cob").write_text(RECURSIVE_A)
+            (Path(tmpdir) / "B.cob").write_text(RECURSIVE_B)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="REC-APP")
+
+            # Both programs must be discovered
+            program_ids = {u.program_id for u in app.programs}
+            assert "REC-A" in program_ids
+            assert "REC-B" in program_ids
+
+            # Cycle must be detected
+            cycles = app.detect_cycles()
+            assert len(cycles) > 0, "Recursive CALL cycle A↔B not detected"
+            # Cycle members must include both programs
+            all_cycle_members = {node for cycle in cycles for node in cycle}
+            assert "REC-A" in all_cycle_members or "REC-B" in all_cycle_members
+
+    def test_non_cobol_file_excluded_from_discovery(self):
+        """A file with no IDENTIFICATION DIVISION / PROGRAM-ID is excluded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "readme.cob").write_text(NOT_COBOL)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="EXCL-APP")
+
+            assert len(app.programs) == 0, (
+                "Non-COBOL file should not produce a program unit"
+            )
+
+    def test_genuinely_unsupported_source_is_fail_closed(self):
+        """A program with genuinely unsupported constructs (PIC A(10) alphabetic)
+        is included in discovery but marked with parse_error so the capability
+        analyzer classifies it as UNSUPPORTED (fail-closed), not SUPPORTED.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "UNSUP.cob").write_text(PROGRAM_UNSUPPORTED_PIC)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="FC-APP")
+
+            assert len(app.programs) == 1
+            unit = app.programs[0]
+            # parse_error non-empty → capability analyzer will classify UNSUPPORTED
+            assert unit.parse_error, (
+                "Genuinely unsupported program must have parse_error set so "
+                "capability analyzer can apply fail-closed UNSUPPORTED classification"
+            )
+
+    def test_dependency_graph_edges_symmetric_call(self):
+        """get_callees and get_callers must return symmetric results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "MAIN.cob").write_text(CALL_MAIN_PROG)
+            (Path(tmpdir) / "SUB.cob").write_text(CALL_SUB_PROG)
+            discovery = ApplicationDiscovery()
+            app = discovery.discover(tmpdir, application_id="GRAPH-APP")
+
+            callees = app.get_callees("CALL-MAIN")
+            callers = app.get_callers("CALL-SUB")
+
+            assert "CALL-SUB" in callees, "CALL-SUB must be a callee of CALL-MAIN"
+            assert "CALL-MAIN" in callers, "CALL-MAIN must be a caller of CALL-SUB"
+

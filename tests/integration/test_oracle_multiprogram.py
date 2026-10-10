@@ -144,7 +144,7 @@ def _make_adapter() -> DockerOracleAdapter:
     from engine.oracle.adapter import OracleAdapterConfig
     return DockerOracleAdapter(OracleAdapterConfig(
         oracle_id="gnucobol-3.1.2",
-        image_digest=DockerOracleAdapter.V1_DIGEST,
+        image_digest="",
         compiler_version="3.1.2.0",
         timeout_seconds=120,
     ))

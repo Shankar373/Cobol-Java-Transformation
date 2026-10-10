@@ -217,6 +217,13 @@ class JavaWhile(JavaStatement):
 
 
 @dataclass(frozen=True)
+class JavaDoWhile(JavaStatement):
+    """Do-while loop (PERFORM UNTIL WITH TEST AFTER)."""
+    condition: JavaExpression
+    body: tuple[JavaStatement, ...] = ()
+
+
+@dataclass(frozen=True)
 class JavaFor(JavaStatement):
     """For loop."""
     init: JavaStatement | None = None
@@ -325,6 +332,7 @@ class JavaClass:
     extends: str = ""  # superclass name
     implements: tuple[str, ...] = ()  # interface names
     imports: tuple[str, ...] = ()  # import statements
+    source_copybook: str = ""  # originating COPYBOOK stem (models only)
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +475,7 @@ class JavaStatusCodeMapping:
     code: str  # e.g. "R", "P", "A"
     label: str  # e.g. "REJECTED", "PENDING"
     counter_name: str  # Java variable name for the counter (e.g. "rejected")
+    field_name: str = ""  # field tested by the source condition
 
 
 @dataclass(frozen=True)
@@ -480,6 +489,8 @@ class JavaThresholdRule:
     operator: str  # ">", "<", ">=", "<="
     value: int
     constant_name: str = "THRESHOLD"  # Java constant name
+    pass_label: str = ""  # outcome in the source threshold's ELSE branch
+    pass_counter_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -493,6 +504,7 @@ class JavaSummaryField:
     java_var_name: str  # Java variable name
     format_width: int = 0  # from PIC metadata — 0 means no formatting
     is_numeric: bool = True
+    format_spec: str = ""  # type-aware String.format specifier ("" = width only)
 
 
 @dataclass(frozen=True)
@@ -561,6 +573,9 @@ class JavaProgram:
     generation_mode: str = ""  # "decision", "file_io", or "minimal"
     # Input record field names (positional — which fields are parsed from input records)
     input_record_fields: tuple[str, ...] = ()
+    input_amount_field: str = ""  # threshold operand traced to the input record
+    decision_result_field: str = ""  # receiving field of source outcome MOVEs
+    decision_result_width: int = 0
 
 
 @dataclass(frozen=True)

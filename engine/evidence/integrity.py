@@ -29,11 +29,9 @@ FINDINGS ADDRESSED:
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
 
 from engine.domain.identities import (
     ContentHash,
@@ -52,10 +50,14 @@ class ViolationType(Enum):
     WORKLOAD_BINDING_MISMATCH = "workload_binding_mismatch"
     SOURCE_CANDIDATE_MISMATCH = "source_candidate_mismatch"
     ORACLE_IDENTITY_MISMATCH = "oracle_identity_mismatch"
+    IMAGE_IDENTITY_MISMATCH = "image_identity_mismatch"
     ARTIFACT_EXECUTION_MISMATCH = "artifact_execution_mismatch"
     COMPARISON_ARTIFACT_MISMATCH = "comparison_artifact_mismatch"
+    COMPARATOR_BINDING_MISMATCH = "comparator_binding_mismatch"
     CONTENT_HASH_MISMATCH = "content_hash_mismatch"
     MANIFEST_HASH_MISMATCH = "manifest_hash_mismatch"
+    SOURCE_MUTATION = "source_mutation"
+    UNKNOWN_COMPARISON_RESULT = "unknown_comparison_result"
     MISSING_REQUIRED_EVIDENCE = "missing_required_evidence"
     MISSING_EXIT_STATUS = "missing_exit_status"
     CROSS_RUN_REPLAY = "cross_run_replay"
@@ -63,6 +65,11 @@ class ViolationType(Enum):
     ORPHAN_ARTIFACT = "orphan_artifact"
     ORPHAN_COMPARISON = "orphan_comparison"
     MALFORMED_EVIDENCE = "malformed_evidence"
+
+
+#: Comparison results the evidence model accepts. Anything else is
+#: unrecognised evidence and must fail closed (never treated as MATCH).
+KNOWN_COMPARISON_RESULTS = frozenset({"MATCH", "MISMATCH", "INCONCLUSIVE"})
 
 
 @dataclass(frozen=True)
@@ -138,6 +145,16 @@ class EvidenceIntegrityValidator:
 
         # 6. Comparison-artifact binding
         violations.extend(self._validate_comparison_artifact_binding(manifest))
+
+        # 6b. Comparator binding: evidence must name the comparator that is
+        # registered for the artifact type it claims to have compared
+        violations.extend(self._validate_comparator_binding(manifest))
+
+        # 6c. Comparison result domain: unknown results never count as MATCH
+        violations.extend(self._validate_comparison_results(manifest))
+
+        # 6d. Source mutation: execution must not modify the source tree
+        violations.extend(self._validate_source_mutation(manifest))
 
         # 7. EXIT_STATUS completeness (FINDING F)
         violations.extend(self._validate_exit_status_completeness(manifest))
@@ -219,13 +236,47 @@ class EvidenceIntegrityValidator:
     # ------------------------------------------------------------------
 
     def _validate_workload_bindings(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """Validate that artifact and comparison evidence are bound
-        to the manifest's workload through execution evidence."""
+        """Validate that evidence is bound to the manifest's workload.
+
+        Evidence produced by the pipeline carries its workload id. Evidence
+        whose workload id is present but different from the manifest's is
+        cross-workload replay; evidence without a workload id is bound
+        transitively through execution_id → run_id.
+        """
         violations: list[IntegrityViolation] = []
-        # Workload binding is enforced through execution_id → run_id chain.
-        # If run binding is valid, workload binding is transitively valid
-        # because the pipeline generates execution evidence for the specific
-        # workload. Cross-workload replay is caught by run binding.
+        expected_workload = manifest.workload_id.value
+
+        for i, exec_ev in enumerate(manifest.execution_evidence):
+            if exec_ev.workload_id is None:
+                continue
+            if exec_ev.workload_id.value != expected_workload:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.WORKLOAD_BINDING_MISMATCH,
+                    description=f"Execution evidence [{i}] is bound to workload "
+                                f"'{exec_ev.workload_id.value}' but manifest declares "
+                                f"'{expected_workload}'",
+                    field_path=f"execution_evidence[{i}].workload_id",
+                    expected=expected_workload,
+                    actual=exec_ev.workload_id.value,
+                ))
+
+        for i, comp_ev in enumerate(manifest.comparison_evidence):
+            if comp_ev.workload_id is None:
+                continue
+            if comp_ev.workload_id.value != expected_workload:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.WORKLOAD_BINDING_MISMATCH,
+                    description=f"Comparison evidence [{i}] is bound to workload "
+                                f"'{comp_ev.workload_id.value}' but manifest declares "
+                                f"'{expected_workload}'",
+                    field_path=f"comparison_evidence[{i}].workload_id",
+                    expected=expected_workload,
+                    actual=comp_ev.workload_id.value,
+                ))
+
+        # Artifacts replayed from another workload surface as executions or
+        # comparisons from that workload; an artifact bound to an execution of
+        # a different workload is caught through the execution chain above.
         return violations
 
     # ------------------------------------------------------------------
@@ -281,6 +332,26 @@ class EvidenceIntegrityValidator:
                 expected="non-null OracleIdentity",
                 actual="None",
             ))
+            return violations
+
+        # The image identity actually executed must equal the identity the
+        # manifest claims. Evidence without a recorded image identity cannot
+        # prove this binding and is left to the other checks; evidence with a
+        # recorded identity must match exactly.
+        expected_digest = manifest.oracle_identity.image_digest
+        for i, exec_ev in enumerate(oracle_execs):
+            if exec_ev.image_digest is None:
+                continue
+            if exec_ev.image_digest != expected_digest:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.IMAGE_IDENTITY_MISMATCH,
+                    description=f"Oracle execution [{i}] ran image "
+                                f"'{exec_ev.image_digest}' but manifest claims "
+                                f"oracle identity '{expected_digest}'",
+                    field_path=f"execution_evidence[{i}].image_digest",
+                    expected=expected_digest,
+                    actual=exec_ev.image_digest,
+                ))
 
         return violations
 
@@ -338,6 +409,85 @@ class EvidenceIntegrityValidator:
         return violations
 
     # ------------------------------------------------------------------
+    # Comparator binding: evidence must be attributed to the comparator
+    # registered for the artifact type it claims to have compared
+    # ------------------------------------------------------------------
+
+    def _validate_comparator_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Each comparison must be attributed to the registered comparator
+        for its artifact type (canonical id or a declared legacy alias)."""
+        from engine.comparators.framework import (
+            CANONICAL_COMPARATOR_IDS,
+            COMPARATOR_ID_ALIASES,
+        )
+
+        violations: list[IntegrityViolation] = []
+        for i, comp_ev in enumerate(manifest.comparison_evidence):
+            expected = CANONICAL_COMPARATOR_IDS.get(comp_ev.artifact_type)
+            if expected is None:
+                # Unknown artifact types are rejected by the deriver
+                # (UNSUPPORTED); nothing to bind here.
+                continue
+            resolved = COMPARATOR_ID_ALIASES.get(
+                comp_ev.comparator_id, comp_ev.comparator_id
+            )
+            if resolved != expected:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.COMPARATOR_BINDING_MISMATCH,
+                    description=f"Comparison [{i}] for artifact_type="
+                                f"{comp_ev.artifact_type!r} is attributed to "
+                                f"comparator {comp_ev.comparator_id!r} but the "
+                                f"registered comparator is {expected!r}",
+                    field_path=f"comparison_evidence[{i}].comparator_id",
+                    expected=expected,
+                    actual=comp_ev.comparator_id,
+                ))
+        return violations
+
+    # ------------------------------------------------------------------
+    # Comparison result domain: unknown results fail closed
+    # ------------------------------------------------------------------
+
+    def _validate_comparison_results(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Comparison results outside MATCH/MISMATCH/INCONCLUSIVE are
+        unrecognised evidence and must never be read as a match."""
+        violations: list[IntegrityViolation] = []
+        for i, comp_ev in enumerate(manifest.comparison_evidence):
+            if comp_ev.result not in KNOWN_COMPARISON_RESULTS:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.UNKNOWN_COMPARISON_RESULT,
+                    description=f"Comparison [{i}] has unknown result "
+                                f"{comp_ev.result!r}; known results are "
+                                f"{sorted(KNOWN_COMPARISON_RESULTS)}",
+                    field_path=f"comparison_evidence[{i}].result",
+                    expected=f"one of {sorted(KNOWN_COMPARISON_RESULTS)}",
+                    actual=comp_ev.result,
+                ))
+        return violations
+
+    # ------------------------------------------------------------------
+    # Source mutation: an execution must not modify the source tree
+    # ------------------------------------------------------------------
+
+    def _validate_source_mutation(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Source-tree hashes recorded before and after an execution must be
+        identical: execution stages sources read-only and never rewrites them."""
+        violations: list[IntegrityViolation] = []
+        for i, exec_ev in enumerate(manifest.execution_evidence):
+            before = str(exec_ev.source_tree_hash_before)
+            after = str(exec_ev.source_tree_hash_after)
+            if before != after:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.SOURCE_MUTATION,
+                    description=f"Execution [{i}] ({exec_ev.runtime_id}) modified "
+                                f"the source tree during execution",
+                    field_path=f"execution_evidence[{i}].source_tree_hash_after",
+                    expected=before,
+                    actual=after,
+                ))
+        return violations
+
+    # ------------------------------------------------------------------
     # FINDING F: EXIT_STATUS completeness
     # ------------------------------------------------------------------
 
@@ -384,21 +534,36 @@ class EvidenceIntegrityValidator:
     # ------------------------------------------------------------------
 
     def _validate_manifest_integrity(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """Verify manifest hash covers the complete evidence graph."""
+        """Verify the manifest's construction-time seal still matches the
+        current evidence graph.
+
+        The seal is captured when the manifest is constructed. Recomputing
+        the canonical graph and comparing it against the seal detects any
+        in-place mutation of evidence after construction — including
+        mutations that keep every individual field type-valid.
+        """
         violations: list[IntegrityViolation] = []
 
-        # The current manifest_hash is computed from summary fields.
-        # We verify it is at least consistent with those fields.
-        computed_hash = manifest.manifest_hash
-
-        # Verify the hash is deterministic
+        sealed = manifest.sealed_hash
         recomputed = manifest.manifest_hash
-        if computed_hash != recomputed:
+
+        if sealed is None:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MANIFEST_HASH_MISMATCH,
-                description="Manifest hash is non-deterministic",
-                field_path="manifest_hash",
-                expected=str(computed_hash),
+                description="Manifest carries no construction-time seal; "
+                            "evidence integrity cannot be established",
+                field_path="sealed_hash",
+                expected="sha256 seal of the evidence graph",
+                actual="None",
+            ))
+        elif sealed != recomputed:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MANIFEST_HASH_MISMATCH,
+                description="Manifest evidence was mutated after construction: "
+                            "the construction-time seal no longer matches the "
+                            "current evidence graph",
+                field_path="sealed_hash",
+                expected=str(sealed),
                 actual=str(recomputed),
             ))
 
@@ -409,21 +574,20 @@ class EvidenceIntegrityValidator:
     # ------------------------------------------------------------------
 
     def _validate_required_evidence(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """Validate that required evidence is present."""
+        """Validate the minimum evidence contract required for certification."""
         violations: list[IntegrityViolation] = []
-
-        # Must have at least one execution
-        if len(manifest.execution_evidence) == 0:
+        if not manifest.execution_evidence:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
                 description="No execution evidence in manifest",
                 field_path="execution_evidence",
-                expected="at least 1 execution evidence",
+                expected="oracle and candidate execution evidence",
                 actual="0",
             ))
+            return violations
 
-        # Must have at least one oracle execution
         oracle_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("oracle")]
+        candidate_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("candidate")]
         if not oracle_execs:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
@@ -432,9 +596,6 @@ class EvidenceIntegrityValidator:
                 expected="at least 1 oracle execution",
                 actual="0 oracle executions",
             ))
-
-        # Must have at least one candidate execution
-        candidate_execs = [e for e in manifest.execution_evidence if e.runtime_id.startswith("candidate")]
         if not candidate_execs:
             violations.append(IntegrityViolation(
                 violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
@@ -443,7 +604,60 @@ class EvidenceIntegrityValidator:
                 expected="at least 1 candidate execution",
                 actual="0 candidate executions",
             ))
+        elif not any(e.execution_phase == "EXECUTE" for e in candidate_execs):
+            phases = sorted({e.execution_phase for e in candidate_execs})
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                description="Candidate evidence contains no executed run: "
+                            "a build failure is not execution evidence",
+                field_path="execution_evidence",
+                expected="at least 1 candidate execution with phase EXECUTE",
+                actual=f"phases present: {phases}",
+            ))
 
+        oracle_ids = {e.execution_id.value for e in oracle_execs}
+        candidate_ids = {e.execution_id.value for e in candidate_execs}
+        oracle_artifacts = [a for a in manifest.artifact_evidence if a.execution_id.value in oracle_ids]
+        candidate_artifacts = [a for a in manifest.artifact_evidence if a.execution_id.value in candidate_ids]
+        if not oracle_artifacts:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                description="No oracle artifact evidence",
+                field_path="artifact_evidence",
+                expected="at least 1 oracle artifact",
+                actual="0 oracle artifacts",
+            ))
+        if not candidate_artifacts:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                description="No candidate artifact evidence",
+                field_path="artifact_evidence",
+                expected="at least 1 candidate artifact",
+                actual="0 candidate artifacts",
+            ))
+
+        compared_ids = {
+            artifact_id
+            for comparison in manifest.comparison_evidence
+            for artifact_id in (comparison.oracle_artifact_id, comparison.candidate_artifact_id)
+        }
+        for artifact in manifest.artifact_evidence:
+            if artifact.artifact.artifact_id not in compared_ids:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                    description=f"Artifact '{artifact.artifact.artifact_id}' is not covered by any comparison",
+                    field_path="comparison_evidence",
+                    expected=f"comparison referencing {artifact.artifact.artifact_id}",
+                    actual="artifact is unreferenced",
+                ))
+        if not manifest.comparison_evidence:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.MISSING_REQUIRED_EVIDENCE,
+                description="No comparison evidence in manifest",
+                field_path="comparison_evidence",
+                expected="at least 1 comparison",
+                actual="0 comparisons",
+            ))
         return violations
 
     # ------------------------------------------------------------------
@@ -453,102 +667,14 @@ class EvidenceIntegrityValidator:
     def _compute_integrity_hash(self, manifest: EvidenceManifest) -> ContentHash:
         """Compute a comprehensive integrity hash over the entire evidence graph.
 
-        This covers:
-        - Top-level identity fields
-        - Source identity
-        - Candidate identity (if present)
-        - Oracle identity
-        - Controlled input identity
-        - Execution evidence (all fields)
-        - Artifact evidence (all fields including content_hash)
-        - Comparison evidence (all fields including content_hash)
-        - Verdict evidence (if present)
+        Delegates to the canonical evidence graph used for the manifest's
+        construction-time seal, so the validated hash and the seal always
+        cover the same fields: top-level identities, controlled inputs,
+        environment identities, and every execution, artifact, and comparison
+        evidence field.
 
         This is a deterministic, complete content-addressed representation
-        of the evidence graph. Any modification to any field will change
+        of the evidence graph. Any modification to any covered field changes
         the hash.
         """
-        graph: dict[str, Any] = {
-            "manifest_version": manifest.manifest_version,
-            "run_id": manifest.run_id.value,
-            "workload_id": manifest.workload_id.value,
-            "source_identity": {
-                "source_id": manifest.source_identity.source_id,
-                "source_hash": str(manifest.source_identity.source_hash),
-                "file_count": manifest.source_identity.file_count,
-                "total_size_bytes": manifest.source_identity.total_size_bytes,
-            },
-            "oracle_identity": {
-                "oracle_id": manifest.oracle_identity.oracle_id,
-                "image_digest": manifest.oracle_identity.image_digest,
-                "compiler_version": manifest.oracle_identity.compiler_version,
-            },
-            "controlled_input": {
-                "input_id": manifest.controlled_input.input_id,
-                "stdin_hash": str(manifest.controlled_input.stdin_hash) if manifest.controlled_input.stdin_hash else None,
-                "input_files": {k: str(v) for k, v in manifest.controlled_input.input_files.items()},
-            },
-            "execution_evidence": [
-                {
-                    "execution_id": e.execution_id.value,
-                    "run_id": e.run_id.value,
-                    "runtime_id": e.runtime_id,
-                    "termination_status": e.termination_status,
-                    "timeout_applied": e.timeout_applied,
-                    "exit_code": e.exit_code,
-                    "stdout_hash": str(e.stdout_hash),
-                    "stderr_hash": str(e.stderr_hash),
-                    "generated_files": {k: str(v) for k, v in e.generated_files.items()},
-                }
-                for e in manifest.execution_evidence
-            ],
-            "artifact_evidence": [
-                {
-                    "artifact_id": a.artifact.artifact_id,
-                    "artifact_type": a.artifact.artifact_type,
-                    "producer_role": a.artifact.producer_role,
-                    "content_hash": str(a.content_hash),
-                    "execution_id": a.execution_id.value,
-                    "size_bytes": a.size_bytes,
-                    "record_count": a.record_count,
-                }
-                for a in manifest.artifact_evidence
-            ],
-            "comparison_evidence": [
-                {
-                    "comparison_id": c.comparison_id,
-                    "run_id": c.run_id.value,
-                    "oracle_artifact_id": c.oracle_artifact_id,
-                    "candidate_artifact_id": c.candidate_artifact_id,
-                    "result": c.result,
-                    "artifact_type": c.artifact_type,
-                    "content_hash": str(c.content_hash),
-                }
-                for c in manifest.comparison_evidence
-            ],
-        }
-
-        # Add candidate identity if present
-        if manifest.candidate_identity is not None:
-            graph["candidate_identity"] = {
-                "candidate_id": manifest.candidate_identity.candidate_id,
-                "candidate_hash": str(manifest.candidate_identity.candidate_hash),
-                "source_hash": str(manifest.candidate_identity.source_hash),
-            }
-
-        # Add environment identities
-        graph["environment_identities"] = [
-            {
-                "runtime_id": ei.runtime_id,
-                "java_version": ei.java_version,
-                "cobol_compiler": ei.cobol_compiler,
-            }
-            for ei in manifest.environment_identities
-        ]
-
-        # Add verdict evidence if present
-        if manifest.verdict_evidence is not None:
-            graph["verdict_evidence"] = manifest.verdict_evidence.to_dict()
-
-        content_bytes = json.dumps(graph, sort_keys=True, default=str).encode("utf-8")
-        return ContentHash.from_bytes(content_bytes)
+        return manifest.manifest_hash

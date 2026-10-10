@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** The GnuCOBOL oracle/execution implementation exists in the current repository. This contract remains normative.
+
 # ORACLE CONTRACT — V1
 
 > **Status:** AUTHORITATIVE (approved via ADR-0001 / PD-01). This contract is drafted

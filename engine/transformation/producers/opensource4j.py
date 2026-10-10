@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
-import tempfile
 from pathlib import Path
 
+from engine.execution.sandbox_paths import sandbox_staging_dir, to_host_path
 from engine.transformation.contracts import (
     GeneratedFile,
     ProducerCapability,
@@ -32,6 +32,41 @@ from engine.transformation.contracts import (
     TransformationStatus,
 )
 from engine.transformation.diagnostics import Diagnostic, DiagnosticCode
+
+
+# Declared capability surface of this adapter.  Hoisted to module scope (rather
+# than inlined in transform()) so the claims are inspectable without executing
+# the external compiler, and so the cross-producer capability guard
+# (tests/transformation/test_producer_capability_consistency.py) can assert
+# they never contradict the authoritative registry.
+_PRODUCER_SUPPORTED_CONSTRUCTS: tuple[str, ...] = (
+    "IDENTIFICATION DIVISION",
+    "ENVIRONMENT DIVISION",
+    "FILE-CONTROL",
+    "DATA DIVISION",
+    "FILE SECTION",
+    "WORKING-STORAGE",
+    "PIC X(n)",
+    "PIC 9(n)",
+    "OCCURS",
+    "OPEN",
+    "READ",
+    "WRITE",
+    "MOVE",
+    "ADD",
+    "IF/ELSE",
+    "PERFORM",
+    "DISPLAY",
+    "GO TO",
+    "STOP RUN",
+    "STRING",
+    "UNSTRING",
+    "SORT",
+    "CALL",
+    "INDEXED files",
+    "RELATIVE files",
+)
+_PRODUCER_UNSUPPORTED_CONSTRUCTS: tuple[str, ...] = ()
 
 
 class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
@@ -75,8 +110,9 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
             )
 
         try:
-            # Write COBOL source to temp file
-            with tempfile.TemporaryDirectory() as tmpdir:
+            # Write COBOL source to temp file (host-visible staging so the
+            # host daemon can bind-mount it in production).
+            with sandbox_staging_dir(prefix="cobj-") as tmpdir:
                 cobol_path = Path(tmpdir) / f"{program_id}.cob"
                 cobol_path.write_text(cobol_source, encoding="utf-8")
 
@@ -84,7 +120,7 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 result = subprocess.run(
                     [
                         "docker", "run", "--rm",
-                        "-v", f"{tmpdir}:/cobol",
+                        "-v", f"{to_host_path(tmpdir)}:/cobol",
                         self.DOCKER_IMAGE,
                         "cobj", f"/cobol/{program_id}.cob",
                     ],
@@ -135,34 +171,8 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                     entrypoint=program_id,
                     producer_identity=self.PRODUCER_IDENTITY,
                     producer_version=self.PRODUCER_VERSION,
-                    supported_constructs=(
-                        "IDENTIFICATION DIVISION",
-                        "ENVIRONMENT DIVISION",
-                        "FILE-CONTROL",
-                        "DATA DIVISION",
-                        "FILE SECTION",
-                        "WORKING-STORAGE",
-                        "PIC X(n)",
-                        "PIC 9(n)",
-                        "OCCURS",
-                        "OPEN",
-                        "READ",
-                        "WRITE",
-                        "MOVE",
-                        "ADD",
-                        "IF/ELSE",
-                        "PERFORM",
-                        "DISPLAY",
-                        "GO TO",
-                        "STOP RUN",
-                        "STRING",
-                        "UNSTRING",
-                        "SORT",
-                        "CALL",
-                        "INDEXED files",
-                        "RELATIVE files",
-                    ),
-                    unsupported_constructs=(),
+                    supported_constructs=_PRODUCER_SUPPORTED_CONSTRUCTS,
+                    unsupported_constructs=_PRODUCER_UNSUPPORTED_CONSTRUCTS,
                     metadata={
                         "source_hash": self._compute_hash(cobol_source),
                         "standalone_java": False,

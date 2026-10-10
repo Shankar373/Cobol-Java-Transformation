@@ -46,7 +46,7 @@ export function Button({
     gradient: {
       background: tokens.colors.gradient,
       color: tokens.colors.textOnPrimary,
-      boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
+      boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
     },
     ghost: {
       background: 'transparent',
