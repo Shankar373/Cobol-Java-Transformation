@@ -178,6 +178,15 @@ Regression: **2040 passed, 11 skipped, 22 failed** — the same 22 environment-o
 `javac` failures verified identical at baseline. No test weakened; a new test caught
 a real `KeyError` on `NOT <>` during development.
 
+**Follow-up `c03558f` (same BL-020 root cause, found by re-probe):** the split
+handled the condition/statement boundary but not the **scope terminator sharing
+the line**. `IF A > 1 ADD 1 TO B END-IF` handed `ADD 1 TO B END-IF` to the
+statement parser, so the target operand became `END_IF` and the mapper emitted
+`if (A > 1) { = ( + ); }` — non-compiling Java, no diagnostic. Found by
+**re-probing generated Java after the fix**, not by any test — the same blind
+spot that hid every other defect in this phase. `_parse_inline_statements` now
+strips a trailing `END-*` terminator; 4 regression tests added.
+
 ### Backlog disposition
 - **BL-018 — FIXED** (figurative constants). See `docs/BACKLOG.md`.
 - **BL-019, BL-020, BL-021, BL-022, BL-023, BL-024 — FIXED** (`7bba5cb`).
