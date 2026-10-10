@@ -67,6 +67,11 @@ It must never contradict repository reality (§68) and must never be left mislea
   `workload-comp`/`workload-comp3` are PARTIAL (never SUPPORTED); discovery filters
   `PARTIAL_SUPPORT` out of the loss channel so it never forces UNSUPPORTED.
   Mapper/runtime behavior unchanged.
+- **BL-003 (P0) FIXED:** REDEFINES/OCCURS/88-level are no longer reported
+  SUPPORTED.  Registry keys at UNKNOWN (fail-closed); the analyzer scans the
+  DATA DIVISION explicitly (the procedure-restricted scan cannot see these);
+  `workload-redefines`/`workload-occurs` now classify UNKNOWN and
+  `workload-level88` stays non-SUPPORTED.  No mapper/runtime change.
 
 ### Files changed this session
 - `engine/transformation/producers/internal_native.py` (capability lists now
@@ -79,17 +84,20 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `engine/transformation/application_discovery.py` (loss-channel filter).
 - `tests/transformation/test_capability_registry_reconciliation.py` (new; 11 tests).
 - `tests/transformation/test_usage_capability.py` (new; 22 tests).
-- `docs/BACKLOG.md` (new; BL-002 now FIXED).
-- `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family rows).
+- `tests/transformation/test_structural_capability.py` (new; 9 tests).
+- `docs/BACKLOG.md` (new; BL-002/BL-003 now FIXED).
+- `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family + REDEFINES/OCCURS/88-level rows).
 - `opencode.md` (rewritten live checkpoint; now intended to be tracked).
 
 ### Tests run this session
 - Focused: `pytest -q tests/transformation/test_capability_registry_reconciliation.py
   tests/transformation/test_producer_contract.py` → **29 passed** (2026-10-10).
 - BL-002: `pytest -q tests/transformation/test_usage_capability.py` → **22 passed**.
+- BL-003: `pytest -q tests/transformation/test_structural_capability.py` → **9 passed**;
+  `workload-redefines`/`workload-occurs` → UNKNOWN.
 - Regression: `pytest -q tests/transformation tests/adversarial
   tests/test_silent_loss_registry.py tests/test_copybook_m7.py
-  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1888 passed,
+  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1897 passed,
   11 skipped, 22 failed**; all 22 failures are environment-only `FileNotFoundError`
   from a missing `javac` (no JDK on this host), not regressions.
 - Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS
@@ -101,9 +109,12 @@ It must never contradict repository reality (§68) and must never be left mislea
   credentials, so `git push` now succeeds non-interactively.
 - `f069498` ("fix(capability): derive internal producer constructs from
   authoritative registry (P0-1)") pushed to `codex/universal-core`:
-  `81e7955..f069498`.
-- CI for `f069498`: Supply chain #11 (push) / #12 (PR) SUCCESS; Push CI #429 and
-  PR CI #430 were in progress at time of writing.
+  `81e7955..f069498`. CI for `f069498`: Push CI #429 SUCCESS, PR CI #430
+  SUCCESS, Supply chain #11/#12 SUCCESS.
+- `dfcc725` ("fix(capability): record USAGE on DataItem and classify
+  COMP/COMP-3 as PARTIAL (P0-2)") pushed: `f069498..dfcc725`. CI for
+  `dfcc725`: Push CI #431 SUCCESS, PR CI #432 SUCCESS, Supply chain #13/#14
+  SUCCESS.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
@@ -136,11 +147,10 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 ### Next exact OpenCode action
-1. Commit BL-002 + tests + docs + checkpoint and push to `codex/universal-core`;
+1. Commit BL-003 + tests + docs + checkpoint and push to `codex/universal-core`;
    then verify GitHub Actions for the pushed commit.
-2. Continue the P0 backlog: implement BL-003 (REDEFINES/OCCURS/88-level registry keys
-   at UNKNOWN + runtime proof or explicit scope), then BL-004 (BY CONTENT/BY VALUE)
-   and BL-005 (ROUNDED) as scoped.
+2. Continue the P0 backlog: implement BL-004 (BY CONTENT/BY VALUE) and BL-005
+   (ROUNDED) as scoped.
 3. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 
 ---

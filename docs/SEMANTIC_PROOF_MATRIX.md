@@ -30,6 +30,9 @@ so such a program is reported UNSUPPORTED rather than silently SUPPORTED.
 | COMP-2 | PARTIAL | USAGE COMP-2 recorded; value semantics mapped; byte encoding not certified | marked PARTIAL; prefer DISPLAY for exact double-precision layout |
 | COMP-3 | PARTIAL | USAGE COMP-3 (packed decimal) recorded; numeric value semantics mapped; packed sign/byte encoding not certified | marked PARTIAL; value semantics only — record layout excluded |
 | COMP-5 | PARTIAL | USAGE COMP-5 (native binary) recorded; value semantics mapped; byte encoding not certified | marked PARTIAL; record-layout-dependent behavior excluded |
+| REDEFINES | UNKNOWN | parser records `DataItem.redefines`; mapper has no overlay lowering (generated Java for `workload-redefines` does not compile) | marked UNKNOWN until full-ladder runtime proof; never SUPPORTED |
+| OCCURS | UNKNOWN | parser records `DataItem.occurs`; mapper has no table lowering (generated Java for `workload-occurs` does not compile) | marked UNKNOWN until full-ladder runtime proof; `OCCURS DEPENDING ON` blocked |
+| 88-LEVEL | UNKNOWN | parser records level-88 condition names; mapper has no condition-name lowering (generated Java for `workload-level88` does not compile) | marked UNKNOWN until full-ladder runtime proof; never SUPPORTED |
 | GO TO | UNSUPPORTED | `GO TO` has no Java mapping (emitted as a comment) | — |
 | GOBACK | UNSUPPORTED | registry entry; `GOBACK.` is no longer mistaken for a paragraph heading | — |
 | EXIT PROGRAM | SUPPORTED | parser → `ExitProgramStatement` → `JavaReturn` in the generated body | bare `EXIT.` is diagnosed as unsupported; paragraph/section `EXIT` inside PERFORM remains UNSUPPORTED |

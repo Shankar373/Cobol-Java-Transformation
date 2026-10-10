@@ -93,6 +93,14 @@ def _unsupported(evidence: str) -> ConstructCapability:
     )
 
 
+def _unknown(evidence: str) -> ConstructCapability:
+    return ConstructCapability(
+        CapabilityLevel.UNKNOWN,
+        evidence,
+        CapabilityLevel.UNKNOWN,
+    )
+
+
 CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "MOVE": _supported("MOVE is mapped to Java assignment semantics"),
     "ADD": _supported("ADD is mapped to Java arithmetic semantics"),
@@ -208,6 +216,23 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "COMP-5": _partial(
         "COMP-5 (native binary) value semantics are mapped; byte encoding is "
         "not certified"
+    ),
+    # REDEFINES / OCCURS / 88-level: the parser produces IR (DataItem.redefines /
+    # occurs / level 88) but the mapper has no overlay, table-lowering or
+    # condition-name lowering — the generated Java for these fixtures does not
+    # compile.  Classified UNKNOWN (fail-closed) until a full-ladder runtime
+    # proof exists; they are never reported SUPPORTED.
+    "REDEFINES": _unknown(
+        "REDEFINES overlay lowering is not implemented by the deterministic "
+        "mapper; unproven"
+    ),
+    "OCCURS": _unknown(
+        "OCCURS table lowering is not implemented by the deterministic mapper; "
+        "unproven"
+    ),
+    "88-LEVEL": _unknown(
+        "88-level condition-name lowering is not implemented by the "
+        "deterministic mapper; unproven"
     ),
 }
 
@@ -336,6 +361,11 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("COMP-5", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-5|COMP-5)(?![\w-])", re.IGNORECASE)),
     ("COMP-3", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-3|PACKED-DECIMAL|COMP-3)(?![\w-])", re.IGNORECASE)),
     ("COMP", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-4|COMPUTATIONAL|COMP-4|BINARY|COMP)(?![\w-])", re.IGNORECASE)),
+    # Data-division constructs (only reached when callers scan with
+    # restrict_to_procedure=False, e.g. the copybook classifier).
+    ("REDEFINES", re.compile(r"(?<![\w-])REDEFINES(?![\w-])", re.IGNORECASE)),
+    ("OCCURS", re.compile(r"(?<![\w-])OCCURS(?![\w-])", re.IGNORECASE)),
+    ("88-LEVEL", re.compile(r"(?<![\w-])88\s+[A-Z0-9][\w-]*\s+(?:VALUE|THRU|THROUGH)(?![\w-])", re.IGNORECASE)),
 )
 
 

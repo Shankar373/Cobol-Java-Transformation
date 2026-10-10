@@ -93,21 +93,32 @@ produced evidence, not re-run here).
 
 ### BL-003 — REDEFINES / OCCURS / 88-level mapping unverified, no registry keys
 - **Type:** defect (capability truth)
-- **Status:** OPEN
+- **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** Fixtures `workload-redefines`, `workload-occurs`,
   `workload-level88` parse, but no mapping-output or runtime evidence was found and
   the registry has no keys for `REDEFINES`, `OCCURS`, or 88-level conditions.
 - **Expected behavior:** Master README Sections 19/60; roadmap P0-3. A construct that
   parses but is unproven must not be presented as supported.
 - **Affected files:** `engine/transformation/semantic_capability.py`,
-  `engine/transformation/cobol_to_java_mapping.py`,
-  `docs/SEMANTIC_PROOF_MATRIX.md`.
+  `engine/modernization/capability_analyzer.py`, `docs/SEMANTIC_PROOF_MATRIX.md`.
 - **Source:** roadmap §10 / §12 P0-3.
 - **Impact:** Parsed-but-unproven constructs invite false confidence.
-- **Remediation (proposed):** Add registry keys at UNKNOWN/UNSUPPORTED until proven;
-  verify overlay/table/condition lowering or scope it; add positive runtime proof plus
-  negative tests (e.g., OCCURS DEPENDING ON blocked).
-- **Verification level:** STATIC only.
+- **Remediation (implemented):**
+  * Registry keys `REDEFINES` / `OCCURS` / `88-LEVEL` at UNKNOWN (fail-closed,
+    never SUPPORTED) until a full-ladder runtime proof exists.
+  * Source patterns for the copybook classifier (data-division scan).
+  * Capability analyzer scans the DATA DIVISION explicitly (the procedure-
+    restricted scan cannot see these) and emits UNKNOWN findings.
+  * Negative tests: `OCCURS DEPENDING ON` blocked; 88-level program UNKNOWN;
+    plain program stays SUPPORTED.
+- **Acceptance criteria / tests:**
+  `tests/transformation/test_structural_capability.py` (9 tests) — registry keys
+  UNKNOWN, `workload-redefines`/`workload-occurs` UNKNOWN, `workload-level88`
+  non-SUPPORTED, minimal 88-level UNKNOWN, `OCCURS DEPENDING ON` blocked, plain
+  program SUPPORTED.
+- **Evidence:** `pytest tests/transformation/test_structural_capability.py` →
+  9 passed; fixtures redefines/occurs → UNKNOWN (2026-10-10).
+- **Last verified commit:** (this session commit — see `opencode.md`).
 
 ### BL-004 — BY CONTENT / BY VALUE capability hole
 - **Type:** defect (capability truth)
@@ -238,3 +249,6 @@ produced evidence, not re-run here).
   PARTIAL_SUPPORT diagnostic emitted, registry keys `COMP`/`COMP-1`/`COMP-2`/
   `COMP-3`/`COMP-5` at PARTIAL, analyzer classifies `workload-comp`/
   `workload-comp3` PARTIAL (22 new tests).
+- 2026-10-10 — BL-003 fixed: registry keys `REDEFINES`/`OCCURS`/`88-LEVEL` at
+  UNKNOWN (fail-closed), data-division source scan in the analyzer, fixtures
+  `workload-redefines`/`workload-occurs` now UNKNOWN (9 new tests).
