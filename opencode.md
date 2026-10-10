@@ -182,10 +182,12 @@ It must never contradict repository reality (§68) and must never be left mislea
   capability truth gate) — the Docker-gated backend job ran the full suite with
   GnuCOBOL + JDK available and passed. Local `javac`/Docker gaps are superseded
   by that evidence.
-- Full local non-Docker regression: `pytest -q tests` (RUN_DOCKER_TESTS unset) →
-  **3094 passed, 12 skipped, 31 failed**; 30 are the known environment-only
-  `javac`/`docker` `FileNotFoundError` cases (no JDK/Docker on this host) and 1
-  was the BL-004 contract test, which is now fixed and confirmed green in CI.
+- Full local non-Docker regression (final, on `1371485`): `pytest -q tests`
+  (RUN_DOCKER_TESTS unset) → **3091 passed, 12 skipped, 26 failed**. All 26 are
+  the environment-only `FileNotFoundError` cases from the missing JDK/Docker on
+  this host (`javac`/`java` in `subprocess.run`, and the Docker Java path) —
+  confirmed by inspecting the failure text, not just the count. The BL-004
+  contract test that previously failed here is now green.
 
 ### Push / CI status (2026-10-10)
 - The earlier push blocker is **resolved**: Git Credential Manager has stored
@@ -273,8 +275,13 @@ It must never contradict repository reality (§68) and must never be left mislea
   fully green run of the complete P0 sequence and confirms the BL-004 revert
   restored the Docker-gated suite.
 - `ca38321` ("docs(checkpoint): record fully green CI on 842bfce and P0 closure")
-  pushed: `842bfce..ca38321`. Supply chain #31/#32 SUCCESS; PR CI #450 SUCCESS;
-  Push CI #449 in progress at time of writing (docs-only change).
+  pushed: `842bfce..ca38321`. Supply chain #31/#32 SUCCESS; Push CI #449 and
+  PR CI #450 SUCCESS.
+- `1371485` ("docs(checkpoint): record CI green on ca38321") pushed:
+  `ca38321..1371485`. Supply chain #33/#34 SUCCESS; the new `Capability truth
+  gate`, ingestion and frontend jobs all SUCCESS on both Push CI #451 and
+  PR CI #452, with only the long-running backend Docker job still in progress at
+  time of writing.
 
 ### Next exact OpenCode action
 1. Commit this checkpoint update and push; confirm CI stays green on `842bfce`+.
