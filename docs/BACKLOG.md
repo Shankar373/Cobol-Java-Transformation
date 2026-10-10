@@ -5,7 +5,7 @@
 **Audited repository:** `Shankar373/Cobol-Java-Transformation`
 **Audited branch:** `codex/universal-core`
 **Audit baseline HEAD:** `55f885dae77bd415fc60db6d90e59ef26fc47944` ("docs(checkpoint): record final local regression and CI job status")
-**Baseline CI:** [Push CI #453 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063), [PR CI #454 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842), [Supply chain #35 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063), [Supply chain #36 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842).
+**Baseline CI:** [Push CI #453 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063), [PR CI #454 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842), [Supply chain #35 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547098), [Supply chain #36 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549866).
 **Note:** These are baseline results. Fresh CI for the documentation remediation commit must be verified separately before Phase 0 is marked complete.
 
 Authority hierarchy (Master README Section 78):
