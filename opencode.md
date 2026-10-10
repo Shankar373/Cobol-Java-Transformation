@@ -110,6 +110,13 @@ It must never contradict repository reality (§68) and must never be left mislea
   pointer. Historical references were labelled, not rewritten. The universality
   roadmap was deliberately left alone: its `fedb7dd` references are historical audit
   narrative and rewriting them would destroy provenance.
+- **BL-012 PARTIALLY FIXED:** added a dedicated `capability-truth` CI job that
+  runs the capability gates (81 tests) with **only pytest installed** — no
+  `requirements.lock`. A producer/registry contradiction now fails in ~1 minute
+  instead of after the full COBOL/Java Docker image build, and the
+  dependency-free install proves the registry/analyzer/producer surface has no
+  hidden third-party coupling. Coverage thresholds and mutation testing are
+  deliberately left open (no evidence-based target yet).
 - **BL-011 FIXED:** the reconciliation guard now covers **both** producers under
   `engine/transformation/producers/`.  Deterministic-lane producers must agree
   with the registry in both directions; every producer must declare a non-empty
@@ -243,13 +250,16 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not retry Docker-in-Docker or alter WSL2/cgroup/Docker security settings.
 - Do not weaken/skip tests to obtain green.
 
+- `ee6fc92` ("docs(checkpoint): record CI failure analysis and reusable method
+  note") pushed: `24540f6..ee6fc92`.
+
 ### Next exact OpenCode action
-1. Commit the BL-004 revert + docs + checkpoint and push to `codex/universal-core`;
-   then verify GitHub Actions for the pushed commit — this is the **first real
-   validation** of the whole P0 sequence, since CI is where the over-claim was
-   caught.
-2. Then BL-012 (CI depth: promote the capability-reconciliation gate to an explicit
-   CI step so a registry/producer contradiction fails fast and visibly).
+1. Commit the BL-012 capability-truth CI gate and push; verify the new
+   `capability-truth` job appears and passes alongside the backend job.
+2. After the full P0 sequence is confirmed green in CI, pick the next P1 roadmap
+   item (INITIALIZE / INSPECT / SEARCH / SET are the lowest-risk, per roadmap
+   §13), always checking for an existing negative contract first — as BL-004
+   showed, some capability claims are deliberately blocked.
 3. Docker-dependent and Java/Node validation remain delegated to Linux CI (BL-010).
 4. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 

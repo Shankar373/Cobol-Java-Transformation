@@ -296,13 +296,24 @@ produced evidence, not re-run here).
 
 ### BL-012 — CI depth below roadmap target
 - **Type:** test/quality
-- **Status:** OPEN
-- **Observed behavior:** CI runs ingestion, backend/oracle/Docker, frontend tests/build.
-  No coverage thresholds, mutation testing, or capability-reconciliation gate.
+- **Status:** PARTIALLY FIXED — 2026-10-10 (capability gate added)
+- **Observed behavior:** CI ran only ingestion, backend/oracle/Docker, and
+  frontend jobs. Capability truth was enforced only inside the Docker-gated
+  backend job, so a producer/registry contradiction surfaced after the full
+  COBOL/Java image build and was easy to misattribute. No coverage thresholds or
+  mutation testing.
 - **Source:** Master README Sections 51/54 (P2), `docs/KNOWN_ISSUES.md` P2.
-- **Remediation (proposed):** Add reconciliation gate (BL-011) and targeted coverage
-  thresholds after P0 items.
-- **Verification level:** STATIC only.
+- **Remediation (implemented):** added a dedicated **`capability-truth`** CI job
+  that runs the reconciliation/silent-loss/usage/structural/rounded gates
+  (81 tests) with **only pytest installed** — no `requirements.lock`. It fails in
+  about a minute instead of after the image build, and the dependency-free
+  install also proves the registry/analyzer/producer surface has no hidden
+  third-party coupling.
+- **Deliberately still open:** coverage thresholds and mutation testing are not
+  added; they are not yet justified by evidence and would add CI time without a
+  defined target.
+- **Verification level:** VERIFIED locally (gate passes, workflow parses with the
+  new job); CI confirmation pending on the pushed commit.
 
 ---
 
@@ -329,6 +340,8 @@ produced evidence, not re-run here).
   registry-key auto-classification and PARTIAL/UNKNOWN non-claiming guards added;
   opensource4j declared tuples hoisted to module scope; external-lane divergence
   pinned explicitly rather than forced to match the registry.
+- 2026-10-10 — BL-012 partially fixed: new dependency-free `capability-truth` CI
+  job gates capability truth in ~1 minute instead of after the Docker image build.
 - 2026-10-10 — BL-008 and BL-009 fixed: the false "integrated proof not wired"
   claim was replaced with the real wiring + locations, and ten live status docs
   now carry a dated Baseline note distinguishing their snapshot SHA/CI from the
