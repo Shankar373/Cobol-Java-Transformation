@@ -422,21 +422,39 @@ class CapabilityAnalyzer:
             not reached by the statement-class walk.  Reading them from the
             IR keeps the verdict backed by what the parser actually produced
             (the source scan alone cannot prove the mapper saw them).
+
+            The walk is generic over the IR dataclass graph rather than a
+            fixed field list, because a constant can sit at any depth:
+            ``COMPUTE A = 0 + ZERO`` nests it inside a ``BinaryExpression``,
+            which a named-field walk would never reach.
             """
-            from engine.transformation.ir import FigurativeConstant as _FigurativeConstant
-            if isinstance(value, _FigurativeConstant):
-                ir_flag_keys.add("FIGURATIVE CONSTANT")
-            elif isinstance(value, (tuple, list, set, frozenset)):
-                for item in value:
-                    _note_figurative(item)
-            elif hasattr(value, "__dataclass_fields__"):
-                for field_name in value.__dataclass_fields__:
-                    if field_name in ("source", "expression", "parts", "condition"):
-                        _note_figurative(getattr(value, field_name, None))
+            from engine.transformation.ir import (
+                Expression as _Expression,
+                FigurativeConstant as _FigurativeConstant,
+            )
+            stack = [value]
+            seen: set[int] = set()
+            while stack:
+                current = stack.pop()
+                if current is None or isinstance(current, str):
+                    continue
+                if id(current) in seen:
+                    continue
+                seen.add(id(current))
+                if isinstance(current, _FigurativeConstant):
+                    ir_flag_keys.add("FIGURATIVE CONSTANT")
+                    continue
+                if isinstance(current, _Expression):
+                    for f in current.__dataclass_fields__:
+                        stack.append(getattr(current, f, None))
+                    continue
+                if isinstance(current, (tuple, list, set, frozenset)):
+                    stack.extend(current)
 
         def _walk_expression(stmt) -> None:
             _note_figurative(getattr(stmt, "source_expr", None))
             _note_figurative(getattr(stmt, "expression_expr", None))
+            _note_figurative(getattr(stmt, "structured_condition", None))
             _note_figurative(getattr(stmt, "parts", None))
             _note_figurative(getattr(stmt, "condition", None))
 

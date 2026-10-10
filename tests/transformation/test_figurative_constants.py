@@ -29,6 +29,7 @@ from engine.transformation.cobol_to_java_mapping import map_cobol_expr_to_java
 from engine.transformation.ir import (
     CobolApplication,
     CobolProgramUnit,
+    Expression,
     FigurativeConstant,
     FieldReference,
     Literal,
@@ -331,6 +332,28 @@ class TestCapabilityTruth:
 
     def test_plain_program_still_supported(self):
         assert _classify(_program("MOVE 5 TO WS-NUM.")) is CapabilityLevel.SUPPORTED
+
+    @pytest.mark.parametrize(
+        "expression", ["0 + ZERO", "ZERO * 2", "1 + 2 * ZERO", "ZERO - WS-NUM"]
+    )
+    def test_nested_constant_is_still_recognised(self, expression):
+        # A constant nested inside a BinaryExpression must be found by the
+        # IR walk; a named-field walk would miss it and degrade the verdict.
+        source = _program(f"COMPUTE WS-NUM = {expression}.")
+        program = CobolParser().parse(source)
+        assert any(
+            isinstance(getattr(stmt, "expression_expr", None), Expression)
+            for para in program.paragraphs
+            for stmt in para.statements
+        )
+        assert _classify(source) is CapabilityLevel.SUPPORTED
+
+    def test_nested_constant_maps_to_correct_java(self):
+        code = _generate(_program("COMPUTE WS-NUM = ZERO * 2."))
+        # The constant becomes the numeric literal 0 in place, so the
+        # expression evaluates identically; no reserved word survives.
+        assert "WS_NUM = (0 * 2);" in code
+        assert "ZERO" not in code
 
     def test_source_only_figurative_does_not_silently_pass(self):
         # A figurative constant present in source but absent from the IR
