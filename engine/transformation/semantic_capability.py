@@ -238,19 +238,24 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "88-level condition-name lowering is not implemented by the "
         "deterministic mapper; unproven"
     ),
-    # Parameter passing modes.  The mapper implements sync-in for every mode and
-    # sync-out for BY REFERENCE only (correct COBOL value semantics), but no
-    # dedicated runtime differential proof exists yet, so the write-losing modes
-    # are honestly PARTIAL rather than SUPPORTED.
-    "BY CONTENT": _partial(
-        "BY CONTENT passes a value in; callee writes are lost (correct COBOL "
-        "semantics) but runtime proof is pending"
-    ),
-    "BY VALUE": _partial(
-        "BY VALUE passes a value in; callee writes are lost (correct COBOL "
-        "semantics) but runtime proof is pending"
-    ),
 }
+
+# NOTE — BY CONTENT / BY VALUE are deliberately NOT registry keys.
+#
+# Roadmap P0-4 permitted either adding PARTIAL keys or keeping the modes blocked;
+# this repository chose "keep blocked", and that choice is locked in by
+# tests/integration/test_phase_d_negative_integration.py::
+# TestUnsupportedParameterContract::test_by_value_and_by_content_are_never_claimed_supported
+#
+# The supporting design rule is documented on
+# ``_analyze_call_linkage_arity``: a passing mode that cannot be proven
+# compatible "is never guessed - it is simply not used to derive support".
+# The mapper does implement sync-in/no-sync-out for these modes, but that is
+# mapper behaviour, not a capability *claim*: with no registry key no consumer
+# can read a supported verdict out of it, which is the conservative outcome the
+# negative contract requires.  Adding keys here would make the contract test fail
+# and would overstate what has been runtime-proven.
+#
 
 
 # Declared USAGE synonym -> canonical registry token.  Collapsing synonyms

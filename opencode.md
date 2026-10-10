@@ -72,20 +72,28 @@ It must never contradict repository reality (§68) and must never be left mislea
   DATA DIVISION explicitly (the procedure-restricted scan cannot see these);
   `workload-redefines`/`workload-occurs` now classify UNKNOWN and
   `workload-level88` stays non-SUPPORTED.  No mapper/runtime change.
-- **BL-004 (P0) FIXED:** BY CONTENT / BY VALUE are no longer capability-invisible.
-  Registry keys at PARTIAL (sync-in / no-sync-out implemented, callee writes
-  lost — correct COBOL semantics — runtime proof pending); the analyzer inspects
-  `CallStatement.passing_modes`; `workload-by-content`/`workload-by-value` MAIN
-  now classify PARTIAL.  No mapper/runtime change.
+- **BL-004 (P0) CLOSED BY DESIGN DECISION — no code change, premise corrected.**
+  I first added `BY CONTENT`/`BY VALUE` registry keys at PARTIAL.  **CI rejected
+  it**: runs #435/#436/#437/#438 failed on
+  `test_by_value_and_by_content_are_never_claimed_supported`, a pre-existing
+  negative contract that forbids these modes from ever being registry keys.  That
+  is the repository's deliberate choice of the roadmap P0-4 option "keep
+  blocked".  I reverted the keys and the analyzer classification, and instead
+  documented the decision (registry comment, analyzer note, proof-matrix row
+  "deliberately unclassified (blocked)").  No key ⇒ no consumer can read a
+  support verdict out of these modes.  Mapper behavior was never changed.
+  **Lesson recorded:** CI caught an over-claim that the local suite could not,
+  because the guard lives in a Docker-gated integration test.
 - **BL-005 (P0) FIXED, premise corrected:** the recorded symptom ("ROUNDED
   parsed but no mapping evidence") was **false**.  The flag already reaches Java
   as `RoundingMode.HALF_UP` (default stays `DOWN` truncation) and the pre-existing
   `test_decimal_arithmetic_semantics.py` already asserted it.  Only the registry
   key was missing: added at SUPPORTED, and the analyzer now reads the `rounded`
   IR flag so the verdict is backed by the parsed flag rather than a source match.
-- **P0 capability backlog (BL-001…BL-005) is now closed.** No mapper/runtime
-  behavior was changed in this whole sequence; all five items were capability/
-  classification defects.
+- **P0 capability backlog (BL-001…BL-005) is now closed.** BL-004 closed by an
+  explicit, documented design decision (see above). No mapper/runtime behavior was
+  changed in this whole sequence; every item was a capability/classification
+  defect.
 - **BL-008 FIXED (documentation contradiction):** `docs/SYSTEMAOPS_PRODUCT_STATUS.md`
   §18 claimed the integrated proof was "not yet wired into `api/service.py`". The
   code contradicts that: `api/service.py` builds it via `runtime_evidence_from_result`
@@ -127,7 +135,6 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `tests/transformation/test_capability_registry_reconciliation.py` (new; 11 tests).
 - `tests/transformation/test_usage_capability.py` (new; 22 tests).
 - `tests/transformation/test_structural_capability.py` (new; 9 tests).
-- `tests/transformation/test_passing_mode_capability.py` (new; 8 tests).
 - `tests/transformation/test_rounded_capability.py` (new; 7 tests).
 - `tests/transformation/test_producer_capability_consistency.py` (new; 16 tests).
 - `engine/transformation/producers/opensource4j.py` (declared tuples hoisted).
@@ -144,8 +151,9 @@ It must never contradict repository reality (§68) and must never be left mislea
 - BL-002: `pytest -q tests/transformation/test_usage_capability.py` → **22 passed**.
 - BL-003: `pytest -q tests/transformation/test_structural_capability.py` → **9 passed**;
   `workload-redefines`/`workload-occurs` → UNKNOWN.
-- BL-004: `pytest -q tests/transformation/test_passing_mode_capability.py` → **8 passed**;
-  `workload-by-content`/`workload-by-value` MAIN → PARTIAL.
+- BL-004: reverted after CI failure (see above); the previously failing contract
+  test now passes: `pytest -q tests/integration/test_phase_d_negative_integration.py`
+  → **26 passed**.
 - BL-005: `pytest -q tests/transformation/test_rounded_capability.py` → **7 passed**.
 - BL-011: `pytest -q tests/transformation/test_producer_capability_consistency.py
   tests/transformation/test_capability_registry_reconciliation.py
@@ -174,12 +182,11 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `490eb5a` ("fix(capability): classify REDEFINES/OCCURS/88-level as UNKNOWN
   (P0-3)") pushed: `dfcc725..490eb5a`. CI for `490eb5a`: Push CI #433
   SUCCESS, PR CI #434 SUCCESS, Supply chain #15/#16 SUCCESS.
-- `92cd314` ("fix(capability): classify BY CONTENT/BY VALUE as PARTIAL (P0-4)")
-  pushed: `490eb5a..92cd314`.
-- `a63e359` ("fix(capability): register ROUNDED as SUPPORTED; correct BL-005
-  premise (P0-5)") pushed: `92cd314..a63e359`.
-- `09375b2` ("test(capability): extend reconciliation guard to all producers
-  (BL-011)") pushed: `a63e359..09375b2`.
+- `92cd314`, `a63e359`, `09375b2`, `f7c2e10` — pushed; CI runs #435–#442. The
+  **Backend and COBOL/Java Docker tests** job FAILED on #435/#436/#437/#438 with
+  `test_by_value_and_by_content_are_never_claimed_supported`. Root cause: the
+  BL-004 registry keys violated a pre-existing negative contract (see above).
+  Ingestion and frontend jobs were green throughout.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
@@ -212,11 +219,12 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 ### Next exact OpenCode action
-1. Commit BL-008 + BL-009 + docs + checkpoint and push to `codex/universal-core`;
-   then verify GitHub Actions for the pushed commit.
-2. Remaining open items are BL-012 (CI depth: add the reconciliation gate as an
-   explicit CI step) and the P1 roadmap items (INITIALIZE, INSPECT, SEARCH, SET,
-   UNSTRING/STRING breadth, COPY REPLACING, indexed/relative runtime).
+1. Commit the BL-004 revert + docs + checkpoint and push to `codex/universal-core`;
+   then verify GitHub Actions for the pushed commit — this is the **first real
+   validation** of the whole P0 sequence, since CI is where the over-claim was
+   caught.
+2. Then BL-012 (CI depth: promote the capability-reconciliation gate to an explicit
+   CI step so a registry/producer contradiction fails fast and visibly).
 3. Docker-dependent and Java/Node validation remain delegated to Linux CI (BL-010).
 4. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 

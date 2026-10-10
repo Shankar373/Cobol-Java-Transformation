@@ -122,27 +122,32 @@ produced evidence, not re-run here).
 
 ### BL-004 — BY CONTENT / BY VALUE capability hole
 - **Type:** defect (capability truth)
-- **Status:** FIXED — 2026-10-10 (this session)
+- **Status:** **RESOLVED BY DESIGN DECISION — no code change** (2026-10-10)
 - **Observed behavior:** Mapper implements sync-in/no-sync-out for BY CONTENT/BY VALUE;
   fixtures exist; no registry key means capability UNKNOWN, and no dedicated runtime
   comparison was found.
 - **Expected behavior:** roadmap P0-4; honest classification of parameter modes.
-- **Affected files:** `engine/transformation/semantic_capability.py`,
-  `engine/modernization/capability_analyzer.py`, `docs/SEMANTIC_PROOF_MATRIX.md`.
 - **Impact:** Parameter-mode divergence is a classic silent-divergence source.
-- **Remediation (implemented):**
-  * Registry keys `BY CONTENT` / `BY VALUE` at PARTIAL (sync-in / no-sync-out
-    implemented, callee writes lost — correct COBOL semantics — runtime proof
-    pending).
-  * Analyzer inspects `CallStatement.passing_modes` and emits a PARTIAL finding
-    for CONTENT/VALUE; BY REFERENCE stays covered by the CALL SUPPORTED verdict.
-- **Acceptance criteria / tests:**
-  `tests/transformation/test_passing_mode_capability.py` (8 tests) — registry keys
-  PARTIAL, `workload-by-content`/`workload-by-value` MAIN PARTIAL, minimal
-  BY CONTENT/BY VALUE programs PARTIAL, BY REFERENCE not PARTIAL.
-- **Evidence:** `pytest tests/transformation/test_passing_mode_capability.py` →
-  8 passed; fixtures MAIN → PARTIAL (2026-10-10).
-- **Last verified commit:** (this session commit — see `opencode.md`).
+- **Premise correction (CI evidence):** an earlier attempt in this session added
+  `BY CONTENT`/`BY VALUE` registry keys at PARTIAL.  CI run #435/#436/#437/#438
+  failed on `test_by_value_and_by_content_are_never_claimed_supported`, which
+  asserts these modes must **never** appear as registry keys.  That negative
+  contract is deliberate and predates this session: it encodes the repository's
+  choice of the roadmap P0-4 option "**keep blocked**".
+- **Resolution:** the registry keys and the analyzer classification were reverted.
+  The conservative contract is preserved and is now documented explicitly:
+  * `semantic_capability.py` carries a comment stating the modes are deliberately
+    keyless, citing the negative contract test.
+  * `capability_analyzer.py` records that an unproven passing mode must not derive
+    a support verdict — matching the existing rule on `_analyze_call_linkage_arity`
+    ("a mode that cannot be proven compatible is never guessed").
+  * `docs/SEMANTIC_PROOF_MATRIX.md` documents the modes as *deliberately
+    unclassified (blocked)* rather than PARTIAL.
+  * Rationale: no registry key means no consumer can read a support verdict out
+    of these modes, which is the conservative outcome. Mapper behavior is
+    unchanged and remains correct COBOL value semantics.
+- **Verification level:** VERIFIED — the previously failing contract test now
+  passes (26 passed in `test_phase_d_negative_integration.py`).
 
 ### BL-005 — ROUNDED flag consumption unverified
 - **Type:** defect (capability truth)
@@ -312,9 +317,10 @@ produced evidence, not re-run here).
 - 2026-10-10 — BL-003 fixed: registry keys `REDEFINES`/`OCCURS`/`88-LEVEL` at
   UNKNOWN (fail-closed), data-division source scan in the analyzer, fixtures
   `workload-redefines`/`workload-occurs` now UNKNOWN (9 new tests).
-- 2026-10-10 — BL-004 fixed: registry keys `BY CONTENT`/`BY VALUE` at PARTIAL,
-  analyzer inspects `CallStatement.passing_modes`, fixtures
-  `workload-by-content`/`workload-by-value` MAIN now PARTIAL (8 new tests).
+- 2026-10-10 — BL-004 closed by design decision: the PARTIAL registry keys were
+  reverted after CI proved `test_by_value_and_by_content_are_never_claimed_supported`
+  forbids them. The modes stay deliberately unclassified; the decision is now
+  documented in the registry, the analyzer and the proof matrix.
 - 2026-10-10 — BL-005 fixed with a premise correction: ROUNDED already reached
   Java (`RoundingMode.HALF_UP`), so the registry key was simply missing. Key
   added at SUPPORTED and the analyzer now reads the `rounded` IR flag (7 new

@@ -133,10 +133,7 @@ _LINKAGE_WALK_ATTRS = (
 
 # CALL passing mode -> registry key.  Only the write-losing modes are tracked;
 # BY REFERENCE stays covered by the CALL SUPPORTED verdict.
-_PASSING_MODE_KEYS = {
-    "CONTENT": "BY CONTENT",
-    "VALUE": "BY VALUE",
-}
+
 
 
 def _iter_call_statements(program) -> "list[CallStatement]":
@@ -351,7 +348,6 @@ class CapabilityAnalyzer:
         construct can never be hidden by an outer supported statement.
         """
         from engine.transformation.ir import (
-            CallStatement,
             DeleteStatement,
             IfStatement,
             OpenStatement,
@@ -474,16 +470,12 @@ class CapabilityAnalyzer:
                     f"(mode={stmt.mode})",
                 ))
 
-            if isinstance(stmt, CallStatement):
-                # BY CONTENT / BY VALUE lose the callee's writes (correct COBOL
-                # semantics) but are not runtime-proven yet, so they classify
-                # PARTIAL rather than SUPPORTED.  BY REFERENCE writes flow back
-                # and stay covered by the CALL SUPPORTED verdict.
-                for mode in stmt.passing_modes or ():
-                    key = _PASSING_MODE_KEYS.get(mode.upper())
-                    if key is not None:
-                        entry = CONSTRUCT_REGISTRY[key]
-                        findings.append((key, entry.level, entry.evidence))
+            # NOTE — BY CONTENT / BY VALUE are intentionally not classified
+            # here.  They have no registry key by design (see the note in
+            # semantic_capability.py and the negative contract test
+            # test_by_value_and_by_content_are_never_claimed_supported): an
+            # unproven passing mode must never be used to derive a support
+            # verdict, matching the rule on _analyze_call_linkage_arity.
 
         for paragraph in program.paragraphs:
             for stmt in paragraph.statements:
