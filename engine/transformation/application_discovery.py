@@ -48,6 +48,7 @@ from engine.transformation.ir import (
     FileDependency,
     ProgramCall,
 )
+from engine.transformation.diagnostics import DiagnosticCode
 
 # ---------------------------------------------------------------------------
 # File-operation scanning patterns.
@@ -239,9 +240,14 @@ class ApplicationDiscovery:
         parse_diagnostics: tuple[str, ...] = ()
 
         def _collected_diagnostics() -> tuple[str, ...]:
+            # PARTIAL_SUPPORT diagnostics describe a recognised, bounded
+            # narrowing (e.g. COMP/COMP-3 byte encoding) that the capability
+            # analyzer classifies from IR at PARTIAL.  Feeding them into the
+            # loss channel would wrongly force the program to UNSUPPORTED.
             return tuple(
                 f"{d.code.name}: {d.message}"
                 for d in self._parser.diagnostics.all[len(diags_before):]
+                if d.code is not DiagnosticCode.PARTIAL_SUPPORT
             )
 
         try:

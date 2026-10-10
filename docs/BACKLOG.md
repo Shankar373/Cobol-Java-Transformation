@@ -53,28 +53,43 @@ produced evidence, not re-run here).
 
 ### BL-002 — COMP / COMP-3 USAGE silently ignored (no diagnostic, no registry key)
 - **Type:** defect (no silent loss)
-- **Status:** OPEN
+- **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** `PIC S9(4) COMP` parses with zero diagnostics; the USAGE
   clause and its storage-encoding semantics are dropped without a trace.
-  `engine/transformation/cobol_parser.py` has no `USAGE`/`COMP`/`COMP-3` handling and
-  `DataItem` carries no usage field; the registry has no `COMP`/`COMP-3` keys.
+  `engine/transformation/cobol_parser.py` had no `USAGE`/`COMP`/`COMP-3` handling and
+  `DataItem` carried no usage field; the registry had no `COMP`/`COMP-3` keys.
 - **Expected behavior:** Master README Sections 18/19/60: recognized constructs must
   produce explicit diagnostics and honest capability classification, never silent loss.
 - **Root cause:** USAGE clause never modeled.
 - **Affected files:** `engine/transformation/cobol_parser.py`,
   `engine/transformation/ir.py`, `engine/transformation/semantic_capability.py`,
+  `engine/modernization/capability_analyzer.py`,
+  `engine/transformation/application_discovery.py`,
   `docs/SEMANTIC_PROOF_MATRIX.md`.
 - **Source:** `docs/COBOL_UNIVERSALITY_ROADMAP.md` §12 P0-2 / §6.1.
 - **Impact:** Silent narrowing of numeric storage semantics; false confidence for
   COMP/COMP-3 workloads.
-- **Remediation (proposed):** Emit an explicit parse diagnostic and/or record usage on
-  `DataItem`; add registry keys `COMP`/`COMP-3` at PARTIAL ("value semantics only;
-  byte encoding excluded"); add positive parse-diagnostic tests + negative overflow
-  boundaries. No mapper/runtime behavior change in this batch.
-- **Acceptance criteria:** parse produces an explicit UNSUPPORTED/PARTIAL diagnostic;
-  registry keys documented in `docs/SEMANTIC_PROOF_MATRIX.md`; `workload-comp`,
-  `workload-comp3` classified PARTIAL, never SUPPORTED.
-- **Verification level:** STATIC only.
+- **Remediation (implemented):**
+  * `DataItem.usage: str | None` records the canonical USAGE token (COMP, COMP-1,
+    COMP-2, COMP-3, COMP-5; synonyms COMPUTATIONAL/BINARY/PACKED-DECIMAL collapse;
+    DISPLAY/absent → None).
+  * Parser extracts the clause in WORKING-STORAGE, FILE SECTION and
+    `parse_data_description_lines` (copybooks), and emits a non-blocking
+    `PARTIAL_SUPPORT` diagnostic per item.
+  * Registry keys `COMP`/`COMP-1`/`COMP-2`/`COMP-3`/`COMP-5` at PARTIAL
+    ("value semantics only; byte encoding excluded"); `canonical_usage` +
+    `USAGE_TO_CONSTRUCT` helpers; source patterns for the copybook classifier.
+  * Capability analyzer walks `DataItem.usage` and classifies the program PARTIAL;
+    discovery filters `PARTIAL_SUPPORT` out of the loss channel so it never forces
+    UNSUPPORTED. Mapper/runtime behavior unchanged.
+- **Acceptance criteria / tests:**
+  `tests/transformation/test_usage_capability.py` (22 tests) — parser records usage
+  (incl. synonyms, file-section, literal/field-name negatives), emits
+  PARTIAL_SUPPORT, analyzer classifies `workload-comp`/`workload-comp3` PARTIAL
+  (never SUPPORTED), no-usage program stays SUPPORTED, registry keys PARTIAL.
+- **Evidence:** `pytest tests/transformation/test_usage_capability.py` → 22 passed;
+  `workload-comp`/`workload-comp3` → PARTIAL (2026-10-10).
+- **Last verified commit:** (this session commit — see `opencode.md`).
 
 ### BL-003 — REDEFINES / OCCURS / 88-level mapping unverified, no registry keys
 - **Type:** defect (capability truth)
@@ -219,3 +234,7 @@ produced evidence, not re-run here).
 
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
   (Sections 76–77). BL-001 fixed; BL-006/BL-007 fixed; BL-011 partially fixed.
+- 2026-10-10 — BL-002 fixed: USAGE clause now recorded on `DataItem.usage`,
+  PARTIAL_SUPPORT diagnostic emitted, registry keys `COMP`/`COMP-1`/`COMP-2`/
+  `COMP-3`/`COMP-5` at PARTIAL, analyzer classifies `workload-comp`/
+  `workload-comp3` PARTIAL (22 new tests).

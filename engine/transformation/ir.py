@@ -184,6 +184,7 @@ class DataItem:
     - PIC clauses (X, 9, etc.)
     - VALUE clauses
     - OCCURS clauses
+    - USAGE clauses (COMP / COMP-3 / COMP-5 / ...)
     - Group hierarchy (children)
     """
     name: str
@@ -195,6 +196,12 @@ class DataItem:
     value: str | None = None
     occurs: int | None = None
     redefines: str | None = None  # REDEFINES clause
+    # Canonical USAGE token when a USAGE clause was declared (e.g. "COMP",
+    # "COMP-3", "COMP-5").  ``None`` means DISPLAY (the COBOL default) or no
+    # clause.  The value path (numeric value/DISPLAY semantics) is certified;
+    # the record-area byte *encoding* of the non-DISPLAY usages is not, so it
+    # is recorded explicitly rather than silently dropped.
+    usage: str | None = None
     children: tuple[DataItem, ...] = ()
 
     @property

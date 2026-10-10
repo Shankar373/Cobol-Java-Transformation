@@ -183,6 +183,81 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "NEXT SENTENCE": _unsupported("NEXT SENTENCE is not represented by the procedure IR"),
     "GOBACK": _unsupported("GOBACK is not represented by the procedure IR"),
     "SIZE ERROR": _unsupported("SIZE ERROR handling is not yet represented in the arithmetic IR"),
+    # USAGE clauses.  The numeric *value* path (arithmetic, DISPLAY text,
+    # VALUE normalization) is certified, but the record-area *byte encoding*
+    # of these usages (binary layout, packed sign overpunch) is not, so each
+    # is honestly PARTIAL rather than silently treated as DISPLAY.  The
+    # parser records the usage on ``DataItem.usage`` and emits a
+    # PARTIAL_SUPPORT diagnostic so the narrowing is never silent.
+    "COMP": _partial(
+        "COMP (binary) value semantics are mapped; record-area byte encoding "
+        "is not certified"
+    ),
+    "COMP-1": _partial(
+        "COMP-1 (single float) value semantics are mapped; byte encoding is "
+        "not certified"
+    ),
+    "COMP-2": _partial(
+        "COMP-2 (double float) value semantics are mapped; byte encoding is "
+        "not certified"
+    ),
+    "COMP-3": _partial(
+        "COMP-3 (packed decimal) value semantics are mapped; packed sign/byte "
+        "encoding is not certified"
+    ),
+    "COMP-5": _partial(
+        "COMP-5 (native binary) value semantics are mapped; byte encoding is "
+        "not certified"
+    ),
+}
+
+
+# Declared USAGE synonym -> canonical registry token.  Collapsing synonyms
+# here keeps ``DataItem.usage`` canonical so capability classification cannot
+# drift between ``COMP``/``COMPUTATIONAL``/``BINARY`` spellings.
+_USAGE_SYNONYMS: dict[str, str] = {
+    "COMP": "COMP",
+    "COMPUTATIONAL": "COMP",
+    "BINARY": "COMP",
+    "COMP-4": "COMP",
+    "COMPUTATIONAL-4": "COMP",
+    "COMP-1": "COMP-1",
+    "COMPUTATIONAL-1": "COMP-1",
+    "COMP-2": "COMP-2",
+    "COMPUTATIONAL-2": "COMP-2",
+    "COMP-3": "COMP-3",
+    "COMPUTATIONAL-3": "COMP-3",
+    "PACKED-DECIMAL": "COMP-3",
+    "COMP-5": "COMP-5",
+    "COMPUTATIONAL-5": "COMP-5",
+}
+
+
+def canonical_usage(token: str | None) -> str | None:
+    """Return the canonical USAGE token, or None for DISPLAY/unrecognised.
+
+    ``DISPLAY`` is the COBOL default and carries no encoding narrowing, so it
+    canonicalises to ``None`` exactly like an absent clause.  An unrecognised
+    non-default token is returned upper-cased so the caller can surface it
+    explicitly instead of silently dropping it.
+    """
+    if token is None:
+        return None
+    normalised = token.strip().upper()
+    if not normalised or normalised in ("DISPLAY", "DISPLAY-1"):
+        return None
+    return _USAGE_SYNONYMS.get(normalised, normalised)
+
+
+# Canonical usage token -> registry key.  Consumers classify a data item by
+# looking its ``usage`` up here; a token with no entry is not silently
+# ignored (the analyzer reports it as PARTIAL).
+USAGE_TO_CONSTRUCT: dict[str, str] = {
+    "COMP": "COMP",
+    "COMP-1": "COMP-1",
+    "COMP-2": "COMP-2",
+    "COMP-3": "COMP-3",
+    "COMP-5": "COMP-5",
 }
 
 
@@ -253,6 +328,14 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("REWRITE", re.compile(r"(?<![\w-])REWRITE(?![\w-])", re.IGNORECASE)),
     ("DELETE", re.compile(r"(?<![\w-])DELETE(?![\w-])", re.IGNORECASE)),
     ("INVALID KEY", re.compile(r"(?<![\w-])INVALID\s+KEY(?![\w-])", re.IGNORECASE)),
+    # USAGE clauses (data-division only; only reached when callers scan with
+    # restrict_to_procedure=False, e.g. the copybook classifier).  Longest
+    # alternatives first so COMP-3/COMP-5 are not shadowed by plain COMP.
+    ("COMP-1", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-1|COMP-1)(?![\w-])", re.IGNORECASE)),
+    ("COMP-2", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-2|COMP-2)(?![\w-])", re.IGNORECASE)),
+    ("COMP-5", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-5|COMP-5)(?![\w-])", re.IGNORECASE)),
+    ("COMP-3", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-3|PACKED-DECIMAL|COMP-3)(?![\w-])", re.IGNORECASE)),
+    ("COMP", re.compile(r"(?<![\w-])(?:COMPUTATIONAL-4|COMPUTATIONAL|COMP-4|BINARY|COMP)(?![\w-])", re.IGNORECASE)),
 )
 
 
@@ -334,6 +417,8 @@ __all__ = [
     "PARTIAL_CONSTRUCTS",
     "SUPPORTED_CONSTRUCTS",
     "UNSUPPORTED_CONSTRUCTS",
+    "USAGE_TO_CONSTRUCT",
+    "canonical_usage",
     "ir_covers",
     "scan_constructs",
     "worst_level",

@@ -60,20 +60,50 @@ It must never contradict repository reality (§68) and must never be left mislea
 - **BL-007 FIXED:** rewrote this stale checkpoint.
 - **BL-011 PARTIALLY FIXED:** reconciliation test now covers the internal native
   producer (not yet all producers).
+- **BL-002 (P0) FIXED:** COMP/COMP-3 USAGE is no longer silently ignored.
+  `DataItem.usage` records the canonical token; the parser emits a non-blocking
+  `PARTIAL_SUPPORT` diagnostic; registry keys `COMP`/`COMP-1`/`COMP-2`/`COMP-3`/
+  `COMP-5` classify at PARTIAL; the analyzer walks `DataItem.usage` so
+  `workload-comp`/`workload-comp3` are PARTIAL (never SUPPORTED); discovery filters
+  `PARTIAL_SUPPORT` out of the loss channel so it never forces UNSUPPORTED.
+  Mapper/runtime behavior unchanged.
 
 ### Files changed this session
 - `engine/transformation/producers/internal_native.py` (capability lists now
   registry-derived).
+- `engine/transformation/ir.py` (`DataItem.usage`).
+- `engine/transformation/semantic_capability.py` (COMP registry keys,
+  `canonical_usage`, `USAGE_TO_CONSTRUCT`, source patterns).
+- `engine/transformation/cobol_parser.py` (USAGE extraction + PARTIAL_SUPPORT).
+- `engine/modernization/capability_analyzer.py` (usage walk).
+- `engine/transformation/application_discovery.py` (loss-channel filter).
 - `tests/transformation/test_capability_registry_reconciliation.py` (new; 11 tests).
-- `docs/BACKLOG.md` (new).
+- `tests/transformation/test_usage_capability.py` (new; 22 tests).
+- `docs/BACKLOG.md` (new; BL-002 now FIXED).
+- `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family rows).
 - `opencode.md` (rewritten live checkpoint; now intended to be tracked).
 
 ### Tests run this session
 - Focused: `pytest -q tests/transformation/test_capability_registry_reconciliation.py
   tests/transformation/test_producer_contract.py` → **29 passed** (2026-10-10).
-- Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS unset)
-  → **IN PROGRESS at time of writing**; result appended below when complete. Docker
-  tests are skipped/blocked locally (see environment blocker).
+- BL-002: `pytest -q tests/transformation/test_usage_capability.py` → **22 passed**.
+- Regression: `pytest -q tests/transformation tests/adversarial
+  tests/test_silent_loss_registry.py tests/test_copybook_m7.py
+  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1888 passed,
+  11 skipped, 22 failed**; all 22 failures are environment-only `FileNotFoundError`
+  from a missing `javac` (no JDK on this host), not regressions.
+- Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS
+  unset) → result appended below when complete. Docker tests are skipped/blocked
+  locally (see environment blocker).
+
+### Push / CI status (2026-10-10)
+- The earlier push blocker is **resolved**: Git Credential Manager has stored
+  credentials, so `git push` now succeeds non-interactively.
+- `f069498` ("fix(capability): derive internal producer constructs from
+  authoritative registry (P0-1)") pushed to `codex/universal-core`:
+  `81e7955..f069498`.
+- CI for `f069498`: Supply chain #11 (push) / #12 (PR) SUCCESS; Push CI #429 and
+  PR CI #430 were in progress at time of writing.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
@@ -106,12 +136,12 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 ### Next exact OpenCode action
-1. Confirm the full local non-Docker regression result is green; append it here.
-2. Commit BL-001 + backlog + checkpoint and push to `codex/universal-core`; then verify
-   GitHub Actions for the pushed commit.
-3. Continue the P0 backlog: implement BL-002 (COMP/COMP-3 explicit diagnostic + registry
-   keys, PARTIAL, with parse-diagnostic tests), then BL-003/BL-004/BL-005 as scoped.
-4. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
+1. Commit BL-002 + tests + docs + checkpoint and push to `codex/universal-core`;
+   then verify GitHub Actions for the pushed commit.
+2. Continue the P0 backlog: implement BL-003 (REDEFINES/OCCURS/88-level registry keys
+   at UNKNOWN + runtime proof or explicit scope), then BL-004 (BY CONTENT/BY VALUE)
+   and BL-005 (ROUNDED) as scoped.
+3. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 
 ---
 

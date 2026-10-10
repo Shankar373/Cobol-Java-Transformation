@@ -50,6 +50,7 @@ from engine.transformation.semantic_capability import (
     PARTIAL_CONSTRUCTS,
     SUPPORTED_CONSTRUCTS,
     UNSUPPORTED_CONSTRUCTS,
+    USAGE_TO_CONSTRUCT,
     CapabilityLevel,
     ir_covers,
     scan_constructs,
@@ -168,6 +169,24 @@ def _iter_call_statements(program) -> "list[CallStatement]":
     for paragraph in getattr(program, "paragraphs", ()):
         for stmt in getattr(paragraph, "statements", ()):
             _walk(stmt)
+    return found
+
+
+def _iter_data_item_tree(item):
+    """Yield a ``DataItem`` and every descendant (group hierarchy)."""
+    yield item
+    for child in getattr(item, "children", ()) or ():
+        yield from _iter_data_item_tree(child)
+
+
+def _iter_program_data_items(program) -> list:
+    """Every DataItem declared by a program (working-storage + file records)."""
+    found: list = []
+    for item in getattr(program, "working_storage", ()) or ():
+        found.extend(_iter_data_item_tree(item))
+    for fd in getattr(program, "file_definitions", ()) or ():
+        for item in getattr(fd, "record_items", ()) or ():
+            found.extend(_iter_data_item_tree(item))
     return found
 
 
@@ -484,6 +503,34 @@ class CapabilityAnalyzer:
                     ))
                     continue
                 findings.append((key, entry.effective_source_level, entry.evidence))
+
+        # USAGE clause evidence (BL-002).  The parser records a declared
+        # USAGE on DataItem; a non-DISPLAY usage means the numeric *value*
+        # path is mapped but the record-area *byte encoding* is not certified.
+        # Before this the clause was silently ignored, which the capability
+        # rule forbids.  The source scan above is procedure-restricted, so
+        # data-division usages are only visible here.
+        usage_items: dict[str, list[str]] = {}
+        for item in _iter_program_data_items(program):
+            if not item.usage:
+                continue
+            usage_key = USAGE_TO_CONSTRUCT.get(item.usage, "USAGE")
+            usage_items.setdefault(usage_key, []).append(f"{item.name} ({item.usage})")
+        for usage_key in sorted(usage_items):
+            items_text = ", ".join(sorted(usage_items[usage_key]))
+            if usage_key in CONSTRUCT_REGISTRY:
+                entry = CONSTRUCT_REGISTRY[usage_key]
+                findings.append((
+                    usage_key,
+                    entry.level,
+                    f"{entry.evidence}; items: {items_text}",
+                ))
+            else:
+                findings.append((
+                    "USAGE",
+                    CapabilityLevel.PARTIAL,
+                    "no certified value or encoding mapping; items: " + items_text,
+                ))
 
         # A COPY reference is part of the parsed program's source context; it
         # is not itself a generated program, so an unresolved resolution

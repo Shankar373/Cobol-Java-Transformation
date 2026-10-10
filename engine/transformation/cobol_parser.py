@@ -28,6 +28,7 @@ import re
 from typing import Any
 
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
+from engine.transformation.semantic_capability import canonical_usage
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -108,6 +109,31 @@ def _is_paragraph_name(name: str) -> bool:
     if upper.startswith("END-"):
         return False
     return upper not in _NON_PARAGRAPH_WORDS
+
+
+# USAGE clause tokens (longest first so COMP-3/COMP-5 are not shadowed by the
+# bare COMP alternative).  Only the part of a data-description entry after the
+# item name is scanned, so a field literally named COMP cannot be mistaken for
+# a usage clause.
+_USAGE_CLAUSE = re.compile(
+    r"(?<![\w-])(?:COMPUTATIONAL-1|COMPUTATIONAL-2|COMPUTATIONAL-3"
+    r"|COMPUTATIONAL-4|COMPUTATIONAL-5|COMPUTATIONAL"
+    r"|COMP-1|COMP-2|COMP-3|COMP-4|COMP-5|COMP|PACKED-DECIMAL|BINARY)(?![\w-])",
+    re.IGNORECASE,
+)
+
+
+def _parse_usage_clause(rest: str) -> str | None:
+    """Extract a canonical USAGE token from a data-description entry tail.
+
+    Quoted literals are stripped first so ``VALUE "COMP"`` never registers as
+    a usage clause.  Returns ``None`` when no (non-DISPLAY) usage is present.
+    """
+    without_literals = re.sub(r"'[^']*'|\"[^\"]*\"", " ", rest)
+    match = _USAGE_CLAUSE.search(without_literals)
+    if not match:
+        return None
+    return canonical_usage(match.group(0))
 
 
 def _clean_line(line: str) -> str:
@@ -195,6 +221,23 @@ class CobolParser:
             DiagnosticCode.UNSUPPORTED_CONSTRUCT,
             f"Statement did not parse into IR: {statement} ({line.strip()[:60]})",
             location=statement,
+        )
+
+    def _note_usage(self, name: str, usage: str | None) -> None:
+        """Record a non-DISPLAY USAGE clause as a PARTIAL_SUPPORT diagnostic.
+
+        The numeric *value* path is certified, but the record-area *byte
+        encoding* of COMP/COMP-2/COMP-3/... is not.  Emitting this keeps the
+        narrowing visible to raw parser consumers (the capability analyzer
+        classifies it from ``DataItem.usage`` and must not treat it as loss).
+        """
+        if not usage:
+            return
+        self._diagnostics.warning(
+            DiagnosticCode.PARTIAL_SUPPORT,
+            f"USAGE {usage} on {name}: value semantics only; record-area byte "
+            "encoding not certified",
+            location=name,
         )
 
     def parse(self, source: str) -> CobolProgram:
@@ -513,12 +556,17 @@ class CobolParser:
                             pic_type, pic_length, decimal_places = self._parse_pic_details(
                                 pic_match.group(1)
                             )
+                            tail = line.strip().split(None, 2)
+                            rest = tail[2] if len(tail) > 2 else ""
+                            usage = _parse_usage_clause(rest)
+                            self._note_usage(current_record, usage)
                             current_items.append(DataItem(
                                 name=current_record,
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
                                 signed=self._pic_is_signed(pic_match.group(1)),
+                                usage=usage,
                             ))
                 elif current_fd and re.match(r"\d{2}\s+", upper):
                     # Handle sub-level items (05, 10, 15, etc.)
@@ -530,12 +578,17 @@ class CobolParser:
                             pic_type, pic_length, decimal_places = self._parse_pic_details(
                                 pic_match.group(1)
                             )
+                            tail = line.strip().split(None, 2)
+                            rest = tail[2] if len(tail) > 2 else ""
+                            usage = _parse_usage_clause(rest)
+                            self._note_usage(item_name, usage)
                             current_items.append(DataItem(
                                 name=item_name,
                                 pic_type=pic_type,
                                 pic_length=pic_length,
                                 decimal_places=decimal_places,
                                 signed=self._pic_is_signed(pic_match.group(1)),
+                                usage=usage,
                             ))
                 elif upper.startswith(("WORKING-STORAGE", "PROCEDURE")):
                     if current_fd and current_record:
@@ -567,6 +620,8 @@ class CobolParser:
             value_m = re.search(r"(?:^|\s)VALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
             occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
             redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
+            usage = _parse_usage_clause(rest)
+            self._note_usage(name, usage)
             parsed.append((level, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
@@ -574,6 +629,7 @@ class CobolParser:
                 value=value_m.group(1).strip().rstrip(".") if value_m else None,
                 occurs=int(occurs_m.group(1)) if occurs_m else None,
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
+                usage=usage,
             )))
         roots = []
         stack = []
@@ -586,6 +642,7 @@ class CobolParser:
             return DataItem(name=root.name, level=root.level, pic_type=root.pic_type,
                             pic_length=root.pic_length, decimal_places=root.decimal_places,
                             signed=root.signed, value=root.value, occurs=root.occurs, redefines=root.redefines,
+                            usage=root.usage,
                             children=children)
         for level, item in parsed:
             while stack and stack[-1][0] >= level:
@@ -597,6 +654,7 @@ class CobolParser:
                 updated = DataItem(name=parent.name, level=parent.level, pic_type=parent.pic_type,
                                    pic_length=parent.pic_length, decimal_places=parent.decimal_places,
                                    signed=parent.signed, value=parent.value, occurs=parent.occurs, redefines=parent.redefines,
+                                   usage=parent.usage,
                                    children=parent.children + (item,))
                 roots = [replace_node(r, parent, updated) for r in roots]
                 stack[-1] = (parent_level, updated)
@@ -668,6 +726,8 @@ class CobolParser:
                     re.IGNORECASE,
                 )
                 occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
+                usage = _parse_usage_clause(line[level_match.end():])
+                self._note_usage(item_name, usage)
 
                 if pic_match:
                     pic_type, pic_length, decimal_places = self._parse_pic_details(
@@ -685,6 +745,7 @@ class CobolParser:
                             decimal_places=decimal_places,
                                 signed=self._pic_is_signed(pic_match.group(1)),
                             value=value,
+                            usage=usage,
                         ))
                     else:
                         # Level 01 — standalone item
@@ -696,6 +757,7 @@ class CobolParser:
                                 signed=self._pic_is_signed(pic_match.group(1)),
                             value=value,
                             occurs=occurs,
+                            usage=usage,
                         ))
                         current_group_name = item_name if level == 1 else None
                         current_group_children = []
@@ -716,6 +778,7 @@ class CobolParser:
                             pic_length=pic_length,
                             decimal_places=decimal_places,
                                 signed=self._pic_is_signed(pic_match.group(1)),
+                            usage=usage,
                         ))
 
         return items

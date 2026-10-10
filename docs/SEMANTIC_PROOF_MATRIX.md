@@ -25,6 +25,11 @@ so such a program is reported UNSUPPORTED rather than silently SUPPORTED.
 | REWRITE | source-level UNSUPPORTED | no parser construct; generator branches exist | same |
 | DELETE | source-level UNSUPPORTED | no parser construct; generator branches exist | same |
 | INVALID KEY | source-level UNSUPPORTED | `invalid_key_body`/`not_invalid_key_body` are never populated by the parser; mapper consumes them when present | any INVALID KEY instance marks the program UNSUPPORTED |
+| COMP | PARTIAL | parser records `USAGE COMP`/synonyms on DataItem; numeric value semantics mapped; record-area byte encoding not certified | marked PARTIAL by parser → analyzer; use DISPLAY-equivalent numerics when byte layout matters |
+| COMP-1 | PARTIAL | USAGE COMP-1 recorded; value semantics mapped; byte encoding not certified | marked PARTIAL; prefer DISPLAY for exact single-precision layout |
+| COMP-2 | PARTIAL | USAGE COMP-2 recorded; value semantics mapped; byte encoding not certified | marked PARTIAL; prefer DISPLAY for exact double-precision layout |
+| COMP-3 | PARTIAL | USAGE COMP-3 (packed decimal) recorded; numeric value semantics mapped; packed sign/byte encoding not certified | marked PARTIAL; value semantics only — record layout excluded |
+| COMP-5 | PARTIAL | USAGE COMP-5 (native binary) recorded; value semantics mapped; byte encoding not certified | marked PARTIAL; record-layout-dependent behavior excluded |
 | GO TO | UNSUPPORTED | `GO TO` has no Java mapping (emitted as a comment) | — |
 | GOBACK | UNSUPPORTED | registry entry; `GOBACK.` is no longer mistaken for a paragraph heading | — |
 | EXIT PROGRAM | SUPPORTED | parser → `ExitProgramStatement` → `JavaReturn` in the generated body | bare `EXIT.` is diagnosed as unsupported; paragraph/section `EXIT` inside PERFORM remains UNSUPPORTED |
