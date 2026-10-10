@@ -57,26 +57,24 @@ The long-term product objective is:
 
 SystemaOps is **not an AI code-generation wrapper**.
 
-The product must not depend on an LLM for deterministic transformation decisions.
+**Strict project invariant: no LLM anywhere in SystemaOps.**
 
-The modernization pipeline must remain deterministic.
+No LLM, generative model, hosted model API, local model, agent framework, or model-driven decision component may be introduced anywhere in the project, including auxiliary or non-authoritative workflows.
 
-LLM/agent-based systems may potentially be used outside the deterministic core for optional assistance such as:
+This prohibition applies to:
 
-- documentation assistance
-- explanation
-- user guidance
-- search
-- non-authoritative recommendations
+- ingestion, discovery, parsing, semantic analysis, and capability classification
+- modernization planning and recommendations
+- COBOL-to-IR, IR-to-Java, runtime selection, and code generation
+- error handling, remediation decisions, and automatic repair
+- oracle/candidate execution decisions and differential comparison
+- evidence creation, validation, integrity, verdicts, and certification
+- user-facing explanations, search, documentation assistance, and support workflows
+- CI/CD, tests, operations, and optional/background services
 
-They must never become the authority for:
+Use deterministic algorithms, explicit rules, parsers, schemas, static analysis, conventional search, and auditable non-LLM automation. This restriction does not prohibit deterministic language rules or ordinary automation.
 
-- COBOL semantic interpretation
-- transformation decisions
-- generated business semantics
-- evidence creation
-- verdict generation
-- certification
+Any proposed exception requires an explicit change to this specification approved by the project owner before implementation. OpenCode must not silently introduce an LLM dependency, API, service, package, or workflow.
 
 ---
 
@@ -1523,15 +1521,21 @@ A phase is NOT complete because:
 
 A phase is complete only when:
 
-1. implementation exists
+1. implementation exists and matches the current architecture
 2. relevant contracts are satisfied
 3. focused tests pass
 4. regression tests pass
 5. integration behavior is verified
-6. evidence exists
-7. known limitations are documented
-8. no silent semantic loss remains
-9. acceptance criteria are satisfied
+6. fresh end-to-end behavior is verified where applicable
+7. evidence is reproducible, tied to the exact source/candidate/workload/environment identities, and integrity-validated
+8. known limitations and residual risks are documented
+9. no silent semantic loss remains
+10. every discovered defect and gap assigned to the phase is fixed or explicitly carried forward with a backlog ID, owner/role, reason, dependency, risk, and acceptance criteria
+11. applicable code, tests, security, architecture, API/UI, operations, and documentation gaps are audited
+12. acceptance criteria are satisfied
+13. the live checkpoint is updated from actual repository/test results
+
+Adding tests alone is not closure. A passing test must exercise the intended behavior and must not pass because of a mock, skip, stale artifact, prebuilt candidate, weakened assertion, or fixture-specific hardcoding when fresh execution is required.
 
 ---
 
@@ -1643,7 +1647,7 @@ OpenCode must follow these rules.
 Before making changes:
 
 1. Read this Master README.
-2. Read `opencode.md`.
+2. Read `open code.md`.
 3. Inspect the current repository.
 4. Verify the checkpoint against actual repository state.
 5. Identify the current phase.
@@ -1799,7 +1803,7 @@ A new feature must not silently destroy previously verified functionality.
 A separate file named exactly:
 
 ```text
-opencode.md
+open code.md
 ```
 
 must act as the **live implementation checkpoint**.
@@ -1813,20 +1817,20 @@ MASTER_IMPLEMENTATION_README.md
         =
 Specification / Architecture / Requirements
 
-opencode.md
+open code.md
         =
 Live State / Progress / Handoff Checkpoint
 ```
 
 The Master README has architectural authority.
 
-`opencode.md` has implementation-state authority.
+`open code.md` has implementation-state authority.
 
 ---
 
 # 65. Mandatory Checkpoint Updates
 
-OpenCode must update `opencode.md`:
+OpenCode must update `open code.md`:
 
 - after completing a meaningful phase
 - after completing a major task
@@ -1855,14 +1859,14 @@ If OpenCode stops because of:
 - environment failure
 - time limit
 
-the next model/session must be able to continue from `opencode.md`.
+the next model/session must be able to continue from `open code.md`.
 
 The next model must NOT need to rediscover the entire project from the beginning.
 
 Before continuing, it must:
 
 1. read Master README
-2. read `opencode.md`
+2. read `open code.md`
 3. verify current repository state
 4. identify the last completed task
 5. identify the current unfinished task
@@ -1870,7 +1874,7 @@ Before continuing, it must:
 
 ---
 
-# 67. `opencode.md` Required State
+# 67. `open code.md` Required State
 
 The checkpoint should contain:
 
@@ -1902,7 +1906,7 @@ Next exact OpenCode action
 
 # 68. Checkpoint Truth Rule
 
-`opencode.md` must be verified against the repository.
+`open code.md` must be verified against the repository.
 
 If the checkpoint says:
 
@@ -2133,14 +2137,209 @@ This section is intentionally maintained separately from the permanent architect
 The live implementation state must be maintained in:
 
 ```text
-opencode.md
+open code.md
 ```
 
 The Master README should not become a historical progress log.
 
 It defines **what must be built**.
 
-`opencode.md` defines **where implementation currently is**.
+`open code.md` defines **where implementation currently is**.
+
+---
+
+
+---
+
+# 76. Mandatory Independent Audit Before Implementation
+
+Before starting a new implementation phase, remediation batch, major refactor, or claimed completion, perform an evidence-backed repository audit first.
+
+The audit is a separate activity from implementation. Unless the user explicitly authorizes both, the audit phase must not modify source code, weaken tests, change architecture, update capability claims to look more favorable, or commit implementation changes.
+
+## 76.1 Establish the Exact Baseline
+
+Record and verify:
+
+- repository and branch
+- current HEAD commit and working-tree state, when available
+- base branch and merge-base/relevant divergence
+- latest CI runs tied to the exact commit
+- test commands, environment, dependencies, and Docker/runtime availability
+- current authoritative documents and known historical reports
+
+Never assume that a local branch, remote branch, pull-request branch, or previously green commit is the current baseline. Never infer a clean working tree when the environment cannot inspect it. If a local checkout is unavailable, state that limitation and perform only the remote/static checks that are actually possible.
+
+## 76.2 Trace the Complete Customer Path
+
+Audit the real implementation path end to end:
+
+`ingestion → discovery → dependency graph → capability analysis → planning → parser → semantic IR → transformation → Java IR → runtime adapter → build/package → isolated candidate execution → independent oracle execution → differential comparison → evidence validation → verdict → persistence/API → UI/export`
+
+For each stage, identify:
+
+- actual entry points and callers
+- input/output contracts and data models
+- source files and relevant line ranges
+- error, timeout, cancellation, and unavailable paths
+- tests that exercise the real path
+- evidence that was freshly produced versus historical or fixture-only evidence
+- failure modes and downstream consequences
+
+Do not infer that a component is wired end to end merely because its module, class, endpoint, or test file exists.
+
+## 76.3 Trace Semantic Coverage
+
+For every required COBOL construct, data representation, and mainframe dependency, trace:
+
+`source syntax → parser result/diagnostic → IR representation → capability registry → planner decision → mapping → generated code → build → runtime behavior → oracle comparison → evidence → verdict`
+
+At minimum, audit COBOL dialect and source format; compiler directives and COPY/REPLACE; data descriptions and numeric semantics; control flow; CALL/linkage; file lifecycle and indexed/relative access; JCL; DB2/SQL; CICS; MQ; IMS; VSAM; external utilities; and application-level dependencies.
+
+A construct is not fully supported merely because it parses, appears in an IR, generates Java, compiles, or passes a unit test. The declared support level must match the strongest level actually demonstrated. Record partial, unknown, unsupported, and infrastructure-unavailable states explicitly.
+
+## 76.4 Audit Trust, Security, and Operational Paths
+
+Inspect actual enforcement—not only documentation—for:
+
+- upload/archive path traversal and resource limits
+- authentication, authorization, tenant isolation, and rate limiting
+- secret handling, TLS, network egress, and deployment boundaries
+- Docker isolation, resource limits, timeouts, and host fallback behavior
+- source/candidate/workload/environment identity binding
+- evidence completeness, freshness, hashes, tamper detection, and replay rejection
+- verdict/evidence persistence consistency and API exposure
+- concurrency, duplicate jobs, cancellation, retry, crash recovery, retention, and multi-node assumptions
+- dependency pinning, SBOM generation, vulnerability scanning, and release provenance
+
+Distinguish implemented controls from documented intentions and production gaps.
+
+## 76.5 Audit the Tests and CI
+
+For each important acceptance criterion, identify the exact test and determine whether it is unit, contract, integration, adversarial, or fresh end-to-end verification.
+
+Report:
+
+- passed, failed, skipped, and deselected counts
+- environment-dependent tests and why they were skipped
+- stale or checked-in evidence artifacts
+- mocks/fakes that bypass the behavior under review
+- assertions that do not verify the stated contract
+- mutation/adversarial coverage for critical fail-closed paths
+- ineffective test configuration or missing plugins
+- CI checks that are advisory, non-blocking, or absent
+- whether the tested commit is the commit being audited
+
+Do not equate a green CI workflow with semantic equivalence, security certification, or production readiness.
+
+## 76.6 Audit Documentation Consistency
+
+Compare the Master README, root README, live status documents, capability registries, architecture docs, contracts, release gates, code, tests, and evidence.
+
+Flag contradictions in:
+
+- baseline commit and CI run references
+- current versus historical status
+- capability labels and actual implementation
+- normative contract versus code behavior
+- stated production controls versus deployed controls
+- phase completion claims versus acceptance evidence
+
+Preserve historical reports as history. Update live status documents only when the actual implementation/evidence supports the update.
+
+## 76.7 Required Audit Deliverables
+
+Before implementation begins, produce:
+
+1. exact baseline and audit scope
+2. architecture/data-flow map with real entry points
+3. findings matrix with severity, evidence, affected files/line ranges, root cause, and impact
+4. requirement-to-code-to-test-to-evidence traceability matrix
+5. defects and gaps grouped by P0/P1/P2/P3
+6. proposed phase assignment and dependencies
+7. regression risks and green-baseline protection plan
+8. items requiring a human/product/legal/security decision
+9. explicit unknowns that could not be verified
+10. next-step recommendation
+
+Do not fabricate line numbers, test output, commits, or evidence. If repository access or runtime execution is unavailable, label the affected conclusions as static-only or unverified.
+
+---
+
+# 77. Defect and Gap Backlog Contract
+
+Every discovered bug, missing capability, contract mismatch, security weakness, test gap, operational limitation, and documentation contradiction must be represented in the central backlog or linked to an authoritative tracked issue.
+
+Each item must contain, where applicable:
+
+- unique stable ID
+- type: defect, missing capability, security, architecture, test, operations, documentation, or decision
+- priority and severity with rationale
+- observed behavior and expected behavior
+- root cause, or `UNKNOWN — investigation required`
+- affected components/files and line references
+- reproduction steps or supporting evidence
+- customer/product impact and trust/certification impact
+- target phase and dependencies
+- proposed remediation
+- acceptance criteria and required regression/adversarial tests
+- verification level and evidence location
+- status, owner/role, and last verified commit
+- residual risk and reason for any deferral
+
+Priority guidance:
+
+- **P0:** incorrect business semantics, false VERIFIED/certification, evidence/trust-boundary bypass, critical security exposure, or corruption/data-loss risk.
+- **P1:** major required workflow/capability failure, significant security/operational weakness, or missing end-to-end proof that blocks the intended release.
+- **P2:** important coverage, maintainability, quality-gate, performance, or documentation gap.
+- **P3:** lower-risk improvement that does not undermine required correctness, trust, or release criteria.
+
+Priority must reflect impact and exploitability, not implementation convenience. A P0 item cannot be silently downgraded to make a phase pass.
+
+Closing an item requires its acceptance criteria and verification evidence. If it cannot be closed, carry it forward explicitly with its risk and dependency. Do not delete a backlog item merely because its implementation is difficult or a test was skipped.
+
+---
+
+# 78. Documentation Authority and Status Rules
+
+Use the following authority hierarchy:
+
+1. **`MASTER_IMPLEMENTATION_README.md`** — product requirements, architecture, invariants, phase policy, acceptance criteria, and release gates.
+2. **`open code.md`** — live checkpoint/state only; it never overrides architecture or actual repository facts.
+3. **Machine-readable capability/semantic registries and contracts** — detailed capability declarations and versioned technical contracts, interpreted consistently with the Master README.
+4. **Current verification/status reports** — claims about the current implementation, each tied to an exact commit and evidence.
+5. **Historical reports, old CI runs, and completion reports** — historical evidence only.
+
+If these sources conflict, do not silently choose whichever sounds most complete. Record the contradiction as a backlog item, inspect code/tests/evidence, and resolve it through an explicit documented decision. Actual repository state determines what exists; the Master README determines what is required.
+
+Every live status report must identify its verified commit and audit date. Historical reports must remain clearly labeled as historical and must not be rewritten to imply that newer behavior was tested at an older commit.
+
+---
+
+# 79. Strict No-LLM Compliance Gate
+
+The no-LLM rule in Section 3 applies to the entire product and engineering repository, not merely the transformation core.
+
+The audit must inspect application/runtime dependencies, API integrations, environment/configuration variables, deployment manifests, workflows, scripts, and optional services for LLM/model-provider integrations.
+
+Do not infer a violation merely because a document mentions LLMs as a prohibited technology or as a historical comparison. Distinguish documentation from executable dependencies and runtime behavior.
+
+Any actual LLM integration, model-driven decision path, or unnecessary model-provider dependency is a specification violation and must be reported. Do not remove it automatically during an audit-only task; record the evidence and propose remediation for explicit authorization.
+
+---
+
+# 80. Audit-First OpenCode Operating Rule
+
+For an audit-only request, OpenCode must:
+
+1. read this Master README and `open code.md` if it exists
+2. verify the exact repository baseline and current working tree
+3. inspect actual source, callers, tests, configuration, contracts, and evidence
+4. perform the audit and produce the required deliverables from Section 76
+5. update the checkpoint with audit progress and findings, without claiming implementation fixes
+6. stop and present the findings for review
+
+Do not begin remediation, refactoring, dependency replacement, architecture changes, or broad documentation rewrites until the audit findings have been reviewed and implementation is explicitly authorized. If the request explicitly authorizes audit plus implementation, keep the two stages separate and preserve the audit findings as the remediation baseline.
 
 ---
 
