@@ -292,8 +292,13 @@ class TestAsyncAPIStagePersistence:
         resp = client.post(f"/applications/{app_id}/modernize")
         return resp.json()["run_id"]
 
-    def _wait_for_stage(self, run_id, timeout=10):
-        """Poll GET /runs/{run_id} until terminal, return list of observed stages."""
+    def _wait_for_stage(self, run_id, timeout=10, poll_interval=0.05):
+        """Poll GET /runs/{run_id} until terminal, return list of observed stages.
+
+        ``poll_interval`` is a parameter so a caller that has already
+        synchronized on the terminal-stage persistence event can poll once
+        without sleeping (see BL-017).
+        """
         observed = []
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -301,7 +306,7 @@ class TestAsyncAPIStagePersistence:
             observed.append(stage)
             if stage in ("COMPLETED", "FAILED"):
                 break
-            time.sleep(0.05)
+            time.sleep(poll_interval)
         return observed
 
     def test_all_pipeline_stages_observed_via_api(self):
@@ -324,13 +329,36 @@ class TestAsyncAPIStagePersistence:
 
         app_id = self._create_and_upload_app()
         mock_adapter = MagicMock()
+        # BL-017: this test used to poll GET /runs/{id} until a 10s deadline
+        # and then assert observed[-1] == "COMPLETED".  Under CPU contention
+        # the poll could expire while the background worker was still mid
+        # pipeline, so the last observed stage was EXECUTING_GENERATED and the
+        # test failed intermittently on an otherwise-green SHA.
+        #
+        # The fix removes the timing dependency rather than relaxing the
+        # assertion: synchronize on the terminal-stage persistence event (the
+        # same deterministic pattern the sibling test_full_stage_sequence_
+        # observed uses), and only then poll the API.  The assertion below is
+        # unchanged — a run that never reaches COMPLETED still fails.
+        completed = threading.Event()
+        original_update = Store.update_run
+
+        def record_update(store, run):
+            result = original_update(store, run)
+            if run.stage in (RunStage.COMPLETED, RunStage.FAILED):
+                completed.set()
+            return result
+
         with patch.object(Service, "_generate_application", mock_generate), \
              patch.object(Service, "_run_validation", mock_validation), \
+             patch.object(Store, "update_run", record_update), \
              patch("engine.candidate.docker_spring_boot_adapter.DockerSpringBootCandidateAdapter", return_value=mock_adapter):
             resp = client.post(f"/applications/{app_id}/modernize")
             run_id = resp.json()["run_id"]
-
-        observed = self._wait_for_stage(run_id)
+            assert completed.wait(timeout=30), (
+                "Modernization worker did not reach a terminal stage"
+            )
+            observed = self._wait_for_stage(run_id, poll_interval=0)
 
         # Run reached terminal state (mock runs instantly so intermediate
         # stages may be missed by polling)
