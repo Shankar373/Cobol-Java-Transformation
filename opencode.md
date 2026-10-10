@@ -6,7 +6,9 @@
 - Repository: `Shankar373/Cobol-Java-Transformation`
 - Branch: `codex/universal-core`
 - Audit baseline: `55f885dae77bd415fc60db6d90e59ef26fc47944` (`docs(checkpoint): record final local regression and CI job status`)
+- Closure remediation commits (docs only, applied on top of that baseline): `87b0c9b` (backlog + checkpoint contract), `55324b8` (explicit backlog metadata), `0d7e073` (Phase 0 baseline evidence links). **Current HEAD at this checkpoint edit: `0d7e0732ef25844b968ba5975e4be9f1bfa7572a`.**
 - Baseline CI: [Push #453](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063) and [PR #454](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842) passed all jobs, including ingestion diagnostics, capability truth, frontend tests/TypeScript/build, backend COBOL/Java Docker tests, and supply-chain checks. Docker tests ran in Linux CI; no Docker-in-Docker or WSL2/cgroup/security workaround was attempted.
+- Exact-SHA CI for the closure commit `0d7e073`: [Push #459](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047651675) **FAILED** (backend job, one pre-existing flake — BL-017); [PR #460](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047656074) **SUCCESS** on the identical SHA; Supply chain [#41](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047651686) and [#42](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047656069) SUCCESS. See criterion #9.
 - Audit verdict before remediation: `INCOMPLETE` — the backlog did not explicitly record the §53.10 / §77 owner/role, target phase, dependency, residual risk, and acceptance fields for carried items.
 - Remediation scope: documentation only. No transformation source, tests, registry, capability claims, PR state, or merge state changed.
 - This checkpoint is the live status record. The old session notes below are retained as historical context and must not override this block.
@@ -22,13 +24,42 @@
 - The audit's Windows test result was 3,091 passed, 12 skipped, 26 environment-only failures due to missing local `javac`/Docker; Linux CI on the exact baseline SHA passed the Docker/JDK/GnuCOBOL-dependent jobs. Do not describe the local run as fully green.
 - No fresh local E2E is claimed. Exact-SHA Linux CI is the evidence for Docker-dependent validation.
 - Phase 0 does not certify universal COBOL support, z/OS/JCL/DB2/CICS equivalence, production readiness, or security certification.
-- **Status at this checkpoint edit:** closure candidate pending fresh CI for the documentation remediation commit. Do not mark `VERIFIED COMPLETE` until those checks are green and this checkpoint is finalized.
+- **Status at this checkpoint edit:** **closure candidate, verdict `INCOMPLETE`.** The Phase 0 acceptance matrix and verdict are recorded above. Do not mark `VERIFIED COMPLETE` while a required CI gate is red on the exact SHA (criterion #9 / BL-017).
+
+### Phase 0 acceptance matrix (Master README §§52–53, 64–80)
+
+| # | Criterion | Evidence | Status |
+|---|---|---|---|
+| 1 | Master architecture/specification and phase roadmap authoritative and internally consistent | `MASTER_IMPLEMENTATION_README.md` §9–10 canonical architecture + one canonical pipeline; §52 phase list; §53 13-point completion rule; `docs/ARCHITECTURE.md` pipeline matches §10 | PASS |
+| 2 | Checkpoint path is consistently `opencode.md`; no competing checkpoint file | Master README §64/65/67/68/75/78/80 all renamed from `open code.md` to `opencode.md` in `0d7e073`; repo contains exactly one checkpoint (`opencode.md`); no `open code.md` / `open_code.md` / `OPENCODE.md` exists | PASS |
+| 3 | Project-wide NO-LLM rule preserved | `requirements.txt` + `requirements.lock` contain no AI/ML package; no `openai`/`langchain`/`anthropic`/`genai`/`ollama`/`huggingface`/`litellm`/`haystack`/`llamaindex`/`bedrock` reference in `api/`, `engine/`, `scripts/`, `.github/`, `frontend/`. The 7 grep hits are the English word "coherent" matching a `cohere` prefix — false positives per §79 | PASS |
+| 4 | Deterministic pipeline, capability boundaries, evidence/verdict trust accurately documented | §10 (one canonical pipeline), §14 (registry is source of capability truth), §38 evidence, §39 verdict, §41 integrated proof; `engine/transformation/semantic_capability.py` is the single registry; CI `capability-truth` job enforces it | PASS |
+| 5 | Backlog records all open/carry-forward items with owner/role, target phase, dependency, reason, residual risk, testable acceptance criteria | `docs/BACKLOG.md` §"Phase 0 closure metadata and carry-forward register", table covering BL-001…BL-017 with all required columns | PASS |
+| 6 | Closed items have valid supporting evidence; unresolved items not mislabeled complete | BL-001…BL-009, BL-011 cite named files/tests/commit evidence; BL-004 explicitly "RESOLVED BY DESIGN DECISION — no code change"; BL-012 "PARTIALLY FIXED"; BL-010 "BLOCKED (environment)"; BL-013…BL-017 OPEN carry-forward | PASS |
+| 7 | Tests, security, integration gates and fresh E2E evidence accurately recorded | Local `pytest -q tests`: 3,091 passed / 12 skipped / 26 failed, all 26 verified environment-only (`javac`/`java` missing, Docker unavailable) — explicitly **not** described as green. Linux CI executes the full 3,129-test suite with GnuCOBOL 3.1.2 + temurin:21. Security suites: `tests/adversarial/` (13 files), `tests/test_api_security.py`, `tests/verdict/test_verdict_trust_boundary.py`. **No fresh local E2E is claimed.** | PASS (with E2E limitation stated) |
+| 8 | Documentation matches live repository, PRs and CI | BL-008 (false "integrated proof not wired") and BL-009 (stale `fedb7dd`/CI #417–418) fixed and re-verified against `api/service.py` and `api/app.py`; this block replaces the earlier stale HEAD pointer | PASS |
+| 9 | Exact-SHA CI gate green | Push CI **#459 FAILED** and PR CI **#460 SUCCESS** on the *same* SHA `0d7e073`. Sole failure: `test_all_pipeline_stages_observed_via_api`. Proven pre-existing flake (no code change since green `55f885d`; #453 = 3129 passed; test passes 5/5 locally). Recorded as **BL-017**; test deliberately not modified (out of Phase 0 scope, and must not be weakened) | **FAIL** — see verdict |
+| 10 | No tests weakened; no LLM introduced; no fabricated evidence | Only `.md` files changed in this closure. No test file, assertion, skip marker, or dependency touched. No LLM dependency added | PASS |
+| 11 | All §53 criteria satisfied | #9 above is a required gate and is red on the exact SHA | **INCOMPLETE** |
+
+### Phase 0 verdict
+
+**`INCOMPLETE`** — not `COMPLETE — VERIFIED`.
+
+Nine of eleven criteria PASS. Criterion #9 fails for one reason only: a required CI job is intermittently red on a **pre-existing, documented flake** (BL-017) that is unrelated to Phase 0 and that the Phase 0 closure is explicitly forbidden from papering over by weakening the test. The prior green baseline `55f885d` (Push CI #453, PR CI #454, all jobs success) is **not** substituted for exact-commit evidence.
+
+Closure becomes `COMPLETE — VERIFIED` when a required gate is green on the exact SHA. Two honest routes: (a) a re-run of Push CI on the same code that goes green and is recorded, or (b) fixing BL-017 in its own scoped change. Route (b) is test-reliability work outside Phase 0 and needs its own authorization.
+
+### Not claimed by Phase 0
+Phase 0 closure certifies **documentation, architecture freeze, and capability-truth governance only**. It does **not** certify universal COBOL support, z/OS / JCL / DB2 / CICS behavioural equivalence, production readiness, or security certification. A green CI run means the certified subset's gates passed — never semantic equivalence.
 
 ### Live links
 - [Master Implementation README](https://github.com/Shankar373/Cobol-Java-Transformation/blob/codex/universal-core/MASTER_IMPLEMENTATION_README.md)
 - [Central backlog and carry-forward register](https://github.com/Shankar373/Cobol-Java-Transformation/blob/codex/universal-core/docs/BACKLOG.md)
 - [PR #2 — capability truth change](https://github.com/Shankar373/Cobol-Java-Transformation/pull/2)
 - [PR #3 — validation-only candidate](https://github.com/Shankar373/Cobol-Java-Transformation/pull/3)
+- [Exact-SHA Push CI #459](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047651675) · [PR CI #460](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047656074) · [Supply chain #41](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047651686) · [#42](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38047656069)
+- [Green baseline `55f885d`: Push CI #453](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063) · [PR CI #454](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842)
 
 ---
 
