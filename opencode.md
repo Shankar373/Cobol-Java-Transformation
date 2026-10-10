@@ -13,8 +13,8 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Branch: `codex/universal-core`
 - Session start HEAD: `81e795584e42437e4194bcb317ca20594c621adc`
   ("docs: strengthen master implementation audit and backlog contract")
-- **Current verified HEAD: `842bfce`** ("ci: add dependency-free capability-truth
-  gate job (BL-012)"). All CI green — see the Push / CI status section.
+- **Current verified HEAD: `ca38321`** ("docs(checkpoint): record fully green CI on
+  842bfce and P0 closure"). All CI green — see the Push / CI status section.
 - Base branch: `main` (`a923c65`)
 - Working tree: dirty by design — untracked `opencode.md`, `test-artifacts/*`
   evidence, and a modified `test-artifacts/docker-image-provenance.json`
@@ -272,6 +272,9 @@ It must never contradict repository reality (§68) and must never be left mislea
   **`Capability truth gate`**. Supply chain #29/#30 SUCCESS. This is the first
   fully green run of the complete P0 sequence and confirms the BL-004 revert
   restored the Docker-gated suite.
+- `ca38321` ("docs(checkpoint): record fully green CI on 842bfce and P0 closure")
+  pushed: `842bfce..ca38321`. Supply chain #31/#32 SUCCESS; PR CI #450 SUCCESS;
+  Push CI #449 in progress at time of writing (docs-only change).
 
 ### Next exact OpenCode action
 1. Commit this checkpoint update and push; confirm CI stays green on `842bfce`+.
