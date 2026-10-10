@@ -1647,7 +1647,7 @@ OpenCode must follow these rules.
 Before making changes:
 
 1. Read this Master README.
-2. Read `open code.md`.
+2. Read `opencode.md`.
 3. Inspect the current repository.
 4. Verify the checkpoint against actual repository state.
 5. Identify the current phase.
@@ -1803,10 +1803,10 @@ A new feature must not silently destroy previously verified functionality.
 A separate file named exactly:
 
 ```text
-open code.md
+opencode.md
 ```
 
-must act as the **live implementation checkpoint**.
+must act as the **live implementation checkpoint**. This is the canonical repository filename; do not create a parallel checkpoint under a spaced-name variant.
 
 It is not the architecture specification.
 
@@ -1817,20 +1817,20 @@ MASTER_IMPLEMENTATION_README.md
         =
 Specification / Architecture / Requirements
 
-open code.md
+opencode.md
         =
 Live State / Progress / Handoff Checkpoint
 ```
 
 The Master README has architectural authority.
 
-`open code.md` has implementation-state authority.
+`opencode.md` has implementation-state authority. The filename in this specification matches the existing repository file and avoids two competing checkpoints.
 
 ---
 
 # 65. Mandatory Checkpoint Updates
 
-OpenCode must update `open code.md`:
+OpenCode must update `opencode.md`:
 
 - after completing a meaningful phase
 - after completing a major task
@@ -1859,14 +1859,14 @@ If OpenCode stops because of:
 - environment failure
 - time limit
 
-the next model/session must be able to continue from `open code.md`.
+the next model/session must be able to continue from `opencode.md`.
 
 The next model must NOT need to rediscover the entire project from the beginning.
 
 Before continuing, it must:
 
 1. read Master README
-2. read `open code.md`
+2. read `opencode.md`
 3. verify current repository state
 4. identify the last completed task
 5. identify the current unfinished task
@@ -1874,7 +1874,7 @@ Before continuing, it must:
 
 ---
 
-# 67. `open code.md` Required State
+# 67. `opencode.md` Required State
 
 The checkpoint should contain:
 
@@ -1906,7 +1906,7 @@ Next exact OpenCode action
 
 # 68. Checkpoint Truth Rule
 
-`open code.md` must be verified against the repository.
+`opencode.md` must be verified against the repository.
 
 If the checkpoint says:
 
@@ -2137,14 +2137,14 @@ This section is intentionally maintained separately from the permanent architect
 The live implementation state must be maintained in:
 
 ```text
-open code.md
+opencode.md
 ```
 
 The Master README should not become a historical progress log.
 
 It defines **what must be built**.
 
-`open code.md` defines **where implementation currently is**.
+`opencode.md` defines **where implementation currently is**.
 
 ---
 
@@ -2305,7 +2305,7 @@ Closing an item requires its acceptance criteria and verification evidence. If i
 Use the following authority hierarchy:
 
 1. **`MASTER_IMPLEMENTATION_README.md`** — product requirements, architecture, invariants, phase policy, acceptance criteria, and release gates.
-2. **`open code.md`** — live checkpoint/state only; it never overrides architecture or actual repository facts.
+2. **`opencode.md`** — live checkpoint/state only; it never overrides architecture or actual repository facts.
 3. **Machine-readable capability/semantic registries and contracts** — detailed capability declarations and versioned technical contracts, interpreted consistently with the Master README.
 4. **Current verification/status reports** — claims about the current implementation, each tied to an exact commit and evidence.
 5. **Historical reports, old CI runs, and completion reports** — historical evidence only.
@@ -2332,7 +2332,7 @@ Any actual LLM integration, model-driven decision path, or unnecessary model-pro
 
 For an audit-only request, OpenCode must:
 
-1. read this Master README and `open code.md` if it exists
+1. read this Master README and `opencode.md` if it exists
 2. verify the exact repository baseline and current working tree
 3. inspect actual source, callers, tests, configuration, contracts, and evidence
 4. perform the audit and produce the required deliverables from Section 76

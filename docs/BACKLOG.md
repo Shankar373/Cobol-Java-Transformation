@@ -1,18 +1,17 @@
 # SystemaOps Defect and Gap Backlog
 
 **Status:** live backlog (authoritative per Master README Section 77).
-**Audit date:** 2026-10-10
+**Audit date:** 2026-10-10 (Phase 0 closure remediation)
 **Audited repository:** `Shankar373/Cobol-Java-Transformation`
 **Audited branch:** `codex/universal-core`
-**Audited HEAD:** `81e795584e42437e4194bcb317ca20594c621adc` ("docs: strengthen master implementation audit and backlog contract")
-**CI for audited HEAD:** Push CI #427 SUCCESS, PR CI #428 SUCCESS, Supply chain #9/#10 SUCCESS.
+**Audit baseline HEAD:** `55f885dae77bd415fc60db6d90e59ef26fc47944` ("docs(checkpoint): record final local regression and CI job status")
+**Baseline CI:** [Push CI #453 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063), [PR CI #454 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842), [Supply chain #35 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063), [Supply chain #36 — SUCCESS](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842).
+**Note:** These are baseline results. Fresh CI for the documentation remediation commit must be verified separately before Phase 0 is marked complete.
 
 Authority hierarchy (Master README Section 78):
-`MASTER_IMPLEMENTATION_README.md` > `opencode.md` > registries/contracts > current
-verification/status reports > historical reports.
+`MASTER_IMPLEMENTATION_README.md` > `opencode.md` > registries/contracts > current verification/status reports > historical reports.
 
-Priority guidance (Master README Section 77): P0 = incorrect business semantics,
-false VERIFIED/certification, trust-boundary bypass, critical security exposure, or
+Priority guidance (Master README Section 77): P0 = incorrect business semantics, false VERIFIED/certification, trust-boundary bypass, critical security exposure, or
 data-loss risk; P1 = major required workflow/capability failure; P2 = important
 coverage/quality/documentation gap; P3 = lower-risk improvement.
 
@@ -312,8 +311,9 @@ produced evidence, not re-run here).
 - **Deliberately still open:** coverage thresholds and mutation testing are not
   added; they are not yet justified by evidence and would add CI time without a
   defined target.
-- **Verification level:** VERIFIED locally (gate passes, workflow parses with the
-  new job); CI confirmation pending on the pushed commit.
+- **Verification level:** VERIFIED locally and by CI on baseline `55f885d`.
+  Push CI #453 and PR CI #454 both passed, including the capability-truth gate.
+  Coverage thresholds and mutation testing remain explicitly deferred below.
 
 ---
 
@@ -347,3 +347,37 @@ produced evidence, not re-run here).
   now carry a dated Baseline note distinguishing their snapshot SHA/CI from the
   live pointers in `opencode.md` / `docs/BACKLOG.md`. Historical references were
   labelled, not rewritten.
+
+
+---
+
+## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
+
+This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
+
+| ID | Owner / role | Target phase | Dependency | Reason carried / residual risk | Acceptance criteria |
+|---|---|---|---|---|---|
+| BL-001 | Transformation producer maintainer | Phase 1–2 | `CONSTRUCT_REGISTRY` and producer contract tests | A future producer/registry change could reintroduce capability drift. | Reconciliation tests pass for all deterministic producers; external-lane differences remain explicitly bounded by tests. |
+| BL-002 | Parser / IR maintainer | Phase 1–2 | Canonical data-item IR and capability analyzer | COMP-family storage encoding remains PARTIAL; value-only treatment must not imply byte-layout equivalence. | Usage token is preserved; unsupported encoding is diagnosed/classified PARTIAL; no false SUPPORTED verdict; focused tests pass. |
+| BL-003 | Semantic capability maintainer | Phase 2 | Data-division scanning, registry, proof matrix | REDEFINES/OCCURS/88-level semantics are not runtime-proven. | Constructs remain UNKNOWN/non-SUPPORTED until full-ladder evidence exists; negative tests pass. |
+| BL-004 | Semantic architecture owner | Phase 2 | Existing negative contract for BY CONTENT/BY VALUE | Parameter-mode behavior remains deliberately blocked and unclassified. | Registry remains keyless for these modes; negative contract and focused regression tests pass. |
+| BL-005 | Numeric semantics maintainer | Phase 2 | ROUNDED IR flag and receiving-item semantics | Numeric edge cases beyond the verified subset remain a semantic risk. | Registry verdict is backed by the actual IR-to-Java mapping; HALF_UP and default truncation tests pass. |
+| BL-006 | Engineering documentation owner | Phase 0 | Master README §77 | Backlog may drift from repository defects if not maintained. | Every discovered gap is represented here or linked to an authoritative tracked issue, with evidence and required metadata. |
+| BL-007 | Repository/checkpoint maintainer | Phase 0 | Current branch ref and live CI results | Stale checkpoint pointers can mislead subsequent implementation. | Checkpoint identifies the exact audit baseline, distinguishes current HEAD from verified evidence, and never claims unverified completion. |
+| BL-008 | Product documentation owner | Phase 0 | Actual service/API implementation | Future changes can reintroduce contradictions between code and status docs. | Product-status statements match the inspected wiring and are rechecked when those paths change. |
+| BL-009 | Release documentation owner | Phase 0 | Source commit and Actions run links | Historical baselines can be mistaken for current proof. | Live status documents label historical snapshots and point to the current checkpoint/backlog. |
+| BL-010 | Release engineering / CI owner | Phase 9 and Phase 12 | Linux CI with Docker, JDK, and GnuCOBOL | Windows/WSL2 local Docker bind-mount/cgroup limitation remains; local Docker E2E cannot be claimed. | Docker-dependent tests execute in Linux CI on the exact candidate SHA; run/job evidence is linked. Do not alter WSL2/kernel/cgroup/Docker security settings as a workaround. |
+| BL-011 | Test infrastructure maintainer | Phase 12 | Producer capability declarations and registry | New producers could bypass reconciliation if not included in the contract suite. | Every producer is covered by capability consistency tests; intentional external-lane divergence remains pinned. |
+| BL-012 | CI quality-gate owner | Phase 12 | Evidence-based coverage targets and a mutation-testing budget | Coverage thresholds and mutation testing remain absent because no justified target/budget is defined. | Define meaningful thresholds and mutation scope/budget, demonstrate that they detect real regressions without weakening tests, then gate them in CI. |
+| BL-013 | Repository maintainer | Phase 0 governance / Phase 12 integration | Re-diff PR #1 against current `codex/universal-core` and inspect current tests/CI | PR #1 targets `codex/remote-docker-ci`, reported 142 commits stale; its `completeness_gate.py` change is not present upstream. Blind merge risks integrating stale/conflicting work. | Either rebase/re-diff against the current branch and pass fresh CI, or close as superseded with the rationale preserved. No action is taken automatically. |
+| BL-014 | Arithmetic transformation maintainer | Phase 2 | Compare PR #6 against current mapper and arithmetic tests | PR #6 is superseded by existing `Math.addExact`/`subtractExact`/`multiplyExact` mapping; its test file contains a Python syntax error from a literal `\\n`. | Do not merge as-is. Either repair and prove a non-duplicative behavior gap with focused/full tests, or close as superseded with evidence. |
+| BL-015 | Project owner / human reviewer | Phase 0 governance | Full review of PR #2's 151-commit/265-file diff, exact-head CI, and explicit human decision | PR #2 is the only candidate reported merge-ready; merging it into `main` is a high-impact integration decision and has not been authorized here. | Human explicitly chooses merge or hold after reviewing the diff and fresh checks. Until then, leave PR #2 open and unmerged; this assistant does not decide or perform the merge. |
+| BL-016 | QA / validation owner | Phase 0 governance | Current upstream test replacements and PR #3 validation history | PR #3 is a validation-only candidate; its unique extracted tests failed against current code (41 failed, 20 passed, one import failure), while concerns were reimplemented upstream. | Keep unmerged. Preserve the validation findings and make a human decision to retain for reference or close as superseded; never merge it into `main`. |
+
+### PR disposition snapshot — 2026-10-10
+
+- **PR #1:** [feat: harden universal modernization readiness](https://github.com/Shankar373/Cobol-Java-Transformation/pull/1) — stale base `codex/remote-docker-ci`; re-diff or close as superseded. Not merged/closed/retargeted.
+- **PR #2:** [fix: align capabilities with semantic transformation support](https://github.com/Shankar373/Cobol-Java-Transformation/pull/2) — base `main`, head `55f885dae77bd415fc60db6d90e59ef26fc47944`; all checks green at audit time and mergeable, but no merge decision made.
+- **PR #3:** [P0 validation completion candidate](https://github.com/Shankar373/Cobol-Java-Transformation/pull/3) — validation-only, stale unique tests fail against current code; keep unmerged.
+- **PR #6:** [fix: preserve structured arithmetic overflow semantics](https://github.com/Shankar373/Cobol-Java-Transformation/pull/6) — superseded/broken test syntax; not merged/closed.
+- No PR was merged, closed, retargeted, or approved as part of this remediation.

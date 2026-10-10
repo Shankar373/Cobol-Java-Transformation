@@ -1,20 +1,52 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 0 closure audit — 2026-10-10
+
+### Current verification state
+- Repository: `Shankar373/Cobol-Java-Transformation`
+- Branch: `codex/universal-core`
+- Audit baseline: `55f885dae77bd415fc60db6d90e59ef26fc47944` (`docs(checkpoint): record final local regression and CI job status`)
+- Baseline CI: [Push #453](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045547063) and [PR #454](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38045549842) passed all jobs, including ingestion diagnostics, capability truth, frontend tests/TypeScript/build, backend COBOL/Java Docker tests, and supply-chain checks. Docker tests ran in Linux CI; no Docker-in-Docker or WSL2/cgroup/security workaround was attempted.
+- Audit verdict before remediation: `INCOMPLETE` — the backlog did not explicitly record the §53.10 / §77 owner/role, target phase, dependency, residual risk, and acceptance fields for carried items.
+- Remediation scope: documentation only. No transformation source, tests, registry, capability claims, PR state, or merge state changed.
+- This checkpoint is the live status record. The old session notes below are retained as historical context and must not override this block.
+
+### Phase 0 closure work in this remediation
+1. Add a carry-forward metadata register for BL-001…BL-016 in `docs/BACKLOG.md`, including owners by role, target phase, dependencies, reasons, residual risks, and explicit acceptance criteria.
+2. Record dispositions and safeguards for PRs #1, #2, #3, and #6. PR #2 remains unmerged pending an explicit human decision. PR #3 remains validation-only and unmerged. PRs #1 and #6 remain open pending human disposition.
+3. Correct the checkpoint filename in the Master README to the actual canonical repository path, `opencode.md`, to remove the competing `open code.md` specification.
+4. Keep Phase 0 status provisional until fresh CI for the remediation commit completes successfully. The prior green baseline is not substituted for exact-commit CI.
+
+### Acceptance evidence and limitations
+- Phase 0 architecture/specification, no-LLM policy, phase roadmap, backlog, documentation consistency, and baseline protection were audited against the Master README and current source.
+- The audit's Windows test result was 3,091 passed, 12 skipped, 26 environment-only failures due to missing local `javac`/Docker; Linux CI on the exact baseline SHA passed the Docker/JDK/GnuCOBOL-dependent jobs. Do not describe the local run as fully green.
+- No fresh local E2E is claimed. Exact-SHA Linux CI is the evidence for Docker-dependent validation.
+- Phase 0 does not certify universal COBOL support, z/OS/JCL/DB2/CICS equivalence, production readiness, or security certification.
+- **Status at this checkpoint edit:** closure candidate pending fresh CI for the documentation remediation commit. Do not mark `VERIFIED COMPLETE` until those checks are green and this checkpoint is finalized.
+
+### Live links
+- [Master Implementation README](https://github.com/Shankar373/Cobol-Java-Transformation/blob/codex/universal-core/MASTER_IMPLEMENTATION_README.md)
+- [Central backlog and carry-forward register](https://github.com/Shankar373/Cobol-Java-Transformation/blob/codex/universal-core/docs/BACKLOG.md)
+- [PR #2 — capability truth change](https://github.com/Shankar373/Cobol-Java-Transformation/pull/2)
+- [PR #3 — validation-only candidate](https://github.com/Shankar373/Cobol-Java-Transformation/pull/3)
+
+---
+
+
 Checkpoint authority (Master README §64): `MASTER_IMPLEMENTATION_README.md`
 defines what must be built; this file records **where implementation currently is**.
 It must never contradict repository reality (§68) and must never be left misleading.
 
 ---
 
-## Session 2026-10-10 (current)
+## Historical session 2026-10-10 (superseded by Phase 0 closure audit above)
 
 ### Baseline (verified this session)
 - Repository: `https://github.com/Shankar373/Cobol-Java-Transformation.git`
 - Branch: `codex/universal-core`
 - Session start HEAD: `81e795584e42437e4194bcb317ca20594c621adc`
   ("docs: strengthen master implementation audit and backlog contract")
-- **Current verified HEAD: `ca38321`** ("docs(checkpoint): record fully green CI on
-  842bfce and P0 closure"). All CI green — see the Push / CI status section.
+- **Historical checkpoint reference only:** `ca38321` and the older CI runs below are retained for provenance; the current audit baseline and live CI links are in the Phase 0 closure block above.
 - Base branch: `main` (`a923c65`)
 - Working tree: dirty by design — untracked `opencode.md`, `test-artifacts/*`
   evidence, and a modified `test-artifacts/docker-image-provenance.json`
@@ -22,11 +54,11 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Local branch was one commit behind `origin` at session start; fast-forwarded
   `7ae5873 → 81e7955` (docs-only). No reset, no force-push, no user files discarded.
 
-### CI status for the exact audited HEAD `81e7955` (verified via GitHub API)
+### Historical CI status for the earlier audited HEAD `81e7955` (not the current baseline)
 - Push CI #427 — SUCCESS
 - PR CI #428 — SUCCESS
 - Supply chain #9 (push) / #10 (PR) — SUCCESS
-- Last known green commit: `81e7955`.
+- This is historical evidence only; current baseline is `55f885d` and fresh remediation CI is required.
 
 ### Environment
 - OS: Windows 11 Home (Build 26200); git 2.55.0 at `C:\Program Files\Git\bin\git.exe`
@@ -283,8 +315,8 @@ It must never contradict repository reality (§68) and must never be left mislea
   PR CI #452, with only the long-running backend Docker job still in progress at
   time of writing.
 
-### Next exact OpenCode action
-1. Commit this checkpoint update and push; confirm CI stays green on `842bfce`+.
+### Historical next-action note (superseded)
+1. The old instruction to commit the checkpoint and verify only `842bfce` is obsolete; follow the Phase 0 closure block at the top of this file.
 2. The P0 backlog is closed and fully verified in CI. Next candidates, in
    roadmap §13 order and lowest-risk first: **P1-1 INITIALIZE (bounded)**,
    P1-2 INSPECT (TALLYING subset), P1-3 SEARCH (linear only). Before each, grep
