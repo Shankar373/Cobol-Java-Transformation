@@ -44,7 +44,14 @@ Fix (deterministic, no LLM — tables and regexes only):
   - `6334095` — `fix(parser): represent figurative constants as values, not field references (BL-018)`.
   - `c0b512f` — `ci: gate figurative-constant capability truth in the fast dependency-free job` (adds the new test file to the `capability-truth` job, BL-012, so this defect class fails in ~1 min instead of after the Docker image build).
   - `5cf3c18` — `fix(capability): detect figurative constants nested anywhere in the IR tree` (see below).
-  - **Phase 1 is NOT verified until the exact-SHA CI runs for these commits are green.**
+  - `27e8bf5` — checkpoint update.
+  - `f950bee` — `test(pipeline): remove the poll-deadline race from BL-017 flake`.
+  - **Exact-SHA CI for the BL-018 chain: `5cf3c18` all four jobs SUCCESS
+    (Push #473, PR #474) including the Docker job that runs `javac` +
+    GnuCOBOL, which is the authoritative gate for a parser/mapper change.
+    Supply chain #55 / #56 SUCCESS. On `27e8bf5` the Docker job was red on
+    Push #475 only — root-caused to the BL-017 flake and fixed in `f950bee`,
+    not to this work.**
 
 ### Self-review finding fixed in `5cf3c18`
 The first analyzer wiring recursed through a fixed field-name list
@@ -80,11 +87,44 @@ classification for other expression-level constructs.
   subset, and the 22 failures are identical in both runs — all are the
   pre-existing environment-only `javac` `FileNotFoundError` failures (no JDK on
   this host, BL-010), confirmed by inspecting failure text, not just the count.
-- **Exact-SHA CI is still outstanding.** Do not describe Phase 1 as verified
-  until the runs for `5cf3c18` are green.
+- **Full local suite** `pytest -q tests` → **3150 passed, 12 skipped, 26 failed**
+  vs the recorded baseline **3091 passed, 12 skipped, 26 failed** — exactly
+  **+59 passed** (the new figurative tests) with an **identical failure count**,
+  so the 26 remain the documented environment-only `javac`/Docker failures.
+  Note: that run predates the `parsed_figurative` shadowing fix and `5cf3c18`.
+- BL-017: `pytest -q tests/test_pipeline_progress.py` → **9 passed**; **8/8**
+  under deliberate CPU saturation; mutation negative control **correctly fails**.
+- **CI:** `5cf3c18` all four jobs SUCCESS on both Push #473 and PR #474
+  (Docker job included). `27e8bf5` red on Push #475 only, root-caused to the
+  BL-017 flake and fixed in `f950bee`; PR #476 green on the same SHA.
 
 ### Backlog disposition
 - **BL-018 — FIXED** (figurative constants). See `docs/BACKLOG.md`.
+- **BL-017 — FIXED** (`f950bee`), second recurrence confirmed and root-caused.
+  Push CI #475 failed on `27e8bf5` while PR CI #476 **passed on the identical
+  SHA** — the same signature as the recorded `0d7e073` occurrence (Push #459 red
+  / PR #460 green). CI job logs are admin-only, so the failing assertion was
+  recovered from the uploaded `backend-oracle-results` artifact via the stored
+  GCM credential (the reusable method already recorded in this file):
+  `1 failed, 3195 passed`, `assert 'EXECUTING_GENERATED' == 'COMPLETED'` in
+  `tests/test_pipeline_progress.py`.
+  Root cause: `_wait_for_stage` polls `GET /runs/{id}` until a **10s deadline**,
+  and the test then asserts `observed[-1] == "COMPLETED"`. Under runner CPU
+  contention the poll expires while the worker is still mid-pipeline, so the
+  last observed stage is `EXECUTING_GENERATED`. A wall-clock race, not a
+  product defect.
+  Fix: synchronize on the terminal-stage persistence event (the pattern the
+  sibling `test_full_stage_sequence_observed` already used) and poll once. The
+  assertion is **unchanged** and verified intact by mutation: neutralizing
+  `Service._persist_final` makes the test fail with "Modernization worker did
+  not reach a terminal stage".
+  **Honest limitation:** the flake does **not** reproduce on this workstation —
+  the pre-fix version also passed 8/8 under deliberate CPU saturation. The fix is
+  therefore justified by construction plus CI evidence, **not** by a local
+  reproduction. Do not claim a local repro for BL-017.
+  (An initial negative control that only short-circuited the `_run_validation`
+  mock was **invalid** — `api/service.py` sets `COMPLETED` after that returns —
+  and correctly passed. It was corrected rather than reported as a defect.)
 - **BL-019 — OPEN, next task.** `map_cobol_condition_to_java` blind-replaces
   `NOT ` → `!`, so `IF C NOT = SPACES` becomes `C ! == SPACES` and
   `IF A NOT > 3` becomes `A !> 3` — non-compiling Java, no diagnostic.
@@ -104,13 +144,15 @@ classification for other expression-level constructs.
 ### Next exact OpenCode action
 1. Confirm the full `pytest -q tests` result and the exact-SHA CI result for the
    BL-018 commit before claiming any Phase 1 status.
-2. Implement **BL-019**: replace the `NOT`/comparison `str.replace` chain in
+2. Confirm the exact-SHA CI for `f950bee` is green (the BL-017 fix must not turn
+   the required Docker job red on its own).
+3. Implement **BL-019**: replace the `NOT`/comparison `str.replace` chain in
    `map_cobol_condition_to_java` with quote-aware tokenisation that treats `NOT`
    as an operator and emits `!(...)`, reusing the existing quote-safe
    `_replace_bare_equals` pattern. Add positive/negative/regression tests, and
    verify `IF x NOT = y` / `IF x NOT > y` generate compiling Java. Do it as its
    own change so a BL-018-style fix cannot mask it.
-3. After BL-019, continue Phase 1 with the next genuine parser/IR gap; check
+4. After BL-019, continue Phase 1 with the next genuine parser/IR gap; check
    `docs/BACKLOG.md` and the roadmap P1 list for the next candidate.
 
 ---
