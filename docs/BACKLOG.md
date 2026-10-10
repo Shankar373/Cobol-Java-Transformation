@@ -378,7 +378,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 ### PR disposition snapshot — 2026-10-10
 
 - **PR #1:** [feat: harden universal modernization readiness](https://github.com/Shankar373/Cobol-Java-Transformation/pull/1) — stale base `codex/remote-docker-ci`; re-diff or close as superseded. Not merged/closed/retargeted.
-- **PR #2:** [fix: align capabilities with semantic transformation support](https://github.com/Shankar373/Cobol-Java-Transformation/pull/2) — base `main`; head tracks `codex/universal-core`. All required checks green at the Phase 0 closure SHA `f8b8488` (Push CI #463, PR CI #464). Remains **open and unmerged** pending explicit human authorization (BL-015). No assistant-driven merge.
+- **PR #2:** [fix: align capabilities with semantic transformation support](https://github.com/Shankar373/Cobol-Java-Transformation/pull/2) — base `main`; head tracks `codex/universal-core`. At the Phase 0 closure SHA `9326f80` all required checks are green (Push CI #465, PR CI #466) and `mergeable_state=clean`. Remains **open and unmerged** pending explicit human authorization (BL-015). No assistant-driven merge.
 - **PR #3:** [P0 validation completion candidate](https://github.com/Shankar373/Cobol-Java-Transformation/pull/3) — validation-only, stale unique tests fail against current code; keep unmerged.
 - **PR #6:** [fix: preserve structured arithmetic overflow semantics](https://github.com/Shankar373/Cobol-Java-Transformation/pull/6) — superseded/broken test syntax; not merged/closed.
 - No PR was merged, closed, retargeted, or approved as part of this remediation.
