@@ -121,6 +121,25 @@ class FigurativeConstant(Expression):
 
 
 @dataclass(frozen=True)
+class IntrinsicCall(Expression):
+    """An intrinsic function call or unmapped operator form.
+
+    Represents ``FUNCTION MIN(1, 2)`` and exponentiation (``2 ** 3``) as a
+    *recognised, deliberately unmapped* construct rather than letting it fall
+    through to :class:`FieldReference`.
+
+    The mapper has no certified mapping for either form, so they are recorded
+    explicitly and diagnosed; a consumer can never mistake the intrinsic for
+    a variable that happens to be named ``FUNCTION MIN(1, 2)``.
+    """
+
+    #: Upper-case intrinsic name (e.g. ``MIN``), or ``"**"`` for exponentiation.
+    name: str
+    #: Verbatim source text, preserved for diagnostics and traceability.
+    arguments: str = ""
+
+
+@dataclass(frozen=True)
 class UnaryExpression(Expression):
     """A unary operation.
 

@@ -1012,9 +1012,41 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
 #: as ``IF C = " "`` is never confused with ``IF C = SPACES``.
 _FIGURATIVE_SENTINEL = "\\u0001FIG"
 
+#: The sentinel wraps the fill's codepoint so it survives ``condition.split()``
+#: as ONE whitespace-delimited token (required for multi-clause conditions such
+#: as ``A > 1 OR C = SPACES``).  Both markers are escape sequences, so the
+#: encoded token contains no space and cannot be produced by real COBOL source.
 _FIGURATIVE_TOKEN = re.compile(
     re.escape(_FIGURATIVE_SENTINEL) + r"(\d+)" + re.escape(_FIGURATIVE_SENTINEL)
 )
+
+
+def _fold_negated_relational(condition: str) -> str:
+    """Fold COBOL's negated relational operators into their Java equivalents.
+
+    ``A NOT = B`` is ``A != B``, ``A NOT > B`` is ``A < B``, and so on.  The
+    negation is attached to the operator rather than emitted as a separate
+    ``!`` prefix, because Java has no unary prefix operator that can negate a
+    relational result (``!A > B`` would compare a boolean, and ``A !> B`` does
+    not compile at all).
+
+    Quote-aware: a ``NOT`` inside a literal is left alone.
+    """
+    negated = {
+        "=": "!=", "==": "!=", "!=": "==", "<>": "==",
+        ">": "<=", "<=": ">", "<": ">=", ">=": "<",
+    }
+    parts = re.split(r"('[^']*'|\"[^\"]*\")", condition)
+    for index in range(0, len(parts), 2):
+        chunk = parts[index]
+        chunk = re.sub(
+            r"\bNOT\s*(>=|<=|<>|==|!=|>|<|=)",
+            lambda m: negated[m.group(1)],
+            chunk,
+            flags=re.IGNORECASE,
+        )
+        parts[index] = chunk
+    return "".join(parts)
 
 
 def _substitute_figurative_constants(condition: str) -> str:
@@ -1071,11 +1103,6 @@ def _strip_figurative_sentinels(condition: str) -> str:
     return _FIGURATIVE_TOKEN.sub(_sentinel_to_literal, condition)
 
 
-_FIGURATIVE_TOKEN = re.compile(
-    re.escape(_FIGURATIVE_SENTINEL) + r"(\d+)" + re.escape(_FIGURATIVE_SENTINEL)
-)
-
-
 def _sentinel_to_literal(match: "re.Match[str]") -> str:
     """Render a surviving figurative sentinel as a one-character literal."""
     char = chr(int(match.group(1)))
@@ -1084,13 +1111,15 @@ def _sentinel_to_literal(match: "re.Match[str]") -> str:
 
 def _is_figurative_sentinel(token: str) -> bool:
     """True when ``token`` is a substituted figurative fill token."""
-    return token.startswith(f'"{_FIGURATIVE_SENTINEL}') and token.endswith(_FIGURATIVE_SENTINEL + '"')
+    return (
+        token.startswith(f'"{_FIGURATIVE_SENTINEL}')
+        and token.endswith(f'{_FIGURATIVE_SENTINEL}"')
+    )
 
 
 def _figurative_sentinel_char(token: str) -> str:
     """Return the fill character encoded in a substituted figurative token."""
-    body = token[1:-1]
-    digits = body[len(_FIGURATIVE_SENTINEL):-len(_FIGURATIVE_SENTINEL)]
+    digits = token[1 + len(_FIGURATIVE_SENTINEL):-(1 + len(_FIGURATIVE_SENTINEL))]
     return chr(int(digits))
 
 
@@ -1107,6 +1136,20 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
     """
     condition = condition.strip()
     import re as _re
+
+    # Figurative constants are substituted FIRST, before any operator
+    # rewriting and before the DASH_UNDERSCORE rewrite below.  Rewriting first
+    # turned `HIGH-VALUE` into `HIGH_VALUE`, which no longer matched the
+    # reserved word and fell through to a bare Java identifier (BL-018).
+    # Doing it first also lets `NOT = SPACES` be folded as one comparison
+    # rather than leaving the fill literal outside the operator (BL-019).
+    condition = _substitute_figurative_constants(condition)
+    # Fold `NOT <relational>` while the operators are still COBOL-spelled:
+    # `A NOT > 3` is `A <= 3`.  Emitting a separate `!` prefix cannot work in
+    # Java (`A !> 3` does not compile) and `!A > 3` compares a boolean.
+    condition = _fold_negated_relational(condition)
+    # Any remaining `NOT` is a logical negation of a sub-expression.
+    condition = re.sub(r"(?<![\w!])NOT\s+", "!", condition, flags=re.IGNORECASE)
 
     # Handle WHEN OTHER → always true (standalone or as "subject = OTHER")
     if condition == "OTHER" or condition.endswith(" = OTHER") or condition.endswith("== OTHER"):
@@ -1146,8 +1189,16 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
     condition = condition.replace(" AND ", " && ")
     condition = condition.replace(" OR ", " || ")
 
-    # Handle NOT
-    condition = condition.replace("NOT ", "!")
+    # Handle NOT as an *operator token* (BL-019).  The previous unconditional
+    # `replace("NOT ", "!")` ran after `NOT =` had already become `!=`, so
+    # `C NOT = SPACES` produced `C ! == SPACES` and `A NOT > 3` produced
+    # `A !> 3` — non-compiling Java with no diagnostic.  Here `NOT` is only
+    # turned into `!` when it directly precedes a relational operator; in the
+    # `NOT =`/`NOT >` forms it is folded into the *negated* operator instead
+    # (`!=` / `<`), which is the COBOL meaning.  Handled by
+    # _fold_negated_relational below, which must run while the operators are
+    # still in their COBOL spelling AND after figurative substitution so a
+    # `= SPACES` fill stays inside the comparison.
 
     # Convert field references. Single-quoted COBOL literals become
     # double-quoted Java string literals (single quotes would be Java
@@ -1157,8 +1208,6 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
     # rewrite below.  Rewriting first turned `HIGH-VALUE` into `HIGH_VALUE`,
     # which no longer matched the reserved word and fell through to a bare
     # Java identifier.
-    condition = _substitute_figurative_constants(condition)
-
     parts = condition.split()
     result_parts = []
     for part in parts:
@@ -1257,7 +1306,40 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
 
         return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
 
-    return JavaLiteral(value=_strip_figurative_sentinels(condition_str))
+    return JavaLiteral(value=_expand_figurative_in_condition(condition_str))
+
+
+def _expand_figurative_in_condition(condition: str) -> str:
+    """Rewrite figurative comparisons in a rendered condition string.
+
+    The structured path handles a single binary comparison and can build the
+    whole-field test properly.  A multi-clause condition (e.g.
+    ``A >= 1 OR C = SPACES``) falls back to rendering the string, where a
+    surviving sentinel would otherwise become a malformed literal.  Replace
+    each ``field OP <sentinel>`` (and the mirrored form) with the same
+    ``field.replace(fill, "").isEmpty()`` test the structured path emits, so
+    the fallback keeps the *semantics* rather than just compiling.
+    """
+    if _FIGURATIVE_SENTINEL not in condition:
+        return condition
+    pattern = re.compile(
+        r'([\w."]+)\s*(==|!=)\s*"' + re.escape(_FIGURATIVE_SENTINEL) + r'(\d+)'
+        + re.escape(_FIGURATIVE_SENTINEL) + r'"'
+        r'|"' + re.escape(_FIGURATIVE_SENTINEL) + r'(\d+)' + re.escape(_FIGURATIVE_SENTINEL)
+        + r'"\s*(==|!=)\s*([\w."]+)'
+    )
+
+    def _expand(match: "re.Match[str]") -> str:
+        if match.group(1) is not None:
+            field, op, digits = match.group(1), match.group(2), match.group(3)
+        else:
+            digits, op, field = match.group(4), match.group(5), match.group(6)
+        fill = chr(int(digits))
+        test = f'{field}.replace("{_java_string_body(fill)}", "").isEmpty()'
+        return test if op == "==" else f"!{test}"
+
+    expanded = pattern.sub(_expand, condition)
+    return _strip_figurative_sentinels(expanded)
 
 
 def _replace_bare_equals(condition: str) -> str:

@@ -41,6 +41,8 @@ jobs:
             tests/transformation/test_structural_capability.py \
             tests/transformation/test_rounded_capability.py \
             tests/transformation/test_figurative_constants.py \
+            tests/transformation/test_scoped_construct_statements.py \
+            tests/transformation/test_negated_conditions.py \
             tests/test_silent_loss_registry.py
 
   phase1-ingestion:

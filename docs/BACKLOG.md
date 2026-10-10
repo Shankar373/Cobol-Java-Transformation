@@ -389,35 +389,49 @@ produced evidence, not re-run here).
   commit that carries this fix (BL-010 applies: Docker/JDK validation is
   delegated to Linux CI).
 
-### BL-020 — `EVALUATE ... WHEN` body statements are silently deleted
+### BL-020 — Inline statements on `WHEN` / `IF ... THEN` lines are swallowed into the condition
 - **Type:** defect (silent semantic loss; mis-certified capability)
-- **Status:** OPEN — verified by direct probing at HEAD, **not fixed**
-- **Observed behavior:** `_parse_evaluate` lowers a `WHEN` arm into an
-  `IfStatement` but **discards the arm's body statements**. For
-  `EVALUATE A / WHEN 1 THRU 5 / DISPLAY "IN-RANGE" / END-EVALUATE` the parser
-  produces `IfStatement(condition='A >= 1 AND A <= 5', then_body=(), else_body=())`
-  and the mapper emits:
-  ```java
-  if (A >= 1 && A <= 5) {
-  }
-  ```
-  The `DISPLAY` is gone. **No diagnostic is emitted**, and the registry
-  certifies `EVALUATE` as SUPPORTED, so the capability verdict is a false
-  SUPPORTED for a construct that silently deletes an executable statement.
-- **Expected behavior:** Master README §60 (no silent loss), §17 (the IR must
-  represent semantics), §53 (no silent semantic loss may remain at phase
-  closure). Contrast: inline `PERFORM` *does* emit `UNSUPPORTED_CONSTRUCT`.
-- **Root cause:** `_parse_evaluate` builds `arms` (spec, body) but the `cond()`
-  lowering only consumes the spec and never re-emits `body` into the generated
-  `IfStatement` branches.
-- **Affected files:** `engine/transformation/cobol_parser.py` (`_parse_evaluate`).
-- **Impact:** any multi-branch `EVALUATE` silently loses its arms' contents.
-  Highest-severity item found after BL-018.
-- **Remediation (NOT yet implemented):** attach each arm's parsed body to the
-  lowered `IfStatement.then_body`/`else_body`; where a form cannot be lowered
-  faithfully, fail closed with an explicit diagnostic rather than dropping.
-- **Verification level:** STATIC + reproduced locally (no test added yet by
-  design — no test was written around still-broken behaviour).
+- **Status:** OPEN — verified by direct probing at HEAD `c312eb9`, **not fixed**
+- **Premise correction (2026-10-11):** this item was originally filed as
+  "the parser discards each `WHEN` arm's body statements". **That was wrong.**
+  Re-reading `_parse_evaluate` (lines 1653-1666) shows `build()` *does* pass
+  `then_body=body`, and probing confirms a **multi-line** arm works correctly:
+  `WHEN 1 THRU 5` + `DISPLAY "IN-RANGE"` on the next line yields
+  `IfStatement(condition='A >= 1 AND A <= 5', then_body=(DisplayStatement,))`
+  and emits `if (A >= 1 && A <= 5) { println("IN-RANGE"); }`. All shipped
+  fixtures (`workload-evaluate`, `workload_inventory`, `workload-level88`) use
+  the multi-line form and are unaffected.
+  The **real** defect is narrower and different: a statement written **inline
+  on the same line as `WHEN`/`IF ... THEN`** is absorbed into the condition
+  string and lost.
+- **Observed behavior (verified):**
+  | Source | Generated Java |
+  |---|---|
+  | `WHEN 1 THRU 5 DISPLAY "IN-RANGE"` | `if (A >= 1 && A <= 5) { }` — DISPLAY deleted |
+  | `WHEN 1 DISPLAY "ONE"` | `if (A == 1 \|\| A == DISPLAY \|\| A == "ONE") { }` |
+  | `IF A > 1 THEN DISPLAY "YES" END-IF` | `if (A > 1 THEN DISPLAY "YES" END_IF.) { }` — non-compiling |
+  | `IF A > 1 DISPLAY "YES"` | `if (A > 1 DISPLAY "YES".) { }` — non-compiling |
+  **No diagnostic is emitted in any case**, and `EVALUATE`/`IF` are certified
+  SUPPORTED, so this is a false SUPPORTED *and* malformed Java.
+- **Expected behavior:** Master README §60 (no silent loss), §16 (recognised
+  constructs must produce explicit diagnostics), §17 (the IR models
+  semantics), §53 (no silent semantic loss may remain at phase closure).
+- **Root cause:** `_parse_evaluate` and `_parse_if` take everything after
+  `WHEN ` / `IF ` on that line as the *spec/condition*, with no delimiter
+  between the condition and an inline statement. The condition tokeniser then
+  treats `DISPLAY`, `END-IF`, `THEN` etc. as comparison operands.
+- **Affected files:** `engine/transformation/cobol_parser.py`
+  (`_parse_evaluate`, `_parse_if`).
+- **Impact:** silent deletion of executable statements plus non-compiling Java,
+  reported as SUPPORTED. Highest-severity open item.
+- **Remediation (NOT yet implemented):** split the line at the condition/statement
+  boundary (stop the condition at `THEN`, `DISPLAY`, `MOVE`, `ADD`, ..., or
+  `END-IF`), parse the remainder as real statements into the arm body, and
+  emit an explicit diagnostic for any trailing text that still cannot be
+  classified — never silently discard it.
+- **Verification level:** VERIFIED by direct probing at `c312eb9` (multi-line
+  correct; inline lossy), plus the code read at `_parse_evaluate` lines
+  1621-1666.
 
 ### BL-021 — `EVALUATE ... WHEN ... ALSO` mis-lowered into nonsense
 - **Type:** defect (silent semantic loss)

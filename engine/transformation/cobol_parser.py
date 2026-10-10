@@ -47,6 +47,7 @@ from engine.transformation.ir import (
     FieldReference,
     FileDefinition,
     FigurativeConstant,
+    IntrinsicCall,
     FileKey,
     FileKeyType,
     FileOrganization,
@@ -103,6 +104,79 @@ _SCOPE_TERMINATOR = re.compile(
 _NON_PARAGRAPH_WORDS = frozenset({
     "EXIT", "CONTINUE", "GOBACK", "STOP", "NEXT", "END",
 })
+
+
+# Verbs that can legally begin a statement *inside* a scoped construct.
+# COBOL allows a statement to sit on the same line as the control verb that
+# opens the scope, e.g. `WHEN 1 DISPLAY "X"` or `IF A > 1 THEN MOVE ...`.
+# The parser previously treated every token after `WHEN `/`IF ` as part of the
+# condition, so those statements were absorbed into the condition string and
+# silently dropped (BL-020).  Detecting the boundary needs the same verb
+# vocabulary `_parse_statement` dispatches on, so the two stay in step.
+_STATEMENT_LEADING_VERBS: tuple[str, ...] = (
+    "OPEN", "READ", "WRITE", "CLOSE", "START", "REWRITE", "DELETE",
+    "MOVE", "ADD", "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE",
+    "CALL", "EVALUATE", "PERFORM", "UNSTRING", "STRING", "DISPLAY",
+    "SET", "INITIALIZE", "INSPECT", "SEARCH", "IF", "STOP", "EXIT",
+    "GOBACK", "GO", "GOTO", "ACCEPT", "SORT", "MERGE", "ALTER",
+)
+
+
+def split_condition_from_inline_statements(text: str) -> tuple[str, str]:
+    """Split ``text`` into (condition, inline statement text).
+
+    Returns the leading condition and everything from the first statement verb
+    onward.  Quoted literals are masked first so a ``DISPLAY`` *inside* a
+    literal (``IF WS-F = "DISPLAY"``) can never be mistaken for a verb.
+
+    ``END-IF`` / ``END-EVALUATE`` are scope terminators, not statements, so
+    they are excluded from the returned statement text and left for the caller
+    to consume.
+    """
+    masked = CobolParser._mask_quoted(text)
+    match = _re_inline_statement.search(masked)
+    if match is None:
+        return text.strip(), ""
+    condition = text[: match.start()].strip()
+    remainder = text[match.start():].strip()
+    # A bare scope terminator is structure, not an executable statement.
+    if _SCOPE_TERMINATOR.match(remainder):
+        return condition, ""
+    return condition, remainder
+
+
+# COBOL intrinsic function call: ``FUNCTION NAME(args)``.  Matched on the whole
+# text so a *field* named e.g. ``FUNCTION-CODE`` (no parentheses) never matches
+# and still parses as a normal field reference (BL-024).
+_re_intrinsic = re.compile(
+    r"^FUNCTION\s+([A-Z][A-Z0-9-]*)\s*\(.*\)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _split_statements_on_dashes(text: str) -> list[str]:
+    """Split inline statement text on the separators between COBOL statements.
+
+    A statement separator inside COBOL is ambiguous (a hyphen is also a word
+    character, as in ``WS-NAME``).  Splitting only at a *verb* that follows a
+    space is the conservative choice: it keeps ``WS-NAME`` intact while still
+    separating ``DISPLAY "A" MOVE X TO Y``.
+    """
+    masked = CobolParser._mask_quoted(text)
+    matches = list(_re_inline_statement.finditer(masked))
+    if not matches:
+        return [text]
+    parts = [text[: matches[0].start()]]
+    for idx, match in enumerate(matches):
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        parts.append(text[match.start(): end])
+    return [p for p in parts if p.strip()]
+
+
+_re_inline_statement = re.compile(
+    r"(?<![\w-])(?:" + "|".join(_STATEMENT_LEADING_VERBS) + r")(?![\w-])",
+    re.IGNORECASE,
+)
 
 
 def _is_paragraph_name(name: str) -> bool:
@@ -1618,6 +1692,27 @@ class CobolParser:
         self._emit_unparsed("COMPUTE", lines[start])
         return ComputeStatement(target="", expression=""), start + 1
 
+    def _parse_inline_statements(self, text: str) -> tuple[list[Any], list[str]]:
+        """Parse statements written inline on a control-verb line.
+
+        Returns ``(statements, unparsed)``.  Anything that cannot be turned
+        into IR is returned in ``unparsed`` so the caller can emit an explicit
+        diagnostic — the construct is never silently discarded (BL-020).
+        """
+        parsed: list[Any] = []
+        unparsed: list[str] = []
+        for fragment in _split_statements_on_dashes(text):
+            fragment = fragment.strip()
+            if not fragment:
+                continue
+            synthetic = [fragment]
+            stmt, next_i = self._parse_statement(synthetic, 0)
+            if stmt is not None and next_i >= len(synthetic):
+                parsed.append(stmt)
+            else:
+                unparsed.append(fragment)
+        return parsed, unparsed
+
     def _parse_evaluate(self, lines: list[str], start: int) -> tuple[IfStatement, int]:
         """Lower EVALUATE/WHEN into nested IF statements."""
         subject = lines[start].strip()[len("EVALUATE "):].rstrip(".").strip()
@@ -1634,6 +1729,20 @@ class CobolParser:
             spec = lines[i].strip()[len("WHEN "):].rstrip(".").strip()
             i += 1
             body = []
+            # BL-020: a statement may sit on the same line as WHEN, e.g.
+            # `WHEN 1 DISPLAY "ONE"`.  Without this split the statement text
+            # was absorbed into `spec`, turning it into a bogus comparison
+            # operand and silently dropping an executable statement.
+            spec, inline = split_condition_from_inline_statements(spec)
+            if inline:
+                inlined, unparsed = self._parse_inline_statements(inline)
+                body.extend(inlined)
+                for lost in unparsed:
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"Inline WHEN statement did not parse into IR: {lost[:60]}",
+                        location="EVALUATE",
+                    )
             while i < len(lines) and not lines[i].strip().upper().startswith(("WHEN ", "END-EVALUATE")):
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:
@@ -1643,13 +1752,38 @@ class CobolParser:
         def cond(spec):
             if spec.upper() == "OTHER":
                 return "OTHER"
-            tokens = spec.split()
-            up = [t.upper() for t in tokens]
-            if "THRU" in up:
-                k = up.index("THRU")
-                if k > 0 and k + 1 < len(tokens):
-                    return f"{subject} >= {tokens[k-1]} AND {subject} <= {tokens[k+1]}"
-            return " OR ".join(f"{subject} = {token}" for token in tokens)
+            # BL-021: `WHEN a ALSO b ALSO c` lists alternative values.  ALSO
+            # is a keyword, not a value, so treating it as an operand produced
+            # `A = 1 OR A = ALSO OR A = 2`.  Split on ALSO and OR the real
+            # alternatives.  The condition mapper renders a top-level
+            # ` OR ` chain left-to-right, so alternatives are emitted flat
+            # rather than parenthesised: parentheses are stripped downstream
+            # and would silently change operator precedence.
+            alternatives: list[str] = []
+            for group in re.split(r"\s+ALSO\s+", spec, flags=re.IGNORECASE):
+                tokens = group.split()
+                if not tokens:
+                    continue
+                up = [t.upper() for t in tokens]
+                if "THRU" in up:
+                    k = up.index("THRU")
+                    if k > 0 and k + 1 < len(tokens):
+                        alternatives.append(
+                            f"{subject} >= {tokens[k-1]} AND {subject} <= {tokens[k+1]}"
+                        )
+                        continue
+                    # A malformed range must not be silently dropped.
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"WHEN range with THRU is incomplete: {group[:60]}",
+                        location="EVALUATE",
+                    )
+                    alternatives.append(f"{subject} = {tokens[0]}")
+                    continue
+                alternatives.extend(f"{subject} = {token}" for token in tokens)
+            if not alternatives:
+                return "OTHER"
+            return " OR ".join(alternatives)
         def build(idx):
             if idx >= len(arms):
                 return None
@@ -1669,20 +1803,51 @@ class CobolParser:
         """Parse IF condition THEN ... ELSE ... END-IF."""
         line = lines[start].strip()
 
-        # Extract condition
-        match = re.search(r"IF\s+(.+?)(?:\s+THEN)?$", line, re.IGNORECASE)
-        if not match:
-            match = re.search(r"IF\s+(.+)", line, re.IGNORECASE)
+        # Extract condition.  A statement may sit inline on the IF line
+        # (`IF A > 1 THEN DISPLAY "YES" END-IF`, or without THEN), so the
+        # condition is split at the first statement verb and the remainder is
+        # parsed into the THEN body instead of being swallowed as comparison
+        # operands (BL-020).
+        match = re.search(r"IF\s+(.+)", line, re.IGNORECASE)
         condition = match.group(1).strip() if match else ""
+        condition, inline_then = split_condition_from_inline_statements(condition)
+        # THEN is a structural keyword, never part of the comparison.
+        condition = re.sub(r"\s+THEN\s*$", "", condition, flags=re.IGNORECASE).strip()
+        # A trailing END-IF on the same line closes this IF, not a statement.
+        trailing_end_if = False
+        end_if_match = re.search(r"\s+END-IF\s*\.?\s*$", inline_then, re.IGNORECASE)
+        if end_if_match:
+            inline_then = inline_then[: end_if_match.start()].strip()
+            trailing_end_if = True
 
         then_body: list[Any] = []
         else_body: list[Any] = []
+        if inline_then:
+            inlined, unparsed = self._parse_inline_statements(inline_then)
+            then_body.extend(inlined)
+            for lost in unparsed:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"Inline IF statement did not parse into IR: {lost[:60]}",
+                    location="IF",
+                )
+
         current_section = "then"
+
+        # A period closes a scope opened on its own line: in
+        # `IF A > 1 DISPLAY "YES".` the period ends the statement, so the IF
+        # body is only what was written inline. Without this the scan below
+        # would keep consuming following statements (STOP RUN) into the body.
+        self_closed_by_period = bool(inline_then) and inline_then.rstrip().endswith(".")
 
         i = start + 1
         while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
+
+            if trailing_end_if or self_closed_by_period:
+                # The IF was already closed on its own line; nothing more is in scope.
+                break
 
             if u.startswith("ELSE"):
                 current_section = "else"
@@ -2556,6 +2721,36 @@ class CobolParser:
         if figurative is not None:
             kind, _fill = figurative
             return FigurativeConstant(kind=kind, text=text)
+
+        # BL-024: an intrinsic call (`FUNCTION MIN(1, 2)`) is not a variable.
+        # Falling through to FieldReference produced the impossible identifier
+        # `FUNCTION MIN(1, 2)`, which maps to an undeclared Java variable.  No
+        # intrinsic is mapped by the deterministic lane, so fail closed with an
+        # explicit diagnostic instead of modelling it as a field (BL-018's
+        # defect class).
+        intrinsic = _re_intrinsic.match(text)
+        if intrinsic is not None:
+            name = intrinsic.group(1).upper()
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"Intrinsic function {name} is not implemented by the "
+                "deterministic mapper",
+                location=name,
+            )
+            return IntrinsicCall(name=name, arguments=text)
+
+        # BL-023: `**` is exponentiation, not two multiplications.  Treating it
+        # as two `*` operators produced `2 * <empty field> * 3` - a wrong
+        # numeric result with no diagnostic (Master README Section 18).  No
+        # exponentiation mapping is certified, so fail closed explicitly.
+        if "**" in self._mask_quoted(text):
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "Exponentiation (**) is not implemented by the deterministic "
+                "mapper",
+                location="COMPUTE",
+            )
+            return IntrinsicCall(name="**", arguments=text)
 
         # Check for numeric literal
         try:
