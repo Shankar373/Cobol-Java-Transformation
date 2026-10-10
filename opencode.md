@@ -1,5 +1,102 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 1 started — Parser / Universal IR Expansion (2026-10-10)
+
+### Current verification state (live)
+- Repository: `Shankar373/Cobol-Java-Transformation`, branch `codex/universal-core`.
+- **Baseline HEAD at session start:** `b8a746f` (`docs(phase0): pin verdict to exact-SHA CI at 9326f80`), clean working tree apart from preserved `test-artifacts/*`.
+- **Baseline CI at `b8a746f` (exact-SHA, verified this session):** Push CI #467 SUCCESS, PR CI #468 SUCCESS (all four required jobs green: ingestion diagnostics, capability truth gate, frontend, backend COBOL/Java Docker); Supply chain #49 / #50 SUCCESS. Phase 0 `COMPLETE — VERIFIED` therefore still stands.
+- **Current phase:** PHASE 1 — Parser / Universal IR Expansion (in progress; not complete).
+- **Local environment:** Windows, no `javac` and no Docker (BL-010). 22 `tests/transformation` failures are environment-only `FileNotFoundError` from the missing JDK.
+
+### Task completed this session — BL-018 (figurative constants)
+First genuine parser/Universal IR gap found and fixed. A COBOL figurative constant
+(`ZERO`, `ZEROS`, `ZEROES`, `SPACE`, `SPACES`, `QUOTE`, `QUOTES`,
+`LOW-VALUE(S)`, `HIGH-VALUE(S)`, `ALL "x"`) is a reserved **word** with a fixed
+value, but `CobolParser._build_expression` lowered it to
+`FieldReference(name="ZERO")`. The mapper then emitted `A = ZERO;` and
+`String.format("%-60s", SPACES)` — Java referencing an undeclared variable.
+The output **does not compile**, **zero diagnostics** were produced, and
+`CapabilityAnalyzer` still certified the program `SUPPORTED`. The real fixture
+`fixtures/workload-payroll/cobol/PAYROLL.cob` (`MOVE SPACES TO RPT-RECORD`)
+generated exactly this non-compiling Java. This violates Master README §§14,
+16, 17 and 60.
+
+Fix (deterministic, no LLM — tables and regexes only):
+- New `engine/transformation/figurative.py` — single source of truth mapping
+  canonical spelling → semantic kind → fill character.
+- New `ir.FigurativeConstant(kind, text)`; `text` keeps the original spelling
+  for source traceability.
+- Parser produces the node; mapper expands it to a Java literal so `MOVE`
+  fills the receiving item across its declared PIC width and `DISPLAY`
+  prints the value.
+- Conditions substitute constants **before** the DASH_UNDERSCORE rewrite
+  (which had been mangling `HIGH-VALUE` → `HIGH_VALUE`) and emit a
+  **whole-field** test (`C.replace(" ", "").isEmpty()`), because
+  `IF C = SPACES` is true only when *every* character is a space.
+- An unambiguous sentinel distinguishes a real one-character literal
+  (`IF C = " "`) from `= SPACES`; a strip-on-fallback guard guarantees the
+  sentinel can never leak into emitted Java.
+- Registry key `FIGURATIVE CONSTANT` at SUPPORTED + source pattern + analyzer
+  IR walk, so a dropped instance still fails closed via `effective_source_level`.
+
+### Files changed this session
+- `engine/transformation/figurative.py` (new — canonical semantics).
+- `engine/transformation/ir.py` (`FigurativeConstant` node).
+- `engine/transformation/cobol_parser.py` (expression builder recognises constants).
+- `engine/transformation/cobol_to_java_mapping.py` (expr, condition and DISPLAY paths).
+- `engine/transformation/semantic_capability.py` (`FIGURATIVE CONSTANT` registry key + source pattern).
+- `engine/modernization/capability_analyzer.py` (IR-backed figurative classification).
+- `tests/transformation/test_figurative_constants.py` (new — 59 tests).
+- `docs/SEMANTIC_PROOF_MATRIX.md`, `docs/BACKLOG.md`, `opencode.md`.
+
+### Tests run this session
+- Focused: `pytest -q tests/transformation/test_figurative_constants.py` → **59 passed**.
+- Capability gates: `test_capability_registry_reconciliation.py`,
+  `test_producer_capability_consistency.py`, `test_producer_contract.py`,
+  `test_silent_loss_registry.py`, `test_usage_capability.py`,
+  `test_structural_capability.py`, `test_rounded_capability.py` → **101 passed**.
+- Regression: `pytest -q tests/transformation tests/adversarial
+  tests/test_silent_loss_registry.py` → **1843 passed, 11 skipped, 22 failed**.
+  **No regression:** the identical selection was re-run against a stashed
+  (pristine) tree and produced the *same* 1843 passed / 22 failed. All 22 are
+  the pre-existing environment-only `javac` `FileNotFoundError` failures (no JDK
+  on this host) — confirmed by inspecting failure text, not just the count.
+- **Full `pytest -q tests` and exact-SHA CI are still outstanding for the commit
+  that carries this fix.** Do not describe Phase 1 as verified until both land.
+
+### Backlog disposition
+- **BL-018 — FIXED** (figurative constants). See `docs/BACKLOG.md`.
+- **BL-019 — OPEN, next task.** `map_cobol_condition_to_java` blind-replaces
+  `NOT ` → `!`, so `IF C NOT = SPACES` becomes `C ! == SPACES` and
+  `IF A NOT > 3` becomes `A !> 3` — non-compiling Java, no diagnostic.
+  Confirmed **pre-existing at baseline `b8a746f`** (HEAD line 1011) and
+  reproducible with no figurative constant involved (`C NOT = "A"`), so it is
+  an independent defect, **not** a regression from BL-018. BL-018's fix makes it
+  *more visible* (the constant operand is now correct while `NOT` stays broken).
+  No test was added or weakened around broken behaviour; it is recorded, not hidden.
+
+### Do-not-redo list (unchanged)
+- Do not re-implement the parser/IR/mapper/generator/evidence/verdict architecture.
+- Do not re-do PHASE 0–7D work absent a detected regression.
+- Do not retry Docker-in-Docker or alter WSL2/cgroup/Docker security settings.
+- Do not weaken/skip tests to obtain green.
+- BL-018 is closed — do not re-open it without a detected regression.
+
+### Next exact OpenCode action
+1. Confirm the full `pytest -q tests` result and the exact-SHA CI result for the
+   BL-018 commit before claiming any Phase 1 status.
+2. Implement **BL-019**: replace the `NOT`/comparison `str.replace` chain in
+   `map_cobol_condition_to_java` with quote-aware tokenisation that treats `NOT`
+   as an operator and emits `!(...)`, reusing the existing quote-safe
+   `_replace_bare_equals` pattern. Add positive/negative/regression tests, and
+   verify `IF x NOT = y` / `IF x NOT > y` generate compiling Java. Do it as its
+   own change so a BL-018-style fix cannot mask it.
+3. After BL-019, continue Phase 1 with the next genuine parser/IR gap; check
+   `docs/BACKLOG.md` and the roadmap P1 list for the next candidate.
+
+---
+
 ## Phase 0 closure audit — 2026-10-10
 
 ### Current verification state

@@ -28,6 +28,7 @@ import re
 from typing import Any
 
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
+from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.semantic_capability import canonical_usage
 from engine.transformation.ir import (
     AddStatement,
@@ -45,6 +46,7 @@ from engine.transformation.ir import (
     FileAccessMode,
     FieldReference,
     FileDefinition,
+    FigurativeConstant,
     FileKey,
     FileKeyType,
     FileOrganization,
@@ -2532,6 +2534,7 @@ class CobolParser:
         Handles:
         - Numeric literals: 42, 3.14, -100
         - String literals: 'HELLO', "WORLD"
+        - Figurative constants: ZERO, SPACES, HIGH-VALUE, ALL "x"
         - Field references: CUSTOMER-ID, WS-TOTAL
         - Binary expressions: A + B, X * Y
         - Unary expressions: NOT flag, -amount
@@ -2544,6 +2547,15 @@ class CobolParser:
         if (text.startswith("'") and text.endswith("'")) or \
            (text.startswith('"') and text.endswith('"')):
             return Literal(value=text[1:-1], is_numeric=False)
+
+        # Figurative constants are reserved *words* with a fixed value, not
+        # variables.  Resolving them here keeps a `MOVE SPACES TO X` from
+        # becoming a FieldReference named SPACES (which maps to an undeclared
+        # Java identifier, i.e. non-compiling, silently-lost output).
+        figurative = parse_figurative_constant(text)
+        if figurative is not None:
+            kind, _fill = figurative
+            return FigurativeConstant(kind=kind, text=text)
 
         # Check for numeric literal
         try:

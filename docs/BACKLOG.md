@@ -315,6 +315,113 @@ produced evidence, not re-run here).
   Push CI #453 and PR CI #454 both passed, including the capability-truth gate.
   Coverage thresholds and mutation testing remain explicitly deferred below.
 
+### BL-018 — Figurative constants parsed as field references (silent, non-compiling Java)
+- **Type:** defect (silent semantic loss + false SUPPORTED verdict)
+- **Status:** FIXED — 2026-10-10 (Phase 1 parser/IR work)
+- **Observed behavior:** A COBOL figurative constant (`ZERO`, `ZEROS`,
+  `ZEROES`, `SPACE`, `SPACES`, `QUOTE`, `QUOTES`, `LOW-VALUE(S)`,
+  `HIGH-VALUE(S)`, `ALL "x"`) — a reserved **word** with a fixed value — was
+  lowered by `CobolParser._build_expression` to `FieldReference(name="ZERO")`.
+  The mapper then emitted `A = ZERO;` and
+  `C = String.format("%-60s", SPACES).substring(0, 60);` — Java referencing an
+  **undeclared variable**, which does not compile. Zero diagnostics were
+  produced, and `CapabilityAnalyzer` still certified the program
+  `SUPPORTED` with reason "All constructs supported". The real fixture
+  `fixtures/workload-payroll/cobol/PAYROLL.cob` (`MOVE SPACES TO RPT-RECORD`)
+  generates exactly this non-compiling Java today.
+- **Expected behavior:** Master README Sections 14 (capability must derive from
+  actual implementation), 16 ("figurative constants" is required parser
+  coverage), 17 (the IR must represent semantics, not merely syntax), and 60
+  (no silent loss). A recognised construct must never disappear, and must
+  never be certified as supported while producing non-compiling output.
+- **Root cause:** the reserved-word table had no entry for figurative
+  constants, so the expression builder fell through to its "field reference"
+  default. The mapper, capability registry and analyzer shared that blind spot.
+- **Affected files:** `engine/transformation/figurative.py` (new),
+  `engine/transformation/ir.py`, `engine/transformation/cobol_parser.py`,
+  `engine/transformation/cobol_to_java_mapping.py`,
+  `engine/transformation/semantic_capability.py`,
+  `engine/modernization/capability_analyzer.py`,
+  `tests/transformation/test_figurative_constants.py` (new).
+- **Remediation (implemented):**
+  * New `engine/transformation/figurative.py` is the single source of truth:
+    canonical spelling → semantic kind, plus the fill character per kind.
+    Deterministic tables and regular expressions only — no LLM.
+  * New `ir.FigurativeConstant(kind, text)` node; `text` preserves the original
+    spelling for source traceability. `_build_expression` produces it instead
+    of a bogus `FieldReference`.
+  * `map_cobol_expr_to_java` and `_map_cobol_expression_to_java` expand a
+    constant to a Java literal, so `MOVE` fills the receiving item across its
+    declared PIC width and `DISPLAY` prints the constant's value.
+  * `map_cobol_condition_to_java` substitutes constants **before** the
+    DASH_UNDERSCORE rewrite (which previously mangled `HIGH-VALUE` into
+    `HIGH_VALUE`) and emits a **whole-field** test
+    (`C.replace(" ", "").isEmpty()`) because `IF C = SPACES` is true only when
+    every character is a space.
+  * A sentinel marker makes substitution unambiguous (a real one-character
+    literal `IF C = " "` is never confused with `= SPACES`) and a
+    strip-on-fallback guard guarantees the marker can never leak into emitted
+    Java on an unsupported condition shape.
+  * Registry key `FIGURATIVE CONSTANT` at SUPPORTED with mapping evidence, a
+    source pattern, and an analyzer IR walk that records the constant from the
+    parsed IR (not from a source match alone), so a dropped instance still
+    fails closed via `effective_source_level`.
+- **Acceptance criteria / tests:**
+  `tests/transformation/test_figurative_constants.py` (59 tests) — positive
+  (every spelling canonicalises; parser emits `FigurativeConstant`; generated
+  Java has no bare reserved-word identifier; fill spans the declared PIC width;
+  comparison tests every character; verdict is IR-backed), negative
+  (hyphenated identifiers such as `ZERO-COUNT`/`HIGH-VALUE-FLAG`, quoted
+  literals spelling a word, and multi-character `ALL "ab"` are not constants;
+  ordinary field operands stay `FieldReference`/`Literal`), and regression
+  against the real `PAYROLL.cob` fixture that previously generated
+  non-compiling Java.
+- **Known limitation (recorded, not hidden):** `LOW-VALUE`/`HIGH-VALUE` use the
+  native ASCII collating sequence (NUL / 0xFF), which matches GnuCOBOL's
+  default. A dialect with a different collating sequence needs an explicit
+  mapping; this is recorded rather than guessed.
+- **Verification level:** VERIFIED locally — focused suite 59 passed;
+  `tests/transformation` + `tests/adversarial` + `tests/test_silent_loss_registry.py`
+  unchanged at 1843 passed / 22 failed, with the 22 confirmed as the
+  pre-existing environment-only `javac` `FileNotFoundError` failures by
+  re-running the identical selection against a stashed (pristine) tree and
+  observing the same 22. Full-suite and exact-SHA CI evidence pending on the
+  commit that carries this fix (BL-010 applies: Docker/JDK validation is
+  delegated to Linux CI).
+
+### BL-019 — `NOT` in conditions is mangled into non-compiling Java
+- **Type:** defect (silent semantic loss)
+- **Status:** OPEN — found during BL-018 remediation, deliberately not fixed here
+- **Observed behavior:** `map_cobol_condition_to_java` performs an
+  unconditional `condition.replace("NOT ", "!")`. For `C NOT = SPACES` this
+  runs *after* `NOT =` has already become `!=`, so it yields `C ! == SPACES`;
+  `A NOT > 3` yields `A !> 3`. Both are non-compiling Java, produced with no
+  diagnostic.
+- **Pre-existing:** confirmed present at baseline `b8a746f`
+  (`condition.replace("NOT ", "!")`, HEAD line 1011) and reproduced with no
+  figurative constant involved (`C NOT = "A"`, `A NOT > 3`). It is therefore an
+  **independent defect**, not a regression from BL-018. BL-018's fix makes it
+  more visible because the figurative operand is now substituted correctly
+  while the `NOT` token around it stays broken.
+- **Expected behavior:** Master README Sections 16/60 — `NOT` must be parsed as
+  an operator token, not blind string-replaced into a broken prefix.
+- **Root cause:** operator handling is string `replace` rather than
+  quote-aware tokenisation, so operator precedence/adjacency is not checked.
+- **Affected files:** `engine/transformation/cobol_to_java_mapping.py`
+  (`map_cobol_condition_to_java`, the `NOT`/`AND`/`OR`/`=` replacement chain).
+- **Impact:** any `IF x NOT = y` / `IF x NOT > y` program generates invalid
+  Java. Because it is confined to the condition mapper, it cannot be masked by
+  a passing build elsewhere; it is a genuine correctness gap.
+- **Remediation (NOT yet implemented — recorded for the next task):** replace
+  the `NOT`/comparison replacement chain with quote-aware tokenisation that
+  recognises `NOT` as an operator adjacent to a relational operator and emits
+  `!(...)`, reusing the existing `_replace_bare_equals` quote-safety pattern.
+  Must be done as its own change with its own positive/negative/regression
+  tests so a BL-018-style fix cannot mask it.
+- **Verification level:** STATIC + reproduced locally (not executed as a test
+  yet, by design — no test was added while the behaviour is still broken and
+  no existing test was weakened to accommodate it).
+
 ---
 
 ## Backlog change log
@@ -342,6 +449,20 @@ produced evidence, not re-run here).
   pinned explicitly rather than forced to match the registry.
 - 2026-10-10 — BL-012 partially fixed: new dependency-free `capability-truth` CI
   job gates capability truth in ~1 minute instead of after the Docker image build.
+- 2026-10-10 — **Phase 1 started (parser/Universal IR).** BL-018 fixed: figurative
+  constants. BL-019 filed OPEN (independent pre-existing `NOT`-in-conditions
+  defect, confirmed at baseline `b8a746f`). See the BL-018/BL-019 entries and the
+  carry-forward register below for full evidence and acceptance criteria.
+  job gates capability truth in ~1 minute instead of after the Docker image build.
+- 2026-10-10 — **Phase 1 started.** BL-018 fixed: figurative constants
+  (`ZERO`/`SPACES`/`QUOTES`/`LOW-VALUE`/`HIGH-VALUE`/`ALL "x"`) parsed into a
+  `FieldReference` named after the reserved word, producing non-compiling Java
+  (`A = ZERO;`) with zero diagnostics and a false SUPPORTED verdict — including
+  for the real `workload-payroll` fixture. New canonical `figurative.py`, new
+  `ir.FigurativeConstant` node, parser/mapper/registry/analyzer wiring, and 59
+  focused positive/negative/regression tests. BL-019 filed OPEN for the
+  independent pre-existing `NOT`-in-conditions defect discovered during the same
+  investigation (confirmed present at baseline `b8a746f`).
 - 2026-10-10 — BL-008 and BL-009 fixed: the false "integrated proof not wired"
   claim was replaced with the real wiring + locations, and ten live status docs
   now carry a dated Baseline note distinguishing their snapshot SHA/CI from the
@@ -374,6 +495,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-015 | Project owner / human reviewer | Phase 0 governance | Full review of PR #2's 151-commit/265-file diff, exact-head CI, and explicit human decision | Keep the high-impact main-branch integration decision with the project owner. | PR #2 is mergeable and checks were green at audit time, but merging it into `main` is not authorized here. | Human explicitly chooses merge or hold after reviewing the diff and fresh checks. Until then, leave PR #2 open and unmerged; no assistant-driven merge. |
 | BL-016 | QA / validation owner | Phase 0 governance | Current upstream test replacements and PR #3 validation history | Preserve the validation-only branch findings without merging stale tests. | Extracted unique tests failed against current code (41 failed, 20 passed, one import failure); concerns were reimplemented upstream. | Keep PR #3 unmerged; preserve findings and make a human decision to retain for reference or close as superseded. |
 | BL-017 | Test infrastructure maintainer | Phase 12 (test reliability) | `tests/test_pipeline_progress.py::TestAsyncAPIStagePersistence::test_all_pipeline_stages_observed_via_api`; async API stage persistence | Remove a pre-existing timing-dependent flake so a required CI job is not intermittently red for reasons unrelated to the change under test. | Observed 2026-10-10 on the docs-only remediation commit `0d7e073`: Push CI #459 FAILED on this single test while PR CI #460 PASSED on the identical SHA. No code changed since the green baseline `55f885d` (Push CI #453: 3129 passed). The test polls `GET /runs/{id}` on a background thread with a 10s deadline and 50ms sleep, and asserts `observed[-1] == "COMPLETED"`; under load the poll can time out while the last observed stage is `EXECUTING_GENERATED`. The failure did **not** recur at `ef42b82` (Push CI #461 green), and the test passes 5/5 locally — so this is intermittent, not a regression. **Still OPEN**: Phase 0 does not claim it is fixed. | Make the test deterministic (synchronize on the terminal-stage persistence event, or assert terminal state with an explicit bounded wait that does not depend on intermediate-stage polling) **without weakening the assertion that the run reaches a terminal stage**. Must pass repeatedly under CPU contention and must not be relaxed to `assert observed` or skipped. |
+| BL-018 | Parser / IR maintainer | Phase 1 (closed) | Canonical `figurative.py` table, `ir.FigurativeConstant`, capability registry | Close a silent semantic loss that produced non-compiling Java while certifying SUPPORTED. | `LOW-VALUE`/`HIGH-VALUE` assume the native ASCII collating sequence (matching GnuCOBOL default); a dialect with a different sequence needs an explicit mapping. | `tests/transformation/test_figurative_constants.py` passes; no bare reserved-word identifier in generated Java; comparison tests every character; verdict is IR-backed. |
+| BL-019 | Semantic transformation maintainer | Phase 1 (next task) | `map_cobol_condition_to_java` operator handling; existing quote-aware `_replace_bare_equals` pattern | Fix an independent pre-existing defect where `NOT` is blind string-replaced into a broken Java prefix. | Programs using `IF x NOT = y` / `IF x NOT > y` generate invalid Java with no diagnostic; BL-018's fix makes this more visible but does not cause it. | Replace the `NOT`/comparison replacement chain with quote-aware tokenisation emitting `!(...)`; add focused positive/negative/regression tests; generated Java for `NOT` conditions compiles; no existing test weakened. |
 
 ### PR disposition snapshot — 2026-10-10
 

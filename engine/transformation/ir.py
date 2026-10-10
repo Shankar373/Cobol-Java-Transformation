@@ -17,6 +17,7 @@ Expression hierarchy:
     Expression
     ├── Literal (numeric/string literal)
     ├── FieldReference (COBOL field name)
+    ├── FigurativeConstant (ZERO / SPACES / HIGH-VALUE / ALL "x" / ...)
     ├── UnaryExpression (NOT, -)
     └── BinaryExpression (+, -, *, /, =, <>, >, <, >=, <=, AND, OR)
 
@@ -78,6 +79,45 @@ class FieldReference(Expression):
         AMOUNT
     """
     name: str  # the COBOL field name
+
+
+@dataclass(frozen=True)
+class FigurativeConstant(Expression):
+    """A COBOL figurative constant (Master README Section 16).
+
+    These are reserved words with fixed, colon-independent meaning:
+
+    ==========================  ==================================
+    Constant                    Meaning
+    ==========================  ==================================
+    ``ZERO``/``ZEROS``          all numeric digits ``0``
+    ``SPACE``/``SPACES``        all spaces
+    ``QUOTE``/``QUOTES``        all double quotes
+    ``LOW-VALUE``/``VALUES``    the lowest collating character
+    ``HIGH-VALUE``/``VALUES``   the highest collating character
+    ``ALL "x"``                 ``x`` repeated across the receiver
+    ==========================  ==================================
+
+    They are *values*, not variables.  Representing them as a
+    :class:`FieldReference` named ``ZERO`` is a semantic defect: the
+    receiving item is then filled from an undeclared Java identifier, so
+    the generated program does not compile and the construct is silently
+    lost.  This node keeps the construct explicit in the IR so the parser,
+    the mapper and the capability analyzer all observe it.
+
+    ``text`` preserves the spelling exactly as it appeared in the COBOL
+    source so traceability back to the source line is never lost.
+    """
+
+    #: Canonical semantic kind (see :mod:`engine.transformation.figurative`).
+    kind: str
+    #: The original COBOL spelling, e.g. ``SPACES`` or ``ALL "*"``.
+    text: str = ""
+
+    @property
+    def is_numeric(self) -> bool:
+        """True when the constant supplies a numeric value (ZERO family)."""
+        return self.kind in ("ZERO",)
 
 
 @dataclass(frozen=True)

@@ -415,6 +415,31 @@ class CapabilityAnalyzer:
             entry = CONSTRUCT_REGISTRY[key]
             findings.append((key, entry.level, entry.evidence))
 
+        def _note_figurative(value) -> None:
+            """Classify a FigurativeConstant appearing anywhere in the IR.
+
+            Figurative constants are expressions, not statements, so they are
+            not reached by the statement-class walk.  Reading them from the
+            IR keeps the verdict backed by what the parser actually produced
+            (the source scan alone cannot prove the mapper saw them).
+            """
+            from engine.transformation.ir import FigurativeConstant as _FigurativeConstant
+            if isinstance(value, _FigurativeConstant):
+                ir_flag_keys.add("FIGURATIVE CONSTANT")
+            elif isinstance(value, (tuple, list, set, frozenset)):
+                for item in value:
+                    _note_figurative(item)
+            elif hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    if field_name in ("source", "expression", "parts", "condition"):
+                        _note_figurative(getattr(value, field_name, None))
+
+        def _walk_expression(stmt) -> None:
+            _note_figurative(getattr(stmt, "source_expr", None))
+            _note_figurative(getattr(stmt, "expression_expr", None))
+            _note_figurative(getattr(stmt, "parts", None))
+            _note_figurative(getattr(stmt, "condition", None))
+
         def _walk(stmt) -> None:
             name = type(stmt).__name__
             _note_ir(name)
@@ -428,6 +453,8 @@ class CapabilityAnalyzer:
                 ir_flag_keys.add("ROUNDED")
                 entry = CONSTRUCT_REGISTRY["ROUNDED"]
                 findings.append(("ROUNDED", entry.level, entry.evidence))
+
+            _walk_expression(stmt)
 
             for attr in ("invalid_key_body", "not_invalid_key_body"):
                 if getattr(stmt, attr, None):

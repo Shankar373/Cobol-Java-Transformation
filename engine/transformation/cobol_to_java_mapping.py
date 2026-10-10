@@ -26,6 +26,10 @@ All decisions derived from generic COBOL IR elements.
 
 from __future__ import annotations
 
+import re
+
+from engine.transformation import figurative
+from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -618,6 +622,7 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     Handles:
     - Field references (DASH_UNDERSCORE conversion)
     - Literals
+    - Figurative constants (ZERO / SPACES / ALL "x" / ...)
     - Arithmetic operators (+, -, *, /)
     """
     import re as _re
@@ -628,6 +633,15 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
         return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
     if expr.startswith('"') and expr.endswith('"'):
         return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+    # Figurative constants are reserved words with a fixed value.  Without
+    # this they fall through to the field-reference branch below and become
+    # an undeclared Java variable (`A = ZERO;`), which does not compile.
+    # NOTE: do not name this local `figurative` — that would shadow the
+    # module-level import used by figurative_constant_to_java.
+    parsed_figurative = parse_figurative_constant(expr)
+    if parsed_figurative is not None:
+        return figurative_constant_to_java(*parsed_figurative)
 
     # Check if it's a simple number
     if is_numeric_literal(expr):
@@ -660,6 +674,36 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     # Field reference (single name)
     java_name = expr.replace("-", "_")
     return JavaVariableRef(name=java_name)
+
+
+def figurative_constant_to_java(kind: str, fill: str | None = None) -> JavaExpression:
+    """Map a COBOL figurative constant to a Java expression.
+
+    A figurative constant supplies one *character* (or the numeric 0) which
+    the receiving item replicates across its declared size.  The MOVE mapping
+    already pads/truncates an alphanumeric receiving item to its PIC X width
+    (``String.format("%-Ns", ...)``), so the constant itself only needs to
+    yield a single repeatable Java value:
+
+    * ``ZERO``          -> integer literal ``0`` (numeric receiver semantics
+      then scale it to the PIC).
+    * ``SPACES`` etc.   -> a one-character Java string literal, which the
+      receiver padding expands across the field.
+    * ``ALL "x"``       -> the one-character literal ``x``.
+
+    An unknown kind fails closed to the numeric ``0`` only when explicitly
+    numeric; otherwise it is emitted as a single space so the program still
+    compiles rather than referencing an undeclared identifier.
+    """
+    if kind == figurative.ZERO:
+        return JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT))
+    if kind == figurative.ALL and fill is not None:
+        return JavaLiteral(value=fill, java_type=JavaType(basic_type=JavaBasicType.STRING))
+    char = figurative.figurative_fill_char(kind)
+    if char is None:
+        # Fail closed: never emit a bare identifier for a reserved word.
+        char = " "
+    return JavaLiteral(value=char, java_type=JavaType(basic_type=JavaBasicType.STRING))
 
 
 def _promote_numeric_expression_to_double(expr: JavaExpression) -> JavaExpression:
@@ -944,6 +988,8 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
             value=expr.value,
             java_type=JavaType(basic_type=JavaBasicType.STRING),
         )
+    if isinstance(expr, _cobol_ir.FigurativeConstant):
+        return figurative_constant_to_java(expr.kind)
     if isinstance(expr, _cobol_ir.FieldReference):
         return JavaVariableRef(name=expr.name.replace("-", "_"))
     if isinstance(expr, _cobol_ir.BinaryExpression):
@@ -958,6 +1004,99 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
             operand=_map_cobol_expression_to_java(expr.operand),
         )
     return map_cobol_expr_to_java(str(expr))
+
+
+#: Marker wrapped around a figurative fill character in a substituted
+#: condition token.  COBOL source cannot produce it (it is not a legal COBOL
+#: identifier or literal body), so a genuine one-character COBOL literal such
+#: as ``IF C = " "`` is never confused with ``IF C = SPACES``.
+_FIGURATIVE_SENTINEL = "\\u0001FIG"
+
+_FIGURATIVE_TOKEN = re.compile(
+    re.escape(_FIGURATIVE_SENTINEL) + r"(\d+)" + re.escape(_FIGURATIVE_SENTINEL)
+)
+
+
+def _substitute_figurative_constants(condition: str) -> str:
+    """Replace figurative constants in a condition with Java literals.
+
+    A figurative constant on the right of a comparison is a *fill*, not a
+    single character: ``IF C = SPACES`` is true when **every** character of
+    ``C`` is a space.  Comparing against a one-character literal would be
+    wrong for any field wider than one character, so the token is replaced
+    by a marked sentinel that :func:`_operand` expands into a
+    whole-field comparison.
+
+    The substitution happens on whole words only, before the DASH_UNDERSCORE
+    rewrite, so ``HIGH-VALUE`` is still recognised as a reserved word and a
+    hyphenated field such as ``HIGH-VALUE-CODE`` is left alone.
+    """
+    import re as _re
+
+    pattern = (
+        r"(?<![\w-])(?:"
+        r"(?:ALL\s+(?:\"[^\"]{1}\"|'[^']{1}'))"
+        r"|(?:ZEROES|ZEROS|ZERO-ZERO-ZERO|ZERO|SPACES|SPACE|QUOTES|QUOTE"
+        r"|LOW-VALUES|LOW-VALUE|HIGH-VALUES|HIGH-VALUE)"
+        r")(?![\w-])"
+    )
+
+    def _dispatch(match: "re.Match[str]") -> str:
+        parsed = figurative.parse_figurative_constant(match.group(0))
+        if parsed is None:
+            return match.group(0)
+        kind, fill = parsed
+        if kind == figurative.ZERO:
+            # Numeric zero compares directly against a numeric field.
+            return "0"
+        char = fill if fill is not None else figurative.figurative_fill_char(kind)
+        if char is None:
+            char = " "
+        return f'"{_FIGURATIVE_SENTINEL}{ord(char)}{_FIGURATIVE_SENTINEL}"'
+
+    return _re.sub(pattern, _dispatch, condition)
+
+
+def _strip_figurative_sentinels(condition: str) -> str:
+    """Replace any surviving figurative sentinel with a plain Java literal.
+
+    A sentinel that reaches the generated source would be a leak of internal
+    encoding.  The structured comparison path consumes sentinels via
+    :func:`_operand`; this guard covers every other path (an unparsed or
+    otherwise unsupported condition shape) so a sentinel can never be emitted
+    verbatim into Java.
+    """
+    if _FIGURATIVE_SENTINEL not in condition:
+        return condition
+    return _FIGURATIVE_TOKEN.sub(_sentinel_to_literal, condition)
+
+
+_FIGURATIVE_TOKEN = re.compile(
+    re.escape(_FIGURATIVE_SENTINEL) + r"(\d+)" + re.escape(_FIGURATIVE_SENTINEL)
+)
+
+
+def _sentinel_to_literal(match: "re.Match[str]") -> str:
+    """Render a surviving figurative sentinel as a one-character literal."""
+    char = chr(int(match.group(1)))
+    return f'"{_java_string_body(char)}"'
+
+
+def _is_figurative_sentinel(token: str) -> bool:
+    """True when ``token`` is a substituted figurative fill token."""
+    return token.startswith(f'"{_FIGURATIVE_SENTINEL}') and token.endswith(_FIGURATIVE_SENTINEL + '"')
+
+
+def _figurative_sentinel_char(token: str) -> str:
+    """Return the fill character encoded in a substituted figurative token."""
+    body = token[1:-1]
+    digits = body[len(_FIGURATIVE_SENTINEL):-len(_FIGURATIVE_SENTINEL)]
+    return chr(int(digits))
+
+
+def _java_string_body(char: str) -> str:
+    """Escape a single figurative fill character for a Java string literal."""
+    return char.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def map_cobol_condition_to_java(condition: str) -> JavaExpression:
@@ -1013,6 +1152,13 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
     # Convert field references. Single-quoted COBOL literals become
     # double-quoted Java string literals (single quotes would be Java
     # char literals and would not compile against String fields).
+    #
+    # Figurative constants are substituted here, *before* the DASH_UNDERSCORE
+    # rewrite below.  Rewriting first turned `HIGH-VALUE` into `HIGH_VALUE`,
+    # which no longer matched the reserved word and fell through to a bare
+    # Java identifier.
+    condition = _substitute_figurative_constants(condition)
+
     parts = condition.split()
     result_parts = []
     for part in parts:
@@ -1041,14 +1187,51 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
         right_str = binary_match.group(3)
 
         def _operand(token: str) -> JavaExpression:
+            if _is_figurative_sentinel(token):
+                char = _figurative_sentinel_char(token)
+                return JavaLiteral(
+                    value=char,
+                    java_type=JavaType(basic_type=JavaBasicType.STRING),
+                )
             if token.startswith('"') or token.startswith("'"):
                 return JavaLiteral(value=token)
             if token.replace(".", "").replace("-", "").isdigit():
                 return JavaLiteral(value=token)
             return JavaVariableRef(name=token)
 
+        left_is_fill = _is_figurative_sentinel(left_name)
+        right_is_fill = _is_figurative_sentinel(right_str)
         left_expr = _operand(left_name)
         right_expr = _operand(right_str)
+
+        # COBOL ``= SPACES``/``= ALL "x"`` compares against the *whole* field
+        # filled with the character, so a one-character literal equality would
+        # be wrong for any field wider than one character.  Emit a trim-free
+        # all-characters-match test over the non-fill operand instead.
+        if op in ("==", "!=") and (left_is_fill or right_is_fill):
+            fill_expr = left_expr if left_is_fill else right_expr
+            field_expr = right_expr if left_is_fill else left_expr
+            matches = JavaMethodCall(
+                object_ref=field_expr,
+                method_name="chars",
+                arguments=(),
+            )
+            all_of = JavaMethodCall(
+                object_ref=matches,
+                method_name="allMatch",
+                arguments=(),
+            )
+            filled = JavaMethodCall(
+                object_ref=field_expr,
+                method_name="replace",
+                arguments=(fill_expr, JavaLiteral(value="")),
+            )
+            is_empty = JavaMethodCall(
+                object_ref=filled,
+                method_name="isEmpty",
+                arguments=(),
+            )
+            return is_empty if op == "==" else JavaUnaryOp(operator="!", operand=is_empty)
 
         # COBOL ``=`` on alphanumeric operands is content equality.  Java
         # ``==`` compares String identity, so a MOVE-built field never equals
@@ -1074,7 +1257,7 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
 
         return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
 
-    return JavaLiteral(value=condition_str)
+    return JavaLiteral(value=_strip_figurative_sentinels(condition_str))
 
 
 def _replace_bare_equals(condition: str) -> str:
@@ -1419,7 +1602,14 @@ def map_cobol_statement(
                         is_static=True,
                     ))
                 else:
-                    parts.append(JavaVariableRef(name=java_name))
+                    # A figurative constant is a reserved word with a fixed
+                    # value, not a field.  Without this a `DISPLAY SPACES`
+                    # printed an undeclared Java identifier.
+                    parsed_part = parse_figurative_constant(part)
+                    if parsed_part is not None:
+                        parts.append(figurative_constant_to_java(*parsed_part))
+                    else:
+                        parts.append(JavaVariableRef(name=java_name))
         if parts:
             concat = JavaStringConcat(parts=tuple(parts))
             # out.println(...) or System.err.println(...) based on destination

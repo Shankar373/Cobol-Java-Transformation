@@ -195,6 +195,18 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "ROUNDED reaches the generated Java as a HALF_UP rounding mode on the "
         "receiving item (default stays DOWN truncation)"
     ),
+    # Figurative constants (ZERO / SPACES / QUOTES / LOW-VALUE / HIGH-VALUE /
+    # ALL "x").  These are reserved *words* with a fixed value.  They used to
+    # parse into a FieldReference named after the word, which mapped to an
+    # undeclared Java identifier (`A = ZERO;`) — non-compiling output, no
+    # diagnostic, and a false SUPPORTED verdict.  The parser now emits
+    # ir.FigurativeConstant and the mapper expands it to the correct fill
+    # across the receiving item's declared width.
+    "FIGURATIVE CONSTANT": _supported(
+        "Figurative constants are parsed into FigurativeConstant and mapped to "
+        "the receiving item's width (whole-field fill for MOVE, whole-field "
+        "equality for comparison)"
+    ),
     # USAGE clauses.  The numeric *value* path (arithmetic, DISPLAY text,
     # VALUE normalization) is certified, but the record-area *byte encoding*
     # of these usages (binary layout, packed sign overpunch) is not, so each
@@ -375,6 +387,17 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("DELETE", re.compile(r"(?<![\w-])DELETE(?![\w-])", re.IGNORECASE)),
     ("INVALID KEY", re.compile(r"(?<![\w-])INVALID\s+KEY(?![\w-])", re.IGNORECASE)),
     ("ROUNDED", re.compile(r"(?<![\w-])ROUNDED(?![\w-])", re.IGNORECASE)),
+    # Figurative constants.  Word boundaries also refuse adjacent hyphens so a
+    # field such as HIGH-VALUE-CODE or ZERO-COUNT is never read as the
+    # reserved word.  Restricted to the procedure division by the caller's
+    # default restrict_to_procedure=True, because `VALUE SPACES` in a data
+    # description is an initializer the mapper already normalizes.
+    ("FIGURATIVE CONSTANT", re.compile(
+        r"(?<![\w-])(?:ALL\s+(?:\"[^\"]{1}\"|'[^']{1}')"
+        r"|ZEROES|ZEROS|ZERO-ZERO-ZERO|ZERO|SPACES|SPACE|QUOTES|QUOTE"
+        r"|LOW-VALUES|LOW-VALUE|HIGH-VALUES|HIGH-VALUE)(?![\w-])",
+        re.IGNORECASE,
+    )),
     # USAGE clauses (data-division only; only reached when callers scan with
     # restrict_to_procedure=False, e.g. the copybook classifier).  Longest
     # alternatives first so COMP-3/COMP-5 are not shadowed by plain COMP.
