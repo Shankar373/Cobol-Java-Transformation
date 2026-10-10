@@ -87,11 +87,31 @@ classification for other expression-level constructs.
   subset, and the 22 failures are identical in both runs — all are the
   pre-existing environment-only `javac` `FileNotFoundError` failures (no JDK on
   this host, BL-010), confirmed by inspecting failure text, not just the count.
+  **Do not run two full-suite runs concurrently against this tree** — they write
+  to shared `test-artifacts/` paths and the failure counts become unstable.
 - **Full local suite** `pytest -q tests` → **3150 passed, 12 skipped, 26 failed**
-  vs the recorded baseline **3091 passed, 12 skipped, 26 failed** — exactly
-  **+59 passed** (the new figurative tests) with an **identical failure count**,
-  so the 26 remain the documented environment-only `javac`/Docker failures.
-  Note: that run predates the `parsed_figurative` shadowing fix and `5cf3c18`.
+  on an early snapshot, and a later full run reported **3148 passed, 12 skipped,
+  31 failed**. The delta is **not** explained by test count (only +59 new tests
+  were added) and was investigated rather than waved away.
+  **Root cause of the variance: two full-suite runs were executing
+  CONCURRENTLY against the same working tree and the same `test-artifacts/`
+  output paths**, so they interfered. The extra 5 failures are
+  `tests/integration/test_vertical_slice.py` and
+  `tests/integration/test_forensic_evidence.py` — both assert on a real Java
+  compilation (`assert result.candidate_exit_code == 0`) and fail with
+  `'Java compiler not available'`.
+  **Verified environment-only, not a regression:** in a detached worktree at
+  the pre-work baseline `b8a746f`, `test_vertical_slice.py` fails with the
+  **identical 4 tests** and the identical
+  `CompilationResult(success=False, ..., compilation_errors=('Java compiler not
+  available',))`. `test_forensic_evidence.py` likewise fails **3 failed, 31
+  passed** at that baseline — the same shape seen on HEAD. These require a JDK
+  (and Docker), which this host lacks (BL-010). Linux CI supplies both and is
+  the authority for them.
+  **Correction to the earlier claim in this file:** the "26 failed, identical to
+  baseline" statement above was measured while a second full suite ran
+  concurrently; it is not a stable baseline and should not be cited as one.
+  Use the exact-SHA CI run as the authoritative regression signal.
 - BL-017: `pytest -q tests/test_pipeline_progress.py` → **9 passed**; **8/8**
   under deliberate CPU saturation; mutation negative control **correctly fails**.
 - **CI:** `5cf3c18` all four jobs SUCCESS on both Push #473 and PR #474
@@ -125,6 +145,16 @@ classification for other expression-level constructs.
   (An initial negative control that only short-circuited the `_run_validation`
   mock was **invalid** — `api/service.py` sets `COMPLETED` after that returns —
   and correctly passed. It was corrected rather than reported as a defect.)
+
+### Method note (reusable) — do not run two full suites concurrently
+Two `pytest -q tests` runs were executing at once against the same tree and
+the same `test-artifacts/` output paths. Failure counts then differ between
+runs for reasons unrelated to the code under test (26 vs 31), which reads as a
+regression and is not one. Serialize full-suite runs, and when a count looks
+wrong, reproduce the suspect test in a **detached worktree at the baseline
+commit** (`git worktree add --detach <path> <sha>`) rather than speculating.
+That is how the 31-vs-26 variance was resolved here: the baseline worktree
+reproduced the identical failures with `'Java compiler not available'`.
 - **BL-019 — OPEN, next task.** `map_cobol_condition_to_java` blind-replaces
   `NOT ` → `!`, so `IF C NOT = SPACES` becomes `C ! == SPACES` and
   `IF A NOT > 3` becomes `A !> 3` — non-compiling Java, no diagnostic.
