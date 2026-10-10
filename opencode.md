@@ -49,9 +49,34 @@ Fix (deterministic, no LLM — tables and regexes only):
   - **Exact-SHA CI for the BL-018 chain: `5cf3c18` all four jobs SUCCESS
     (Push #473, PR #474) including the Docker job that runs `javac` +
     GnuCOBOL, which is the authoritative gate for a parser/mapper change.
-    Supply chain #55 / #56 SUCCESS. On `27e8bf5` the Docker job was red on
-    Push #475 only — root-caused to the BL-017 flake and fixed in `f950bee`,
+    Supply chain #55 / #56 SUCCESS. `cc3fe2f` is likewise fully green on both
+    Push #479 and PR #480 (all four jobs). On `27e8bf5` the Docker job was red
+    on Push #475 only — root-caused to the BL-017 flake and fixed in `f950bee`,
     not to this work.**
+  - `43edded` (checkpoint only): capability-truth / ingestion / frontend green;
+    Docker job still running at time of writing.
+
+### ⚠ PHASE 1 IS **NOT** COMPLETE — verified by direct probing, not assumed
+A green CI gate does **not** close Phase 1. Master README §53 requires "no
+silent semantic loss remains"; §53 also states a passing test must exercise
+the intended behaviour. Probing current HEAD found **five further silent-loss
+gaps, none of which any test or CI job detects**:
+
+| Construct | Silently becomes | Diagnostics | Verdict |
+|---|---|---|---|
+| `EVALUATE A / WHEN 1 THRU 5 / DISPLAY "X" / END-EVALUATE` | `if (A >= 1 && A <= 5) { }` — **the DISPLAY is deleted** | none | SUPPORTED |
+| `WHEN 1 ALSO 2` | `A = 1 OR A = ALSO OR A = 2 OR A = DISPLAY OR A = "X"` | none | SUPPORTED |
+| `WHEN OTHER` | folded into the WHEN chain as a value, not a fallback branch | none | SUPPORTED |
+| `COMPUTE A = 2 ** 3` | `BinaryExpression(2 * <empty field> * 3)` | none | SUPPORTED |
+| `COMPUTE A = FUNCTION MIN(1,2)` | `FieldReference(name='FUNCTION MIN(1, 2)')` — undeclared variable | none | SUPPORTED |
+
+The `EVALUATE`/THRU case is the worst: it deletes an executable statement while
+the registry certifies `EVALUATE` as SUPPORTED. Filed as **BL-020…BL-024**.
+Inline `PERFORM` is the contrast case — it *does* emit `UNSUPPORTED_CONSTRUCT`,
+which is the honest behaviour these others should have.
+**Next task is BL-020 (`EVALUATE` WHEN body loss), ahead of BL-019**: same
+defect class as BL-018, currently mis-certified as SUPPORTED, and it silently
+discards executable code.
 
 ### Self-review finding fixed in `5cf3c18`
 The first analyzer wiring recursed through a fixed field-name list
@@ -88,30 +113,25 @@ classification for other expression-level constructs.
   pre-existing environment-only `javac` `FileNotFoundError` failures (no JDK on
   this host, BL-010), confirmed by inspecting failure text, not just the count.
   **Do not run two full-suite runs concurrently against this tree** — they write
-  to shared `test-artifacts/` paths and the failure counts become unstable.
-- **Full local suite** `pytest -q tests` → **3150 passed, 12 skipped, 26 failed**
-  on an early snapshot, and a later full run reported **3148 passed, 12 skipped,
-  31 failed**. The delta is **not** explained by test count (only +59 new tests
-  were added) and was investigated rather than waved away.
-  **Root cause of the variance: two full-suite runs were executing
-  CONCURRENTLY against the same working tree and the same `test-artifacts/`
-  output paths**, so they interfered. The extra 5 failures are
-  `tests/integration/test_vertical_slice.py` and
-  `tests/integration/test_forensic_evidence.py` — both assert on a real Java
-  compilation (`assert result.candidate_exit_code == 0`) and fail with
-  `'Java compiler not available'`.
-  **Verified environment-only, not a regression:** in a detached worktree at
-  the pre-work baseline `b8a746f`, `test_vertical_slice.py` fails with the
-  **identical 4 tests** and the identical
-  `CompilationResult(success=False, ..., compilation_errors=('Java compiler not
-  available',))`. `test_forensic_evidence.py` likewise fails **3 failed, 31
-  passed** at that baseline — the same shape seen on HEAD. These require a JDK
-  (and Docker), which this host lacks (BL-010). Linux CI supplies both and is
-  the authority for them.
-  **Correction to the earlier claim in this file:** the "26 failed, identical to
-  baseline" statement above was measured while a second full suite ran
-  concurrently; it is not a stable baseline and should not be cited as one.
-  Use the exact-SHA CI run as the authoritative regression signal.
+  to shared `test-artifacts/` paths and the failure counts become unstable
+  (observed 26 vs 31). Serialize them.
+- **Full local suite, serialized, at HEAD `43edded`:** `pytest -q tests` →
+  **3155 passed, 12 skipped, 29 failed** (37m49s). Complete accounting of the
+  29, each group verified against the **pre-work baseline `b8a746f` in a
+  detached worktree**:
+
+  | Group | Count | Baseline `b8a746f` | Cause |
+  |---|---|---|---|
+  | `tests/transformation/*` (javac) | 22 | 22 failed | missing `javac` (BL-010) |
+  | `tests/integration/test_vertical_slice.py` | 4 | **4 failed / 14 passed** | `'Java compiler not available'` |
+  | `tests/integration/test_forensic_evidence.py` | 3 | **3 failed / 31 passed** | missing Docker/JDK (BL-010) |
+  | **Total** | **29** | **29 — identical set** | |
+
+  **No regression: every one of the 29 fails identically at the baseline
+  commit.** The historical "26" in the Phase 0 notes simply had not included
+  the 3 `test_forensic_evidence` failures in that particular run.
+  These require a JDK/Docker this host lacks; Linux CI supplies both.
+  **Authoritative signal is exact-SHA CI, not this host.**
 - BL-017: `pytest -q tests/test_pipeline_progress.py` → **9 passed**; **8/8**
   under deliberate CPU saturation; mutation negative control **correctly fails**.
 - **CI:** `5cf3c18` all four jobs SUCCESS on both Push #473 and PR #474
@@ -172,8 +192,14 @@ reproduced the identical failures with `'Java compiler not available'`.
 - BL-018 is closed — do not re-open it without a detected regression.
 
 ### Next exact OpenCode action
-1. Confirm the full `pytest -q tests` result and the exact-SHA CI result for the
-   BL-018 commit before claiming any Phase 1 status.
+1. **File BL-020…BL-024** in `docs/BACKLOG.md` for the five verified
+   silent-loss gaps above (do not leave verified defects unrecorded).
+2. Implement **BL-020 first — `EVALUATE` `WHEN` body loss** (ahead of BL-019):
+   `_parse_evaluate` lowers a `WHEN` arm but drops its body statements, and
+   mis-lowers `ALSO` / `WHEN OTHER`. It silently deletes executable code while
+   the registry certifies `EVALUATE` as SUPPORTED. Fix must fail closed (emit a
+   diagnostic) rather than silently drop, add positive/negative/regression
+   tests, and add the tests to the fast `capability-truth` gate.
 2. Confirm the exact-SHA CI for `f950bee` is green (the BL-017 fix must not turn
    the required Docker job red on its own).
 3. Implement **BL-019**: replace the `NOT`/comparison `str.replace` chain in

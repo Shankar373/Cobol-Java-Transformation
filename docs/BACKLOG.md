@@ -389,6 +389,91 @@ produced evidence, not re-run here).
   commit that carries this fix (BL-010 applies: Docker/JDK validation is
   delegated to Linux CI).
 
+### BL-020 — `EVALUATE ... WHEN` body statements are silently deleted
+- **Type:** defect (silent semantic loss; mis-certified capability)
+- **Status:** OPEN — verified by direct probing at HEAD, **not fixed**
+- **Observed behavior:** `_parse_evaluate` lowers a `WHEN` arm into an
+  `IfStatement` but **discards the arm's body statements**. For
+  `EVALUATE A / WHEN 1 THRU 5 / DISPLAY "IN-RANGE" / END-EVALUATE` the parser
+  produces `IfStatement(condition='A >= 1 AND A <= 5', then_body=(), else_body=())`
+  and the mapper emits:
+  ```java
+  if (A >= 1 && A <= 5) {
+  }
+  ```
+  The `DISPLAY` is gone. **No diagnostic is emitted**, and the registry
+  certifies `EVALUATE` as SUPPORTED, so the capability verdict is a false
+  SUPPORTED for a construct that silently deletes an executable statement.
+- **Expected behavior:** Master README §60 (no silent loss), §17 (the IR must
+  represent semantics), §53 (no silent semantic loss may remain at phase
+  closure). Contrast: inline `PERFORM` *does* emit `UNSUPPORTED_CONSTRUCT`.
+- **Root cause:** `_parse_evaluate` builds `arms` (spec, body) but the `cond()`
+  lowering only consumes the spec and never re-emits `body` into the generated
+  `IfStatement` branches.
+- **Affected files:** `engine/transformation/cobol_parser.py` (`_parse_evaluate`).
+- **Impact:** any multi-branch `EVALUATE` silently loses its arms' contents.
+  Highest-severity item found after BL-018.
+- **Remediation (NOT yet implemented):** attach each arm's parsed body to the
+  lowered `IfStatement.then_body`/`else_body`; where a form cannot be lowered
+  faithfully, fail closed with an explicit diagnostic rather than dropping.
+- **Verification level:** STATIC + reproduced locally (no test added yet by
+  design — no test was written around still-broken behaviour).
+
+### BL-021 — `EVALUATE ... WHEN ... ALSO` mis-lowered into nonsense
+- **Type:** defect (silent semantic loss)
+- **Status:** OPEN — verified by direct probing, **not fixed**
+- **Observed behavior:** `WHEN 1 ALSO 2 DISPLAY "X"` lowers to the condition
+  string `A = 1 OR A = ALSO OR A = 2 OR A = DISPLAY OR A = "X"` — `ALSO`,
+  `DISPLAY` and the arm body are all parsed as comparison operands. No
+  diagnostic; verdict SUPPORTED.
+- **Expected behavior:** §60; `ALSO` is standard COBOL multi-value `WHEN`.
+  Roadmap P1-11 lists `EVALUATE` complex (ALSO/THROUGH) as an explicit item.
+- **Affected files:** `engine/transformation/cobol_parser.py` (`_parse_evaluate`,
+  `cond()`).
+- **Remediation (NOT yet implemented):** split the `WHEN` spec on `ALSO` and
+  lower each value into one comparison per alternative (OR-joined).
+- **Verification level:** STATIC + reproduced locally.
+
+### BL-022 — `EVALUATE ... WHEN OTHER` not lowered as a fallback branch
+- **Type:** defect (silent semantic loss)
+- **Status:** OPEN — verified by direct probing, **not fixed**
+- **Observed behavior:** `WHEN OTHER DISPLAY "X"` is folded into the WHEN chain
+  as an ordinary value (`A = DISPLAY OR A = "X"`) rather than becoming the
+  `else` branch. No diagnostic; verdict SUPPORTED.
+- **Affected files:** `engine/transformation/cobol_parser.py`.
+- **Remediation (NOT yet implemented):** map the `OTHER` arm to
+  `IfStatement.else_body`.
+- **Verification level:** STATIC + reproduced locally.
+
+### BL-023 — `COMPUTE A = 2 ** 3` exponentiation mis-parsed
+- **Type:** defect (silent semantic loss; numeric semantics)
+- **Status:** OPEN — verified by direct probing, **not fixed**
+- **Observed behavior:** `**` is parsed as two separate `*` operators, yielding
+  `BinaryExpression(BinaryExpression(Literal(2), '*', FieldReference(name='')),
+  '*', Literal(3))` — an operand that is an **empty-named field reference**.
+  No diagnostic; verdict SUPPORTED.
+- **Expected behavior:** §60; §18 (numeric correctness is a P0 risk area).
+- **Affected files:** `engine/transformation/cobol_parser.py`
+  (`_build_expression` operator table).
+- **Remediation (NOT yet implemented):** recognise `**` as one operator, or
+  fail closed with a diagnostic until it is mapped.
+- **Verification level:** STATIC + reproduced locally.
+
+### BL-024 — `COMPUTE` intrinsic functions (`FUNCTION MIN(...)`) become a field reference
+- **Type:** defect (silent semantic loss)
+- **Status:** OPEN — verified by direct probing, **not fixed**
+- **Observed behavior:** `COMPUTE A = FUNCTION MIN(1, 2)` parses to
+  `FieldReference(name='FUNCTION MIN(1, 2)')` — an identifier that cannot exist,
+  mapping to an undeclared Java variable. No diagnostic; verdict SUPPORTED.
+  This is structurally the *same* defect class as BL-018 (a non-field operand
+  mis-modelled as a field), which is why it is filed explicitly rather than
+  assumed covered.
+- **Affected files:** `engine/transformation/cobol_parser.py` (`_build_expression`).
+- **Remediation (NOT yet implemented):** recognise the `FUNCTION` prefix and
+  either map the certified intrinsic subset or emit an explicit diagnostic;
+  never fall through to a bare field reference.
+- **Verification level:** STATIC + reproduced locally.
+
 ### BL-019 — `NOT` in conditions is mangled into non-compiling Java
 - **Type:** defect (silent semantic loss)
 - **Status:** OPEN — found during BL-018 remediation, deliberately not fixed here
@@ -461,6 +546,13 @@ produced evidence, not re-run here).
   assertion is unchanged and proven intact by a mutation check. **Residual
   risk recorded:** the flake does not reproduce on this workstation, so the fix
   rests on construction + CI evidence, not a local repro.
+- 2026-10-10 — **BL-020…BL-024 filed OPEN** from direct probing at HEAD: five
+  further silent-loss defects that no test and no CI job detects — `EVALUATE`
+  `WHEN` body deletion (certified SUPPORTED while deleting an executable
+  statement), `ALSO` mis-lowering, `WHEN OTHER` not becoming the else branch,
+  `**` exponentiation mis-parsing, and `FUNCTION MIN(...)` intrinsics falling
+  through to a field reference. **Phase 1 is explicitly NOT complete**; §53
+  requires that no silent semantic loss remains.
 - 2026-10-10 — **Phase 1 started (parser/Universal IR).** BL-018 fixed: figurative
   constants. BL-019 filed OPEN (independent pre-existing `NOT`-in-conditions
   defect, confirmed at baseline `b8a746f`). See the BL-018/BL-019 entries and the
@@ -508,7 +600,12 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-016 | QA / validation owner | Phase 0 governance | Current upstream test replacements and PR #3 validation history | Preserve the validation-only branch findings without merging stale tests. | Extracted unique tests failed against current code (41 failed, 20 passed, one import failure); concerns were reimplemented upstream. | Keep PR #3 unmerged; preserve findings and make a human decision to retain for reference or close as superseded. |
 | BL-017 | Test infrastructure maintainer | Phase 1 (closed) / Phase 12 (residual flake watch) | `tests/test_pipeline_progress.py::TestAsyncAPIStagePersistence::test_all_pipeline_stages_observed_via_api`; async API stage persistence | Remove a pre-existing timing-dependent flake so a required CI job is not intermittently red for reasons unrelated to the change under test. | Second confirmed recurrence on `27e8bf5`: Push CI #475 FAILED while PR CI #476 PASSED on the identical SHA — same signature as the `0d7e073` occurrence (Push #459 red / PR #460 green). Pulled the `backend-oracle-results` artifact (CI job logs are admin-only) and confirmed `1 failed, 3195 passed` with `assert 'EXECUTING_GENERATED' == 'COMPLETED'`. Fixed at `f950bee` by synchronizing on the terminal-stage persistence event rather than racing a 10s poll deadline. **Residual risk:** the flake is timing-dependent and is NOT reproducible on this workstation (the pre-fix test also passed 8/8 under deliberate CPU saturation), so it is justified by construction + CI evidence, not by a local reproduction. | `tests/test_pipeline_progress.py` passes repeatedly under CPU contention; the terminal-state assertion is retained and proven by a mutation check (neutralizing `Service._persist_final` makes the test fail); not relaxed to `assert observed` and never skipped. |
 | BL-018 | Parser / IR maintainer | Phase 1 (closed) | Canonical `figurative.py` table, `ir.FigurativeConstant`, capability registry | Close a silent semantic loss that produced non-compiling Java while certifying SUPPORTED. | `LOW-VALUE`/`HIGH-VALUE` assume the native ASCII collating sequence (matching GnuCOBOL default); a dialect with a different sequence needs an explicit mapping. | `tests/transformation/test_figurative_constants.py` passes; no bare reserved-word identifier in generated Java; comparison tests every character; verdict is IR-backed. |
-| BL-019 | Semantic transformation maintainer | Phase 1 (next task) | `map_cobol_condition_to_java` operator handling; existing quote-aware `_replace_bare_equals` pattern | Fix an independent pre-existing defect where `NOT` is blind string-replaced into a broken Java prefix. | Programs using `IF x NOT = y` / `IF x NOT > y` generate invalid Java with no diagnostic; BL-018's fix makes this more visible but does not cause it. | Replace the `NOT`/comparison replacement chain with quote-aware tokenisation emitting `!(...)`; add focused positive/negative/regression tests; generated Java for `NOT` conditions compiles; no existing test weakened. |
+| BL-019 | Semantic transformation maintainer | Phase 1 | `map_cobol_condition_to_java` operator handling; existing quote-aware `_replace_bare_equals` pattern | Fix an independent pre-existing defect where `NOT` is blind string-replaced into a broken Java prefix. | Programs using `IF x NOT = y` / `IF x NOT > y` generate invalid Java with no diagnostic; BL-018's fix makes this more visible but does not cause it. | Replace the `NOT`/comparison replacement chain with quote-aware tokenisation emitting `!(...)`; add focused positive/negative/regression tests; generated Java for `NOT` conditions compiles; no existing test weakened. |
+| BL-020 | Parser / IR maintainer | Phase 1 (highest priority) | `CobolParser._parse_evaluate` arm lowering | A `WHEN` arm's body statements are silently deleted while `EVALUATE` is certified SUPPORTED — the worst verified silent-loss defect found. | Any multi-branch `EVALUATE` loses its arm contents with no diagnostic; CI cannot detect it because nothing asserts on it. | Arm bodies are attached to the lowered `IfStatement`; unlowerable forms fail closed with a diagnostic; positive/negative/regression tests added to the fast capability-truth gate. |
+| BL-021 | Parser / IR maintainer | Phase 1 | `WHEN` spec parsing; roadmap P1-11 | `ALSO` mis-lowered into a nonsense OR-chain. | Standard COBOL multi-value `WHEN` silently produces wrong control flow. | `ALSO` splits into one comparison per alternative; tests cover 2- and 3-way `ALSO`. |
+| BL-022 | Parser / IR maintainer | Phase 1 | `WHEN OTHER` lowering | `WHEN OTHER` folded into the WHEN chain instead of becoming the `else` branch. | Fallback branch silently unreachable/incorrect. | `WHEN OTHER` maps to `IfStatement.else_body`; tests assert the else branch executes. |
+| BL-023 | Numeric semantics maintainer | Phase 1 | `_build_expression` operator table; Master README §18 | `**` parsed as two `*` operators, producing an empty-named operand. | Silent wrong numeric result in a P0 risk area. | `**` is one operator or fails closed with a diagnostic; tests assert both behaviours. |
+| BL-024 | Parser / IR maintainer | Phase 1 | `_build_expression`; same defect class as BL-018 | Intrinsic `FUNCTION MIN(...)` falls through to an impossible field reference. | Undeclared Java identifier, exactly the BL-018 pattern; unproven intrinsics must never be silently field references. | `FUNCTION` prefix recognised and either mapped for the certified subset or diagnosed; never a bare field reference. |
 
 ### PR disposition snapshot — 2026-10-10
 
