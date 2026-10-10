@@ -146,15 +146,34 @@ produced evidence, not re-run here).
 
 ### BL-005 — ROUNDED flag consumption unverified
 - **Type:** defect (capability truth)
-- **Status:** OPEN
+- **Status:** FIXED — 2026-10-10 (this session); recorded symptom was falsified
 - **Observed behavior:** `ROUNDED` is parsed into IR on arithmetic statements but no
   mapping evidence found; no registry key.
 - **Expected behavior:** roadmap P0-5 — prove the flag reaches Java or mark mapping
   UNKNOWN with a negative test.
-- **Affected files:** parser IR flags + `engine/transformation/cobol_to_java_mapping.py`,
-  `engine/transformation/semantic_capability.py`.
+- **Affected files:** `engine/transformation/semantic_capability.py`,
+  `engine/modernization/capability_analyzer.py`, `docs/SEMANTIC_PROOF_MATRIX.md`.
 - **Impact:** Rounding is a numeric-semantics risk area (Master README Section 18).
-- **Verification level:** STATIC only.
+- **Premise correction:** the recorded symptom ("parsed into IR but no mapping
+  evidence found") was **falsified during remediation**. The flag already reaches
+  Java: `stmt.rounded` selects `java.math.RoundingMode.HALF_UP` on the receiving
+  item (`_apply_numeric_receiver_semantics`), with the default staying `DOWN`
+  truncation, and the pre-existing suite
+  `tests/transformation/test_decimal_arithmetic_semantics.py` (10 tests) already
+  asserted it. The defect was purely that the registry had no key.
+- **Remediation (implemented):**
+  * Registry key `ROUNDED` at SUPPORTED with mapping evidence.
+  * Source pattern for ROUNDED.
+  * Analyzer reads the `rounded` IR flag in the statement walk, so the verdict is
+    backed by the parsed flag and the source scan no longer reports it as
+    source-only.
+- **Acceptance criteria / tests:**
+  `tests/transformation/test_rounded_capability.py` (7 tests) — registry key
+  SUPPORTED, source pattern detects it, ROUNDED program classifies SUPPORTED,
+  flag reaches Java as HALF_UP, default stays truncation, plain program SUPPORTED.
+- **Evidence:** `pytest tests/transformation/test_rounded_capability.py` → 7 passed
+  (2026-10-10).
+- **Last verified commit:** (this session commit — see `opencode.md`).
 
 ---
 
@@ -266,3 +285,7 @@ produced evidence, not re-run here).
 - 2026-10-10 — BL-004 fixed: registry keys `BY CONTENT`/`BY VALUE` at PARTIAL,
   analyzer inspects `CallStatement.passing_modes`, fixtures
   `workload-by-content`/`workload-by-value` MAIN now PARTIAL (8 new tests).
+- 2026-10-10 — BL-005 fixed with a premise correction: ROUNDED already reached
+  Java (`RoundingMode.HALF_UP`), so the registry key was simply missing. Key
+  added at SUPPORTED and the analyzer now reads the `rounded` IR flag (7 new
+  tests). All P0 capability items (BL-001…BL-005) are now closed.

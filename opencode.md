@@ -77,6 +77,15 @@ It must never contradict repository reality (§68) and must never be left mislea
   lost — correct COBOL semantics — runtime proof pending); the analyzer inspects
   `CallStatement.passing_modes`; `workload-by-content`/`workload-by-value` MAIN
   now classify PARTIAL.  No mapper/runtime change.
+- **BL-005 (P0) FIXED, premise corrected:** the recorded symptom ("ROUNDED
+  parsed but no mapping evidence") was **false**.  The flag already reaches Java
+  as `RoundingMode.HALF_UP` (default stays `DOWN` truncation) and the pre-existing
+  `test_decimal_arithmetic_semantics.py` already asserted it.  Only the registry
+  key was missing: added at SUPPORTED, and the analyzer now reads the `rounded`
+  IR flag so the verdict is backed by the parsed flag rather than a source match.
+- **P0 capability backlog (BL-001…BL-005) is now closed.** No mapper/runtime
+  behavior was changed in this whole sequence; all five items were capability/
+  classification defects.
 
 ### Files changed this session
 - `engine/transformation/producers/internal_native.py` (capability lists now
@@ -91,9 +100,10 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `tests/transformation/test_usage_capability.py` (new; 22 tests).
 - `tests/transformation/test_structural_capability.py` (new; 9 tests).
 - `tests/transformation/test_passing_mode_capability.py` (new; 8 tests).
-- `docs/BACKLOG.md` (new; BL-002/BL-003/BL-004 now FIXED).
+- `tests/transformation/test_rounded_capability.py` (new; 7 tests).
+- `docs/BACKLOG.md` (new; BL-002/BL-003/BL-004/BL-005 now FIXED).
 - `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family + REDEFINES/OCCURS/88-level +
-  BY CONTENT/BY VALUE rows).
+  BY CONTENT/BY VALUE + ROUNDED rows).
 - `opencode.md` (rewritten live checkpoint; now intended to be tracked).
 
 ### Tests run this session
@@ -104,9 +114,10 @@ It must never contradict repository reality (§68) and must never be left mislea
   `workload-redefines`/`workload-occurs` → UNKNOWN.
 - BL-004: `pytest -q tests/transformation/test_passing_mode_capability.py` → **8 passed**;
   `workload-by-content`/`workload-by-value` MAIN → PARTIAL.
+- BL-005: `pytest -q tests/transformation/test_rounded_capability.py` → **7 passed**.
 - Regression: `pytest -q tests/transformation tests/adversarial
   tests/test_silent_loss_registry.py tests/test_copybook_m7.py
-  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1905 passed,
+  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1912 passed,
   11 skipped, 22 failed**; all 22 failures are environment-only `FileNotFoundError`
   from a missing `javac` (no JDK on this host), not regressions.
 - Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS
@@ -127,6 +138,8 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `490eb5a` ("fix(capability): classify REDEFINES/OCCURS/88-level as UNKNOWN
   (P0-3)") pushed: `dfcc725..490eb5a`. CI for `490eb5a`: Push CI #433
   SUCCESS, PR CI #434 SUCCESS, Supply chain #15/#16 SUCCESS.
+- `92cd314` ("fix(capability): classify BY CONTENT/BY VALUE as PARTIAL (P0-4)")
+  pushed: `490eb5a..92cd314`.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
@@ -159,9 +172,11 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 ### Next exact OpenCode action
-1. Commit BL-004 + tests + docs + checkpoint and push to `codex/universal-core`;
+1. Commit BL-005 + tests + docs + checkpoint and push to `codex/universal-core`;
    then verify GitHub Actions for the pushed commit.
-2. Continue the P0 backlog: implement BL-005 (ROUNDED) as scoped.
+2. P0 capability backlog is closed. Next: extend the reconciliation gate
+   (BL-011) to every `TransformationProducer` and address the P1 documentation
+   contradictions (BL-008 integrated-proof claim, BL-009 stale baseline refs).
 3. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 
 ---

@@ -191,6 +191,10 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "NEXT SENTENCE": _unsupported("NEXT SENTENCE is not represented by the procedure IR"),
     "GOBACK": _unsupported("GOBACK is not represented by the procedure IR"),
     "SIZE ERROR": _unsupported("SIZE ERROR handling is not yet represented in the arithmetic IR"),
+    "ROUNDED": _supported(
+        "ROUNDED reaches the generated Java as a HALF_UP rounding mode on the "
+        "receiving item (default stays DOWN truncation)"
+    ),
     # USAGE clauses.  The numeric *value* path (arithmetic, DISPLAY text,
     # VALUE normalization) is certified, but the record-area *byte encoding*
     # of these usages (binary layout, packed sign overpunch) is not, so each
@@ -365,6 +369,7 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("REWRITE", re.compile(r"(?<![\w-])REWRITE(?![\w-])", re.IGNORECASE)),
     ("DELETE", re.compile(r"(?<![\w-])DELETE(?![\w-])", re.IGNORECASE)),
     ("INVALID KEY", re.compile(r"(?<![\w-])INVALID\s+KEY(?![\w-])", re.IGNORECASE)),
+    ("ROUNDED", re.compile(r"(?<![\w-])ROUNDED(?![\w-])", re.IGNORECASE)),
     # USAGE clauses (data-division only; only reached when callers scan with
     # restrict_to_procedure=False, e.g. the copybook classifier).  Longest
     # alternatives first so COMP-3/COMP-5 are not shadowed by plain COMP.

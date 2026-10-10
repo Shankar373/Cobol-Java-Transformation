@@ -377,6 +377,9 @@ class CapabilityAnalyzer:
         program = unit.program
         findings: list[tuple[str, CapabilityLevel, str]] = []
         ir_types_seen: set[str] = set()
+        # Constructs proven by an IR flag carried on a statement rather than by
+        # a statement class (currently ROUNDED).
+        ir_flag_keys: set[str] = set()
 
         # If discovery produced only a stub IR (parse_error is set), seed the
         # findings with the error so the program is correctly classified as
@@ -419,6 +422,16 @@ class CapabilityAnalyzer:
         def _walk(stmt) -> None:
             name = type(stmt).__name__
             _note_ir(name)
+
+            # ROUNDED is a flag carried on the arithmetic statement itself, not
+            # a statement class.  Read it from IR so the verdict is backed by
+            # the parsed flag (the mapper selects RoundingMode.HALF_UP) rather
+            # than by a bare source match, and so the source scan below does
+            # not re-report it as source-only.
+            if getattr(stmt, "rounded", False):
+                ir_flag_keys.add("ROUNDED")
+                entry = CONSTRUCT_REGISTRY["ROUNDED"]
+                findings.append(("ROUNDED", entry.level, entry.evidence))
 
             for attr in ("invalid_key_body", "not_invalid_key_body"):
                 if getattr(stmt, attr, None):
@@ -508,6 +521,9 @@ class CapabilityAnalyzer:
                     # The construct is legitimately realised by a different
                     # IR node (e.g. EVALUATE -> IfStatement, PERFORM ... TIMES
                     # -> PerformStatement); the IR walk already classified it.
+                    continue
+                if key in ir_flag_keys:
+                    # Proven by an IR flag the walk already classified (ROUNDED).
                     continue
                 if entry.effective_source_level is CapabilityLevel.UNSUPPORTED:
                     # The construct appears in source but the deterministic

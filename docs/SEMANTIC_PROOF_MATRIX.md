@@ -35,6 +35,7 @@ so such a program is reported UNSUPPORTED rather than silently SUPPORTED.
 | 88-LEVEL | UNKNOWN | parser records level-88 condition names; mapper has no condition-name lowering (generated Java for `workload-level88` does not compile) | marked UNKNOWN until full-ladder runtime proof; never SUPPORTED |
 | BY CONTENT | PARTIAL | mapper implements sync-in / no-sync-out (callee writes lost, correct COBOL semantics); runtime proof pending | marked PARTIAL; caller-visible divergence risk is the lost write |
 | BY VALUE | PARTIAL | mapper implements sync-in / no-sync-out; runtime proof pending | marked PARTIAL; caller-visible divergence risk is the lost write |
+| ROUNDED | SUPPORTED | parser preserves the ROUNDED flag on ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE; mapper selects `RoundingMode.HALF_UP` on the receiver (default stays `DOWN`) | `test_decimal_arithmetic_semantics.py` asserts `setScale(0, java.math.RoundingMode.HALF_UP)` |
 | GO TO | UNSUPPORTED | `GO TO` has no Java mapping (emitted as a comment) | — |
 | GOBACK | UNSUPPORTED | registry entry; `GOBACK.` is no longer mistaken for a paragraph heading | — |
 | EXIT PROGRAM | SUPPORTED | parser → `ExitProgramStatement` → `JavaReturn` in the generated body | bare `EXIT.` is diagnosed as unsupported; paragraph/section `EXIT` inside PERFORM remains UNSUPPORTED |
