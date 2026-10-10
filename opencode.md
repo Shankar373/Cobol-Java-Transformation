@@ -40,7 +40,22 @@ Fix (deterministic, no LLM — tables and regexes only):
 - Registry key `FIGURATIVE CONSTANT` at SUPPORTED + source pattern + analyzer
   IR walk, so a dropped instance still fails closed via `effective_source_level`.
 
-- **Commit:** `6334095` — `fix(parser): represent figurative constants as values, not field references (BL-018)`, pushed to `codex/universal-core` (`b8a746f..6334095`). Exact-SHA CI (Push #469, Supply chain #51) queued at time of writing; **Phase 1 is NOT verified until those runs are green.**
+- **Commits (pushed to `codex/universal-core`):**
+  - `6334095` — `fix(parser): represent figurative constants as values, not field references (BL-018)`.
+  - `c0b512f` — `ci: gate figurative-constant capability truth in the fast dependency-free job` (adds the new test file to the `capability-truth` job, BL-012, so this defect class fails in ~1 min instead of after the Docker image build).
+  - `5cf3c18` — `fix(capability): detect figurative constants nested anywhere in the IR tree` (see below).
+  - **Phase 1 is NOT verified until the exact-SHA CI runs for these commits are green.**
+
+### Self-review finding fixed in `5cf3c18`
+The first analyzer wiring recursed through a fixed field-name list
+(`source`/`expression`/`parts`/`condition`), so a constant **nested inside an
+expression tree** was never seen: `COMPUTE A = 0 + ZERO` parses to a
+`BinaryExpression` wrapping the constant, so the source scan reported the
+construct as source-only and degraded the verdict from `SUPPORTED` to
+`UNKNOWN`. Replaced with a generic walk over the IR dataclass graph guarded by
+an id-visited set (cycle-safe), also covering `structured_condition`. Caught by
+direct probing, not by a failing test — worth repeating when adding IR
+classification for other expression-level constructs.
 
 ### Files changed this session
 - `engine/transformation/figurative.py` (new — canonical semantics).
@@ -53,19 +68,20 @@ Fix (deterministic, no LLM — tables and regexes only):
 - `docs/SEMANTIC_PROOF_MATRIX.md`, `docs/BACKLOG.md`, `opencode.md`.
 
 ### Tests run this session
-- Focused: `pytest -q tests/transformation/test_figurative_constants.py` → **59 passed**.
-- Capability gates: `test_capability_registry_reconciliation.py`,
-  `test_producer_capability_consistency.py`, `test_producer_contract.py`,
-  `test_silent_loss_registry.py`, `test_usage_capability.py`,
-  `test_structural_capability.py`, `test_rounded_capability.py` → **101 passed**.
+- Focused: `pytest -q tests/transformation/test_figurative_constants.py` → **68 passed**.
+- Capability gate (the exact `capability-truth` job selection, now including the
+  new file): **168 passed** in ~1.6s.
 - Regression: `pytest -q tests/transformation tests/adversarial
-  tests/test_silent_loss_registry.py` → **1843 passed, 11 skipped, 22 failed**.
-  **No regression:** the identical selection was re-run against a stashed
-  (pristine) tree and produced the *same* 1843 passed / 22 failed. All 22 are
-  the pre-existing environment-only `javac` `FileNotFoundError` failures (no JDK
-  on this host) — confirmed by inspecting failure text, not just the count.
-- **Full `pytest -q tests` and exact-SHA CI are still outstanding for the commit
-  that carries this fix.** Do not describe Phase 1 as verified until both land.
+  tests/test_silent_loss_registry.py tests/test_copybook_m7.py
+  tests/test_db2_fixture.py tests/test_universal_modernization.py tests/execution`
+  → **2063 passed, 11 skipped, 22 failed**.
+  **No regression:** the same selection at the pristine baseline `b8a746f` (run
+  against a stashed tree) produced **1843 passed / 22 failed** for the smaller
+  subset, and the 22 failures are identical in both runs — all are the
+  pre-existing environment-only `javac` `FileNotFoundError` failures (no JDK on
+  this host, BL-010), confirmed by inspecting failure text, not just the count.
+- **Exact-SHA CI is still outstanding.** Do not describe Phase 1 as verified
+  until the runs for `5cf3c18` are green.
 
 ### Backlog disposition
 - **BL-018 — FIXED** (figurative constants). See `docs/BACKLOG.md`.
