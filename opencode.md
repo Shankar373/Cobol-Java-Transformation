@@ -138,8 +138,49 @@ classification for other expression-level constructs.
   (Docker job included). `27e8bf5` red on Push #475 only, root-caused to the
   BL-017 flake and fixed in `f950bee`; PR #476 green on the same SHA.
 
+### BL-019…BL-024 FIXED — `7bba5cb` (2026-10-11)
+
+All six silent-loss / malformed-Java defects are closed. **Two premises were
+wrong and were corrected rather than "fixed" as written:**
+
+- **BL-020 premise correction.** The backlog said "`_parse_evaluate` discards each
+  arm's body". Re-reading lines 1653-1666 shows `build()` *does* pass
+  `then_body=body`, and probing confirms **multi-line `WHEN` arms already worked**
+  (`then_body=(DisplayStatement,)`). All shipped fixtures use the multi-line form.
+  The real defect is that a statement written **inline** on the `WHEN`/`IF` line
+  was absorbed into the condition. Fixed with
+  `split_condition_from_inline_statements`, which uses the same verb vocabulary
+  `_parse_statement` dispatches on and masks quoted literals first.
+- **BL-022 was a side effect of BL-020.** `WHEN OTHER` was already correct; the
+  earlier symptom came from an inline `WHEN OTHER DISPLAY "X"` whose trailing
+  statement made the spec read `OTHER DISPLAY "OTHER"`. No separate code change;
+  now locked by tests.
+
+Also fixed: **BL-021** `ALSO` now splits into OR-ed alternatives; **BL-023** `2 ** 3`
+and **BL-024** `FUNCTION MIN(...)` now fail closed via a new `ir.IntrinsicCall` node
+with explicit diagnostics; **BL-019** folds COBOL's negated relational into the
+operator (`NOT >` → `<=`) because Java cannot express it as a prefix (`!A > B`
+compares a boolean; `A !> B` does not compile).
+
+**Capability truth verified through real `ApplicationDiscovery`:** `2 ** 3` and
+`FUNCTION MIN(...)` classify **UNSUPPORTED** (their diagnostics reach the analyzer
+loss channel); correctly-parsed inline `EVALUATE` stays SUPPORTED.
+
+**Another premise correction during this work:** I asserted `workload_inventory`
+was SUPPORTED. A detached worktree at `c312eb9` showed it was **already
+UNSUPPORTED** (its `PERFORM VARYING` continuations are diagnosed). The test now
+asserts the *unchanged* baseline verdict rather than a claim the repository never
+made.
+
+**Tests:** `test_scoped_construct_statements.py` (37) + `test_negated_conditions.py`
+(31), both added to the fast `capability-truth` gate — **now 216 tests in ~0.6s**.
+Regression: **2040 passed, 11 skipped, 22 failed** — the same 22 environment-only
+`javac` failures verified identical at baseline. No test weakened; a new test caught
+a real `KeyError` on `NOT <>` during development.
+
 ### Backlog disposition
 - **BL-018 — FIXED** (figurative constants). See `docs/BACKLOG.md`.
+- **BL-019, BL-020, BL-021, BL-022, BL-023, BL-024 — FIXED** (`7bba5cb`).
 - **BL-017 — FIXED** (`f950bee`), second recurrence confirmed and root-caused.
   Push CI #475 failed on `27e8bf5` while PR CI #476 **passed on the identical
   SHA** — the same signature as the recorded `0d7e073` occurrence (Push #459 red
@@ -192,24 +233,17 @@ reproduced the identical failures with `'Java compiler not available'`.
 - BL-018 is closed — do not re-open it without a detected regression.
 
 ### Next exact OpenCode action
-1. **File BL-020…BL-024** in `docs/BACKLOG.md` for the five verified
-   silent-loss gaps above (do not leave verified defects unrecorded).
-2. Implement **BL-020 first — `EVALUATE` `WHEN` body loss** (ahead of BL-019):
-   `_parse_evaluate` lowers a `WHEN` arm but drops its body statements, and
-   mis-lowers `ALSO` / `WHEN OTHER`. It silently deletes executable code while
-   the registry certifies `EVALUATE` as SUPPORTED. Fix must fail closed (emit a
-   diagnostic) rather than silently drop, add positive/negative/regression
-   tests, and add the tests to the fast `capability-truth` gate.
-2. Confirm the exact-SHA CI for `f950bee` is green (the BL-017 fix must not turn
-   the required Docker job red on its own).
-3. Implement **BL-019**: replace the `NOT`/comparison `str.replace` chain in
-   `map_cobol_condition_to_java` with quote-aware tokenisation that treats `NOT`
-   as an operator and emits `!(...)`, reusing the existing quote-safe
-   `_replace_bare_equals` pattern. Add positive/negative/regression tests, and
-   verify `IF x NOT = y` / `IF x NOT > y` generate compiling Java. Do it as its
-   own change so a BL-018-style fix cannot mask it.
-4. After BL-019, continue Phase 1 with the next genuine parser/IR gap; check
-   `docs/BACKLOG.md` and the roadmap P1 list for the next candidate.
+1. **Confirm exact-SHA CI for `7bba5cb` is fully green** (Push #485 / PR #486;
+   the Docker job runs `javac` + GnuCOBOL and is the authority for a
+   parser/mapper change). Three of four jobs were green at time of writing.
+2. **Do not declare Phase 1 complete on a green gate alone.** §53 still requires
+   a fresh serialized full-suite run compared against the baseline, and a
+   re-probe for remaining silent-loss constructs. BL-018 and BL-019…BL-024 were
+   all invisible to CI and surfaced only by probing, so the absence of a test is
+   not evidence of the absence of a defect.
+3. If the re-probe is clean, record the §53 checklist explicitly in this file
+   with the exact SHA, commands and results, and only then consider the phase
+   verdict. Otherwise file the new items and continue Phase 1.
 
 ---
 
