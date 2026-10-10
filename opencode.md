@@ -11,8 +11,10 @@ It must never contradict repository reality (§68) and must never be left mislea
 ### Baseline (verified this session)
 - Repository: `https://github.com/Shankar373/Cobol-Java-Transformation.git`
 - Branch: `codex/universal-core`
-- HEAD: `81e795584e42437e4194bcb317ca20594c621adc`
+- Session start HEAD: `81e795584e42437e4194bcb317ca20594c621adc`
   ("docs: strengthen master implementation audit and backlog contract")
+- **Current verified HEAD: `842bfce`** ("ci: add dependency-free capability-truth
+  gate job (BL-012)"). All CI green — see the Push / CI status section.
 - Base branch: `main` (`a923c65`)
 - Working tree: dirty by design — untracked `opencode.md`, `test-artifacts/*`
   evidence, and a modified `test-artifacts/docker-image-provenance.json`
@@ -134,11 +136,14 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `engine/transformation/producers/internal_native.py` (capability lists now
   registry-derived).
 - `engine/transformation/ir.py` (`DataItem.usage`).
-- `engine/transformation/semantic_capability.py` (COMP registry keys,
-  `canonical_usage`, `USAGE_TO_CONSTRUCT`, source patterns).
+- `engine/transformation/semantic_capability.py` (COMP/REDEFINES/OCCURS/88-LEVEL/
+  ROUNDED registry keys, `canonical_usage`, `USAGE_TO_CONSTRUCT`, source patterns,
+  documented BL-004 keyless decision).
 - `engine/transformation/cobol_parser.py` (USAGE extraction + PARTIAL_SUPPORT).
-- `engine/modernization/capability_analyzer.py` (usage walk).
+- `engine/modernization/capability_analyzer.py` (usage walk, data-division scan,
+  ROUNDED IR-flag read, documented BL-004 decision).
 - `engine/transformation/application_discovery.py` (loss-channel filter).
+- `.github/workflows/ci.yml` (new dependency-free `capability-truth` job).
 - `tests/transformation/test_capability_registry_reconciliation.py` (new; 11 tests).
 - `tests/transformation/test_usage_capability.py` (new; 22 tests).
 - `tests/transformation/test_structural_capability.py` (new; 9 tests).
@@ -147,9 +152,10 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `engine/transformation/producers/opensource4j.py` (declared tuples hoisted).
 - `README.md` + 9 status docs (dated Baseline note; BL-009).
 - `docs/SYSTEMAOPS_PRODUCT_STATUS.md` (integrated-proof claim corrected; BL-008).
-- `docs/BACKLOG.md` (new; BL-002…BL-005, BL-008, BL-009, BL-011 now FIXED).
+- `docs/BACKLOG.md` (new; BL-002…BL-005, BL-008, BL-009, BL-011 fixed,
+  BL-012 partially fixed).
 - `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family + REDEFINES/OCCURS/88-level +
-  BY CONTENT/BY VALUE + ROUNDED rows).
+  ROUNDED rows; BY VALUE/BY CONTENT documented as deliberately unclassified).
 - `opencode.md` (rewritten live checkpoint; now intended to be tracked).
 
 ### Tests run this session
@@ -171,9 +177,15 @@ It must never contradict repository reality (§68) and must never be left mislea
   tests/test_db2_fixture.py tests/test_universal_modernization.py tests/execution`
   → **2004 passed, 11 skipped, 22 failed**; all 22 failures are environment-only
   `FileNotFoundError` from a missing `javac` (no JDK on this host), not regressions.
-- Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS
-  unset) → result appended below when complete. Docker tests are skipped/blocked
-  locally (see environment blocker).
+- **Authoritative result is CI, not this host.** Push CI #447 / PR CI #448 on
+  `842bfce`: every job SUCCESS (ingestion, frontend, backend COBOL/Java Docker,
+  capability truth gate) — the Docker-gated backend job ran the full suite with
+  GnuCOBOL + JDK available and passed. Local `javac`/Docker gaps are superseded
+  by that evidence.
+- Full local non-Docker regression: `pytest -q tests` (RUN_DOCKER_TESTS unset) →
+  **3094 passed, 12 skipped, 31 failed**; 30 are the known environment-only
+  `javac`/`docker` `FileNotFoundError` cases (no JDK/Docker on this host) and 1
+  was the BL-004 contract test, which is now fixed and confirmed green in CI.
 
 ### Push / CI status (2026-10-10)
 - The earlier push blocker is **resolved**: Git Credential Manager has stored
@@ -251,15 +263,23 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 - `ee6fc92` ("docs(checkpoint): record CI failure analysis and reusable method
-  note") pushed: `24540f6..ee6fc92`.
+  note") pushed: `24540f6..ee6fc92`. CI #445/#446 SUCCESS.
+- `842bfce` ("ci: add dependency-free capability-truth gate job (BL-012)")
+  pushed: `ee6fc92..842bfce`. **ALL JOBS GREEN**: Push CI #447 and PR CI #448
+  SUCCESS, with every job passing —
+  `Phase 1 ingestion diagnostics`, `Frontend tests, TypeScript, and production
+  build`, `Backend and COBOL/Java Docker tests`, and the new
+  **`Capability truth gate`**. Supply chain #29/#30 SUCCESS. This is the first
+  fully green run of the complete P0 sequence and confirms the BL-004 revert
+  restored the Docker-gated suite.
 
 ### Next exact OpenCode action
-1. Commit the BL-012 capability-truth CI gate and push; verify the new
-   `capability-truth` job appears and passes alongside the backend job.
-2. After the full P0 sequence is confirmed green in CI, pick the next P1 roadmap
-   item (INITIALIZE / INSPECT / SEARCH / SET are the lowest-risk, per roadmap
-   §13), always checking for an existing negative contract first — as BL-004
-   showed, some capability claims are deliberately blocked.
+1. Commit this checkpoint update and push; confirm CI stays green on `842bfce`+.
+2. The P0 backlog is closed and fully verified in CI. Next candidates, in
+   roadmap §13 order and lowest-risk first: **P1-1 INITIALIZE (bounded)**,
+   P1-2 INSPECT (TALLYING subset), P1-3 SEARCH (linear only). Before each, grep
+   for an existing negative contract — BL-004 proved some capability claims are
+   deliberately blocked, and over-claiming is the exact failure mode to avoid.
 3. Docker-dependent and Java/Node validation remain delegated to Linux CI (BL-010).
 4. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 
