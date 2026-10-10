@@ -251,13 +251,31 @@ produced evidence, not re-run here).
 
 ### BL-011 — Reconciliation audit hook (producer lists ⊆ registry) not enforced in CI
 - **Type:** test/quality
-- **Status:** PARTIALLY FIXED — 2026-10-10
-- **Observed behavior:** roadmap §16 recommends a reconciliation test; BL-001 now adds
-  one for the internal native producer. A generic guard that every producer's declared
-  lists agree with the registry is still not present.
-- **Remediation (proposed):** Extend the reconciliation test across all
-  `TransformationProducer` implementations under `engine/transformation/producers/`.
-- **Verification level:** VERIFIED for the internal native producer.
+- **Status:** FIXED — 2026-10-10 (this session)
+- **Observed behavior:** roadmap §16 recommends a reconciliation test; BL-001 added
+  one for the internal native producer only. No generic guard covered every producer.
+- **Remediation (implemented):**
+  * New `tests/transformation/test_producer_capability_consistency.py` covers **both**
+    producers under `engine/transformation/producers/`.
+  * Deterministic-lane producers must agree with the registry in **both**
+    directions; every producer (any lane) must declare a non-empty capability
+    surface, never claim a construct both ways, and only use members that are
+    registry keys or declared structural vocabulary.
+  * `test_capability_registry_reconciliation.py` extended: every registry key must
+    resolve to a verdict automatically (so BL-002…BL-005 keys could not be added
+    without the producer noticing), and PARTIAL/UNKNOWN keys must appear in neither
+    list.
+  * Hoisted the opensource4j adapter's inline capability tuples to module-level
+    `_PRODUCER_SUPPORTED_CONSTRUCTS` / `_PRODUCER_UNSUPPORTED_CONSTRUCTS` so its
+    claims are inspectable without running the external compiler.
+- **Scope decision (documented, not erased):** the opensource4j adapter is an
+  *external* lane requiring `libcobj.jar`, not the deterministic lane the registry
+  describes. It legitimately claims `GO TO` / `SORT`, which our mapper cannot
+  express. Forcing it to mirror the registry would falsify its real behaviour, so
+  the divergence is now **asserted explicitly** by
+  `test_external_producer_divergence_is_known_and_bounded` (which pins the exact
+  divergence set) instead of being hidden.
+- **Verification level:** VERIFIED (both producers; 67 tests pass in the focused run).
 
 ### BL-012 — CI depth below roadmap target
 - **Type:** test/quality
@@ -289,3 +307,7 @@ produced evidence, not re-run here).
   Java (`RoundingMode.HALF_UP`), so the registry key was simply missing. Key
   added at SUPPORTED and the analyzer now reads the `rounded` IR flag (7 new
   tests). All P0 capability items (BL-001…BL-005) are now closed.
+- 2026-10-10 — BL-011 fixed: reconciliation guard now covers both producers;
+  registry-key auto-classification and PARTIAL/UNKNOWN non-claiming guards added;
+  opensource4j declared tuples hoisted to module scope; external-lane divergence
+  pinned explicitly rather than forced to match the registry.

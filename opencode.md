@@ -86,6 +86,18 @@ It must never contradict repository reality (§68) and must never be left mislea
 - **P0 capability backlog (BL-001…BL-005) is now closed.** No mapper/runtime
   behavior was changed in this whole sequence; all five items were capability/
   classification defects.
+- **BL-011 FIXED:** the reconciliation guard now covers **both** producers under
+  `engine/transformation/producers/`.  Deterministic-lane producers must agree
+  with the registry in both directions; every producer must declare a non-empty
+  capability surface, never claim a construct both ways, and only use registry
+  keys or declared structural vocabulary.  Every registry key must also resolve
+  to a verdict automatically, so the BL-002…BL-005 keys could not have been
+  added without the producer noticing.  The opensource4j adapter's inline
+  capability tuples were hoisted to module scope so its claims are inspectable
+  without running the external compiler.  Scope decision: the external lane
+  (requires `libcobj.jar`) legitimately claims `GO TO`/`SORT`; its divergence
+  from the deterministic registry is now **pinned by an explicit test** instead
+  of being forced to match, which would have falsified its real behaviour.
 
 ### Files changed this session
 - `engine/transformation/producers/internal_native.py` (capability lists now
@@ -101,7 +113,9 @@ It must never contradict repository reality (§68) and must never be left mislea
 - `tests/transformation/test_structural_capability.py` (new; 9 tests).
 - `tests/transformation/test_passing_mode_capability.py` (new; 8 tests).
 - `tests/transformation/test_rounded_capability.py` (new; 7 tests).
-- `docs/BACKLOG.md` (new; BL-002/BL-003/BL-004/BL-005 now FIXED).
+- `tests/transformation/test_producer_capability_consistency.py` (new; 16 tests).
+- `engine/transformation/producers/opensource4j.py` (declared tuples hoisted).
+- `docs/BACKLOG.md` (new; BL-002…BL-005 and BL-011 now FIXED).
 - `docs/SEMANTIC_PROOF_MATRIX.md` (COMP-family + REDEFINES/OCCURS/88-level +
   BY CONTENT/BY VALUE + ROUNDED rows).
 - `opencode.md` (rewritten live checkpoint; now intended to be tracked).
@@ -115,11 +129,15 @@ It must never contradict repository reality (§68) and must never be left mislea
 - BL-004: `pytest -q tests/transformation/test_passing_mode_capability.py` → **8 passed**;
   `workload-by-content`/`workload-by-value` MAIN → PARTIAL.
 - BL-005: `pytest -q tests/transformation/test_rounded_capability.py` → **7 passed**.
+- BL-011: `pytest -q tests/transformation/test_producer_capability_consistency.py
+  tests/transformation/test_capability_registry_reconciliation.py
+  tests/transformation/test_producer_contract.py tests/execution/test_sandbox_paths.py`
+  → **67 passed**.
 - Regression: `pytest -q tests/transformation tests/adversarial
   tests/test_silent_loss_registry.py tests/test_copybook_m7.py
-  tests/test_db2_fixture.py tests/test_universal_modernization.py` → **1912 passed,
-  11 skipped, 22 failed**; all 22 failures are environment-only `FileNotFoundError`
-  from a missing `javac` (no JDK on this host), not regressions.
+  tests/test_db2_fixture.py tests/test_universal_modernization.py tests/execution`
+  → **2004 passed, 11 skipped, 22 failed**; all 22 failures are environment-only
+  `FileNotFoundError` from a missing `javac` (no JDK on this host), not regressions.
 - Full local non-Docker backend regression: `pytest -q tests` (RUN_DOCKER_TESTS
   unset) → result appended below when complete. Docker tests are skipped/blocked
   locally (see environment blocker).
@@ -140,6 +158,8 @@ It must never contradict repository reality (§68) and must never be left mislea
   SUCCESS, PR CI #434 SUCCESS, Supply chain #15/#16 SUCCESS.
 - `92cd314` ("fix(capability): classify BY CONTENT/BY VALUE as PARTIAL (P0-4)")
   pushed: `490eb5a..92cd314`.
+- `a63e359` ("fix(capability): register ROUNDED as SUPPORTED; correct BL-005
+  premise (P0-5)") pushed: `92cd314..a63e359`.
 
 ### Blockers
 - Environment blocker (BL-010): Docker-dependent and Java/Node validation cannot run
@@ -172,11 +192,12 @@ It must never contradict repository reality (§68) and must never be left mislea
 - Do not weaken/skip tests to obtain green.
 
 ### Next exact OpenCode action
-1. Commit BL-005 + tests + docs + checkpoint and push to `codex/universal-core`;
+1. Commit BL-011 + tests + docs + checkpoint and push to `codex/universal-core`;
    then verify GitHub Actions for the pushed commit.
-2. P0 capability backlog is closed. Next: extend the reconciliation gate
-   (BL-011) to every `TransformationProducer` and address the P1 documentation
-   contradictions (BL-008 integrated-proof claim, BL-009 stale baseline refs).
+2. Then address the remaining P1/P2 documentation contradictions: BL-008
+   (`docs/SYSTEMAOPS_PRODUCT_STATUS.md` §18 claims integrated_proof is not wired
+   into `api/service.py`, but it is) and BL-009 (live status docs cite the stale
+   baseline `fedb7dd` / CI #417/#418).
 3. Keep `docs/BACKLOG.md` and this checkpoint current at each checkpoint.
 
 ---

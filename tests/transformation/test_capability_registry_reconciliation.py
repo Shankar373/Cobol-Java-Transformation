@@ -115,3 +115,59 @@ class TestP0_1RegressionCases:
         supported, _ = _declared()
         for construct in ("COMPUTE", "SUBTRACT", "MULTIPLY", "CALL", "EVALUATE"):
             assert construct in supported, construct
+
+
+class TestAllRegistryKeysAppearInSomeVerdict:
+    """Every registry key must be classified by the producer somehow.
+
+    BL-002..BL-005 added COMP/COMP-3, REDEFINES/OCCURS/88-LEVEL,
+    BY CONTENT/BY VALUE and ROUNDED keys.  The producer derives its supported /
+    unsupported lists from the registry by level, so a newly added key must show
+    up in exactly one of them (or in neither, if it is PARTIAL) without any
+    hand-editing of the producer.
+    """
+
+    def test_new_registry_keys_are_classified_without_hand_editing(self) -> None:
+        """Every registry key must resolve to a producer verdict automatically.
+
+        SUPPORTED / UNSUPPORTED keys must appear in the matching list.  PARTIAL
+        and UNKNOWN keys are deliberately claimed by neither list: they are not
+        a positive or negative claim, and asserting them into a list would
+        overstate what the producer does.
+        """
+        supported, unsupported = _declared()
+        classified = supported | unsupported
+        unclassified = sorted(
+            key
+            for key, entry in CONSTRUCT_REGISTRY.items()
+            if entry.level
+            in (CapabilityLevel.SUPPORTED, CapabilityLevel.UNSUPPORTED)
+            and key not in classified
+        )
+        assert not unclassified, (
+            "Registry keys neither declared supported nor unsupported: "
+            f"{unclassified}"
+        )
+
+    def test_partial_and_unknown_keys_are_claimed_by_neither_list(self) -> None:
+        """A partial/unknown verdict must never be presented as a hard claim."""
+        supported, unsupported = _declared()
+        for key, entry in CONSTRUCT_REGISTRY.items():
+            if entry.level in (CapabilityLevel.PARTIAL, CapabilityLevel.UNKNOWN):
+                assert key not in supported, f"{key} overclaimed as supported"
+                assert key not in unsupported, f"{key} overclaimed as unsupported"
+
+    def test_newly_registered_keys_have_expected_verdicts(self) -> None:
+        """Spot-check the keys added by BL-002..BL-005."""
+        supported, unsupported = _declared()
+        # COMP family is PARTIAL -> claimed by neither list.
+        for key in ("COMP", "COMP-3", "COMP-5"):
+            assert key not in supported and key not in unsupported, key
+        # REDEFINES / OCCURS / 88-LEVEL are UNKNOWN -> also in neither list.
+        for key in ("REDEFINES", "OCCURS", "88-LEVEL"):
+            assert key not in supported and key not in unsupported, key
+        # BY CONTENT / BY VALUE are PARTIAL -> neither list.
+        for key in ("BY CONTENT", "BY VALUE"):
+            assert key not in supported and key not in unsupported, key
+        # ROUNDED is SUPPORTED -> must be declared supported.
+        assert "ROUNDED" in supported, "ROUNDED was added as SUPPORTED"
