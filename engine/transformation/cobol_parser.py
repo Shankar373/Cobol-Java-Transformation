@@ -1705,6 +1705,18 @@ class CobolParser:
             fragment = fragment.strip()
             if not fragment:
                 continue
+            # A scope terminator shares the line with the statement it closes
+            # (`IF A > 1 ADD 1 TO B END-IF`). It is structure, not an operand,
+            # so it must not reach the statement parser: `ADD 1 TO B END-IF`
+            # would otherwise produce `B = (B + END_IF)`.
+            terminator = re.search(
+                r"\s+END-(?:IF|EVALUATE|PERFORM|STRING|UNSTRING|READ|WRITE)\s*\.?\s*$",
+                fragment, re.IGNORECASE,
+            )
+            if terminator:
+                fragment = fragment[: terminator.start()].strip()
+                if not fragment:
+                    continue
             synthetic = [fragment]
             stmt, next_i = self._parse_statement(synthetic, 0)
             if stmt is not None and next_i >= len(synthetic):

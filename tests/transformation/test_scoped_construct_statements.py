@@ -146,6 +146,29 @@ class TestInlineWhenBodyIsPreserved:
         assert len(stmt.then_body) == 1
         assert isinstance(stmt.then_body[0], irmod.MoveStatement)
 
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            # A scope terminator shares the line; it must never be read as an
+            # operand (this produced `B = (B + END_IF)` before the fix).
+            ("IF WS-A > 1 ADD 1 TO WS-B END-IF", "WS_B = (WS_B + 1)"),
+            ("IF WS-A > 1 MOVE 9 TO WS-B END-IF", "WS_B = 9"),
+            ("IF WS-A > 1 COMPUTE WS-B = 4 END-IF", "WS_B = 4"),
+        ],
+    )
+    def test_scope_terminator_never_becomes_an_operand(self, line, expected):
+        code = _generate(_program(line))
+        assert expected in code, code
+        assert "END_IF" not in code, code
+
+    def test_inline_add_in_an_evaluate_arm(self):
+        code = _generate(_program(
+            "EVALUATE WS-A",
+            "    WHEN 1 ADD 3 TO WS-B",
+            "END-EVALUATE",
+        ))
+        assert "WS_B = (WS_B + 3)" in code, code
+
     def test_inline_and_multiline_arms_both_preserved(self):
         stmt = _first_statement(_program(
             "EVALUATE WS-A",
