@@ -327,6 +327,85 @@ is not evidence of the absence of a defect" — remains the standing method.]`
    with the exact SHA, commands and results, and only then consider the phase
    verdict. Otherwise file the new items and continue Phase 1.
 
+### §53 PHASE 1 ACCEPTANCE CHECKLIST — audited at `766cf43` (authoritative)
+
+Master README §53 lists 13 criteria. Each is answered from evidence gathered
+**at this SHA**, not from commit messages. Where a criterion cannot be verified
+on this host it says so and names the Linux CI run that carries it.
+
+| # | §53 criterion | Evidence at `766cf43` | Result |
+|---|---|---|---|
+| 1 | implementation exists and matches the current architecture | One canonical pipeline (§10): `cobol_parser.py` → `ir.py` → `cobol_to_java_mapping.py` → `java_generator.py`, with `semantic_capability.py` as the single capability registry. No parallel path introduced; architecture not re-implemented. | PASS |
+| 2 | relevant contracts satisfied | `tests/verdict` + `tests/evidence` + `tests/contracts` + `test_certification_contract.py` → **88 passed**. | PASS |
+| 3 | focused tests pass | `test_scoped_construct_statements.py` (62) + `test_negated_conditions.py` (31) + `test_figurative_constants.py` (67) = **160 collected, 160 passed**; with `tests/test_silent_loss_registry.py` (15) → **175 passed**. | PASS |
+| 4 | regression tests pass | `tests/transformation` + `tests/adversarial` + silent-loss/agent2/phase4 → **2056 passed / 11 skipped / 22 failed**, all 22 proven environment-only (below). | PASS (env-bounded) |
+| 5 | integration behavior verified | Linux CI "Backend and COBOL/Java Docker tests" runs the integration + vertical-slice suites with a real JDK and GnuCOBOL 3.1.2 — the authority for these, since this host has no `javac` (BL-010). | PASS via CI |
+| 6 | fresh end-to-end behavior verified where applicable | CI Docker job compiles and executes generated Java against the workload fixtures. **No fresh local E2E is claimed** — this host cannot run one. | PASS via CI (limitation stated) |
+| 7 | evidence reproducible, tied to exact identities, integrity-validated | Evidence/verdict/contract suites pass; every claim above is tied to SHA `766cf43` and named test files; CI links are exact-SHA. The one modified `test-artifacts/*` file is **pre-existing** (Docker image digests only, last touched by commit `2f92aee`), left untouched — not produced or altered by this audit. | PASS |
+| 8 | known limitations and residual risks documented | BL-010 (no local JDK/Docker), BL-017 residual flake risk (not locally reproducible), BL-012 (no coverage/mutation thresholds) recorded in `docs/BACKLOG.md` with owner, phase, risk and acceptance criteria. Non-claims preserved. | PASS |
+| 9 | **no silent semantic loss remains** | Re-probed every Phase 1 construct through real IR, generated Java, diagnostics and capability verdicts: BL-018 figurative, BL-019 negated relational, BL-020 inline/nested/ELSE/scope-terminator, BL-021 `ALSO`, BL-022 `WHEN OTHER`, BL-023 `**`, BL-024 `FUNCTION MIN(...)` — **all correct, all diagnosed where unmapped**. This audit found and fixed **three** further defects the suite could not see (`479bed7`, `6124e85`). | PASS |
+| 10 | every discovered defect fixed or explicitly carried forward | BL-001…BL-025 have register rows with owner/role, target phase, dependency, risk and acceptance criteria — **25/25 complete, verified programmatically**. Open: BL-010…BL-016 (all carried forward; none is Phase-1-scoped). Closed this phase: BL-017…BL-025. | PASS |
+| 11 | code, tests, security, architecture, API/UI, ops, documentation gaps audited | Security suites (`tests/adversarial/` 13 files, `test_api_security.py`, `test_verdict_trust_boundary.py`) green; Supply chain workflow (SBOM + vulnerability scanning) green; `requirements*.txt` and `engine/` contain **zero** LLM imports — deterministic no-LLM invariant holds. | PASS |
+| 12 | acceptance criteria satisfied | All of the above; see limitations for what is explicitly **not** claimed. | PASS |
+| 13 | live checkpoint updated from actual repository/test results | This file; `docs/BACKLOG.md`; `docs/SEMANTIC_PROOF_MATRIX.md` (now covering every BL-019…BL-025 construct, so registry and matrix cannot drift). | PASS |
+
+**No-LLM invariant (verified, not assumed):** `grep` for
+`openai|langchain|anthropic|ollama|transformers|torch|...` across
+`requirements*.txt` and `engine/` → **0 matches**. Every transformation in this
+phase is table/regex/dataclass-driven.
+
+**Fresh semantic-loss re-probe (Step 2 of the audit) — CLEAN at `766cf43`.**
+A standalone probe (not the test suite, which was written after the defects)
+re-derived each construct's expected behaviour, then compared it against the
+**actual parsed IR, generated Java, diagnostics and capability verdict**:
+
+| | result |
+|---|---|
+| Parser IR + generated Java + diagnostics (17 cases: BL-018 figurative ×3, BL-019 negated ×3, BL-020 inline/THRU/nested/ELSE ×5, BL-021 `ALSO`, BL-022 `WHEN OTHER`, BL-023 `**`, BL-024 `FUNCTION MIN(...)`, BL-025 no-repr, plus a supported control) | **17/17 correct** |
+| Capability verdicts through real `ApplicationDiscovery` (9 cases) | **9/9 correct** — supported forms `SUPPORTED`, unmapped forms `UNSUPPORTED` |
+
+Every unmapped construct emits an explicit `UNSUPPORTED_CONSTRUCT` diagnostic;
+no executable statement is deleted; no malformed Java is certified `SUPPORTED`.
+**This re-probe is what found BL-025** — CI and the existing suite both passed
+over it, exactly as they had for BL-018…BL-024.
+
+**Gate sizes (measured at `766cf43`):** fast dependency-free capability-truth
+gate (the `capability-truth` CI job, 9 files) → **241 passed in 1.18s**;
+focused Phase 1 suites → **160**; broader regression
+(`tests/transformation` + `tests/adversarial` + silent-loss/agent2/phase4) →
+**2056 passed / 11 skipped / 22 failed**; full suite
+(`pytest -q tests`, serialized) → see the serialized-run record below.
+
+**The 22 local failures — proven environmental, not classified by assumption.**
+Per-test capture shows `javac -> NOT FOUND`, `java -> NOT FOUND` on this host,
+and **all 22 raise `FileNotFoundError` from `subprocess`** (44 mentions) with
+**zero assertion failures**; per-file counts sum exactly to 22. The same tests
+pass in the Linux CI Docker job where a JDK exists. These are BL-010, not
+defects.
+
+**BL-025 second-order defect — found by adversarial re-verification, not by tests.**
+The first BL-025 fix used a plain `_` separator in its fail-closed marker. A COBOL
+user-defined word maps to Java by replacing hyphens with underscores, so a data
+item named `UNSUPPORTED-INTRINSIC-POWER` would have **declared** the marker and
+made it **resolve** — silently converting fail-closed back into fail-open and
+executing `WS_A = Math.abs(<field>)`, a wrong value with no diagnostic. This was
+**reproduced, not hypothesised**. The separator is now `$`: a legal Java
+identifier character that can never occur in a COBOL data name, making the
+collision structurally impossible (following the existing `_FIGURATIVE_SENTINEL`
+precedent). Locked by a regression test that declares the colliding field and
+asserts the marker is still never declared.
+
+**Adjacent boundary checked (not fixed, deliberately):**
+`copybook_model._render_expression` has the same `str(expr)` fallthrough shape,
+but it is reachable only from data-description rendering and every expression it
+receives is a `JavaVariableRef`/`JavaLiteral` it built itself — a COBOL
+`IntrinsicCall` cannot reach it. Recorded as a latent observation; left unchanged
+to keep the change minimal.
+
+**Explicitly NOT claimed by Phase 1:** universal COBOL coverage, complete
+runtime equivalence, production readiness, local Docker/JDK execution, or that
+a green CI gate alone closes the phase.
+
 ---
 
 ## Phase 0 closure audit — 2026-10-10

@@ -552,12 +552,29 @@ produced evidence, not re-run here).
 - **Affected files:** `engine/transformation/cobol_to_java_mapping.py`
   (`_map_cobol_expression_to_java`, new `_intrinsic_fail_closed_symbol`).
 - **Remediation (implemented):** `IntrinsicCall` now maps to a deliberately
-  undefined symbol — `UNSUPPORTED_INTRINSIC_POWER` for `**`,
-  `UNSUPPORTED_INTRINSIC_MIN` for `FUNCTION MIN(...)`. This keeps a valid Java
+  undefined symbol — `UNSUPPORTED_INTRINSIC$POWER` for `**`,
+  `UNSUPPORTED_INTRINSIC$MIN` for `FUNCTION MIN(...)`. This keeps a valid Java
   expression shape (so the statement structure stays well-formed) while making
   `javac` report the construct **by name**, and no wrong value can ever be
   produced. The fallthrough no longer stringifies: any other unhandled
-  `Expression` yields `UNSUPPORTED_EXPRESSION_<NODE>` by the same rule.
+  `Expression` yields `UNSUPPORTED_EXPRESSION$<NODE>` by the same rule.
+- **Second-order defect found by adversarial re-verification (fixed in the same
+  change):** the first version of the marker used a plain `_` separator. A
+  COBOL user-defined word maps to Java by replacing hyphens with underscores, so
+  a data item named `UNSUPPORTED-INTRINSIC-POWER` would have **declared** the
+  marker and made it **resolve** — silently converting fail-closed back into
+  fail-open and executing `WS_A = Math.abs(<field>)`, a wrong value with no
+  diagnostic. Verified as a real reproduction, not a hypothetical. The separator
+  is now `$`, which is a legal Java identifier character but can **never** occur
+  in a COBOL data name, making the collision structurally impossible. This
+  follows the existing `_FIGURATIVE_SENTINEL` precedent (a marker COBOL source
+  cannot produce). Locked by a regression test that declares the colliding field
+  and asserts the marker is still never declared.
+- **Adjacent boundary checked:** `copybook_model._render_expression` has the same
+  `str(expr)` fallthrough shape, but it is reachable only from data-description
+  rendering and every expression it receives is a `JavaVariableRef`/`JavaLiteral`
+  it built itself — a COBOL `IntrinsicCall` cannot reach it. Recorded as a latent
+  observation, not a defect; deliberately left unchanged to keep scope minimal.
 - **Verification:** `tests/transformation/test_scoped_construct_statements.py`
   asserts (a) no Python repr in generated Java, (b) the named fail-closed symbol
   is present, (c) the symbol is **never declared** (so it genuinely cannot
