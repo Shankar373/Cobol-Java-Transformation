@@ -734,16 +734,25 @@ produced evidence, not re-run here).
   identifier-delimiter and `ON OVERFLOW` forms fail closed. The serialized full suite now
   **sits exactly at the 26-identity environmental baseline** (rerun: 26 failed / 3282 passed /
   12 skipped, zero new failures by identity vs the `bdb4c9a` clean run; the +30 passed are the
-  new BL-027 tests, all passing). Still owed before closure: push (done 2026-10-11 as `13bdddd`
-  + this docs commit) and a new exact-SHA CI cycle.
+  new BL-027 tests, all passing). Exact-SHA CI is **green**: all four workflows SUCCESS at
+  `6bfcbe4` (the push containing the fix `13bdddd`), all jobs green, `head_sha` verified via
+  the GitHub API (run IDs in "Fix verification" below). All six acceptance criteria are met
+  with real evidence. The **only remaining closing action is the §53 re-audit** (criterion 9
+  re-scoring); until it runs, this item stays `IMPLEMENTED — VERIFICATION IN PROGRESS` and
+  Phase 1 stays `NOT COMPLETE`.
   *(Correction: an earlier draft of this entry claimed `FIXED — 2026-10-11` with a
   "Fix verification" block citing a fix commit SHA, CI run, `ORACLE_MATCH`, and container diffs.
   At that time none of those artifacts had been produced; the claim was fabricated and has been
   removed. The `ORACLE_MATCH`/container results recorded now were genuinely executed on
   2026-10-11 — see "Fix verification (executed 2026-10-11)" below.)*
-- **Last verified commit:** the *defect* was last verified at `bdb4c9a` (probe evidence below).
-  The *fix* commit is **`13bdddd`** (pushed 2026-10-11); its exact-SHA CI has **not yet been
-  verified**, so the fix is not yet a "last verified commit" under §53.10 rules.
+- **Last verified commit:** **`6bfcbe4`** (push containing fix `13bdddd` + this documentation)
+  — exact-SHA CI verified green via the GitHub API on 2026-10-11 (Push SystemaOps CI
+  [#38159864669](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864669)
+  all 4 jobs, PR SystemaOps CI
+  [#38159868523](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868523),
+  Supply chain [#38159864653](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864653)
+  / [#38159868476](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868476)).
+  The *defect* was last verified at `bdb4c9a` (probe evidence below).
 - **Found by:** `string_probe.py`, run in the Linux JDK audit container, exercising the production
   mapper path with `STRING ... DELIMITED BY "," ...` and `STRING ... WITH POINTER WS_P`.
 - **Observed behavior (verified, not assumed):**
@@ -794,14 +803,16 @@ produced evidence, not re-run here).
   Java plus independent GnuCOBOL oracle execution, byte-identical output — see "Fix verification
   (executed 2026-10-11)" below), and the serialized full suite is now back at **exactly the
   26-identity environmental baseline** (rerun: 26 failed / 3282 passed / 12 skipped, zero new
-  failures by identity). The item is **not closed**: the fix is committed as `13bdddd` and
-  pushed, but a new exact-SHA CI cycle and the §53 re-audit are still outstanding.
+  failures by identity). The item is **not closed**: exact-SHA CI is green at `6bfcbe4` and all
+  six acceptance criteria are met, but the §53 re-audit (criterion 9 re-scoring, the documented
+  closing action) has not yet run.
 - **Owner/role:** semantic transformation maintainer. **Target phase:** blocks **Phase 1 §53.9**
   (fix lands as parser/IR work, i.e. Phase 1 scope — it must close before Phase 1 can be
   certified). **Dependency:** additive `StringStatement` IR change. **Residual risk:** the fix is
-  committed as `13bdddd`, oracle-matched for the tested subset, and the full suite is back at the
-  26-identity environmental baseline — but until exact-SHA CI is green for the resulting SHA and
-  the §53 re-audit is done, the item stays open and Phase 1 cannot be marked `COMPLETE — VERIFIED`.
+  committed as `13bdddd`, oracle-matched for the tested subset, the full suite is back at the
+  26-identity environmental baseline, and exact-SHA CI is green at `6bfcbe4` — but until the
+  §53 re-audit re-scores criterion 9, the item stays open and Phase 1 cannot be marked
+  `COMPLETE — VERIFIED`.
 - **Why not closed in the `bdb4c9a` audit:** this fix is an IR-plus-mapper change that, by §53.10's
   own rules, requires a fresh serialized full-suite run *and* a new exact-SHA CI cycle; closing it
   inside the `bdb4c9a` evidence chain (Push #501 / PR #502) without those runs would be exactly
@@ -851,6 +862,19 @@ produced evidence, not re-run here).
     criterion (6) *by identity, same environment* — not by count. Passed went 3252 → 3282, i.e.
     exactly the **+30 new BL-027 tests, all passing**; the 30 appear nowhere in the failure set.
     Output of record: shell log `sh_12bd7d4d90010F8nxwCegnVTtw.out`.
+  - **Exact-SHA CI at `6bfcbe4` (verified via GitHub API, 2026-10-11): all four workflows
+    SUCCESS.** Push SystemaOps CI
+    [#38159864669](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864669)
+    — all 4 jobs green (Capability truth gate, which runs the 30 new BL-027 tests on Linux with
+    a real JDK; Backend and COBOL/Java Docker tests; Phase 1 ingestion diagnostics; Frontend);
+    PR SystemaOps CI
+    [#38159868523](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868523)
+    — same 4 jobs green; Supply chain
+    [#38159864653](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864653)
+    (push) /
+    [#38159868476](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868476)
+    (PR) SUCCESS. Every job's `head_sha` matches `6bfcbe4` exactly. Acceptance criteria (1)–(6)
+    are all met with real evidence; the sole remaining closing action is the §53 re-audit.
 
 ### BL-028 — COBOL fixed-width receiver overflow truncation is not modeled in `STRING`
 - **Type:** missing capability (documented limitation, not silent — declared in code and registry)
@@ -1022,8 +1046,9 @@ level and evidence location.
   baseline** (`bl027_compare.py`: zero new failures, zero changed; +30 passed = the new BL-027
   tests, all passing), confirming run 1's 10 extras were load-sensitive transients and
   satisfying the entry's full-suite acceptance criterion by identity. **BL-027 is recorded
-  IMPLEMENTED — VERIFICATION IN PROGRESS**: still owed are the exact-SHA CI cycle for the
-  resulting SHA and the §53 re-audit. Also filed **BL-028** (fixed-width
+  IMPLEMENTED — VERIFICATION IN PROGRESS**: all six acceptance criteria are met with real
+  evidence and exact-SHA CI is green at `6bfcbe4` (all four workflows, `head_sha` verified via
+  the GitHub API); the §53 re-audit is the sole remaining closing action. Also filed **BL-028** (fixed-width
   receiver overflow truncation, P2, disclosed limitation) so the mapper/registry code reference
   is no longer dangling.
 
@@ -1146,7 +1171,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-024 | Parser / IR maintainer | Phase 1 (closed) | `_build_expression`; same defect class as BL-018 | Intrinsic `FUNCTION MIN(...)` falls through to an impossible field reference. | Undeclared Java identifier, exactly the BL-018 pattern; unproven intrinsics must never be silently field references. | `FUNCTION` prefix recognised and either mapped for the certified subset or diagnosed; never a bare field reference. |
 | BL-025 | Transformation / code-generation maintainer | Phase 1 (closed) | `_map_cobol_expression_to_java` fallthrough; new `_intrinsic_fail_closed_symbol`; Master README §16/§17/§60 | Unmapped expressions must fail closed deliberately, never by emitting implementation artefacts into generated Java. | The `str(expr)` fallthrough stringified any unhandled `Expression` into Java (`WS_A = Math.abs(IntrinsicCall(name='**', ...))`) and is fail-open for any future node — the BL-018/BL-023 defect class in a different layer. Verdict was already UNSUPPORTED, so impact is bounded to malformed output, not a wrong value. | `IntrinsicCall` maps to a deliberately undefined symbol naming the construct; the fallthrough maps unknown `Expression` nodes to `UNSUPPORTED_EXPRESSION_<NODE>`; tests assert no repr leaks, the symbol is never declared, and supported `COMPUTE` is unaffected. Evidence: `tests/transformation/test_scoped_construct_statements.py`. |
 | BL-026 | Semantic transformation maintainer | Phase 2 | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | A program containing `GO TO` raises an explicit diagnostic naming `GO TO`; the verdict stays UNSUPPORTED and the planner still blocks; the traceability comment remains; focused tests are added to the fast `capability-truth` gate; no existing test weakened. Evidence basis: semantic re-probe at `bdb4c9a` (Linux JDK audit container). |
-| BL-027 | Parser / IR / semantic transformation maintainer | **Phase 1 (blocks §53.9 — implemented as `13bdddd` and oracle-matched; closure pending exact-SHA CI + re-audit)** | Additive `StringStatement` IR change; capability-truth gate | `STRING ... DELIMITED BY <x>` and `WITH POINTER` are not modelled: the delimiter is concatenated into the result as data and the pointer is dropped, under a `SUPPORTED` verdict with no diagnostic — reachable silent wrong value, the one §53.10 combination that must never occur. | P0 / high: fail-closed does not hold for these `STRING` forms; a green verdict accompanies incorrect generated arithmetic — §54 `capability truth drift` and a direct §60 / §53.9 counterexample at the Phase 1 parser/IR boundary. | IMPLEMENTED (`13bdddd` on top of `742e39d`): delimiter/pointer parsed into `StringStatement`; mapper excludes the delimiter from the result and reads/writes the pointer; identifier delimiters, `ON OVERFLOW` and non-integer pointers return an `UNSUPPORTED_STRING$…` fail-closed symbol; 30 focused tests added to the fast `capability-truth` gate (`tests/transformation/test_string_delimited_semantics.py`, wired into `ci.yml`). VERIFIED: container `javac` compile-and-execute of the emitted Java matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte (`ORACLE_MATCH=YES`, `bl027_diff.py`); fail-closed forms probe correctly (`bl027_probe_run2.txt`). REMAINING: full-suite criterion MET — serialized rerun at **exactly the 26-identity environmental baseline** (26 failed / 3282 passed / 12 skipped, zero new failures by identity vs the `bdb4c9a` clean run; +30 passed = the new BL-027 tests); fix committed as `13bdddd` and pushed; a new exact-SHA CI cycle and §53 re-audit still owed — closure recorded only from those actual results. Defect evidence basis: `string_probe.py` at `bdb4c9a` (Linux JDK audit container, real `ApplicationDiscovery` + `CapabilityAnalyzer` verdicts). |
+| BL-027 | Parser / IR / semantic transformation maintainer | **Phase 1 (blocks §53.9 — implemented as `13bdddd`, oracle-matched, CI green at `6bfcbe4`; closure pending §53 re-audit)** | Additive `StringStatement` IR change; capability-truth gate | `STRING ... DELIMITED BY <x>` and `WITH POINTER` are not modelled: the delimiter is concatenated into the result as data and the pointer is dropped, under a `SUPPORTED` verdict with no diagnostic — reachable silent wrong value, the one §53.10 combination that must never occur. | P0 / high: fail-closed does not hold for these `STRING` forms; a green verdict accompanies incorrect generated arithmetic — §54 `capability truth drift` and a direct §60 / §53.9 counterexample at the Phase 1 parser/IR boundary. | IMPLEMENTED (`13bdddd` on top of `742e39d`): delimiter/pointer parsed into `StringStatement`; mapper excludes the delimiter from the result and reads/writes the pointer; identifier delimiters, `ON OVERFLOW` and non-integer pointers return an `UNSUPPORTED_STRING$…` fail-closed symbol; 30 focused tests added to the fast `capability-truth` gate (`tests/transformation/test_string_delimited_semantics.py`, wired into `ci.yml`). VERIFIED: container `javac` compile-and-execute of the emitted Java matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte (`ORACLE_MATCH=YES`, `bl027_diff.py`); fail-closed forms probe correctly (`bl027_probe_run2.txt`). REMAINING: all six acceptance criteria MET — serialized rerun at **exactly the 26-identity environmental baseline** (26 failed / 3282 passed / 12 skipped, zero new failures by identity vs the `bdb4c9a` clean run; +30 passed = the new BL-027 tests); fix committed as `13bdddd`, pushed; exact-SHA CI **green at `6bfcbe4`** (all four workflows, all jobs, `head_sha` verified via GitHub API); §53 re-audit is the sole remaining closing action. Defect evidence basis: `string_probe.py` at `bdb4c9a` (Linux JDK audit container, real `ApplicationDiscovery` + `CapabilityAnalyzer` verdicts). |
 | BL-028 | Semantic transformation maintainer | Phase 2 (future STRING semantics completeness) | BL-027 `StringStatement` mapper path | COBOL fixed-width receiver overflow truncation is not modeled: the receiving field is emitted as an unbounded Java `String`, so a `STRING` result longer than the receiving field's `PIC` width does not truncate as COBOL would. | P2 / medium: no wrong value within the field width and no false `SUPPORTED` on this basis alone (the limitation is declared in the capability-registry evidence text for `STRING` and in the mapper docstring), but programs whose `STRING` output exceeds the receiver width will diverge at runtime without a diagnostic. | Model receiving-field width truncation in the emitted Java (or fail closed for receivers whose overflow behavior would differ); add focused tests to the capability-truth gate; serialized full suite + exact-SHA CI. Evidence: mapper `_string_receiver_statements` docstring (`engine/transformation/cobol_to_java_mapping.py`, "The receiver is modeled as an unbounded Java String, so COBOL's fixed-width overflow truncation is a documented limitation"). |
 
 ### PR disposition snapshot — 2026-10-10
