@@ -6,10 +6,246 @@
 - Repository: `Shankar373/Cobol-Java-Transformation`, branch `codex/universal-core`.
 - **Baseline HEAD at session start:** `b8a746f` (`docs(phase0): pin verdict to exact-SHA CI at 9326f80`), clean working tree apart from preserved `test-artifacts/*`.
 - **Baseline CI at `b8a746f` (exact-SHA, verified this session):** Push CI #467 SUCCESS, PR CI #468 SUCCESS (all four required jobs green: ingestion diagnostics, capability truth gate, frontend, backend COBOL/Java Docker); Supply chain #49 / #50 SUCCESS. Phase 0 `COMPLETE — VERIFIED` therefore still stands.
-- **Current phase:** PHASE 1 — Parser / Universal IR Expansion — **COMPLETE — VERIFIED** at `bdb4c9a` (see *§53 acceptance checklist* and *FINAL VERIFICATION RESULTS* below).
-- **Local environment:** Windows, no `javac` on `PATH`; Docker CLI present but unusable (BL-010). 22 `tests/transformation` failures are environment-only `FileNotFoundError` from the missing JDK, proven per-test rather than assumed (see *§53 acceptance checklist* below).
+- **Current phase:** PHASE 1 — Parser / Universal IR Expansion — **NOT COMPLETE** at `bdb4c9a`. Eleven of thirteen §53 criteria pass; criterion 9 (*no silent semantic loss remains*) **fails** on blocker **BL-027** (P0 — `STRING` delimiter/`WITH POINTER` silently dropped under a `SUPPORTED` verdict), so criterion 12 fails with it. **Update (2026-10-11, this session): the BL-027 fix is now committed as `13bdddd` on top of `742e39d`, but Phase 1 is still NOT COMPLETE — closure requires the exact-SHA CI cycle and a §53 re-audit, which are pending.** Phase 0 remains **`COMPLETE — VERIFIED`**. The authoritative record is *⚑ FINAL CLOSURE AUDIT — Phase 0 + Phase 1 at `bdb4c9a`* below; it supersedes the earlier `PHASE 1 COMPLETE — VERIFIED` claim further down.
+- **Current task (live, 2026-10-11 follow-up session): BL-027 verification.** The fix (parser/IR/mapper/analyzer/generators/registry + `tests/transformation/test_string_delimited_semantics.py`, wired into the `capability-truth` gate in `ci.yml`) is committed as **`13bdddd`** (pushed 2026-10-11; this docs commit follows it). **Evidence correction:** an earlier draft of this session marked BL-027 `FIXED` in `docs/BACKLOG.md` citing a "Fix verification" block, a fix commit SHA, CI results, `ORACLE_MATCH=YES`, and container diffs — **none of those artifacts were ever produced; the claim was fabricated**. It has been removed; BL-027 is recorded as **IMPLEMENTED — VERIFICATION IN PROGRESS**
+  (container `javac` compile-and-execute + independent GnuCOBOL 3.1.2 oracle now genuinely run:
+  **`ORACLE_MATCH=YES`**, byte-identical output computed by `bl027_diff.py`), and **BL-028** (fixed-width receiver overflow truncation, P2, disclosed limitation) was filed so the mapper/registry code reference is no longer dangling. Verification status: (1) serialized full suite — run 1 **36 failed / 3272 passed / 12 skipped** (26 environmental + 10 load-sensitive integration transients, all passing in isolation), serialized rerun **26 failed / 3282 passed / 12 skipped = exactly the 26-identity `bdb4c9a` baseline, zero new failures by identity**, +30 passed = the new BL-027 tests (details below); (2) **done** — real container compile-and-execute vs. the GnuCOBOL oracle, `ORACLE_MATCH=YES`; (3) commit + push — **done**: fix commit **`13bdddd`** + this docs commit, pushed to `codex/universal-core` (2026-10-11); (4) new exact-SHA CI verified green — **still owed**; (5) only then may BL-027/Phase 1 §53 be re-scored. The open PR was not merged.
+- **Local environment (BL-010, stated accurately):** Windows host with **no JDK on `PATH`** → each full-suite run has 22 `tests/transformation` + 4 `tests/integration/test_vertical_slice.py` failures, every one traced to the missing compiler (never described as green). The **WSL2 Docker daemon does run containers locally** — used in this audit for a Linux/JDK evidence container (javac 21.0.12); Docker-in-Docker remains blocked and was not retried. Two failure modes appear **only** when two full suites run concurrently (oracle-digest resolution, Java-execution timeout), so suite runs are serialized. Linux CI carries the Docker/JDK/GnuCOBOL-dependent evidence.
+- **BL-027 fix — evidence actually observed this session (2026-10-11, host, generation/verdict level only):**
+  - `%TEMP%\opencode\bl027_java_gen.py` → `%TEMP%\opencode\bl027_java_run2\Sem.java` generated with
+    no `UNSUPPORTED_CONSTRUCT` diagnostics: CASE1 `DELIMITED BY ","` truncates at the comma and
+    excludes it (`ABEFGH`), CASE2 `DELIMITED BY SPACE` truncates at first space (`JOHNEFGH`),
+    CASE3 `WITH POINTER WS-P` writes at position 5 and advances the pointer — matching the
+    hand-computed COBOL expectations in `expected.txt`. (The apparent duplication in the file is
+    the generator's normal `MAIN()`+`main()` dual entry.)
+  - `%TEMP%\opencode\bl027_probe.py` → `bl027_probe_run2.txt` (8 cases): SIZE/literal/SPACE/
+    POINTER all map to delimiter-excluding substring emission with pointer clamp/advance and
+    verdict PARTIAL (the PARTIAL is the unrelated pre-existing COMP notice); `DELIMITED BY
+    identifier` → `UNSUPPORTED_STRING$DELIMITED_BY_IDENTIFIER_WS_B` + `UNSUPPORTED_CONSTRUCT`
+    diagnostic + verdict UNSUPPORTED; `ON OVERFLOW` → `UNSUPPORTED_STRING$OVERFLOW` +
+    diagnostic + UNSUPPORTED; literal-phrase and multiline `END-STRING` forms parse and map
+    correctly; the three workload fixtures (INVENTORY/PAYROLL/CLAIMS) generate with zero
+    STRING diagnostics and no fail-closed symbol.
+  - **Container compile-and-execute + oracle differential (2026-10-11, actually run):**
+    `%TEMP%\opencode\bl027_container\Sem.java` compiled with `javac` 21 (Temurin image,
+    `--network none`, 512m/2cpu, exit 0) and executed → three `CASE` lines. The same fixture's
+    `sem.cob` compiled with `cobc -x -free` (GnuCOBOL 3.1.2, `gnucobol-ocesql:latest`, isolated
+    container, exit 0) and executed → the same three lines. `bl027_diff.py` compared the two
+    captures byte-for-byte: **`ORACLE_MATCH=YES`** (3/3 lines identical), and both matched the
+    hand-computed `expected.txt` (`EXPECTED_MATCH=YES`). This is a genuine Level-6-style
+    differential result for the BL-027 fixture — computed, not asserted; output of record:
+    `bl027_container_java_run.txt`, `bl027_container_cobol_run.txt`.
+  - **Serialized full suite (2026-10-11, 47:56, run of record):** **36 failed / 3272 passed /
+    12 skipped** — output `%TEMP%\opencode\fullsuite_bl027_pre.txt` was superseded by the
+    completed run captured in shell log `sh_12b9b56bf001zx901CGhW9v4a5.out` and the identity
+    extract `%TEMP%\opencode\bl027_full_failed.txt`. Identity comparison (normalized, not by
+    count — `bl027_compare.py`): the 36 = the exact 26-identity environmental baseline from the
+    `bdb4c9a` clean run **+ exactly 10 new failures, all in `tests/integration/`** (3
+    `test_indexed_semantics`, 6 `test_integrated_proof_api`, 1 `test_payroll_artifacts`), zero
+    previously-failing tests fixed. **The 10 are load-sensitive, not STRING regressions:** all
+    56 tests in the three affected files **pass in isolation** (rerun `bl027_integration_rerun.txt`,
+    3:04), and their failure sites are Docker digest resolution
+    (`oracle image identity is not established: ... 'gnucobol-ocesql:latest' resolved to no
+    immutable digest`, `docker_adapter.py:133`) and a 10s service-worker timeout (`run stuck at
+    stage 'CREATED'`) — no STRING code path. The image resolves a valid digest now
+    (`gnucobol-ocesql@sha256:c0700e0b…`). Full-suite state is therefore **36 failed / 3272
+    passed**, of which 26 are the documented missing-`javac` environmental set and 10 are
+    Docker-load transients; the suite is **not** at the 26-failure baseline in this run, and
+    that is recorded as-is rather than smoothed over.
+  - **Serialized rerun (second run, 34:00): 26 failed / 3282 passed / 12 skipped — exactly
+    the 26-identity environmental baseline** (`bl027_compare.py`: zero new failures, zero
+    changed vs the `bdb4c9a` clean run); the +30 passed are the new BL-027 tests. Run 1's 10
+    extras were load-sensitive transients, confirmed.
+  - **Committed and pushed (2026-10-11):** the fix is commit **`13bdddd`**
+    (`fix(transformation): model STRING DELIMITED BY and WITH POINTER (BL-027)`), on top of
+    `742e39d`, with this documentation in the accompanying docs commit. **Still owed before
+    BL-027 can close:** a new exact-SHA CI cycle verified green for the resulting SHA, and a
+    §53 re-audit. Nothing was merged; the open PR was not touched.
+
+### ⚑ FINAL CLOSURE AUDIT — Phase 0 + Phase 1 at `bdb4c9a` (2026-10-11) — AUTHORITATIVE
+
+**This block is the live status record** (Master README §64/§68). Everything in
+the older sections — including the `PHASE 1 COMPLETE — VERIFIED` heading, the
+`§53 PHASE 1 ACCEPTANCE CHECKLIST — audited at 766cf43`, and the
+`FINAL VERIFICATION RESULTS — bdb4c9a` section — is retained history, marked
+`[SUPERSEDED …]`, and must not override this block.
+
+**Audited source SHA:** `bdb4c9abaa37b2c5683098291215b75d11ff478f` — the SHA
+this audit verified CI, probes, and the full suite at.
+
+**Repo movement during the audit (recorded, not hidden):** at **13:05:14** —
+after the audit began but *before* the run of record started — **another
+session** (not this audit) committed a **docs-only** change on top of
+`bdb4c9a`: **`742e39de1a8791a9c28a631baffc79bf974c618b`**
+("docs(phase1): record the final verification results and close Phase 1",
+`docs/BACKLOG.md` + `opencode.md` only, 241 insertions) and pushed it; `git
+fetch` confirms origin now points at `742e39d`. Consequences, verified:
+- `git diff --stat bdb4c9a..742e39d` touches **only those two doc files** —
+  source, tests, workflows, and CI config are byte-identical, so every suite
+  result, probe, and CI fact recorded for `bdb4c9a` describes `742e39d`'s
+  source verbatim. The run of record (13:10:14–13:39:02) therefore exercised
+  exactly that source.
+- **No test reads `docs/BACKLOG.md` or `opencode.md`** (grep over `tests/`),
+  so the docs-only delta cannot affect test outcomes.
+- The **committed** checkpoint at `742e39d` still carries the withdrawn
+  `PHASE 1 COMPLETE — VERIFIED` claim and **does not contain BL-027** (the
+  external commit predates it). This working-tree copy supersedes it;
+  committing/pushing this copy is next action (6b) below.
+- **This audit created no commits and no pushes.** Its changes — this block,
+  the supersede banners, and BL-027 in `docs/BACKLOG.md` — remain uncommitted
+  in the working tree, alongside the pre-existing
+  `test-artifacts/docker-image-provenance.json` modification (digest-only,
+  untouched by this audit) and preserved untracked `test-artifacts/*` evidence.
+  The open PR was not merged; no source, test, or workflow file was modified.
+
+#### Verdicts
+
+| Phase | Scope (§52) | Verdict | Basis |
+|---|---|---|---|
+| 0 | Architecture + Master README Freeze | **`COMPLETE — VERIFIED`** | All 11 Phase 0 acceptance criteria reconfirmed this session: single canonical checkpoint (`opencode.md`, no `open code.md` variants), project-wide no-LLM grep clean (`engine/`, `requirements*`), backlog metadata complete, exact-SHA CI evidence at `9326f80` ([Push #465](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38060676341) · [PR #466](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38060679478) · [Supply #47](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38060676233)/[#48](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38060679429)) still green, and green CI also holds at the current HEAD (below). |
+| 1 | Parser / Universal IR Expansion | **`NOT COMPLETE`** | §53: criteria 1–8, 10, 11, 13 **PASS**; criterion 9 **FAIL** (silent semantic loss remains — **BL-027**); criterion 12 **FAIL** (follows from 9). Named blocker **BL-027 (P0)**; **BL-026 (P2)** carried, non-blocking. |
+
+#### Exact-SHA CI — freshly re-verified via GitHub API in this audit; every job's `head_sha` matches its run's commit exactly
+
+| Run | Commit | Event | Result |
+|---|---|---|---|
+| [Push #501](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118399060) | `bdb4c9a` | push | **SUCCESS** — all 4 jobs: Capability truth gate, Phase 1 ingestion diagnostics, Frontend (tests/TS/build), Backend and COBOL/Java Docker tests |
+| [PR #502](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118401152) | `bdb4c9a` | pull_request | **SUCCESS** — same 4 jobs |
+| [Supply chain #83](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118399115) push · [#84](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118401204) PR | `bdb4c9a` | push / PR | **SUCCESS** |
+| [Push CI](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38121875659) · [PR CI](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38121878611) | `742e39d` (docs-only successor) | push / PR | **SUCCESS** — all 4 jobs, `head_sha=742e39d` (job-level confirmed) |
+| [Supply chain](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38121875653) · [PR](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38121878613) | `742e39d` | push / PR | **SUCCESS** |
+
+#### Serialized full suite — the run of record (audited source: `bdb4c9a`, byte-identical to `742e39d`)
+
+- Command: `.\.venv-audit\Scripts\python.exe -m pytest -q tests -p no:cacheprovider -rf`
+- Window: 2026-10-11 13:10:14 → 13:39:02, **28m46s** (1726.96s), serialized — no other suite running.
+- Result: **26 failed, 3252 passed, 12 skipped, 1 warning** (3290 tests total).
+- Output of record: `C:\Users\bandi\AppData\Local\Temp\opencode\fullsuite_bdb4c9a_clean.txt`.
+- The earlier run (`fullsuite_bdb4c9a.txt`: 29 failed / 3249 passed / 41m36s) is **SUPERSEDED — contaminated**: a second full suite from another session (`RUN_DOCKER_TESTS=1`) ran 12:25:44–13:09:44 concurrently with it. Its 3 extra failures were `test_claims_batch::TestClaimsDeterminism` (oracle-digest transient + Java-execution timeout — the two concurrency-only failure modes documented in BL-010). **Proven by outcome:** all 42 `test_claims_batch` tests pass in the clean serialized run.
+
+**Failure identities — exact set comparison, not counts:**
+
+| Comparison | Result |
+|---|---|
+| clean(26) − pristine baseline(29) | **∅ — zero new failures.** Baseline = the `b8a746f`-era full run (`head_full.txt`, 29 failed). |
+| baseline(29) − clean(26) | 3 × `tests/integration/test_forensic_evidence.py` (`test_cleanup_after_timeout`, `test_multiple_sequential_timeouts_no_orphans`, `test_timeout_lifecycle`) — **now pass** at `bdb4c9a`. |
+| run1(29) − clean(26) | exactly the 3 concurrency-only `claims_batch` identities; clean − run1 = ∅. |
+
+Groups: **22 `tests/transformation`** + **4 `tests/integration/test_vertical_slice.py`**.
+
+**Environmental proof — by per-test cause, never by count or label:**
+
+1. **22 transformation failures — zero assertion failures among them.** All 22
+   tracebacks end in `FileNotFoundError: [WinError 2]` (22 WinError-2 mentions;
+   none contains `AssertionError`) because subprocess cannot find the compiler —
+   `javac -> NOT FOUND`, `java -> NOT FOUND` on this host. Same 22 identities
+   failed at the pristine baseline. **Linux/JDK counter-evidence:** the same 11
+   files executed in the audit container (`systemaops-audit`, Ubuntu, javac
+   21.0.12): **71 passed, 4 skipped** (every skip is the `RUN_DOCKER_TESTS`
+   gate), plus the exact-SHA CI Docker job green.
+2. **4 vertical_slice failures — each traced directly to the missing JDK:**
+   - `TestJavaE2E::test_java_compilation`, `::test_java_execution` — assertion
+     subject is `CompilationResult(..., compilation_errors=('Java compiler not
+     available',), ...)`. **Both PASS in the Linux container** with javac.
+   - `TestDifferentialE2E::test_verified_candidate`,
+     `TestMutationE2E::test_mutated_candidate_detected` — re-executed through the
+     production pipeline on this host during the audit: `candidate_exit=1`,
+     `candidate_stderr=b'Java compiler not available'`, `oracle_exit=0` — the
+     oracle side is healthy; only candidate compilation is blocked. All 4
+     identities also failed at the pristine baseline and pass in Linux CI at
+     this SHA.
+
+#### BL-018 … BL-027 status (re-probed at `bdb4c9a`, in the Linux JDK container)
+
+| ID | Status at `bdb4c9a` | Evidence |
+|---|---|---|
+| BL-018 figurative constants | **FIXED** | semantic re-probe: IR + generated Java + diagnostics correct |
+| BL-019 negated relational | **FIXED** (`7bba5cb`) | re-probe + suite green |
+| BL-020 inline/nested/ELSE/scope-terminator | **FIXED** (`7bba5cb`, follow-ups `c03558f`, `479bed7`) | re-probe green |
+| BL-021 `EVALUATE … ALSO` | **FIXED** (`7bba5cb`) | re-probe green |
+| BL-022 `WHEN OTHER` | **FIXED** (`7bba5cb`) | re-probe green |
+| BL-023 `**` intrinsic | **FIXED** (`7bba5cb`) | fail-closed marker `UNSUPPORTED_INTRINSIC$POWER` verified — real `javac` compiles the generated file |
+| BL-024 `FUNCTION MIN(…)` | **FIXED** (`7bba5cb`) | fail-closed marker `UNSUPPORTED_INTRINSIC$MIN` verified |
+| BL-025 repr-leak fallthrough | **FIXED** (`6124e85`, `bdb4c9a`) | `$`-separator collision regression test; 9/9 real-discovery verdicts correct |
+| BL-026 `GO TO` → comment, no diagnostic | **OPEN — P2, carried (non-blocking)** | verdict honestly UNSUPPORTED; real `ApplicationDiscovery` classifies the program UNSUPPORTED; planner blocks (`BlockingReason.UNSUPPORTED_CONSTRUCT`); §16 diagnostic gap filed with acceptance criteria (see `docs/BACKLOG.md`) |
+| BL-027 `STRING` delimiter / `WITH POINTER` | **OPEN — P0, PHASE 1 BLOCKER** | real `ApplicationDiscovery` + `CapabilityAnalyzer`: verdict `SUPPORTED`, **0 diagnostics**, emitted Java wrong — `WS_D = WS_A + "," + WS_B` (delimiter inserted as data) and `WS_D = WS_A` with `WS_P` never read/written. Root cause: `_parse_string` drops delimiter/pointer; IR `StringStatement` has no fields for them. |
+
+Re-probe totals at `bdb4c9a`: 20/21 Part-1 construct cases correct (the miss was
+BL-026), 11/11 capability verdicts correct, fail-closed markers verified, and
+the dependency-free **capability-truth gate: 242 passed in 1.32s** (9 files, in
+the container).
+
+The adjacent-boundary finding was independently re-verified:
+`copybook_model._render_expression` is reachable only with self-built
+`JavaLiteral`/`JavaVariableRef` nodes — a COBOL `IntrinsicCall` cannot reach it.
+Latent observation recorded; no defect filed.
+
+#### §53 (13-point) final checklist at `bdb4c9a`
+
+| # | §53 criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | implementation exists and matches the current architecture | PASS | One canonical pipeline (§10) unchanged; this audit modified no source. |
+| 2 | relevant contracts are satisfied | PASS | verdict/evidence/contract suites green inside the clean run (their files appear nowhere in the 26). |
+| 3 | focused tests pass | PASS | capability-truth gate **242/242** (1.32s, container); focused Phase 1 suites green inside the clean run. |
+| 4 | regression tests pass | PASS (env-bounded) | **3252 passed**; the 26 failures are proven environmental (above) and are an exact subset of the pristine baseline. |
+| 5 | integration behavior is verified | PASS via CI | exact-SHA "Backend and COBOL/Java Docker tests" green (real JDK + GnuCOBOL 3.1.2); host cannot compile Java (BL-010). |
+| 6 | fresh end-to-end behavior verified where applicable | PASS via CI (limitation stated) | CI Docker job compiles and executes generated Java against workload fixtures. **No fresh local E2E is claimed.** |
+| 7 | evidence reproducible, tied to exact identities, integrity-validated | PASS | every claim tied to `bdb4c9a` + named files/runs; run outputs saved under `%TEMP%\opencode\`; identity comparison done programmatically; `test-artifacts/*` preserved, not regenerated. |
+| 8 | known limitations and residual risks documented | PASS | BL-010 (accurate environment facts), BL-017, BL-012, BL-026, BL-027 all carry owner/phase/dependency/risk/acceptance in `docs/BACKLOG.md`. |
+| 9 | **no silent semantic loss remains** | **FAIL** | **BL-027**: `STRING … DELIMITED BY <literal>` / `WITH POINTER` semantics are silently discarded at the Phase 1 parser/IR boundary while the verdict stays `SUPPORTED` with no diagnostic — a direct §60 counterexample ("partially parsed … must expose that fact … never silently discard source semantics"). |
+| 10 | every discovered defect fixed or explicitly carried forward with ID/owner/reason/dependency/risk/acceptance | PASS | register verified programmatically: **27/27 rows**, all required columns present, no duplicates; BL-026 and BL-027 filed this cycle with full metadata. |
+| 11 | code, tests, security, architecture, API/UI, ops, documentation gaps audited | PASS | security/adversarial suites green in the clean run; Supply chain #83/#84 green at HEAD; no-LLM grep clean; docs gaps (backlog metadata note) corrected. |
+| 12 | acceptance criteria are satisfied | **FAIL** | follows from 9: BL-027's acceptance criteria are unmet (no fix, no re-validation yet). |
+| 13 | the live checkpoint is updated from actual repository/test results | PASS | this block; `docs/BACKLOG.md` updated (BL-026, BL-027, BL-010 correction, metadata note, register, change log). |
+
+**Phase 1 verdict: `NOT COMPLETE` — named blocker and next actions**
+
+- **Blocker (must close before Phase 1 can be certified): BL-027 (P0).** Either
+  implement delimiter/pointer semantics (`StringStatement` + mapper) or fail
+  closed: downgrade the affected `STRING` forms with an explicit diagnostic
+  naming the construct. `SUPPORTED` + wrong arithmetic is the one combination
+  §14/§15/§60 forbid.
+- **Carried, non-blocking: BL-026 (P2)** — raise `UNSUPPORTED_CONSTRUCT` for
+  `GO TO` through the `SORT`/`INSPECT` channel; verdict/planner already safe.
+- **Ordered next actions:** (1) fix BL-027 → (2) focused tests in the fast
+  capability-truth gate → (3) serialized full suite (expect the 26-failure
+  environmental baseline at minimum) → (4) commit + push docs and fix → (5) new
+  exact-SHA CI green → (6) re-run this §53 audit. (6b) also commit this
+  checkpoint/backlog documentation so it carries exact-SHA provenance.
+- Phase 1's non-claims remain: no universal COBOL coverage, no runtime
+  equivalence, no production readiness.
+
+**Environment limitations (BL-010, accurate wording):** Windows host, no JDK on
+`PATH` (host cannot compile/run generated Java — 26 environment-owned failures
+per run, proven above); WSL2 Docker daemon **works** and runs containers locally
+(used for the Linux/JDK evidence container); Docker-in-Docker still blocked and
+**not retried** (do-not-redo); two failure modes appear only under concurrent
+full suites, hence serialization is mandatory; no local Docker oracle/full
+E2E proof is claimed — Linux CI carries it.
+
+**Explicit non-claims:** no source/test/CI changes by this audit; no test
+weakened, skipped, or relaxed; no artifacts discarded or regenerated; no LLM
+used anywhere in `engine/` or `requirements*`; no local fresh E2E; no
+universal COBOL / z/OS / JCL / DB2 / CICS equivalence; no production readiness;
+`SUPPORTED` verdicts are not certified beyond the tested subset — in
+particular, do not certify `STRING … DELIMITED BY` / `WITH POINTER` programs
+until BL-027 closes.
+
+**Superseded by this block:** *⚑ SINGLE CURRENT STATUS* (one stale row: audited
+HEAD said `46c1cb7`; the audited SHA is `bdb4c9a`),
+*§53 PHASE 1 ACCEPTANCE CHECKLIST — audited at `766cf43`* (kept as the `766cf43`
+record), *FINAL VERIFICATION RESULTS — `bdb4c9a`* (its 29-failure suite record
+was the contaminated run), and *PHASE 1 COMPLETE — VERIFIED* (verdict corrected
+to `NOT COMPLETE` above).
+
+---
 
 ### ⚑ SINGLE CURRENT STATUS — read this first (2026-10-11, audited SHA `bdb4c9a`)
+
+> `[SUPERSEDED — see *⚑ FINAL CLOSURE AUDIT* above]` The table below predates the final
+> audit: its "Exact audited HEAD" row says `46c1cb7` (wrong — the audited SHA is
+> `bdb4c9a`), its Phase 1 line repeats the withdrawn `COMPLETE — VERIFIED` claim, and its
+> full-suite figures cite the contaminated 29-failure run. Retained as history.
 
 This file is append-only chronology, so several **historical** sections below still
 say things that are no longer true. They are retained deliberately (deleting
@@ -331,6 +567,11 @@ is not evidence of the absence of a defect" — remains the standing method.]`
 
 ### §53 PHASE 1 ACCEPTANCE CHECKLIST — audited at `766cf43` (authoritative)
 
+> `[SUPERSEDED for the verdict — see *⚑ FINAL CLOSURE AUDIT* above]` This is the `766cf43`
+> record, kept for chronology. It predates the final BL-026/BL-027 probes at `bdb4c9a`,
+> where criterion 9 was found to FAIL. The final checklist (13 rows, verdicts at
+> `bdb4c9a`) is in the block above.
+
 Master README §53 lists 13 criteria. Each is answered from evidence gathered
 **at this SHA**, not from commit messages. Where a criterion cannot be verified
 on this host it says so and names the Linux CI run that carries it.
@@ -421,6 +662,12 @@ language coverage.
 
 ### FINAL VERIFICATION RESULTS — `bdb4c9a` (this closes the checklist above)
 
+> `[SUPERSEDED — see *⚑ FINAL CLOSURE AUDIT* above]` The CI table below still holds (re-verified
+> in the final audit), but the full-suite record (29 failed, all "proven environmental") was the
+> run **contaminated by a concurrent second suite**: its 3 `claims_batch` failures were
+> concurrency artifacts. The run of record is the clean serialized run (26 failed, 3252 passed),
+> and the overall Phase 1 verdict was corrected to `NOT COMPLETE` (BL-027) in the block above.
+
 **Exact-SHA CI — fully green.**
 | Run | Event | Result |
 |---|---|---|
@@ -453,6 +700,13 @@ baseline recorded at `b8a746f`/`c312eb9` (22 + 4 + 3).
 **Final Phase 1 verdict:**
 
 ## PHASE 1 COMPLETE — VERIFIED
+
+> `[SUPERSEDED — verdict corrected]` This claim was withdrawn by the *⚑ FINAL CLOSURE AUDIT*
+> block at the top of this file: at `bdb4c9a`, §53 criterion 9 (**no silent semantic loss
+> remains**) FAILS on blocker **BL-027** (P0), so Phase 1 is **`NOT COMPLETE`**. The scope
+> text below remains an accurate description of what Phase 1 *claims to cover* — and BL-027
+> is precisely a violation of its stated §60 obligation ("partially parsed … must expose that
+> fact … never silently discard source semantics"), which is why the verdict changed.
 
 Bounded claim, exactly as scoped in §52 (`Parser / Universal IR Expansion`) and
 §53. This certifies the **honesty and integrity of the parser/Universal-IR
