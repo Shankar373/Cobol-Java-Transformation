@@ -949,7 +949,7 @@ public class {class_name} {{
         """Convert a Java IR expression to a Java source string."""
         from engine.transformation.java_ir import (
             JavaCast, JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
-            JavaStringConcat, JavaUnaryOp,
+            JavaStringConcat, JavaTernary, JavaUnaryOp,
         )
         if isinstance(expr, JavaLiteral):
             if expr.value == "null" and not expr.java_type:
@@ -1011,15 +1011,31 @@ public class {class_name} {{
                         rendered = f'"{rendered}"'
                 parts.append(rendered)
             return " + ".join(parts)
+        if isinstance(expr, JavaTernary):
+            # Same rendering as the Spring Boot generator: always grouped so
+            # the ternary can nest inside concatenations and method calls
+            # (STRING delimiter truncation relies on this, BL-027).
+            cond = self._expr_to_string(expr.condition)
+            true_str = self._expr_to_string(expr.true_expr)
+            false_str = self._expr_to_string(expr.false_expr)
+            return f"({cond} ? {true_str} : {false_str})"
         return ""
 
     def _method_call_to_string(self, call) -> str:
         """Convert a Java IR method call to a Java source string."""
+        from engine.transformation.java_ir import JavaStringConcat
+
         args = ", ".join(self._expr_to_string(a) for a in call.arguments)
         if call.is_static:
             return f"{call.class_name}.{call.method_name}({args})"
         if call.object_ref:
-            return f"{self._expr_to_string(call.object_ref)}.{call.method_name}({args})"
+            obj = self._expr_to_string(call.object_ref)
+            if isinstance(call.object_ref, JavaStringConcat):
+                # ``a + b.length()`` would bind the method to the last
+                # operand only; group the receiver so ``(a + b).length()``
+                # keeps its meaning (BL-027 pointer/tail arithmetic).
+                obj = f"({obj})"
+            return f"{obj}.{call.method_name}({args})"
         return f"{call.method_name}({args})"
 
     def _label_to_counter_name(self, label: str) -> str:

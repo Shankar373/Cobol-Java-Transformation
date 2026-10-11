@@ -59,6 +59,9 @@ from engine.transformation.ir import (
     UnstringStatement,
     WriteStatement,
     ExitProgramStatement,
+    FieldReference,
+    FigurativeConstant,
+    Literal,
 )
 
 from engine.transformation.numeric_semantics import (
@@ -104,6 +107,7 @@ from engine.transformation.java_ir import (
     JavaStatusCodeMapping,
     JavaStringConcat,
     JavaSummaryField,
+    JavaTernary,
     JavaThresholdRule,
     JavaTransactionBoundary,
     JavaType,
@@ -313,6 +317,197 @@ def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
             if item.name.replace("-", "_").upper() == normalized:
                 return item
     return None
+
+
+# ---------------------------------------------------------------------------
+# STRING (BL-027): delimiter-aware sending phrases and write position
+# ---------------------------------------------------------------------------
+
+def _string_fail_closed_symbol(*reasons: str) -> str:
+    """Java identifier naming a STRING form with no certified Java mapping.
+
+    ``$`` can never appear in a COBOL-derived identifier, so the symbol is
+    unresolvable by construction: ``javac`` reports the construct by name
+    instead of a wrong value ever being produced silently (the BL-018 /
+    BL-023 pattern).
+    """
+    return "UNSUPPORTED_STRING$" + "$".join(reasons)
+
+
+def _string_phrase_java(src: JavaExpression, delim) -> JavaExpression:
+    """One sending phrase truncated at its delimiter (BL-027).
+
+    ``None`` (``DELIMITED BY SIZE``) copies the whole item; SPACE and a
+    quoted literal truncate at the first occurrence of the delimiter, and
+    when the delimiter does not occur the whole item is copied (the COBOL
+    rule).  The delimiter itself is never part of the result.
+    """
+    if delim is None:
+        return src
+    if isinstance(delim, FigurativeConstant):
+        # SPACE/SPACES: truncation at the first space character.
+        delim_java = figurative_constant_to_java(delim.kind)
+    elif isinstance(delim, Literal):
+        delim_java = _map_cobol_expression_to_java(delim)
+    else:  # pragma: no cover - callers fail closed before reaching this
+        return src
+    idx_call = JavaMethodCall(
+        object_ref=src, method_name="indexOf", arguments=(delim_java,)
+    )
+    return JavaMethodCall(
+        object_ref=src,
+        method_name="substring",
+        arguments=(
+            # copy the prefix that precedes the first delimiter occurrence
+            _int_lit(0),
+            JavaTernary(
+                condition=JavaBinaryOp(
+                    left=idx_call, operator=">=", right=_int_lit(0)
+                ),
+                true_expr=idx_call,
+                false_expr=JavaMethodCall(
+                    object_ref=src, method_name="length", arguments=()
+                ),
+            ),
+        ),
+    )
+
+
+def _string_receiver_statements(
+    stmt: StringStatement,
+    target: str,
+    sources: list[JavaExpression],
+    delims: list,
+    program: CobolProgram | None,
+) -> list[JavaStatement]:
+    """Emit the STRING write with COBOL write-position semantics (BL-027).
+
+    The concatenated sending text is written over the receiving field from
+    position 1 (or the ``WITH POINTER`` position) and the unwritten tail
+    stays unchanged.  Everything is evaluated from the pre-statement value
+    inside a single assignment, so an overlapping source/target resolves
+    deterministically (atomic pre-state evaluation).
+
+    Certified here: delimiter truncation (SIZE / literal / SPACE), delimiter
+    excluded from the result, pointer clamp/advance, tail preservation.
+    Not certified (fail-closed above): identifier delimiters, ON OVERFLOW,
+    non-integer pointers.  The receiver is modeled as an unbounded Java
+    String, so COBOL's fixed-width overflow truncation is a documented
+    limitation (docs/BACKLOG.md), not part of this mapping.
+    """
+    reasons: list[str] = []
+    for d in delims:
+        if isinstance(d, FieldReference):
+            reasons.append(
+                "DELIMITED_BY_IDENTIFIER_"
+                + d.name.upper().replace("-", "_")
+            )
+    if stmt.has_overflow:
+        reasons.append("OVERFLOW")
+    if stmt.pointer:
+        pointer_item = _find_data_item(program, stmt.pointer) if program else None
+        if pointer_item is not None and (
+            not pointer_item.is_numeric or pointer_item.decimal_places > 0
+        ):
+            reasons.append("NON_INTEGER_POINTER")
+    if reasons:
+        return [JavaAssignment(
+            target=target,
+            expression=JavaVariableRef(name=_string_fail_closed_symbol(*reasons)),
+        )]
+
+    phrases = [_string_phrase_java(src, d) for src, d in zip(sources, delims)]
+    built: JavaExpression = (
+        phrases[0] if len(phrases) == 1 else JavaStringConcat(parts=tuple(phrases))
+    )
+    target_ref = JavaVariableRef(name=target)
+
+    if not stmt.pointer:
+        # receiver := built + old.substring(min(old.length, built.length))
+        tail = JavaMethodCall(
+            object_ref=target_ref,
+            method_name="substring",
+            arguments=(
+                JavaMethodCall(
+                    class_name="Math",
+                    method_name="min",
+                    is_static=True,
+                    arguments=(
+                        JavaMethodCall(
+                            object_ref=target_ref,
+                            method_name="length",
+                            arguments=(),
+                        ),
+                        JavaMethodCall(
+                            object_ref=built, method_name="length", arguments=()
+                        ),
+                    ),
+                ),
+            ),
+        )
+        return [JavaAssignment(
+            target=target,
+            expression=JavaStringConcat(parts=(built, tail)),
+        )]
+
+    # WITH POINTER: clamp into range, pad the pre-statement receiver to the
+    # start position, insert the built text, then advance the pointer past
+    # the last character written.
+    pointer_name = stmt.pointer.replace("-", "_")
+    pointer_ref = JavaVariableRef(name=pointer_name)
+    start = JavaBinaryOp(left=pointer_ref, operator="-", right=_int_lit(1))
+    clamp = JavaAssignment(
+        target=pointer_name,
+        expression=JavaMethodCall(
+            class_name="Math",
+            method_name="max",
+            is_static=True,
+            arguments=(_int_lit(1), pointer_ref),
+        ),
+    )
+    padded = JavaMethodCall(
+        class_name="String",
+        method_name="format",
+        is_static=True,
+        arguments=(
+            JavaStringConcat(parts=(_str_lit("%-"), start, _str_lit("s"))),
+            target_ref,
+        ),
+    )
+    head = JavaMethodCall(
+        object_ref=padded, method_name="substring", arguments=(_int_lit(0), start)
+    )
+    tail_start = JavaMethodCall(
+        class_name="Math",
+        method_name="min",
+        is_static=True,
+        arguments=(
+            JavaMethodCall(object_ref=padded, method_name="length", arguments=()),
+            JavaBinaryOp(
+                left=start,
+                operator="+",
+                right=JavaMethodCall(
+                    object_ref=built, method_name="length", arguments=()
+                ),
+            ),
+        ),
+    )
+    tail = JavaMethodCall(
+        object_ref=padded, method_name="substring", arguments=(tail_start,)
+    )
+    assign = JavaAssignment(
+        target=target,
+        expression=JavaStringConcat(parts=(head, built, tail)),
+    )
+    advance = JavaAssignment(
+        target=pointer_name,
+        expression=JavaBinaryOp(
+            left=pointer_ref,
+            operator="+",
+            right=JavaMethodCall(object_ref=built, method_name="length", arguments=()),
+        ),
+    )
+    return [clamp, assign, advance]
 
 
 def _numeric_display_items(program: CobolProgram) -> list[DataItem]:
@@ -2094,24 +2289,32 @@ def map_cobol_statement(
                 )
 
     elif isinstance(stmt, StringStatement):
-        # STRING → concatenation assignment.
-        # Structured expressions preserve literal quoting (Literal →
-        # quoted Java string, never a bare identifier); raw parts carry
-        # COBOL quoting (e.g. '"SUBTRACT"') and are parsed the same way.
+        # STRING → delimiter-aware concatenation written into the
+        # receiving field (BL-027).  Structured expressions preserve
+        # literal quoting (Literal → quoted Java string, never a bare
+        # identifier); raw parts carry COBOL quoting (e.g. '"SUBTRACT"')
+        # and are parsed the same way.  Delimiters, WITH POINTER and the
+        # fail-closed forms are handled by _string_receiver_statements.
         if stmt.target:
             target = stmt.target.replace("-", "_")
-            parts_exprs: list[JavaExpression] = []
+            sources: list[JavaExpression] = []
             if stmt.structured_parts:
                 for part in stmt.structured_parts:
-                    parts_exprs.append(_map_cobol_expression_to_java(part))
+                    sources.append(_map_cobol_expression_to_java(part))
             else:
                 for part in stmt.parts:
-                    parts_exprs.append(map_cobol_expr_to_java(part))
-            if parts_exprs:
-                result.append(JavaAssignment(
-                    target=target,
-                    expression=JavaStringConcat(parts=tuple(parts_exprs)),
-                ))
+                    sources.append(map_cobol_expr_to_java(part))
+            if sources:
+                delims: list = list(stmt.delimiter_exprs)
+                if not delims:
+                    # Legacy/directly-constructed statements without
+                    # delimiter metadata behave as DELIMITED BY SIZE.
+                    delims = [None] * len(sources)
+                result.extend(
+                    _string_receiver_statements(
+                        stmt, target, sources, delims, program
+                    )
+                )
 
     elif isinstance(stmt, UnstringStatement):
         # UNSTRING → split operation (handled at higher level)

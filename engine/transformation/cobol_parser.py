@@ -2096,13 +2096,120 @@ class CobolParser:
             targets=tuple(targets),
         ), i
 
-    def _parse_string(self, lines: list[str], start: int) -> tuple[StringStatement, int]:
-        """Parse STRING parts INTO target."""
-        line = lines[start].strip()
+    #: One COBOL token: a quoted literal, or a run of non-space characters.
+    _STRING_TOKEN_RE = re.compile(r'"[^"]*"|\'[^\']*\'|\S+')
 
-        # Collect STRING parts (may span multiple lines)
+    #: Classify a ``DELIMITED BY`` operand.  Returns ``(expression,
+    #: unimplemented_reason)``; ``None`` means ``SIZE`` (also the documented
+    #: lenient default when the clause is absent, matching the pre-BL-027
+    #: parse of simplified sources such as ``STRING "A" "B" INTO X``).
+    def _string_delimiter(self, raw: str) -> tuple[Expression | None, str]:
+        word = raw.strip().rstrip(".")
+        upper = word.upper()
+        if not word or upper == "SIZE":
+            return None, ""
+        if upper in ("SPACE", "SPACES"):
+            return FigurativeConstant(kind="SPACE", text=word), ""
+        if len(word) >= 2 and word[0] == word[-1] and word[0] in ("\"", "'"):
+            return Literal(value=word[1:-1], is_numeric=False), ""
+        # Identifier delimiter: truncation at a data-dependent position has
+        # no certified Java mapping yet (BL-027 acceptance criterion 3).
+        return FieldReference(name=word), f"DELIMITED BY identifier {word}"
+
+    def _parse_string_text(self, full_text: str) -> StringStatement:
+        """Parse one joined STRING statement into IR (BL-027).
+
+        Every sending phrase keeps its delimiter: the delimiter describes how
+        much of the sending item is copied — it is never sending data of its
+        own.  ``WITH POINTER`` and ``ON OVERFLOW`` are captured (or failed
+        closed with a diagnostic) instead of being silently dropped.
+        """
+        tokens = self._STRING_TOKEN_RE.findall(full_text)
+        if tokens and tokens[0].upper() == "STRING":
+            tokens = tokens[1:]
+
         parts: list[str] = []
+        delimiter_exprs: list[Expression | None] = []
         target = ""
+        pointer = ""
+        has_overflow = False
+        unimplemented: list[str] = []
+
+        idx = 0
+        while idx < len(tokens):
+            token = tokens[idx]
+            if token.upper() == "INTO":
+                if idx + 1 < len(tokens):
+                    target = tokens[idx + 1].rstrip(".")
+                    idx += 2
+                else:
+                    idx += 1
+                break
+            # One sending phrase: source [DELIMITED BY delimiter]
+            parts.append(token)
+            delim: Expression | None = None
+            if (
+                idx + 2 < len(tokens)
+                and tokens[idx + 1].upper() == "DELIMITED"
+                and tokens[idx + 2].upper() == "BY"
+            ):
+                raw_delim = tokens[idx + 3] if idx + 3 < len(tokens) else ""
+                delim, reason = self._string_delimiter(raw_delim)
+                if reason:
+                    unimplemented.append(reason)
+                idx += 4
+            else:
+                # No (complete) DELIMITED BY clause: lenient SIZE default.
+                idx += 1
+            delimiter_exprs.append(delim)
+
+        # Clauses after the receiving field: WITH POINTER / ON OVERFLOW.
+        # Literals are stripped first so a quoted '"ON OVERFLOW"' can never
+        # be read as the clause (conservative in the other direction only
+        # for the pointer regex below, which needs real identifiers).
+        tail = " ".join(tokens[idx:])
+        tail_words = re.sub(r'"[^"]*"|\'[^\']*\'', " ", tail)
+        if re.search(r"\bON\s+OVERFLOW\b", tail_words, re.IGNORECASE):
+            has_overflow = True
+            unimplemented.append("ON OVERFLOW")
+        pointer_match = re.search(
+            r"\bWITH\s+POINTER\s+([\w-]+)", tail_words, re.IGNORECASE
+        )
+        if pointer_match:
+            pointer = pointer_match.group(1)
+
+        if not target:
+            # No INTO receiving field: the statement produced no usable IR.
+            self._emit_unparsed("STRING", full_text)
+            return StringStatement(
+                parts=tuple(parts),
+                delimiter_exprs=tuple(delimiter_exprs),
+            )
+
+        for reason in unimplemented:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"STRING {reason} has no certified Java mapping; "
+                "the statement fails closed (capability verdict UNSUPPORTED, "
+                "generated Java references an unresolvable fail-closed symbol)",
+                location="STRING",
+            )
+
+        return StringStatement(
+            parts=tuple(parts),
+            target=target,
+            delimiter_exprs=tuple(delimiter_exprs),
+            pointer=pointer,
+            has_overflow=has_overflow,
+        )
+
+    def _parse_string(self, lines: list[str], start: int) -> tuple[StringStatement, int]:
+        """Parse STRING parts INTO target [WITH POINTER ...] [ON OVERFLOW ...].
+
+        Continuation lines are joined up to END-STRING, then the statement
+        text is parsed by :meth:`_parse_string_text`.
+        """
+        line = lines[start].strip()
 
         # Parse the STRING line and continuation lines
         full_text = line
@@ -2117,23 +2224,7 @@ class CobolParser:
                 full_text += " " + l
             i += 1
 
-        # Extract parts between STRING and INTO
-        into_match = re.search(r"INTO\s+(\S+)", full_text, re.IGNORECASE)
-        if into_match:
-            target = into_match.group(1).rstrip(".")
-
-        # Extract parts: look for quoted strings and variable names
-        string_match = re.search(r"STRING\s+(.+?)\s+INTO", full_text, re.IGNORECASE)
-        if string_match:
-            parts_str = string_match.group(1)
-            # Parse individual parts (quoted strings and variable names)
-            for token in re.findall(r'"([^"]+)"|([A-Z][\w-]*)', parts_str, re.IGNORECASE):
-                if token[0]:
-                    parts.append(f'"{token[0]}"')
-                elif token[1] and token[1].upper() not in ("DELIMITED", "BY", "SIZE", "SPACE", "SPACES"):
-                    parts.append(token[1])
-
-        return StringStatement(parts=tuple(parts), target=target), i
+        return self._parse_string_text(full_text), i
 
     def _parse_display(self, lines: list[str], start: int) -> tuple[DisplayStatement, int]:
         """Parse DISPLAY parts UPON destination.

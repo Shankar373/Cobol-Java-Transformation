@@ -457,6 +457,10 @@ class CapabilityAnalyzer:
             _note_figurative(getattr(stmt, "structured_condition", None))
             _note_figurative(getattr(stmt, "parts", None))
             _note_figurative(getattr(stmt, "condition", None))
+            # STRING DELIMITED BY SPACE carries its figurative constant in
+            # the IR (BL-027); without this the source scan would re-report
+            # the bare SPACE word as source-only evidence.
+            _note_figurative(getattr(stmt, "delimiter_exprs", None))
 
         def _walk(stmt) -> None:
             name = type(stmt).__name__

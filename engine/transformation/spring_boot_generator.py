@@ -715,11 +715,18 @@ public class {class_name} {{
 
     def _method_call_to_string(self, call) -> str:
         """Convert a Java IR method call to a Java source string."""
+        from engine.transformation.java_ir import JavaStringConcat
+
         args = ", ".join(self._expr_to_string(a) for a in call.arguments)
         if call.is_static:
             return f"{call.class_name}.{call.method_name}({args})"
         if call.object_ref:
-            return f"{self._expr_to_string(call.object_ref)}.{call.method_name}({args})"
+            obj = self._expr_to_string(call.object_ref)
+            if isinstance(call.object_ref, JavaStringConcat):
+                # Keep ``(a + b).length()`` grouped; ``a + b.length()`` would
+                # bind the method to the last operand only (BL-027).
+                obj = f"({obj})"
+            return f"{obj}.{call.method_name}({args})"
         return f"{call.method_name}({args})"
 
     # ================================================================

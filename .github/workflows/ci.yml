@@ -43,6 +43,7 @@ jobs:
             tests/transformation/test_figurative_constants.py \
             tests/transformation/test_scoped_construct_statements.py \
             tests/transformation/test_negated_conditions.py \
+            tests/transformation/test_string_delimited_semantics.py \
             tests/test_silent_loss_registry.py
 
   phase1-ingestion:

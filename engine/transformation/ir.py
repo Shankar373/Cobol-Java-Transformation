@@ -577,11 +577,34 @@ class StringStatement:
     """STRING parts INTO target.
 
     Supports both raw string mode (backward compatible) and structured mode.
+
+    BL-027: the ``DELIMITED BY`` phrase of each sending item is part of the
+    statement's semantics and must be represented, never discarded.  The old
+    parser dropped it (a literal delimiter was even appended to ``parts`` as
+    if it were sending data, and ``WITH POINTER`` vanished), so the mapper
+    emitted a wrong value with no diagnostic while the verdict stayed
+    SUPPORTED.  The fields below close that gap:
+
+    * ``delimiter_exprs`` — one entry per sending item, parallel to
+      ``parts`` (or to ``structured_parts`` in structured mode):
+      ``None`` = ``DELIMITED BY SIZE``, ``FigurativeConstant`` = SPACE /
+      SPACES, ``Literal`` = a quoted delimiter, ``FieldReference`` = an
+      identifier delimiter (no certified dynamic mapping yet — the mapper
+      fails closed).  An empty tuple means legacy/directly-constructed
+      statements without delimiter metadata, which are treated as SIZE.
+    * ``pointer`` — the ``WITH POINTER`` receiving-position variable
+      (COBOL name); empty when the clause is absent.
+    * ``has_overflow`` — an ``ON OVERFLOW`` / ``NOT ON OVERFLOW`` clause is
+      present (no certified overflow flow yet; the parser raises
+      UNSUPPORTED_CONSTRUCT and the mapper fails closed).
     """
     parts: tuple[str, ...] = ()
     target: str = ""
     structured_parts: tuple[Expression, ...] = ()  # structured source expressions
     target_ref: FieldReference | None = None  # structured target reference
+    delimiter_exprs: tuple[Expression | None, ...] = ()  # per-phrase delimiter
+    pointer: str = ""  # WITH POINTER variable (COBOL name)
+    has_overflow: bool = False  # ON OVERFLOW clause present
 
 
 @dataclass(frozen=True)
