@@ -6,8 +6,34 @@
 - Repository: `Shankar373/Cobol-Java-Transformation`, branch `codex/universal-core`.
 - **Baseline HEAD at session start:** `b8a746f` (`docs(phase0): pin verdict to exact-SHA CI at 9326f80`), clean working tree apart from preserved `test-artifacts/*`.
 - **Baseline CI at `b8a746f` (exact-SHA, verified this session):** Push CI #467 SUCCESS, PR CI #468 SUCCESS (all four required jobs green: ingestion diagnostics, capability truth gate, frontend, backend COBOL/Java Docker); Supply chain #49 / #50 SUCCESS. Phase 0 `COMPLETE — VERIFIED` therefore still stands.
-- **Current phase:** PHASE 1 — Parser / Universal IR Expansion (in progress; not complete).
-- **Local environment:** Windows, no `javac` and no Docker (BL-010). 22 `tests/transformation` failures are environment-only `FileNotFoundError` from the missing JDK.
+- **Current phase:** PHASE 1 — Parser / Universal IR Expansion.
+- **Local environment:** Windows, no `javac` on `PATH`; Docker CLI present but unusable (BL-010). 22 `tests/transformation` failures are environment-only `FileNotFoundError` from the missing JDK, proven per-test rather than assumed (see *§53 acceptance checklist* below).
+
+### ⚑ SINGLE CURRENT STATUS — read this first (2026-10-11, audited SHA `46c1cb7`)
+
+This file is append-only chronology, so several **historical** sections below still
+say things that are no longer true. They are retained deliberately (deleting
+inconvenient history destroys the audit trail) and are each marked
+`[SUPERSEDED — see …]` in place. **Nothing below is authoritative except this
+block.**
+
+| Question | Current answer | Evidence |
+|---|---|---|
+| Exact audited HEAD | `46c1cb7b8a5d68d6fbf299f9b2d8d36931a64235` | local == `origin/codex/universal-core`, clean apart from preserved `test-artifacts/*` |
+| Is Phase 1 complete? | **See the §53 checklist at the end of this file.** Do not infer it from any other section. | — |
+| Is BL-019 open? | **No — FIXED** in `7bba5cb`. Any line saying "BL-019 — OPEN, next task" is a pre-`7bba5cb` snapshot. | `docs/BACKLOG.md`, `tests/transformation/test_negated_conditions.py` (31 tests) |
+| Are BL-020…BL-024 open? | **No — FIXED** in `7bba5cb`, with two follow-ups `c03558f` and `479bed7`. | `tests/transformation/test_scoped_construct_statements.py` (49 tests) |
+| Is the `⚠ PHASE 1 IS NOT COMPLETE` five-gap table still current? | **No — historical.** All five gaps it lists were fixed. It remains as the record of what was found. | see *BL-019…BL-024 FIXED* below |
+
+**Chronology of status claims in this file (oldest → newest):**
+`BL-019 OPEN / 5 gaps open` (pre-`7bba5cb`) → `BL-019…BL-024 FIXED` (`7bba5cb`) →
+`scope-terminator follow-up` (`c03558f`) → `2 further silent-loss defects + 1
+self-introduced regression found and fixed` (`479bed7`) → `proof-matrix rows added`
+(`46c1cb7`) → **§53 checklist (authoritative, end of file)**.
+
+Superseded sections, explicitly marked: *⚠ PHASE 1 IS **NOT** COMPLETE* (line ~59),
+the *BL-019 — OPEN, next task* bullet (line ~260), and *Next exact OpenCode action*
+(line ~276, written for `7bba5cb`).
 
 ### Task completed this session — BL-018 (figurative constants)
 First genuine parser/Universal IR gap found and fixed. A COBOL figurative constant
@@ -57,6 +83,12 @@ Fix (deterministic, no LLM — tables and regexes only):
     Docker job still running at time of writing.
 
 ### ⚠ PHASE 1 IS **NOT** COMPLETE — verified by direct probing, not assumed
+`[SUPERSEDED 2026-10-11 — every gap in this table was subsequently FIXED:
+BL-020…BL-024 in `7bba5cb`, scope terminators in `c03558f`, nested-inline-IF and
+inline-ELSE in `479bed7`. Retained unchanged as the record of what was found and
+how; the "Next task is BL-020" line below is no longer the next action. Current
+status is the SINGLE CURRENT STATUS block at the top of this file.]`
+
 A green CI gate does **not** close Phase 1. Master README §53 requires "no
 silent semantic loss remains"; §53 also states a passing test must exercise
 the intended behaviour. Probing current HEAD found **five further silent-loss
@@ -257,7 +289,11 @@ wrong, reproduce the suspect test in a **detached worktree at the baseline
 commit** (`git worktree add --detach <path> <sha>`) rather than speculating.
 That is how the 31-vs-26 variance was resolved here: the baseline worktree
 reproduced the identical failures with `'Java compiler not available'`.
-- **BL-019 — OPEN, next task.** `map_cobol_condition_to_java` blind-replaces
+- **BL-019 — OPEN, next task.** `[SUPERSEDED 2026-10-11 — CLOSED in `7bba5cb`;
+  negated relational is folded into the operator (`NOT >` → `<=`) by
+  `_fold_negated_relational`, locked by 31 tests in
+  `tests/transformation/test_negated_conditions.py`. The description below is the
+  pre-fix snapshot and is kept for chronology.]` `map_cobol_condition_to_java` blind-replaces
   `NOT ` → `!`, so `IF C NOT = SPACES` becomes `C ! == SPACES` and
   `IF A NOT > 3` becomes `A !> 3` — non-compiling Java, no diagnostic.
   Confirmed **pre-existing at baseline `b8a746f`** (HEAD line 1011) and
@@ -274,6 +310,11 @@ reproduced the identical failures with `'Java compiler not available'`.
 - BL-018 is closed — do not re-open it without a detected regression.
 
 ### Next exact OpenCode action
+`[SUPERSEDED 2026-10-11 — written when HEAD was `7bba5cb`. Items 1–3 were all
+performed: CI verified green on `7bba5cb`, `c03558f`, `479bed7`, `4f6c776` and
+`46c1cb7`; a serialized full-suite run was made; the re-probe was run and found
+two further defects (`479bed7`). Kept because the reasoning — "absence of a test
+is not evidence of the absence of a defect" — remains the standing method.]`
 1. **Confirm exact-SHA CI for `7bba5cb` is fully green** (Push #485 / PR #486;
    the Docker job runs `javac` + GnuCOBOL and is the authority for a
    parser/mapper change). Three of four jobs were green at time of writing.

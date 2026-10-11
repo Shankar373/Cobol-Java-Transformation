@@ -510,9 +510,63 @@ produced evidence, not re-run here).
   mis-modelled as a field), which is why it is filed explicitly rather than
   assumed covered.
 - **Affected files:** `engine/transformation/cobol_parser.py` (`_build_expression`).
-- **Remediation (NOT yet implemented):** recognise the `FUNCTION` prefix and
+- **Remediation (NOT yet implemented):** `[SUPERSEDED — implemented in `7bba5cb`;
+  Status above is authoritative. Retained as the record of the original
+  acceptance criteria.]` recognise the `FUNCTION` prefix and
   either map the certified intrinsic subset or emit an explicit diagnostic;
   never fall through to a bare field reference.
+- **Verification level:** STATIC + reproduced locally.
+
+### BL-025 — generator leaks a Python dataclass repr into Java for unmapped expressions
+- **Type:** defect (malformed generated output / fail-open fallthrough)
+- **Status:** FIXED - 2026-10-11 (`see remediation below`) - explicit
+  fail-closed symbol replaces the `str(expr)` fallthrough
+- **Found by:** the Phase 1 completion audit's fresh semantic-loss re-probe at
+  `46c1cb7`, **not by CI and not by any test** — the same discovery mode as every
+  other Phase 1 defect.
+- **Observed behavior:** `_map_cobol_expression_to_java` ended with
+  `return map_cobol_expr_to_java(str(expr))`. For an `ir.IntrinsicCall` (the
+  BL-023/BL-024 node) that stringified the **dataclass repr** straight into the
+  source:
+  ```
+  WS_A = Math.abs(IntrinsicCall(name='**', arguments='2 ** 3'));
+  ```
+  The `Math.abs(...)` wrapper comes from the unsigned-`PIC` compute path, so the
+  repr was embedded inside an otherwise ordinary numeric statement.
+- **Why this is a real defect despite the honest verdict:** BL-023/BL-024 already
+  raise `UNSUPPORTED_CONSTRUCT` and classify the program `UNSUPPORTED`, so the
+  *verdict* was not a lie and no silent semantic loss occurred. But the output was
+  still malformed, and it failed closed **by accident** (`javac` cannot parse a
+  repr) rather than by design. Worse, the fallthrough is **fail-open**: any
+  future `Expression` node without a dedicated mapper branch would be silently
+  stringified the same way, which is exactly the BL-018 / BL-023 defect class the
+  phase exists to eliminate.
+- **Root cause:** the mapper handled six `Expression` subclasses explicitly and
+  relied on `str()` for everything else. `ir.IntrinsicCall` was the only
+  unhandled subclass, so it was the only thing the fallthrough could reach —
+  which is why the bug was invisible until an unmapped intrinsic was actually
+  generated rather than only classified.
+- **Expected behavior:** Master README Sections 16/17/60 — generated output must
+  never contain implementation artefacts, and an unmapped construct must fail
+  closed deliberately.
+- **Affected files:** `engine/transformation/cobol_to_java_mapping.py`
+  (`_map_cobol_expression_to_java`, new `_intrinsic_fail_closed_symbol`).
+- **Remediation (implemented):** `IntrinsicCall` now maps to a deliberately
+  undefined symbol — `UNSUPPORTED_INTRINSIC_POWER` for `**`,
+  `UNSUPPORTED_INTRINSIC_MIN` for `FUNCTION MIN(...)`. This keeps a valid Java
+  expression shape (so the statement structure stays well-formed) while making
+  `javac` report the construct **by name**, and no wrong value can ever be
+  produced. The fallthrough no longer stringifies: any other unhandled
+  `Expression` yields `UNSUPPORTED_EXPRESSION_<NODE>` by the same rule.
+- **Verification:** `tests/transformation/test_scoped_construct_statements.py`
+  asserts (a) no Python repr in generated Java, (b) the named fail-closed symbol
+  is present, (c) the symbol is **never declared** (so it genuinely cannot
+  resolve), (d) a supported `COMPUTE` is unaffected, and (e) an arbitrary
+  unmapped `Expression` subclass fails closed instead of stringifying.
+- **Impact:** bounded — the verdict was already honest, so this could not produce
+  a wrong runtime value. It is filed rather than folded into BL-023/BL-024
+  because it is a distinct layer (generator, not parser) and because the
+  fail-open fallthrough would otherwise remain latent.
 - **Verification level:** STATIC + reproduced locally.
 
 ### BL-019 — `NOT` in conditions is mangled into non-compiling Java
@@ -548,7 +602,12 @@ produced evidence, not re-run here).
 - **Impact:** any `IF x NOT = y` / `IF x NOT > y` program generates invalid
   Java. Because it is confined to the condition mapper, it cannot be masked by
   a passing build elsewhere; it is a genuine correctness gap.
-- **Remediation (NOT yet implemented — recorded for the next task):** replace
+- **Remediation (NOT yet implemented — recorded for the next task):** `[NO LONGER
+  ACCURATE — the fix WAS implemented in `7bba5cb`; see Status above. This draft
+  said `!(...)`, which was deliberately NOT what was built: Java cannot express a
+  negated relational as a prefix, so the operator is folded instead (`NOT >` ->
+  `<=`). The draft is retained to show the acceptance criteria were corrected
+  rather than quietly rewritten.]` replace
   the `NOT`/comparison replacement chain with quote-aware tokenisation that
   recognises `NOT` as an operator adjacent to a relational operator and emits
   `!(...)`, reusing the existing `_replace_bare_equals` quote-safety pattern.
@@ -556,7 +615,8 @@ produced evidence, not re-run here).
   tests so a BL-018-style fix cannot mask it.
 - **Verification level:** STATIC + reproduced locally (not executed as a test
   yet, by design — no test was added while the behaviour is still broken and
-  no existing test was weakened to accommodate it).
+  no existing test was weakened to accommodate it). `[SUPERSEDED — 31 tests now
+  cover this and all pass.]`
 
 ---
 
@@ -598,6 +658,27 @@ produced evidence, not re-run here).
   assertion is unchanged and proven intact by a mutation check. **Residual
   risk recorded:** the flake does not reproduce on this workstation, so the fix
   rests on construction + CI evidence, not a local repro.
+- 2026-10-11 — **BL-025 filed and fixed** from the completion audit's fresh
+  semantic-loss re-probe at `46c1cb7`: `_map_cobol_expression_to_java`'s
+  `str(expr)` fallthrough put a Python dataclass repr into generated Java
+  (`WS_A = Math.abs(IntrinsicCall(name='**', arguments='2 ** 3'))`). The verdict
+  was already honest (BL-023/BL-024 raise `UNSUPPORTED_CONSTRUCT` and classify
+  UNSUPPORTED), so no silent semantic loss occurred — but the output was malformed
+  and failed closed by accident rather than by design, and the fallthrough was
+  fail-open for any future `Expression` node. Replaced with a deliberately
+  undefined `UNSUPPORTED_INTRINSIC_<NAME>` symbol (and
+  `UNSUPPORTED_EXPRESSION_<NODE>` for any other unhandled node), so `javac`
+  reports the construct by name. Not detected by CI or by any pre-existing test.
+- 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
+  silent-loss defects found by adversarial re-probing (not by CI) and fixed in
+  `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked
+  into a sibling (`System.out.println("N" + END_IF)`), and an **inline `ELSE`**
+  statement dropped whole. A regression introduced by the first fix was caught by
+  re-probing rather than by the suite and corrected in the same commit; a
+  losslessness property test was added so the splitter cannot discard source text
+  silently again. `docs/SEMANTIC_PROOF_MATRIX.md` gained rows for all BL-019…BL-024
+  constructs so the registry and matrix cannot drift. BL-019's register acceptance
+  criteria were corrected to describe the operator-folding fix actually delivered.
 - 2026-10-10 — **BL-020…BL-024 filed OPEN** from direct probing at HEAD: five
   further silent-loss defects that no test and no CI job detects — `EVALUATE`
   `WHEN` body deletion (certified SUPPORTED while deleting an executable
@@ -652,12 +733,13 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-016 | QA / validation owner | Phase 0 governance | Current upstream test replacements and PR #3 validation history | Preserve the validation-only branch findings without merging stale tests. | Extracted unique tests failed against current code (41 failed, 20 passed, one import failure); concerns were reimplemented upstream. | Keep PR #3 unmerged; preserve findings and make a human decision to retain for reference or close as superseded. |
 | BL-017 | Test infrastructure maintainer | Phase 1 (closed) / Phase 12 (residual flake watch) | `tests/test_pipeline_progress.py::TestAsyncAPIStagePersistence::test_all_pipeline_stages_observed_via_api`; async API stage persistence | Remove a pre-existing timing-dependent flake so a required CI job is not intermittently red for reasons unrelated to the change under test. | Second confirmed recurrence on `27e8bf5`: Push CI #475 FAILED while PR CI #476 PASSED on the identical SHA — same signature as the `0d7e073` occurrence (Push #459 red / PR #460 green). Pulled the `backend-oracle-results` artifact (CI job logs are admin-only) and confirmed `1 failed, 3195 passed` with `assert 'EXECUTING_GENERATED' == 'COMPLETED'`. Fixed at `f950bee` by synchronizing on the terminal-stage persistence event rather than racing a 10s poll deadline. **Residual risk:** the flake is timing-dependent and is NOT reproducible on this workstation (the pre-fix test also passed 8/8 under deliberate CPU saturation), so it is justified by construction + CI evidence, not by a local reproduction. | `tests/test_pipeline_progress.py` passes repeatedly under CPU contention; the terminal-state assertion is retained and proven by a mutation check (neutralizing `Service._persist_final` makes the test fail); not relaxed to `assert observed` and never skipped. |
 | BL-018 | Parser / IR maintainer | Phase 1 (closed) | Canonical `figurative.py` table, `ir.FigurativeConstant`, capability registry | Close a silent semantic loss that produced non-compiling Java while certifying SUPPORTED. | `LOW-VALUE`/`HIGH-VALUE` assume the native ASCII collating sequence (matching GnuCOBOL default); a dialect with a different sequence needs an explicit mapping. | `tests/transformation/test_figurative_constants.py` passes; no bare reserved-word identifier in generated Java; comparison tests every character; verdict is IR-backed. |
-| BL-019 | Semantic transformation maintainer | Phase 1 (closed) | `map_cobol_condition_to_java` operator handling; existing quote-aware `_replace_bare_equals` pattern | Fix an independent pre-existing defect where `NOT` is blind string-replaced into a broken Java prefix. | Programs using `IF x NOT = y` / `IF x NOT > y` generate invalid Java with no diagnostic; BL-018's fix makes this more visible but does not cause it. | Replace the `NOT`/comparison replacement chain with quote-aware tokenisation emitting `!(...)`; add focused positive/negative/regression tests; generated Java for `NOT` conditions compiles; no existing test weakened. |
+| BL-019 | Semantic transformation maintainer | Phase 1 (closed) | `map_cobol_condition_to_java` operator handling; existing quote-aware `_replace_bare_equals` pattern | Fix an independent pre-existing defect where `NOT` is blind string-replaced into a broken Java prefix. | Programs using `IF x NOT = y` / `IF x NOT > y` generate invalid Java with no diagnostic; BL-018's fix makes this more visible but does not cause it. | Negated relational is folded into the operator itself (`NOT >` → `<=`, `NOT =` → `!=`) by `_fold_negated_relational`, run after figurative substitution and before operator rewriting — Java cannot express this as a prefix (`!A > B` compares a boolean; `A !> B` does not compile), so the originally drafted `!(...)` acceptance form was **corrected** rather than implemented dishonestly; generated Java for `NOT` conditions compiles; no existing test weakened. Evidence: 31 tests in `tests/transformation/test_negated_conditions.py`. |
 | BL-020 | Parser / IR maintainer | Phase 1 (closed) | `CobolParser._parse_evaluate` arm lowering | A `WHEN` arm's body statements are silently deleted while `EVALUATE` is certified SUPPORTED — the worst verified silent-loss defect found. | Any multi-branch `EVALUATE` loses its arm contents with no diagnostic; CI cannot detect it because nothing asserts on it. | Arm bodies are attached to the lowered `IfStatement`; unlowerable forms fail closed with a diagnostic; positive/negative/regression tests added to the fast capability-truth gate. |
 | BL-021 | Parser / IR maintainer | Phase 1 (closed) | `WHEN` spec parsing; roadmap P1-11 | `ALSO` mis-lowered into a nonsense OR-chain. | Standard COBOL multi-value `WHEN` silently produces wrong control flow. | `ALSO` splits into one comparison per alternative; tests cover 2- and 3-way `ALSO`. |
 | BL-022 | Parser / IR maintainer | Phase 1 (closed) | `WHEN OTHER` lowering | `WHEN OTHER` folded into the WHEN chain instead of becoming the `else` branch. | Fallback branch silently unreachable/incorrect. | `WHEN OTHER` maps to `IfStatement.else_body`; tests assert the else branch executes. |
 | BL-023 | Numeric semantics maintainer | Phase 1 (closed) | `_build_expression` operator table; Master README §18 | `**` parsed as two `*` operators, producing an empty-named operand. | Silent wrong numeric result in a P0 risk area. | `**` is one operator or fails closed with a diagnostic; tests assert both behaviours. |
 | BL-024 | Parser / IR maintainer | Phase 1 (closed) | `_build_expression`; same defect class as BL-018 | Intrinsic `FUNCTION MIN(...)` falls through to an impossible field reference. | Undeclared Java identifier, exactly the BL-018 pattern; unproven intrinsics must never be silently field references. | `FUNCTION` prefix recognised and either mapped for the certified subset or diagnosed; never a bare field reference. |
+| BL-025 | Transformation / code-generation maintainer | Phase 1 (closed) | `_map_cobol_expression_to_java` fallthrough; new `_intrinsic_fail_closed_symbol`; Master README §16/§17/§60 | Unmapped expressions must fail closed deliberately, never by emitting implementation artefacts into generated Java. | The `str(expr)` fallthrough stringified any unhandled `Expression` into Java (`WS_A = Math.abs(IntrinsicCall(name='**', ...))`) and is fail-open for any future node — the BL-018/BL-023 defect class in a different layer. Verdict was already UNSUPPORTED, so impact is bounded to malformed output, not a wrong value. | `IntrinsicCall` maps to a deliberately undefined symbol naming the construct; the fallthrough maps unknown `Expression` nodes to `UNSUPPORTED_EXPRESSION_<NODE>`; tests assert no repr leaks, the symbol is never declared, and supported `COMPUTE` is unaffected. Evidence: `tests/transformation/test_scoped_construct_statements.py`. |
 
 ### PR disposition snapshot — 2026-10-10
 
