@@ -532,10 +532,12 @@ class TestUnmappedFormsFailClosed:
     def test_unmapped_intrinsic_fails_closed_with_a_named_symbol(self):
         # An undefined symbol keeps a valid expression shape while making javac
         # report the construct by name, so no wrong value can be produced.
+        # The separator is `$` because a COBOL-derived identifier (hyphens ->
+        # underscores) can never contain it.
         code = _generate(_program("COMPUTE WS-A = 2 ** 3"))
-        assert "UNSUPPORTED_INTRINSIC_POWER" in code, code
+        assert "UNSUPPORTED_INTRINSIC$POWER" in code, code
         code_min = _generate(_program("COMPUTE WS-A = FUNCTION MIN(1, 2)"))
-        assert "UNSUPPORTED_INTRINSIC_MIN" in code_min, code_min
+        assert "UNSUPPORTED_INTRINSIC$MIN" in code_min, code_min
 
     def test_the_fail_closed_symbol_is_never_declared(self):
         """The marker must not resolve, or it would not fail closed.
@@ -545,12 +547,38 @@ class TestUnmappedFormsFailClosed:
         What matters is that no declaration exists for it anywhere.
         """
         code = _generate(_program("COMPUTE WS-A = 2 ** 3"))
-        marker = "UNSUPPORTED_INTRINSIC_POWER"
+        marker = "UNSUPPORTED_INTRINSIC$POWER"
         assert marker in code, code
         declarations = re.findall(
-            r"(?:int|long|double|String|float|boolean)\s+" + marker, code
+            r"(?:int|long|double|String|float|boolean)\s+" + re.escape(marker), code
         )
         assert declarations == [], declarations
+
+    def test_a_cobol_field_cannot_collide_with_the_fail_closed_symbol(self):
+        """A user data item must never be able to declare the marker.
+
+        COBOL data names map to Java by replacing hyphens with underscores, so
+        a field named ``UNSUPPORTED-INTRINSIC-POWER`` would have declared a
+        plain-``_`` marker and made it resolve — silently turning fail-closed
+        into fail-open and executing a wrong value.  The `$` separator makes
+        that collision impossible; this test is the regression lock for it.
+        """
+        program = (
+            "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. P.\n"
+            "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n"
+            "       01 WS-A PIC 9(4).\n"
+            "       01 UNSUPPORTED-INTRINSIC-POWER PIC 9(4).\n"
+            "       PROCEDURE DIVISION.\n       MAIN-PARA.\n"
+            "           COMPUTE WS-A = 2 ** 3\n"
+            "           STOP RUN.\n"
+        )
+        code = _generate(program)
+        assert "UNSUPPORTED_INTRINSIC$POWER" in code, code
+        declarations = re.findall(
+            r"(?:int|long|double|String|float|boolean)\s+UNSUPPORTED_INTRINSIC\$POWER",
+            code,
+        )
+        assert declarations == [], (declarations, code)
 
     def test_supported_compute_is_unaffected_by_the_fail_closed_path(self):
         code = _generate(_program("COMPUTE WS-A = WS-A + 1"))
@@ -567,7 +595,7 @@ class TestUnmappedFormsFailClosed:
 
         mapped = mapping._map_cobol_expression_to_java(UnmappedExpression())
         assert isinstance(mapped, JavaVariableRef), mapped
-        assert "UNSUPPORTED_EXPRESSION_" in mapped.name, mapped.name
+        assert "UNSUPPORTED_EXPRESSION$" in mapped.name, mapped.name
 
 
 # ---------------------------------------------------------------------------

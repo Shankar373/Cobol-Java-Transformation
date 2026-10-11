@@ -1020,8 +1020,10 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
         # Any other Expression node has no branch above.  Stringifying it would
         # silently put a Python repr into generated Java (the exact BL-018 /
         # BL-023 defect class), so fail closed with a name that cannot resolve.
+        # ``$`` again: a COBOL-derived identifier can never contain it, so no
+        # data item can accidentally declare this symbol.
         return JavaVariableRef(
-            name=f"UNSUPPORTED_EXPRESSION_{type(expr).__name__.upper()}"
+            name=f"UNSUPPORTED_EXPRESSION${type(expr).__name__.upper()}"
         )
     return map_cobol_expr_to_java(str(expr))
 
@@ -1030,15 +1032,25 @@ def _intrinsic_fail_closed_symbol(name: str) -> str:
     """Return a Java identifier that names an unmapped COBOL intrinsic.
 
     The symbol is deliberately never declared, so any generated statement using
-    it fails to compile rather than executing a wrong value.  Non-alphanumerics
-    are folded to ``_`` (``**`` -> ``POWER`` is handled by the caller-supplied
-    alias, everything else is sanitised) so the result is always a legal
-    identifier.
+    it fails to compile rather than executing a wrong value.
+
+    The separator is ``$`` and not ``_`` **on purpose**.  A COBOL user-defined
+    word maps to Java by replacing hyphens with underscores, so a field named
+    ``UNSUPPORTED-INTRINSIC-POWER`` would have *declared* a plain-underscore
+    marker and made it resolve — silently converting fail-closed back into
+    fail-open (verified by adversarial probe during the Phase 1 audit).
+    ``$`` is a legal Java identifier character but can never occur in a COBOL
+    data name, so a collision is structurally impossible.  This follows the
+    existing ``_FIGURATIVE_SENTINEL`` precedent: a marker COBOL source cannot
+    produce.
+
+    ``**`` is aliased to a readable stem; every other name is sanitised to
+    alphanumerics so the result is always a legal Java identifier.
     """
     alias = {"**": "POWER", "*": "TIMES", "/": "DIVIDE"}.get(name.strip())
     cleaned = re.sub(r"[^A-Za-z0-9]+", "_", name.strip()).strip("_").upper()
     stem = alias or cleaned or "UNNAMED"
-    return f"UNSUPPORTED_INTRINSIC_{stem}"
+    return f"UNSUPPORTED_INTRINSIC${stem}"
 
 
 #: Marker wrapped around a figurative fill character in a substituted
