@@ -187,6 +187,38 @@ statement parser, so the target operand became `END_IF` and the mapper emitted
 spot that hid every other defect in this phase. `_parse_inline_statements` now
 strips a trailing `END-*` terminator; 4 regression tests added.
 
+### Final Phase 1 audit — two more BL-020-class defects found and fixed (`479bed7`)
+
+The completion audit re-probed the BL-020 boundary logic with adversarial
+inputs instead of trusting the commit message, and found **two further
+silent-loss defects, both with zero diagnostics**:
+
+1. **Nested inline IF.** `IF A > 1 IF B > 2 DISPLAY "N" END-IF END-IF`
+   produced an inner `IfStatement` with an **empty body** and leaked the
+   terminator into a sibling: `System.out.println("N" + END_IF)` — malformed
+   Java. Cause: `_split_statements_on_dashes` split at *every* verb, so
+   `IF B > 2` and `DISPLAY "N" END-IF` became separate siblings. Fix: a verb
+   that **opens a scope** now owns everything through its matching terminator
+   (nesting counted); a plain statement still ends at the next verb.
+2. **Inline `ELSE`.** `ELSE MOVE 9 TO WS-B` was dropped because the whole line
+   was skipped when `ELSE` was detected. It now parses into `else_body`.
+
+**A regression I introduced and caught myself:** the first version of the
+scope-aware splitter discarded everything *before* the first verb, silently
+losing `MOVE ALL "*" TO`, `MOVE ZERO TO`, two-statement lines and hyphenated
+verb fields. Caught by re-running the audit probe (not by the test suite);
+the loop was rewritten and a **losslessness property test** was added
+(concatenating the split parts must reproduce the input).
+
+Audit probe after the fix: 12 adversarial cases (nested scopes, inline ELSE,
+literals containing a verb, hyphenated identifiers, figurative constants,
+multi-statement lines, PERFORM bodies) all generate correct Java with no
+`END_IF` leakage and no empty branches.
+
+Tests: `test_scoped_construct_statements.py` now **49**; fast capability-truth
+gate **236 tests in ~0.5s**; regression **2043 passed / 11 skipped / 22 failed**
+(same 22 environment-only `javac` failures).
+
 ### Backlog disposition
 - **BL-018 — FIXED** (figurative constants). See `docs/BACKLOG.md`.
 - **BL-019, BL-020, BL-021, BL-022, BL-023, BL-024 — FIXED** (`7bba5cb`).
