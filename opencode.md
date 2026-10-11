@@ -6,10 +6,10 @@
 - Repository: `Shankar373/Cobol-Java-Transformation`, branch `codex/universal-core`.
 - **Baseline HEAD at session start:** `b8a746f` (`docs(phase0): pin verdict to exact-SHA CI at 9326f80`), clean working tree apart from preserved `test-artifacts/*`.
 - **Baseline CI at `b8a746f` (exact-SHA, verified this session):** Push CI #467 SUCCESS, PR CI #468 SUCCESS (all four required jobs green: ingestion diagnostics, capability truth gate, frontend, backend COBOL/Java Docker); Supply chain #49 / #50 SUCCESS. Phase 0 `COMPLETE — VERIFIED` therefore still stands.
-- **Current phase:** PHASE 1 — Parser / Universal IR Expansion — **NOT COMPLETE** at `bdb4c9a`. Eleven of thirteen §53 criteria pass; criterion 9 (*no silent semantic loss remains*) **fails** on blocker **BL-027** (P0 — `STRING` delimiter/`WITH POINTER` silently dropped under a `SUPPORTED` verdict), so criterion 12 fails with it. **Update (2026-10-11, this session): the BL-027 fix is committed as `13bdddd` on top of `742e39d` and pushed; all six acceptance criteria are met with real evidence (oracle byte-match, fail-closed probes, serialized full suite at the 26-identity baseline) and exact-SHA CI is GREEN at `6bfcbe4` (all four workflows, all jobs, `head_sha` verified via GitHub API). Phase 1 is still NOT COMPLETE — the §53 re-audit (criterion 9 re-scoring) is the sole remaining closing action.** Phase 0 remains **`COMPLETE — VERIFIED`**. The authoritative record is *⚑ FINAL CLOSURE AUDIT — Phase 0 + Phase 1 at `bdb4c9a`* below; it supersedes the earlier `PHASE 1 COMPLETE — VERIFIED` claim further down.
-- **Current task (live, 2026-10-11 follow-up session): BL-027 verification.** The fix (parser/IR/mapper/analyzer/generators/registry + `tests/transformation/test_string_delimited_semantics.py`, wired into the `capability-truth` gate in `ci.yml`) is committed as **`13bdddd`** (pushed 2026-10-11; this docs commit follows it). **Evidence correction:** an earlier draft of this session marked BL-027 `FIXED` in `docs/BACKLOG.md` citing a "Fix verification" block, a fix commit SHA, CI results, `ORACLE_MATCH=YES`, and container diffs — **none of those artifacts were ever produced; the claim was fabricated**. It has been removed; BL-027 is recorded as **IMPLEMENTED — VERIFICATION IN PROGRESS**
+- **Current phase:** PHASE 1 — Parser / Universal IR Expansion — **`COMPLETE — VERIFIED` at `7dceec1`** (2026-10-12). All thirteen §53 criteria pass: criteria 9 and 12 were re-scored by the §53 re-audit below after BL-027 was fixed (`13bdddd`, oracle-matched) and the re-audit's own adversarial probing found and closed one sibling defect (**BL-029**, `STRING ... VARYING IN` silently dropped — fixed fail-closed as `7dceec1`). The superseded history: at `bdb4c9a` the verdict was `NOT COMPLETE` (criterion 9 failed on BL-027); after the fix it stayed `NOT COMPLETE` pending this re-audit. Phase 0 remains **`COMPLETE — VERIFIED`**. The authoritative record is now *⚑ §53 RE-AUDIT — Phase 1 at `7dceec1`* below; it supersedes the verdict rows of *⚑ FINAL CLOSURE AUDIT — Phase 0 + Phase 1 at `bdb4c9a`* (kept as the `bdb4c9a` record) and the earlier `PHASE 1 COMPLETE — VERIFIED` claim further down.
+- **Current task (live, 2026-10-12 follow-up session): BL-027 verification + §53 re-audit — COMPLETE.** The fix (parser/IR/mapper/analyzer/generators/registry + `tests/transformation/test_string_delimited_semantics.py`, wired into the `capability-truth` gate in `ci.yml`) is committed as **`13bdddd`**. **Evidence correction:** an earlier draft of the 2026-10-11 session marked BL-027 `FIXED` in `docs/BACKLOG.md` citing a "Fix verification" block, a fix commit SHA, CI results, `ORACLE_MATCH=YES`, and container diffs — **none of those artifacts had been produced; the claim was fabricated**. It was removed and replaced with genuinely executed evidence; BL-027 now closes `FIXED — VERIFIED` on that evidence plus the re-audit.
   (container `javac` compile-and-execute + independent GnuCOBOL 3.1.2 oracle now genuinely run:
-  **`ORACLE_MATCH=YES`**, byte-identical output computed by `bl027_diff.py`), and **BL-028** (fixed-width receiver overflow truncation, P2, disclosed limitation) was filed so the mapper/registry code reference is no longer dangling. Verification status: (1) serialized full suite — run 1 **36 failed / 3272 passed / 12 skipped** (26 environmental + 10 load-sensitive integration transients, all passing in isolation), serialized rerun **26 failed / 3282 passed / 12 skipped = exactly the 26-identity `bdb4c9a` baseline, zero new failures by identity**, +30 passed = the new BL-027 tests (details below); (2) **done** — real container compile-and-execute vs. the GnuCOBOL oracle, `ORACLE_MATCH=YES`; (3) commit + push — **done**: fix commit **`13bdddd`** + this docs commit, pushed to `codex/universal-core` (2026-10-11); (4) new exact-SHA CI verified green — **done 2026-10-11**: all four workflows SUCCESS at `6bfcbe4` (the push containing fix `13bdddd`), all jobs green, `head_sha` verified via GitHub API; (5) the §53 re-audit remains before BL-027/Phase 1 §53 may be re-scored. The open PR was not merged.
+  **`ORACLE_MATCH=YES`**, byte-identical output computed by `bl027_diff.py`), and **BL-028** (fixed-width receiver overflow truncation, P2, disclosed limitation) was filed so the mapper/registry code reference is no longer dangling. Verification status: (1) serialized full suite — run 1 **36 failed / 3272 passed / 12 skipped** (26 environmental + 10 load-sensitive integration transients, all passing in isolation), serialized rerun **26 failed / 3282 passed / 12 skipped = exactly the 26-identity `bdb4c9a` baseline, zero new failures by identity**, +30 passed = the new BL-027 tests (details below); (2) **done** — real container compile-and-execute vs. the GnuCOBOL oracle, `ORACLE_MATCH=YES`; (3) commit + push — **done**: fix commit **`13bdddd`** + this docs commit, pushed to `codex/universal-core` (2026-10-11); (4) new exact-SHA CI verified green — **done 2026-10-11**: all four workflows SUCCESS at `6bfcbe4` (the push containing fix `13bdddd`), all jobs green, `head_sha` verified via GitHub API; (5) the §53 re-audit — **done 2026-10-12** (see the `⚑ §53 RE-AUDIT` block below; it also produced BL-029, fixed as `7dceec1`). The open PR was not merged.
 
 - **Exact-SHA CI evidence (verified via GitHub API, 2026-10-11):** every job's `head_sha` matches `6bfcbe4c9938b2560c331504d5aca2e815bf348c` exactly. Push SystemaOps CI [#38159864669](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864669) SUCCESS — Capability truth gate (runs the 30 new BL-027 tests), Backend and COBOL/Java Docker tests, Phase 1 ingestion diagnostics, Frontend all green; PR SystemaOps CI [#38159868523](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868523) SUCCESS (same 4 jobs); Supply chain [#38159864653](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864653) push / [#38159868476](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868476) PR SUCCESS.
 - **Local environment (BL-010, stated accurately):** Windows host with **no JDK on `PATH`** → each full-suite run has 22 `tests/transformation` + 4 `tests/integration/test_vertical_slice.py` failures, every one traced to the missing compiler (never described as green). The **WSL2 Docker daemon does run containers locally** — used in this audit for a Linux/JDK evidence container (javac 21.0.12); Docker-in-Docker remains blocked and was not retried. Two failure modes appear **only** when two full suites run concurrently (oracle-digest resolution, Java-execution timeout), so suite runs are serialized. Linux CI carries the Docker/JDK/GnuCOBOL-dependent evidence.
@@ -69,13 +69,167 @@
     PR SUCCESS. Every job's `head_sha` matches the run's commit exactly. (This CI-evidence
     update is itself a docs-only commit on top; its own exact-SHA CI is verified separately —
     no test reads `docs/BACKLOG.md` or `opencode.md`, per the audit block's grep check.)
-  - **Remaining before BL-027 is marked closed / Phase 1 §53.9 re-scored:** the §53 re-audit
-    (the documented closing action, change-log (d)) — an independent re-scoring of criterion 9.
-    All six acceptance criteria above are met with real evidence; nothing else is outstanding.
+  - **Closing action (done 2026-10-12):** the §53 re-audit re-scored criterion 9 with freshly
+    collected evidence (same container, original defect tooling, exact `bdb4c9a` baseline
+    worktree) — see the `⚑ §53 RE-AUDIT` block below. BL-027 is closed `FIXED — VERIFIED`;
+    the re-audit's own adversarial probing found and closed one sibling defect (**BL-029**,
+    `7dceec1`).
 
-### ⚑ FINAL CLOSURE AUDIT — Phase 0 + Phase 1 at `bdb4c9a` (2026-10-11) — AUTHORITATIVE
+### ⚑ §53 RE-AUDIT — Phase 1 at `7dceec1` (2026-10-12) — AUTHORITATIVE
 
-**This block is the live status record** (Master README §64/§68). Everything in
+This is the closing §53 re-audit recorded as pending by the *⚑ FINAL CLOSURE
+AUDIT* below. It re-scores the 13-point Phase 1 checklist with **freshly
+collected evidence**, then supersedes that block's verdict rows.
+
+**Audited source SHA:** `7dceec13fb4dfce974d6b0be8851b4b4a1cbf5f8`
+(fix `13bdddd` + docs + BL-029 fail-closed fix; local == `origin/codex/universal-core`
+at verification time). This documentation commit follows the audited fix on top;
+it is docs-only — no test reads `docs/BACKLOG.md`, `docs/CAPABILITY_MATRIX.md` or
+`opencode.md` (grep over `tests/`, per the `bdb4c9a` audit block).
+
+**Independence boundary (disclosed, not claimed away):** the BL-027/BL-029
+implementation and this re-audit were performed in the same session lineage.
+The re-audit's independence is evidentiary, not organizational: it did **not**
+trust the implementing session's outputs — it re-ran the original
+defect-finding tooling (`string_probe.py`, `nosilentloss_sweep.py`, the same
+scripts that found BL-027) against an **exact `bdb4c9a` worktree** and the
+fixed tree in the same container (`systemaops-audit:1.0`, `--network none`),
+added new adversarial cases, and grounded the correctness claim in two
+independent implementations (generated Java vs. GnuCOBOL 3.1.2 execution) plus
+GitHub CI. Every artifact is reproducible from the saved scripts and outputs
+listed below without trusting any narrative in this file.
+
+#### Re-audit evidence (all executed 2026-10-12, outputs under `%TEMP%\opencode\`)
+
+1. **Baseline-identity defect re-run** — a pristine `bdb4c9a` git worktree was
+   mounted alongside the fixed tree in the same container image:
+   - `nosilentloss_sweep.py` (`reaudit_sweep_bdb4c9a.txt` vs
+     `reaudit_sweep_cf35c1d.txt`): every construct case byte-identical except
+     `STRING_STMT`, whose emission changed from wrong (`WS_D = WS_C;` — tail
+     destroyed) to correct (`WS_D = WS_C + WS_D.substring(Math.min(...));`).
+     The `CONTINUE_ONLY` RISK flag is identical at both SHAs (pre-existing
+     heuristic false positive: `CONTINUE` is a COBOL no-op — nothing lost);
+     the `READ_WRITE` crash is the identical fail-closed
+     `MISSING_REQUIRED_SEMANTIC` traceback at both SHAs (probe fixture has no
+     FD; pre-existing).
+   - `string_probe.py` — the script that found BL-027
+     (`reaudit_stringprobe_bdb4c9a.txt` vs `reaudit_stringprobe_cf35c1d.txt`):
+     `STR_SIZE`/`STR_SPACE`/`STR_LITERAL`/`STR_POINTER` all showed silently
+     wrong Java under `SUPPORTED` at baseline (delimiter as data, pointer
+     dropped, tail destroyed) and all show correct delimiter-excluding,
+     tail-preserving, pointer-honoring Java at the fixed tree.
+   - The `UNSTRING_ONE` probe crash is the identical traceback at both SHAs
+     (probe fixture lacks a FILE SECTION → generator fails closed; pre-existing).
+2. **Runtime oracle (from the BL-027 verification, unchanged by BL-029):**
+   container `javac` 21 compile-and-execute of the generated Java vs.
+   independent GnuCOBOL 3.1.2 execution of the same fixture →
+   **`ORACLE_MATCH=YES`** (3/3 lines byte-identical, computed by
+   `bl027_diff.py`), plus `EXPECTED_MATCH=YES` against hand-computed COBOL
+   semantics.
+3. **Adversarial edge probe (new — `bl027_edge_probe.py`,
+   `reaudit_edge_*.txt`):** at baseline all five forms were silently wrong
+   under `SUPPORTED` (including `DELIMITED BY ALL ","`, which emitted an
+   undefined identifier `ALL`); at the fixed tree the certified
+   `WITH POINTER`+delimiter form maps correctly and the four unsupported
+   forms (`ALL`, `VARYING`+`OVERFLOW`, identifier delimiter, `ON OVERFLOW`)
+   fail closed with `UNSUPPORTED_CONSTRUCT` + verdict `UNSUPPORTED` +
+   `UNSUPPORTED_STRING$…` markers.
+4. **BL-029 — the re-audit's own finding, fixed in-cycle:** the bare
+   `STRING ... INTO WS-D VARYING IN WS-P FROM 1 BY 2.` form parsed with
+   `diags=-`, verdict `SUPPORTED`, pointer silently dropped
+   (`reaudit_varying_cf35c1d.txt`) — a remaining §60 counterexample at
+   `cf35c1d`. Fixed fail-closed in `7dceec1` (`StringStatement.varying_pointer`,
+   tail-scan capture + diagnostic, `VARYING_IN_<PTR>` fail-closed symbol,
+   registry text, 5 new tests). After the fix both VARYING forms and the
+   `OVERFLOW`+`VARYING` combination emit the marker with verdict `UNSUPPORTED`
+   and all prior edge forms are unchanged (`reaudit_varying_fixed.txt`,
+   `reaudit_edge_fixed.txt`).
+5. **Capability-truth gate, exact CI selection** (10 files, container,
+   `--network none`): **272 passed** at `cf35c1d` → **277 passed** at the
+   fixed tree (`reaudit_capability_gate_cf35c1d.txt`,
+   `reaudit_capability_gate_fixed.txt`) — the +5 are the BL-029 tests.
+   Methodology note: locally pip is absent from the audit image, so the gate
+   ran under apt `pytest 7.4.4` in a derived image (`systemaops-audit-pytest:1.0`
+   = `systemaops-audit:1.0` + `python3-pytest`); CI runs the same selection on
+   ubuntu-24.04/Python 3.11 and is green at the audited SHA.
+6. **UNSTRING disclosed-subset check (new):** bare UNSTRING programs get
+   verdict `PARTIAL` with the certified-subset limitation in the reason;
+   FD-bearing workload fixtures (STUDENT-PROCESSOR/CLAIMS/INVENTORY/PAYROLL)
+   get `UNSUPPORTED` — **identical verdicts at both SHAs**
+   (`reaudit_unstring_bare_verdict.txt`, `reaudit_fixture_verdicts_*.txt`).
+   The file_io template's hardcoded `|` record split is the disclosed
+   "certified delimited subset" (registry `UNSTRING` = PARTIAL;
+   `COBOL_UNIVERSALITY_ROADMAP.md` carries the P1-5 broadening) — never a
+   `SUPPORTED` claim.
+7. **Serialized full suite at the fixed tree (run of record, 29:27):**
+   **26 failed / 3287 passed / 12 skipped** (`fullsuite_bl029_fixed.txt`) —
+   the 26 failures are *identical by identity* to the `bdb4c9a` clean-run
+   26-identity environmental baseline (zero new, zero changed; compared by
+   normalized test ID, not by count); the +5 passed are the BL-029 tests.
+8. **Exact-SHA CI at the audited commit (verified via GitHub API,
+   2026-10-12): all four workflows SUCCESS at `7dceec13fb4dfce974d6b0be8851b4b4a1cbf5f8`,
+   every job's `head_sha` matches exactly.** Push SystemaOps CI
+   [#38168497827](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38168497827)
+   — all 4 jobs green (Capability truth gate, which runs the 35 BL-027/BL-029
+   STRING tests on Linux with a real JDK; Backend and COBOL/Java Docker tests;
+   Phase 1 ingestion diagnostics; Frontend); PR SystemaOps CI
+   [#38168500762](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38168500762)
+   — same 4 jobs green; Supply chain
+   [#38168497897](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38168497897)
+   (push) /
+   [#38168500668](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38168500668)
+   (PR) SUCCESS (Python audit + SBOM, frontend audit + SBOM, release
+   dependency manifest).
+
+#### §53 (13-point) re-audit checklist at `7dceec1`
+
+| # | §53 criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | implementation exists and matches the current architecture | PASS | One canonical pipeline (§10); the BL-027/BL-029 changes extend the existing `StringStatement`/mapper/registry path additively — no second pipeline, no bypass. |
+| 2 | relevant contracts are satisfied | PASS | verdict/evidence/contract suites green in the serialized run (their files appear nowhere in the 26). |
+| 3 | focused tests pass | PASS | capability-truth gate **277/277** (container, exact CI selection, 2.23s); focused STRING suites green. |
+| 4 | regression tests pass | PASS (env-bounded) | **3287 passed**; the 26 failures are proven environmental (missing local `javac`, BL-010) and *identical by identity* to the pristine baseline — zero new, zero changed. |
+| 5 | integration behavior is verified | PASS via CI + container | exact-SHA CI Docker job green (real JDK + GnuCOBOL 3.1.2); local containers compiled and executed generated Java and the GnuCOBOL oracle. |
+| 6 | fresh end-to-end behavior verified where applicable | PASS (limitation stated) | The STRING path has a genuine fresh local differential: generated Java compiled **and executed** vs. an independent GnuCOBOL execution, byte-identical (`ORACLE_MATCH=YES`). No broader fresh local E2E is claimed (BL-010). |
+| 7 | evidence reproducible, tied to exact identities, integrity-validated | PASS | baseline = exact `bdb4c9a` git worktree vs. fixed tree in the same container image; every claim ties to a named output file under `%TEMP%\opencode\` plus SHAs; comparisons programmatic; `test-artifacts/*` preserved, not regenerated. |
+| 8 | known limitations and residual risks documented | PASS | BL-010, BL-012, BL-017, BL-026 (carried, non-blocking), BL-028 (P2 disclosed) all carry owner/phase/dependency/risk/acceptance in `docs/BACKLOG.md`; BL-029 filed and closed with full metadata. |
+| 9 | **no silent semantic loss remains** | **PASS** (re-scored) | The `bdb4c9a` counterexample (BL-027) is fixed and runtime-verified against the GnuCOBOL oracle; the re-audit's adversarial probing found one further counterexample (`VARYING IN`, BL-029) which is now fail-closed with a named marker, verdict `UNSUPPORTED`, and tests; every other construct in the sweep is byte-identical to baseline and either correct or fail-closed; the `CONTINUE` RISK flag is a no-op false positive (identical at baseline); UNSTRING's subset is disclosed at three layers behind `PARTIAL`/`UNSUPPORTED` verdicts. No `SUPPORTED`+wrong-output path remains in the probed STRING surface. |
+| 10 | every discovered defect fixed or explicitly carried forward with ID/owner/reason/dependency/risk/acceptance | PASS | register verified: **29/29 rows** with all required columns (BL-027 closed, BL-028 carried, BL-029 filed and closed in-cycle). |
+| 11 | code, tests, security, architecture, API/UI, ops, documentation gaps audited | PASS | security/adversarial suites green in the serialized run; Supply chain workflow green at the audited lineage; no-LLM grep clean (unchanged surface); the fabricated-claim correction from 2026-10-11 stands corrected. |
+| 12 | acceptance criteria are satisfied | **PASS** (re-scored) | follows from 9: BL-027's six acceptance criteria met with real evidence (oracle match, fail-closed probes, baseline-identity full suite, exact-SHA CI) and BL-029's four are met (gate 277, suite baseline-identity, markers verified, no test weakened). |
+| 13 | the live checkpoint is updated from actual repository/test results | PASS | this block; `docs/BACKLOG.md` updated (BL-027 closed, BL-029 filed/closed, register, change-log (h)). |
+
+**Phase 1 verdict: `COMPLETE — VERIFIED` at `7dceec1`.** All 13 §53 criteria
+pass on evidence collected at (or identity-verified against) the audited SHA.
+
+**Explicit non-claims (unchanged):** no universal COBOL coverage; no runtime
+equivalence beyond the certified subset (the STRING oracle evidence covers the
+tested forms — SIZE/SPACE/literal delimiters + WITH POINTER); no production
+readiness; no fresh local full E2E (BL-010 — Windows host, no JDK on PATH; the
+26 environmental failures per run are the missing compiler, never described as
+green); Docker-in-Docker still blocked and not retried; `SUPPORTED` verdicts
+are not certified beyond the tested subset. Carried open: **BL-026** (P2, GO TO
+diagnostic gap — verdict/planner already fail closed), **BL-028** (P2, fixed-width
+receiver overflow truncation — disclosed), BL-010/BL-012/BL-013…BL-017 (Phase 2+
+carry-forwards).
+
+**Superseded by this block:** the verdict rows of *⚑ FINAL CLOSURE AUDIT —
+Phase 0 + Phase 1 at `bdb4c9a`* below (kept as the `bdb4c9a` record; its
+criterion-9 FAIL was BL-027, now fixed and oracle-verified, and its
+"NOT COMPLETE" verdict is superseded here).
+
+### ⚑ FINAL CLOSURE AUDIT — Phase 0 + Phase 1 at `bdb4c9a` (2026-10-11) — AUTHORITATIVE for `bdb4c9a`
+
+> `[SUPERSEDED for the live verdict — see *⚑ §53 RE-AUDIT — Phase 1 at `7dceec1`* above]`
+> This block remains the authoritative *record* of the `bdb4c9a` audit (its
+> evidence, failure sets and blocker findings are unchanged and were the basis
+> for everything the re-audit re-verified), but its `NOT COMPLETE` Phase 1
+> verdict and its criterion-9 FAIL are superseded: BL-027 is fixed
+> (`13bdddd`, oracle-verified), BL-029 was found and closed (`7dceec1`), and
+> the re-audit re-scored all 13 criteria at `7dceec1`.
+
+**This block was the live status record at `bdb4c9a`** (Master README §64/§68).
+Everything in
 the older sections — including the `PHASE 1 COMPLETE — VERIFIED` heading, the
 `§53 PHASE 1 ACCEPTANCE CHECKLIST — audited at 766cf43`, and the
 `FINAL VERIFICATION RESULTS — bdb4c9a` section — is retained history, marked

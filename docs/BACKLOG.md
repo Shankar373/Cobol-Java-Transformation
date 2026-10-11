@@ -724,31 +724,38 @@ produced evidence, not re-run here).
   planner blocks, does not block §53.9).
 - **Severity:** high — data-corrupting output is reachable through the supported path, and it
   defeats the fail-closed guarantee §14/§15 promise for the SUPPORTED subset.
-- **Status:** **IMPLEMENTED — VERIFICATION IN PROGRESS** (2026-10-11). Opened by the Phase 1 closure
+- **Status:** **FIXED — VERIFIED (2026-10-12, via §53 re-audit)**. Opened by the Phase 1 closure
   audit at `bdb4c9a`; the fix was committed as **`13bdddd`** on top of `742e39d` and pushed (parser `StringStatement` delimiter/pointer/overflow fields, mapper fail-closed reasons +
   delimiter/pointer emission, analyzer walk, both generators, registry evidence text, a new
-  30-case focused test file, and the focused-gate entry in `ci.yml`). Verified so far: the
+  30-case focused test file, and the focused-gate entry in `ci.yml`). Verified: the
   focused tests pass; the emitted Java compiles and executes in an isolated container and its
   output **matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte** (`ORACLE_MATCH=YES`,
   computed by `%TEMP%\opencode\bl027_diff.py` from the two container captures — not asserted);
-  identifier-delimiter and `ON OVERFLOW` forms fail closed. The serialized full suite now
+  identifier-delimiter and `ON OVERFLOW` forms fail closed. The serialized full suite
   **sits exactly at the 26-identity environmental baseline** (rerun: 26 failed / 3282 passed /
   12 skipped, zero new failures by identity vs the `bdb4c9a` clean run; the +30 passed are the
   new BL-027 tests, all passing). Exact-SHA CI is **green**: all four workflows SUCCESS at
   `6bfcbe4` (the push containing the fix `13bdddd`), all jobs green, `head_sha` verified via
-  the GitHub API (run IDs in "Fix verification" below). All six acceptance criteria are met
-  with real evidence. The **only remaining closing action is the §53 re-audit** (criterion 9
-  re-scoring); until it runs, this item stays `IMPLEMENTED — VERIFICATION IN PROGRESS` and
-  Phase 1 stays `NOT COMPLETE`.
+  the GitHub API (run IDs in "Fix verification" below). Closing action completed
+  **2026-10-12**: the §53 re-audit re-ran the original defect-finding tooling
+  (`string_probe.py`, `nosilentloss_sweep.py`) in the same Linux audit container against an
+  exact `bdb4c9a` worktree and the fixed tree — every STRING form the defect probes showed
+  wrong at baseline is now correct, every other construct is byte-identical to baseline, and
+  criterion 9 was re-scored (see the `⚑ §53 RE-AUDIT` block in `opencode.md`). The re-audit
+  also found one sibling phrase still silently dropped (`STRING ... VARYING IN` — filed as
+  **BL-029**, P0) and it was fixed fail-closed in the same cycle (`7dceec1`), so no silent
+  STRING loss remains.
   *(Correction: an earlier draft of this entry claimed `FIXED — 2026-10-11` with a
   "Fix verification" block citing a fix commit SHA, CI run, `ORACLE_MATCH`, and container diffs.
   At that time none of those artifacts had been produced; the claim was fabricated and has been
   removed. The `ORACLE_MATCH`/container results recorded now were genuinely executed on
   2026-10-11 — see "Fix verification (executed 2026-10-11)" below.)*
-- **Last verified commit:** **`6bfcbe4`** (push containing fix `13bdddd` + this documentation)
-  — exact-SHA CI verified green via the GitHub API on 2026-10-11 (Push SystemaOps CI
-  [#38159864669](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864669)
-  all 4 jobs, PR SystemaOps CI
+- **Last verified commit:** **`7dceec1`** (BL-029 fail-closed fix on top of this BL-027 fix)
+  — full suite at the 26-identity baseline with the BL-029 tests added; exact-SHA CI evidence
+  recorded in the `⚑ §53 RE-AUDIT` block of `opencode.md`. This BL-027 fix's own verified
+  push remains **`6bfcbe4`** (all 4 workflows green via the GitHub API: Push SystemaOps CI
+  [#38159864669](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864669),
+  PR SystemaOps CI
   [#38159868523](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868523),
   Supply chain [#38159864653](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159864653)
   / [#38159868476](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868476)).
@@ -874,7 +881,9 @@ produced evidence, not re-run here).
     (push) /
     [#38159868476](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38159868476)
     (PR) SUCCESS. Every job's `head_sha` matches `6bfcbe4` exactly. Acceptance criteria (1)–(6)
-    are all met with real evidence; the sole remaining closing action is the §53 re-audit.
+    are all met with real evidence. *(Update 2026-10-12: the §53 re-audit — then the sole
+    remaining closing action — has now run; see change-log (h) and the BL-029 entry it
+    produced.)*
 
 ### BL-028 — COBOL fixed-width receiver overflow truncation is not modeled in `STRING`
 - **Type:** missing capability (documented limitation, not silent — declared in code and registry)
@@ -900,12 +909,57 @@ produced evidence, not re-run here).
   BL-027's `StringStatement` mapper path. **Residual risk:** bounded and disclosed; programs that
   overflow the receiver diverge at runtime without a diagnostic.
 
+### BL-029 — `STRING ... VARYING IN` is silently dropped: wrong write position with a `SUPPORTED` verdict
+- **Type:** defect (silent semantic loss / wrong generated value)
+- **Priority:** P0 — phase-blocking capability-truth defect, the same §54 `capability truth drift`
+  / §60 shape as BL-027: a receiving-position phrase is discarded at the parser/IR boundary while
+  the registry claims `SUPPORTED` and no diagnostic is raised.
+- **Severity:** high — a program using the standard `VARYING IN` alternative to `WITH POINTER`
+  writes at position 1 instead of the pointer position and never advances the pointer, producing
+  wrong output through the supported path.
+- **Status:** FIXED — 2026-10-12 (`7dceec1`) — fail-closed per the established BL-018/BL-023
+  pattern; found and fixed within the §53 re-audit cycle (below).
+- **Found by:** `bl027_varying_probe.py` (`%TEMP%\opencode\reaudit_stage\`), run in the Linux
+  audit container during the §53 re-audit at `cf35c1d`: the statement
+  `STRING WS-A DELIMITED BY SIZE INTO WS-D VARYING IN WS-P FROM 1 BY 2.` parsed with
+  `diags=-`, verdict **`SUPPORTED`**, `pointer=''` in the IR, and generated
+  `WS_D = WS_A + WS_D.substring(...)` — `WS-P` is never read or written
+  (`%TEMP%\opencode\reaudit_varying_cf35c1d.txt`). The same phrase combined with `ON OVERFLOW`
+  named only `OVERFLOW` in the fail-closed symbol, hiding the dropped `VARYING IN`.
+- **Root cause:** `_parse_string_text` (`engine/transformation/cobol_parser.py`) scanned the
+  post-target tail only for `ON OVERFLOW` and `WITH POINTER`; `VARYING IN` (COBOL's alternative
+  receiving-position form: pointer starts at `FROM`, advances `BY` after the statement) matched
+  neither and fell through silently.
+- **Remediation (implemented `7dceec1`):** the tail scan captures `VARYING IN <ptr>` into the new
+  `StringStatement.varying_pointer` field and raises `UNSUPPORTED_CONSTRUCT` naming the phrase;
+  the mapper appends `VARYING_IN_<PTR>` to the `UNSUPPORTED_STRING$…` fail-closed reasons (so
+  `javac` reports the construct instead of a wrong value ever being produced); the `STRING`
+  capability-registry evidence text names BL-029.
+- **Acceptance criteria (all met, 2026-10-12):** (1) no `STRING ... VARYING IN` form keeps a
+  `SUPPORTED` verdict or emits working Java — verified in the audit container: both
+  `VARYING IN <ptr> FROM n BY m` and the bare `VARYING IN <ptr>` emit
+  `WS_D = UNSUPPORTED_STRING$VARYING_IN_WS_P;` with `UNSUPPORTED_CONSTRUCT` diagnostics and
+  verdict `UNSUPPORTED`, and the `ON OVERFLOW` combination names both reasons
+  (`%TEMP%\opencode\reaudit_varying_fixed.txt`, `reaudit_edge_fixed.txt`); (2) focused tests in
+  the capability-truth gate — 5 new tests in
+  `tests/transformation/test_string_delimited_semantics.py`, gate **277 passed** in the
+  container; (3) no existing test weakened; (4) serialized full suite **26 failed / 3287 passed /
+  12 skipped** — the failure set is *identical by identity* to the `bdb4c9a` 26-identity
+  environmental baseline (zero new, zero changed; +5 passed = these tests); exact-SHA CI green
+  (run IDs in the `⚑ §53 RE-AUDIT` block of `opencode.md`).
+- **Verification level:** LEVEL 3 (EXECUTED) — probes, gate, full suite and CI all executed at
+  `7dceec1`'s tree.
+- **Owner/role:** parser / IR / semantic transformation maintainer. **Target phase:** Phase 1
+  (closed in-cycle). **Dependency:** BL-027's `StringStatement` tail scan. **Residual risk:** low
+  — fail-closed by construction; the phrase has no certified mapping, so affected programs are
+  refused with a named diagnostic rather than mistranslated.
+
 ### Backlog metadata note (documentation gap, P2)
 
 Master README §77 asks each item to carry "priority and severity with
 rationale". **BL-001…BL-024 do not record an explicit priority/severity field** —
 a pre-existing gap in this document, not something introduced by the Phase 1
-work. BL-025, BL-026, BL-027 and BL-028 are the first entries to carry it. The gap is recorded
+work. BL-025, BL-026, BL-027, BL-028 and BL-029 are the first entries to carry it. The gap is recorded
 here rather
 than papered over: retro-fitting priority to 24 historical items without
 re-assessing each one would fabricate precision that was never established.
@@ -917,8 +971,8 @@ remediation in their own sections — root cause, affected files, verification
 level and evidence location are either n/a or live only in the carry-forward
 register below. Everything else claimed here is verified: the §53.10 required
 set (backlog ID, owner/role, target phase, dependency, reason, residual risk,
-acceptance criteria) is present for **28/28** items in the register, and the
-defect entries (BL-001…BL-005, BL-008…BL-010, BL-018…BL-028) each carry type,
+acceptance criteria) is present for **29/29** items in the register, and the
+defect entries (BL-001…BL-005, BL-008…BL-010, BL-018…BL-029) each carry type,
 observed/expected behaviour, root cause or explicit premise correction,
 affected files, impact, remediation, acceptance criteria/tests, verification
 level and evidence location.
@@ -1048,9 +1102,32 @@ level and evidence location.
   satisfying the entry's full-suite acceptance criterion by identity. **BL-027 is recorded
   IMPLEMENTED — VERIFICATION IN PROGRESS**: all six acceptance criteria are met with real
   evidence and exact-SHA CI is green at `6bfcbe4` (all four workflows, `head_sha` verified via
-  the GitHub API); the §53 re-audit is the sole remaining closing action. Also filed **BL-028** (fixed-width
+  the GitHub API); the §53 re-audit is the sole remaining closing action. *(Update 2026-10-12:
+  the re-audit has run — see (h); BL-027 is closed `FIXED — VERIFIED`.)* Also filed **BL-028** (fixed-width
   receiver overflow truncation, P2, disclosed limitation) so the mapper/registry code reference
   is no longer dangling.
+
+- 2026-10-12 — **(h) §53 re-audit executed; BL-027 closed `FIXED — VERIFIED`; BL-029 found and
+  fixed in-cycle.** The re-audit re-ran the original defect-finding tooling in the same Linux
+  audit container (`systemaops-audit:1.0`, `--network none`) against an **exact `bdb4c9a`
+  worktree** and the fixed tree: `nosilentloss_sweep.py` and `string_probe.py` show every
+  STRING form wrong at baseline now correct, with every other construct byte-identical to
+  baseline (including the two pre-existing fail-closed crashes, identical tracebacks at both
+  SHAs); adversarial edges (`DELIMITED BY ALL ","`, identifier delimiters, `ON OVERFLOW`,
+  `WITH POINTER`+delimiter) all fail closed or map correctly. The re-audit then found **one
+  remaining BL-027-class silent loss**: `STRING ... VARYING IN <ptr>` was silently dropped
+  under a `SUPPORTED` verdict with zero diagnostics — filed as **BL-029 (P0)** and fixed
+  fail-closed the same cycle (`7dceec1`: `StringStatement.varying_pointer`, tail-scan capture
+  + `UNSUPPORTED_CONSTRUCT`, `VARYING_IN_<PTR>` fail-closed symbol, registry text, 5 new
+  tests). Verification at the fixed tree: capability-truth gate **277 passed** (container,
+  exact CI selection); serialized full suite **26 failed / 3287 passed / 12 skipped** —
+  failure set *identical by identity* to the `bdb4c9a` 26-identity environmental baseline
+  (zero new, zero changed; +5 passed = the BL-029 tests); UNSTRING checked separately — bare
+  UNSTRING programs get `PARTIAL` and FD-bearing ones `UNSUPPORTED`, identical at both SHAs,
+  and the pipe-split subset is disclosed in the registry/roadmap (P1-5). With no silent loss
+  remaining, §53 criteria 9 and 12 re-score **PASS** and **Phase 1 is `COMPLETE — VERIFIED`**
+  at the audited SHA — see the `⚑ §53 RE-AUDIT` block in `opencode.md` for the full 13-criterion
+  table, the disclosed independence boundary, and the exact-SHA CI evidence.
 
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
@@ -1171,8 +1248,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-024 | Parser / IR maintainer | Phase 1 (closed) | `_build_expression`; same defect class as BL-018 | Intrinsic `FUNCTION MIN(...)` falls through to an impossible field reference. | Undeclared Java identifier, exactly the BL-018 pattern; unproven intrinsics must never be silently field references. | `FUNCTION` prefix recognised and either mapped for the certified subset or diagnosed; never a bare field reference. |
 | BL-025 | Transformation / code-generation maintainer | Phase 1 (closed) | `_map_cobol_expression_to_java` fallthrough; new `_intrinsic_fail_closed_symbol`; Master README §16/§17/§60 | Unmapped expressions must fail closed deliberately, never by emitting implementation artefacts into generated Java. | The `str(expr)` fallthrough stringified any unhandled `Expression` into Java (`WS_A = Math.abs(IntrinsicCall(name='**', ...))`) and is fail-open for any future node — the BL-018/BL-023 defect class in a different layer. Verdict was already UNSUPPORTED, so impact is bounded to malformed output, not a wrong value. | `IntrinsicCall` maps to a deliberately undefined symbol naming the construct; the fallthrough maps unknown `Expression` nodes to `UNSUPPORTED_EXPRESSION_<NODE>`; tests assert no repr leaks, the symbol is never declared, and supported `COMPUTE` is unaffected. Evidence: `tests/transformation/test_scoped_construct_statements.py`. |
 | BL-026 | Semantic transformation maintainer | Phase 2 | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | A program containing `GO TO` raises an explicit diagnostic naming `GO TO`; the verdict stays UNSUPPORTED and the planner still blocks; the traceability comment remains; focused tests are added to the fast `capability-truth` gate; no existing test weakened. Evidence basis: semantic re-probe at `bdb4c9a` (Linux JDK audit container). |
-| BL-027 | Parser / IR / semantic transformation maintainer | **Phase 1 (blocks §53.9 — implemented as `13bdddd`, oracle-matched, CI green at `6bfcbe4`; closure pending §53 re-audit)** | Additive `StringStatement` IR change; capability-truth gate | `STRING ... DELIMITED BY <x>` and `WITH POINTER` are not modelled: the delimiter is concatenated into the result as data and the pointer is dropped, under a `SUPPORTED` verdict with no diagnostic — reachable silent wrong value, the one §53.10 combination that must never occur. | P0 / high: fail-closed does not hold for these `STRING` forms; a green verdict accompanies incorrect generated arithmetic — §54 `capability truth drift` and a direct §60 / §53.9 counterexample at the Phase 1 parser/IR boundary. | IMPLEMENTED (`13bdddd` on top of `742e39d`): delimiter/pointer parsed into `StringStatement`; mapper excludes the delimiter from the result and reads/writes the pointer; identifier delimiters, `ON OVERFLOW` and non-integer pointers return an `UNSUPPORTED_STRING$…` fail-closed symbol; 30 focused tests added to the fast `capability-truth` gate (`tests/transformation/test_string_delimited_semantics.py`, wired into `ci.yml`). VERIFIED: container `javac` compile-and-execute of the emitted Java matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte (`ORACLE_MATCH=YES`, `bl027_diff.py`); fail-closed forms probe correctly (`bl027_probe_run2.txt`). REMAINING: all six acceptance criteria MET — serialized rerun at **exactly the 26-identity environmental baseline** (26 failed / 3282 passed / 12 skipped, zero new failures by identity vs the `bdb4c9a` clean run; +30 passed = the new BL-027 tests); fix committed as `13bdddd`, pushed; exact-SHA CI **green at `6bfcbe4`** (all four workflows, all jobs, `head_sha` verified via GitHub API); §53 re-audit is the sole remaining closing action. Defect evidence basis: `string_probe.py` at `bdb4c9a` (Linux JDK audit container, real `ApplicationDiscovery` + `CapabilityAnalyzer` verdicts). |
+| BL-027 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed 2026-10-12 — implemented `13bdddd`, oracle-matched, CI green at `6bfcbe4`, §53 re-audit completed)** | Additive `StringStatement` IR change; capability-truth gate | `STRING ... DELIMITED BY <x>` and `WITH POINTER` are not modelled: the delimiter is concatenated into the result as data and the pointer is dropped, under a `SUPPORTED` verdict with no diagnostic — reachable silent wrong value, the one §53.10 combination that must never occur. | P0 / high: fail-closed does not hold for these `STRING` forms; a green verdict accompanies incorrect generated arithmetic — §54 `capability truth drift` and a direct §60 / §53.9 counterexample at the Phase 1 parser/IR boundary. | FIXED — VERIFIED (`13bdddd` on top of `742e39d`; re-audit 2026-10-12): delimiter/pointer parsed into `StringStatement`; mapper excludes the delimiter from the result and reads/writes the pointer; identifier delimiters, `ON OVERFLOW` and non-integer pointers return an `UNSUPPORTED_STRING$…` fail-closed symbol; 30 focused tests in the fast `capability-truth` gate (`tests/transformation/test_string_delimited_semantics.py`, wired into `ci.yml`). VERIFIED: container `javac` compile-and-execute of the emitted Java matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte (`ORACLE_MATCH=YES`, `bl027_diff.py`); fail-closed forms probe correctly (`bl027_probe_run2.txt`); serialized rerun at **exactly the 26-identity environmental baseline** (zero new failures by identity vs the `bdb4c9a` clean run; +30 passed = the new BL-027 tests); exact-SHA CI **green at `6bfcbe4`** (all four workflows, all jobs, `head_sha` verified via GitHub API). Closing action done: the §53 re-audit re-ran `string_probe.py`/`nosilentloss_sweep.py` in the same container against an exact `bdb4c9a` worktree — every wrong STRING emission is fixed, all other constructs byte-identical — and re-scored criterion 9 (sibling gap `VARYING IN` filed as BL-029 and fixed in-cycle, `7dceec1`). Defect evidence basis: `string_probe.py` at `bdb4c9a` (Linux JDK audit container, real `ApplicationDiscovery` + `CapabilityAnalyzer` verdicts). |
 | BL-028 | Semantic transformation maintainer | Phase 2 (future STRING semantics completeness) | BL-027 `StringStatement` mapper path | COBOL fixed-width receiver overflow truncation is not modeled: the receiving field is emitted as an unbounded Java `String`, so a `STRING` result longer than the receiving field's `PIC` width does not truncate as COBOL would. | P2 / medium: no wrong value within the field width and no false `SUPPORTED` on this basis alone (the limitation is declared in the capability-registry evidence text for `STRING` and in the mapper docstring), but programs whose `STRING` output exceeds the receiver width will diverge at runtime without a diagnostic. | Model receiving-field width truncation in the emitted Java (or fail closed for receivers whose overflow behavior would differ); add focused tests to the capability-truth gate; serialized full suite + exact-SHA CI. Evidence: mapper `_string_receiver_statements` docstring (`engine/transformation/cobol_to_java_mapping.py`, "The receiver is modeled as an unbounded Java String, so COBOL's fixed-width overflow truncation is a documented limitation"). |
+| BL-029 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed in-cycle 2026-10-12 — `7dceec1`)** | Additive `StringStatement.varying_pointer` IR change; capability-truth gate | `STRING ... VARYING IN <ptr> [FROM n [BY m]]` (COBOL's alternative receiving-position form) is silently dropped at the parser tail scan: the statement writes at position 1, the pointer is never read, verdict stays `SUPPORTED`, zero diagnostics — a BL-027-class §60 counterexample found by the §53 re-audit. | P0 / high: same §54 `capability truth drift` shape as BL-027 — a green verdict accompanies incorrect generated write-position arithmetic through the supported path. | FIXED — VERIFIED (`7dceec1`): tail scan captures `VARYING IN` into `StringStatement.varying_pointer` and raises `UNSUPPORTED_CONSTRUCT` naming the phrase; mapper appends `VARYING_IN_<PTR>` to the `UNSUPPORTED_STRING$…` fail-closed reasons; registry evidence text names BL-029; 5 focused tests added. VERIFIED: container probes show both VARYING forms emitting `UNSUPPORTED_STRING$VARYING_IN_WS_P` with verdict `UNSUPPORTED` (`reaudit_varying_fixed.txt`); capability-truth gate **277 passed**; serialized full suite **26 failed / 3287 passed / 12 skipped**, failure set identical by identity to the 26-identity environmental baseline (zero new, zero changed); exact-SHA CI green (run IDs in the `⚑ §53 RE-AUDIT` block of `opencode.md`). Defect evidence basis: `bl027_varying_probe.py` at `cf35c1d` (Linux JDK audit container). |
 
 ### PR disposition snapshot — 2026-10-10
 

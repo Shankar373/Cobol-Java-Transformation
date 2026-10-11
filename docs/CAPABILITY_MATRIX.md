@@ -13,7 +13,7 @@ This is an implementation and evidence matrix, not a language-completeness claim
 | PERFORM | Yes | Yes | Tested | Supported subset |
 | PERFORM VARYING | Yes | Yes (bounded Java loop) | Verified end-to-end (phase4 oracle) | Supported subset |
 | EVALUATE | Yes (lowered to IF/ELSE) | Yes (via IF/ELSE) | Verified end-to-end (phase4 oracle) | Supported subset |
-| STRING/UNSTRING | Yes | Yes/partial | Targeted | Partial pending broader evidence |
+| STRING/UNSTRING | Yes | Yes/partial | STRING certified subset verified end-to-end (BL-027/BL-029: generated Java compiled+executed vs. GnuCOBOL 3.1.2 oracle, byte-identical; identifier delimiters, `DELIMITED BY ALL`, `VARYING IN`, `ON OVERFLOW` fail closed with named markers; receiver-overflow truncation disclosed as BL-028) | STRING: supported subset (oracle-verified forms; rest fail closed). UNSTRING: partial (certified pipe-delimited subset, disclosed; broadening = roadmap P1-5) |
 | CALL (static, resolved) | Yes | Yes | Verified end-to-end (Phase-D A->B->C proof, 6b5a866; unresolved/dynamic/cyclic/arity-mismatch expressly blocked, 90efdca) | Supported subset, fail-closed negatives |
 | Sequential files (LINE SEQUENTIAL) | Yes | Yes | Verified end-to-end (Phase-D integrated workload `fixtures/workload-integrated`: OPEN OUTPUT/WRITE/CLOSE + READ loop, record-to-FD resolution, 4 artifacts MATCH) | Supported subset |
 | Indexed/relative/REWRITE/START files | Yes (detected) | No (rejected) | Fail-closed negatives (Phase-D negative scenario 4: blocked outside the certified file boundary) | Not certified; blocked by design |
