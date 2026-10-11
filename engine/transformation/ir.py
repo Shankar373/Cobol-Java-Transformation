@@ -597,6 +597,10 @@ class StringStatement:
     * ``has_overflow`` — an ``ON OVERFLOW`` / ``NOT ON OVERFLOW`` clause is
       present (no certified overflow flow yet; the parser raises
       UNSUPPORTED_CONSTRUCT and the mapper fails closed).
+    * ``varying_pointer`` — the ``VARYING IN`` receiving-position variable
+      (COBOL name); empty when the clause is absent.  BL-029: the re-audit
+      found the phrase silently dropped under a SUPPORTED verdict, so it is
+      now captured and fails closed exactly like ON OVERFLOW.
     """
     parts: tuple[str, ...] = ()
     target: str = ""
@@ -605,6 +609,7 @@ class StringStatement:
     delimiter_exprs: tuple[Expression | None, ...] = ()  # per-phrase delimiter
     pointer: str = ""  # WITH POINTER variable (COBOL name)
     has_overflow: bool = False  # ON OVERFLOW clause present
+    varying_pointer: str = ""  # VARYING IN variable (COBOL name), BL-029
 
 
 @dataclass(frozen=True)

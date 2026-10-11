@@ -2121,8 +2121,9 @@ class CobolParser:
 
         Every sending phrase keeps its delimiter: the delimiter describes how
         much of the sending item is copied — it is never sending data of its
-        own.  ``WITH POINTER`` and ``ON OVERFLOW`` are captured (or failed
-        closed with a diagnostic) instead of being silently dropped.
+        own.  ``WITH POINTER``, ``VARYING IN`` and ``ON OVERFLOW`` are
+        captured (or failed closed with a diagnostic) instead of being
+        silently dropped.
         """
         tokens = self._STRING_TOKEN_RE.findall(full_text)
         if tokens and tokens[0].upper() == "STRING":
@@ -2133,6 +2134,7 @@ class CobolParser:
         target = ""
         pointer = ""
         has_overflow = False
+        varying_pointer = ""
         unimplemented: list[str] = []
 
         idx = 0
@@ -2177,6 +2179,16 @@ class CobolParser:
         )
         if pointer_match:
             pointer = pointer_match.group(1)
+        # BL-029: the VARYING IN phrase is an alternative receiving-position
+        # form (pointer starts at FROM, advances BY after the statement).
+        # No certified mapping exists, so it must fail closed — before the
+        # fix it was silently dropped while the verdict stayed SUPPORTED.
+        varying_match = re.search(
+            r"\bVARYING\s+IN\s+([\w-]+)", tail_words, re.IGNORECASE
+        )
+        if varying_match:
+            varying_pointer = varying_match.group(1)
+            unimplemented.append("VARYING IN")
 
         if not target:
             # No INTO receiving field: the statement produced no usable IR.
@@ -2201,6 +2213,7 @@ class CobolParser:
             delimiter_exprs=tuple(delimiter_exprs),
             pointer=pointer,
             has_overflow=has_overflow,
+            varying_pointer=varying_pointer,
         )
 
     def _parse_string(self, lines: list[str], start: int) -> tuple[StringStatement, int]:

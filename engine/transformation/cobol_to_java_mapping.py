@@ -391,9 +391,9 @@ def _string_receiver_statements(
     Certified here: delimiter truncation (SIZE / literal / SPACE), delimiter
     excluded from the result, pointer clamp/advance, tail preservation.
     Not certified (fail-closed above): identifier delimiters, ON OVERFLOW,
-    non-integer pointers.  The receiver is modeled as an unbounded Java
-    String, so COBOL's fixed-width overflow truncation is a documented
-    limitation (docs/BACKLOG.md), not part of this mapping.
+    VARYING IN, non-integer pointers.  The receiver is modeled as an
+    unbounded Java String, so COBOL's fixed-width overflow truncation is a
+    documented limitation (docs/BACKLOG.md), not part of this mapping.
     """
     reasons: list[str] = []
     for d in delims:
@@ -404,6 +404,12 @@ def _string_receiver_statements(
             )
     if stmt.has_overflow:
         reasons.append("OVERFLOW")
+    if stmt.varying_pointer:
+        # BL-029: VARYING IN has no certified mapping; name the construct
+        # so the fail-closed symbol identifies the phrase and its pointer.
+        reasons.append(
+            "VARYING_IN_" + stmt.varying_pointer.upper().replace("-", "_")
+        )
     if stmt.pointer:
         pointer_item = _find_data_item(program, stmt.pointer) if program else None
         if pointer_item is not None and (

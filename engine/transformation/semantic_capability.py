@@ -150,9 +150,10 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "STRING is mapped to Java string construction with COBOL write "
         "semantics: per-phrase DELIMITED BY truncation (SIZE, literal, "
         "SPACE), the delimiter excluded from the result, tail-preserving "
-        "writes and WITH POINTER clamp/advance. Identifier delimiters and "
-        "ON OVERFLOW fail closed with UNSUPPORTED_CONSTRUCT (BL-027); "
-        "fixed-width receiver overflow truncation is not modeled (BL-028)"
+        "writes and WITH POINTER clamp/advance. Identifier delimiters, "
+        "ON OVERFLOW and VARYING IN fail closed with UNSUPPORTED_CONSTRUCT "
+        "(BL-027, BL-029); fixed-width receiver overflow truncation is not "
+        "modeled (BL-028)"
     ),
     "UNSTRING": _partial("UNSTRING is supported only for the certified delimited subset"),
     "DISPLAY": _supported("DISPLAY is mapped to deterministic output semantics"),

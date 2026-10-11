@@ -9,9 +9,10 @@ and the §53.9 blocker.  These tests lock the fix at every layer:
 * IR: per-phrase ``delimiter_exprs``, ``pointer``, ``has_overflow``;
 * mapper: delimiter truncation excludes the delimiter from the result,
   write-position + tail preservation, pointer clamp/advance;
-* fail-closed: identifier delimiter / ON OVERFLOW / non-integer pointer
-  produce an ``UNSUPPORTED_STRING$`` symbol and an UNSUPPORTED verdict
-  with a diagnostic naming the construct — never a silently wrong value;
+* fail-closed: identifier delimiter / ON OVERFLOW / VARYING IN /
+  non-integer pointer produce an ``UNSUPPORTED_STRING$`` symbol and an
+  UNSUPPORTED verdict with a diagnostic naming the construct — never a
+  silently wrong value;
 * verdict truth through the real ApplicationDiscovery + CapabilityAnalyzer
   path for SIZE, literal and SPACE delimiters.
 
@@ -171,6 +172,28 @@ class TestStringIRRepresentation:
         messages = [d.message for d in parser.diagnostics.all]
         assert any("ON OVERFLOW" in m for m in messages)
 
+    def test_varying_in_is_captured_with_diagnostic(self):
+        """BL-029: VARYING IN was silently dropped under a SUPPORTED verdict."""
+        program, parser = _program(
+            "    STRING WS-A DELIMITED BY SIZE INTO WS-D "
+            "VARYING IN WS-P FROM 1 BY 2.",
+            POINTER_ITEMS,
+        )
+        stmt = _string_stmt(program)
+        assert stmt.varying_pointer == "WS-P"
+        assert "UNSUPPORTED_CONSTRUCT" in _diag_codes(parser)
+        messages = [d.message for d in parser.diagnostics.all]
+        assert any("VARYING IN" in m for m in messages)
+
+    def test_varying_in_bare_pointer_is_captured(self):
+        """The bare ``VARYING IN <ptr>`` form fails closed the same way."""
+        program, _ = _program(
+            "    STRING WS-A DELIMITED BY SIZE INTO WS-D VARYING IN WS-P.",
+            POINTER_ITEMS,
+        )
+        stmt = _string_stmt(program)
+        assert stmt.varying_pointer == "WS-P"
+
     def test_multiline_end_string_phrases_are_joined(self):
         program, _ = _program(
             "    STRING WS-A DELIMITED BY SIZE\n"
@@ -308,6 +331,23 @@ class TestStringFailClosed:
         rendered = JavaGenerator()._stmt_to_string(mapped[0])
         assert "UNSUPPORTED_STRING$NON_INTEGER_POINTER" in rendered
 
+    def test_varying_in_emits_fail_closed_symbol(self):
+        """BL-029: the VARYING IN statement never emits a working value."""
+        rendered = _rendered(
+            "    STRING WS-A DELIMITED BY SIZE INTO WS-D "
+            "VARYING IN WS-P FROM 1 BY 2.",
+            POINTER_ITEMS,
+        )[0]
+        assert "WS_D = UNSUPPORTED_STRING$VARYING_IN_WS_P;" in rendered
+
+    def test_varying_in_combined_with_overflow_names_both(self):
+        rendered = _rendered(
+            "    STRING WS-A DELIMITED BY SIZE INTO WS-D "
+            'VARYING IN WS-P ON OVERFLOW DISPLAY "OVF".',
+            POINTER_ITEMS,
+        )[0]
+        assert "WS_D = UNSUPPORTED_STRING$OVERFLOW$VARYING_IN_WS_P;" in rendered
+
 
 # ---------------------------------------------------------------------------
 # Verdict truth — real discovery + analyzer, exact levels
@@ -359,6 +399,20 @@ class TestStringVerdicts:
         )
         assert level is CapabilityLevel.UNSUPPORTED
         assert "ON OVERFLOW" in reason
+
+    def test_varying_in_program_is_unsupported(self, tmp_path: Path):
+        """BL-029: the real discovery + analyzer path must never report
+        SUPPORTED for a program whose STRING uses VARYING IN."""
+        level, reason = _verdict(
+            HEADER.replace(
+                "PROCEDURE DIVISION.", POINTER_ITEMS + "PROCEDURE DIVISION."
+            )
+            + "    STRING WS-A DELIMITED BY SIZE INTO WS-D "
+            "VARYING IN WS-P FROM 1 BY 2.\n    STOP RUN.\n",
+            tmp_path,
+        )
+        assert level is CapabilityLevel.UNSUPPORTED
+        assert "VARYING IN" in reason
 
 
 # ---------------------------------------------------------------------------
