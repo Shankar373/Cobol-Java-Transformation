@@ -515,6 +515,60 @@ class TestUnmappedFormsFailClosed:
         stmt = _first_statement(_program("COMPUTE WS-A = FUNCTION-CODE"))
         assert isinstance(stmt.expression_expr, irmod.FieldReference)
 
+    # -- code generation must fail closed, not emit a Python repr ----------
+    #
+    # BL-023/BL-024 already diagnosed the construct and classified the program
+    # UNSUPPORTED, but the generator's expression mapper had a `str(expr)`
+    # fallthrough that printed the dataclass repr into the Java source:
+    #     WS_A = Math.abs(IntrinsicCall(name='**', arguments='2 ** 3'));
+    # That is malformed output. It only "failed closed" because javac could not
+    # parse a repr — by accident, not by design.
+
+    def test_generated_java_never_contains_a_python_dataclass_repr(self):
+        code = _generate(_program("COMPUTE WS-A = 2 ** 3"))
+        assert "IntrinsicCall(" not in code, code
+        assert "arguments=" not in code, code
+
+    def test_unmapped_intrinsic_fails_closed_with_a_named_symbol(self):
+        # An undefined symbol keeps a valid expression shape while making javac
+        # report the construct by name, so no wrong value can be produced.
+        code = _generate(_program("COMPUTE WS-A = 2 ** 3"))
+        assert "UNSUPPORTED_INTRINSIC_POWER" in code, code
+        code_min = _generate(_program("COMPUTE WS-A = FUNCTION MIN(1, 2)"))
+        assert "UNSUPPORTED_INTRINSIC_MIN" in code_min, code_min
+
+    def test_the_fail_closed_symbol_is_never_declared(self):
+        """The marker must not resolve, or it would not fail closed.
+
+        The generated class legitimately emits the statement twice (once in
+        ``MAIN_PARA()``, once in ``main()``), so counting uses is meaningless.
+        What matters is that no declaration exists for it anywhere.
+        """
+        code = _generate(_program("COMPUTE WS-A = 2 ** 3"))
+        marker = "UNSUPPORTED_INTRINSIC_POWER"
+        assert marker in code, code
+        declarations = re.findall(
+            r"(?:int|long|double|String|float|boolean)\s+" + marker, code
+        )
+        assert declarations == [], declarations
+
+    def test_supported_compute_is_unaffected_by_the_fail_closed_path(self):
+        code = _generate(_program("COMPUTE WS-A = WS-A + 1"))
+        assert "UNSUPPORTED_INTRINSIC" not in code, code
+        assert "(WS_A + 1)" in code, code
+
+    def test_unknown_expression_nodes_never_stringify(self):
+        """Any Expression without a dedicated mapper branch must fail closed."""
+        from engine.transformation import cobol_to_java_mapping as mapping
+        from engine.transformation.java_ir import JavaVariableRef
+
+        class UnmappedExpression(irmod.Expression):
+            pass
+
+        mapped = mapping._map_cobol_expression_to_java(UnmappedExpression())
+        assert isinstance(mapped, JavaVariableRef), mapped
+        assert "UNSUPPORTED_EXPRESSION_" in mapped.name, mapped.name
+
 
 # ---------------------------------------------------------------------------
 # Capability truth - honest verdicts through real discovery

@@ -1003,7 +1003,42 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
             operator=expr.operator,
             operand=_map_cobol_expression_to_java(expr.operand),
         )
+    if isinstance(expr, _cobol_ir.IntrinsicCall):
+        # BL-023 (`**`) / BL-024 (`FUNCTION MIN(...)`) have no certified Java
+        # mapping, so the parser raises UNSUPPORTED_CONSTRUCT and the program
+        # is classified UNSUPPORTED.  Code generation must still not lie: the
+        # old fallthrough did ``str(expr)``, which printed the Python dataclass
+        # repr straight into the Java source —
+        # ``WS_A = Math.abs(IntrinsicCall(name='**', arguments='2 ** 3'));`` —
+        # malformed output that happened to fail closed only because `javac`
+        # could not parse a repr.  Emit an unmistakable, deliberately undefined
+        # symbol instead: the statement keeps a valid Java expression shape and
+        # `javac` reports the construct by name, so no wrong value can ever be
+        # produced silently.
+        return JavaVariableRef(name=_intrinsic_fail_closed_symbol(expr.name))
+    if isinstance(expr, _cobol_ir.Expression):
+        # Any other Expression node has no branch above.  Stringifying it would
+        # silently put a Python repr into generated Java (the exact BL-018 /
+        # BL-023 defect class), so fail closed with a name that cannot resolve.
+        return JavaVariableRef(
+            name=f"UNSUPPORTED_EXPRESSION_{type(expr).__name__.upper()}"
+        )
     return map_cobol_expr_to_java(str(expr))
+
+
+def _intrinsic_fail_closed_symbol(name: str) -> str:
+    """Return a Java identifier that names an unmapped COBOL intrinsic.
+
+    The symbol is deliberately never declared, so any generated statement using
+    it fails to compile rather than executing a wrong value.  Non-alphanumerics
+    are folded to ``_`` (``**`` -> ``POWER`` is handled by the caller-supplied
+    alias, everything else is sanitised) so the result is always a legal
+    identifier.
+    """
+    alias = {"**": "POWER", "*": "TIMES", "/": "DIVIDE"}.get(name.strip())
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", name.strip()).strip("_").upper()
+    stem = alias or cleaned or "UNNAMED"
+    return f"UNSUPPORTED_INTRINSIC_{stem}"
 
 
 #: Marker wrapped around a figurative fill character in a substituted
