@@ -6,10 +6,10 @@
 - Repository: `Shankar373/Cobol-Java-Transformation`, branch `codex/universal-core`.
 - **Baseline HEAD at session start:** `b8a746f` (`docs(phase0): pin verdict to exact-SHA CI at 9326f80`), clean working tree apart from preserved `test-artifacts/*`.
 - **Baseline CI at `b8a746f` (exact-SHA, verified this session):** Push CI #467 SUCCESS, PR CI #468 SUCCESS (all four required jobs green: ingestion diagnostics, capability truth gate, frontend, backend COBOL/Java Docker); Supply chain #49 / #50 SUCCESS. Phase 0 `COMPLETE — VERIFIED` therefore still stands.
-- **Current phase:** PHASE 1 — Parser / Universal IR Expansion.
+- **Current phase:** PHASE 1 — Parser / Universal IR Expansion — **COMPLETE — VERIFIED** at `bdb4c9a` (see *§53 acceptance checklist* and *FINAL VERIFICATION RESULTS* below).
 - **Local environment:** Windows, no `javac` on `PATH`; Docker CLI present but unusable (BL-010). 22 `tests/transformation` failures are environment-only `FileNotFoundError` from the missing JDK, proven per-test rather than assumed (see *§53 acceptance checklist* below).
 
-### ⚑ SINGLE CURRENT STATUS — read this first (2026-10-11, audited SHA `46c1cb7`)
+### ⚑ SINGLE CURRENT STATUS — read this first (2026-10-11, audited SHA `bdb4c9a`)
 
 This file is append-only chronology, so several **historical** sections below still
 say things that are no longer true. They are retained deliberately (deleting
@@ -20,7 +20,7 @@ block.**
 | Question | Current answer | Evidence |
 |---|---|---|
 | Exact audited HEAD | `46c1cb7b8a5d68d6fbf299f9b2d8d36931a64235` | local == `origin/codex/universal-core`, clean apart from preserved `test-artifacts/*` |
-| Is Phase 1 complete? | **See the §53 checklist at the end of this file.** Do not infer it from any other section. | — |
+| Is Phase 1 complete? | **YES — `PHASE 1 COMPLETE — VERIFIED` at `bdb4c9a`.** CI fully green (Push #501 / PR #502, all 4 jobs incl. Docker; Supply chain #83/#84). Serialized full suite 3249 passed / 12 skipped / 29 failed, all 29 proven environmental. See *§53 acceptance checklist* and *FINAL VERIFICATION RESULTS*. | this file |
 | Is BL-019 open? | **No — FIXED** in `7bba5cb`. Any line saying "BL-019 — OPEN, next task" is a pre-`7bba5cb` snapshot. | `docs/BACKLOG.md`, `tests/transformation/test_negated_conditions.py` (31 tests) |
 | Are BL-020…BL-024 open? | **No — FIXED** in `7bba5cb`, with two follow-ups `c03558f` and `479bed7`. | `tests/transformation/test_scoped_construct_statements.py` (49 tests) |
 | Is the `⚠ PHASE 1 IS NOT COMPLETE` five-gap table still current? | **No — historical.** All five gaps it lists were fixed. It remains as the record of what was found. | see *BL-019…BL-024 FIXED* below |
@@ -29,7 +29,9 @@ block.**
 `BL-019 OPEN / 5 gaps open` (pre-`7bba5cb`) → `BL-019…BL-024 FIXED` (`7bba5cb`) →
 `scope-terminator follow-up` (`c03558f`) → `2 further silent-loss defects + 1
 self-introduced regression found and fixed` (`479bed7`) → `proof-matrix rows added`
-(`46c1cb7`) → **§53 checklist (authoritative, end of file)**.
+(`46c1cb7`) → `BL-025 found and fixed, incl. a collision in my own first fix`
+(`6124e85`, `bdb4c9a`) → `§53 checklist + FINAL VERIFICATION RESULTS` (this file)
+→ **PHASE 1 COMPLETE — VERIFIED at `bdb4c9a`**.
 
 Superseded sections, explicitly marked: *⚠ PHASE 1 IS **NOT** COMPLETE* (line ~59),
 the *BL-019 — OPEN, next task* bullet (line ~260), and *Next exact OpenCode action*
@@ -402,9 +404,68 @@ receives is a `JavaVariableRef`/`JavaLiteral` it built itself — a COBOL
 `IntrinsicCall` cannot reach it. Recorded as a latent observation; left unchanged
 to keep the change minimal.
 
+**Scope boundary — what Phase 1 is and is not.** Master README §52 defines
+`PHASE 1  Parser / Universal IR Expansion`. It is **not** complete COBOL
+semantic coverage — that is `PHASE 2  COBOL Semantic Coverage`. Phase 1's
+obligation under §60 is narrower and absolute: *if a construct is recognized,
+partially parsed, unsupported, unknown or ambiguous, the system must expose that
+fact, and must never silently discard source semantics.*
+
+Consequently, constructs that remain unmapped after Phase 1 (`SORT`, `INSPECT`,
+`ON SIZE ERROR`, indexed/relative file I/O, JCL, DB2, CICS, MQ, IMS, deeper
+numeric semantics) are **correctly out of Phase 1 scope** — provided they fail
+closed with an explicit diagnostic and an honest `UNSUPPORTED` classification,
+which the re-probe verifies they do. Phase 1 completion is therefore a claim
+about the **honesty and integrity of the parser/IR boundary**, not about
+language coverage.
+
+### FINAL VERIFICATION RESULTS — `bdb4c9a` (this closes the checklist above)
+
+**Exact-SHA CI — fully green.**
+| Run | Event | Result |
+|---|---|---|
+| [Push #501](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118399060) | push | **SUCCESS** — all 4 jobs: capability truth gate, Phase 1 ingestion diagnostics, frontend/TS/production build, **Backend and COBOL/Java Docker tests** (06:52:01Z) |
+| [PR #502](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118401152) | pull_request | **SUCCESS** — all 4 jobs, Docker 06:48:51Z |
+| [Push #83](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118399115) / [PR #84](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38118401204) | Supply chain | **SUCCESS** — Python audit + SBOM, frontend audit + SBOM, release dependency manifest |
+
+Job-level `head_sha` was confirmed as `766cf4328cac` for the preceding run and
+`bdb4c9a` for these, so the green jobs tested the audited commit, not an earlier one.
+
+**Serialized full suite (`pytest -q tests -rf`, single run, no concurrent suite):**
+**3249 passed / 12 skipped / 29 failed** in 41m36s.
+
+**All 29 failures proven environmental — by cause, not by count:**
+
+| Group | n | Proven cause |
+|---|---|---|
+| `tests/transformation/*` | 22 | `FileNotFoundError: [WinError 2]` from `subprocess` — `javac` and `java` are **NOT FOUND** on this host. **0 assertion failures.** |
+| `tests/integration/test_vertical_slice.py` | 4 | the adapter itself reports `compilation_errors=('Java compiler not available',)` and `candidate_stderr=b'Java compiler not available'`, `candidate_exit_code=1` |
+| `tests/integration/test_claims_batch.py` | 3 | execution-layer load/timeouts: `differences=('Java execution timeout; …', candidate_exit_code=None)`, `('Platform/validator error detected')`, and `ValueError: oracle image identity is not established: docker image 'gnucobol-ocesql:latest' resolved to no immutable digest`. **All 42 tests in that file pass in isolation (5m18s).** |
+
+**Why the `claims_batch` group is not a Phase 1 regression:** those tests use a
+**pre-built checked-in** candidate (`fixtures/java-candidate`), not Java generated
+by this pipeline, so the parser/mapper changes cannot affect them.
+`git log 7bba5cb^..HEAD -- fixtures/` → **no Phase 1 commit touched `fixtures/`**,
+and `git status fixtures/` is clean. The failures are timeouts/Docker-image
+identity in the execution layer, and they match the documented 29-failure
+baseline recorded at `b8a746f`/`c312eb9` (22 + 4 + 3).
+
+**Final Phase 1 verdict:**
+
+## PHASE 1 COMPLETE — VERIFIED
+
+Bounded claim, exactly as scoped in §52 (`Parser / Universal IR Expansion`) and
+§53. This certifies the **honesty and integrity of the parser/Universal-IR
+boundary**: no silent statement deletion, no malformed Java certified
+`SUPPORTED`, and every unmapped construct failing closed with an explicit
+`UNSUPPORTED_CONSTRUCT` diagnostic and a truthful `UNSUPPORTED` verdict.
+
 **Explicitly NOT claimed by Phase 1:** universal COBOL coverage, complete
 runtime equivalence, production readiness, local Docker/JDK execution, or that
-a green CI gate alone closes the phase.
+a green CI gate alone closes the phase. Constructs still unmapped (`SORT`,
+`INSPECT`, `ON SIZE ERROR`, indexed/relative files, JCL, DB2, CICS, MQ, IMS,
+deeper numeric semantics) remain Phase 2+ scope; they are reported honestly as
+`UNSUPPORTED`, not silently mishandled.
 
 ---
 

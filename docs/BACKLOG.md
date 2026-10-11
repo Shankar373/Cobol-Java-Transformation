@@ -248,18 +248,60 @@ produced evidence, not re-run here).
   would destroy provenance.
 - **Verification level:** VERIFIED by static read of all ten files.
 
-### BL-010 — Docker-dependent validation blocked on this host
+### BL-010 — Local Windows validation limits (no host JDK; Docker-in-Docker blocked)
 - **Type:** operations/environment
-- **Status:** BLOCKED (environment)
-- **Observed behavior:** The Windows/WSL2 Docker bind-mount and cgroup issue prevents
-  Docker-in-Docker binding on this workstation. Java/Node are also absent locally.
-- **Expected behavior:** Master README Sections 34/50 — Docker is authoritative and
-  fresh E2E must run; blocked Docker validation must use the Linux CI environment.
-- **Impact:** Docker-backed backend/oracle/fresh-E2E gates cannot be re-run locally.
-- **Remediation:** Do not retry Docker-in-Docker or change WSL2/kernel/cgroup/Docker
-  security settings (explicit instruction). Run Python-only regression locally and
-  rely on Linux CI for Docker-dependent validation.
-- **Verification level:** environment-observed.
+- **Status:** BLOCKED (environment) — re-documented 2026-10-11 at `bdb4c9a`
+- **Observed behavior (accurate as of `bdb4c9a`, corrected from the earlier
+  "Docker unusable" wording):**
+  * **No JDK on the Windows host PATH.** `javac`/`java` are absent, so every
+    test that shells out to the host compiler fails with
+    `FileNotFoundError: [WinError 2]` — at HEAD that is exactly **22**
+    `tests/transformation/*` tests plus **4** `tests/integration/test_vertical_slice.py`
+    tests (which report `'Java compiler not available'`,
+    `use_docker_java=False`). This is a missing-toolchain failure, never an
+    assertion failure.
+  * **Docker Desktop (WSL2) is running and container execution works
+    locally.** During this audit Docker containers were observed executing on
+    this host (`javac-*` containers from
+    `engine/candidate/docker_java_adapter.py`, `maven-*` containers from the
+    offline Spring Boot builder); `gnucobol-ocesql`, `maven-offline-springboot`
+    and `eclipse-temurin:21-jdk` images are present with RepoDigests; and in
+    the HEAD full-suite run the three `tests/integration/test_forensic_evidence.py`
+    tests **passed locally**. The earlier blanket statement that local
+    Docker-backed gates "cannot be re-run" is therefore **too strong** and has
+    been corrected.
+  * **Docker-in-Docker binding is still blocked** (`systemaops-dind`) and was
+    **not** retried — the standing instruction forbids Docker-in-Docker retries
+    and any WSL2/kernel/cgroup/Docker security change.
+  * **Two local-Docker failure modes observed at HEAD, both only under
+    concurrency:** (a) `oracle image identity is not established: docker image
+    'gnucobol-ocesql:latest' resolved to no immutable digest` when a second
+    process is rebuilding/retagging the image at the same moment; (b) `Java
+    execution timeout` in the candidate adapter when two full suites compete
+    for the Docker daemon. Both disappear when suites are serialized, which is
+    why the "serialize full-suite runs" rule in `opencode.md` is mandatory and
+    not advisory.
+- **New local Linux lane (verified 2026-10-11):** the prepared
+  `systemaops-audit` container (Ubuntu, `javac`/`java` 21.0.12, Python 3.12,
+  host Docker socket bind-mounted, repo available at `/repo`) can execute the
+  host-JDK-dependent tests locally. Run against a copy of the tree at
+  `bdb4c9a`: the **11 javac-dependent transformation files pass — 71 passed,
+  4 skipped** (all 4 skips are the deliberate `RUN_DOCKER_TESTS` gate), i.e.
+  the exact 22 host failures are proven missing-JDK, not defects.
+- **Expected behavior:** Master README Sections 34/50 — Docker is authoritative
+  and fresh E2E must run; blocked Docker validation must use the Linux CI
+  environment.
+- **Impact:** host-JDK-dependent local evidence comes from the audit container
+  or from Linux CI, never from the Windows PATH. Docker-dependent
+  oracle/candidate/fresh-E2E gates are validated by exact-SHA Linux CI
+  (Push #501 / PR #502 at `bdb4c9a`), with local Docker execution usable but
+  not authoritative.
+- **Remediation:** Do not retry Docker-in-Docker or change
+  WSL2/kernel/cgroup/Docker security settings (explicit instruction). Serialize
+  full-suite runs. Use the audit container for host-JDK-dependent checks and
+  Linux CI for Docker-dependent validation.
+- **Verification level:** environment-observed + verified by execution
+  (container run above); **Last verified commit:** `bdb4c9a`.
 
 ---
 
@@ -519,8 +561,20 @@ produced evidence, not re-run here).
 
 ### BL-025 — generator leaks a Python dataclass repr into Java for unmapped expressions
 - **Type:** defect (malformed generated output / fail-open fallthrough)
-- **Status:** FIXED - 2026-10-11 (`see remediation below`) - explicit
+- **Priority:** P2 — important quality-gate / correctness-hardening gap.
+  Rationale: the *capability verdict was already honest* (BL-023/BL-024 raise
+  `UNSUPPORTED_CONSTRUCT` and classify `UNSUPPORTED`), so no silent semantic loss
+  and no wrong runtime value was possible; impact was bounded to malformed
+  output. It is **not** P0 because P0 requires incorrect business semantics, a
+  false VERIFIED/certification, or data-loss risk, none of which applied.
+  It is **not** P3 because a fail-open code-generation fallthrough undermines the
+  required fail-closed behavior (§70) and would recur for every future
+  expression node.
+- **Severity:** medium — bounded by an already-correct verdict, but systemic in
+  the mapper layer.
+- **Status:** FIXED - 2026-10-11 (`6124e85` + collision hardening) - explicit
   fail-closed symbol replaces the `str(expr)` fallthrough
+- **Last verified commit:** `bdb4c9a`
 - **Found by:** the Phase 1 completion audit's fresh semantic-loss re-probe at
   `46c1cb7`, **not by CI and not by any test** — the same discovery mode as every
   other Phase 1 defect.
@@ -586,6 +640,95 @@ produced evidence, not re-run here).
   fail-open fallthrough would otherwise remain latent.
 - **Verification level:** STATIC + reproduced locally.
 
+### BL-026 — `GO TO` is lowered to a comment with no diagnostic (verdict is honest)
+- **Type:** defect (diagnostic completeness / no-diagnostic unmapped statement)
+- **Priority:** P2 — important hardening gap, not a trust defect.
+  Rationale: the capability verdict is already honest — the registry key
+  `GO TO` is UNSUPPORTED with a source pattern, real `ApplicationDiscovery`
+  classifies a `GO TO` program **UNSUPPORTED**, and the planner then blocks it
+  (`BlockingReason.UNSUPPORTED_CONSTRUCT`), so no false certification and no
+  wrong runtime value is reachable through the platform. It is **not** P0/P1
+  because no business semantics, verdict or trust boundary is violated. It is
+  **not** P3 because §16 requires recognized-but-untransformable constructs to
+  produce explicit diagnostics, and `SORT`/`INSPECT` in the same position do
+  — `GO TO` alone is silently commented out.
+- **Severity:** low-medium — bounded by an already-correct UNSUPPORTED verdict
+  and the planner's blocking path.
+- **Status:** **OPEN** — 2026-10-11 (found by this closure audit's fresh
+  semantic re-probe at `bdb4c9a`; not found by CI or by any pre-existing test).
+- **Last verified commit:** `bdb4c9a`.
+- **Found by:** the BL-018…BL-025 re-probe, run in the Linux JDK audit
+  container (`systemaops-audit`, javac 21) so that generated Java could be
+  compiled rather than only inspected. 20/21 Part-1 cases were correct; the
+  single failure was `GO TO` producing no diagnostic.
+- **Observed behavior (verified, not assumed):** a program whose only
+  executable statement is `GO TO MAIN-PARA` yields **zero diagnostics**; the
+  mapper emits `JavaComment(text="// GO TO MAIN-PARA")`
+  (`engine/transformation/cobol_to_java_mapping.py` ~L1777) and the generator
+  emits `// GO TO MAIN-PARA (not implemented)`
+  (`engine/transformation/java_generator.py` ~L1833). The executable jump is
+  dropped from the generated program with no diagnostic, while `SORT` and
+  `INSPECT` in the same position both raise `UNSUPPORTED_CONSTRUCT`.
+- **Expected behavior:** Master README §16 ("Recognized-but-unparsed
+  constructs must never disappear silently. They must produce explicit
+  diagnostics") and §60 — an executable statement that cannot be transformed
+  must be named in a diagnostic, not only marked by a comment in the emitted
+  file.
+- **Affected files:** `engine/transformation/cobol_to_java_mapping.py`
+  (`map_cobol_statement` GO TO branch), `engine/transformation/java_generator.py`
+  (GO TO rendering).
+- **Impact:** bounded. Verified through the production path: a `GO TO`-only
+  program classifies **UNSUPPORTED**, so §14/§15 fail-closed behavior holds.
+  The gap is diagnostic completeness and consistency with the `SORT`/`INSPECT`
+  precedent, not a false verdict. Consumers that read only diagnostics (rather
+  than the capability report) would not learn that control flow was dropped.
+- **Remediation (NOT yet implemented — deliberately deferred, see reason):**
+  raise `UNSUPPORTED_CONSTRUCT` for a `GoToStatement` through the same
+  diagnostic channel `SORT`/`INSPECT` use, keep the comment for traceability,
+  and leave the verdict unchanged (already UNSUPPORTED). No mapper output and
+  no registry level change.
+- **Acceptance criteria:** (1) a program containing `GO TO` produces an
+  explicit diagnostic naming `GO TO`; (2) its capability verdict remains
+  UNSUPPORTED and the planner still blocks it; (3) the generated comment
+  remains; (4) focused positive/negative tests are added to the fast
+  `capability-truth` gate; (5) no existing test is weakened or skipped.
+- **Verification level:** VERIFIED by direct probing (parser diagnostics,
+  generated Java, and real-discovery verdict all observed at `bdb4c9a`).
+- **Owner/role:** semantic transformation maintainer. **Target phase:**
+  Phase 2 (parser/IR diagnostic completeness). **Dependency:** the existing
+  `UNSUPPORTED_CONSTRUCT` diagnostic channel. **Residual risk:** until fixed,
+  `GO TO`-bearing programs are blocked by capability classification but carry
+  no parser/mapper-level diagnostic.
+- **Why not fixed in this closure:** any change to
+  `engine/transformation/cobol_to_java_mapping.py` requires a re-run of the
+  serialized full suite to prove no regression; the Phase 1 verdict does not
+  depend on this item (classification and blocking are already correct), so it
+  is carried forward with explicit acceptance criteria instead of being folded
+  into a green phase at the last moment.
+
+### Backlog metadata note (documentation gap, P2)
+
+Master README §77 asks each item to carry "priority and severity with
+rationale". **BL-001…BL-024 do not record an explicit priority/severity field** —
+a pre-existing gap in this document, not something introduced by the Phase 1
+work. BL-025 and BL-026 are the first entries to carry it. The gap is recorded
+here rather
+than papered over: retro-fitting priority to 24 historical items without
+re-assessing each one would fabricate precision that was never established.
+Target: Phase 12 documentation pass.
+
+A second, smaller gap (same pass target): the short documentation/process
+entries (**BL-006, BL-007**) carry only type, status, observed behaviour and
+remediation in their own sections — root cause, affected files, verification
+level and evidence location are either n/a or live only in the carry-forward
+register below. Everything else claimed here is verified: the §53.10 required
+set (backlog ID, owner/role, target phase, dependency, reason, residual risk,
+acceptance criteria) is present for **26/26** items in the register, and the
+defect entries (BL-001…BL-005, BL-008…BL-010, BL-018…BL-026) each carry type,
+observed/expected behaviour, root cause or explicit premise correction,
+affected files, impact, remediation, acceptance criteria/tests, verification
+level and evidence location.
+
 ### BL-019 — `NOT` in conditions is mangled into non-compiling Java
 - **Type:** defect (silent semantic loss)
 - **Status:** FIXED - 2026-10-11 (`7bba5cb`) - negated relational folded into the operator
@@ -638,6 +781,25 @@ produced evidence, not re-run here).
 ---
 
 ## Backlog change log
+
+- 2026-10-11 — **Phase 1 closure audit at `bdb4c9a` (documentation only).**
+  (a) **BL-026 filed OPEN**: the fresh semantic re-probe (run in the Linux JDK
+  audit container so generated Java could actually be compiled) showed `GO TO`
+  is lowered to a comment with **no diagnostic**, unlike `SORT`/`INSPECT`,
+  while its capability verdict is honestly UNSUPPORTED and the planner blocks
+  it. Recorded with priority/severity rationale and acceptance criteria;
+  deliberately **not** fixed in this closure because the Phase 1 verdict does
+  not depend on it and any mapper change would require a fresh serialized
+  full-suite run. (b) **BL-010 re-documented**: "Docker unusable" was too
+  strong — the WSL2 Docker daemon runs and containers execute locally
+  (Docker-in-Docker is still blocked and was not retried); the 22 host
+  `javac` failures are proven missing-JDK by running the exact 11 files in
+  the audit container (71 passed / 4 skips are the `RUN_DOCKER_TESTS` gate).
+  Two local-Docker failure modes were observed **only under concurrent full
+  suites** (oracle-digest resolution, Java execution timeout), which is why
+  serialization is mandatory. (c) The `### BL-019` section heading, which the
+  earlier BL-025 metadata insertion had overwritten, was **restored** — the
+  note itself was kept and narrowed to what is actually verifiable.
 
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
@@ -757,6 +919,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-023 | Numeric semantics maintainer | Phase 1 (closed) | `_build_expression` operator table; Master README §18 | `**` parsed as two `*` operators, producing an empty-named operand. | Silent wrong numeric result in a P0 risk area. | `**` is one operator or fails closed with a diagnostic; tests assert both behaviours. |
 | BL-024 | Parser / IR maintainer | Phase 1 (closed) | `_build_expression`; same defect class as BL-018 | Intrinsic `FUNCTION MIN(...)` falls through to an impossible field reference. | Undeclared Java identifier, exactly the BL-018 pattern; unproven intrinsics must never be silently field references. | `FUNCTION` prefix recognised and either mapped for the certified subset or diagnosed; never a bare field reference. |
 | BL-025 | Transformation / code-generation maintainer | Phase 1 (closed) | `_map_cobol_expression_to_java` fallthrough; new `_intrinsic_fail_closed_symbol`; Master README §16/§17/§60 | Unmapped expressions must fail closed deliberately, never by emitting implementation artefacts into generated Java. | The `str(expr)` fallthrough stringified any unhandled `Expression` into Java (`WS_A = Math.abs(IntrinsicCall(name='**', ...))`) and is fail-open for any future node — the BL-018/BL-023 defect class in a different layer. Verdict was already UNSUPPORTED, so impact is bounded to malformed output, not a wrong value. | `IntrinsicCall` maps to a deliberately undefined symbol naming the construct; the fallthrough maps unknown `Expression` nodes to `UNSUPPORTED_EXPRESSION_<NODE>`; tests assert no repr leaks, the symbol is never declared, and supported `COMPUTE` is unaffected. Evidence: `tests/transformation/test_scoped_construct_statements.py`. |
+| BL-026 | Semantic transformation maintainer | Phase 2 | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | A program containing `GO TO` raises an explicit diagnostic naming `GO TO`; the verdict stays UNSUPPORTED and the planner still blocks; the traceability comment remains; focused tests are added to the fast `capability-truth` gate; no existing test weakened. Evidence basis: semantic re-probe at `bdb4c9a` (Linux JDK audit container). |
 
 ### PR disposition snapshot — 2026-10-10
 
