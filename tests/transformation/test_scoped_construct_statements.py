@@ -36,12 +36,17 @@ import pytest
 from engine.modernization.capability_analyzer import CapabilityAnalyzer
 from engine.transformation import ir as irmod
 from engine.transformation.application_discovery import ApplicationDiscovery
-from engine.transformation.cobol_parser import CobolParser
+from engine.transformation.cobol_parser import (
+    CobolParser,
+    _split_statements_on_dashes,
+)
 from engine.transformation.java_generator import JavaGenerator
 
 WORKING_STORAGE = (
     "       01 WS-A PIC 9(4).\n"
     "       01 WS-B PIC 9(4).\n"
+    "       01 WS-C PIC X(10).\n"
+    "       01 WS-MOVE-CODE PIC X(4).\n"
 )
 
 
@@ -181,6 +186,112 @@ class TestInlineWhenBodyIsPreserved:
         nested = stmt.else_body[0]
         assert isinstance(nested, irmod.IfStatement)
         assert len(nested.then_body) == 1
+
+
+class TestNestedAndElseInline:
+    """Nested scopes and inline `ELSE` share the same boundary logic."""
+
+    @pytest.mark.parametrize(
+        "fragment",
+        [
+            "MOVE 1 TO WS-B MOVE 2 TO WS-B",
+            'IF WS-A > 1 IF WS-B > 2 DISPLAY "N" END-IF END-IF',
+            'IF WS-A > 1 IF WS-B > 2 DISPLAY "N" END-IF',
+            'IF WS-A > 1 DISPLAY "X" END-IF DISPLAY "Y"',
+            'DISPLAY "A" MOVE WS-B TO WS-C',
+            'EVALUATE WS-A WHEN 1 DISPLAY "Z" END-EVALUATE DISPLAY "Q"',
+            'PERFORM 3 TIMES MOVE 1 TO WS-B END-PERFORM',
+        ],
+    )
+    def test_split_is_lossless(self, fragment):
+        """Splitting must never discard source text.
+
+        The first version of the scope-aware splitter dropped everything
+        before the first verb, silently losing statements. This asserts the
+        property directly: concatenating the parts reproduces the input.
+        """
+        parts = _split_statements_on_dashes(fragment)
+        assert "".join("".join(parts).split()) == "".join(fragment.split()), parts
+
+    def test_scope_opening_verb_owns_through_its_terminator(self):
+        parts = _split_statements_on_dashes(
+            'IF WS-A > 1 DISPLAY "X" END-IF DISPLAY "Y"'
+        )
+        assert len(parts) == 2, parts
+        assert parts[0].strip().endswith("END-IF"), parts
+        assert parts[1].strip() == 'DISPLAY "Y"', parts
+
+    def test_two_inline_statements_are_both_kept(self):
+        # A plain (non scope-opening) statement ends at the next verb, so two
+        # inline statements must yield two IR nodes, not one.
+        stmt = _first_statement(_program(
+            "IF WS-A > 1 MOVE 1 TO WS-B MOVE 2 TO WS-B END-IF",
+        ))
+        moves = [s for s in stmt.then_body if isinstance(s, irmod.MoveStatement)]
+        assert len(moves) == 2, [type(s).__name__ for s in stmt.then_body]
+
+    def test_inline_all_and_figurative_survive_the_boundary(self):
+        code = _generate(_program('IF WS-A > 1 MOVE ALL "*" TO WS-C END-IF'))
+        assert 'String.format("%-10s", "*")' in code, code
+        code_zero = _generate(_program("IF WS-A > 1 MOVE ZERO TO WS-B END-IF"))
+        assert "WS_B = 0;" in code_zero, code_zero
+
+    def test_hyphenated_field_containing_a_verb_is_not_a_boundary(self):
+        stmt = _first_statement(_program(
+            'IF WS-MOVE-CODE > "A" DISPLAY "H" END-IF',
+        ))
+        assert stmt.condition == 'WS-MOVE-CODE > "A"', stmt.condition
+        assert len(stmt.then_body) == 1
+
+    def test_nested_inline_if_keeps_its_own_body(self):
+        # A scope-opening verb owns everything up to its matching terminator,
+        # so the inner DISPLAY belongs to the nested IF, not to a sibling.
+        stmt = _first_statement(_program(
+            'IF WS-A > 1 IF WS-B > 2 DISPLAY "N" END-IF END-IF',
+        ))
+        assert isinstance(stmt, irmod.IfStatement)
+        inner = stmt.then_body[0]
+        assert isinstance(inner, irmod.IfStatement)
+        assert inner.condition == "WS-B > 2", inner.condition
+        assert len(inner.then_body) == 1, [type(s).__name__ for s in inner.then_body]
+
+    def test_nested_inline_if_generates_compiling_java(self):
+        code = _generate(_program('IF WS-A > 1 IF WS-B > 2 DISPLAY "N" END-IF END-IF'))
+        assert "END_IF" not in code, code
+        assert 'println("N")' in code, code
+        assert "if (WS_A > 1)" in code and "if (WS_B > 2)" in code, code
+
+    def test_inline_else_statement_is_preserved(self):
+        # `ELSE MOVE 9 TO WS-B` used to be skipped along with the whole line.
+        stmt = _first_statement(_program(
+            "IF WS-A > 1",
+            '    DISPLAY "T"',
+            "ELSE MOVE 9 TO WS-B",
+            "END-IF",
+        ))
+        assert isinstance(stmt, irmod.IfStatement)
+        assert any(isinstance(s, irmod.MoveStatement) for s in stmt.else_body), [
+            type(s).__name__ for s in stmt.else_body
+        ]
+
+    def test_inline_else_generates_an_else_branch(self):
+        code = _generate(_program(
+            "IF WS-A > 1",
+            '    DISPLAY "T"',
+            "ELSE MOVE 9 TO WS-B",
+            "END-IF",
+        ))
+        assert "} else {" in code, code
+        assert "WS_B = 9;" in code, code
+
+    def test_inline_else_display_is_not_lost(self):
+        code = _generate(_program(
+            "IF WS-A > 1",
+            '    DISPLAY "T"',
+            'ELSE DISPLAY "F"',
+            "END-IF",
+        ))
+        assert 'println("T")' in code and 'println("F")' in code, code
 
 
 class TestInlineIfBodyIsPreserved:

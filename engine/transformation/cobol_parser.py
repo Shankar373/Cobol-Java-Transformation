@@ -166,10 +166,49 @@ def _split_statements_on_dashes(text: str) -> list[str]:
     matches = list(_re_inline_statement.finditer(masked))
     if not matches:
         return [text]
-    parts = [text[: matches[0].start()]]
-    for idx, match in enumerate(matches):
-        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        parts.append(text[match.start(): end])
+
+    # A verb that OPENS A SCOPE owns everything up to its matching terminator,
+    # so verbs inside that span belong to the nested statement, not to a new
+    # sibling.  Without this, `IF B > 2 DISPLAY "N" END-IF` was split into
+    # `IF B > 2` and `DISPLAY "N" END-IF`, leaving the nested IF with an empty
+    # body and the remainder as siblings.
+    scope_opens = {
+        "IF": "END-IF", "PERFORM": "END-PERFORM", "EVALUATE": "END-EVALUATE",
+        "STRING": "END-STRING", "UNSTRING": "END-UNSTRING",
+        "READ": "END-READ", "WRITE": "END-WRITE",
+    }
+    parts: list[str] = []
+    cursor = 0
+    while matches:
+        match = matches[0]
+        verb = match.group(0).upper()
+        terminator = scope_opens.get(verb)
+        if terminator is None:
+            # A plain statement: it runs until the next verb.
+            end = matches[1].start() if len(matches) > 1 else len(text)
+            parts.append(text[match.start(): end])
+            cursor = end
+            matches = [m for m in matches if m.start() >= end]
+            continue
+        # A scope-opening statement: it owns everything through its matching
+        # terminator, including any verbs inside that span.
+        depth = 1
+        scan = match.end()
+        closer = re.compile(
+            re.escape(verb) + r"\b|" + re.escape(terminator) + r"\b",
+            re.IGNORECASE,
+        )
+        while depth > 0:
+            nxt = closer.search(masked, scan)
+            if nxt is None:
+                scan = len(text)
+                break
+            depth += 1 if nxt.group(0).upper() == verb else -1
+            scan = nxt.end()
+        parts.append(text[match.start(): scan])
+        cursor = scan
+        matches = [m for m in matches if m.start() >= scan]
+    parts.append(text[cursor:])
     return [p for p in parts if p.strip()]
 
 
@@ -1709,14 +1748,25 @@ class CobolParser:
             # (`IF A > 1 ADD 1 TO B END-IF`). It is structure, not an operand,
             # so it must not reach the statement parser: `ADD 1 TO B END-IF`
             # would otherwise produce `B = (B + END_IF)`.
-            terminator = re.search(
-                r"\s+END-(?:IF|EVALUATE|PERFORM|STRING|UNSTRING|READ|WRITE)\s*\.?\s*$",
+            #
+            # A statement that opens its OWN scope (`IF`, `PERFORM`,
+            # `EVALUATE`) consumes its own terminator in its parser, so it must
+            # NOT be stripped here.  Stripping it left the nested `IF` with an
+            # empty body and pushed the remainder out as sibling statements
+            # (`IF A > 1 IF B > 2 DISPLAY "N" END-IF END-IF`).
+            if not re.match(
+                r"(?:IF|PERFORM|EVALUATE|STRING|UNSTRING|READ|WRITE)\b",
                 fragment, re.IGNORECASE,
-            )
-            if terminator:
-                fragment = fragment[: terminator.start()].strip()
-                if not fragment:
-                    continue
+            ):
+                terminator = re.search(
+                    r"\s+END-(?:IF|EVALUATE|PERFORM|STRING|UNSTRING|READ|WRITE)"
+                    r"\s*\.?\s*$",
+                    fragment, re.IGNORECASE,
+                )
+                if terminator:
+                    fragment = fragment[: terminator.start()].strip()
+            if not fragment:
+                continue
             synthetic = [fragment]
             stmt, next_i = self._parse_statement(synthetic, 0)
             if stmt is not None and next_i >= len(synthetic):
@@ -1835,6 +1885,10 @@ class CobolParser:
         then_body: list[Any] = []
         else_body: list[Any] = []
         if inline_then:
+            # A nested scope-opening statement keeps its own terminator so it
+            # can close itself; `_parse_inline_statements` deliberately does
+            # not strip it.  This IF's own trailing END-IF was already removed
+            # above, so nothing else may be consumed here.
             inlined, unparsed = self._parse_inline_statements(inline_then)
             then_body.extend(inlined)
             for lost in unparsed:
@@ -1862,8 +1916,22 @@ class CobolParser:
                 break
 
             if u.startswith("ELSE"):
+                # `ELSE` may carry its statement inline
+                # (`ELSE MOVE 9 TO WS-B`).  Skipping the whole line dropped
+                # that statement with no diagnostic (BL-020 class).
+                after_else = u[len("ELSE"):].strip()
+                inline_else = after_else if after_else not in ("", "END-IF") else ""
                 current_section = "else"
                 i += 1
+                if inline_else and not re.match(r"^END-IF\b", inline_else, re.IGNORECASE):
+                    inlined, unparsed = self._parse_inline_statements(inline_else)
+                    else_body.extend(inlined)
+                    for lost in unparsed:
+                        self._diagnostics.warning(
+                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                            f"Inline ELSE statement did not parse into IR: {lost[:60]}",
+                            location="ELSE",
+                        )
                 continue
 
             if u.startswith("END-IF"):
