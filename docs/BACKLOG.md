@@ -181,6 +181,170 @@ produced evidence, not re-run here).
 
 ---
 
+### BL-031 — `COPY` statements inside copybooks are silently dropped during materialization (no recursion, no cycle detection)
+
+- **Type:** defect (no silent loss / capability truth)
+- **Priority:** P0 — phase-blocking. Rationale: Master README §54 lists
+  `capability truth drift` as a P0 risk and §53.9 forbids silent semantic
+  loss; this defect produced **generation `success=True`, plan `READY`,
+  capability `SUPPORTED`, zero diagnostics** while the emitted Java
+  referenced copybook fields that were never declared (javac cannot compile
+  it) — the exact BL-018/BL-030 defect shape (false green verdict over a
+  broken artifact) in the Phase 3 copybook lane.
+- **Severity:** high — every application whose copybooks themselves use
+  `COPY` (a standard mainframe pattern) silently loses the nested
+  declarations.
+- **Status:** **FIXED — 2026-10-12 (Phase 3 cycle, this session)** — see the
+  Phase 3 change-log entry (j) for the exact-SHA CI and full-suite evidence.
+- **Found by:** the Phase 3 §76 audit-first probes (`%TEMP%\opencode\phase3\probe_colocated.py`,
+  cases R2/R3, run 2026-10-12 against the real
+  discovery → capability → planner → `prepare_application_copybooks` →
+  `ApplicationGenerator.generate` path).
+- **Observed behavior (verified, not assumed):** `OUTER.cpy`
+  (`01 OUTER-FIELD …` + `COPY INNER.`) with `INNER.cpy` present next to it:
+  discovery records only `OUTER` (`INNER` never enters `app.copybooks`, the
+  edge list, capability or the plan); `parse_data_description_lines` ignores
+  the nested `COPY` line by design, so the merged program IR contains only
+  `OUTER-FIELD`; `ApplicationGenerator.generate` returns **`success=True`**
+  with no errors; the emitted `Nestmain.java` references `INNER_FIELD` with
+  **no declaration** (`static String OUTER_FIELD = …` only) — non-compiling
+  Java; plan status `READY`, `blocking_summary=["No blocking issues
+  identified"]`, `COPYBOOK:OUTER` `SUPPORTED`. Three-level nesting behaves
+  the same (only the top level materializes). A **cyclic** pair
+  (`CICA.cpy` ⇄ `CICB.cpy`) and a **self-copying** copybook are not detected
+  at all: same silent drop, same `READY`/`success=True`. A `COPY` inside a
+  `01` group is dropped along with its position in the hierarchy.
+- **Expected behavior:** Master README §16/§60 (recognized constructs must
+  never disappear silently; they must produce explicit diagnostics),
+  §53.9 (no silent semantic loss remains), §14/§15 (fail-closed), and the
+  Phase 3 requirement that copybook missing/cyclic handling is explicit —
+  a nested dependency must either be materialized or fail generation with a
+  diagnostic naming it.
+- **Root cause:** `copybook_model.parse_copybook` fed raw copybook text
+  straight to `CobolParser.parse_data_description_lines`, which deliberately
+  ignores non-data lines — so a nested `COPY` statement was invisible at
+  parse time; `prepare_application_copybooks` resolved only unit-level COPY
+  references and had no recursion, no cycle scope and no diagnostic channel
+  for copybook-internal COPY statements.
+- **Affected files:** `engine/transformation/copybook_model.py` (new
+  `_mask_comments`/`_find_copy_statements`/`_expand_copybook_text`/
+  `_strip_sequence_numbers`/`_parse_copybook_expanded`; the `models` loop
+  in `prepare_application_copybooks` now parses via the expanded path),
+  `tests/test_nested_copybook_materialization.py` (new, 12 tests),
+  `.github/workflows/ci.yml` (capability-truth gate selection).
+- **Impact:** silent loss of nested declarations plus non-compiling Java
+  under a green verdict — a §53.9/§60 counterexample reachable through the
+  supported generation path.
+- **Remediation (implemented, deterministic, no LLM):** before data parsing,
+  copybook text is expanded **in memory only**: fixed-format (6-column
+  sequence number) lines are normalized at read time exactly as
+  `CobolParser.parse` normalizes program source (so sequence-numbered data
+  entries and `*`/`/` indicator comment lines are handled identically);
+  COPY statements are located
+  comment-masked and statement-position-guarded (a `COPY` inside a VALUE
+  literal or a data-name is never a dependency), the statement's span runs to
+  its terminating period (so a `REPLACING` clause is consumed with it, not
+  spliced as data), and the target is resolved with the existing
+  `copybook_resolver` against the same search directories the generation
+  lane uses. The target's expanded text replaces the statement **at the
+  statement's own position**, preserving group hierarchy and sibling order.
+  Missing (`COPYBOOK_UNRESOLVED`, message names the parent copybook),
+  ambiguous (`COPYBOOK_AMBIGUOUS`), unreadable (`COPYBOOK_UNREADABLE`) and
+  cyclic/self (`COPYBOOK_CYCLE`, message is the full `A -> B -> A` chain)
+  nested targets append `ERROR` diagnostics, which fail generation through
+  the existing `CopybookPreparation.has_errors` contract — never silently
+  dropped, never expanded twice, never recursed without bound (cycle scope
+  is the ancestor chain of the current path, so diamonds remain legal).
+  Sources on disk are read only — the no-rewrite/no-concatenation contract
+  is unchanged.
+- **Acceptance criteria / tests:**
+  `tests/test_nested_copybook_materialization.py` (12 tests, dependency-free,
+  wired into the `ci.yml` capability-truth gate): nested + three-level
+  nesting materialized in program IR **and declared in the generated Java**;
+  position inside a group preserved (`O-A, I-MID, O-B`); missing nested
+  target fails generation with a diagnostic naming the parent copybook;
+  cyclic and self copybooks fail closed with `Cyclic COPY reference` and
+  terminate; a comment-line `COPY` inside a copybook is never expanded;
+  copybook sources are byte-identical after materialization; plus three
+  format-robustness cases: fixed-format (6-column sequence number) copybook
+  lines still expand (normalization mirrors `CobolParser.parse`), a `*>`
+  inside a VALUE literal is data (quote-aware masking, the COPY after it
+  still expands), and a `COPY` token inside a VALUE literal is never a
+  dependency. No existing test weakened or skipped.
+- **Evidence (defect proven first):** pre-fix the original 9 contract tests
+  ran **7 failed / 2 passed**
+  (`%TEMP%\opencode\phase3\bl031_pre_fix_red.txt`);
+  the audit probes above captured the pre-fix green-verdict/broken-output
+  facts. Post-fix: **12 passed**
+  (`%TEMP%\opencode\phase3\bl031_post_fix_green.txt`); focused copybook
+  suites `test_copybook_m7.py` + `test_copybook_integration_m7.py` +
+  `test_application_generator_p0.py` + `test_r11_discovery_robustness.py`
+  → **56 passed**; `test_phase_d_negative_integration.py` → **26 passed**;
+  capability-truth gate → **334 passed** (322 + 12 new); ingestion gate →
+  3 passed. Serialized full suite and exact-SHA CI: see change-log entry (j).
+- **Owner/role:** copybook materialization maintainer (transformation lane).
+  **Target phase:** Phase 3 (fixed in-cycle). **Dependency:** existing
+  `copybook_resolver` resolution/ambiguity semantics and the
+  `CopybookPreparation.has_errors` fail-closed contract. **Residual risk:**
+  the capability analyzer still scans only the top-level copybook file
+  (constructs inside nested copybooks are unclassified — filed **BL-039**);
+  discovery still records no nested COPY edge, so a missing nested target is
+  diagnosed at generation rather than at plan time (family **BL-033**);
+  `REPLACING` operands are consumed but not applied (**BL-032**); nested
+  resolution shares the generation lane's flat search directories
+  (**BL-035**).
+
+### BL-032 — `COPY … REPLACING` operands are silently ignored (wrong/empty declarations under a green verdict)
+
+- **Type:** defect (silent loss / capability truth)
+- **Priority:** P0 — same shape as BL-031: generation reports
+  `success=True`, plan `READY`, capability `SUPPORTED`, zero diagnostics,
+  while the replacement never happens. Found in the same Phase 3 probe round
+  (`probe_colocated.py` case R1).
+- **Severity:** high — `COPY X REPLACING ==&TAG-NAME== BY ==WS-NAME== …` is
+  the standard mechanism for parameterized copybooks.
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward**
+  (see change-log entry (j)). Not implemented this cycle: implementing the
+  replacement operand grammar is a separate, larger bounded change than the
+  BL-031 expansion and §3 allows one gap per cycle.
+- **Observed behavior (verified):** `REPL.cpy`
+  (`01 &WS-NAME PIC X(&WS-LEN).`) copied with
+  `COPY REPL REPLACING ==&WS-NAME== BY ==WS-TOKEN== ==&WS-LEN== BY ==8==.`:
+  the merged program's working storage is **empty** (pseudo-text names are
+  not valid data-names, so the entry does not parse), generation returns
+  **`success=True`**, and `Rmain.java` references an undeclared `WS_TOKEN`
+  while `ReplRecord.java` is an **empty** model class. `REPL` is
+  `RESOLVED`, `COPYBOOK:REPL` `SUPPORTED`, plan `READY`.
+- **Expected behavior:** Master README §55 lists `COPY/REPLACE` as a
+  required enterprise capability; §60 requires that partially-recognized
+  constructs expose the fact instead of silently discarding semantics; §14/§15
+  require fail-closed behavior for anything not actually applied.
+- **Affected files:** `engine/transformation/copybook_model.py`
+  (expansion reads the statement span but discards the clause),
+  `engine/transformation/copybook_resolver.py` (target-only resolution),
+  `engine/modernization/capability_analyzer.py` (scan sees raw `&` text).
+- **Impact:** wrong (empty or unsubstituted) declarations reach generated
+  Java under a green verdict; javac fails, or — for a tag that happens to
+  parse — the wrong field name is silently emitted.
+- **Remediation (planned):** parse the `REPLACING` clause operands
+  (pseudo-text `==…==` pairs, multiple pairs, line continuation), substitute
+  into the copybook text before data parsing, and **fail closed with an
+  explicit diagnostic** for phrase forms not implemented
+  (`PARTIAL`/`LEADING`/`TRAILING`/`+`/`-` prefixes); capability must
+  classify a copybook whose REPLACING is unapplied as non-SUPPORTED.
+- **Acceptance criteria:** (1) supported operand forms substitute before
+  parsing and the declared field names appear in generated Java; (2)
+  unsupported phrase forms raise an explicit diagnostic naming `REPLACING`
+  and fail generation; (3) capability no longer reports `SUPPORTED` for an
+  unapplied REPLACING; (4) focused tests join the capability-truth gate;
+  (5) no existing test weakened.
+- **Owner/role:** copybook materialization maintainer. **Target phase:**
+  Phase 3. **Dependency:** BL-031's statement scanner (already locates the
+  full clause span — implemented). **Residual risk:** until fixed,
+  parameterized copybooks generate non-compiling Java under `success=True`.
+
+
+
 ## P1 — required workflow / operational gaps
 
 ### BL-006 — No central defect/gap backlog existed
@@ -309,7 +473,167 @@ produced evidence, not re-run here).
 
 ---
 
-## P2 — coverage, quality, documentation
+### BL-033 — An unresolvable or ambiguous COPYBOOK classifies `SUPPORTED` and the plan says `READY` while generation deterministically fails
+
+- **Type:** defect (capability truth / planning semantics)
+- **Priority:** P1 — major planning/capability failure. Not P0 because no
+  wrong artifact is produced: generation itself fails closed with explicit
+  `COPYBOOK_UNRESOLVED` errors and the central proof status stays
+  NOT_VERIFIED (the Phase-D negative contracts still hold). P1 because the
+  capability graph and the plan — the documents a consumer acts on —
+  positively assert the opposite of what the same run's generation does.
+- **Severity:** medium-high — §54 `capability truth drift` on the
+  dependency component, plus an unreachable fail-closed path in the planner.
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Found by:** Phase 3 audit probes (`probe_phase3.py` P1/P2/P4;
+  `probe_colocated.py` R5 — same real discovery → capability → planner →
+  generation path).
+- **Observed behavior (verified):** a program `COPY MISSING-REC.` with no
+  such file on disk: discovery records `resolution=UNRESOLVED`;
+  `_analyze_copybook` returns **`SUPPORTED`** ("Copybook dependency
+  discovered; declarations are consumed as program source context …
+  (resolution=UNRESOLVED)"); `CopybookPlan.may_proceed=True`; plan
+  **`READY`** with `blocking_summary=["No blocking issues identified"]`;
+  generation then fails: `Missing COPY target: MISSING-REC (in M5)` +
+  `Program M5 references COPY MISSING-REC with no materialized model`.
+  An **AMBIGUOUS** copybook (two equal-precedence candidates, which
+  discovery itself marks `resolution=AMBIGUOUS`) behaves identically —
+  `_analyze_copybook`'s `not resolved_paths` branch collapses both statuses
+  to `SUPPORTED`. The planner's `BlockingReason.MISSING_COPYBOOK` mapping
+  (reason must contain "copybook" + "missing") is **dead code** on this
+  path: the capability level is `SUPPORTED`, so `_map_blocking_reasons`
+  returns early and the reason text never contains "missing". A quoted
+  target (`COPY 'P2REC'`) hits the same contradiction (capability
+  `SUPPORTED`/plan `READY`, generation `Missing COPY target: 'P2REC'`).
+  Contrast: a missing CALL target is classified non-SUPPORTED with a
+  dedicated negative contract (`test_unresolved_call_is_classified_not_supported`)
+  — the copybook has no mirror.
+- **Expected behavior:** Master README §14/§15 (fail-closed), §20
+  (capability must reflect actual transformability), §53.2/§53.9 (contracts
+  satisfied, no false green); PLM (Phase 3) requires honest
+  capability/planner outcomes for COPYBOOK dependencies.
+- **Affected files:** `engine/modernization/capability_analyzer.py`
+  (`_analyze_copybook` early-return branch), `engine/modernization/modernization_planner.py`
+  (`_build_copybook_plan`, `_map_blocking_reasons`).
+- **Impact:** a `READY` plan and `SUPPORTED` dependency promise a
+  transformable application that the same run cannot generate; the planner's
+  missing-copybook blocking reason can never fire.
+- **Remediation (planned):** classify a copybook whose reference is
+  `UNRESOLVED` or `AMBIGUOUS` as non-SUPPORTED with a reason that names the
+  copybook and its resolution status (so `_map_blocking_reasons` produces
+  `MISSING_COPYBOOK`), keeping the *consuming program's* verdict unchanged
+  unless its own constructs warrant otherwise; add a capability-truth
+  negative contract mirroring the CALL one.
+- **Acceptance criteria:** (1) missing/ambiguous/quoted-unresolvable
+  copybook components are never `SUPPORTED`; (2) the plan for such an
+  application is not `READY` and carries `MISSING_COPYBOOK`; (3) a plan may
+  not report "No blocking issues" when generation deterministically fails
+  for the same inputs; (4) resolved copybooks keep their current verdicts;
+  (5) focused tests join the capability-truth gate; no existing negative
+  contract weakened.
+- **Owner/role:** capability/planning maintainer. **Target phase:**
+  Phase 3. **Dependency:** discovery's `CopybookReference.resolution`
+  values; planner blocking-reason mapper. **Residual risk:** until fixed,
+  consumers reading only the plan overestimate readiness (generation still
+  protects the final verdict).
+
+### BL-034 — Comment lines and string literals create phantom CALL/COPY dependencies (raw-source extraction)
+
+- **Type:** defect (false dependency / workflow blocking)
+- **Priority:** P1 — a *valid* application is blocked at plan time and can
+  even fail generation because of text that is not executable code.
+- **Severity:** medium — conservative direction (fail-closed on good input,
+  never fail-open), but it blocks correct workloads with misleading reasons.
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Found by:** Phase 3 audit probes (`probe_phase3.py` P5; `probe_silent.py`
+  Q6; `probe_colocated.py` R4).
+- **Observed behavior (verified):** (a) a program containing only the
+  comment `      *    CALL 'X'.` and `DISPLAY "CALL 'Y' …"` produces two
+  unresolved CALL edges (`X`, `Y`) → plan `PARTIAL`/blocked with
+  `UNRESOLVED_CALL`; (b) a comment `      *    COPY NOT-A-REAL-BOOK.`
+  becomes a real `CopybookReference(resolution=UNRESOLVED)` and a `COPY`
+  edge, and — because generation resolves unit-level refs —
+  `ApplicationGenerator.generate` **fails**: `Missing COPY target:
+  NOT-A-REAL-BOOK (in CM)` — a comment-only COPY makes the program
+  ungeneratable, while capability simultaneously reports the component
+  `SUPPORTED` and the plan `READY` (cross-defect with BL-033). Root cause:
+  `_extract_calls` / `_extract_copybooks` in
+  `engine/transformation/application_discovery.py` run regexes over the raw
+  source, while the sibling `_extract_file_dependencies` already masks
+  comments (`_COBOL_COMMENT_LINE`, `_COBOL_INLINE_COMMENT`,
+  `_COBOL_STRING_LITERAL` are defined but unused by these two extractors);
+  the parser's own CALL extraction (`_parse_call`) is statement-aware, so
+  the two lanes also disagree on multi-line CALL (see BL-036).
+- **Expected behavior:** Master README §14/§20 (a dependency must exist in
+  code, not in comments); false blocking of correct input is a workflow
+  failure; phantom dependencies also corrupt the application graph that
+  Phase 3 exists to build.
+- **Affected files:** `engine/transformation/application_discovery.py`
+  (`_extract_calls`, `_extract_copybooks`).
+- **Impact:** valid programs blocked (`UNRESOLVED_CALL`) or fail generation
+  (`Missing COPY target`) on comment/string text; the call/copybook graph
+  carries edges that do not exist.
+- **Remediation (planned):** apply the existing comment/inline-comment
+  masking (and literal-aware CALL-target extraction, since CALL targets are
+  themselves quoted) to both extractors, with statement-position guarding
+  as in BL-031; keep every *real* unresolved dependency visible and
+  classified exactly as today.
+- **Acceptance criteria:** (1) comment/string-only CALL/COPY text produces
+  no edge, no component and no generation error; (2) real CALL/COPY
+  statements (single- and double-quoted targets, multi-line) are still
+  extracted and still fail closed when unresolved; (3) positive and
+  negative focused tests join the gate; (4) no existing dependency contract
+  weakened.
+- **Owner/role:** application discovery maintainer. **Target phase:**
+  Phase 3. **Dependency:** the masking helpers already present in
+  `application_discovery.py`. **Residual risk:** until fixed, phantom
+  edges remain reachable; note BL-033 would newly *block* the phantom
+  copybook case conservatively (still fail-closed, but noisy) — the two
+  should be fixed together or BL-034 first.
+
+### BL-035 — Discovery and generation search different directories for copybooks (subdirectory layouts: `RESOLVED`/`READY` then `Missing COPY target`)
+
+- **Type:** defect (capability/generation contradiction)
+- **Priority:** P1 — the standard "copybooks in their own directory"
+  layout is discovered as resolved and planned `READY`, then fails
+  generation.
+- **Severity:** medium-high for real corpora (copybook directories are
+  conventional); zero for flat layouts.
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Found by:** Phase 3 audit probe `probe_silent.py` (Q3/Q4/Q5), 2026-10-12.
+- **Observed behavior (verified):** with sources at `<root>/` and copybooks
+  at `<root>/cb/OUTER.cpy`: `ApplicationDiscovery._copybook_search_dirs`
+  scans **every subdirectory recursively** (`rglob`), so discovery records
+  `resolution=RESOLVED` with the absolute path and capability reports
+  `SUPPORTED` / plan `READY`; but `prepare_application_copybooks` builds its
+  search list as `[source_root] + unit source parents` only and
+  `copybook_resolver._candidate_files` is **non-recursive** (`iterdir`), so
+  generation fails `Missing COPY target: OUTER (in NESTMAIN)` +
+  `…no materialized model`.
+- **Expected behavior:** one resolution authority: either discovery's
+  search set is what generation uses, or both are restricted identically —
+  §14/§15/§20 require the verdict and the artifact-producing path to agree.
+- **Affected files:** `engine/transformation/application_discovery.py`
+  (`_copybook_search_dirs`), `engine/transformation/copybook_model.py`
+  (`prepare_application_copybooks` search-list construction),
+  `engine/transformation/copybook_resolver.py` (documented non-recursive
+  per-directory scan).
+- **Impact:** layout-dependent false failure of the generation lane behind
+  a `READY` plan; also affects BL-031 nested resolution (same search list).
+- **Remediation (planned):** share one deterministic search-directory
+  builder between discovery and generation (recursion and precedence
+  decided once, ambiguity still an explicit error, never first-match).
+- **Acceptance criteria:** (1) a copybook found by discovery is found by
+  generation for the same tree, in every layout either lane accepts;
+  (2) ambiguity/missing semantics unchanged (explicit errors); (3) focused
+  tests cover flat, nested and duplicate-name layouts in the gate;
+  (4) no existing resolution test weakened.
+- **Owner/role:** copybook resolution maintainer. **Target phase:**
+  Phase 3. **Dependency:** `copybook_resolver` precedence rules (BL-001-era
+  contract tests in `test_copybook_m7.py`). **Residual risk:** until fixed,
+  subdirectory layouts fail generation after a green plan.
+
+
 
 ### BL-011 — Reconciliation audit hook (producer lists ⊆ registry) not enforced in CI
 - **Type:** test/quality
@@ -360,6 +684,8 @@ produced evidence, not re-run here).
 - **Verification level:** VERIFIED locally and by CI on baseline `55f885d`.
   Push CI #453 and PR CI #454 both passed, including the capability-truth gate.
   Coverage thresholds and mutation testing remain explicitly deferred below.
+
+## P2 — coverage, quality, documentation
 
 ### BL-018 — Figurative constants parsed as field references (silent, non-compiling Java)
 - **Type:** defect (silent semantic loss + false SUPPORTED verdict)
@@ -715,6 +1041,19 @@ produced evidence, not re-run here).
   depend on this item (classification and blocking are already correct), so it
   is carried forward with explicit acceptance criteria instead of being folded
   into a green phase at the last moment.
+- **Phase 3 disposition (2026-10-12, explicit — not silently closed):**
+  **carried forward OPEN into Phase 3.** Phase 2 was declared
+  `COMPLETE — VERIFIED` at `de8a808` with this item recorded as explicitly
+  non-blocking (the verdict is honestly UNSUPPORTED and the planner blocks, so
+  no false certification is reachable) and simultaneously named as the "next
+  Phase 2 item" — that is the checkpoint inconsistency §1 required be resolved
+  or documented. Resolution: Master README §53.10 permits closure *by
+  explicit carry-forward* with ID, owner, reason, dependency, risk and
+  acceptance criteria, all of which this entry and the carry-forward register
+  already carry; the Phase 3 audit therefore adopts BL-026 as an open P2
+  diagnostic-completeness item (target phase updated in the register) rather
+  than reopening Phase 2 or waiving it. It remains eligible for the next
+  implementation cycle in priority order behind the P0/P1 Phase 3 items.
 
 ### BL-027 — `STRING` delimiter and `WITH POINTER` are not modelled: wrong output with a `SUPPORTED` verdict
 - **Type:** defect (silent semantic loss / wrong generated value)
@@ -1039,6 +1378,149 @@ produced evidence, not re-run here).
   emission (same fail-closed-at-`javac` shape as BL-028); `LOW-VALUE`/`HIGH-VALUE` assume the
   native ASCII collating sequence (inherited BL-018 limitation).
 
+### BL-036 — Multi-line `CALL` statements are not parsed (lanes disagree; valid formatting blocks)
+
+- **Type:** defect (parser coverage / diagnostic accuracy)
+- **Priority:** P2 — fail-closed: the verdict is honestly `UNSUPPORTED`
+  and the plan blocks, so no wrong artifact is reachable. P2 rather than
+  P3 because the *reason* is wrong (unparsed-statement noise instead of a
+  CALL-lifecycle diagnostic) and perfectly valid COBOL formatting is
+  rejected, contradicting the discovery lane which *does* see the call.
+- **Severity:** medium for coverage (line-wrapped CALL is common), zero
+  for trust (conservative direction).
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Found by:** Phase 3 audit probes (`probe_silent.py` Q1/Q2), 2026-10-12.
+- **Observed behavior (verified):** `CALL\n  'LINETARGET'\n  USING WS-B.`
+  → `CobolParser` returns **zero** `CallStatement`s and emits three
+  `unparsed_statement` diagnostics ("Skipped unsupported statement: CALL",
+  `"'LINETARGET'"`, `"USING WS-B."`); `program.called_programs` is empty;
+  capability classifies the program `UNSUPPORTED` (`PARSE_FAILURE`), plan
+  `BLOCKED` — while discovery's own regex (which spans newlines) records
+  the edge and the planner shows `plan_calls=[MLMAIN→LINETARGET,
+  RESOLVED]`. The lanes disagree about the same statement.
+- **Expected behavior:** Master README §16 (recognized-but-unparsed
+  constructs must produce an explicit diagnostic *naming the construct*);
+  Phase 3 CALL lifecycle requires one extraction truth across discovery,
+  parser and planner.
+- **Affected files:** `engine/transformation/cobol_parser.py`
+  (`_parse_call` requires CALL/literal/USING within one logical statement
+  segment as split), `engine/transformation/application_discovery.py`
+  (regex lane).
+- **Impact:** valid programs blocked with misleading diagnostics; graph vs
+  IR divergence (edge present, statement absent).
+- **Remediation (planned):** statement segmentation that allows line
+  breaks between `CALL`, the target and the `USING` clause, emitting the
+  same `CallStatement` the single-line form produces; unify with the
+  discovery extraction or add a cross-lane consistency test.
+- **Acceptance criteria:** multi-line CALL parses to the same IR/verdict
+  as its single-line spelling; diagnostics never split one statement into
+  three "skipped statement" messages; focused tests join the gate; no
+  existing CALL contract weakened.
+- **Owner/role:** parser/IR maintainer. **Target phase:** Phase 3.
+  **Dependency:** `CobolParser` statement splitting. **Residual risk:** until
+  fixed, line-wrapped CALLs remain blocked (conservative).
+
+### BL-037 — `CALL … ON EXCEPTION …` phrase is parsed as USING arguments (false arity, misleading diagnostic)
+
+- **Type:** defect (parser coverage / diagnostic accuracy)
+- **Priority:** P2 — fail-closed (the program blocks), but the reason is
+  factually wrong and the standard `ON EXCEPTION` phrase of `CALL` is
+  unparsed.
+- **Severity:** medium — the diagnostic claims an arity mismatch that does
+  not exist in the source.
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Found by:** Phase 3 audit probe (`probe_phase3.py` P11), 2026-10-12.
+- **Observed behavior (verified):** `CALL 'X' USING WS-A ON EXCEPTION
+  DISPLAY "EXC".` → IR `CallStatement(arguments=('WS-A', 'ON', 'EXCEPTION',
+  'DISPLAY', '"EXC"'))` (the phrase and its statement are swallowed into
+  the USING list) → `_analyze_call_linkage_arity` reports 5 vs 1 →
+  component `UNSUPPORTED` with reason "`CALL 'X' expects 1 argument(s) but
+  receives 5`" → planner blocks (`UNKNOWN_CONSTRUCT`, itself a mis-mapping
+  of an arity failure). The single-line `CALL … USING` form without the
+  phrase is unaffected.
+- **Expected behavior:** §16 (recognized phrases must be parsed or named
+  in a diagnostic), §60 (never silently absorb source semantics), honest
+  capability reasons.
+- **Affected files:** `engine/transformation/cobol_parser.py` (`_parse_call`),
+  `engine/modernization/capability_analyzer.py` (arity analysis),
+  `engine/modernization/modernization_planner.py` (`_map_blocking_reasons`).
+- **Impact:** valid programs blocked with a false arity claim; no wrong
+  output (conservative).
+- **Remediation (planned):** stop argument capture at the phrase keyword
+  (`ON EXCEPTION`/`ON OVERFLOW`/`ON EXCEPTION` variants), model or diagnose
+  the phrase explicitly, and map an arity failure to an arity-specific
+  blocking reason instead of `UNKNOWN_CONSTRUCT`.
+- **Acceptance criteria:** CALL with `ON EXCEPTION` yields the correct
+  arity (1) and either parses the phrase or fails with a diagnostic naming
+  it — never a false arity; focused tests join the gate.
+- **Owner/role:** parser/IR maintainer. **Target phase:** Phase 3.
+  **Dependency:** `CobolParser._parse_call`. **Residual risk:** until fixed,
+  `ON EXCEPTION` callers are blocked with a misleading reason.
+
+### BL-038 — `ProgramCall.resolution` stays `UNRESOLVED` for resolved static calls (stale provenance field)
+
+- **Type:** defect (provenance/consistency)
+- **Priority:** P2 — no verdict consumes this field (the capability
+  analyzer reads `DependencyEdge.metadata`, which is correct), so no false
+  classification is reachable; but the IR record contradicts itself.
+- **Severity:** low — data-quality/traceability only.
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Found by:** Phase 3 audit probe (`probe_phase3.py` P8), 2026-10-12.
+- **Observed behavior (verified):** for `MLMAIN` → `LINETARGET` (a target
+  that exists on disk), discovery records `unit.calls[…].resolution ==
+  "UNRESOLVED"` while the dependency edge carries `resolution=RESOLVED`
+  and the plan shows `RESOLVED`; `ProgramCall.resolution` is never updated
+  by `_build_dependency_graph`/resolution.
+- **Expected behavior:** §77/§60 provenance must not contradict the
+  authoritative record; two fields of the same fact must agree.
+- **Affected files:** `engine/transformation/application_discovery.py`
+  (`_build_dependency_graph`), `engine/transformation/ir.py`
+  (`ProgramCall.resolution` default).
+- **Impact:** any consumer reading `ProgramCall.resolution` directly gets a
+  false "unresolved"; current verdicts unaffected.
+- **Remediation (planned):** set `ProgramCall.resolution` from the same
+  resolution decision that stamps the edge metadata (or remove the field
+  in favor of the edge), with a consistency test.
+- **Acceptance criteria:** `ProgramCall.resolution` equals the edge's
+  resolution for every call; a focused consistency test joins the gate.
+- **Owner/role:** application discovery maintainer. **Target phase:**
+  Phase 3. **Dependency:** edge-metadata stamping. **Residual risk:** stale
+  field remains for direct consumers.
+
+### BL-039 — Capability scan of copybook content is not transitive (constructs inside nested copybooks are unclassified)
+
+- **Type:** defect (capability coverage)
+- **Priority:** P2 — bounded: copybooks are data-definition files and the
+  top-level file *is* scanned; the gap only opens for nested copybooks,
+  which BL-031 just made materializable.
+- **Severity:** medium-low — a nested copybook carrying an unsupported
+  structural construct (`REDEFINES`/`OCCURS`/`COMP`-family etc.) would not
+  lower the COPYBOOK component's verdict, because
+  `_analyze_copybook` runs `scan_constructs` on the top-level file's text
+  only and the consuming program's source scan sees only `COPY OUTER`.
+- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Found by:** Phase 3 audit reasoning over BL-031's expansion (the nested
+  content now reaches the merged IR but not the classifier).
+- **Expected behavior:** §14/§20 — the verdict must cover everything the
+  materialization actually merges.
+- **Affected files:** `engine/modernization/capability_analyzer.py`
+  (`_analyze_copybook`), `engine/transformation/copybook_model.py`
+  (expansion output).
+- **Impact:** potential false `SUPPORTED` COPYBOOK component for nested
+  content the analyzer never sees.
+- **Remediation (planned):** scan the *expanded* copybook text (reuse
+  `_expand_copybook_text`) and attribute constructs to the nested chain in
+  the reason; missing/cyclic nested targets already fail generation, and
+  after BL-033 they must also fail the plan.
+- **Acceptance criteria:** a nested copybook containing a registry
+  non-SUPPORTED construct lowers the COPYBOOK verdict with a reason naming
+  the nested file; expanded-scan results never contradict generation;
+  focused tests join the gate.
+- **Owner/role:** capability maintainer. **Target phase:** Phase 3.
+  **Dependency:** BL-031's `_expand_copybook_text` (implemented).
+  **Residual risk:** until fixed, nested copybook constructs are invisible
+  to the capability graph.
+
 ### Backlog metadata note (documentation gap, P2)
 
 Master README §77 asks each item to carry "priority and severity with
@@ -1245,6 +1727,54 @@ level and evidence location.
   now pass with the host JDK present). Exact-SHA CI results are recorded in the Phase 2 block
   of `opencode.md`. **BL-026 remains OPEN** and is the next Phase 2 item.
 
+- 2026-10-12 — **(j) Phase 3 started (CALL / COPYBOOK / Application Graph); BL-026 carried
+  forward by explicit decision; BL-031 fixed; BL-032…BL-039 filed.** Baseline verified at
+  `4d2f52d7a6ad4e3951ba6f438533f7e4e4fee41f` (branch `codex/universal-core`, local == origin,
+  dirty only with the pre-existing `test-artifacts/*` churn that is never committed; exact-SHA CI
+  green at that SHA before any change). Phase 2 stays **COMPLETE — VERIFIED** at `de8a808`.
+  **BL-026 (GO TO diagnostic) disposition:** carried forward OPEN into Phase 3 (§53.10) — it is
+  non-blocking because the workload verdict and planner already fail closed on the unmodelled
+  statement (`PLAN_BLOCKED`, never a false READY); metadata added to its entry and register row.
+  The §76/§77 audit-first gap inventory for the three lanes was produced with real-path probes
+  (no IDs invented): **BL-031 (P0)** nested `COPY` inside copybooks silently dropped;
+  **BL-032 (P0)** `COPY … REPLACING` operands silently ignored; **BL-033 (P1)** copybook
+  capability fail-open (plan READY while generation fails on a missing copybook);
+  **BL-034 (P1)** phantom CALL/COPY edges from comment/string text; **BL-035 (P1)** discovery
+  resolves copybooks recursively but generation expands them against a flat search-dir list;
+  **BL-036 (P2)** multi-line `CALL` unparsed; **BL-037 (P2)** `ON EXCEPTION` swallowed into
+  `USING` (false arity); **BL-038 (P2)** stale `ProgramCall.resolution`; **BL-039 (P2)**
+  capability scan not transitive into nested copybooks. **BL-031 was fixed** (highest-priority
+  eligible item; BL-032 shares P0 but covers only REPLACING while BL-031 additionally covers
+  missing/ambiguous/cyclic nested targets): the pre-fix defect was proven first (the new contract
+  tests ran **7 failed / 2 passed** against the unmodified engine,
+  `%TEMP%\opencode\phase3\bl031_pre_fix_red.txt`), then copybook text was made to expand
+  **in memory only** — statement-aware (quote-aware comment/`*>` masking, statement-position
+  guard including fixed-format sequence numbers, span runs to the terminating period so a
+  `REPLACING` clause is consumed not spliced), resolved with the existing `copybook_resolver`
+  against the generation lane's search directories, with the target's declarations merged at the
+  COPY statement's own position; fixed-format (6-column sequence number) copybook lines are
+  normalized at read time exactly as `CobolParser.parse` normalizes program source; missing /
+  ambiguous / unreadable / cyclic nested targets append `ERROR` diagnostics (naming the parent
+  copybook, or the full `A -> B -> A` cycle chain) that fail generation through the existing
+  `CopybookPreparation.has_errors` contract; sources on disk are never modified. Post-fix:
+  **12 passed** in `tests/test_nested_copybook_materialization.py` (dependency-free, wired into
+  the `ci.yml` capability-truth gate); focused copybook suites → **56 passed**;
+  `tests/integration/test_phase_d_negative_integration.py` → **26 passed**; capability-truth
+  gate → **334 passed** (the 12-file `ci.yml` selection); ingestion gate → **3 passed**.
+  Serialized full suite: **3378 passed, 4 skipped, 0 failed** in 34m15s
+  (`fullsuite_bl031_fixed_clean.txt`), serialized with zero concurrent Docker
+  activity; collection reconciles exactly (3382 = Phase 2 baseline 3370 + 12
+  new BL-031 tests); failure-identity comparison vs the Phase 2 zero-failure
+  baseline by test id: **NEW_ONLY=0, no regressions**. (A first run had
+  3377/1/4 with `test_payroll_artifacts.py::TestPayrollDeterminism::
+  test_deterministic_artifact_hashes` failing on a 10s `docker image
+  inspect` timeout while this session's own E2E oracle containers ran
+  concurrently — proven environmental, not a regression: the failing code
+  path is byte-identical to baseline, the test passes in isolation, and the
+  superseded run plus its full diagnosis are preserved as
+  `fullsuite_run1_interference_analysis.txt`.) Exact-SHA CI: **[CI_RESULT]**
+  (details in the Phase 3 block of `opencode.md`).
+
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
   (Sections 76–77). BL-001 fixed; BL-006/BL-007 fixed; BL-011 partially fixed.
@@ -1363,11 +1893,21 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-023 | Numeric semantics maintainer | Phase 1 (closed) | `_build_expression` operator table; Master README §18 | `**` parsed as two `*` operators, producing an empty-named operand. | Silent wrong numeric result in a P0 risk area. | `**` is one operator or fails closed with a diagnostic; tests assert both behaviours. |
 | BL-024 | Parser / IR maintainer | Phase 1 (closed) | `_build_expression`; same defect class as BL-018 | Intrinsic `FUNCTION MIN(...)` falls through to an impossible field reference. | Undeclared Java identifier, exactly the BL-018 pattern; unproven intrinsics must never be silently field references. | `FUNCTION` prefix recognised and either mapped for the certified subset or diagnosed; never a bare field reference. |
 | BL-025 | Transformation / code-generation maintainer | Phase 1 (closed) | `_map_cobol_expression_to_java` fallthrough; new `_intrinsic_fail_closed_symbol`; Master README §16/§17/§60 | Unmapped expressions must fail closed deliberately, never by emitting implementation artefacts into generated Java. | The `str(expr)` fallthrough stringified any unhandled `Expression` into Java (`WS_A = Math.abs(IntrinsicCall(name='**', ...))`) and is fail-open for any future node — the BL-018/BL-023 defect class in a different layer. Verdict was already UNSUPPORTED, so impact is bounded to malformed output, not a wrong value. | `IntrinsicCall` maps to a deliberately undefined symbol naming the construct; the fallthrough maps unknown `Expression` nodes to `UNSUPPORTED_EXPRESSION_<NODE>`; tests assert no repr leaks, the symbol is never declared, and supported `COMPUTE` is unaffected. Evidence: `tests/transformation/test_scoped_construct_statements.py`. |
-| BL-026 | Semantic transformation maintainer | Phase 2 | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | A program containing `GO TO` raises an explicit diagnostic naming `GO TO`; the verdict stays UNSUPPORTED and the planner still blocks; the traceability comment remains; focused tests are added to the fast `capability-truth` gate; no existing test weakened. Evidence basis: semantic re-probe at `bdb4c9a` (Linux JDK audit container). |
+| BL-026 | Semantic transformation maintainer | **Phase 2 → carried forward OPEN into Phase 3 (decision recorded 2026-10-12 in the BL-026 entry: §53.10 explicit carry-forward, non-blocking because verdict/planner already fail closed; not silently closed)** | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | A program containing `GO TO` raises an explicit diagnostic naming `GO TO`; the verdict stays UNSUPPORTED and the planner still blocks; the traceability comment remains; focused tests are added to the fast `capability-truth` gate; no existing test weakened. Evidence basis: semantic re-probe at `bdb4c9a` (Linux JDK audit container). |
 | BL-027 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed 2026-10-12 — implemented `13bdddd`, oracle-matched, CI green at `6bfcbe4`, §53 re-audit completed)** | Additive `StringStatement` IR change; capability-truth gate | `STRING ... DELIMITED BY <x>` and `WITH POINTER` are not modelled: the delimiter is concatenated into the result as data and the pointer is dropped, under a `SUPPORTED` verdict with no diagnostic — reachable silent wrong value, the one §53.10 combination that must never occur. | P0 / high: fail-closed does not hold for these `STRING` forms; a green verdict accompanies incorrect generated arithmetic — §54 `capability truth drift` and a direct §60 / §53.9 counterexample at the Phase 1 parser/IR boundary. | FIXED — VERIFIED (`13bdddd` on top of `742e39d`; re-audit 2026-10-12): delimiter/pointer parsed into `StringStatement`; mapper excludes the delimiter from the result and reads/writes the pointer; identifier delimiters, `ON OVERFLOW` and non-integer pointers return an `UNSUPPORTED_STRING$…` fail-closed symbol; 30 focused tests in the fast `capability-truth` gate (`tests/transformation/test_string_delimited_semantics.py`, wired into `ci.yml`). VERIFIED: container `javac` compile-and-execute of the emitted Java matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte (`ORACLE_MATCH=YES`, `bl027_diff.py`); fail-closed forms probe correctly (`bl027_probe_run2.txt`); serialized rerun at **exactly the 26-identity environmental baseline** (zero new failures by identity vs the `bdb4c9a` clean run; +30 passed = the new BL-027 tests); exact-SHA CI **green at `6bfcbe4`** (all four workflows, all jobs, `head_sha` verified via GitHub API). Closing action done: the §53 re-audit re-ran `string_probe.py`/`nosilentloss_sweep.py` in the same container against an exact `bdb4c9a` worktree — every wrong STRING emission is fixed, all other constructs byte-identical — and re-scored criterion 9 (sibling gap `VARYING IN` filed as BL-029 and fixed in-cycle, `7dceec1`). Defect evidence basis: `string_probe.py` at `bdb4c9a` (Linux JDK audit container, real `ApplicationDiscovery` + `CapabilityAnalyzer` verdicts). |
 | BL-028 | Semantic transformation maintainer | **Phase 2 (closed in-cycle 2026-10-12 — `de8a808`)** | BL-027 `StringStatement` mapper path | COBOL fixed-width receiver overflow truncation is not modeled: the receiving field is emitted as an unbounded Java `String`, so a `STRING` result longer than the receiving field's `PIC` width does not truncate as COBOL would, and the `WITH POINTER` arithmetic has no `1 .. W + 1` boundary rule. | P2 / medium at filing (disclosed in the mapper docstring and the `STRING` registry evidence text, so no false `SUPPORTED` rested on it) — reclassified to a reachable wrong value once the oracle probe reproduced it 8/8. | FIXED — width-clipping statement `T = T.substring(0, Math.min(T.length(), W))` after the atomic pre-state write; pointer inside `1 .. W + 1` writes and advances capped at `W + 1`, outside it is a no-op with the pointer unchanged (GnuCOBOL 3.1.2 oracle); no-declared-width receivers keep the legacy emission and fail closed at `javac`. Focused tests in `tests/transformation/test_string_delimited_semantics.py` (capability-truth gate); **no existing test weakened** — the two pointer tests that encoded the pre-BL-028 model were replaced with strictly stronger boundary/cap/truncation assertions. Evidence: `bl028_post` **ORACLE_MATCH=YES 8/8**, boundary probe **3/3** (`%TEMP%\opencode\phase2\bl028_diff_out.txt`). Serialized full suite **3366 passed, 4 skipped, 0 failed** (collection 3325 → 3370 = +45, failure-identity comparison NEW_ONLY=0); exact-SHA CI green at `de8a808` (push #38218209824, PR #38218214587 rerun attempt 2, supply chain #38218209795 / #38218214592). |
 | BL-029 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed in-cycle 2026-10-12 — `7dceec1`)** | Additive `StringStatement.varying_pointer` IR change; capability-truth gate | `STRING ... VARYING IN <ptr> [FROM n [BY m]]` (COBOL's alternative receiving-position form) is silently dropped at the parser tail scan: the statement writes at position 1, the pointer is never read, verdict stays `SUPPORTED`, zero diagnostics — a BL-027-class §60 counterexample found by the §53 re-audit. | P0 / high: same §54 `capability truth drift` shape as BL-027 — a green verdict accompanies incorrect generated write-position arithmetic through the supported path. | FIXED — VERIFIED (`7dceec1`): tail scan captures `VARYING IN` into `StringStatement.varying_pointer` and raises `UNSUPPORTED_CONSTRUCT` naming the phrase; mapper appends `VARYING_IN_<PTR>` to the `UNSUPPORTED_STRING$…` fail-closed reasons; registry evidence text names BL-029; 5 focused tests added. VERIFIED: container probes show both VARYING forms emitting `UNSUPPORTED_STRING$VARYING_IN_WS_P` with verdict `UNSUPPORTED` (`reaudit_varying_fixed.txt`); capability-truth gate **277 passed**; serialized full suite **26 failed / 3287 passed / 12 skipped**, failure set identical by identity to the 26-identity environmental baseline (zero new, zero changed); exact-SHA CI green (run IDs in the `⚑ §53 RE-AUDIT` block of `opencode.md`). Defect evidence basis: `bl027_varying_probe.py` at `cf35c1d` (Linux JDK audit container). |
 | BL-030 | Semantic transformation maintainer | **Phase 2 (closed in-cycle 2026-10-12 — `de8a808`)** | BL-018's canonical `figurative.py` / `ir.FigurativeConstant` | Figurative `ALL` / figurative-fill semantics are not materialized at the receiving item's declared PIC width: the `MOVE` branch pads a one-character literal at runtime (only ever right for `SPACES`) and passes `ALL <literal>` through as data, and the `VALUE` path (`map_pic_to_java_default`) emits the raw COBOL text (`static String WS_V = "ALL "*    ";`, non-compiling). Found by adjacent probing during BL-028 verification. | P0 / high: wrong byte sequence through the supported path under a `SUPPORTED` verdict with zero diagnostics (§54/§60); on the `VALUE` path the output does not compile — the BL-018 defect class in the emission layer. | FIXED — `figurative_to_width(kind, fill, width)` is the single fill rule (pattern replication truncated at the final copy per COBOL 13.18.40.9, character fill, `'0' * width` for `ZERO` on an alphanumeric receiver, `None` when no fill can be derived); both emission sites materialize at the PIC width; multi-character `ALL` patterns parse; `ALL <figurative word>` collapses onto the word. Evidence: fixture `bl030_post` **ORACLE_MATCH=YES 11/11** (`bl030_java_run.txt` vs `bl030_cobol_run.txt`) with BL-028's 8/8 and boundary 3/3 re-run clean afterwards. 43 focused tests in new `tests/transformation/test_figurative_fill_semantics.py`, wired into the `ci.yml` gate list; no existing test weakened (the padding assertions were replaced with oracle values and the correction documented in each test body). Serialized full suite **3366 passed, 4 skipped, 0 failed** (collection 3325 → 3370 = +45, failure-identity comparison NEW_ONLY=0); exact-SHA CI green at `de8a808` (push #38218209824, PR #38218214587 rerun attempt 2, supply chain #38218209795 / #38218214592). |
+
+| BL-031 | Copybook materialization maintainer (transformation lane) | **Phase 3 (fixed in-cycle 2026-10-12)** | Existing `copybook_resolver` resolution semantics; `CopybookPreparation.has_errors` fail-closed contract | `COPY` statements inside copybooks were invisible to `parse_data_description_lines`, so nested declarations silently vanished while generation reported `success=True` and the plan said `READY` — §53.9/§60 counterexample in the copybook lane. | P0 / high: silent semantic loss plus non-compiling Java under a green verdict (§54 capability truth drift). Residual: capability scan not transitive (BL-039), no nested edge in discovery (family BL-033), REPLACING unapplied (BL-032), flat search dirs (BL-035). | FIXED — statement-aware in-memory expansion (comment-masked, statement-position guarded, period-terminated) before data parsing; fixed-format (6-column sequence number) copybook text is normalized at read time mirroring `CobolParser.parse`; missing/ambiguous/unreadable/cyclic nested targets fail generation with explicit diagnostics naming the parent copybook or cycle chain; sources never modified. 12 focused tests in `tests/test_nested_copybook_materialization.py`, wired into the `ci.yml` capability-truth gate; pre-fix red 7/9 proven (`%TEMP%\opencode\phase3\bl031_pre_fix_red.txt`); no existing test weakened. |
+| BL-032 | Copybook materialization maintainer | Phase 3 | BL-031 statement scanner (implemented — clause span already consumed) | `COPY … REPLACING` operands are silently ignored: pseudo-text names never parse, so declarations come out empty/wrong while generation reports `success=True`, plan `READY`, capability `SUPPORTED`. | P0 / high: parameterized copybooks emit non-compiling Java under a green verdict — the BL-031 defect shape for the replacement clause. | REPLACING operands substitute before parsing for the supported forms; unsupported phrase forms fail closed with a diagnostic naming `REPLACING`; capability no longer reports `SUPPORTED` for an unapplied clause; focused tests join the gate; no test weakened. |
+| BL-033 | Capability/planning maintainer | Phase 3 | Discovery `CopybookReference.resolution`; planner blocking-reason mapper | An UNRESOLVED or AMBIGUOUS copybook classifies `SUPPORTED` and the plan says `READY` ("No blocking issues") while generation deterministically fails for the same inputs; the planner's `MISSING_COPYBOOK` reason is unreachable. | P1 / medium-high: capability-truth drift on the dependency component and a false READY plan; final verdict still protected by generation's fail-closed errors and the NOT_VERIFIED central gate. | Missing/ambiguous/quoted-unresolvable copybook components are never `SUPPORTED`; such plans are not `READY` and carry `MISSING_COPYBOOK`; resolved copybooks unchanged; negative contracts mirrored from the CALL one; tests in the gate. |
+| BL-034 | Application discovery maintainer | Phase 3 | Comment/inline-comment/literal masking helpers already present in `application_discovery.py` | `_extract_calls`/`_extract_copybooks` scan raw source, so comment lines and string literals create phantom unresolved CALL/COPY dependencies: valid plans block with `UNRESOLVED_CALL` and a comment-only `COPY` fails generation. | P1 / medium: fail-closed on correct input (never fail-open), but it blocks valid workloads and pollutes the Phase 3 graph with edges that do not exist. | Comment/string-only text yields no edge/component/error; real single- and double-quoted, single- and multi-line CALL/COPY statements still extract and still fail closed when unresolved; positive+negative tests in the gate. |
+| BL-035 | Copybook resolution maintainer | Phase 3 | `test_copybook_m7.py` resolution-precedence contracts | Discovery searches every subdirectory recursively while generation searches only the source root and unit parents non-recursively — subdirectory layouts get `RESOLVED`/`READY` at plan time and `Missing COPY target` at generation. | P1 / medium-high for real corpora (copybook directories are conventional); the verdict and the artifact-producing path disagree for the same tree. | One shared deterministic search-directory builder serves both lanes; ambiguity/missing remain explicit errors; flat/nested/duplicate-name layouts covered by focused tests in the gate. |
+| BL-036 | Parser / IR maintainer | Phase 3 | `CobolParser` statement splitting; discovery regex lane | Multi-line `CALL` (target/USING on following lines) produces zero `CallStatement`s and three `unparsed_statement` diagnostics while discovery records the edge — lanes disagree about the same statement. | P2 / medium for coverage, zero for trust: verdict honestly `UNSUPPORTED`, plan blocks (conservative), but the reason is wrong and valid formatting is rejected. | Line-wrapped CALL parses to the same IR/verdict as its single-line spelling; diagnostics name CALL once; cross-lane consistency tested in the gate. |
+| BL-037 | Parser / IR maintainer | Phase 3 | `CobolParser._parse_call`; arity analysis | `CALL … ON EXCEPTION …` swallows the phrase and its statement into the USING list → false arity 5 vs 1 → `UNSUPPORTED` with a factually wrong reason; planner maps it to `UNKNOWN_CONSTRUCT`. | P2 / medium: fail-closed, but the diagnostic claims an arity mismatch that does not exist and a standard CALL phrase is unparsed. | Argument capture stops at the phrase; the phrase is modeled or named in a diagnostic; arity failures map to an arity-specific blocking reason; focused tests in the gate. |
+| BL-038 | Application discovery maintainer | Phase 3 | Edge-metadata stamping (`resolution=…` on `DependencyEdge`) | `ProgramCall.resolution` stays at its `UNRESOLVED` default even for resolved static calls, contradicting the edge metadata and the plan for the same call. | P2 / low: no verdict consumes the field (capability reads edge metadata), so no false classification is reachable; traceability-only. | `ProgramCall.resolution` equals the edge's resolution for every call (or the field is removed in favor of the edge); consistency test in the gate. |
+| BL-039 | Capability maintainer | Phase 3 | BL-031's `_expand_copybook_text` (implemented) | `_analyze_copybook` scans only the top-level copybook file, so constructs inside nested copybooks — now materialized into the merged IR — are never classified. | P2 / medium-low: potential false `SUPPORTED` COPYBOOK component for nested content; bounded to data-division constructs in nested files. | The COPYBOOK verdict scans the expanded text and names the nested file in its reason; expanded-scan results never contradict generation; focused tests in the gate. |
 
 ### PR disposition snapshot — 2026-10-10
 

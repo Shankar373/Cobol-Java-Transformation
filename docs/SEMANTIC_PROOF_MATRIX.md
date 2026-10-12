@@ -50,9 +50,9 @@ so such a program is reported UNSUPPORTED rather than silently SUPPORTED.
 | UNSTRING | PARTIAL | only the certified delimited subset maps | delimiter object forms not certified |
 | DISPLAY | SUPPORTED | parser → DisplayStatement | — |
 | STOP RUN | SUPPORTED | parser → StopRunStatement → Java return | — |
-| CALL | SUPPORTED | parser → CallStatement → Spring-style dependency mapping | dynamic CALL with an unresolved target is still parsed (program_name may be blank); the dependency is marked by the caller |
+| CALL | SUPPORTED | parser → CallStatement → Spring-style dependency mapping | dynamic CALL with an unresolved target is still parsed (program_name may be blank); the dependency is marked by the caller. Phase 3 audit filed OPEN defects: multi-line CALL statements are unparsed (BL-036), `ON EXCEPTION` is swallowed into `USING` producing false arity (BL-037), and `ProgramCall.resolution` stays stale for resolved static calls (BL-038) — all P2, each fails closed or is cosmetic, none can produce a false READY |
 | EXEC SQL / EXEC CICS, SORT, MERGE, ACCEPT, INITIALIZE, INSPECT, SEARCH, SET, ALTER, NEXT SENTENCE, SIZE ERROR | UNSUPPORTED | registry source patterns plus diagnostics | no deterministic Java mapping |
-| COPY (copybook) | See COPYBOOK components | resolved copybooks contribute to the enclosing source scan | unresolved copybooks are reported on the COPYBOOK component |
+| COPY (copybook) | See COPYBOOK components | resolved copybooks contribute to the enclosing source scan; nested `COPY` inside a copybook is expanded at materialization (BL-031: missing/ambiguous/cyclic nested targets fail generation with explicit diagnostics) | unresolved copybooks are reported on the COPYBOOK component — currently classified `SUPPORTED` with only `resolution=…` visible (BL-033 OPEN: plan may say `READY` while generation fails); `REPLACING` operands are not applied (BL-032 OPEN) |
 
 ## Discovery honesty
 

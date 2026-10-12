@@ -56,11 +56,17 @@ REQUIRED INTERFACE (for the owning lane — signatures to add there):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from engine.transformation.copybook_resolver import ResolvedCopybook
+from engine.transformation.copybook_resolver import (
+    AmbiguousCopybookError,
+    CopybookResolutionError,
+    ResolvedCopybook,
+    resolve_copybook,
+)
 from engine.transformation.ir import CobolProgram, DataItem
 
 INTEGRATION = __doc__
@@ -100,11 +106,290 @@ def parse_copybook(path: str | Path) -> CopybookModel:
     OCCURS / group-hierarchy semantics as program parsing) without
     duplicating or modifying it. Copybook sources contain only data
     description entries, so no division scanning is required.
+
+    This is the *flat* parse: a copybook that itself contains ``COPY``
+    statements must go through ``_parse_copybook_expanded`` (the
+    application-preparation path), which resolves and expands nested COPY
+    statements first.  See ``_expand_copybook_text``.
     """
     from engine.transformation.cobol_parser import CobolParser
 
     src = Path(path)
     text = src.read_text(encoding="utf-8")
+    items = CobolParser().parse_data_description_lines(text.splitlines())
+    return CopybookModel(
+        name=src.stem.upper(), source_path=str(src), records=tuple(items)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Nested COPY expansion (statements inside copybook content — BL-031)
+# ---------------------------------------------------------------------------
+#
+# A COPY statement written *inside* a copybook is a real dependency.
+# ``parse_data_description_lines`` deliberately ignores non-data lines, so
+# without an expansion pass the nested target and its declarations silently
+# disappeared: generation reported ``success=True`` while emitting Java that
+# referenced fields it never declared (plan READY, capability SUPPORTED, no
+# diagnostic).  Expansion happens in memory only — COBOL sources are read,
+# never rewritten and never concatenated (no-concatenation contract).
+
+_COPY_STATEMENT = re.compile(
+    r"(?<![\w\-])COPY\s+(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z0-9][A-Za-z0-9_-]*))",
+    re.IGNORECASE,
+)
+# Comment lines: free format (``*`` after optional blanks) *and* fixed format
+# with a 6-column sequence number before the ``*``/``/`` indicator column.
+_COMMENT_LINE = re.compile(r"(?m)^(?:[ \t]*|\d{1,6}[ \t]*)[*/].*$")
+
+
+def _mask_inline_comment(line: str) -> str:
+    """Blank an unquoted ``*>`` inline comment on one line, length-preserving.
+
+    Quote-aware: a ``*>`` *inside* a VALUE literal (e.g. ``VALUE "*>"``) is
+    data, never a comment — blanking it would corrupt literal pairing in the
+    statement scan.
+    """
+    quote = ""
+    i = 0
+    length = len(line)
+    while i < length:
+        ch = line[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == ">" and i > 0 and line[i - 1] == "*":
+            return line[: i - 1] + " " * (length - i + 1)
+        i += 1
+    return line
+
+
+def _mask_comments(text: str) -> str:
+    """Blank comment lines and unquoted ``*>`` inline comments, preserving offsets.
+
+    Length is unchanged, so match positions computed on the masked text are
+    valid for the original text.
+    """
+    text = _COMMENT_LINE.sub(lambda m: " " * len(m.group(0)), text)
+    return "\n".join(_mask_inline_comment(line) for line in text.split("\n"))
+
+
+def _at_statement_start(text: str, pos: int) -> bool:
+    """True when ``pos`` begins a COBOL statement.
+
+    A statement starts at the beginning of the source or after ``.``/``;``,
+    with only blanks, line breaks, and — in fixed format — the 6-column
+    sequence-number field of intervening lines in between.  Guards against
+    treating the word ``COPY`` inside a VALUE literal, a data-name, or the
+    tail of an unterminated entry as a dependency.
+    """
+    i = pos - 1
+    while i >= 0:
+        ch = text[i]
+        if ch in " \t\r\n":
+            i -= 1
+            continue
+        if ch in ".;":
+            return True
+        if ch.isdigit():
+            # Walk back over a run of digits; accept it as a sequence-number
+            # field only when it sits at the start of its line.
+            j = i
+            digits = 0
+            while j >= 0 and text[j].isdigit() and digits < 6:
+                j -= 1
+                digits += 1
+            k = j
+            while k >= 0 and text[k] in " \t":
+                k -= 1
+            if k < 0 or text[k] in "\r\n":
+                i = k  # sequence field consumed; keep scanning backwards
+                continue
+            return False  # digits belong to the preceding entry, not a boundary
+        return False
+    return True
+
+
+def _statement_end(text: str, pos: int) -> int:
+    """Index just past the period terminating the statement at ``pos``.
+
+    Periods inside string literals do not terminate a statement, so a
+    ``REPLACING`` clause (pseudo-text operands) is consumed together with
+    its ``COPY`` statement.
+    """
+    i = pos
+    quote = ""
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == ".":
+            return i + 1
+        i += 1
+    return len(text)
+
+
+def _find_copy_statements(text: str) -> list[tuple[int, int, str]]:
+    """Locate COPY statements in copybook text.
+
+    Returns ``(start, end, target)`` spans in source order; ``end`` is just
+    past the statement's terminating period.  Comments are masked first and
+    every match must sit at statement position (see ``_at_statement_start``).
+    """
+    masked = _mask_comments(text)
+    spans: list[tuple[int, int, str]] = []
+    consumed_to = 0
+    for match in _COPY_STATEMENT.finditer(masked):
+        if match.start() < consumed_to:
+            continue  # already inside a previous (malformed) COPY statement
+        if not _at_statement_start(masked, match.start()):
+            continue
+        target = match.group(1) or match.group(2) or match.group(3)
+        if not target or target.upper() == "REPLACING":
+            continue
+        end = _statement_end(masked, match.end())
+        spans.append((match.start(), end, target))
+        consumed_to = end
+    return spans
+
+
+def _expand_copybook_text(
+    path: Path,
+    search_dirs: tuple[Path, ...],
+    chain: tuple[str, ...],
+    diagnostics: list[CopybookDiagnostic],
+) -> str:
+    """Copybook text with every nested COPY statement replaced by the expanded
+    text of its target, at the statement's own position (group hierarchy and
+    sibling order are preserved).
+
+    Fail-closed contract — a nested target that is missing, ambiguous,
+    unreadable, or part of a cycle appends an ``ERROR`` diagnostic (which
+    fails generation with the message surfaced verbatim) and the statement is
+    skipped: never silently dropped, never expanded twice, never recursed
+    without bound.  ``chain`` holds the ancestor copybook stems of the
+    current expansion path (cycle scope), and is empty only at the top level,
+    where a read failure is re-raised so the caller reports it verbatim as
+    ``COPYBOOK_UNREADABLE``.
+    """
+    stem = path.stem.upper()
+    try:
+        text = _strip_sequence_numbers(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        if not chain:
+            raise
+        diagnostics.append(
+            CopybookDiagnostic(
+                level="ERROR",
+                code="COPYBOOK_UNREADABLE",
+                message=f"Copybook {stem} at {path}: {exc}",
+            )
+        )
+        return ""
+
+    spans = _find_copy_statements(text)
+    if not spans:
+        return text
+
+    pieces: list[str] = []
+    cursor = 0
+    for start, end, target in spans:
+        pieces.append(text[cursor:start])
+        cursor = end
+        target_key = target.upper()
+        if target_key == stem or target_key in chain:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_CYCLE",
+                    message=(
+                        "Cyclic COPY reference: "
+                        + " -> ".join((*chain, stem, target_key))
+                    ),
+                )
+            )
+            continue
+        try:
+            resolved = resolve_copybook(
+                target, search_dirs, program_id=f"copybook {stem}"
+            )
+        except AmbiguousCopybookError as exc:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_AMBIGUOUS",
+                    message=(
+                        f"Ambiguous COPY target {target!r} in copybook {stem}: "
+                        + ", ".join(str(c) for c in exc.candidates)
+                    ),
+                )
+            )
+            continue
+        except CopybookResolutionError:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_UNRESOLVED",
+                    message=f"Missing COPY target: {target} (in copybook {stem})",
+                )
+            )
+            continue
+        pieces.append(
+            _expand_copybook_text(
+                resolved.path, search_dirs, (*chain, stem), diagnostics
+            )
+        )
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+_FIXED_FORMAT_LINE = re.compile(r"^(\d{6})(.)(.*)$")
+
+
+def _strip_sequence_numbers(text: str) -> str:
+    """Normalize fixed-format lines before scanning/parsing.
+
+    Mirrors ``CobolParser.parse`` (which strips the 6-column sequence
+    number and column-7 indicator of fixed-format sources): a line whose
+    first six characters are digits loses its sequence field, and ``*``/
+    ``/`` indicator lines become blank.  Without this the data-description
+    regex (``^\\d{1,2}\\s+NAME``) never matches sequence-numbered lines
+    and every declaration in a fixed-format copybook is silently lost.
+    Free-format lines (no six-digit prefix) are returned unchanged.
+    """
+    out: list[str] = []
+    for line in text.split("\n"):
+        cleaned = line.lstrip() if len(line) > 6 else line
+        m = _FIXED_FORMAT_LINE.match(cleaned)
+        if m and m.group(2) in ("*", "/"):
+            out.append("")  # comment line
+        elif m:
+            out.append(m.group(3).lstrip())
+        else:
+            out.append(cleaned)
+    return "\n".join(out)
+
+
+def _parse_copybook_expanded(
+    path: str | Path,
+    search_dirs: tuple[Path, ...],
+    diagnostics: list[CopybookDiagnostic],
+) -> CopybookModel:
+    """Parse a copybook with nested COPY statements resolved and expanded.
+
+    Provenance stays on the top-level file (``name``/``source_path``);
+    nested targets contribute their declarations at the COPY statement's
+    position and any problem becomes an ERROR diagnostic on ``diagnostics``.
+    """
+    from engine.transformation.cobol_parser import CobolParser
+
+    src = Path(path)
+    text = _expand_copybook_text(src, search_dirs, (), diagnostics)
     items = CobolParser().parse_data_description_lines(text.splitlines())
     return CopybookModel(
         name=src.stem.upper(), source_path=str(src), records=tuple(items)
@@ -297,7 +582,14 @@ def prepare_application_copybooks(
         key = ref.copybook_name.upper()
         if key not in models:
             try:
-                models[key] = parse_copybook(ref.path)
+                # Expanded parse: nested COPY statements inside the copybook
+                # are resolved against the same search directories and their
+                # declarations merged at the COPY statement's position
+                # (missing/cyclic/ambiguous nested targets fail closed with
+                # an explicit diagnostic — BL-031).
+                models[key] = _parse_copybook_expanded(
+                    ref.path, tuple(search_dirs), diagnostics
+                )
             except OSError as exc:
                 diagnostics.append(
                     CopybookDiagnostic(

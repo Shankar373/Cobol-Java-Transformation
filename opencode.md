@@ -1,5 +1,93 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
+
+### ⚑ PHASE 3 STATUS — read this first (2026-10-12, **IN PROGRESS — BL-031 FIXED, full suite green, exact-SHA CI pending**)
+
+- **Verdict:** `PHASE 3 IN PROGRESS`. One bounded P0 gap (**BL-031**, nested
+  `COPY` inside copybooks silently dropped) fixed with deterministic (no-LLM)
+  code, defect proven first, verified by focused suites, a fresh E2E against
+  the independent GnuCOBOL 3.1.2 oracle (`ORACLE_MATCH=YES 2/2`), and the
+  serialized full suite (**3378 passed, 4 skipped, 0 failed**); exact-SHA CI
+  verification for the commit is the remaining cycle evidence. Phase 3 is
+  **not** complete: BL-032 (P0, `REPLACING`) and the P1/P2 items below remain
+  OPEN, so §53 cannot be scored complete yet.
+- **Baseline verified:** HEAD `4d2f52d7a6ad4e3951ba6f438533f7e4e4fee41f` on
+  `codex/universal-core`, local == origin, dirty only with the pre-existing
+  `test-artifacts/*` churn (never committed). Exact-SHA CI green at that
+  baseline before any change (4 runs / 14 jobs). Phase 2 stays **COMPLETE —
+  VERIFIED** at `de8a808`.
+- **BL-026 disposition (§53.10 carry-forward):** carried forward **OPEN** into
+  Phase 3 with full metadata (entry + register row). Non-blocking: the
+  workload verdict and planner already fail closed on the unmodelled `GO TO`
+  statement (`PLAN_BLOCKED`, never a false READY), so no green verdict can
+  contradict reality while it stays open.
+- **Phase 3 gap inventory (§76 audit-first, real-path probes, no IDs
+  invented):** CALL lane — BL-036 (multi-line `CALL` unparsed, P2), BL-037
+  (`ON EXCEPTION` swallowed into `USING`, false arity, P2), BL-038 (stale
+  `ProgramCall.resolution`, P2); COPYBOOK lane — **BL-031 (P0, fixed this
+  cycle)**, **BL-032 (`COPY … REPLACING` silently ignored, P0, OPEN)**,
+  BL-033 (copybook capability fail-open: plan READY while generation fails on
+  a missing copybook, P1), BL-034 (phantom CALL/COPY edges from comment/string
+  text, P1), BL-035 (discovery resolves copybooks recursively but generation
+  expands against a flat search-dir list, P1), BL-039 (capability scan not
+  transitive into nested copybooks, P2); Application Graph lane — covered by
+  BL-034/BL-035 (edge truth) — plus carried BL-026 (GO TO, P2).
+- **Fixed this cycle:** **BL-031 — FIXED.** Copybook text now expands in
+  memory only (statement-aware, cycle-scoped, fail-closed on
+  missing/ambiguous/unreadable/cyclic nested targets, fixed-format
+  normalization mirroring `CobolParser.parse`); see the evidence block below.
+- **Still OPEN (next items in priority order):** **BL-032 (P0)**, then
+  BL-033/BL-034/BL-035 (P1), BL-026/BL-036/BL-037/BL-038/BL-039 (P2).
+
+### Phase 3 evidence (all executed 2026-10-12, outputs under `%TEMP%\opencode\phase3\`)
+
+1. **BL-031 defect proven first (pre-fix):** the new contract tests ran
+   **7 failed / 2 passed** against the unmodified engine
+   (`bl031_pre_fix_red.txt`): nested/deep/group-nested COPY content never
+   reached the merged program IR or the generated Java, and missing/cyclic
+   nested targets did not fail generation — all under `success=True`, plan
+   READY, capability SUPPORTED, zero diagnostics (§53.9/§60 counterexample).
+2. **BL-031 fix verified:** `tests/test_nested_copybook_materialization.py`
+   (12 tests, dependency-free) → **12 passed**; focused copybook suites
+   (`test_copybook_m7.py` + `test_copybook_integration_m7.py` +
+   `test_application_generator_p0.py` + `test_r11_discovery_robustness.py`)
+   → **56 passed**; `tests/integration/test_phase_d_negative_integration.py`
+   → **26 passed**; capability-truth gate (the 12-file `ci.yml` selection,
+   incl. the new test file) → **334 passed**; ingestion gate → **3 passed**.
+   No existing test weakened or skipped.
+3. **Fresh E2E (real ApplicationDiscovery → ApplicationGenerator path):**
+   nested-copybook fixture (`bl031_e2e_gen.py`) post-fix:
+   `generation_success=True`, `WS_INNER` **declared** (pre-fix it was
+   referenced but never declared), `undeclared=[]`; generated Java compiles
+   under the host Temurin 21 JDK (`JAVAC_OK`); GnuCOBOL 3.1.2 oracle
+   (`gnucobol-ocesql:latest`, `cobc -x -free -I src`) runs the identical
+   COBOL → **`ORACLE_MATCH=YES`, 2/2 lines** (`bl031_e2e_result.txt`).
+4. **Serialized full suite (run of record):** `pytest -q tests -p
+   no:randomly -p no:cacheprovider -rf`, 2026-10-12, serialized (zero
+   concurrent Docker activity) → **3378 passed, 4 skipped, 0 failed in
+   34m15s** (`fullsuite_bl031_fixed_clean.txt`). Collection reconciles
+   exactly: Phase 2 baseline 3370 + 12 new BL-031 tests = 3382 = 3378 + 4.
+   **Failure-identity comparison** (by test id, never by count) vs the
+   Phase 2 zero-failure baseline: **NEW_ONLY=0, no regressions**. A first
+   run (3377/1/4) failed
+   `test_payroll_artifacts.py::TestPayrollDeterminism::
+   test_deterministic_artifact_hashes` on a 10s `docker image inspect`
+   timeout inside `resolve_docker_image_identity` — caused by this
+   session's own E2E oracle containers running concurrently with the
+   suite, **not** by the change: `git diff` over `engine/oracle/`,
+   `engine/pipeline.py`, `engine/candidate/image_provenance.py` and the
+   failing test file is **empty** (byte-identical to the green baseline),
+   the test passes in isolation (1 passed, 9.12s), and the image digest
+   resolves normally when not under load. The superseded run and its full
+   diagnosis are preserved (`fullsuite_run1_interference_analysis.txt`);
+   the clean re-run above is the run of record.
+5. **Exact-SHA CI at the Phase 3 commit:** **[CI_RESULT]** (verified via
+   `verify_ci.py`, `head_sha` per run *and* per job; details below once
+   green).
+
+## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
+
 ## Phase 2 started — COBOL Semantic Coverage (2026-10-12)
 
 ### ⚑ PHASE 2 STATUS — read this first (2026-10-12, **COMPLETE — VERIFIED at `de8a808`**)
