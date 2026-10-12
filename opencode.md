@@ -2,16 +2,16 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-12, **IN PROGRESS — BL-031 FIXED, full suite green, exact-SHA CI pending**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-12, **IN PROGRESS — BL-031 FIXED — VERIFIED at `d5c16f4`; BL-032 (P0) and P1/P2 items remain OPEN**)
 
 - **Verdict:** `PHASE 3 IN PROGRESS`. One bounded P0 gap (**BL-031**, nested
   `COPY` inside copybooks silently dropped) fixed with deterministic (no-LLM)
   code, defect proven first, verified by focused suites, a fresh E2E against
-  the independent GnuCOBOL 3.1.2 oracle (`ORACLE_MATCH=YES 2/2`), and the
-  serialized full suite (**3378 passed, 4 skipped, 0 failed**); exact-SHA CI
-  verification for the commit is the remaining cycle evidence. Phase 3 is
-  **not** complete: BL-032 (P0, `REPLACING`) and the P1/P2 items below remain
-  OPEN, so §53 cannot be scored complete yet.
+  the independent GnuCOBOL 3.1.2 oracle (`ORACLE_MATCH=YES 2/2`), the
+  serialized full suite (**3378 passed, 4 skipped, 0 failed**) and exact-SHA
+  CI green on all four runs / 14 jobs at `d5c16f4`. Phase 3 is **not**
+  complete: BL-032 (P0, `REPLACING`) and the P1/P2 items below remain OPEN,
+  so §53 cannot be scored complete yet.
 - **Baseline verified:** HEAD `4d2f52d7a6ad4e3951ba6f438533f7e4e4fee41f` on
   `codex/universal-core`, local == origin, dirty only with the pre-existing
   `test-artifacts/*` churn (never committed). Exact-SHA CI green at that
@@ -82,9 +82,22 @@
    resolves normally when not under load. The superseded run and its full
    diagnosis are preserved (`fullsuite_run1_interference_analysis.txt`);
    the clean re-run above is the run of record.
-5. **Exact-SHA CI at the Phase 3 commit:** **[CI_RESULT]** (verified via
-   `verify_ci.py`, `head_sha` per run *and* per job; details below once
-   green).
+5. **Exact-SHA CI at `d5c16f426ad2d807dd3fade001ea39925c4353c3`** (verified
+   via `verify_ci.py`, which checks `head_sha` per run *and* per job —
+   `ci_verify_d5c16f4.txt`): **green, 4 runs / 14 jobs, `EXACT_SHA_CI_GREEN`**.
+   SystemaOps CI **push**
+   [#38252511763](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252511763)
+   — all four jobs SUCCESS, including the backend COBOL/Java Docker job
+   (capability-truth gate, Phase 1 ingestion, frontend, backend). Supply
+   chain **push**
+   [#38252511770](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252511770)
+   — 3/3 jobs SUCCESS. SystemaOps CI **PR**
+   [#38252517204](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252517204)
+   — 4/4 SUCCESS. Supply chain **PR**
+   [#38252517323](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252517323)
+   — 3/3 SUCCESS. The backend Docker job on the runner executed the full
+   serialized suite with the same 12 new BL-031 tests under none of the
+   local Docker contention that affected the superseded local run #1.
 
 ## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
 

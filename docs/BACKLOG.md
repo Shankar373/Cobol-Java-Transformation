@@ -1772,8 +1772,18 @@ level and evidence location.
   concurrently — proven environmental, not a regression: the failing code
   path is byte-identical to baseline, the test passes in isolation, and the
   superseded run plus its full diagnosis are preserved as
-  `fullsuite_run1_interference_analysis.txt`.) Exact-SHA CI: **[CI_RESULT]**
-  (details in the Phase 3 block of `opencode.md`).
+  `fullsuite_run1_interference_analysis.txt`.) Exact-SHA CI at
+  `d5c16f426ad2d807dd3fade001ea39925c4353c3`: **green, 4 runs / 14 jobs**
+  — Push SystemaOps CI
+  [#38252511763](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252511763)
+  (incl. the backend COBOL/Java Docker job), Push Supply chain
+  [#38252511770](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252511770),
+  PR SystemaOps CI
+  [#38252517204](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252517204),
+  PR Supply chain
+  [#38252517323](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38252517323)
+  — `verify_ci.py` confirms `head_sha=d5c16f4` per run *and* per job,
+  **`EXACT_SHA_CI_GREEN`** (details in the Phase 3 block of `opencode.md`).
 
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
