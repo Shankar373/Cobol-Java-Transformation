@@ -2,7 +2,16 @@
 
 ## Phase 2 started — COBOL Semantic Coverage (2026-10-12)
 
-### ⚑ PHASE 2 STATUS — read this first (2026-10-12, in progress)
+### ⚑ PHASE 2 STATUS — read this first (2026-10-12, **COMPLETE — VERIFIED at `de8a808`**)
+
+- **Verdict (§53, 13-point):** `PHASE 2 COMPLETE — VERIFIED` at commit
+  `de8a80838aefaf981233692ca7ffab652176f483`. Two semantic defects fixed and
+  runtime-verified against the independent GnuCOBOL 3.1.2 oracle — **BL-028**
+  (P2) and **BL-030** (P0, newly filed this cycle). Local serialized full suite
+  **3366 passed, 4 skipped, 0 failed**; exact-SHA CI green on all four runs
+  (14/14 jobs). Detailed scoring in the *⚑ §53 VERDICT — Phase 2 at `de8a808`*
+  block at the end of this file. Open, non-blocking: **BL-026** (P2, GO TO
+  diagnostic — verdict/planner already fail closed).
 
 - **Baseline verified:** HEAD `b25a3a2b7b7cae849bab9bf30244caa84f3dae77` on
   `codex/universal-core`, local == origin, working tree clean apart from the
@@ -68,9 +77,104 @@
    + width truncation), `test_figurative_constants.py` (runtime pad → oracle
    fill values; `ALL "ab"` is a pattern, not "not a constant"),
    `test_scoped_construct_statements.py` (inline `ALL` fill).
-6. **Serialized full suite:** `fullsuite_phase2_fixed.txt` (run of record —
-   filled in below once it completes).
-7. **Exact-SHA CI:** to be verified via the GitHub API after push.
+6. **Serialized full suite (run of record):** `pytest -q tests -p no:randomly
+   -p no:cacheprovider -rf`, 2026-10-12, serialized (no other suite/Docker job
+   running) → **3366 passed, 4 skipped, 0 failed, 1 warning in 52m22s**
+   (`fullsuite_phase2_fixed.txt`). Collection reconciles exactly: baseline
+   `b25a3a2` collects 3325 tests, `de8a808` collects 3370 = **+45** (43 new
+   BL-030 tests + 2 BL-028 boundary tests), and the run's 3366+4 = 3370.
+   **Failure-identity comparison** (`compare_failures.py`, by test id never by
+   count) vs the 26-failure baseline list (`baseline_failed.txt`):
+   **NEW_ONLY=0, all 26 baseline failures GONE** — this host now has a JDK on
+   `PATH` (`C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot`), so the
+   26 BL-010 environmental javac failures (22 transformation + 4 vertical-slice)
+   executed and passed, and the javac-gated skips (12 → 4) ran. No test that
+   passed at baseline fails now: strictly green, zero regressions.
+7. **Adjacent MOVE/VALUE oracle probe (post-fix, fresh containers):** the
+   `adj_post` fixture (`MOVE` literal pad/truncate at `PIC X(5)`/`X(10)`,
+   `VALUE "TOOLONG"`, `VALUE ALL "xy"`, `VALUE SPACES`) compiled in
+   `eclipse-temurin:21-jdk` and `gnucobol-ocesql:latest` → **`ORACLE_MATCH=YES`,
+   6/6 lines, 0 diffs** (`adj_post/java_run.txt` vs `adj_post/cobol_run.txt`,
+   verdict in `adj_post/adj_oracle_match.txt`). This resolves the two apparent
+   divergences flagged by the earlier text probe (`String.format("%-5s",
+   "TOOLONG").substring(0, 5)` evaluates to `TOOLO`, exactly COBOL's
+   truncate-to-receiving-width result) as probe strictness, not defects.
+8. **Exact-SHA CI at `de8a80838aefaf981233692ca7ffab652176f483`** (verified via
+   the GitHub API with `verify_ci.py`, which checks `head_sha` per run *and*
+   per job): Supply chain push
+   [#38218209795](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38218209795)
+   / PR
+   [#38218214592](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38218214592)
+   **SUCCESS**. SystemaOps CI **push**
+   [#38218209824](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38218209824)
+   **SUCCESS** — all four jobs green, including the backend COBOL/Java Docker
+   job. SystemaOps CI **PR**
+   [#38218214587](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38218214587):
+   Capability truth gate, Frontend, and Ingestion diagnostics **SUCCESS**;
+   the backend Docker job failed on exactly one test,
+   `test_forensic_evidence.py::TestCleanup::test_cleanup_after_timeout`
+   (`AssertionError: Container survived after timeout: {'d4681d97fb20'}`;
+   **3369 passed, 1 failed**). This is a pre-existing, runner-timing flake,
+   **not** a regression from this change: (a) the failing test asserts that a
+   container force-killed at a 5 s timeout is reported gone by the daemon
+   *immediately* — a known race on shared runners under load; (b) the same
+   SHA's backend job passed the identical test in the push run minutes
+   earlier; (c) `git diff b25a3a2..de8a808` over
+   `tests/integration/test_forensic_evidence.py`, `backend/`, and the
+   candidate adapters is **empty** — the test and the code it exercises are
+   byte-identical to the green baseline, and the file is not in commit
+   `de8a808`. **Final status: re-run (attempt 2) `SUCCESS`** — all four jobs green;
+   `verify_ci.py` reports `EXACT_SHA_CI_GREEN`, confirming `head_sha=de8a808` per
+   run *and* per job across all four runs (14/14 jobs `success`).
+
+## ⚑ §53 VERDICT — Phase 2 at `de8a808` (2026-10-12)
+
+**`PHASE 2 COMPLETE — VERIFIED`.** All thirteen §53 criteria pass. Scope of this
+phase: COBOL semantic coverage — the two highest-priority *eligible* defects from
+the §76 audit-first gap inventory, both fixed with deterministic (no-LLM) code and
+runtime-verified against the independent GnuCOBOL 3.1.2 oracle.
+
+- **Commit:** `de8a80838aefaf981233692ca7ffab652176f483` on `codex/universal-core`
+  (local == origin).
+- **Fixed & closed this cycle:**
+  - **BL-028** (P2) — `STRING` fixed-width receiver overflow truncation + the
+    oracle-pinned `WITH POINTER` boundary rule (`1 .. W + 1`, cap at `W + 1`).
+    `ORACLE_MATCH=YES 8/8` + boundary probe 3/3.
+  - **BL-030** (P0, **new ID, filed this cycle**) — figurative `ALL` /
+    figurative-fill semantics not materialized at the PIC width. `ORACLE_MATCH=YES 11/11`.
+    Found by adjacent probing during BL-028 verification.
+- **Deferred (non-blocking, disclosed):** **BL-026** (P2, GO TO diagnostic — the
+  verdict/planner already fail closed, so no silent semantic loss); BL-014
+  (PR #6 arithmetic — left do-not-merge as-is); carried BL-003/BL-004/BL-005
+  conditions; disclosed limitations (COMP byte encoding, REDEFINES/OCCURS/88,
+  BY VALUE/BY CONTENT) unchanged.
+
+**13-point scoring:**
+
+| # | Criterion | Result | Evidence |
+|---|-----------|--------|----------|
+| 1 | baseline verified before change | PASS | `b25a3a2` local == origin; exact-SHA CI green at baseline (#38170096685 / #38170100352 / #38170096693 / #38170100373) |
+| 2 | audit-first (§76), no IDs invented | PASS | Gap inventory derived from `docs/BACKLOG.md`; BL-030 is the only new ID and was filed from a reproduced oracle defect, not invented |
+| 3 | defect proven pre-fix against oracle | PASS | BL-028: `bl028_pre_*` diverged 8/8; BL-030: non-compiling `VALUE` emission + leaked `ALL "AB"` captured |
+| 4 | deterministic (no-LLM) fix | PASS | Pure mapping/generation logic in `cobol_to_java_mapping.py`, `figurative.py`, `java_generator.py` |
+| 5 | runtime-verified vs independent oracle | PASS | BL-028 8/8 + boundary 3/3; BL-030 11/11; adjacent MOVE/VALUE probe `ORACLE_MATCH=YES` 6/6 — all GnuCOBOL 3.1.2 |
+| 6 | regression tests pass | PASS | Serialized full suite **3366 passed, 4 skipped, 0 failed** in 52m22s |
+| 7 | no new failures vs baseline | PASS | Failure-identity comparison (`compare_failures.py`) **NEW_ONLY=0** vs the 26-identity baseline; collection 3325 → 3370 = **+45** (43 BL-030 + 2 BL-028) |
+| 8 | known limitations / residual risks documented | PASS | BL-026 (open), BL-014, BL-003/004/005 conditions, COMP/REDEFINES/OCCURS/88/BY-VALUE limits all recorded in `docs/BACKLOG.md` |
+| 9 | **no silent semantic loss remains** | PASS | Both defects were §54/§60 silent-drift classes; both now either oracle-correct or fail closed with a diagnostic. No supported path silently loses bytes |
+| 10 | proof matrix / capability matrix updated | PASS | `docs/SEMANTIC_PROOF_MATRIX.md` + `docs/CAPABILITY_MATRIX.md` + `semantic_capability.py` evidence text updated for STRING + figurative fill |
+| 11 | no test weakened or skipped | PASS | Pre-fix assertions replaced with strictly stronger oracle-pinned ones (each documented in-body); **zero** tests weakened or skipped |
+| 12 | exact-SHA CI green (Push + PR) | PASS | `EXACT_SHA_CI_GREEN` at `de8a808` — Push #38218209824, PR #38218214587 (rerun attempt 2 SUCCESS), Supply chain #38218209795 / #38218214592; 14/14 jobs `success`, `head_sha` matches per run *and* per job |
+| 13 | evidence + checkpoint committed | PASS | `docs/BACKLOG.md`, both matrices, `opencode.md` and registry evidence updated; committed at `de8a808` with `test-artifacts/*` left uncommitted |
+
+**Remaining limitations (unchanged, disclosed):** `SUPPORTED` verdicts are not
+certified beyond the tested oracle subset; Docker-in-Docker still blocked locally
+(the suite ran on the host JDK/Docker); BL-010/BL-012/BL-013–BL-017 remain
+Phase 2+ items. The one PR backend failure during CI was a pre-existing
+runner-timing flake (`test_forensic_evidence.py::TestCleanup::test_cleanup_after_timeout`),
+proven unrelated to this change (empty diff, same test passed in the push run),
+and green on re-run attempt 2. PR #2 remains unmerged pending an explicit human
+decision; PR #6 remains do-not-merge. **Next Phase 2 item: BL-026.**
 
 ## Phase 1 started — Parser / Universal IR Expansion (2026-10-10)
 
