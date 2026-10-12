@@ -232,7 +232,10 @@ class TestNestedAndElseInline:
 
     def test_inline_all_and_figurative_survive_the_boundary(self):
         code = _generate(_program('IF WS-A > 1 MOVE ALL "*" TO WS-C END-IF'))
-        assert 'String.format("%-10s", "*")' in code, code
+        # BL-030: the inline statement's fill is materialized at the PIC
+        # width (oracle-pinned) instead of being padded at runtime.
+        assert 'WS_C = "**********";' in code, code
+        assert 'String.format("%-10s", "*")' not in code, code
         code_zero = _generate(_program("IF WS-A > 1 MOVE ZERO TO WS-B END-IF"))
         assert "WS_B = 0;" in code_zero, code_zero
 

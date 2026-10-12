@@ -422,6 +422,12 @@ produced evidence, not re-run here).
   ordinary field operands stay `FieldReference`/`Literal`), and regression
   against the real `PAYROLL.cob` fixture that previously generated
   non-compiling Java.
+  *(Correction 2026-10-12 — **BL-030**: the "multi-character `ALL "ab"` is not
+  a constant" negative was **wrong**. GnuCOBOL replicates the pattern across
+  the receiver (`ALL "AB"` → `ABABABABAB` for `PIC X(10)`), so refusing to
+  parse it left the raw COBOL text leaking into generated Java. The test now
+  asserts the oracle-verified repetition; the rest of the BL-018 contract is
+  unchanged.)*
 - **Known limitation (recorded, not hidden):** `LOW-VALUE`/`HIGH-VALUE` use the
   native ASCII collating sequence (NUL / 0xFF), which matches GnuCOBOL's
   default. A dialect with a different collating sequence needs an explicit
@@ -886,28 +892,50 @@ produced evidence, not re-run here).
     produced.)*
 
 ### BL-028 — COBOL fixed-width receiver overflow truncation is not modeled in `STRING`
-- **Type:** missing capability (documented limitation, not silent — declared in code and registry)
+- **Type:** defect (silent semantic loss / wrong generated value) — reclassified from
+  "documented limitation" on 2026-10-12 when the divergence was reproduced against the oracle
 - **Priority:** P2 — real behavioral divergence for `STRING` results longer than the receiving
-  field, but disclosed rather than silent: the mapper docstring and the `STRING` capability-registry
-  evidence text both state it, so §60 exposure obligations are met and no false `SUPPORTED` rests
-  on this basis alone.
-- **Severity:** medium — a program whose built string exceeds the receiver's `PIC` width will keep
+  field; was disclosed rather than silent at filing time (mapper docstring + `STRING`
+  capability-registry evidence text), so §60 exposure obligations were met and no false
+  `SUPPORTED` rested on this basis alone.
+- **Severity:** medium — a program whose built string exceeds the receiver's `PIC` width kept
   the full value in the generated Java (unbounded `String`) where COBOL truncates to the field
-  width, diverging at runtime with no diagnostic.
-- **Status:** OPEN — filed 2026-10-11 while implementing BL-027 (the unbounded-receiver modeling
-  choice was made explicit there; this entry gives it an ID so the code reference is not dangling).
+  width, diverging at runtime with no diagnostic; the `WITH POINTER` arithmetic had the same
+  shape (unbounded advance, no `1 .. W + 1` boundary rule).
+- **Status:** FIXED — 2026-10-12 (Phase 2 cycle; uncommitted working-tree change pending the
+  exact-SHA CI cycle — see the Phase 2 change-log entry (i)).
+- **Found by:** Phase 2 audit/baseline re-probe: `bl028_fixture_gen.py` emitted a Java run whose
+  8/8 lines diverged from GnuCOBOL (`CASE1[ABCDEFGH            ]` vs `CASE1[ABCDE]`, pointer
+  `0025` vs `0011`, …) — `%TEMP%\opencode\phase2\bl028_pre_*` and the
+  `[BL-028 PRE-FIX (defect evidence)]` section of `bl028_diff_out.txt`.
 - **Root cause:** `_string_receiver_statements` (`engine/transformation/cobol_to_java_mapping.py`)
-  models the receiving field as an unbounded Java `String`; truncation to the declared field width
-  is deliberately not emitted.
-- **Acceptance criteria:** (1) either emit width-aware truncation to the receiving field's declared
-  length, or fail closed for receivers whose overflow behavior would differ; (2) focused tests in
-  the capability-truth gate covering a receiver-overflow case; (3) no existing test weakened;
-  (4) serialized full suite + exact-SHA CI before closure.
-- **Verification level:** LEVEL 2 (MODELED_ONLY) — limitation verified by reading the mapper; no
-  runtime divergence probe has been run for this item.
+  modeled the receiving field as an unbounded Java `String` and advanced the pointer without a
+  boundary rule; truncation to the declared field width was deliberately not emitted.
+- **Fix:** the pre-state single assignment is kept (atomic read of the overlapping source/target),
+  then (1) a width-clipping statement
+  `T = T.substring(0, Math.min(T.length(), W))`, and (2) the oracle-pinned pointer rule: inside
+  `1 .. W + 1` the insert happens and the pointer advances capped at `W + 1`; outside that range
+  the statement is a no-op and the pointer is unchanged. Receivers with no declared width (group
+  item / undeclared name) keep the legacy emission and fail closed at `javac`
+  (`cannot find symbol: WS_G`) — documented, not silently changed.
+- **Acceptance criteria:** (1) ✅ width-aware truncation emitted for declared receivers;
+  (2) ✅ focused tests in the capability-truth gate (BL-028 boundary + truncation assertions in
+  `tests/transformation/test_string_delimited_semantics.py`, now part of the `ci.yml` gate list);
+  (3) ✅ no existing test weakened — the two pointer tests that encoded the pre-BL-028 model
+  (`test_with_pointer_clamps_inserts_and_advances`,
+  `test_overlapping_source_and_target_is_one_atomic_assignment`) were **replaced** with
+  assertions for the oracle-pinned rule and are strictly stronger (they pin the boundary, the
+  cap and the truncation, which the old assertions did not check at all);
+  (4) serialized full suite + exact-SHA CI — in progress with the Phase 2 cycle.
+- **Verification level:** LEVEL 3 (RUNTIME_VERIFIED against the independent GnuCOBOL 3.1.2
+  oracle): post-fix fixture **`ORACLE_MATCH=YES` 8/8** byte-identical
+  (`bl028_post_java_run.txt` / `bl028_post_cobol_run.txt`, diff computed by `bl028_diff.py`,
+  output `bl028_diff_out.txt`); boundary probe (pointer `W+1`, `0`, `W`) **3/3 byte-identical**
+  (`bl028_boundary_*`); the pre-fix run diverged on 8/8.
 - **Owner/role:** semantic transformation maintainer. **Target phase:** Phase 2. **Dependency:**
-  BL-027's `StringStatement` mapper path. **Residual risk:** bounded and disclosed; programs that
-  overflow the receiver diverge at runtime without a diagnostic.
+  BL-027's `StringStatement` mapper path. **Residual risk:** a receiver with no declared width
+  still fails closed at `javac` rather than at the analyzer; `STRING` overflow behaviour for
+  group items remains unproven.
 
 ### BL-029 — `STRING ... VARYING IN` is silently dropped: wrong write position with a `SUPPORTED` verdict
 - **Type:** defect (silent semantic loss / wrong generated value)
@@ -954,12 +982,64 @@ produced evidence, not re-run here).
   — fail-closed by construction; the phrase has no certified mapping, so affected programs are
   refused with a named diagnostic rather than mistranslated.
 
+### BL-030 — Figurative `ALL` / figurative-fill semantics not materialized at the PIC width (MOVE and VALUE)
+- **Type:** defect (silent semantic loss / wrong generated value; non-compiling Java on the VALUE path)
+- **Priority:** P0 — the wrong value reaches the generated program through the *supported* path
+  under a `SUPPORTED` verdict with zero diagnostics (§54 capability-truth drift / §60), and on the
+  `VALUE` path the emission was non-compiling raw COBOL text — the exact BL-018 defect class, in
+  the emission layer instead of the parser.
+- **Severity:** high — every affected `MOVE`/`VALUE` stores a different byte sequence than COBOL
+  would (`"AB   "` vs `ABABABABAB`, `"          "` vs `..........`, `"0     "` vs `00000`), so
+  downstream tests, references and redefines all see the wrong data with no diagnostic.
+- **Status:** FIXED — 2026-10-12 (Phase 2 cycle; discovered by adjacent probing while verifying
+  BL-028; uncommitted working-tree change pending the exact-SHA CI cycle — change-log entry (i)).
+- **Found by:** adjacent-case probing during the BL-028 verification
+  (`%TEMP%\opencode\phase2\move_all_probe.py`, `all_oracle_probe.py`), then confirmed against the
+  GnuCOBOL 3.1.2 oracle: `MOVE ALL "."` → `..........`, `MOVE ALL "AB"` → `ABABABABAB`,
+  `MOVE ALL ZEROS TO X(5)` → `00000`, `VALUE ALL "*"` → `**********`, `VALUE ALL "AB"` →
+  `ABABABABAB`, `VALUE ALL ZEROS` (`X` and `9`) → `00000`, `MOVE QUOTES TO X(3)` → `"""`.
+- **Root cause:** two emission sites never consulted the canonical fill rule in
+  `figurative.py`: (1) the `MOVE` branch of `map_cobol_statement`
+  (`engine/transformation/cobol_to_java_mapping.py`) padded a one-character literal at runtime
+  (only ever correct for `SPACES`) and passed `ALL <literal>` text through as data;
+  (2) `map_pic_to_java_default` (the `VALUE` clause path) stripped quotes and `.ljust()`-padded
+  the raw `item.value` text, emitting `static String WS_V = "ALL "*    ";`. The parser already
+  produced `ir.FigurativeConstant` correctly (BL-018) — the IR was right and the generator was
+  wrong.
+- **Fix (deterministic, no LLM):** `figurative.py` gains `figurative_to_width(kind, fill, width)`
+  — the single fill rule (pattern replication truncated at the final copy per COBOL 13.18.40.9,
+  character fill for `SPACES`/`QUOTES`/`LOW-VALUE`/`HIGH-VALUE`, `'0' * width` for `ZERO` on an
+  alphanumeric receiver, `None` when no fill can be derived so a caller can never invent one);
+  the parser's `ALL` regex accepts a multi-character pattern and `ALL <figurative word>`
+  collapses onto the word; both emission sites materialize the fill at the declared PIC width;
+  `numeric_semantics.py` recognizes `ALL ZERO/ZEROS/ZEROES` as the plain `ZERO` figurative.
+- **Acceptance criteria:** (1) ✅ both emission sites materialize at the declared width;
+  (2) ✅ focused tests in the capability-truth gate — new
+  `tests/transformation/test_figurative_fill_semantics.py` (43 tests) wired into the `ci.yml`
+  gate list, covering positive fill forms, the `VALUE` site, negative cases (`VALUE "ZERO"` is
+  data, `ALL ""` is not a constant) and registry/verdict truth; (3) ✅ no existing test weakened —
+  `test_figurative_constants.py`'s three emission assertions and `test_scoped_construct_statements.py`'s
+  inline-`ALL` assertion were **replaced** with the oracle values (they pinned the *defective*
+  padding), and `test_multi_character_all_is_not_a_figurative_constant` was corrected to assert
+  the oracle-verified repetition with the correction documented in the test body;
+  (4) serialized full suite + exact-SHA CI — in progress with the Phase 2 cycle.
+- **Verification level:** LEVEL 3 (RUNTIME_VERIFIED against the independent GnuCOBOL 3.1.2
+  oracle): fixture `bl030_post` compiles under `eclipse-temurin:21-jdk` and runs
+  **`ORACLE_MATCH=YES`, 11/11 lines byte-identical**
+  (`bl030_java_run.txt` vs `bl030_cobol_run.txt`); the BL-028 fixture and boundary probe were
+  re-run afterwards and stayed byte-identical (8/8, 3/3) — no regression.
+- **Owner/role:** semantic transformation maintainer. **Target phase:** Phase 2. **Dependency:**
+  BL-018's canonical `figurative.py` / `ir.FigurativeConstant`. **Residual risk:** the fill for a
+  receiver with no declared width cannot be materialized and falls back to the pre-BL-030
+  emission (same fail-closed-at-`javac` shape as BL-028); `LOW-VALUE`/`HIGH-VALUE` assume the
+  native ASCII collating sequence (inherited BL-018 limitation).
+
 ### Backlog metadata note (documentation gap, P2)
 
 Master README §77 asks each item to carry "priority and severity with
 rationale". **BL-001…BL-024 do not record an explicit priority/severity field** —
 a pre-existing gap in this document, not something introduced by the Phase 1
-work. BL-025, BL-026, BL-027, BL-028 and BL-029 are the first entries to carry it. The gap is recorded
+work. BL-025, BL-026, BL-027, BL-028, BL-029 and BL-030 are the first entries to carry it. The gap is recorded
 here rather
 than papered over: retro-fitting priority to 24 historical items without
 re-assessing each one would fabricate precision that was never established.
@@ -971,8 +1051,8 @@ remediation in their own sections — root cause, affected files, verification
 level and evidence location are either n/a or live only in the carry-forward
 register below. Everything else claimed here is verified: the §53.10 required
 set (backlog ID, owner/role, target phase, dependency, reason, residual risk,
-acceptance criteria) is present for **29/29** items in the register, and the
-defect entries (BL-001…BL-005, BL-008…BL-010, BL-018…BL-029) each carry type,
+acceptance criteria) is present for **30/30** items in the register, and the
+defect entries (BL-001…BL-005, BL-008…BL-010, BL-018…BL-030) each carry type,
 observed/expected behaviour, root cause or explicit premise correction,
 affected files, impact, remediation, acceptance criteria/tests, verification
 level and evidence location.
@@ -1129,6 +1209,35 @@ level and evidence location.
   at the audited SHA — see the `⚑ §53 RE-AUDIT` block in `opencode.md` for the full 13-criterion
   table, the disclosed independence boundary, and the exact-SHA CI evidence.
 
+- 2026-10-12 — **(i) Phase 2 started (COBOL Semantic Coverage); BL-028 fixed; BL-030 filed and
+  fixed.** Baseline verified at `b25a3a2` (local == origin; exact-SHA CI green at that SHA before
+  any change — Push #38170096685 / PR #38170100352 + supply chain #38170096693 / #38170100373).
+  The §76 audit-first gap inventory was derived from this register (no IDs invented): BL-026
+  (GO TO diagnostic, P2), BL-028 (P2), BL-014 (PR #6 — still do-not-merge), plus the carried
+  BL-003/BL-004/BL-005 conditions. **BL-028 was fixed first** (highest-priority eligible item):
+  the pre-fix defect was reproduced against the GnuCOBOL 3.1.2 oracle (8/8 lines divergent,
+  `%TEMP%\opencode\phase2\bl028_pre_*`), then the mapper was changed to clip the written value to
+  the receiver's declared PIC width and to apply the oracle-pinned pointer boundary rule
+  (inside `1..W+1` write + advance capped at `W+1`; outside = no-op, pointer unchanged) —
+  post-fix **`ORACLE_MATCH=YES` 8/8** plus a **3/3** boundary probe. **Adjacent probing during
+  that verification found a second, higher-severity defect**, filed as **BL-030 (P0)**: figurative
+  `ALL` / figurative-fill semantics were never materialized at the receiving PIC width — the
+  `MOVE` branch space-padded a one-character literal (only ever right for `SPACES`) and leaked
+  `ALL "AB"` as data, and the `VALUE` path emitted raw COBOL text
+  (`static String WS_V1 = "ALL "*    ";`, non-compiling) — all under a `SUPPORTED` verdict with
+  zero diagnostics (§54 capability-truth drift / §60). Fixed deterministically (no LLM) by making
+  `figurative_to_width()` the single fill rule and materializing it in both emission sites;
+  multi-character `ALL` patterns and `ALL <figurative word>` now parse; control-byte fills are
+  escaped (`\u0000`/`\u00ff`) so generated source compiles. **BL-030 evidence: `bl030_post`
+  `ORACLE_MATCH=YES` 11/11**, with BL-028's 8/8 and boundary 3/3 re-run clean afterwards, plus a
+  control-character fixture compiled and executed against the oracle. Verification: capability-truth
+  gate **322 passed** (11 files, the `ci.yml` selection incl. the new
+  `tests/transformation/test_figurative_fill_semantics.py`, 43 tests); no existing test weakened —
+  the assertions that pinned the defective emissions were replaced with strictly stronger
+  oracle-pinned ones, each correction documented in the test body. Serialized full suite and
+  exact-SHA CI results are recorded in the Phase 2 block of `opencode.md`. **BL-026 remains OPEN**
+  and is the next Phase 2 item.
+
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
   (Sections 76–77). BL-001 fixed; BL-006/BL-007 fixed; BL-011 partially fixed.
@@ -1249,8 +1358,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-025 | Transformation / code-generation maintainer | Phase 1 (closed) | `_map_cobol_expression_to_java` fallthrough; new `_intrinsic_fail_closed_symbol`; Master README §16/§17/§60 | Unmapped expressions must fail closed deliberately, never by emitting implementation artefacts into generated Java. | The `str(expr)` fallthrough stringified any unhandled `Expression` into Java (`WS_A = Math.abs(IntrinsicCall(name='**', ...))`) and is fail-open for any future node — the BL-018/BL-023 defect class in a different layer. Verdict was already UNSUPPORTED, so impact is bounded to malformed output, not a wrong value. | `IntrinsicCall` maps to a deliberately undefined symbol naming the construct; the fallthrough maps unknown `Expression` nodes to `UNSUPPORTED_EXPRESSION_<NODE>`; tests assert no repr leaks, the symbol is never declared, and supported `COMPUTE` is unaffected. Evidence: `tests/transformation/test_scoped_construct_statements.py`. |
 | BL-026 | Semantic transformation maintainer | Phase 2 | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | A program containing `GO TO` raises an explicit diagnostic naming `GO TO`; the verdict stays UNSUPPORTED and the planner still blocks; the traceability comment remains; focused tests are added to the fast `capability-truth` gate; no existing test weakened. Evidence basis: semantic re-probe at `bdb4c9a` (Linux JDK audit container). |
 | BL-027 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed 2026-10-12 — implemented `13bdddd`, oracle-matched, CI green at `6bfcbe4`, §53 re-audit completed)** | Additive `StringStatement` IR change; capability-truth gate | `STRING ... DELIMITED BY <x>` and `WITH POINTER` are not modelled: the delimiter is concatenated into the result as data and the pointer is dropped, under a `SUPPORTED` verdict with no diagnostic — reachable silent wrong value, the one §53.10 combination that must never occur. | P0 / high: fail-closed does not hold for these `STRING` forms; a green verdict accompanies incorrect generated arithmetic — §54 `capability truth drift` and a direct §60 / §53.9 counterexample at the Phase 1 parser/IR boundary. | FIXED — VERIFIED (`13bdddd` on top of `742e39d`; re-audit 2026-10-12): delimiter/pointer parsed into `StringStatement`; mapper excludes the delimiter from the result and reads/writes the pointer; identifier delimiters, `ON OVERFLOW` and non-integer pointers return an `UNSUPPORTED_STRING$…` fail-closed symbol; 30 focused tests in the fast `capability-truth` gate (`tests/transformation/test_string_delimited_semantics.py`, wired into `ci.yml`). VERIFIED: container `javac` compile-and-execute of the emitted Java matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte (`ORACLE_MATCH=YES`, `bl027_diff.py`); fail-closed forms probe correctly (`bl027_probe_run2.txt`); serialized rerun at **exactly the 26-identity environmental baseline** (zero new failures by identity vs the `bdb4c9a` clean run; +30 passed = the new BL-027 tests); exact-SHA CI **green at `6bfcbe4`** (all four workflows, all jobs, `head_sha` verified via GitHub API). Closing action done: the §53 re-audit re-ran `string_probe.py`/`nosilentloss_sweep.py` in the same container against an exact `bdb4c9a` worktree — every wrong STRING emission is fixed, all other constructs byte-identical — and re-scored criterion 9 (sibling gap `VARYING IN` filed as BL-029 and fixed in-cycle, `7dceec1`). Defect evidence basis: `string_probe.py` at `bdb4c9a` (Linux JDK audit container, real `ApplicationDiscovery` + `CapabilityAnalyzer` verdicts). |
-| BL-028 | Semantic transformation maintainer | Phase 2 (future STRING semantics completeness) | BL-027 `StringStatement` mapper path | COBOL fixed-width receiver overflow truncation is not modeled: the receiving field is emitted as an unbounded Java `String`, so a `STRING` result longer than the receiving field's `PIC` width does not truncate as COBOL would. | P2 / medium: no wrong value within the field width and no false `SUPPORTED` on this basis alone (the limitation is declared in the capability-registry evidence text for `STRING` and in the mapper docstring), but programs whose `STRING` output exceeds the receiver width will diverge at runtime without a diagnostic. | Model receiving-field width truncation in the emitted Java (or fail closed for receivers whose overflow behavior would differ); add focused tests to the capability-truth gate; serialized full suite + exact-SHA CI. Evidence: mapper `_string_receiver_statements` docstring (`engine/transformation/cobol_to_java_mapping.py`, "The receiver is modeled as an unbounded Java String, so COBOL's fixed-width overflow truncation is a documented limitation"). |
+| BL-028 | Semantic transformation maintainer | **Phase 2 (fixed in-cycle 2026-10-12; closure pending exact-SHA CI)** | BL-027 `StringStatement` mapper path | COBOL fixed-width receiver overflow truncation is not modeled: the receiving field is emitted as an unbounded Java `String`, so a `STRING` result longer than the receiving field's `PIC` width does not truncate as COBOL would, and the `WITH POINTER` arithmetic has no `1 .. W + 1` boundary rule. | P2 / medium at filing (disclosed in the mapper docstring and the `STRING` registry evidence text, so no false `SUPPORTED` rested on it) — reclassified to a reachable wrong value once the oracle probe reproduced it 8/8. | FIXED — width-clipping statement `T = T.substring(0, Math.min(T.length(), W))` after the atomic pre-state write; pointer inside `1 .. W + 1` writes and advances capped at `W + 1`, outside it is a no-op with the pointer unchanged (GnuCOBOL 3.1.2 oracle); no-declared-width receivers keep the legacy emission and fail closed at `javac`. Focused tests in `tests/transformation/test_string_delimited_semantics.py` (capability-truth gate); **no existing test weakened** — the two pointer tests that encoded the pre-BL-028 model were replaced with strictly stronger boundary/cap/truncation assertions. Evidence: `bl028_post` **ORACLE_MATCH=YES 8/8**, boundary probe **3/3** (`%TEMP%\opencode\phase2\bl028_diff_out.txt`). Serialized full suite + exact-SHA CI in progress with the Phase 2 cycle. |
 | BL-029 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed in-cycle 2026-10-12 — `7dceec1`)** | Additive `StringStatement.varying_pointer` IR change; capability-truth gate | `STRING ... VARYING IN <ptr> [FROM n [BY m]]` (COBOL's alternative receiving-position form) is silently dropped at the parser tail scan: the statement writes at position 1, the pointer is never read, verdict stays `SUPPORTED`, zero diagnostics — a BL-027-class §60 counterexample found by the §53 re-audit. | P0 / high: same §54 `capability truth drift` shape as BL-027 — a green verdict accompanies incorrect generated write-position arithmetic through the supported path. | FIXED — VERIFIED (`7dceec1`): tail scan captures `VARYING IN` into `StringStatement.varying_pointer` and raises `UNSUPPORTED_CONSTRUCT` naming the phrase; mapper appends `VARYING_IN_<PTR>` to the `UNSUPPORTED_STRING$…` fail-closed reasons; registry evidence text names BL-029; 5 focused tests added. VERIFIED: container probes show both VARYING forms emitting `UNSUPPORTED_STRING$VARYING_IN_WS_P` with verdict `UNSUPPORTED` (`reaudit_varying_fixed.txt`); capability-truth gate **277 passed**; serialized full suite **26 failed / 3287 passed / 12 skipped**, failure set identical by identity to the 26-identity environmental baseline (zero new, zero changed); exact-SHA CI green (run IDs in the `⚑ §53 RE-AUDIT` block of `opencode.md`). Defect evidence basis: `bl027_varying_probe.py` at `cf35c1d` (Linux JDK audit container). |
+| BL-030 | Semantic transformation maintainer | **Phase 2 (fixed in-cycle 2026-10-12; closure pending exact-SHA CI)** | BL-018's canonical `figurative.py` / `ir.FigurativeConstant` | Figurative `ALL` / figurative-fill semantics are not materialized at the receiving item's declared PIC width: the `MOVE` branch pads a one-character literal at runtime (only ever right for `SPACES`) and passes `ALL <literal>` through as data, and the `VALUE` path (`map_pic_to_java_default`) emits the raw COBOL text (`static String WS_V = "ALL "*    ";`, non-compiling). Found by adjacent probing during BL-028 verification. | P0 / high: wrong byte sequence through the supported path under a `SUPPORTED` verdict with zero diagnostics (§54/§60); on the `VALUE` path the output does not compile — the BL-018 defect class in the emission layer. | FIXED — `figurative_to_width(kind, fill, width)` is the single fill rule (pattern replication truncated at the final copy per COBOL 13.18.40.9, character fill, `'0' * width` for `ZERO` on an alphanumeric receiver, `None` when no fill can be derived); both emission sites materialize at the PIC width; multi-character `ALL` patterns parse; `ALL <figurative word>` collapses onto the word. Evidence: fixture `bl030_post` **ORACLE_MATCH=YES 11/11** (`bl030_java_run.txt` vs `bl030_cobol_run.txt`) with BL-028's 8/8 and boundary 3/3 re-run clean afterwards. 43 focused tests in new `tests/transformation/test_figurative_fill_semantics.py`, wired into the `ci.yml` gate list; no existing test weakened (the padding assertions were replaced with oracle values and the correction documented in each test body). Serialized full suite + exact-SHA CI in progress with the Phase 2 cycle. |
 
 ### PR disposition snapshot — 2026-10-10
 

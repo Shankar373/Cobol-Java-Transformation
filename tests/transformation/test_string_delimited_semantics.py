@@ -8,7 +8,8 @@ and the §53.9 blocker.  These tests lock the fix at every layer:
 
 * IR: per-phrase ``delimiter_exprs``, ``pointer``, ``has_overflow``;
 * mapper: delimiter truncation excludes the delimiter from the result,
-  write-position + tail preservation, pointer clamp/advance;
+  write-position + tail preservation, the BL-028 fixed-width receiver
+  truncation and the oracle-pinned pointer boundary rule;
 * fail-closed: identifier delimiter / ON OVERFLOW / VARYING IN /
   non-integer pointer produce an ``UNSUPPORTED_STRING$`` symbol and an
   UNSUPPORTED verdict with a diagnostic naming the construct — never a
@@ -267,29 +268,60 @@ class TestStringGeneratedJava:
             '? WS_A.indexOf(",") : WS_A.length()))' in rendered
         )
 
-    def test_with_pointer_clamps_inserts_and_advances(self):
+    def test_with_pointer_boundary_rules_and_width_truncation(self):
+        """BL-028: oracle-pinned pointer boundary rule + receiver truncation.
+
+        Pre-BL-028 the mapper emitted an unconditional
+        ``WS_P = Math.max(1, WS_P);`` clamp followed by an unbounded
+        ``WS_P = (WS_P + WS_A.length());`` advance, so a pointer beyond
+        ``W + 1`` silently advanced further than COBOL's capped value and
+        the receiver was never truncated to its ``PIC`` width.  The
+        GnuCOBOL 3.1.2 oracle pins the correct rules, all three reproduced
+        by ``bl028_boundary_post``:
+
+        * pointer in ``1 .. W + 1``: writes and advances, capped at ``W + 1``;
+        * pointer outside that range: no-op, pointer unchanged;
+        * the receiver's final value never exceeds its declared width.
+        """
         mapped = _mapped(
             "    STRING WS-A DELIMITED BY SIZE INTO WS-D WITH POINTER WS-P.",
             POINTER_ITEMS,
         )[0]
         assert len(mapped) == 3
         gen = JavaGenerator()
-        clamp, assign, advance = (gen._stmt_to_string(s) for s in mapped)
-        assert clamp == "WS_P = Math.max(1, WS_P);"
-        assert 'String.format("%-" + (WS_P - 1) + "s", WS_D)' in assign
-        assert ".substring(0, (WS_P - 1))" in assign
-        assert "Math.min(" in assign
-        assert advance == "WS_P = (WS_P + WS_A.length());"
+        insert, advance, truncate = (gen._stmt_to_string(s) for s in mapped)
+        # write position guarded by 1 .. W+1 (W = 40 for WS-D)
+        assert insert.startswith(
+            "WS_D = (((WS_P >= 1) && (WS_P <= 41)) ? "
+        )
+        assert 'String.format("%-" + (WS_P - 1) + "s", WS_D)' not in insert
+        assert "WS_D.substring(0, Math.min(WS_D.length(), (WS_P - 1)))" in insert
+        assert "Math.min(" in insert
+        # advance is capped at W + 1 and is a no-op outside the range
+        assert advance == (
+            "WS_P = (((WS_P >= 1) && (WS_P <= 41)) "
+            "? Math.min((WS_P + WS_A.length()), 41) : WS_P);"
+        )
+        # fixed-width receiver: the result never exceeds PIC X(40)
+        assert truncate == (
+            "WS_D = WS_D.substring(0, Math.min(WS_D.length(), 40));"
+        )
 
-    def test_overlapping_source_and_target_is_one_atomic_assignment(self):
-        """D appears as source and receiver: one assignment, pre-state read."""
+    def test_overlapping_source_and_target_reads_the_pre_state_once(self):
+        """D appears as source and receiver: the write is one assignment
+        reading the pre-state, followed by the BL-028 width truncation."""
         mapped = _mapped(
             "    STRING WS-D DELIMITED BY SIZE WS-A DELIMITED BY SIZE INTO WS-D."
         )[0]
-        assert len(mapped) == 1
-        rendered = JavaGenerator()._stmt_to_string(mapped[0])
-        assert rendered.count("WS_D = ") == 1
-        assert "WS_D.substring(" in rendered
+        assert len(mapped) == 2
+        rendered = [JavaGenerator()._stmt_to_string(s) for s in mapped]
+        # first statement performs the whole write from the pre-state
+        assert rendered[0].count("WS_D = ") == 1
+        assert "WS_D.substring(" in rendered[0]
+        # second statement clips the receiver to its declared PIC width
+        assert rendered[1] == (
+            "WS_D = WS_D.substring(0, Math.min(WS_D.length(), 40));"
+        )
 
 
 # ---------------------------------------------------------------------------

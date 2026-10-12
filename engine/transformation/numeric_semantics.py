@@ -52,7 +52,13 @@ import re
 # numeric literal: optional sign, digits with optional fractional part.
 _NUMERIC_LITERAL_RE = re.compile(r"^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))$")
 
-_ZERO_FIGURATIVE = frozenset({"ZERO", "ZEROS", "ZEROES"})
+_ZERO_FIGURATIVE = frozenset({
+    "ZERO", "ZEROS", "ZEROES",
+    # ``ALL <zero word>`` collapses onto the plain figurative constant
+    # (BL-030): ``VALUE ALL ZEROS`` is ``VALUE ZEROS``, which the oracle
+    # stores as all-zero digits.
+    "ALL ZERO", "ALL ZEROS", "ALL ZEROES",
+})
 
 # Figurative constants that are invalid as the VALUE of a numeric item.
 _INVALID_NUMERIC_FIGURATIVE = frozenset({
@@ -95,7 +101,9 @@ def normalize_numeric_literal(text: str) -> str:
     Raises :class:`NumericValueError` for non-numeric text.
     """
     stripped = _strip_quotes(text)
-    upper = stripped.upper()
+    # Figurative spellings are word sequences (``ALL ZEROS``), so collapse
+    # runs of whitespace before the canonical-word lookups.
+    upper = " ".join(stripped.upper().split())
     if upper in _ZERO_FIGURATIVE:
         return "0"
     if upper in _INVALID_NUMERIC_FIGURATIVE or not _NUMERIC_LITERAL_RE.match(stripped):

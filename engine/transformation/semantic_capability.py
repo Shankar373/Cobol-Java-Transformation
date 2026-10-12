@@ -150,10 +150,12 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "STRING is mapped to Java string construction with COBOL write "
         "semantics: per-phrase DELIMITED BY truncation (SIZE, literal, "
         "SPACE), the delimiter excluded from the result, tail-preserving "
-        "writes and WITH POINTER clamp/advance. Identifier delimiters, "
+        "writes and WITH POINTER insert/advance. Identifier delimiters, "
         "ON OVERFLOW and VARYING IN fail closed with UNSUPPORTED_CONSTRUCT "
-        "(BL-027, BL-029); fixed-width receiver overflow truncation is not "
-        "modeled (BL-028)"
+        "(BL-027, BL-029); the fixed-width receiver is truncated to its "
+        "declared PIC width and the pointer follows the oracle-pinned "
+        "boundary rule (writes and advances capped at W+1 inside 1..W+1, "
+        "no-op outside) — byte-verified against GnuCOBOL 3.1.2 (BL-028)"
     ),
     "UNSTRING": _partial("UNSTRING is supported only for the certified delimited subset"),
     "DISPLAY": _supported("DISPLAY is mapped to deterministic output semantics"),
@@ -213,7 +215,13 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "FIGURATIVE CONSTANT": _supported(
         "Figurative constants are parsed into FigurativeConstant and mapped to "
         "the receiving item's width (whole-field fill for MOVE, whole-field "
-        "equality for comparison)"
+        "equality for comparison).  BL-030: the fill is materialized at the "
+        "declared PIC width for both MOVE and VALUE — ``ALL <pattern>`` is "
+        "replicated across the receiver and truncated at the final copy, "
+        "``ALL <figurative word>`` collapses onto the word, and a numeric "
+        "figurative on an alphanumeric receiver stores its character form "
+        "('00000' for ZEROS) — byte-verified against the GnuCOBOL 3.1.2 "
+        "oracle, so no COBOL spelling ever leaks into generated Java"
     ),
     # USAGE clauses.  The numeric *value* path (arithmetic, DISPLAY text,
     # VALUE normalization) is certified, but the record-area *byte encoding*

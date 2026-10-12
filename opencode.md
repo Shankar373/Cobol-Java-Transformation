@@ -1,5 +1,77 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 2 started — COBOL Semantic Coverage (2026-10-12)
+
+### ⚑ PHASE 2 STATUS — read this first (2026-10-12, in progress)
+
+- **Baseline verified:** HEAD `b25a3a2b7b7cae849bab9bf30244caa84f3dae77` on
+  `codex/universal-core`, local == origin, working tree clean apart from the
+  pre-existing `test-artifacts/*` churn (left uncommitted, exactly as at the
+  Phase 1 baseline). Exact-SHA CI green at that baseline: Push CI
+  [#38170096685](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38170096685),
+  PR CI
+  [#38170100352](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38170100352),
+  Supply chain push
+  [#38170096693](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38170096693)
+  / PR
+  [#38170100373](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38170100373)
+  — all four CI jobs green.
+- **Phase 2 gap inventory (§76 audit-first, derived from `docs/BACKLOG.md`, no
+  IDs invented):** BL-003/BL-004/BL-005 (registry truth — closed with
+  carry-forward conditions), **BL-026** (GO TO diagnostic, P2 — still open,
+  next in priority order), **BL-028** (STRING fixed-width receiver overflow,
+  P2), BL-014 (PR #6 arithmetic — do not merge as-is), plus the disclosed
+  limitations (COMP byte encoding, REDEFINES/OCCURS/88, BY VALUE/BY CONTENT).
+- **Fixed this cycle (both oracle-verified, see below):**
+  - **BL-028 — FIXED.** Fixed-width receiver truncation + the oracle-pinned
+    pointer boundary rule in `_string_receiver_statements`.
+  - **BL-030 — NEW ID, filed and FIXED.** Figurative `ALL` / figurative-fill
+    semantics not materialized at the PIC width (found by adjacent probing
+    during the BL-028 verification — a P0 §54/§60 defect: wrong bytes through
+    the supported path, and non-compiling raw COBOL text on the `VALUE` path).
+- **BL-026 remains OPEN (P2, non-blocking)** — next Phase 2 item; not fixed in
+  this cycle because a mapper change requires a fresh serialized full suite +
+  exact-SHA CI cycle, and BL-028/BL-030 already consume this cycle's evidence
+  budget.
+
+### Phase 2 evidence (all executed 2026-10-12, outputs under `%TEMP%\opencode\phase2\`)
+
+1. **BL-028 defect proven first (pre-fix):** `bl028_fixture_gen.py` at the
+   baseline emitted Java that diverged from GnuCOBOL on **8/8 lines** —
+   `CASE1[ABCDEFGH            ]` vs `CASE1[ABCDE]`, pointer `0025` vs `0011` —
+   captured in `bl028_pre_java_run.txt` / `bl028_pre_cobol_run.txt` and in the
+   `[BL-028 PRE-FIX (defect evidence)]` section of `bl028_diff_out.txt`.
+2. **BL-028 fix verified against the independent oracle:** the same fixture
+   post-fix is byte-identical — **`ORACLE_MATCH=YES`, 8/8**
+   (`bl028_post_java_run.txt` / `bl028_post_cobol_run.txt`, diff computed by
+   `bl028_diff.py`); the boundary probe (pointer `W+1`, `0`, `W`) is **3/3
+   byte-identical** (`bl028_boundary_*`). Both were re-run again *after* the
+   BL-030 fix and stayed byte-identical — no regression.
+3. **BL-030 defect proven, then fixed and verified:** pre-fix the `VALUE` path
+   emitted `static String WS_V1 = "ALL "*    ";` (non-compiling) and `MOVE
+   ALL "AB"` stored `"AB   "`. Post-fix fixture `bl030_post` compiles under
+   `eclipse-temurin:21-jdk` and matches GnuCOBOL 3.1.2 byte-for-byte —
+   **`ORACLE_MATCH=YES`, 11/11** (`bl030_java_run.txt` vs
+   `bl030_cobol_run.txt`). Control-byte fills (`VALUE QUOTES`,
+   `LOW-VALUES`/`HIGH-VALUES`, `MOVE LOW-VALUE`) were additionally compiled
+   and executed against the oracle (`bl030_ctrl*`): Java `"""""` == COBOL
+   `"""""`, and NUL/0xFF are emitted as `\u0000`/`\u00ff` rather than raw
+   bytes in generated source.
+4. **Focused / capability-truth gate:** the exact `ci.yml` gate selection
+   (11 files, now including `tests/transformation/test_figurative_fill_semantics.py`)
+   → **322 passed** locally (was 277 at `7dceec1`; +43 = the new BL-030 tests,
+   +2 = the BL-028 boundary tests replacing the two pre-fix assertions).
+5. **No existing test weakened:** three assertion groups that encoded the
+   *defective* emissions were **replaced with strictly stronger ones**, each
+   with the correction documented in the test body —
+   `test_string_delimited_semantics.py` (pointer clamp/advance → boundary rule
+   + width truncation), `test_figurative_constants.py` (runtime pad → oracle
+   fill values; `ALL "ab"` is a pattern, not "not a constant"),
+   `test_scoped_construct_statements.py` (inline `ALL` fill).
+6. **Serialized full suite:** `fullsuite_phase2_fixed.txt` (run of record —
+   filled in below once it completes).
+7. **Exact-SHA CI:** to be verified via the GitHub API after push.
+
 ## Phase 1 started — Parser / Universal IR Expansion (2026-10-10)
 
 ### Current verification state (live)

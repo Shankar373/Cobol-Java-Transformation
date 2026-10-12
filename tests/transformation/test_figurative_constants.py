@@ -153,9 +153,15 @@ class TestNegativeCases:
         assert figurative.parse_figurative_constant('"ZERO"') is None
         assert figurative.parse_figurative_constant("'SPACES'") is None
 
-    def test_multi_character_all_is_not_a_figurative_constant(self):
-        # ALL "ab" is a repetition, not a figurative constant.
-        assert figurative.parse_figurative_constant('ALL "ab"') is None
+    def test_multi_character_all_is_a_repetition_pattern(self):
+        # BL-030 correction (was: ``ALL "ab" is not a figurative constant``).
+        # A multi-character ``ALL`` operand *is* the figurative repetition
+        # form and GnuCOBOL replicates it across the receiver
+        # (``ALL "AB"`` -> ``ABABABABAB`` for PIC X(10)), so refusing to
+        # parse it left the raw COBOL text leaking into generated Java.
+        kind, fill = figurative.parse_figurative_constant('ALL "ab"')
+        assert kind == figurative.ALL
+        assert fill == "ab"
 
     def test_empty_all_literal_is_not_a_constant(self):
         assert figurative.parse_figurative_constant('ALL ""') is None
@@ -238,21 +244,43 @@ class TestMapperEmitsCompilingJava:
 
     def test_move_spaces_pads_to_the_receiving_width(self):
         code = _generate(_program("MOVE SPACES TO WS-TEXT."))
-        # PIC X(10) receives ten spaces, not the single literal " ".
-        assert 'String.format("%-10s", " ")' in code
+        # PIC X(10) receives ten spaces.  BL-030 materializes the fill as a
+        # literal (oracle-pinned: the value is a full-width character
+        # string) instead of padding a one-character literal at runtime.
+        assert 'WS_TEXT = "          ";' in code
+        assert 'String.format("%-10s", " ")' not in code
 
     def test_move_all_fills_with_the_named_character(self):
         code = _generate(_program("MOVE ALL '*' TO WS-TEXT."))
-        assert 'String.format("%-10s", "*")' in code
+        # GnuCOBOL stores ten '*' for PIC X(10) — the pattern is replicated
+        # across the whole receiver, not space-padded to width (BL-030).
+        assert 'WS_TEXT = "**********";' in code
+        assert 'String.format("%-10s", "*")' not in code
+
+    def test_move_all_multi_character_pattern_is_truncated_at_the_width(self):
+        code = _generate(_program('MOVE ALL "AB" TO WS-TEXT.'))
+        assert 'WS_TEXT = "ABABABABAB";' in code
+
+    def test_move_zeros_to_an_alphanumeric_item_fills_with_zero_digits(self):
+        # COBOL: MOVE ZEROS TO PIC X(5) stores ``00000`` (a character
+        # string the size of the receiver), never ``0`` plus spaces.
+        code = _generate(_program("MOVE ZEROS TO WS-TEXT."))
+        assert 'WS_TEXT = "0000000000";' in code
 
     def test_move_zero_is_numeric_zero(self):
         code = _generate(_program("MOVE ZERO TO WS-NUM."))
         assert "WS_NUM = 0;" in code
 
-    @pytest.mark.parametrize("width", [1, 5, 10])
-    def test_generated_program_fills_the_whole_receiving_width(self, width):
-        # The Java computes the fill at runtime (format + substring), so the
-        # assertion is on the emitted width, not on a pre-filled literal.
+    @pytest.mark.parametrize(
+        ("width", "expected"),
+        [(1, '"*"'), (5, '"*****"'), (10, '"**********"')],
+    )
+    def test_generated_program_fills_the_whole_receiving_width(
+        self, width, expected
+    ):
+        # The fill is materialized at emission time to exactly the declared
+        # PIC width — the oracle stores ``width`` copies of the pattern,
+        # truncated at the last copy (COBOL 13.18.40.9, BL-030).
         source = (
             "       IDENTIFICATION DIVISION.\n"
             "       PROGRAM-ID. FIGRUN.\n"
@@ -265,7 +293,11 @@ class TestMapperEmitsCompilingJava:
             "           STOP RUN.\n"
         )
         code = JavaGenerator().generate(CobolParser().parse(source))[0].source_code
-        assert f'String.format("%-{width}s", "*").substring(0, {width})' in code
+        assert f"WS_TEXT = {expected};" in code
+        # the pre-BL-030 runtime pad + substring of a one-character literal
+        # is gone: the fill is a literal of exactly the declared width
+        assert 'String.format("%-' not in code
+        assert f".substring(0, {width})" not in code
 
     def test_expr_mapping_returns_a_literal_not_a_variable(self):
         java = map_cobol_expr_to_java("ZERO")

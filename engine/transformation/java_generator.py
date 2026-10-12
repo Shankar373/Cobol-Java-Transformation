@@ -32,6 +32,10 @@ from engine.transformation.java_ir import (
 )
 
 
+from engine.transformation.figurative import (
+    figurative_to_width,
+    parse_figurative_constant,
+)
 from engine.transformation.numeric_semantics import (
     NumericValueError,
     display_format_spec,
@@ -836,8 +840,23 @@ public class {class_name} {{
 
     @staticmethod
     def _escape_java_string(value: str) -> str:
-        """Escape a raw string value for embedding in a Java string literal."""
-        return value.replace("\\", "\\\\").replace('"', '\\"')
+        """Escape a raw string value for embedding in a Java string literal.
+
+        Control bytes are escaped too (BL-030): ``MOVE LOW-VALUE`` fills the
+        receiver with NUL and ``MOVE HIGH-VALUE`` with 0xFF, and a raw
+        control byte in generated source is rejected by ``javac`` (or
+        corrupted by a non-UTF-8 reader) instead of being a legal character
+        in a string literal.
+        """
+        return (
+            value.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("\x00", "\\u0000")
+            .replace("\xff", "\\u00ff")
+        )
 
     def _gen_field_declarations_from_ir(self, java_class: JavaClass) -> str:
         """Generate Java variable declarations from JavaClass fields."""
@@ -1646,6 +1665,31 @@ public class {class_name} {{
         return "long" if item.pic_length > 9 else "int"
 
     @staticmethod
+    def _java_string_default_for_item(item) -> str:
+        """Choose the Java string initializer for an alphanumeric VALUE.
+
+        A figurative VALUE (``VALUE SPACES`` / ``VALUE ALL "*"`` / ...) is
+        materialized into the receiving item's declared PIC width (BL-030):
+        the storage image is a constant known at generation time, so the
+        literal is built deterministically and matched against the GnuCOBOL
+        oracle.  Before this, ``VALUE ALL "*"`` emitted the *broken* literal
+        ``"ALL "*"`` (unescaped quote, non-compiling) and ``VALUE SPACES``
+        emitted the text ``"SPACES"`` instead of blanks.  An ordinary literal
+        keeps the previous behaviour (quote-stripped spelling).
+        """
+        if not item.value:
+            return '""'
+        parsed = parse_figurative_constant(item.value)
+        if parsed is not None:
+            width = getattr(item, "pic_length", 0) or 0
+            filled = figurative_to_width(parsed[0], parsed[1], width)
+            if filled is not None:
+                return '"' + JavaGenerator._escape_java_string(filled) + '"'
+        # Ordinary literal: quote-stripped spelling, escaped so a literal
+        # containing ``"`` or a backslash still compiles.
+        return '"' + JavaGenerator._escape_java_string(item.value.strip("'\"")) + '"'
+
+    @staticmethod
     def _java_numeric_default_for_item(item) -> str:
         """Choose a Java initializer while honoring the numeric literal contract.
 
@@ -1705,7 +1749,7 @@ public class {class_name} {{
             else:
                 default = '""'
                 if item.value:
-                    default = '"' + item.value.strip("'\"") + '"'
+                    default = self._java_string_default_for_item(item)
                 lines.append(f'    static String {java_name} = {default};')
         return "\n".join(lines)
 
@@ -1776,7 +1820,7 @@ public class {class_name} {{
             else:
                 default = '""'
                 if item.value:
-                    default = '"' + item.value.strip("'\"") + '"'
+                    default = self._java_string_default_for_item(item)
                 lines.append(f'    static String {java_name} = {default};')
         return "\n".join(lines)
 

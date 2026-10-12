@@ -38,8 +38,9 @@ QUOTES = "QUOTES"
 LOW_VALUE = "LOW-VALUE"
 HIGH_VALUE = "HIGH-VALUE"
 
-#: ``ALL "x"`` — a single-character figurative constant repeated across the
-#: receiver.  The repeated character is carried on the constant itself.
+#: ``ALL "x"`` — a literal repeated across the receiver.  The repeated
+#: pattern (one character or many) is carried on the constant itself; the
+#: receiving context replicates it to the item's declared width.
 ALL = "ALL"
 
 
@@ -78,11 +79,22 @@ _FILL_CHARACTERS: dict[str, str] = {
 }
 
 
-#: ``ALL "x"`` — one COBOL/ASCII character.  The literal may be single- or
-#: double-quoted, exactly like any other COBOL alphanumeric literal.  Only a
-#: single character is a figurative constant; ``ALL "ab"`` is not.
+#: ``ALL "x"`` / ``ALL "xy"`` — a literal repeated across the receiver.  The
+#: repeated pattern is carried on the constant itself; a single character is
+#: the common case, and a multi-character pattern is a repetition whose final
+#: copy is truncated at the receiving item's width (COBOL 13.18.40.9).
 _ALL_LITERAL = re.compile(
-    r"""^ALL\s+(?:"(?P<dq>[^"]{1})"|'(?P<sq>[^']{1})')$""",
+    r"""^ALL\s+(?:"(?P<dq>[^"]+)"|'(?P<sq>[^']+)')$""",
+    re.IGNORECASE,
+)
+
+#: ``ALL <figurative word>`` — COBOL treats the combination as the plain
+#: figurative constant (``ALL ZEROS`` is ``ZEROS``, ``ALL SPACE`` is
+#: ``SPACES``).  Without this the spelling fell through to the field-
+#: reference branch and its raw text leaked into generated Java.
+_ALL_FIGURATIVE_WORD = re.compile(
+    r"""^ALL\s+(?P<word>ZERO-ZERO-ZERO|ZEROES|ZEROS|ZERO|QUOTES|QUOTE"""
+    r"""|LOW-VALUES|LOW-VALUE|HIGH-VALUES|HIGH-VALUE|SPACES|SPACE)$""",
     re.IGNORECASE,
 )
 
@@ -134,6 +146,13 @@ def parse_figurative_constant(text: str) -> tuple[str, str | None] | None:
     match = _ALL_LITERAL.match(stripped)
     if match:
         return ALL, (match.group("dq") or match.group("sq"))
+
+    # ``ALL <figurative word>`` collapses onto the word's canonical kind:
+    # COBOL treats the combination as the plain figurative constant.
+    word_match = _ALL_FIGURATIVE_WORD.match(stripped)
+    if word_match:
+        return CANONICAL_FIGURATIVES[word_match.group("word").upper()], None
+
     return None
 
 
@@ -156,6 +175,38 @@ def figurative_is_numeric(kind: str) -> bool:
     return kind == ZERO
 
 
+def figurative_to_width(kind: str, fill: str | None, width: int) -> str | None:
+    """Character string a figurative constant supplies for an alphanumeric
+    receiving item of ``width`` characters.
+
+    COBOL treats a figurative constant as a character string the *size of
+    the receiving item* (13.18.24.3): the constant's character fills every
+    position — ``MOVE ZEROS TO PIC X(5)`` stores ``00000``, not ``0`` plus
+    spaces — and ``ALL <literal>`` repeats its pattern across the width,
+    truncating whatever does not fit in the final copy
+    (``MOVE ALL "ABC" TO PIC X(10)`` stores ``ABCABCABC``).  Both rules are
+    pinned against the GnuCOBOL 3.1.2 oracle (BL-030).
+
+    Returns ``None`` when the constant supplies no character string (an
+    unknown kind, or ``ALL`` with no pattern), so a caller can never invent
+    a fill.
+    """
+    if width is None or width <= 0:
+        return None
+    if kind == ALL:
+        pattern = fill or ""
+        if not pattern:
+            return None
+        return (pattern * (width // len(pattern) + 1))[:width]
+    if kind == ZERO:
+        # The character form of numeric zero for an alphanumeric receiver.
+        return "0" * width
+    char = figurative_fill_char(kind)
+    if char is None:
+        return None
+    return char * width
+
+
 __all__ = [
     "ALL",
     "CANONICAL_FIGURATIVES",
@@ -166,6 +217,7 @@ __all__ = [
     "ZERO",
     "figurative_fill_char",
     "figurative_is_numeric",
+    "figurative_to_width",
     "is_figurative_constant",
     "parse_figurative_constant",
 ]

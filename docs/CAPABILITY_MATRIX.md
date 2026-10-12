@@ -6,14 +6,14 @@ This is an implementation and evidence matrix, not a language-completeness claim
 |---|---:|---:|---:|---|
 | DISPLAY | Yes | Yes | Tested subset | Supported subset |
 | STOP RUN | Yes | Yes | Tested | Supported subset |
-| MOVE | Yes | Yes | Tested | Supported subset |
+| MOVE | Yes | Yes | Tested; figurative-fill semantics (`ALL <pattern>`, `ZEROS` on `PIC X`, `VALUE ALL …`) verified byte-identical vs. GnuCOBOL 3.1.2 (BL-030, 11/11) | Supported subset |
 | ADD/SUBTRACT/MULTIPLY | Yes | Yes | Tested | Supported subset |
 | DIVIDE/COMPUTE | Yes | Yes | Targeted | Supported subset; precision edges remain |
 | IF/ELSE | Yes | Yes | Tested | Supported subset |
 | PERFORM | Yes | Yes | Tested | Supported subset |
 | PERFORM VARYING | Yes | Yes (bounded Java loop) | Verified end-to-end (phase4 oracle) | Supported subset |
 | EVALUATE | Yes (lowered to IF/ELSE) | Yes (via IF/ELSE) | Verified end-to-end (phase4 oracle) | Supported subset |
-| STRING/UNSTRING | Yes | Yes/partial | STRING certified subset verified end-to-end (BL-027/BL-029: generated Java compiled+executed vs. GnuCOBOL 3.1.2 oracle, byte-identical; identifier delimiters, `DELIMITED BY ALL`, `VARYING IN`, `ON OVERFLOW` fail closed with named markers; receiver-overflow truncation disclosed as BL-028) | STRING: supported subset (oracle-verified forms; rest fail closed). UNSTRING: partial (certified pipe-delimited subset, disclosed; broadening = roadmap P1-5) |
+| STRING/UNSTRING | Yes | Yes/partial | STRING certified subset verified end-to-end (BL-027/BL-029: generated Java compiled+executed vs. GnuCOBOL 3.1.2 oracle, byte-identical; identifier delimiters, `DELIMITED BY ALL`, `VARYING IN`, `ON OVERFLOW` fail closed with named markers; **BL-028 fixed**: fixed-width receiver truncation + the oracle-pinned `1..W+1` pointer boundary rule, re-verified byte-identical 8/8 plus a 3/3 boundary probe) | STRING: supported subset (oracle-verified forms; rest fail closed). UNSTRING: partial (certified pipe-delimited subset, disclosed; broadening = roadmap P1-5) |
 | CALL (static, resolved) | Yes | Yes | Verified end-to-end (Phase-D A->B->C proof, 6b5a866; unresolved/dynamic/cyclic/arity-mismatch expressly blocked, 90efdca) | Supported subset, fail-closed negatives |
 | Sequential files (LINE SEQUENTIAL) | Yes | Yes | Verified end-to-end (Phase-D integrated workload `fixtures/workload-integrated`: OPEN OUTPUT/WRITE/CLOSE + READ loop, record-to-FD resolution, 4 artifacts MATCH) | Supported subset |
 | Indexed/relative/REWRITE/START files | Yes (detected) | No (rejected) | Fail-closed negatives (Phase-D negative scenario 4: blocked outside the certified file boundary) | Not certified; blocked by design |

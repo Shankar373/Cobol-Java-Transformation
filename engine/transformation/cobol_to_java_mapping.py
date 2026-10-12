@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 
 from engine.transformation import figurative
-from engine.transformation.figurative import parse_figurative_constant
+from engine.transformation.figurative import figurative_to_width, parse_figurative_constant
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -148,6 +148,26 @@ def map_pic_to_java_type(item: DataItem) -> JavaType:
     return JavaType(basic_type=JavaBasicType.STRING)
 
 
+def _java_quote(text: str) -> str:
+    r"""Escape ``text`` for embedding inside a Java string literal.
+
+    The fill for a figurative VALUE is raw data: ``VALUE QUOTES`` yields
+    ``"`` characters, ``LOW-VALUE``/``HIGH-VALUE`` yield NUL and 0xFF, and an
+    ordinary literal may contain a backslash.  Emitting those unescaped
+    produces a literal ``javac`` rejects (BL-030).
+    """
+    escaped = (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("\x00", "\\u0000")
+        .replace("\xff", "\\u00ff")
+    )
+    return escaped
+
+
 def map_pic_to_java_default(item: DataItem) -> str:
     """Get the Java default value for a COBOL PIC type.
 
@@ -171,10 +191,27 @@ def map_pic_to_java_default(item: DataItem) -> str:
         )
         return f"{normalized}{java_integral_suffix(normalized)}"
     if item.is_alphanumeric and item.pic_length > 0:
+        if item.value:
+            parsed = parse_figurative_constant(item.value)
+            if parsed is not None:
+                # Figurative VALUE clauses (VALUE SPACE/ZERO/QUOTE/
+                # HIGH-VALUE/LOW-VALUE and VALUE ALL <pattern>) materialize
+                # the filled pattern at the declared PIC width instead of
+                # leaking the raw COBOL spelling (e.g. ``ALL "*"``) into the
+                # Java literal (BL-030).
+                value = figurative_to_width(
+                    parsed[0], parsed[1], item.pic_length
+                )
+                if value is None:
+                    value = ""
+                # The fill is raw data: ``VALUE QUOTES`` contains ``"`` and
+                # ``LOW-VALUE``/``HIGH-VALUE`` contain control bytes, so the
+                # literal must be escaped or ``javac`` rejects it.
+                return '"' + _java_quote(value) + '"'
         value = item.value.strip(chr(39) + chr(34)) if item.value else ""
         if item.value and item.value.upper() in ("SPACE", "SPACES"):
             value = ""
-        return '"' + value[:item.pic_length].ljust(item.pic_length) + '"'
+        return '"' + _java_quote(value[:item.pic_length].ljust(item.pic_length)) + '"'
     if item.value:
         return f'"{item.value.strip(chr(39) + chr(34))}"'
     return '""'
@@ -373,6 +410,63 @@ def _string_phrase_java(src: JavaExpression, delim) -> JavaExpression:
     )
 
 
+def _string_receiver_width(program: CobolProgram | None, target: str) -> int | None:
+    """Declared character width of the STRING receiving item (BL-028).
+
+    Only a leaf item with a PIC-derived ``pic_length`` yields a width.  A
+    group item or an undeclared receiver has no width here — and such a
+    receiver is not declared in the generated Java either, so the program
+    fails closed at ``javac`` (``cannot find symbol``) instead of silently
+    losing the fixed-width rule.
+    """
+    item = _find_data_item(program, target) if program else None
+    if item is None or item.pic_length <= 0:
+        return None
+    return item.pic_length
+
+
+def _string_receiver_truncate_statements(
+    target: str, width: int | None
+) -> list[JavaStatement]:
+    """BL-028: clip the STRING result to the receiving item's PIC width.
+
+    A COBOL receiving field is fixed width: characters that would extend
+    beyond its rightmost position are discarded (and the pointer stops at
+    ``width + 1``).  The Java model keeps the receiver as a ``String`` whose
+    length is the PIC width (``MOVE`` already pads *and* truncates to it),
+    so clipping the written value with ``substring(0, width)`` reproduces
+    that truncation exactly.
+    """
+    if width is None:
+        return []
+    target_ref = JavaVariableRef(name=target)
+    return [
+        JavaAssignment(
+            target=target,
+            expression=JavaMethodCall(
+                object_ref=target_ref,
+                method_name="substring",
+                arguments=(
+                    _int_lit(0),
+                    JavaMethodCall(
+                        class_name="Math",
+                        method_name="min",
+                        is_static=True,
+                        arguments=(
+                            JavaMethodCall(
+                                object_ref=target_ref,
+                                method_name="length",
+                                arguments=(),
+                            ),
+                            _int_lit(width),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    ]
+
+
 def _string_receiver_statements(
     stmt: StringStatement,
     target: str,
@@ -380,7 +474,7 @@ def _string_receiver_statements(
     delims: list,
     program: CobolProgram | None,
 ) -> list[JavaStatement]:
-    """Emit the STRING write with COBOL write-position semantics (BL-027).
+    """Emit the STRING write with COBOL write-position semantics (BL-027/BL-028).
 
     The concatenated sending text is written over the receiving field from
     position 1 (or the ``WITH POINTER`` position) and the unwritten tail
@@ -389,11 +483,19 @@ def _string_receiver_statements(
     deterministically (atomic pre-state evaluation).
 
     Certified here: delimiter truncation (SIZE / literal / SPACE), delimiter
-    excluded from the result, pointer clamp/advance, tail preservation.
+    excluded from the result, tail preservation, **fixed-width receiver
+    overflow truncation** (BL-028: the written value is clipped to the
+    receiver's PIC width, discarding the characters that do not fit), and
+    the pointer boundary rule: a pointer inside ``1 .. width + 1`` writes at
+    that position and is advanced past the last character written (never
+    beyond ``width + 1``); a pointer outside that range transfers nothing
+    and is left unchanged.  Both rules were pinned against the GnuCOBOL
+    3.1.2 oracle (BL-028 evidence in ``docs/BACKLOG.md``).
+
     Not certified (fail-closed above): identifier delimiters, ON OVERFLOW,
-    VARYING IN, non-integer pointers.  The receiver is modeled as an
-    unbounded Java String, so COBOL's fixed-width overflow truncation is a
-    documented limitation (docs/BACKLOG.md), not part of this mapping.
+    VARYING IN, non-integer pointers.  A receiver with no declared width
+    (group item / undeclared name) keeps the unbounded emission and fails
+    closed at ``javac`` because that receiver is not declared.
     """
     reasons: list[str] = []
     for d in delims:
@@ -427,6 +529,10 @@ def _string_receiver_statements(
         phrases[0] if len(phrases) == 1 else JavaStringConcat(parts=tuple(phrases))
     )
     target_ref = JavaVariableRef(name=target)
+    width = _string_receiver_width(program, target)
+    built_length = JavaMethodCall(
+        object_ref=built, method_name="length", arguments=()
+    )
 
     if not stmt.pointer:
         # receiver := built + old.substring(min(old.length, built.length))
@@ -444,76 +550,153 @@ def _string_receiver_statements(
                             method_name="length",
                             arguments=(),
                         ),
-                        JavaMethodCall(
-                            object_ref=built, method_name="length", arguments=()
-                        ),
+                        built_length,
                     ),
                 ),
             ),
         )
-        return [JavaAssignment(
-            target=target,
-            expression=JavaStringConcat(parts=(built, tail)),
-        )]
+        return [
+            JavaAssignment(
+                target=target,
+                expression=JavaStringConcat(parts=(built, tail)),
+            ),
+            # BL-028: characters beyond the receiving field's rightmost
+            # position are discarded, so the result is clipped to the PIC
+            # width (the old tail already accounts for the shorter result).
+            *_string_receiver_truncate_statements(target, width),
+        ]
 
-    # WITH POINTER: clamp into range, pad the pre-statement receiver to the
-    # start position, insert the built text, then advance the pointer past
-    # the last character written.
+    # WITH POINTER: write at the pointer position, keep the unwritten tail,
+    # advance the pointer past the last character written.
     pointer_name = stmt.pointer.replace("-", "_")
     pointer_ref = JavaVariableRef(name=pointer_name)
     start = JavaBinaryOp(left=pointer_ref, operator="-", right=_int_lit(1))
-    clamp = JavaAssignment(
-        target=pointer_name,
-        expression=JavaMethodCall(
-            class_name="Math",
-            method_name="max",
+
+    if width is None:
+        # No declared width on the receiver (group item / undeclared name).
+        # Such a receiver is not declared in the generated Java at all, so
+        # the program fails closed at ``javac``; the pre-BL-028 emission is
+        # kept here and is not certified for any width-dependent behaviour.
+        padded = JavaMethodCall(
+            class_name="String",
+            method_name="format",
             is_static=True,
-            arguments=(_int_lit(1), pointer_ref),
-        ),
-    )
-    padded = JavaMethodCall(
-        class_name="String",
-        method_name="format",
-        is_static=True,
-        arguments=(
-            JavaStringConcat(parts=(_str_lit("%-"), start, _str_lit("s"))),
-            target_ref,
+            arguments=(
+                JavaStringConcat(parts=(_str_lit("%-"), start, _str_lit("s"))),
+                target_ref,
+            ),
+        )
+        head = JavaMethodCall(
+            object_ref=padded, method_name="substring", arguments=(_int_lit(0), start)
+        )
+        tail_start = JavaMethodCall(
+            class_name="Math",
+            method_name="min",
+            is_static=True,
+            arguments=(
+                JavaMethodCall(object_ref=padded, method_name="length", arguments=()),
+                JavaBinaryOp(left=start, operator="+", right=built_length),
+            ),
+        )
+        tail = JavaMethodCall(
+            object_ref=padded, method_name="substring", arguments=(tail_start,)
+        )
+        return [
+            JavaAssignment(
+                target=pointer_name,
+                expression=JavaMethodCall(
+                    class_name="Math",
+                    method_name="max",
+                    is_static=True,
+                    arguments=(_int_lit(1), pointer_ref),
+                ),
+            ),
+            JavaAssignment(
+                target=target,
+                expression=JavaStringConcat(parts=(head, built, tail)),
+            ),
+            JavaAssignment(
+                target=pointer_name,
+                expression=JavaBinaryOp(
+                    left=pointer_ref, operator="+", right=built_length
+                ),
+            ),
+        ]
+
+    # BL-028 pointer boundary rule (GnuCOBOL 3.1.2 oracle-pinned): a pointer
+    # in ``1 .. width + 1`` writes at that position and is advanced past the
+    # last character written, never beyond ``width + 1``; a pointer outside
+    # that range (0 or beyond ``width + 1``) transfers nothing and is left
+    # unchanged.  The receiver itself always keeps its declared width, so
+    # the characters that do not fit are discarded exactly as COBOL does.
+    in_range = JavaBinaryOp(
+        left=JavaBinaryOp(left=pointer_ref, operator=">=", right=_int_lit(1)),
+        operator="&&",
+        right=JavaBinaryOp(
+            left=pointer_ref, operator="<=", right=_int_lit(width + 1)
         ),
     )
     head = JavaMethodCall(
-        object_ref=padded, method_name="substring", arguments=(_int_lit(0), start)
+        object_ref=target_ref,
+        method_name="substring",
+        arguments=(
+            _int_lit(0),
+            JavaMethodCall(
+                class_name="Math",
+                method_name="min",
+                is_static=True,
+                arguments=(
+                    JavaMethodCall(
+                        object_ref=target_ref, method_name="length", arguments=()
+                    ),
+                    start,
+                ),
+            ),
+        ),
     )
     tail_start = JavaMethodCall(
         class_name="Math",
         method_name="min",
         is_static=True,
         arguments=(
-            JavaMethodCall(object_ref=padded, method_name="length", arguments=()),
-            JavaBinaryOp(
-                left=start,
-                operator="+",
-                right=JavaMethodCall(
-                    object_ref=built, method_name="length", arguments=()
-                ),
-            ),
+            JavaMethodCall(object_ref=target_ref, method_name="length", arguments=()),
+            JavaBinaryOp(left=start, operator="+", right=built_length),
         ),
     )
     tail = JavaMethodCall(
-        object_ref=padded, method_name="substring", arguments=(tail_start,)
+        object_ref=target_ref, method_name="substring", arguments=(tail_start,)
     )
     assign = JavaAssignment(
         target=target,
-        expression=JavaStringConcat(parts=(head, built, tail)),
+        expression=JavaTernary(
+            condition=in_range,
+            true_expr=JavaStringConcat(parts=(head, built, tail)),
+            false_expr=target_ref,
+        ),
     )
     advance = JavaAssignment(
         target=pointer_name,
-        expression=JavaBinaryOp(
-            left=pointer_ref,
-            operator="+",
-            right=JavaMethodCall(object_ref=built, method_name="length", arguments=()),
+        expression=JavaTernary(
+            condition=in_range,
+            true_expr=JavaMethodCall(
+                class_name="Math",
+                method_name="min",
+                is_static=True,
+                arguments=(
+                    JavaBinaryOp(
+                        left=pointer_ref, operator="+", right=built_length
+                    ),
+                    _int_lit(width + 1),
+                ),
+            ),
+            false_expr=pointer_ref,
         ),
     )
-    return [clamp, assign, advance]
+    return [
+        assign,
+        advance,
+        *_string_receiver_truncate_statements(target, width),
+    ]
 
 
 def _numeric_display_items(program: CobolProgram) -> list[DataItem]:
@@ -1190,7 +1373,14 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
             java_type=JavaType(basic_type=JavaBasicType.STRING),
         )
     if isinstance(expr, _cobol_ir.FigurativeConstant):
-        return figurative_constant_to_java(expr.kind)
+        # BL-030: recover the repeated pattern from the preserved spelling —
+        # ``ALL "ab"`` must compare/map as ``ab``, not as a space.
+        parsed_text = (
+            parse_figurative_constant(expr.text) if expr.text else None
+        )
+        return figurative_constant_to_java(
+            expr.kind, parsed_text[1] if parsed_text is not None else None
+        )
     if isinstance(expr, _cobol_ir.FieldReference):
         return JavaVariableRef(name=expr.name.replace("-", "_"))
     if isinstance(expr, _cobol_ir.BinaryExpression):
@@ -1772,16 +1962,45 @@ def map_cobol_statement(
                     program,
                 )
             if item is not None and item.is_alphanumeric and item.pic_length > 0:
-                # MOVE stores exactly the receiving PIC X width: pad on the
-                # right, or truncate on the right before any subsequent use.
-                padded = JavaMethodCall(
-                    class_name="String", method_name="format", is_static=True,
-                    arguments=(_str_lit(f"%-{item.pic_length}s"), source),
+                # BL-030: a figurative constant is a character string the
+                # size of the receiving item — every position carries the
+                # constant's character (``MOVE ZEROS TO PIC X(5)`` stores
+                # ``00000``) and ``ALL <literal>`` repeats its pattern across
+                # the width, truncated at the last copy.  Both rules are
+                # pinned against the GnuCOBOL 3.1.2 oracle, so the value is
+                # materialized at parse/emission time instead of being
+                # space-padded (which was only ever right for SPACES).
+                parsed_move_figurative = (
+                    parse_figurative_constant(stmt.source)
+                    if isinstance(stmt.source, str)
+                    else None
                 )
-                expression = JavaMethodCall(
-                    object_ref=padded, method_name="substring",
-                    arguments=(_int_lit(0), _int_lit(item.pic_length)),
+                filled = (
+                    figurative_to_width(
+                        parsed_move_figurative[0],
+                        parsed_move_figurative[1],
+                        item.pic_length,
+                    )
+                    if parsed_move_figurative is not None
+                    else None
                 )
+                if filled is not None:
+                    expression = JavaLiteral(
+                        value=filled,
+                        java_type=JavaType(basic_type=JavaBasicType.STRING),
+                    )
+                else:
+                    # MOVE stores exactly the receiving PIC X width: pad on
+                    # the right, or truncate on the right before any
+                    # subsequent use.
+                    padded = JavaMethodCall(
+                        class_name="String", method_name="format", is_static=True,
+                        arguments=(_str_lit(f"%-{item.pic_length}s"), source),
+                    )
+                    expression = JavaMethodCall(
+                        object_ref=padded, method_name="substring",
+                        arguments=(_int_lit(0), _int_lit(item.pic_length)),
+                    )
             result.append(JavaAssignment(
                 target=move_target.replace("-", "_"),
                 expression=expression,
