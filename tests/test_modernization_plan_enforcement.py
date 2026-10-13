@@ -59,7 +59,9 @@ def test_pipeline_blocks_transformation_when_plan_skips_program(tmp_path):
         )
     )
     pipeline._discovery.discover = lambda *args, **kwargs: app
-    pipeline._capability_analyzer.analyze = lambda application: capability
+    # **kwargs: analyze() gained the optional source_root (BL-039); the
+    # double tolerates it like the sibling doubles above.
+    pipeline._capability_analyzer.analyze = lambda application, **kwargs: capability
     pipeline._plan_generator.generate = lambda *args, **kwargs: plan
 
     called = False
