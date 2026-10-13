@@ -592,7 +592,25 @@ produced evidence, not re-run here).
   even fail generation because of text that is not executable code.
 - **Severity:** medium — conservative direction (fail-closed on good input,
   never fail-open), but it blocks correct workloads with misleading reasons.
-- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Status:** **FIXED — 2026-10-13 (Phase 3 cycle 4, combined P1 cycle with
+  BL-035)** (see change-log entry (m)). Defect proven first
+  (`%TEMP%\opencode\phase3\bl034_pre_fix.txt`: comment-only CALL +
+  string-literal CALL text produced two phantom `UNRESOLVED_CALL` edges and
+  a `PARTIAL` plan for a program with no executable CALL; a comment-only
+  `COPY` produced a phantom `CopybookReference` and made a valid program
+  fail generation with `Missing COPY target`), then fixed with
+  deterministic (no-LLM) code. Resolution: a single literal-aware scanner
+  (`_scan_call_copy`, `_CALL_COPY_SCAN`) replaces the raw regexes in both
+  extractors — comment lines are blanked offset-preservingly, and the
+  alternation priority consumes any string literal or `*>` inline comment
+  that is not the verb's own operand, so only real statements produce
+  edges/references; a word guard keeps identifier suffixes (MYCALL,
+  X-COPY) out. Real single/double-quoted/bare CALLs and COPYs are still
+  extracted and still fail closed when unresolved; USING handling and the
+  negative contracts are unchanged. (The BL-034 probe also exposed a
+  BL-033 residual: the planner's unanchored `"call" in reason` test read
+  the word "determi**call**y" in the copybook reason as a CALL — hardened
+  to a word-boundary match in the same cycle.)
 - **Found by:** Phase 3 audit probes (`probe_phase3.py` P5; `probe_silent.py`
   Q6; `probe_colocated.py` R4).
 - **Observed behavior (verified):** (a) a program containing only the
@@ -647,7 +665,21 @@ produced evidence, not re-run here).
   generation.
 - **Severity:** medium-high for real corpora (copybook directories are
   conventional); zero for flat layouts.
-- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Status:** **FIXED — 2026-10-13 (Phase 3 cycle 4, combined P1 cycle with
+  BL-034)** (see change-log entry (n)). Defect proven first
+  (`%TEMP%\opencode\phase3\bl035_pre_fix.txt`: subdir layout → discovery
+  `RESOLVED` with the `cb\` path, capability `SUPPORTED`, plan `READY`,
+  generation `Missing COPY target: OUTER (in NESTMAIN)` +
+  `…no materialized model`; flat control fine in both lanes), then fixed
+  with deterministic (no-LLM) code. Resolution: one search-directory
+  authority — `copybook_resolver.copybook_search_dirs` (root first, then
+  every directory that holds a file, sorted) now feeds **both** lanes:
+  `ApplicationDiscovery._copybook_search_dirs` delegates to it, and
+  `prepare_application_copybooks` uses exactly that set when
+  `source_root` is given (the legacy unit-parent path remains only for
+  the no-`source_root` fallback). Per-directory scan stays non-recursive
+  (`iterdir`), ambiguity stays an explicit error in both lanes (never
+  first-match), resolver precedence rules untouched.
 - **Found by:** Phase 3 audit probe `probe_silent.py` (Q3/Q4/Q5), 2026-10-12.
 - **Observed behavior (verified):** with sources at `<root>/` and copybooks
   at `<root>/cb/OUTER.cpy`: `ApplicationDiscovery._copybook_search_dirs`
@@ -1952,6 +1984,73 @@ level and evidence location.
   — `verify_ci.py` confirms `head_sha=f734c73` per run *and* per job,
   **`EXACT_SHA_CI_GREEN`** (details in the Phase 3 block of `opencode.md`).
 
+- 2026-10-13 — **(m) Phase 3 cycle 4 (combined P1, per project-owner
+  direction): BL-034 (P1) fixed.** Baseline verified at
+  `427129ee06d469da4a61dcc8d729bd2a4e394545` (branch `codex/universal-core`,
+  local == origin, dirty only with the pre-existing `test-artifacts/*` churn
+  that is never committed). The pre-fix defect was proven first
+  (`%TEMP%\opencode\phase3\bl034_pre_fix.txt`) through the real discovery →
+  capability → planner → generation path: a program whose only
+  "dependencies" are a comment line `*    CALL 'X'.` and a string literal
+  `DISPLAY "CALL 'Y' STARTED"` produced **two phantom `UNRESOLVED_CALL`
+  edges** and a `PARTIAL` plan (both rows in the blocking summary) for a
+  program with no executable CALL; a comment-only `COPY NOT-A-REAL-BOOK.`
+  produced a phantom `CopybookReference`, classified `UNSUPPORTED` and made
+  a valid program fail generation with `Missing COPY target`. `_extract_calls`
+  and `_extract_copybooks` now scan through one literal-aware single-pass
+  scanner (`_scan_call_copy` / `_CALL_COPY_SCAN`): full comment lines are
+  blanked offset-preservingly, and the alternation priority consumes any
+  string literal or `*>` inline comment that is not the verb's own operand —
+  so literal/comment text can never produce an edge — while a word guard
+  (`(?<![A-Za-z0-9_-])`) keeps identifier suffixes (MYCALL, X-COPY) out.
+  Real single/double-quoted/bare CALLs and COPYs still extract exactly as
+  before (static/dynamic typing, USING handling, trailing-dot rstrip) and
+  still fail closed when unresolved; the unresolved-CALL and unresolved-COPY
+  negative contracts are unchanged. The probe also exposed a **BL-033
+  residual**: the planner's unanchored `"call" in reason` test read the
+  substring "call" inside "determi**call**y" in the BL-033 copybook reason
+  as a CALL statement, double-reporting the copybook as `UNRESOLVED_CALL`
+  alongside `MISSING_COPYBOOK` — hardened to a word-boundary match
+  (`\bcall\b`, `modernization_planner.py`) in the same cycle. Post-fix:
+  **13 passed** in `tests/test_phantom_dependency_masking.py` (dependency-
+  free, wired into the `ci.yml` capability-truth gate), post-fix probe
+  `bl034_post_probe.txt` (phantoms gone, valid program `READY` +
+  generates, real unresolved CALL still `UNRESOLVED_CALL`), fresh E2E
+  (`bl034_035_e2e_gen.py`, the filed phantom-dependency program —
+  `JAVAC_OK` Temurin 21, GnuCOBOL 3.1.2 oracle **`ORACLE_MATCH=YES 2/2`**).
+  Regression batch (transformation dir + copybook/generator/discovery/
+  phase-D suites) → **2047 passed, 4 skipped, 0 failed**; capability-truth
+  gate (now 16 files) → **398 passed**; ingestion gate → **3 passed**.
+  Full suite + exact-SHA CI for this commit: see entry (n)/below.
+
+- 2026-10-13 — **(n) Phase 3 cycle 4 (combined P1, per project-owner
+  direction): BL-035 (P1) fixed.** Baseline and verification as in entry
+  (m) (same cycle, separate per-gap proofs and gate files). The pre-fix
+  defect was proven first (`%TEMP%\opencode\phase3\bl035_pre_fix.txt`):
+  with sources at `<root>/` and the copybook at `<root>/cb/OUTER.cpy`,
+  discovery recorded `resolution=RESOLVED` (the `cb\` path), capability
+  reported `SUPPORTED`, plan **`READY`**, and the same tree's generation
+  failed `Missing COPY target: OUTER (in NESTMAIN)` +
+  `Program NESTMAIN references COPY OUTER with no materialized model`
+  (flat control fine in both lanes). One resolution authority now feeds
+  both lanes: `copybook_resolver.copybook_search_dirs` (root first, then
+  every directory that holds a file in the tree, sorted; per-directory
+  scan stays non-recursive `iterdir`) — `ApplicationDiscovery.
+  _copybook_search_dirs` delegates to it, and
+  `prepare_application_copybooks` uses exactly that set when
+  `source_root` is given (the unit-parent list survives only for the
+  legacy no-`source_root` path). Ambiguity stays an explicit error in
+  both lanes (never first-match), resolver precedence rules and the
+  BL-001-era contracts are untouched; a duplicate-name tree now reports
+  `AMBIGUOUS` at discovery and fails generation explicitly. Post-fix:
+  **13 passed** in `tests/test_copybook_search_path_parity.py`
+  (dependency-free, wired into the `ci.yml` gate), post-fix probe
+  `bl035_post_probe.txt` (subdir layout `RESOLVED`/`SUPPORTED`/`READY` +
+  generation succeeds), fresh E2E (subdir-copybook program — `JAVAC_OK`,
+  GnuCOBOL oracle **`ORACLE_MATCH=YES 1/1`**). Full-suite run of record
+  and exact-SHA CI results for cycle 4: recorded here in the follow-up
+  docs commit for this cycle.
+
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
   (Sections 76–77). BL-001 fixed; BL-006/BL-007 fixed; BL-011 partially fixed.
@@ -2079,8 +2178,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-031 | Copybook materialization maintainer (transformation lane) | **Phase 3 (fixed in-cycle 2026-10-12)** | Existing `copybook_resolver` resolution semantics; `CopybookPreparation.has_errors` fail-closed contract | `COPY` statements inside copybooks were invisible to `parse_data_description_lines`, so nested declarations silently vanished while generation reported `success=True` and the plan said `READY` — §53.9/§60 counterexample in the copybook lane. | P0 / high: silent semantic loss plus non-compiling Java under a green verdict (§54 capability truth drift). Residual: capability scan not transitive (BL-039), no nested edge in discovery (family BL-033), REPLACING unapplied (BL-032), flat search dirs (BL-035). | FIXED — statement-aware in-memory expansion (comment-masked, statement-position guarded, period-terminated) before data parsing; fixed-format (6-column sequence number) copybook text is normalized at read time mirroring `CobolParser.parse`; missing/ambiguous/unreadable/cyclic nested targets fail generation with explicit diagnostics naming the parent copybook or cycle chain; sources never modified. 12 focused tests in `tests/test_nested_copybook_materialization.py`, wired into the `ci.yml` capability-truth gate; pre-fix red 7/9 proven (`%TEMP%\opencode\phase3\bl031_pre_fix_red.txt`); no existing test weakened. |
 | BL-032 | Copybook materialization maintainer (transformation lane) | **Phase 3 (fixed in-cycle 2026-10-13)** | BL-031 statement scanner (implemented — clause span already consumed) | `COPY … REPLACING` operands were silently ignored: pseudo-text names never parsed, so declarations came out empty/wrong (non-compiling Java referencing undeclared substituted fields) while generation reported `success=True` and capability `SUPPORTED` — the BL-031 defect shape for the replacement clause. | P0 / high: parameterized copybooks — the standard enterprise copy mechanism — lost every declaration under a green verdict (§53.9/§60 counterexample plus §54 capability truth drift). Residual: BL-033 family plan-time fail-open; period-in-pseudo-text truncates the clause span and fails closed as malformed; tagged nested COPY targets fail closed as unresolved; same-target re-copy keeps the first clause; clause-parameterized copybooks get per-program merged IR and no shared model plan (documented bounds). | FIXED — deterministic clause grammar (`_parse_replacing_clause`: pseudo-text `==…==` operands possibly multi-line, word operands, multiple pairs, case-insensitive) applied by a single simultaneous word-boundary substitution pass (`_apply_replacing`: quoted literals are data, replacement never rescanned, in-memory only, sources never modified); the clause is extracted from the program source per (program, target), nested COPYs carry their own clause, caller pairs apply to the fully-expanded text; unappliable forms (`LEADING`/`TRAILING`/`PARTIAL`, `+`/`-` prefixes, literal operands) and malformed clauses fail generation with `COPYBOOK_REPLACING_UNSUPPORTED`/`COPYBOOK_REPLACING_MALFORMED` diagnostics naming `REPLACING`; capability classifies unapplied-clause programs `UNSUPPORTED` via `_scan_copy_replacing` reusing the same parser. 23 focused tests in `tests/test_copy_replacing_materialization.py` wired into the `ci.yml` capability-truth gate; pre-fix defect proven (`bl032_pre_fix.txt`); E2E `ORACLE_MATCH=YES 1/1` vs GnuCOBOL 3.1.2; no existing test weakened. |
 | BL-033 | Capability/planning maintainer | **Phase 3 (fixed in-cycle 2026-10-13)** | Discovery `CopybookReference.resolution`; planner blocking-reason mapper | An UNRESOLVED or AMBIGUOUS copybook classifies `SUPPORTED` and the plan says `READY` ("No blocking issues") while generation deterministically fails for the same inputs; the planner's `MISSING_COPYBOOK` reason is unreachable. | P1 / medium-high: capability-truth drift on the dependency component and a false READY plan; final verdict still protected by generation's fail-closed errors and the NOT_VERIFIED central gate. | FIXED — `_analyze_copybook` fails closed: any reference that is `UNRESOLVED`, `AMBIGUOUS`, or without a resolved path (incl. mixed resolve/unresolve sets and names with no reference) classifies `UNSUPPORTED` with a reason naming the copybook and its resolution status; `_map_blocking_reasons` maps copybook reasons containing missing/unresolved/ambiguous to `MISSING_COPYBOOK` (was dead code); consuming-program verdict unchanged; resolved copybooks keep `SUPPORTED`. 15 focused tests in `tests/test_copybook_resolution_capability.py` wired into the `ci.yml` capability-truth gate; pre-fix defect proven (`bl033_pre_fix.txt`: all three unresolvable shapes `SUPPORTED` + plan `READY` + "No blocking issues identified" while generation failed). |
-| BL-034 | Application discovery maintainer | Phase 3 | Comment/inline-comment/literal masking helpers already present in `application_discovery.py` | `_extract_calls`/`_extract_copybooks` scan raw source, so comment lines and string literals create phantom unresolved CALL/COPY dependencies: valid plans block with `UNRESOLVED_CALL` and a comment-only `COPY` fails generation. | P1 / medium: fail-closed on correct input (never fail-open), but it blocks valid workloads and pollutes the Phase 3 graph with edges that do not exist. | Comment/string-only text yields no edge/component/error; real single- and double-quoted, single- and multi-line CALL/COPY statements still extract and still fail closed when unresolved; positive+negative tests in the gate. |
-| BL-035 | Copybook resolution maintainer | Phase 3 | `test_copybook_m7.py` resolution-precedence contracts | Discovery searches every subdirectory recursively while generation searches only the source root and unit parents non-recursively — subdirectory layouts get `RESOLVED`/`READY` at plan time and `Missing COPY target` at generation. | P1 / medium-high for real corpora (copybook directories are conventional); the verdict and the artifact-producing path disagree for the same tree. | One shared deterministic search-directory builder serves both lanes; ambiguity/missing remain explicit errors; flat/nested/duplicate-name layouts covered by focused tests in the gate. |
+| BL-034 | Application discovery maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined with BL-035)** | Comment/inline-comment/literal masking helpers already present in `application_discovery.py` | `_extract_calls`/`_extract_copybooks` scanned raw source, so comment lines and string literals created phantom unresolved CALL/COPY dependencies: valid plans blocked with `UNRESOLVED_CALL` and a comment-only `COPY` failed generation. | P1 / medium: fail-closed on correct input (never fail-open), but it blocked valid workloads and polluted the Phase 3 graph with edges that do not exist. | FIXED — single literal-aware scanner (`_scan_call_copy`) replaces the raw regexes: comment lines blanked offset-preservingly, non-operand string literals and `*>` inline comments consumed whole by alternation priority, word guard against identifier suffixes. Real quoted/bare CALL/COPY still extract and still fail closed unresolved; USING handling and negative contracts unchanged. Probe also exposed and hardened a BL-033 residual (unanchored `"call"` substring matched "determi**call**y" → word-boundary match). 13 focused tests in `tests/test_phantom_dependency_masking.py`, wired into the `ci.yml` gate; pre-fix red proven (`%TEMP%\opencode\phase3\bl034_pre_fix.txt`); post-fix `bl034_post_probe.txt`; E2E `ORACLE_MATCH=YES 2/2`. |
+| BL-035 | Copybook resolution maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined with BL-034)** | `test_copybook_m7.py` resolution-precedence contracts | Discovery searched every subdirectory recursively while generation searched only the source root and unit parents non-recursively — subdirectory layouts got `RESOLVED`/`READY` at plan time and `Missing COPY target` at generation. | P1 / medium-high for real corpora (copybook directories are conventional); the verdict and the artifact-producing path disagreed for the same tree. | FIXED — one shared deterministic search-directory builder `copybook_resolver.copybook_search_dirs` (root first, then every directory holding a file, sorted) feeds both lanes; `ApplicationDiscovery._copybook_search_dirs` delegates to it and `prepare_application_copybooks` uses exactly that set when `source_root` is given (unit-parent fallback only for the no-root legacy path). Non-recursive per-directory scan, ambiguity explicit in both lanes, resolver precedence untouched. 13 focused tests in `tests/test_copybook_search_path_parity.py`, wired into the `ci.yml` gate; pre-fix red proven (`%TEMP%\opencode\phase3\bl035_pre_fix.txt`); post-fix `bl035_post_probe.txt`; E2E `ORACLE_MATCH=YES 1/1`. |
 | BL-036 | Parser / IR maintainer | Phase 3 | `CobolParser` statement splitting; discovery regex lane | Multi-line `CALL` (target/USING on following lines) produces zero `CallStatement`s and three `unparsed_statement` diagnostics while discovery records the edge — lanes disagree about the same statement. | P2 / medium for coverage, zero for trust: verdict honestly `UNSUPPORTED`, plan blocks (conservative), but the reason is wrong and valid formatting is rejected. | Line-wrapped CALL parses to the same IR/verdict as its single-line spelling; diagnostics name CALL once; cross-lane consistency tested in the gate. |
 | BL-037 | Parser / IR maintainer | Phase 3 | `CobolParser._parse_call`; arity analysis | `CALL … ON EXCEPTION …` swallows the phrase and its statement into the USING list → false arity 5 vs 1 → `UNSUPPORTED` with a factually wrong reason; planner maps it to `UNKNOWN_CONSTRUCT`. | P2 / medium: fail-closed, but the diagnostic claims an arity mismatch that does not exist and a standard CALL phrase is unparsed. | Argument capture stops at the phrase; the phrase is modeled or named in a diagnostic; arity failures map to an arity-specific blocking reason; focused tests in the gate. |
 | BL-038 | Application discovery maintainer | Phase 3 | Edge-metadata stamping (`resolution=…` on `DependencyEdge`) | `ProgramCall.resolution` stays at its `UNRESOLVED` default even for resolved static calls, contradicting the edge metadata and the plan for the same call. | P2 / low: no verdict consumes the field (capability reads edge metadata), so no false classification is reachable; traceability-only. | `ProgramCall.resolution` equals the edge's resolution for every call (or the field is removed in favor of the edge); consistency test in the gate. |

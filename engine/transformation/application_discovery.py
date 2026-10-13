@@ -36,6 +36,7 @@ from engine.transformation.cobol_parser import CobolParser, CobolParseError
 from engine.transformation.copybook_resolver import (
     AmbiguousCopybookError,
     CopybookResolutionError,
+    copybook_search_dirs,
     resolve_copybook,
 )
 from engine.transformation.ir import (
@@ -73,6 +74,42 @@ _FILE_VERB_WRITE = re.compile(
 _COBOL_STRING_LITERAL = re.compile(r'"[^"\n]*"|' r"'[^'\n]*'")
 _COBOL_COMMENT_LINE = re.compile(r"(?m)^[ \t]*\*")
 _COBOL_INLINE_COMMENT = re.compile(r"\*>.*$", re.MULTILINE)
+# Full-line comment blanking for the CALL/COPY scanner (BL-034): the
+# comment-indicator regex above only strips the leading "*", so the CALL/COPY
+# scanner blanks whole comment lines offset-preservingly instead.
+_COBOL_COMMENT_LINE_FULL = re.compile(r"(?m)^[ \t]*\*.*$")
+# Single-pass CALL/COPY scanner (BL-034).  Alternation priority is the
+# contract: at the leftmost match a real CALL/COPY verb captures its own
+# operand (quoted literals included), while any other string literal or
+# ``*>`` inline comment is consumed whole — so comment/literal text such as
+# ``DISPLAY "CALL 'Y'"`` or a comment line ``*    COPY X.`` can never
+# produce a phantom dependency.  The word guard keeps identifier suffixes
+# (MYCALL, X-COPY) out.  Statement semantics otherwise mirror the previous
+# raw regexes exactly (``\s+`` gap, bare operand may carry a trailing dot).
+_CALL_COPY_SCAN = re.compile(
+    r"(?<![A-Za-z0-9_-])(?P<verb>CALL|COPY)(?P<gap>\s+)"
+    r"(?P<operand>\"[^\"]+\"|'[^']+'|\S+)"
+    r"|\"[^\"]*\"|'[^']*'"
+    r"|\*>[^\n]*",
+    re.IGNORECASE,
+)
+
+
+def _scan_call_copy(source: str) -> list[tuple[str, str, int]]:
+    """Return ``(verb, operand, end_index)`` for *real* CALL/COPY statements.
+
+    Comment lines are blanked offset-preservingly first; string literals and
+    ``*>`` inline comments that are not the verb's own operand are consumed
+    whole by the scanner's alternation (data, never statements).
+    """
+    masked = _COBOL_COMMENT_LINE_FULL.sub(lambda m: " " * len(m.group(0)), source)
+    found: list[tuple[str, str, int]] = []
+    for match in _CALL_COPY_SCAN.finditer(masked):
+        verb = match.group("verb")
+        if verb is None:
+            continue  # bare literal or inline comment: data, not a statement
+        found.append((verb.upper(), match.group("operand"), match.end()))
+    return found
 
 
 class ApplicationDiscovery:
@@ -146,26 +183,14 @@ class ApplicationDiscovery:
     def _copybook_search_dirs(self, source_path: Path) -> tuple[Path, ...]:
         """Directories searched for COPY targets.
 
-        The resolver is deliberately non-recursive per directory, so every
-        directory that holds a source file is offered; the discovery root
-        comes first so it wins a precedence tie deterministically.
+        BL-035: the set is built by the single shared authority
+        (``copybook_resolver.copybook_search_dirs``) so discovery and
+        generation always agree for the same tree.  The resolver is
+        deliberately non-recursive per directory, so every directory that
+        holds a file in the tree is offered; the discovery root comes first
+        so it wins a precedence tie deterministically.
         """
-        dirs: list[Path] = [source_path]
-        seen: set[Path] = {source_path.resolve()}
-        try:
-            candidates = sorted({p.parent for p in source_path.rglob("*") if p.is_file()})
-        except OSError:
-            candidates = []
-        for candidate in candidates:
-            try:
-                resolved = candidate.resolve()
-            except OSError:
-                continue
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            dirs.append(candidate)
-        return tuple(dirs)
+        return copybook_search_dirs(source_path)
 
     def _find_cobol_files(self, source_path: Path) -> list[Path]:
         """Find all COBOL source files in the directory tree."""
@@ -372,22 +397,27 @@ class ApplicationDiscovery:
         return ""
 
     def _extract_calls(self, source: str, caller_id: str) -> list[ProgramCall]:
-        """Extract CALL statements from COBOL source."""
+        """Extract CALL statements from COBOL source.
+
+        BL-034: only real statements count — comment lines, ``*>`` inline
+        comments and string-literal text (``DISPLAY "CALL 'Y'"``) are
+        masked/consumed by :func:`_scan_call_copy` and can never produce a
+        phantom edge.  USING-argument handling is unchanged.
+        """
         calls: list[ProgramCall] = []
-        upper = source.upper()
 
-        # Find CALL statements
-        call_pattern = re.compile(
-            r"CALL\s+(?:\"([^\"]+)\"|\'([^\']+)\'|(\S+))",
-            re.IGNORECASE,
-        )
-
-        for match in call_pattern.finditer(source):
-            target = match.group(1) or match.group(2) or match.group(3)
-            target = target.rstrip(".")
+        for verb, operand, end in _scan_call_copy(source):
+            if verb != "CALL":
+                continue
+            if operand[0] in "\"'":
+                target = operand[1:-1]
+                is_literal = True
+            else:
+                target = operand.rstrip(".")
+                is_literal = False
 
             # Check for USING arguments
-            rest = source[match.end():]
+            rest = source[end:]
             using_match = re.search(
                 r"USING\s+(.+?)(?:\.|$)",
                 rest, re.IGNORECASE,
@@ -397,7 +427,6 @@ class ApplicationDiscovery:
                 args_str = using_match.group(1).strip()
                 arguments = tuple(args_str.split())
 
-            is_literal = bool(match.group(1) or match.group(2))
             calls.append(ProgramCall(
                 caller=caller_id,
                 target=target,
@@ -418,17 +447,18 @@ class ApplicationDiscovery:
 
         Resolution is recorded, never guessed: a reference is RESOLVED only
         when exactly one candidate matches the resolver's precedence rules.
+
+        BL-034: only real COPY statements count — comment lines, ``*>``
+        inline comments and string-literal text are masked/consumed by
+        :func:`_scan_call_copy` and can never produce a phantom reference
+        (which previously made valid programs fail generation).
         """
         copybooks: list[CopybookReference] = []
 
-        # Find COPY statements
-        copy_pattern = re.compile(
-            r"COPY\s+(\S+)",
-            re.IGNORECASE,
-        )
-
-        for match in copy_pattern.finditer(source):
-            copybook_name = match.group(1).rstrip(".")
+        for verb, operand, _end in _scan_call_copy(source):
+            if verb != "COPY":
+                continue
+            copybook_name = operand.rstrip(".")
 
             # Skip if it's a REPLACING clause
             if copybook_name.upper() == "REPLACING":

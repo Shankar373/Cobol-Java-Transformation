@@ -789,11 +789,13 @@ def prepare_application_copybooks(
 ) -> CopybookPreparation:
     """Resolve + parse + merge copybooks for a discovered application.
 
-    Search directories: ``source_root`` (the ingested source tree) when
-    given — preferred, because unit ``source_path`` values are stored
-    relative to the discovery root. Otherwise each unit's source path is
-    resolved against the current working directory. COBOL sources are
-    only read, never written.
+    Search directories: BL-035 — when ``source_root`` (the ingested source
+    tree) is given, the search set is exactly the shared deterministic
+    authority ``copybook_resolver.copybook_search_dirs`` that discovery
+    uses, so a reference discovered as RESOLVED is found here too, in every
+    layout either lane accepts.  Only in the legacy no-``source_root`` path
+    is each unit's source-path parent used (resolved against the current
+    working directory). COBOL sources are only read, never written.
 
     Returns materialized application + diagnostics + shared-model plans +
     built model classes. Callers must treat ``has_errors`` as a
@@ -801,6 +803,7 @@ def prepare_application_copybooks(
     verbatim — never a silent fallback to unmaterialized programs.
     """
     from engine.transformation.copybook_resolver import (
+        copybook_search_dirs,
         resolve_application_copybooks,
     )
     from engine.transformation.ir import CobolApplication
@@ -810,12 +813,14 @@ def prepare_application_copybooks(
     if source_root is not None:
         root = Path(source_root)
         if root.is_dir():
-            search_dirs.append(root)
+            search_dirs.extend(copybook_search_dirs(root))
     for unit in application.programs:
         if unit.program is None:
             continue  # unparseable unit: generator's empty check owns this
         for cb in unit.copybooks:
             refs.append((unit.program_id, cb.copybook_name))
+        if source_root is not None:
+            continue  # parity with discovery: the shared authority only
         candidate = Path(unit.source_path)
         if not candidate.is_absolute():
             candidate = Path.cwd() / candidate

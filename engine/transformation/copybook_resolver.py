@@ -75,6 +75,40 @@ class ResolvedCopybook:
 _EXTENSION_PRECEDENCE: tuple[str, ...] = (".cpy", ".cbl", ".cob")
 
 
+def copybook_search_dirs(source_root: "Path | str") -> tuple["Path", ...]:
+    """Single deterministic search-directory authority (BL-035).
+
+    Both discovery and generation build their copybook search set from this
+    function so a reference discovered as ``RESOLVED`` is found by the
+    generation lane for the same tree — in every layout either lane accepts.
+    The root comes first; every other directory that holds a file in the
+    tree follows in sorted order.  The per-directory scan stays
+    non-recursive (``iterdir``), ambiguity stays an explicit error, and
+    precedence is decided only by the resolver — never first-match.
+    """
+    root = Path(source_root)
+    dirs: list[Path] = [root]
+    seen: set[Path] = set()
+    try:
+        seen.add(root.resolve())
+    except OSError:
+        pass
+    try:
+        candidates = sorted({p.parent for p in root.rglob("*") if p.is_file()})
+    except OSError:
+        candidates = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        dirs.append(candidate)
+    return tuple(dirs)
+
+
 def _candidate_files(search_dirs: tuple[Path, ...], stem_upper: str) -> list[Path]:
     """Collect files whose stem matches (case-insensitive), unsorted."""
     found: list[Path] = []

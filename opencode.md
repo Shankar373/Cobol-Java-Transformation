@@ -2,14 +2,18 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 FIXED — BL-033 VERIFIED: full suite 3416/4/0 + exact-SHA CI green at `f734c73`; BL-034/035 (P1) and P2 items remain OPEN**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 + BL-034 + BL-035 FIXED — cycle 3 verified: full suite 3416/4/0 + exact-SHA CI green at `f734c73`/`427129e`; cycle 4 (combined P1) full suite + CI in progress; BL-026/036–039 (P2) remain OPEN**)
 
-- **Verdict:** `PHASE 3 IN PROGRESS`. Three bounded gaps now closed —
+- **Verdict:** `PHASE 3 IN PROGRESS`. Five bounded gaps now closed —
   **BL-031** (nested `COPY` inside copybooks silently dropped, fixed
   2026-10-12, full evidence below), **BL-032** (`COPY … REPLACING`
-  operands silently ignored, fixed 2026-10-13), and **BL-033** (unresolvable
+  operands silently ignored, fixed 2026-10-13), **BL-033** (unresolvable
   or ambiguous COPYBOOK classified `SUPPORTED` with plan `READY` while
-  generation fails, fixed 2026-10-13, cycle 3) — all with deterministic
+  generation fails, fixed 2026-10-13, cycle 3), and — combined cycle 4
+  per project-owner direction (separate defect proofs, gate files and
+  acceptance per gap) — **BL-034** (comment/string-literal text creating
+  phantom CALL/COPY dependencies) and **BL-035** (discovery and generation
+  searching different copybook directories) — all with deterministic
   (no-LLM) code, defect proven first, verified by focused suites and a fresh
   E2E against the independent GnuCOBOL 3.1.2 oracle. BL-031's serialized
   full suite (**3378 passed, 4 skipped, 0 failed**) and exact-SHA CI (4
@@ -23,9 +27,14 @@
   nested suites and fresh E2E (**`ORACLE_MATCH=YES 1/1`**) are green
   (items 11–13 below), and its serialized full suite (**3416 passed, 4
   skipped, 0 failed**, run of record) plus exact-SHA CI (**4 runs / 14
-  jobs green at `f734c73`**) close cycle 3 (items 14–15 below).
-  Phase 3 is **not** complete: BL-034/BL-035 (P1) and the P2 items below
-  remain OPEN, so §53 cannot be scored complete yet.
+  jobs green at `f734c73`/`427129e`**) close cycle 3 (items 14–15 below).
+  Cycle 4's per-gap proofs, focused suites (**26 = 13 + 13**),
+  capability-truth gate (**398 passed**, 16 files), regression batch
+  (**2047 passed, 4 skipped**) and fresh E2Es (**`ORACLE_MATCH=YES 2/2`
+  and `1/1`**) are green (items 16–19 below); its serialized full suite
+  and exact-SHA CI complete in the follow-up docs commit.
+  Phase 3 is **not** complete: BL-026/BL-036–BL-039 (P2) remain OPEN,
+  so §53 cannot be scored complete yet.
 - **Baseline verified (cycle 2):** HEAD `b1a846420e63675a05dcc32bc421954d24fcf7b1`
   on `codex/universal-core`, local == origin, dirty only with the
   pre-existing `test-artifacts/*` churn (never committed); exact-SHA CI
@@ -48,7 +57,7 @@
   expands against a flat search-dir list, P1), BL-039 (capability scan not
   transitive into nested copybooks, P2); Application Graph lane — covered by
   BL-034/BL-035 (edge truth) — plus carried BL-026 (GO TO, P2).
-  *(Status update 2026-10-13: BL-031, BL-032 and BL-033 are FIXED — see
+  *(Status update 2026-10-13: BL-031, BL-032, BL-033, BL-034 and BL-035 are FIXED — see
   below.)*
 - **Fixed:** **BL-031 — FIXED (cycle 1, 2026-10-12).** Copybook text now
   expands in memory only (statement-aware, cycle-scoped, fail-closed on
@@ -66,10 +75,27 @@
   verdict unchanged; resolved copybooks keep `SUPPORTED`), and the planner
   maps such reasons to `MISSING_COPYBOOK`, so the plan is `BLOCKED` with
   `COPYBOOK <name>: MISSING_COPYBOOK — …` in its blocking summary and can
-  never report "No blocking issues" while generation fails. See the
-  evidence blocks below.
-- **Still OPEN (next items in priority order):** BL-034/BL-035 (P1),
-  then BL-026/BL-036/BL-037/BL-038/BL-039 (P2).
+  never report "No blocking issues" while generation fails.
+  **BL-034 — FIXED (cycle 4, 2026-10-13, combined P1 per owner
+  direction).** CALL/COPY extraction is now literal-aware: full comment
+  lines are blanked offset-preservingly and any string literal or `*>`
+  inline comment that is not the verb's own operand is consumed whole by
+  a single-pass alternation scanner (`_scan_call_copy`), with a word
+  guard against identifier suffixes — comment/literal text can no longer
+  create phantom `UNRESOLVED_CALL` edges or make a valid program fail
+  generation; real quoted/bare CALLs and COPYs still extract and still
+  fail closed unresolved. The probe also exposed and hardened a BL-033
+  residual (the planner's unanchored `"call"` substring test read
+  "determi**call**y" as a CALL — now a word-boundary match).
+  **BL-035 — FIXED (cycle 4, 2026-10-13).** Discovery and generation now
+  share one search-directory authority
+  (`copybook_resolver.copybook_search_dirs`: root first, then every
+  directory holding a file, sorted) — a copybook found by discovery is
+  found by generation in every layout either lane accepts (subdirectory
+  layouts included), ambiguity stays an explicit error in both lanes,
+  resolver precedence untouched. See the evidence blocks below.
+- **Still OPEN (next items in priority order):** all P2 — BL-026,
+  BL-036/BL-037/BL-038/BL-039 (no P1 remains).
 
 ### Phase 3 evidence (all executed 2026-10-12, outputs under `%TEMP%\opencode\phase3\`)
 
@@ -249,6 +275,60 @@
     — 4/4 SUCCESS. Supply chain **PR**
     [#38368084969](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368084969)
     — 3/3 SUCCESS.
+
+**BL-034 + BL-035 evidence (cycle 4 — combined P1 per project-owner
+direction, executed 2026-10-13, same evidence directory):**
+
+16. **BL-034 defect proven first (pre-fix):** `bl034_pre_fix.txt` —
+    through the real discovery → capability → planner → generation path:
+    a program whose only "dependencies" are a comment line
+    `*    CALL 'X'.` and `DISPLAY "CALL 'Y' STARTED"` produced **two
+    phantom `UNRESOLVED_CALL` edges** (`PC->X`, `PC->Y`) and a `PARTIAL`
+    plan whose blocking summary listed both — for a program with no
+    executable CALL; a comment-only `COPY NOT-A-REAL-BOOK.` produced a
+    phantom `CopybookReference` (`UNRESOLVED` → `UNSUPPORTED` → plan
+    `BLOCKED`) and **generation failed** `Missing COPY target`, while the
+    control with real CALL/COPY stayed extracted/resolved. The same probe
+    exposed a BL-033 residual: the copybook reason was double-reported as
+    `UNRESOLVED_CALL` because the unanchored `"call" in reason` test
+    matched the substring inside "determi**call**y". Post-fix
+    (`bl034_post_probe.txt`): phantom cases → no edges/refs, plan
+    `READY` / "No blocking issues identified", generation succeeds;
+    control → real CALL still `PARTIAL`/`UNRESOLVED_CALL` (negative
+    contract intact), real COPY still `RESOLVED`/`SUPPORTED`.
+17. **BL-035 defect proven first (pre-fix):** `bl035_pre_fix.txt` —
+    sources at `<root>/`, copybook at `<root>/cb/OUTER.cpy`: discovery
+    `resolution=RESOLVED` (the `cb\` path), capability `SUPPORTED`, plan
+    **`READY`**, generation **failed** `Missing COPY target: OUTER (in
+    NESTMAIN)` + `…no materialized model`; flat control fine in both
+    lanes. Post-fix (`bl035_post_probe.txt`): subdir layout →
+    `RESOLVED`/`SUPPORTED`/`READY` **and `generation_success=True`**;
+    flat unchanged.
+18. **Focused suites + gates (both gaps):**
+    `tests/test_phantom_dependency_masking.py` (13 tests — phantom
+    comment/literal/inline/identifier-suffix cases produce nothing; real
+    single/double-quoted/bare CALLs and COPYs still extract; unresolved
+    CALL still blocks the plan; unresolved real COPY still fails
+    generation with `Missing COPY target` and `MISSING_COPYBOOK`, and no
+    longer carries the `UNRESOLVED_CALL` substring artifact) +
+    `tests/test_copybook_search_path_parity.py` (13 tests — shared
+    builder identity, resolver-layer parity for every discovered ref,
+    subdir/deep-subdir/flat layouts, duplicate-name → `AMBIGUOUS` at
+    discovery + explicit generation failure (never first-match),
+    extension precedence `.cpy` > `.cbl` unchanged) → **26 passed**.
+    Capability-truth gate (`ci.yml` selection now **16 files**, both new
+    files wired in) → **398 passed**; ingestion → **3 passed**;
+    regression batch (transformation dir + copybook/generator/discovery/
+    phase-D suites) → **2047 passed, 4 skipped, 0 failed**.
+19. **Fresh E2E (both filed scenarios, real discovery → generate →
+    javac → GnuCOBOL path; `bl034_035_e2e_gen.py`):** phantom-dependency
+    program → refs/calls empty, `generation_success=True`, `JAVAC_OK`
+    (Temurin 21), oracle **`ORACLE_MATCH=YES 2/2 lines`**; subdir-copybook
+    program → `RESOLVED`, `generation_success=True`, `JAVAC_OK`, oracle
+    **`ORACLE_MATCH=YES 1/1`** (`gnucobol-ocesql:latest`, GnuCOBOL 3.1.2
+    `cobc -x -free -I .`; comment fixtures use the `*>` indicator the
+    free-format standard requires — a fixture correction, noted in entry
+    (m) of `docs/BACKLOG.md`).
 
 ## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
 

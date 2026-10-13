@@ -36,6 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+import re
 from typing import Any
 
 from engine.modernization.capability_analyzer import (
@@ -696,7 +697,11 @@ class ModernizationPlanner:
             reasons.append(BlockingReason.DYNAMIC_CALL)
         if "recursive" in reason_lower or "self call" in reason_lower:
             reasons.append(BlockingReason.RECURSIVE_CALL)
-        if "unresolved" in reason_lower and "call" in reason_lower:
+        # Word-boundary match: the analyzer's copybook reasons contain words
+        # like "deterministically" (substring "call"), which must never be
+        # read as a CALL statement (BL-033 residual hardening, found by the
+        # BL-034 pre-fix probe).
+        if "unresolved" in reason_lower and re.search(r"\bcall\b", reason_lower):
             reasons.append(BlockingReason.UNRESOLVED_CALL)
         if "cyclic" in reason_lower or "cycle" in reason_lower:
             reasons.append(BlockingReason.CALL_CYCLE)

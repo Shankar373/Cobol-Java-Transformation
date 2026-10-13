@@ -48,7 +48,9 @@ jobs:
             tests/test_silent_loss_registry.py \
             tests/test_nested_copybook_materialization.py \
             tests/test_copy_replacing_materialization.py \
-            tests/test_copybook_resolution_capability.py
+            tests/test_copybook_resolution_capability.py \
+            tests/test_phantom_dependency_masking.py \
+            tests/test_copybook_search_path_parity.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics
