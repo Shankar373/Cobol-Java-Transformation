@@ -2,21 +2,28 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-12, **IN PROGRESS — BL-031 FIXED — VERIFIED at `d5c16f4`; BL-032 (P0) and P1/P2 items remain OPEN**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 FIXED; BL-032 serialized full suite + exact-SHA CI pending**)
 
-- **Verdict:** `PHASE 3 IN PROGRESS`. One bounded P0 gap (**BL-031**, nested
-  `COPY` inside copybooks silently dropped) fixed with deterministic (no-LLM)
-  code, defect proven first, verified by focused suites, a fresh E2E against
-  the independent GnuCOBOL 3.1.2 oracle (`ORACLE_MATCH=YES 2/2`), the
-  serialized full suite (**3378 passed, 4 skipped, 0 failed**) and exact-SHA
-  CI green on all four runs / 14 jobs at `d5c16f4`. Phase 3 is **not**
-  complete: BL-032 (P0, `REPLACING`) and the P1/P2 items below remain OPEN,
+- **Verdict:** `PHASE 3 IN PROGRESS`. Two bounded P0 gaps now closed —
+  **BL-031** (nested `COPY` inside copybooks silently dropped, fixed
+  2026-10-12, full evidence below) and **BL-032** (`COPY … REPLACING`
+  operands silently ignored, fixed 2026-10-13) — both with deterministic
+  (no-LLM) code, defect proven first, verified by focused suites and a fresh
+  E2E against the independent GnuCOBOL 3.1.2 oracle. BL-031's serialized
+  full suite (**3378 passed, 4 skipped, 0 failed**) and exact-SHA CI (4
+  runs / 14 jobs at `d5c16f4`, plus docs commit `b1a8464`) are green and
+  recorded below. BL-032's focused suites, capability-truth gate (**357
+  passed**), ingestion gate and E2E (**`ORACLE_MATCH=YES 1/1`**) are green;
+  its serialized full suite (run of record, executing 2026-10-13) and
+  exact-SHA CI are the remaining cycle evidence. Phase 3 is **not**
+  complete: BL-033/BL-034/BL-035 (P1) and the P2 items below remain OPEN,
   so §53 cannot be scored complete yet.
-- **Baseline verified:** HEAD `4d2f52d7a6ad4e3951ba6f438533f7e4e4fee41f` on
-  `codex/universal-core`, local == origin, dirty only with the pre-existing
-  `test-artifacts/*` churn (never committed). Exact-SHA CI green at that
-  baseline before any change (4 runs / 14 jobs). Phase 2 stays **COMPLETE —
-  VERIFIED** at `de8a808`.
+- **Baseline verified (cycle 2):** HEAD `b1a846420e63675a05dcc32bc421954d24fcf7b1`
+  on `codex/universal-core`, local == origin, dirty only with the
+  pre-existing `test-artifacts/*` churn (never committed); exact-SHA CI
+  green at that SHA before any change (4 runs / 14 jobs). Phase 1 `7dceec1`
+  and Phase 2 `de8a808` stay **COMPLETE — VERIFIED**. (Cycle-1 baseline was
+  `4d2f52d7a6ad4e3951ba6f438533f7e4e4fee41f`.)
 - **BL-026 disposition (§53.10 carry-forward):** carried forward **OPEN** into
   Phase 3 with full metadata (entry + register row). Non-blocking: the
   workload verdict and planner already fail closed on the unmodelled `GO TO`
@@ -33,12 +40,20 @@
   expands against a flat search-dir list, P1), BL-039 (capability scan not
   transitive into nested copybooks, P2); Application Graph lane — covered by
   BL-034/BL-035 (edge truth) — plus carried BL-026 (GO TO, P2).
-- **Fixed this cycle:** **BL-031 — FIXED.** Copybook text now expands in
-  memory only (statement-aware, cycle-scoped, fail-closed on
+  *(Status update 2026-10-13: BL-031 and BL-032 are FIXED — see below.)*
+- **Fixed:** **BL-031 — FIXED (cycle 1, 2026-10-12).** Copybook text now
+  expands in memory only (statement-aware, cycle-scoped, fail-closed on
   missing/ambiguous/unreadable/cyclic nested targets, fixed-format
-  normalization mirroring `CobolParser.parse`); see the evidence block below.
-- **Still OPEN (next items in priority order):** **BL-032 (P0)**, then
-  BL-033/BL-034/BL-035 (P1), BL-026/BL-036/BL-037/BL-038/BL-039 (P2).
+  normalization mirroring `CobolParser.parse`). **BL-032 — FIXED (cycle 2,
+  2026-10-13).** `COPY … REPLACING` operands now substitute before data
+  parsing (single deterministic clause grammar + single simultaneous
+  word-boundary substitution pass, quoted literals are data, in-memory
+  only); unappliable/malformed clauses fail closed naming `REPLACING`, and
+  capability classifies such programs `UNSUPPORTED` through the same clause
+  parser (`_scan_copy_replacing` — no verdict drift). See the evidence
+  blocks below.
+- **Still OPEN (next items in priority order):** BL-033/BL-034/BL-035 (P1),
+  then BL-026/BL-036/BL-037/BL-038/BL-039 (P2).
 
 ### Phase 3 evidence (all executed 2026-10-12, outputs under `%TEMP%\opencode\phase3\`)
 
@@ -98,6 +113,37 @@
    — 3/3 SUCCESS. The backend Docker job on the runner executed the full
    serialized suite with the same 12 new BL-031 tests under none of the
    local Docker contention that affected the superseded local run #1.
+
+**BL-032 evidence (cycle 2, executed 2026-10-13, same evidence directory):**
+
+6. **BL-032 defect proven first (pre-fix):** `bl032_pre_fix.txt` — the
+   audited parameterized-copybook scenario (`REPL.cpy` +
+   `COPY REPL REPLACING ==&WS-NAME== BY ==WS-TOKEN== ==&WS-LEN== BY ==8==.`)
+   produced an **empty** merged working storage, `success=True`,
+   `Rmain.java` referencing an undeclared `WS_TOKEN`, and `COPYBOOK:REPL`
+   classified `SUPPORTED` — the §53.9/§60 silent-loss shape plus a §54
+   capability-truth counterexample in one fixture.
+7. **BL-032 fix verified:** `tests/test_copy_replacing_materialization.py`
+   (23 tests, dependency-free) → **23 passed** (supported forms substitute
+   into merged IR and generated Java; word-boundary, case-insensitivity and
+   quoted-literal integrity pinned; `LEADING`/`TRAILING`/`PARTIAL`,
+   prefixed/literal operands and malformed clauses fail closed naming
+   `REPLACING`; capability `UNSUPPORTED` for unapplied clauses and unchanged
+   for applied ones; nested clauses; sources never modified). Gate runs:
+   capability-truth (now the 13-file `ci.yml` selection, incl. the new
+   file) → **357 passed**; ingestion → **3 passed**; BL-031 nested +
+   phase-D negatives → **38 passed**; copybook M7 → **33 passed**. No
+   existing test weakened.
+8. **Fresh E2E (real ApplicationDiscovery → ApplicationGenerator path):**
+   parameterized-copybook fixture (`bl032_e2e_gen.py`) post-fix:
+   `generation_success=True`, `WS_TOKEN` **declared** (pre-fix referenced
+   but never declared), `undeclared=[]`; generated Java compiles under the
+   host Temurin 21 JDK (`JAVAC_OK`); GnuCOBOL 3.1.2 oracle
+   (`gnucobol-ocesql:latest`, `cobc -x -free -I .`) runs the identical
+   COBOL → **`ORACLE_MATCH=YES`, 1/1 lines** (`bl032_e2e_result.txt`).
+9. **Serialized full suite (run of record, executing 2026-10-13) + exact-SHA
+   CI at the cycle-2 commit:** results pending — recorded in change-log
+   entry (k) and patched here on completion.
 
 ## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
 

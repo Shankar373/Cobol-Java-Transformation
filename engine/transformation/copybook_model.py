@@ -296,9 +296,22 @@ def _expand_copybook_text(
     if not spans:
         return text
 
+    masked = _mask_comments(text)
     pieces: list[str] = []
     cursor = 0
     for start, end, target in spans:
+        pairs, clause_error = _parse_replacing_clause(masked[start:end])
+        if clause_error is not None:
+            code, message = clause_error
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code=code,
+                    message=f"{message} (in copybook {stem})",
+                )
+            )
+            cursor = end
+            continue
         pieces.append(text[cursor:start])
         cursor = end
         target_key = target.upper()
@@ -340,8 +353,11 @@ def _expand_copybook_text(
             )
             continue
         pieces.append(
-            _expand_copybook_text(
-                resolved.path, search_dirs, (*chain, stem), diagnostics
+            _apply_replacing(
+                _expand_copybook_text(
+                    resolved.path, search_dirs, (*chain, stem), diagnostics
+                ),
+                tuple(pairs),
             )
         )
     pieces.append(text[cursor:])
@@ -375,21 +391,215 @@ def _strip_sequence_numbers(text: str) -> str:
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------------------
+# COPY ... REPLACING clause (BL-032)
+# ---------------------------------------------------------------------------
+#
+# ``COPY x REPLACING ==&TAG== BY ==WS-NAME== …`` is the standard mechanism
+# for parameterized copybooks.  Before BL-032 the expansion consumed the
+# clause span (BL-031) but never applied it: pseudo-text names are not
+# valid data-names, so the copybook's entries parsed to nothing and the
+# program silently lost every declaration while generation reported
+# ``success=True`` (plan READY, capability SUPPORTED).  The clause grammar
+# below is the single source of truth for what is applied; anything it
+# cannot apply fails closed with an explicit diagnostic naming
+# ``REPLACING`` — an unapplied clause is never allowed to proceed
+# silently.  The capability analyzer imports the same parser so its
+# verdict can never drift from what materialization actually does.
+
+_REPLACING_KEYWORD = re.compile(r"\bREPLACING\b", re.IGNORECASE)
+_BY_KEYWORD = re.compile(r"\bBY\b", re.IGNORECASE)
+_COBOL_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+# Phrase forms of the clause the lane does not implement (IBM/enterprise
+# extensions).  They are recognised only to fail closed with a diagnostic
+# naming them — never applied partially, never silently dropped.
+_UNSUPPORTED_REPLACING_PHRASES = ("LEADING", "TRAILING", "PARTIAL")
+
+
+def _parse_replacing_clause(
+    stmt: str,
+) -> tuple[list[tuple[str, str]], tuple[str, str] | None]:
+    """Parse the REPLACING clause of one COPY statement.
+
+    Returns ``(pairs, error)``.  ``pairs`` is empty when the statement has
+    no REPLACING clause; ``error`` is ``None`` on success and otherwise a
+    ``(code, message)`` pair whose code is ``COPYBOOK_REPLACING_UNSUPPORTED``
+    (recognised phrase/operand form the lane does not apply) or
+    ``COPYBOOK_REPLACING_MALFORMED`` (clause does not parse), with the
+    message naming ``REPLACING``.
+
+    Supported operand forms: pseudo-text ``==...==`` pairs (possibly
+    multi-line) and COBOL-word operands, multiple pairs, case-insensitive.
+    Unsupported (fail closed): ``LEADING``/``TRAILING``/``PARTIAL``
+    phrases, ``+``/``-`` prefixed operands, literal (quoted) operands — a
+    pattern that lives inside quotes can never be matched safely by the
+    unquoted-text substitution, so it is never applied.
+    """
+    match = _REPLACING_KEYWORD.search(stmt)
+    if not match:
+        return [], None
+    body = stmt.rstrip()
+    if body.endswith("."):
+        body = body[:-1]
+    length = len(body)
+    pos = match.end()
+    pairs: list[tuple[str, str]] = []
+
+    def _skip_ws(i: int) -> int:
+        while i < length and body[i] in " \t\r\n":
+            i += 1
+        return i
+
+    def _read_operand(i: int) -> tuple[str | None, int, tuple[str, str] | None]:
+        if i >= length:
+            return None, i, (
+                "COPYBOOK_REPLACING_MALFORMED",
+                "REPLACING clause ended where an operand was expected",
+            )
+        ch = body[i]
+        if ch in "+-":
+            return None, i, (
+                "COPYBOOK_REPLACING_UNSUPPORTED",
+                f"REPLACING prefixed operand {ch!r} is not applied",
+            )
+        if ch in "'\"":
+            return None, i, (
+                "COPYBOOK_REPLACING_UNSUPPORTED",
+                "REPLACING literal (quoted) operand is not applied",
+            )
+        if body.startswith("==", i):
+            end = body.find("==", i + 2)
+            if end < 0:
+                return None, i, (
+                    "COPYBOOK_REPLACING_MALFORMED",
+                    "REPLACING pseudo-text operand is not terminated by ==",
+                )
+            operand = body[i + 2 : end].strip()
+            if not operand:
+                return None, i, (
+                    "COPYBOOK_REPLACING_MALFORMED",
+                    "REPLACING pseudo-text operand is empty",
+                )
+            return operand, end + 2, None
+        word_match = _COBOL_WORD.match(body, i)
+        if not word_match:
+            return None, i, (
+                "COPYBOOK_REPLACING_MALFORMED",
+                f"REPLACING clause has an unexpected token {body[i:i + 12]!r}",
+            )
+        word = word_match.group(0)
+        if word.upper() in _UNSUPPORTED_REPLACING_PHRASES:
+            return None, i, (
+                "COPYBOOK_REPLACING_UNSUPPORTED",
+                f"REPLACING {word.upper()} phrase is not applied",
+            )
+        return word, word_match.end(), None
+
+    while True:
+        pos = _skip_ws(pos)
+        if pos >= length:
+            break
+        left, pos, error = _read_operand(pos)
+        if error:
+            return pairs, error
+        pos = _skip_ws(pos)
+        by_match = _BY_KEYWORD.match(body, pos)
+        if not by_match:
+            return pairs, (
+                "COPYBOOK_REPLACING_MALFORMED",
+                "REPLACING clause is missing the BY keyword between operands",
+            )
+        pos = _skip_ws(by_match.end())
+        right, pos, error = _read_operand(pos)
+        if error:
+            return pairs, error
+        pairs.append((left, right))
+    if not pairs:
+        return pairs, (
+            "COPYBOOK_REPLACING_MALFORMED",
+            "REPLACING clause contains no operand pairs",
+        )
+    return pairs, None
+
+
+def _apply_replacing(text: str, pairs: tuple[tuple[str, str], ...]) -> str:
+    """Substitute REPLACING operands into copybook text (single pass, in memory).
+
+    Bounded, documented semantics:
+
+    * *simultaneous* — at every position the first pair (clause order)
+      whose pattern matches wins, and the inserted replacement text is
+      never rescanned for further matches;
+    * case-insensitive with COBOL word boundaries: a pattern never matches
+      inside a longer word (word characters and ``-`` bound a match);
+    * quoted literals are copied verbatim — a tag inside ``'...'`` /
+      ``"..."`` is data, never substituted (the same reason literal
+      operands are rejected as patterns);
+    * comment lines were already masked away by the statement scan; this
+      function never touches files (expansion stays in-memory only).
+    """
+    if not pairs:
+        return text
+    compiled = [
+        (
+            re.compile(
+                r"(?<![\w-])" + re.escape(pattern) + r"(?![\w-])",
+                re.IGNORECASE,
+            ),
+            replacement,
+        )
+        for pattern, replacement in pairs
+    ]
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    quote = ""
+    while i < n:
+        ch = text[i]
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch in "'\"":
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        for cre, replacement in compiled:
+            m = cre.match(text, i)
+            if m:
+                out.append(replacement)
+                i = m.end()
+                break
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 def _parse_copybook_expanded(
     path: str | Path,
     search_dirs: tuple[Path, ...],
     diagnostics: list[CopybookDiagnostic],
+    replacing: tuple[tuple[str, str], ...] = (),
 ) -> CopybookModel:
     """Parse a copybook with nested COPY statements resolved and expanded.
 
     Provenance stays on the top-level file (``name``/``source_path``);
     nested targets contribute their declarations at the COPY statement's
     position and any problem becomes an ERROR diagnostic on ``diagnostics``.
+    ``replacing`` holds the already-validated REPLACING pairs from the
+    caller's COPY statement; they are applied to the fully-expanded text
+    (nested targets included) before data parsing — see ``_apply_replacing``
+    for the bounded substitution semantics.
     """
     from engine.transformation.cobol_parser import CobolParser
 
     src = Path(path)
     text = _expand_copybook_text(src, search_dirs, (), diagnostics)
+    text = _apply_replacing(text, replacing)
     items = CobolParser().parse_data_description_lines(text.splitlines())
     return CopybookModel(
         name=src.stem.upper(), source_path=str(src), records=tuple(items)
@@ -403,12 +613,16 @@ def _parse_copybook_expanded(
 def materialize_copybooks_into_program(
     program: CobolProgram,
     models: Mapping[str, CopybookModel],
+    program_models: Mapping[tuple[str, str], CopybookModel] | None = None,
 ) -> tuple[CobolProgram, tuple[CopybookDiagnostic, ...]]:
     """Give a program's semantic model access to its copybook-defined fields.
 
     For every name in ``program.copybooks`` (case-insensitive lookup into
     ``models``), the copybook's level-01 records are appended to the
-    program's ``working_storage``. The COBOL source is never rewritten and
+    program's ``working_storage``.  ``program_models`` (optional, keyed by
+    ``(program_id, copybook_name)``) carries the clause-parameterized
+    parses (BL-032) and takes precedence over ``models`` for the owning
+    program. The COBOL source is never rewritten and
     files are never concatenated; the ``copybooks`` tuple (provenance:
     program -> copybook dependency) is preserved unchanged.
 
@@ -474,7 +688,17 @@ def materialize_copybooks_into_program(
         return replace(item, children=tuple(kept_children))
 
     for ref_name in program.copybooks:
-        model = models.get(ref_name.upper())
+        # A clause-parameterized parse (BL-032, keyed by
+        # (program, copybook)) takes precedence over the shared cache,
+        # so a program that copied with REPLACING never merges the
+        # unsubstituted shared model.
+        model = None
+        if program_models:
+            model = program_models.get(
+                (program.program_id.upper(), ref_name.upper())
+            )
+        if model is None:
+            model = models.get(ref_name.upper())
         if model is None:
             diagnostics.append(
                 CopybookDiagnostic(
@@ -527,6 +751,39 @@ class CopybookPreparation:
         return tuple(d.message for d in self.diagnostics if d.level == "ERROR")
 
 
+def _unit_replacing_pairs(
+    unit,
+) -> tuple[
+    dict[str, tuple[tuple[str, str], ...]],
+    list[tuple[str, str, str]],
+]:
+    """Extract per-target REPLACING pairs from a program's own COPY statements.
+
+    The clause lives in the *program* source (``COPY x REPLACING …``), not
+    in the copybook file, so it must be read from the unit and applied when
+    that unit's copybook reference is materialized.  When the same program
+    copies the same target more than once with different clauses, the first
+    statement's pairs win (documented bound).  Clause errors are returned
+    as ``(target, code, message)`` for the caller to bind to materialized
+    refs.
+    """
+    pairs_by_target: dict[str, tuple[tuple[str, str], ...]] = {}
+    errors: list[tuple[str, str, str]] = []
+    source = unit.source_text or ""
+    if not source or not _REPLACING_KEYWORD.search(source):
+        return pairs_by_target, errors
+    masked = _mask_comments(source)
+    for start, end, target in _find_copy_statements(source):
+        pairs, error = _parse_replacing_clause(masked[start:end])
+        key = target.upper()
+        if error is not None:
+            errors.append((key, error[0], error[1]))
+            continue
+        if pairs and key not in pairs_by_target:
+            pairs_by_target[key] = tuple(pairs)
+    return pairs_by_target, errors
+
+
 def prepare_application_copybooks(
     application, source_root=None
 ) -> CopybookPreparation:
@@ -577,27 +834,65 @@ def prepare_application_copybooks(
         for m in missing
     ]
 
-    models: dict[str, CopybookModel] = {}
-    for ref in resolved:
-        key = ref.copybook_name.upper()
-        if key not in models:
-            try:
-                # Expanded parse: nested COPY statements inside the copybook
-                # are resolved against the same search directories and their
-                # declarations merged at the COPY statement's position
-                # (missing/cyclic/ambiguous nested targets fail closed with
-                # an explicit diagnostic — BL-031).
-                models[key] = _parse_copybook_expanded(
-                    ref.path, tuple(search_dirs), diagnostics
-                )
-            except OSError as exc:
+    # Per-program REPLACING pairs (BL-032): the clause lives in the
+    # program's COPY statement, so a clause-parameterized copybook parses
+    # per (program, target).  Its merged IR is per-program correct, and no
+    # shared model plan is registered for it — substituted content is
+    # program-specific, so the shared-class dedup contract stays untouched.
+    # Clause diagnostics bind only to refs discovery actually recorded
+    # (a clause on a COPY the lane never recorded materializes nothing).
+    recorded = {(p.upper(), n.upper()) for p, n in refs}
+    unit_pairs: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {}
+    for unit in application.programs:
+        if unit.program is None:
+            continue
+        program_id = unit.program_id.upper()
+        pairs_by_target, clause_errors = _unit_replacing_pairs(unit)
+        for target, pairs in pairs_by_target.items():
+            if (program_id, target) in recorded:
+                unit_pairs[(program_id, target)] = pairs
+        for target, code, message in clause_errors:
+            if (program_id, target) in recorded:
                 diagnostics.append(
                     CopybookDiagnostic(
                         level="ERROR",
-                        code="COPYBOOK_UNREADABLE",
-                        message=f"COPY {ref.copybook_name} at {ref.path}: {exc}",
+                        code=code,
+                        message=f"{message} (in program {unit.program_id})",
                     )
                 )
+
+    models: dict[str, CopybookModel] = {}
+    program_models: dict[tuple[str, str], CopybookModel] = {}
+    for ref in resolved:
+        key = ref.copybook_name.upper()
+        pair_key = (ref.program_id.upper(), key)
+        pairs = unit_pairs.get(pair_key)
+        cache: dict = program_models if pairs else models
+        cache_key: object = pair_key if pairs else key
+        if cache_key in cache:
+            continue
+        try:
+            # Expanded parse: nested COPY statements inside the copybook
+            # are resolved against the same search directories and their
+            # declarations merged at the COPY statement's position
+            # (missing/cyclic/ambiguous nested targets fail closed with
+            # an explicit diagnostic — BL-031); the caller's validated
+            # REPLACING pairs are applied to the fully-expanded text
+            # before data parsing (BL-032).
+            cache[cache_key] = _parse_copybook_expanded(
+                ref.path,
+                tuple(search_dirs),
+                diagnostics,
+                replacing=pairs or (),
+            )
+        except OSError as exc:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_UNREADABLE",
+                    message=f"COPY {ref.copybook_name} at {ref.path}: {exc}",
+                )
+            )
 
     merged_units = []
     for unit in application.programs:
@@ -605,7 +900,7 @@ def prepare_application_copybooks(
             merged_units.append(unit)
             continue
         merged_program, merge_diags = materialize_copybooks_into_program(
-            unit.program, models
+            unit.program, models, program_models
         )
         diagnostics.extend(merge_diags)
         merged_units.append(replace(unit, program=merged_program))

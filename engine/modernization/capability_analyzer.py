@@ -195,6 +195,47 @@ def _iter_program_data_items(program) -> list:
     return found
 
 
+def _scan_copy_replacing(source_text: str) -> "list[tuple[str, CapabilityLevel, str]]":
+    """Classify COPY ... REPLACING clauses the materialization lane cannot apply.
+
+    BL-032: a clause whose operand form the lane does not implement (or
+    that does not parse) fails generation with an explicit diagnostic, so
+    the program cannot be transformed as-is — the verdict must say so
+    instead of reporting SUPPORTED over a clause that is never applied.
+    The grammar check reuses the materialization lane's parser
+    (``_parse_replacing_clause``) so capability truth can never drift from
+    what generation actually does.  Applied (well-formed) clauses classify
+    nothing: their semantics are preserved by substitution.
+    """
+    from engine.transformation.copybook_model import (
+        _find_copy_statements,
+        _mask_comments,
+        _parse_replacing_clause,
+    )
+
+    if not source_text:
+        return []
+    findings: "list[tuple[str, CapabilityLevel, str]]" = []
+    masked = _mask_comments(source_text)
+    seen: set[str] = set()
+    for start, end, target in _find_copy_statements(source_text):
+        _, error = _parse_replacing_clause(masked[start:end])
+        if error is None:
+            continue
+        code, message = error
+        key = f"COPY REPLACING {target.upper()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        findings.append((
+            key,
+            CapabilityLevel.UNSUPPORTED,
+            f"{message}; the clause is never applied and generation fails "
+            f"closed ({code})",
+        ))
+    return findings
+
+
 def _analyze_call_linkage_arity(
     application: CobolApplication,
 ) -> "list[ComponentCapability]":
@@ -625,6 +666,13 @@ class CapabilityAnalyzer:
                 if key in data_detected:
                     entry = CONSTRUCT_REGISTRY[key]
                     findings.append((key, entry.level, entry.evidence))
+
+        # COPY ... REPLACING clauses the lane cannot apply (BL-032).  The
+        # clause sits in the program source, so it is visible here even
+        # though the copybook file itself contains no REPLACING text.  A
+        # clause the materialization lane fails closed on must never leave
+        # this program classified SUPPORTED.
+        findings.extend(_scan_copy_replacing(unit.source_text or ""))
 
         # A COPY reference is part of the parsed program's source context; it
         # is not itself a generated program, so an unresolved resolution
