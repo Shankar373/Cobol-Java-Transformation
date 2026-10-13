@@ -685,8 +685,18 @@ class TestCapabilityTruthP0:
         report = CapabilityAnalyzer(docker_available=True).analyze(app)
         pc = next(c for c in report.components if c.component_type == "PROGRAM")
         cc = next(c for c in report.components if c.component_type == "COPYBOOK")
+        # The consuming program's own verdict is unchanged (BL-033).
         assert pc.level == CapabilityLevel.SUPPORTED
-        assert cc.level == CapabilityLevel.SUPPORTED
+        # BL-033 correction (2026-10-13): the CopybookReference above uses the
+        # dataclass default resolution="UNRESOLVED" and generation fails
+        # closed for it, so the dependency must not classify SUPPORTED.  The
+        # previous assertion pinned that fail-open verdict; it is replaced by
+        # strictly stronger ones: non-SUPPORTED plus a reason that names the
+        # copybook and its resolution status.
+        assert cc.level != CapabilityLevel.SUPPORTED
+        assert "COMMON" in cc.reason
+        assert "UNRESOLVED" in cc.reason
+        assert cc.details.get("resolution") == "UNRESOLVED"
 
     def test_indexed_file_is_outside_certified_boundary(self):
         from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityLevel

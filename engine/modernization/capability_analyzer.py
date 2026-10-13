@@ -835,24 +835,42 @@ class CapabilityAnalyzer:
             if cb.resolution == "RESOLVED" and cb.resolved_path
         ]
 
-        if not resolved_paths:
-            # A COPY reference is a dependency relationship, not a generated
-            # program: the relationship is tracked and no standalone Java class
-            # is emitted from the copybook.  Resolution status stays visible
-            # here (resolution=...) and on the consuming program's reference;
-            # it does not turn the consuming program's own parsed constructs
-            # into unsupported ones.
-            resolutions = {cb.resolution for cb in refs}
+        # BL-033 (capability truth): generation deterministically fails for an
+        # unresolvable COPY reference ("Missing COPY target: <name>"), so the
+        # dependency must not classify SUPPORTED — the capability graph and the
+        # plan would assert the opposite of the same run's generation.
+        # UNRESOLVED (no target on the search path, including quoted forms),
+        # AMBIGUOUS (multiple equal-precedence candidates), a mixed set where
+        # any consumer cannot resolve, and a name with no reference at all all
+        # take this fail-closed branch.  The verdict applies to the copybook
+        # dependency only: the consuming program keeps its own verdict (its
+        # parsed constructs are unchanged), and no standalone Java class is
+        # emitted from a copybook in any case.
+        unresolved = [
+            cb for cb in refs
+            if cb.resolution != "RESOLVED" or not cb.resolved_path
+        ]
+        if unresolved or not resolved_paths:
+            resolutions = {cb.resolution for cb in unresolved} or {"UNRESOLVED"}
             resolution = "AMBIGUOUS" if "AMBIGUOUS" in resolutions else "UNRESOLVED"
+            if resolution == "AMBIGUOUS":
+                reason = (
+                    f"Copybook {cb_name} is ambiguous: multiple equal-precedence "
+                    "candidates and no single target (resolution=AMBIGUOUS); "
+                    "generation deterministically fails with 'Missing COPY target'"
+                )
+            else:
+                reason = (
+                    f"Copybook {cb_name} is unresolved: at least one COPY "
+                    "reference has no target on the copybook search path "
+                    "(resolution=UNRESOLVED); generation deterministically fails "
+                    "with 'Missing COPY target'"
+                )
             return ComponentCapability(
                 component_id=cb_name,
                 component_type="COPYBOOK",
-                level=CapabilityLevel.SUPPORTED,
-                reason=(
-                    "Copybook dependency discovered; declarations are consumed "
-                    "as program source context and no standalone Java class is "
-                    f"generated (resolution={resolution})"
-                ),
+                level=CapabilityLevel.UNSUPPORTED,
+                reason=reason,
                 details={"resolution": resolution},
             )
 

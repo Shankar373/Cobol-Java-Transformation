@@ -700,7 +700,14 @@ class ModernizationPlanner:
             reasons.append(BlockingReason.UNRESOLVED_CALL)
         if "cyclic" in reason_lower or "cycle" in reason_lower:
             reasons.append(BlockingReason.CALL_CYCLE)
-        if "copybook" in reason_lower and "missing" in reason_lower:
+        # BL-033: an unresolvable copybook reason (missing, unresolved, or
+        # ambiguous target) maps to MISSING_COPYBOOK so the planner surfaces
+        # the dependency instead of dead-ending at UNKNOWN_CONSTRUCT.
+        if "copybook" in reason_lower and (
+            "missing" in reason_lower
+            or "unresolved" in reason_lower
+            or "ambiguous" in reason_lower
+        ):
             reasons.append(BlockingReason.MISSING_COPYBOOK)
         if "program" in reason_lower and ("missing" in reason_lower or "not found" in reason_lower):
             reasons.append(BlockingReason.MISSING_PROGRAM)

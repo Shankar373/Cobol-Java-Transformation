@@ -2,12 +2,14 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 FIXED — BL-032 VERIFIED: full suite 3401/4/0 + exact-SHA CI green at `5ee1361`; BL-033/034/035 (P1) and P2 items remain OPEN**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 FIXED — BL-033 verified by focused suites, capability-truth gate 372, fresh E2E `ORACLE_MATCH=YES 1/1`; full suite + exact-SHA CI for cycle 3 in the follow-up docs commit; BL-034/035 (P1) and P2 items remain OPEN**)
 
-- **Verdict:** `PHASE 3 IN PROGRESS`. Two bounded P0 gaps now closed —
+- **Verdict:** `PHASE 3 IN PROGRESS`. Three bounded gaps now closed —
   **BL-031** (nested `COPY` inside copybooks silently dropped, fixed
-  2026-10-12, full evidence below) and **BL-032** (`COPY … REPLACING`
-  operands silently ignored, fixed 2026-10-13) — both with deterministic
+  2026-10-12, full evidence below), **BL-032** (`COPY … REPLACING`
+  operands silently ignored, fixed 2026-10-13), and **BL-033** (unresolvable
+  or ambiguous COPYBOOK classified `SUPPORTED` with plan `READY` while
+  generation fails, fixed 2026-10-13, cycle 3) — all with deterministic
   (no-LLM) code, defect proven first, verified by focused suites and a fresh
   E2E against the independent GnuCOBOL 3.1.2 oracle. BL-031's serialized
   full suite (**3378 passed, 4 skipped, 0 failed**) and exact-SHA CI (4
@@ -15,10 +17,14 @@
   recorded below. BL-032's focused suites, capability-truth gate (**357
   passed**), ingestion gate and E2E (**`ORACLE_MATCH=YES 1/1`**) are green,
   and its serialized full suite (**3401 passed, 4 skipped, 0 failed**, run
-  of record) plus exact-SHA CI (**4 runs / 14 jobs green at `5ee1361`**)
-  close the cycle's evidence (items 6–10 below). Phase 3 is **not**
-  complete: BL-033/BL-034/BL-035 (P1) and the P2 items below remain OPEN,
-  so §53 cannot be scored complete yet.
+  of record) plus exact-SHA CI (**4 runs / 14 jobs green at `5ee1361`**,
+  docs commit `c06136f`) close its cycle (items 6–10 below). BL-033's
+  focused suites, capability-truth gate (**372 passed**), ingestion + M7 +
+  nested suites and fresh E2E (**`ORACLE_MATCH=YES 1/1`**) are green
+  (items 11–13 below); its serialized full-suite run of record and
+  exact-SHA CI are recorded in the cycle-3 follow-up docs commit.
+  Phase 3 is **not** complete: BL-034/BL-035 (P1) and the P2 items below
+  remain OPEN, so §53 cannot be scored complete yet.
 - **Baseline verified (cycle 2):** HEAD `b1a846420e63675a05dcc32bc421954d24fcf7b1`
   on `codex/universal-core`, local == origin, dirty only with the
   pre-existing `test-artifacts/*` churn (never committed); exact-SHA CI
@@ -41,7 +47,8 @@
   expands against a flat search-dir list, P1), BL-039 (capability scan not
   transitive into nested copybooks, P2); Application Graph lane — covered by
   BL-034/BL-035 (edge truth) — plus carried BL-026 (GO TO, P2).
-  *(Status update 2026-10-13: BL-031 and BL-032 are FIXED — see below.)*
+  *(Status update 2026-10-13: BL-031, BL-032 and BL-033 are FIXED — see
+  below.)*
 - **Fixed:** **BL-031 — FIXED (cycle 1, 2026-10-12).** Copybook text now
   expands in memory only (statement-aware, cycle-scoped, fail-closed on
   missing/ambiguous/unreadable/cyclic nested targets, fixed-format
@@ -51,9 +58,16 @@
   word-boundary substitution pass, quoted literals are data, in-memory
   only); unappliable/malformed clauses fail closed naming `REPLACING`, and
   capability classifies such programs `UNSUPPORTED` through the same clause
-  parser (`_scan_copy_replacing` — no verdict drift). See the evidence
-  blocks below.
-- **Still OPEN (next items in priority order):** BL-033/BL-034/BL-035 (P1),
+  parser (`_scan_copy_replacing` — no verdict drift). **BL-033 — FIXED
+  (cycle 3, 2026-10-13).** Unresolvable/ambiguous copybook dependencies now
+  classify `UNSUPPORTED` (reason names the copybook + resolution status;
+  mixed resolve/unresolve sets disqualify the component; consuming-program
+  verdict unchanged; resolved copybooks keep `SUPPORTED`), and the planner
+  maps such reasons to `MISSING_COPYBOOK`, so the plan is `BLOCKED` with
+  `COPYBOOK <name>: MISSING_COPYBOOK — …` in its blocking summary and can
+  never report "No blocking issues" while generation fails. See the
+  evidence blocks below.
+- **Still OPEN (next items in priority order):** BL-034/BL-035 (P1),
   then BL-026/BL-036/BL-037/BL-038/BL-039 (P2).
 
 ### Phase 3 evidence (all executed 2026-10-12, outputs under `%TEMP%\opencode\phase3\`)
@@ -173,6 +187,48 @@
     — 4/4 SUCCESS. Supply chain **PR**
     [#38348361692](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38348361692)
     — 3/3 SUCCESS.
+
+**BL-033 evidence (cycle 3, executed 2026-10-13, same evidence directory):**
+
+11. **BL-033 defect proven first (pre-fix):** `bl033_pre_fix.txt` — through
+    the real discovery → capability → planner → generation path, a missing
+    target (`COPY MISSING-REC.`), an ambiguous one (two equal-precedence
+    candidates — discovery itself records `resolution=AMBIGUOUS`), and a
+    quoted missing one (`COPY 'P2REC'`) all classified the `COPYBOOK`
+    component **`SUPPORTED`** with plan **`READY`**,
+    `blocking_summary=["No blocking issues identified"]`, and
+    `CopybookPlan.may_proceed=True` with no blocking reasons — while the
+    same run's generation failed closed (`Missing COPY target: <name>`).
+    The resolved control stayed `SUPPORTED` with successful generation.
+12. **BL-033 fix verified:** `tests/test_copybook_resolution_capability.py`
+    (15 tests, dependency-free) → **15 passed** (missing/ambiguous/quoted
+    components `UNSUPPORTED` with reasons naming copybook + resolution;
+    mixed resolve/unresolve sets disqualify; plan `BLOCKED` +
+    `MISSING_COPYBOOK` in the blocking summary and its serialization;
+    copybook plan entry `may_proceed=False` + `SKIP`; generation still
+    fails closed; consuming-program verdict unchanged; ledger entry
+    `BLOCKED` even with a perfect runtime lane; transformation-plan
+    generator `SKIP`s; resolved copybooks keep `SUPPORTED`/`READY`/
+    successful generation). Gate runs: capability-truth (now the 14-file
+    `ci.yml` selection, incl. the new file) → **372 passed**; ingestion +
+    copybook M7 + nested → **38 passed**; planner/universal/phase-D
+    negative + integrated proof → **135 passed**. The single test that had
+    pinned the defective verdict
+    (`test_copybook_dependency_is_not_claimed_supported`, which asserted
+    `SUPPORTED` for a default-`UNRESOLVED` reference despite its name) was
+    corrected to strictly stronger non-SUPPORTED + reason + details
+    assertions, documented in-body — no test weakened or skipped.
+13. **Fresh E2E (real ApplicationDiscovery → ApplicationGenerator path):**
+    resolved-copybook happy path (`bl033_e2e_gen.py` — generation code is
+    untouched this cycle; the E2E proves no happy-path regression):
+    `resolutions=[('RCE2E','REALREC','RESOLVED')]`,
+    `generation_success=True`; generated Java compiles under the host
+    Temurin 21 JDK (`JAVAC_OK`) and runs; GnuCOBOL 3.1.2 oracle
+    (`gnucobol-ocesql:latest`, `cobc -x -free -I .`) runs the identical
+    COBOL → **`ORACLE_MATCH=YES`, 1/1 lines** (`REC[ABCD]` on both sides).
+14. **Serialized full suite (run of record) and exact-SHA CI at the cycle-3
+    code commit:** recorded in the follow-up docs commit for this cycle
+    (same two-commit pattern as cycles 1–2).
 
 ## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
 
