@@ -2,7 +2,7 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 FIXED — BL-033 verified by focused suites, capability-truth gate 372, fresh E2E `ORACLE_MATCH=YES 1/1`; full suite + exact-SHA CI for cycle 3 in the follow-up docs commit; BL-034/035 (P1) and P2 items remain OPEN**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 FIXED — BL-033 VERIFIED: full suite 3416/4/0 + exact-SHA CI green at `f734c73`; BL-034/035 (P1) and P2 items remain OPEN**)
 
 - **Verdict:** `PHASE 3 IN PROGRESS`. Three bounded gaps now closed —
   **BL-031** (nested `COPY` inside copybooks silently dropped, fixed
@@ -21,8 +21,9 @@
   docs commit `c06136f`) close its cycle (items 6–10 below). BL-033's
   focused suites, capability-truth gate (**372 passed**), ingestion + M7 +
   nested suites and fresh E2E (**`ORACLE_MATCH=YES 1/1`**) are green
-  (items 11–13 below); its serialized full-suite run of record and
-  exact-SHA CI are recorded in the cycle-3 follow-up docs commit.
+  (items 11–13 below), and its serialized full suite (**3416 passed, 4
+  skipped, 0 failed**, run of record) plus exact-SHA CI (**4 runs / 14
+  jobs green at `f734c73`**) close cycle 3 (items 14–15 below).
   Phase 3 is **not** complete: BL-034/BL-035 (P1) and the P2 items below
   remain OPEN, so §53 cannot be scored complete yet.
 - **Baseline verified (cycle 2):** HEAD `b1a846420e63675a05dcc32bc421954d24fcf7b1`
@@ -226,9 +227,28 @@
     Temurin 21 JDK (`JAVAC_OK`) and runs; GnuCOBOL 3.1.2 oracle
     (`gnucobol-ocesql:latest`, `cobc -x -free -I .`) runs the identical
     COBOL → **`ORACLE_MATCH=YES`, 1/1 lines** (`REC[ABCD]` on both sides).
-14. **Serialized full suite (run of record) and exact-SHA CI at the cycle-3
-    code commit:** recorded in the follow-up docs commit for this cycle
-    (same two-commit pattern as cycles 1–2).
+14. **Serialized full suite (run of record, 2026-10-13):** `pytest -q tests
+    -p no:randomly -p no:cacheprovider -rf` → **3416 passed, 4 skipped, 0
+    failed in 36m48s** (`fullsuite_bl033_run1.txt`), serialized with zero
+    concurrent Docker activity. Collection reconciles exactly: BL-032
+    run-of-record baseline 3405 + 15 new BL-033 tests = 3420 = 3416 + 4.
+    **Failure-identity comparison** vs the zero-failure baseline by test
+    id: **NEW_ONLY=0, no regressions** (skip count identical, 4 = 4).
+15. **Exact-SHA CI at `f734c739a90f241c079e1c0c5a375c645f75b3e9`**
+    (verified via `verify_ci.py`, which checks `head_sha` per run *and*
+    per job — `ci_verify_f734c73.txt`): **green, 4 runs / 14 jobs,
+    `EXACT_SHA_CI_GREEN`**. SystemaOps CI **push**
+    [#38368080177](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368080177)
+    — all four jobs SUCCESS, including the backend COBOL/Java Docker job
+    (capability-truth gate, Phase 1 ingestion, frontend, backend), which
+    executed the full serialized suite with the 15 new BL-033 tests on a
+    clean runner. Supply chain **push**
+    [#38368080144](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368080144)
+    — 3/3 jobs SUCCESS. SystemaOps CI **PR**
+    [#38368084978](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368084978)
+    — 4/4 SUCCESS. Supply chain **PR**
+    [#38368084969](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368084969)
+    — 3/3 SUCCESS.
 
 ## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
 

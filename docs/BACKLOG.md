@@ -1932,9 +1932,25 @@ level and evidence location.
   strictly stronger non-SUPPORTED + reason assertions documented in-body —
   its name is now true); fresh E2E (`bl033_e2e_gen.py`, resolved-copybook
   happy path — generation code is untouched this cycle): `JAVAC_OK`
-  (Temurin 21), GnuCOBOL 3.1.2 oracle **`ORACLE_MATCH=YES 1/1`**. The
-  serialized full-suite run of record and the exact-SHA CI results are
-  recorded in the follow-up docs commit for this cycle.
+  (Temurin 21), GnuCOBOL 3.1.2 oracle **`ORACLE_MATCH=YES 1/1`**.
+  Serialized full suite (run of record): **3416 passed, 4 skipped, 0
+  failed** in 36m48s (`fullsuite_bl033_run1.txt`), serialized with zero
+  concurrent Docker activity; collection reconciles exactly (3420 =
+  BL-032 run-of-record baseline 3405 + 15 new BL-033 tests);
+  failure-identity comparison vs the zero-failure baseline by test id:
+  **NEW_ONLY=0, no regressions** (skip count identical, 4 = 4).
+  Exact-SHA CI at `f734c739a90f241c079e1c0c5a375c645f75b3e9`: **green,
+  4 runs / 14 jobs** — Push SystemaOps CI
+  [#38368080177](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368080177)
+  (incl. the backend COBOL/Java Docker job running the full suite on a
+  clean runner), Push Supply chain
+  [#38368080144](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368080144),
+  PR SystemaOps CI
+  [#38368084978](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368084978),
+  PR Supply chain
+  [#38368084969](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38368084969)
+  — `verify_ci.py` confirms `head_sha=f734c73` per run *and* per job,
+  **`EXACT_SHA_CI_GREEN`** (details in the Phase 3 block of `opencode.md`).
 
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
