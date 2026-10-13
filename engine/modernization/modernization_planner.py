@@ -78,6 +78,7 @@ class BlockingReason(Enum):
     CALL_CYCLE = "CALL_CYCLE"
     MISSING_COPYBOOK = "MISSING_COPYBOOK"
     MISSING_PROGRAM = "MISSING_PROGRAM"
+    ARITY_MISMATCH = "ARITY_MISMATCH"
     DOCKER_UNAVAILABLE = "DOCKER_UNAVAILABLE"
     PARSE_FAILURE = "PARSE_FAILURE"
     UNKNOWN_CONSTRUCT = "UNKNOWN_CONSTRUCT"
@@ -381,8 +382,12 @@ class ModernizationPlanner:
             application_id=application_id or source_path.name,
         )
 
-        # Phase 2: Capability Graph
-        capability_report = self._capability_analyzer.analyze(application)
+        # Phase 2: Capability Graph — source_root keeps the copybook scan
+        # transitive over the same search directories generation uses
+        # (BL-039), so the verdict covers everything materialization merges.
+        capability_report = self._capability_analyzer.analyze(
+            application, source_root=source_path
+        )
 
         # Phase 3: Modernization Plan (deterministic)
         transformation_plan = self._plan_generator.generate(
@@ -695,6 +700,10 @@ class ModernizationPlanner:
 
         if "dynamic call" in reason_lower:
             reasons.append(BlockingReason.DYNAMIC_CALL)
+        # BL-037: a caller/callee LINKAGE arity mismatch gets its own reason
+        # instead of dead-ending at UNKNOWN_CONSTRUCT (the old mis-mapping).
+        if "linkage arity mismatch" in reason_lower:
+            reasons.append(BlockingReason.ARITY_MISMATCH)
         if "recursive" in reason_lower or "self call" in reason_lower:
             reasons.append(BlockingReason.RECURSIVE_CALL)
         # Word-boundary match: the analyzer's copybook reasons contain words

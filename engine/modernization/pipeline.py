@@ -226,7 +226,11 @@ class UniversalModernizationPipeline:
         # Phase 2: CAPABILITY ANALYSIS
         if progress:
             progress("ANALYZING")
-        capability_report = self._capability_analyzer.analyze(application)
+        # source_root keeps the copybook scan transitive over the same
+        # search directories generation uses (BL-039).
+        capability_report = self._capability_analyzer.analyze(
+            application, source_root=source_path
+        )
         report.capability_report = capability_report
         report.overall_capability = capability_report.overall_level.value
         if progress:

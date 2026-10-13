@@ -30,6 +30,7 @@ Architecture:
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
 from engine.transformation.cobol_parser import CobolParser, CobolParseError
@@ -587,21 +588,32 @@ class ApplicationDiscovery:
         # Build program ID set for resolution
         known_programs = {p.program_id for p in program_units}
 
-        for unit in program_units:
+        for index, unit in enumerate(program_units):
             # Add CALL edges. Dynamic CALLs (CALL data-item) never resolve
             # to a static edge even when the item name coincides with a
             # program-id — the target is a runtime value.
+            updated_calls: list[ProgramCall] = []
             for call in unit.calls:
                 if call.call_type == "DYNAMIC":
                     resolution = "UNRESOLVED"
                 else:
                     resolution = "RESOLVED" if call.target in known_programs else "UNRESOLVED"
+                # BL-038: stamp the IR record with the same resolution
+                # decision that stamps the edge metadata, so the two fields
+                # of one fact can never contradict each other.  Frozen
+                # dataclass: replace, never mutate.
+                updated_calls.append(
+                    call if call.resolution == resolution
+                    else replace(call, resolution=resolution)
+                )
                 edges.append(DependencyEdge(
                     source=unit.program_id,
                     target=call.target,
                     edge_type="CALL",
                     metadata=f"resolution={resolution};call_type={call.call_type}",
                 ))
+            if tuple(updated_calls) != unit.calls:
+                program_units[index] = replace(unit, calls=tuple(updated_calls))
 
             # Add COPY edges
             for cb in unit.copybooks:

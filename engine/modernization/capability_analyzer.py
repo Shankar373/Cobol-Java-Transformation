@@ -305,8 +305,18 @@ class CapabilityAnalyzer:
         self._docker_available = docker_available
         self._parser = cobol_parser or CobolParser()
 
-    def analyze(self, application: CobolApplication) -> CapabilityReport:
-        """Analyze a discovered application and produce a capability report."""
+    def analyze(
+        self,
+        application: CobolApplication,
+        source_root: "str | Path | None" = None,
+    ) -> CapabilityReport:
+        """Analyze a discovered application and produce a capability report.
+
+        ``source_root`` (the ingested source tree) lets the copybook scan be
+        transitive over the exact search directories generation uses
+        (BL-039); when omitted the copybook's own directory keeps the legacy
+        flat behavior.
+        """
         components: list[ComponentCapability] = []
 
         # Check infrastructure first
@@ -323,7 +333,9 @@ class CapabilityAnalyzer:
 
         # Analyze copybook references (resolution is recorded at discovery)
         for cb_name in application.copybooks:
-            components.append(self._analyze_copybook(application, cb_name))
+            components.append(
+                self._analyze_copybook(application, cb_name, source_root)
+            )
 
         # Analyze dependency edges (exact resolution match — note that
         # "UNRESOLVED" contains "RESOLVED" as a substring, so a substring
@@ -823,6 +835,7 @@ class CapabilityAnalyzer:
         self,
         application: CobolApplication,
         cb_name: str,
+        source_root: "str | Path | None" = None,
     ) -> ComponentCapability:
         refs: list[CopybookReference] = [
             cb
@@ -895,23 +908,80 @@ class CapabilityAnalyzer:
                 details={"resolution": "RESOLVED", "path": resolved_paths[0]},
             )
 
-        detected = sorted(scan_constructs(content, restrict_to_procedure=False))
+        # BL-039 (capability truth is transitive): scan every file the
+        # generation lane merges — the top-level copybook plus each nested
+        # COPY target — so constructs inside nested copybooks cannot escape
+        # the verdict.  Search directories are the shared deterministic
+        # authority when the caller knows the source root (parity with
+        # generation); otherwise the top-level file's own directory keeps
+        # the legacy flat behavior.  A nested target generation cannot
+        # materialize (missing/ambiguous/cyclic/unreadable) is an ERROR
+        # diagnostic naming it and fails the component closed — the
+        # expanded-scan result can never contradict generation.
+        from engine.transformation.copybook_model import collect_copybook_texts
+        from engine.transformation.copybook_resolver import copybook_search_dirs
+
+        top_path = Path(resolved_paths[0])
+        search_dirs = (
+            copybook_search_dirs(source_root)
+            if source_root is not None
+            else (top_path.parent,)
+        )
+        files, nested_diagnostics = collect_copybook_texts(top_path, search_dirs)
+        nested_errors = [
+            d.message for d in nested_diagnostics if d.level == "ERROR"
+        ]
+        if nested_errors:
+            return ComponentCapability(
+                component_id=cb_name,
+                component_type="COPYBOOK",
+                level=CapabilityLevel.UNSUPPORTED,
+                reason=(
+                    f"Copybook {cb_name} has nested COPY problems: "
+                    + "; ".join(nested_errors)
+                ),
+                details={
+                    "resolution": "RESOLVED",
+                    "path": resolved_paths[0],
+                    "nested_errors": "; ".join(nested_errors),
+                },
+            )
+
+        top_stem = top_path.stem.upper()
+        detected_by_file: list[tuple[str, set[str]]] = [
+            (
+                fpath.stem.upper(),
+                set(scan_constructs(ftext, restrict_to_procedure=False)),
+            )
+            for fpath, ftext in files
+        ]
+        detected = sorted({key for _, keys in detected_by_file for key in keys})
         levels = [
             CONSTRUCT_REGISTRY[key].effective_source_level
             for key in detected
             if key in CONSTRUCT_REGISTRY
         ]
         worst = worst_level(levels)
+        file_stems = ", ".join(fstem for fstem, _ in detected_by_file)
 
         if worst is None:
+            nested_note = (
+                f" (including {len(detected_by_file) - 1} nested copybook(s))"
+                if len(detected_by_file) > 1
+                else ""
+            )
             return ComponentCapability(
                 component_id=cb_name,
                 component_type="COPYBOOK",
                 level=CapabilityLevel.SUPPORTED,
-                reason="Copybook resolved and contains no unsupported constructs",
+                reason=(
+                    "Copybook resolved and contains no unsupported constructs"
+                    + nested_note
+                ),
                 details={
                     "resolution": "RESOLVED",
                     "path": resolved_paths[0],
+                    "files": file_stems,
                 },
             )
 
@@ -920,14 +990,30 @@ class CapabilityAnalyzer:
             if key in CONSTRUCT_REGISTRY
             and CONSTRUCT_REGISTRY[key].effective_source_level is worst
         })
+        # Attribution: name the nested files that carry the worst-level keys
+        # so the reason points at the file generation actually merges.
+        nested_offenders = sorted({
+            fstem for fstem, keys in detected_by_file
+            if fstem != top_stem
+            and any(
+                key in CONSTRUCT_REGISTRY
+                and CONSTRUCT_REGISTRY[key].effective_source_level is worst
+                for key in keys
+            )
+        })
+        nested_note = (
+            " (via nested copybook " + ", ".join(nested_offenders) + ")"
+            if nested_offenders
+            else ""
+        )
         if worst is CapabilityLevel.UNKNOWN:
-            reason = "Support cannot be determined for: " + ", ".join(entry_keys)
+            reason = "Support cannot be determined for: " + ", ".join(entry_keys) + nested_note
         elif worst is CapabilityLevel.UNSUPPORTED:
-            reason = "Copybook contains unsupported constructs: " + ", ".join(entry_keys)
+            reason = "Copybook contains unsupported constructs: " + ", ".join(entry_keys) + nested_note
         elif worst is CapabilityLevel.PARTIAL:
-            reason = "Copybook contains partially supported constructs: " + ", ".join(entry_keys)
+            reason = "Copybook contains partially supported constructs: " + ", ".join(entry_keys) + nested_note
         else:
-            reason = f"Copybook contents classify as {worst.value}"
+            reason = f"Copybook contents classify as {worst.value}" + nested_note
 
         return ComponentCapability(
             component_id=cb_name,
@@ -937,6 +1023,7 @@ class CapabilityAnalyzer:
             details={
                 "resolution": "RESOLVED",
                 "path": resolved_paths[0],
+                "files": file_stems,
                 "constructs": ", ".join(detected),
             },
         )

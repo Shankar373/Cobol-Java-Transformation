@@ -50,7 +50,11 @@ jobs:
             tests/test_copy_replacing_materialization.py \
             tests/test_copybook_resolution_capability.py \
             tests/test_phantom_dependency_masking.py \
-            tests/test_copybook_search_path_parity.py
+            tests/test_copybook_search_path_parity.py \
+            tests/test_copybook_capability_transitivity.py \
+            tests/test_call_statement_parsing.py \
+            tests/test_call_resolution_truth.py \
+            tests/test_goto_diagnostic.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

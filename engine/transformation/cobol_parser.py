@@ -1034,8 +1034,11 @@ class CobolParser:
         if upper.startswith("MULTIPLY "):
             return self._parse_multiply(lines, start)
 
-        # CALL
-        if upper.startswith("CALL "):
+        # CALL — a bare "CALL" line is the first line of a multi-line CALL
+        # statement (target/USING on following lines); BL-036: it must reach
+        # _parse_call, whose continuation loop joins the rest, instead of
+        # falling through as three separate unparsed statements.
+        if upper.startswith("CALL ") or upper == "CALL":
             return self._parse_call(lines, start)
 
         # DIVIDE
@@ -1629,6 +1632,24 @@ class CobolParser:
             return CallStatement(program_name="", is_dynamic=True), i + 1
         program_name = next((g for g in match.groups()[:3] if g), "")
         using = match.group(4) or ""
+        # BL-037: the ON EXCEPTION / ON OVERFLOW phrase ends the argument
+        # list.  It is recognised but not transformed, so it is named in an
+        # explicit diagnostic (never silently absorbed into the USING
+        # capture, which produced a false arity claim) and excluded from the
+        # argument count — the arguments themselves parse exactly as in the
+        # form without the phrase.
+        phrase = re.search(
+            r"\bON\s+(?:EXCEPTION|OVERFLOW)\b", using, re.IGNORECASE
+        )
+        if phrase is not None:
+            phrase_text = using[phrase.start():].rstrip(".").strip()
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"CALL exception-handling phrase is recognised but not "
+                f"transformed: {phrase_text}",
+                location="CALL",
+            )
+            using = using[:phrase.start()].rstrip(".").strip()
         tokens = using.split()
         arguments=[]
         modes=[]
@@ -2317,6 +2338,19 @@ class CobolParser:
 
         match = re.search(r"GO\s+TO\s+(\S+)", line, re.IGNORECASE)
         target = match.group(1).rstrip(".") if match else ""
+
+        # BL-026 (diagnostic completeness): the executable jump is lowered to
+        # a comment by the mapper, so §16 requires an explicit diagnostic
+        # naming the construct — the same UNSUPPORTED_CONSTRUCT channel SORT
+        # and INSPECT use.  The verdict is unchanged (the registry already
+        # classifies GO TO UNSUPPORTED) and the mapper comment stays for
+        # traceability.
+        self._diagnostics.warning(
+            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+            f"GO TO is not transformed: control flow is lowered to a comment "
+            f"(target {target or 'unknown'})",
+            location="GO TO",
+        )
 
         return GoToStatement(target=target), start + 1
 

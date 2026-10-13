@@ -364,6 +364,89 @@ def _expand_copybook_text(
     return "".join(pieces)
 
 
+def collect_copybook_texts(
+    path: Path,
+    search_dirs: tuple[Path, ...],
+) -> tuple[tuple[tuple[Path, str], ...], tuple[CopybookDiagnostic, ...]]:
+    """Per-file texts of a copybook and every nested COPY target (BL-039).
+
+    Returns ``(files, diagnostics)`` where ``files`` holds ``(path, text)``
+    for the top-level copybook first, then each reachable nested target in
+    deterministic depth-first order.  Resolution reuses the same strict
+    resolver and search directories as generation, so the file set matches
+    what ``_expand_copybook_text`` merges; a missing, ambiguous, unreadable
+    or cyclic nested target appends the same ``ERROR`` diagnostic (naming
+    the parent copybook) and its file is simply absent — never silently
+    expanded, never recursed without bound.  ``REPLACING`` pairs are
+    irrelevant for construct scanning and are not applied.  Sequence
+    numbers are stripped exactly as at generation time.  Capability
+    analysis scans these texts so constructs inside nested copybooks
+    cannot escape the verdict.
+    """
+    from engine.transformation.copybook_resolver import (
+        AmbiguousCopybookError,
+        CopybookResolutionError,
+        resolve_copybook,
+    )
+
+    files: list[tuple[Path, str]] = []
+    diagnostics: list[CopybookDiagnostic] = []
+
+    def _walk(current: Path, chain: tuple[str, ...]) -> None:
+        stem = current.stem.upper()
+        try:
+            text = _strip_sequence_numbers(current.read_text(encoding="utf-8"))
+        except OSError as exc:
+            diagnostics.append(CopybookDiagnostic(
+                level="ERROR",
+                code="COPYBOOK_UNREADABLE",
+                message=f"Copybook {stem} at {current}: {exc}",
+            ))
+            return
+        files.append((current, text))
+        spans = _find_copy_statements(text)
+        if not spans:
+            return
+        masked = _mask_comments(text)
+        for start, end, target in spans:
+            target_key = target.upper()
+            if target_key == stem or target_key in chain:
+                diagnostics.append(CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_CYCLE",
+                    message=(
+                        "Cyclic COPY reference: "
+                        + " -> ".join((*chain, stem, target_key))
+                    ),
+                ))
+                continue
+            try:
+                resolved = resolve_copybook(
+                    target, search_dirs, program_id=f"copybook {stem}"
+                )
+            except AmbiguousCopybookError as exc:
+                diagnostics.append(CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_AMBIGUOUS",
+                    message=(
+                        f"Ambiguous COPY target {target!r} in copybook {stem}: "
+                        + ", ".join(str(c) for c in exc.candidates)
+                    ),
+                ))
+                continue
+            except CopybookResolutionError:
+                diagnostics.append(CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_UNRESOLVED",
+                    message=f"Missing COPY target: {target} (in copybook {stem})",
+                ))
+                continue
+            _walk(resolved.path, (*chain, stem))
+
+    _walk(Path(path), ())
+    return tuple(files), tuple(diagnostics)
+
+
 _FIXED_FORMAT_LINE = re.compile(r"^(\d{6})(.)(.*)$")
 
 
