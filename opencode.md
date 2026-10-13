@@ -2,7 +2,7 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 + BL-034 + BL-035 FIXED — cycle 3 verified: full suite 3416/4/0 + exact-SHA CI green at `f734c73`/`427129e`; cycle 4 (combined P1) full suite + CI in progress; BL-026/036–039 (P2) remain OPEN**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 + BL-034 + BL-035 FIXED — ALL P1 CLOSED; cycle 3 verified: full suite 3416/4/0 + exact-SHA CI green at `f734c73`/`427129e`; cycle 4 verified: exact-SHA CI full suite green (run of record) + local 3441/4/0 test failures at `c0e628d`; only BL-026/036–039 (P2) remain OPEN**)
 
 - **Verdict:** `PHASE 3 IN PROGRESS`. Five bounded gaps now closed —
   **BL-031** (nested `COPY` inside copybooks silently dropped, fixed
@@ -31,8 +31,12 @@
   Cycle 4's per-gap proofs, focused suites (**26 = 13 + 13**),
   capability-truth gate (**398 passed**, 16 files), regression batch
   (**2047 passed, 4 skipped**) and fresh E2Es (**`ORACLE_MATCH=YES 2/2`
-  and `1/1`**) are green (items 16–19 below); its serialized full suite
-  and exact-SHA CI complete in the follow-up docs commit.
+  and `1/1`**) are green (items 16–19 below), and its run-of-record
+  exact-SHA CI (**4 runs / 14 jobs green at `c0e628d`**, backend
+  Docker job ran the full suite on a clean runner) plus a corroborating
+  local serialized run (**3441 passed, 4 skipped, 0 test failures** —
+  the one error was an environmental fixture-setup Maven timeout that
+  passes in isolation, items 20–21 below) close cycle 4.
   Phase 3 is **not** complete: BL-026/BL-036–BL-039 (P2) remain OPEN,
   so §53 cannot be scored complete yet.
 - **Baseline verified (cycle 2):** HEAD `b1a846420e63675a05dcc32bc421954d24fcf7b1`
@@ -329,6 +333,36 @@ direction, executed 2026-10-13, same evidence directory):**
     `cobc -x -free -I .`; comment fixtures use the `*>` indicator the
     free-format standard requires — a fixture correction, noted in entry
     (m) of `docs/BACKLOG.md`).
+
+20. **Serialized full suite (cycle 4, three attempts — CI is the run of
+    record per project-owner direction):** local run #1 and run #3 were
+    killed by two server restarts (void at ~20% and ~14%). Completed
+    local run #2 (`fullsuite_bl034_035_run2.txt`): **3441 passed, 4
+    skipped, 1 error** in 1h14m — collection reconciles exactly (3446 =
+    BL-033 run-of-record 3420 + 26 new cycle-4 tests = 3441 + 4 + 1),
+    **0 test failures**. The single error was at *fixture setup*
+    (`TestDockerExecution.test_stdout_has_final_values`: the
+    Docker/Maven compile fixture timed out at 2378s on the
+    post-restart degraded environment — the suite took double its
+    normal time); it **passes in isolation (1 passed in 20.01s**,
+    `bl034_035_isolated_recheck.txt`) — environmental transient, no
+    regression, same honest classification as the cycle-2
+    `docker image inspect` flake.
+21. **Exact-SHA CI at `c0e628dd682d5a260827b0f0ace94fd7303ba344`
+    (run of record; verified via `verify_ci.py`, which checks `head_sha`
+    per run *and* per job — `ci_verify_c0e628d.txt`): green, 4 runs /
+    14 jobs, `EXACT_SHA_CI_GREEN`**. SystemaOps CI **push**
+    [#38379713644](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379713644)
+    — all four jobs SUCCESS, including the backend COBOL/Java Docker
+    job, which executed the full serialized suite with the 26 new
+    cycle-4 tests on a clean runner. Supply chain **push**
+    [#38379713642](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379713642)
+    — 3/3 SUCCESS. SystemaOps CI **PR**
+    [#38379720588](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379720588)
+    — 4/4 SUCCESS. Supply chain **PR**
+    [#38379720608](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379720608)
+    — 3/3 SUCCESS. Local run #2 and CI agree: no test failure from
+    either P1 fix.
 
 ## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
 

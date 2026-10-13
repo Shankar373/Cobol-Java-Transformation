@@ -2047,9 +2047,32 @@ level and evidence location.
   (dependency-free, wired into the `ci.yml` gate), post-fix probe
   `bl035_post_probe.txt` (subdir layout `RESOLVED`/`SUPPORTED`/`READY` +
   generation succeeds), fresh E2E (subdir-copybook program — `JAVAC_OK`,
-  GnuCOBOL oracle **`ORACLE_MATCH=YES 1/1`**). Full-suite run of record
-  and exact-SHA CI results for cycle 4: recorded here in the follow-up
-  docs commit for this cycle.
+  GnuCOBOL oracle **`ORACLE_MATCH=YES 1/1`**). Full-suite evidence
+  (recorded 2026-10-13): local serialized run #2 → **3441 passed, 4
+  skipped, 1 error** in 1h14m (`fullsuite_bl034_035_run2.txt`),
+  collection reconciling exactly (3446 = BL-033 run-of-record 3420 + 26
+  new cycle-4 tests = 3441 + 4 + 1); **0 test failures** — the single
+  error was at *fixture setup* (`TestDockerExecution.
+  test_stdout_has_final_values`: the Docker/Maven compile fixture timed
+  out at 2378s on the post-server-restart degraded environment; that
+  suite took double its normal time), and it **passes in isolation (1
+  passed in 20.01s**, `bl034_035_isolated_recheck.txt`) — environmental
+  transient, no regression, same honest classification as the cycle-2
+  `docker image inspect` flake. Local runs #1 and #3 were killed by two
+  server restarts (void, ~20% and ~14%); per project-owner direction the
+  fast suite path is CI, so the **run of record is the exact-SHA CI at
+  `c0e628dd682d5a260827b0f0ace94fd7303ba344`: green, 4 runs / 14 jobs,
+  `EXACT_SHA_CI_GREEN`** (verified `head_sha` per run *and* per job) —
+  Push SystemaOps CI
+  [#38379713644](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379713644)
+  (its backend COBOL/Java Docker job executed the full serialized suite
+  with the 26 new cycle-4 tests on a clean runner), Push Supply chain
+  [#38379713642](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379713642),
+  PR SystemaOps CI
+  [#38379720588](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379720588),
+  PR Supply chain
+  [#38379720608](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379720608).
+  Local run #2 and CI agree: no test failure from either P1 fix.
 
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
