@@ -2,7 +2,7 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 FIXED; BL-032 serialized full suite + exact-SHA CI pending**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 FIXED — BL-032 VERIFIED: full suite 3401/4/0 + exact-SHA CI green at `5ee1361`; BL-033/034/035 (P1) and P2 items remain OPEN**)
 
 - **Verdict:** `PHASE 3 IN PROGRESS`. Two bounded P0 gaps now closed —
   **BL-031** (nested `COPY` inside copybooks silently dropped, fixed
@@ -13,9 +13,10 @@
   full suite (**3378 passed, 4 skipped, 0 failed**) and exact-SHA CI (4
   runs / 14 jobs at `d5c16f4`, plus docs commit `b1a8464`) are green and
   recorded below. BL-032's focused suites, capability-truth gate (**357
-  passed**), ingestion gate and E2E (**`ORACLE_MATCH=YES 1/1`**) are green;
-  its serialized full suite (run of record, executing 2026-10-13) and
-  exact-SHA CI are the remaining cycle evidence. Phase 3 is **not**
+  passed**), ingestion gate and E2E (**`ORACLE_MATCH=YES 1/1`**) are green,
+  and its serialized full suite (**3401 passed, 4 skipped, 0 failed**, run
+  of record) plus exact-SHA CI (**4 runs / 14 jobs green at `5ee1361`**)
+  close the cycle's evidence (items 6–10 below). Phase 3 is **not**
   complete: BL-033/BL-034/BL-035 (P1) and the P2 items below remain OPEN,
   so §53 cannot be scored complete yet.
 - **Baseline verified (cycle 2):** HEAD `b1a846420e63675a05dcc32bc421954d24fcf7b1`
@@ -141,9 +142,37 @@
    host Temurin 21 JDK (`JAVAC_OK`); GnuCOBOL 3.1.2 oracle
    (`gnucobol-ocesql:latest`, `cobc -x -free -I .`) runs the identical
    COBOL → **`ORACLE_MATCH=YES`, 1/1 lines** (`bl032_e2e_result.txt`).
-9. **Serialized full suite (run of record, executing 2026-10-13) + exact-SHA
-   CI at the cycle-2 commit:** results pending — recorded in change-log
-   entry (k) and patched here on completion.
+9. **Serialized full suite (run of record, 2026-10-13):** `pytest -q tests
+   -p no:randomly -p no:cacheprovider -rf` → **3401 passed, 4 skipped, 0
+   failed in 43m46s** (`fullsuite_bl032_run3_clean.txt`), serialized with
+   zero concurrent Docker activity. Collection reconciles exactly: BL-031
+   baseline 3382 + 23 new BL-032 tests = 3405 = 3401 + 4.
+   **Failure-identity comparison** vs the zero-failure baseline by test
+   id: **NEW_ONLY=0, no regressions**. Two earlier runs are preserved and
+   honestly superseded: run #1 (48 failed / 3328 passed / 5 skipped / 24
+   errors) was killed when the host Docker Desktop daemon crashed
+   mid-run — all 72 non-passing outcomes Docker-dependent, every failing
+   path byte-identical to baseline, and all 12 affected files passed
+   **217** in an isolated batch once Docker was restored
+   (`fullsuite_bl032_run1_environmental.txt`, `bl032_sanity_batch.txt`);
+   run #2 (1 failed / 3400 passed / 4 skipped) hit a single transient
+   `docker image inspect` identity flake on the recovering daemon that
+   **passes in isolation** (`fullsuite_bl032_run2_analysis.txt`).
+10. **Exact-SHA CI at `5ee1361de0b33112c8067b4048f8544b77ee5256`**
+    (verified via `verify_ci.py`, which checks `head_sha` per run *and*
+    per job — `ci_verify_5ee1361_mid.txt`): **green, 4 runs / 14 jobs,
+    `EXACT_SHA_CI_GREEN`**. SystemaOps CI **push**
+    [#38348358492](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38348358492)
+    — all four jobs SUCCESS, including the backend COBOL/Java Docker job
+    (capability-truth gate, Phase 1 ingestion, frontend, backend), which
+    executed the full serialized suite with the 23 new BL-032 tests on a
+    clean runner. Supply chain **push**
+    [#38348358526](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38348358526)
+    — 3/3 jobs SUCCESS. SystemaOps CI **PR**
+    [#38348361706](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38348361706)
+    — 4/4 SUCCESS. Supply chain **PR**
+    [#38348361692](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38348361692)
+    — 3/3 SUCCESS.
 
 ## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
 
