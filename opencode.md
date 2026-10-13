@@ -2,7 +2,7 @@
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
-### ⚑ PHASE 3 STATUS — read this first (2026-10-13, **IN PROGRESS — BL-031 + BL-032 + BL-033 + BL-034 + BL-035 FIXED — ALL P1 CLOSED; cycle 3 verified: full suite 3416/4/0 + exact-SHA CI green at `f734c73`/`427129e`; cycle 4 verified: exact-SHA CI full suite green (run of record) + local 3441/4/0 test failures at `c0e628d`; only BL-026/036–039 (P2) remain OPEN**)
+### ⚑ PHASE 3 STATUS — read this first (2026-10-14, **COMPLETE — VERIFIED at `4deddfc` — BL-031…BL-039 ALL FIXED: five cycles (3 single + 2 combined), full suite run of record 3476 passed / 0 failed on the CI backend Docker job, exact-SHA CI green 4 runs / 14 jobs at `4deddfc`; §53 scored 13/13 below**)
 
 - **Verdict:** `PHASE 3 IN PROGRESS`. Five bounded gaps now closed —
   **BL-031** (nested `COPY` inside copybooks silently dropped, fixed
@@ -37,8 +37,20 @@
   local serialized run (**3441 passed, 4 skipped, 0 test failures** —
   the one error was an environmental fixture-setup Maven timeout that
   passes in isolation, items 20–21 below) close cycle 4.
-  Phase 3 is **not** complete: BL-026/BL-036–BL-039 (P2) remain OPEN,
-  so §53 cannot be scored complete yet.
+  Phase 3 is now **closed in full**: cycle 5 (the combined P2 cycle per
+  project-owner direction) fixed **BL-026, BL-036, BL-037, BL-038,
+  BL-039** — deterministic code, defect proven first, 30 focused tests
+  across four new gate files, capability-truth gate **428 passed**
+  (20-file selection), regression batch **2072 passed / 4 skipped**,
+  fresh E2E `E2E_RESULT=4/4` (items 22–24 below). Its code commit
+  `43bb9a0` was honestly red in the CI backend job on one test-double
+  signature — fixed, not suppressed, as `4deddfc` — and the **run of
+  record is the exact-SHA CI at
+  `4deddfccb68d13b45e1ab6de72b4ffc847f7e6c5`: `EXACT_SHA_CI_GREEN`,
+  4 runs / 14 jobs, full suite 3476 passed / 0 failed / 0 skipped on a
+  clean runner** (item 25 below). No Phase 3 backlog item remains open;
+  the 13-point scoring in the verdict block below is 13/13:
+  **`PHASE 3 COMPLETE — VERIFIED`**.
 - **Baseline verified (cycle 2):** HEAD `b1a846420e63675a05dcc32bc421954d24fcf7b1`
   on `codex/universal-core`, local == origin, dirty only with the
   pre-existing `test-artifacts/*` churn (never committed); exact-SHA CI
@@ -49,7 +61,9 @@
   Phase 3 with full metadata (entry + register row). Non-blocking: the
   workload verdict and planner already fail closed on the unmodelled `GO TO`
   statement (`PLAN_BLOCKED`, never a false READY), so no green verdict can
-  contradict reality while it stays open.
+  contradict reality while it stays open. **Discharged 2026-10-13 (cycle 5):
+  BL-026 is FIXED — VERIFIED (explicit `GO TO` diagnostic), so the
+  carry-forward no longer applies; no Phase 3 item is open.**
 - **Phase 3 gap inventory (§76 audit-first, real-path probes, no IDs
   invented):** CALL lane — BL-036 (multi-line `CALL` unparsed, P2), BL-037
   (`ON EXCEPTION` swallowed into `USING`, false arity, P2), BL-038 (stale
@@ -364,7 +378,148 @@ direction, executed 2026-10-13, same evidence directory):**
     — 3/3 SUCCESS. Local run #2 and CI agree: no test failure from
     either P1 fix.
 
-## ⚑ §53 VERDICT — Phase 3 (placeholder, filled when the cycle closes)
+22. **Focused suites + gates (cycle 5 — combined P2: BL-026, BL-036,
+     BL-037, BL-038, BL-039):** **30 passed** across four new gate files —
+     `tests/test_goto_diagnostic.py` (5),
+     `tests/test_call_statement_parsing.py` (13, BL-036+BL-037),
+     `tests/test_call_resolution_truth.py` (4, BL-038),
+     `tests/test_copybook_capability_transitivity.py` (9, BL-039) —
+     dependency-free, wired into the `ci.yml` capability-truth
+     gate (now **20 files**); gate → **428 passed** (398 + 30, exact
+     collection chain); ingestion gate → **3 passed**. Combined post-fix
+     probe `bl_p2_post_probe.txt` runs all five scenarios through the real
+     paths (diagnostic named / identical multi-line IR / true arity +
+     phrase named / `ARITY_MISMATCH` mapped / record==edge / nested file
+     named in the COPYBOOK reason / nested problem fails closed with
+     generation's own message).
+23. **Regression batch (cycle 5):** transformation dir + copybook/
+     generator/discovery/phase-D/pipeline suites → **2072 passed, 4
+     skipped, 0 failed** in 72s (`bl_p2_regress.txt`) — no existing CALL,
+     COPYBOOK, discovery or planner contract disturbed.
+24. **Fresh E2E (cycle 5, `bl_p2_e2e_gen.py`, real discovery → plan →
+     generate → javac (Temurin 21) → run vs GnuCOBOL 3.1.2 oracle;
+     `E2E_RESULT=4/4`):** multical — multi-line `CALL 'SUBP' USING WS-A`
+     to a real in-app LINKAGE callee (value-result mutation) →
+     `generation_success=True`, oracle **`ORACLE_MATCH=YES`**
+     (`ML[SUBB]` both sides); nested2 — two-level nested copybook
+     (`NEMAIN` → `OUTER.cpy` → `INNER.cpy`) → oracle
+     **`ORACLE_MATCH=YES`**; goto — plan **`BLOCKED`** with `GO TO` named
+     in every blocking line, oracle truth captured (`A`×4 + `DONE`);
+     onexc — plan **`BLOCKED`** with `ON EXCEPTION` named, oracle handler
+     truth captured (`EXC-FIRED`). (Harness correction: the oracle callee
+     needs `PROCEDURE DIVISION USING …` to bind its LINKAGE items — an
+     oracle-side SIGSEGV before the fix, matching the
+     `fixtures/workload-call-chain` convention.)
+25. **Exact-SHA CI at `4deddfccb68d13b45e1ab6de72b4ffc847f7e6c5`**
+     (cycle 5 run of record; verified via `verify_ci.py`, which checks
+     `head_sha` per run *and* per job — `ci_verify_4deddfc.txt`):
+     **`EXACT_SHA_CI_GREEN`, 4 runs / 14 jobs**. SystemaOps CI **push**
+     [#38432430774](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432430774)
+     — 4/4 SUCCESS, including the backend COBOL/Java Docker job that
+     executed the **full serialized suite: 3476 passed, 0 failed, 0
+     skipped, 1 warning in 19m18s** on a clean runner (collection 3476 =
+     cycle-4 run-of-record collection 3446 + 30 new cycle-5 tests,
+     exact; 0 skips on Linux matches the prior CI run — the 4 local
+     skips are Windows-environment skips that pass on Linux). Supply
+     chain **push**
+     [#38432430928](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432430928)
+     3/3 SUCCESS. SystemaOps CI **PR**
+     [#38432438887](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432438887)
+     4/4 SUCCESS. Supply chain **PR**
+     [#38432439246](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432439246)
+     3/3 SUCCESS. The earlier `43bb9a0` backend failure (1 failed / 3475
+     passed: the plan-enforcement lambda double rejected the new optional
+     `source_root` kwarg) is superseded by the `4deddfc` double fix
+     (`**kwargs`, assertions untouched) — found by CI, fixed honestly.
+
+## ⚑ §53 VERDICT — Phase 3 at `4deddfc` (2026-10-14)
+
+**`PHASE 3 COMPLETE — VERIFIED`.** All thirteen §53 criteria pass. Scope of
+this phase: CALL / COPYBOOK / Application-Graph truthfulness (Master README
+§3–§5) — ten defects (the nine-item Phase 3 gap inventory plus the
+carried-forward BL-026), every one reproduced before it was fixed, fixed with
+deterministic (no-LLM) code, and verified by focused suites, the
+capability-truth and ingestion gates, regression batches, fresh E2Es against
+the independent GnuCOBOL 3.1.2 oracle, the full serialized suite on a clean
+CI runner, and exact-SHA CI.
+
+- **Commit:** `4deddfccb68d13b45e1ab6de72b4ffc847f7e6c5` on `codex/universal-core`
+  (final code + tests commit; this docs commit carries the verdict).
+- **Fixed & closed this phase (5 cycles, 10/10):**
+  - **BL-031** (P0) — `COPY` statements inside copybooks silently dropped:
+    nested declarations vanished under `success=True`/`READY`/`SUPPORTED`.
+    Statement-aware in-memory expansion; nested problems fail closed with
+    diagnostics naming the parent or cycle chain.
+  - **BL-032** (P0) — `COPY … REPLACING` operands silently ignored
+    (pseudo-text/word pairs never substituted). Deterministic clause grammar
+    + single simultaneous substitution pass; unsupported forms fail closed
+    with `COPYBOOK_REPLACING_*` diagnostics. `ORACLE_MATCH=YES`.
+  - **BL-033** (P1) — UNRESOLVED/AMBIGUOUS copybooks classified `SUPPORTED`
+    and plan `READY` while generation failed. `_analyze_copybook` fails
+    closed; planner's `MISSING_COPYBOOK` reason made reachable.
+  - **BL-034** (P1) — phantom CALL/COPY dependencies from comment lines and
+    string literals (raw-regex scanning). One literal-aware scanner; real
+    CALL/COPY still extract and still fail closed unresolved.
+    `ORACLE_MATCH=YES 2/2`.
+  - **BL-035** (P1) — discovery and generation searched different copybook
+    directories. One shared deterministic `copybook_search_dirs` feeds both
+    lanes; ambiguity explicit in both. `ORACLE_MATCH=YES 1/1`.
+  - **BL-036** (P2) — multi-line `CALL` produced zero `CallStatement`s and
+    unparsed-statement noise while the edge existed (lanes disagreed).
+    Bare-`CALL` dispatch + continuation join; identical IR, zero split
+    diagnostics. `ORACLE_MATCH=YES` with a real LINKAGE callee.
+  - **BL-037** (P2) — `CALL … ON EXCEPTION` swallowed the phrase into USING
+    → false arity + a factually wrong reason. Phrase stops capture and is
+    named in an `UNSUPPORTED_CONSTRUCT` diagnostic; planner gains
+    `ARITY_MISMATCH`. E2E blocked with the phrase named, oracle truth
+    captured.
+  - **BL-038** (P2) — `ProgramCall.resolution` stayed `UNRESOLVED` for
+    resolved static calls, contradicting edge metadata. Stamped from the
+    same decision; record == edge invariant pinned by tests.
+  - **BL-039** (P2) — capability scan not transitive into nested
+    copybooks. `collect_copybook_texts` DFS (cycle-guarded, strict
+    resolver) + per-file scan via `analyze(..., source_root=...)`
+    threaded from planner and pipeline; nested offenders named in the
+    reason. `ORACLE_MATCH=YES`.
+  - **BL-026** (P2, §53.10 carry-forward **discharged**) — `GO TO` silently
+    lowered to a comment with no diagnostic. `_parse_goto` emits an
+    `UNSUPPORTED_CONSTRUCT` warning naming `GO TO` and its target through
+    the same channel as `SORT`/`INSPECT`; mapper comment kept;
+    verdict/planner unchanged (already fail-closed). E2E plan `BLOCKED`
+    with `GO TO` named, oracle truth captured.
+- **Deferred (non-blocking, disclosed):** nothing from Phase 3 — the phase
+  inventory is empty. Unchanged disclosed limitations: COMP byte encoding;
+  REDEFINES/OCCURS/88-LEVEL classify `UNKNOWN` (fail-closed, never claimed
+  supported); BY VALUE / BY CONTENT keyless forms unclassified by design;
+  JCL/SQL/CICS transformation depth bounded to the documented subsets;
+  Docker-in-Docker blocked locally (the Linux CI runner carries the Docker
+  evidence); PR #2 unmerged pending explicit human authorization; PR #6
+  do-not-merge; prior-phase non-blocking items (BL-010/BL-012/BL-013–BL-017)
+  remain exactly as disclosed in the Phase 2 verdict.
+
+**13-point scoring:**
+
+| # | Criterion | Result | Evidence |
+|---|-----------|--------|----------|
+| 1 | implementation exists and matches the current architecture | PASS | All ten fixes sit in the canonical-pipeline lanes exactly as Master README defines them: parser statement dispatch and phrase capture (§16), discovery graph and provenance stamping (§12/§13), copybook materialization and search authority (§20), CALL lifecycle truth (§21), capability transitivity (§14), planner reason mapping (§15), `GO TO` diagnostic channel (§16) |
+| 2 | relevant contracts are satisfied | PASS | Negative contracts preserved and re-asserted by tests: unresolved CALL/COPY fail closed, dynamic CALL never resolves, ambiguity never first-match, BY CONTENT/BY VALUE keyless unclassified; contracts suite green in every cycle run |
+| 3 | focused tests pass | PASS | 30 new cycle-5 tests (4 gate files) plus 76 from cycles 1–4, all green locally and in CI; capability-truth gate (20-file selection) **428 passed** in CI and locally |
+| 4 | regression tests pass | PASS | Run of record: CI backend Docker job full serialized suite **3476 passed, 0 failed, 0 skipped** in 19m18s at `4deddfc` (clean runner); collection chain exact (3446 + 30) |
+| 5 | integration behavior is verified | PASS | Per-cycle regression batches (cycle 5: **2072 passed / 4 skipped / 0 failed** across transformation, copybook/generator/discovery, phase-D and pipeline lanes) plus the CI-found plan-enforcement double fixed honestly (`4deddfc`) |
+| 6 | fresh end-to-end behavior is verified where applicable | PASS | Fresh E2Es per cycle vs GnuCOBOL 3.1.2: BL-031 nested `COPY`, BL-032 `REPLACING`, BL-033 blocked-path, BL-034/035 `ORACLE_MATCH=YES 2/2` + `1/1`, cycle 5 `E2E_RESULT=4/4` (multi-line CALL value-result runtime match + two-level nested-copybook runtime match; `GO TO` and `ON EXCEPTION` honestly BLOCKED with oracle truth captured) |
+| 7 | evidence is reproducible, identity-tied, and integrity-validated | PASS | Every probe/E2E is a regenerable script pinned in `PHASE3_EVIDENCE_INDEX.txt`; exact-SHA CI verified `head_sha` per run *and* per job; oracle identity pinned (`gnucobol-ocesql:latest`, GnuCOBOL 3.1.2, `cobc -x -free -I .`) |
+| 8 | known limitations and residual risks are documented | PASS | Every backlog entry carries priority, severity, rationale, dependency and residual-risk text; disclosed limitations (COMP, REDEFINES/OCCURS/88, keyless modes, JCL/SQL/CICS subsets) unchanged and honest |
+| 9 | **no silent semantic loss remains** | PASS | Every fixed gap was a §54/§60 silent-drift class — phantom dependencies from comment/literal text, dropped nested `COPY`, ignored `REPLACING` operands, `ON EXCEPTION` phrase swallowed into `USING`, contradictory resolution provenance, nested constructs invisible to the verdict, `GO TO` silently commented — and each is now either correct or fail-closed with a diagnostic naming the construct |
+| 10 | every discovered defect and gap is fixed or explicitly carried forward | PASS | Phase 3 inventory BL-031…BL-039: **10 of 10 FIXED — VERIFIED**; the BL-026 §53.10 carry-forward is discharged by its cycle-5 fix; no Phase 3 item is open |
+| 11 | applicable code, test, security, architecture, API/UI, operations and documentation gaps are audited | PASS | Audit-first (§76) per cycle with real-path probes; the Phase 3 audit itself found the five P2s (BL-026 re-probe, BL-036–039 audit probes) that this phase then closed |
+| 12 | acceptance criteria are satisfied | PASS | Each entry's acceptance set is discharged by its focused tests plus probes (multi-line CALL parity, phrase-named diagnostics, record == edge invariant, nested-file attribution, `GO TO` diagnostic) — no criterion waived |
+| 13 | the live checkpoint is updated from actual repository and test results | PASS | This checkpoint, `docs/BACKLOG.md` (entries + register + change-log (j)–(p)) and both matrices are reconciled to actual run outputs — every number quoted here traces to a committed evidence file or a linked CI run |
+
+**Remaining limitations (unchanged, disclosed):** `SUPPORTED` verdicts are not
+certified beyond the tested oracle subset; Docker-in-Docker is still blocked
+locally (the full suite ran on the CI Linux runner); REDEFINES/OCCURS/88-level
+and COMP byte-encoding semantics remain `UNKNOWN`/fail-closed by design; PR #2
+stays unmerged pending explicit human authorization.
 
 ## Phase 2 started — COBOL Semantic Coverage (2026-10-12)
 

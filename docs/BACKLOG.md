@@ -1070,9 +1070,17 @@ produced evidence, not re-run here).
   — `GO TO` alone is silently commented out.
 - **Severity:** low-medium — bounded by an already-correct UNSUPPORTED verdict
   and the planner's blocking path.
-- **Status:** **OPEN** — 2026-10-11 (found by this closure audit's fresh
-  semantic re-probe at `bdb4c9a`; not found by CI or by any pre-existing test).
-- **Last verified commit:** `bdb4c9a`.
+- **Status:** **FIXED — 2026-10-13 (Phase 3 cycle 5, combined P2 cycle with
+  BL-036/BL-037/BL-038/BL-039)** (see change-log entry (o)). Fix: `_parse_goto`
+  emits an explicit `UNSUPPORTED_CONSTRUCT` warning naming `GO TO` (and its
+  target) through the same diagnostic channel `SORT`/`INSPECT` use; the
+  mapper comment stays for traceability and the verdict/planner behavior is
+  unchanged (already `UNSUPPORTED`/`BLOCKED` via the registry). Verified by
+  focused tests `tests/test_goto_diagnostic.py` (diagnostic named at parse
+  and discovery level, verdict/planner unchanged, generated `// GO TO`
+  comment kept, commented-out `GO TO` produces no diagnostic) and fresh E2E
+  goto: plan `BLOCKED` with `GO TO` named, oracle truth captured.
+- **Last verified commit:** `43bb9a0`.
 - **Found by:** the BL-018…BL-025 re-probe, run in the Linux JDK audit
   container (`systemaops-audit`, javac 21) so that generated Java could be
   compiled rather than only inspected. 20/21 Part-1 cases were correct; the
@@ -1468,7 +1476,16 @@ produced evidence, not re-run here).
   rejected, contradicting the discovery lane which *does* see the call.
 - **Severity:** medium for coverage (line-wrapped CALL is common), zero
   for trust (conservative direction).
-- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Status:** **FIXED — 2026-10-13 (Phase 3 cycle 5, combined P2 cycle with
+  BL-026/BL-037/BL-038/BL-039)** (see change-log entry (o)). Root cause:
+  the statement dispatcher required `"CALL "` (operand on the same line), so
+  a bare `CALL` line never reached `_parse_call` and fell through as three
+  unparsed statements. Fix: the dispatch routes a bare `CALL` line into
+  `_parse_call`, whose continuation loop joins the target/USING lines —
+  verified identical IR to the single-line spelling (same
+  program-name/arguments/dynamics), zero split diagnostics, cross-lane edge
+  parity; focused tests `tests/test_call_statement_parsing.py`; fresh E2E
+  multi-line CALL with a real LINKAGE callee `ORACLE_MATCH=YES`.
 - **Found by:** Phase 3 audit probes (`probe_silent.py` Q1/Q2), 2026-10-12.
 - **Observed behavior (verified):** `CALL\n  'LINETARGET'\n  USING WS-B.`
   → `CobolParser` returns **zero** `CallStatement`s and emits three
@@ -1508,7 +1525,17 @@ produced evidence, not re-run here).
   unparsed.
 - **Severity:** medium — the diagnostic claims an arity mismatch that does
   not exist in the source.
-- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Status:** **FIXED — 2026-10-13 (Phase 3 cycle 5, combined P2 cycle with
+  BL-026/BL-036/BL-038/BL-039)** (see change-log entry (o)). Fix in three
+  parts: (1) `_parse_call` stops the USING capture at the `ON EXCEPTION` /
+  `ON OVERFLOW` phrase (correct arity) and names the phrase in an explicit
+  `UNSUPPORTED_CONSTRUCT` diagnostic — never a false arity claim; (2) the
+  planner maps a linkage-arity failure to its own `ARITY_MISMATCH`
+  `BlockingReason` instead of `UNKNOWN_CONSTRUCT`; (3) focused tests
+  `tests/test_call_statement_parsing.py` (correct arity + phrase named +
+  no false-arity reason + `ARITY_MISMATCH` in the plan summary). Fresh E2E
+  onexc: plan `BLOCKED` with the phrase named, oracle truth captured
+  (handler fires `EXC-FIRED`).
 - **Found by:** Phase 3 audit probe (`probe_phase3.py` P11), 2026-10-12.
 - **Observed behavior (verified):** `CALL 'X' USING WS-A ON EXCEPTION
   DISPLAY "EXC".` → IR `CallStatement(arguments=('WS-A', 'ON', 'EXCEPTION',
@@ -1544,7 +1571,15 @@ produced evidence, not re-run here).
   analyzer reads `DependencyEdge.metadata`, which is correct), so no false
   classification is reachable; but the IR record contradicts itself.
 - **Severity:** low — data-quality/traceability only.
-- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Status:** **FIXED — 2026-10-13 (Phase 3 cycle 5, combined P2 cycle with
+  BL-026/BL-036/BL-037/BL-039)** (see change-log entry (o)). Fix:
+  `_build_dependency_graph` stamps each `ProgramCall.resolution` from the
+  same decision that stamps the edge metadata (frozen dataclass replaced,
+  unit tuple rebuilt) — verified: resolved static `RESOLVED`, missing
+  static `UNRESOLVED`, dynamic never resolves even when the item value
+  coincides with a program-id, and a mixed 3-call invariant test pins
+  call-record == edge for every call; focused tests
+  `tests/test_call_resolution_truth.py`.
 - **Found by:** Phase 3 audit probe (`probe_phase3.py` P8), 2026-10-12.
 - **Observed behavior (verified):** for `MLMAIN` → `LINETARGET` (a target
   that exists on disk), discovery records `unit.calls[…].resolution ==
@@ -1578,7 +1613,19 @@ produced evidence, not re-run here).
   lower the COPYBOOK component's verdict, because
   `_analyze_copybook` runs `scan_constructs` on the top-level file's text
   only and the consuming program's source scan sees only `COPY OUTER`.
-- **Status:** **OPEN — filed 2026-10-12 (Phase 3 audit), carried forward.**
+- **Status:** **FIXED — 2026-10-13 (Phase 3 cycle 5, combined P2 cycle with
+  BL-026/BL-036/BL-037/BL-038)** (see change-log entry (o)). Fix:
+  `copybook_model.collect_copybook_texts` walks the top-level copybook and
+  every reachable nested COPY target (same strict resolver, cycle-guarded,
+  missing/ambiguous/cyclic/unreadable nested targets recorded as the same
+  `ERROR` diagnostics generation fails on), and `_analyze_copybook` scans
+  per file when the caller passes the shared search-directory authority
+  (`analyze(application, source_root=...)`, threaded from the planner and
+  pipeline) — the reason names the nested file carrying the worst-level
+  keys, a nested problem fails the component closed with generation's own
+  message, and flat copybooks keep the exact legacy reason; focused tests
+  `tests/test_copybook_capability_transitivity.py`; fresh E2E nested2
+  `ORACLE_MATCH=YES`.
 - **Found by:** Phase 3 audit reasoning over BL-031's expansion (the nested
   content now reaches the merged IR but not the classifier).
 - **Expected behavior:** §14/§20 — the verdict must cover everything the
@@ -2074,6 +2121,107 @@ level and evidence location.
   [#38379720608](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38379720608).
   Local run #2 and CI agree: no test failure from either P1 fix.
 
+- 2026-10-13 — **(o) Phase 3 cycle 5 (combined P2, per project-owner
+  direction — all remaining Phase 3 gaps in one attempt): BL-026, BL-036,
+  BL-037, BL-038, BL-039 fixed.** Baseline verified at `e5842fc` (clean
+  tree, HEAD == origin; both cycle-4 commits already `EXACT_SHA_CI_GREEN`).
+  Each defect's filed observation was re-confirmed by root-cause audit and
+  the combined post-fix probe (`%TEMP%\opencode\phase3\bl_p2_post_probe.txt`)
+  runs all five scenarios through the real paths:
+  - **BL-026** — `_parse_goto` now emits an explicit
+    `UNSUPPORTED_CONSTRUCT` warning naming `GO TO` (and its target) through
+    the same channel `SORT`/`INSPECT` use; the mapper `// GO TO` comment
+    stays, verdict stays `UNSUPPORTED`, planner stays `BLOCKED`.
+  - **BL-036** — the statement dispatcher required `"CALL "` with the
+    operand on the same line; a bare `CALL` line never reached
+    `_parse_call` and fell through as three unparsed statements. The bare
+    line now routes into `_parse_call`, whose continuation loop joins the
+    target/USING lines: the multi-line form yields the identical
+    `CallStatement` (target/arguments/dynamic-flag equal to the single-line
+    spelling) with **zero** split diagnostics.
+  - **BL-037** — `_parse_call` stops the USING capture at
+    `ON EXCEPTION`/`ON OVERFLOW` (arity becomes the true count) and names
+    the phrase in an explicit `UNSUPPORTED_CONSTRUCT` diagnostic — the old
+    false "5 vs 1" arity claim is gone; the planner gained an
+    `ARITY_MISMATCH` `BlockingReason` for genuine linkage mismatches
+    instead of the old `UNKNOWN_CONSTRUCT` mis-mapping (`CALL
+    CALLER->CALLEE: ARITY_MISMATCH — caller passes 1 argument(s) but callee
+    CALLEE declares 2 top-level LINKAGE item(s)`).
+  - **BL-038** — `_build_dependency_graph` stamps
+    `ProgramCall.resolution` from the same decision that stamps the edge
+    metadata (frozen dataclass replaced, unit tuple rebuilt before the
+    application is constructed): resolved static → `RESOLVED`, missing
+    static → `UNRESOLVED`, dynamic stays `UNRESOLVED` even when the item
+    value coincides with a program-id.
+  - **BL-039** — `copybook_model.collect_copybook_texts` walks the
+    top-level copybook plus every reachable nested COPY target (same strict
+    resolver and search directories as generation, cycle-guarded;
+    missing/ambiguous/cyclic/unreadable nested targets recorded as the
+    same `ERROR` diagnostics generation fails on);
+    `CapabilityAnalyzer.analyze(application, source_root=...)` (threaded
+    from planner and pipeline) scans per file: the COPYBOOK reason names
+    the nested file carrying the worst-level keys (`Support cannot be
+    determined for: REDEFINES (via nested copybook INNER)`), nested
+    problems fail the component closed with generation's own message, and
+    flat copybooks keep the exact legacy reason.
+  Post-fix evidence: **30 passed** across the four new gate files
+  (`tests/test_goto_diagnostic.py`, `tests/test_call_statement_parsing.py`,
+  `tests/test_call_resolution_truth.py`,
+  `tests/test_copybook_capability_transitivity.py`; wired into the `ci.yml`
+  capability-truth gate, now **20 files**), gate → **428 passed** (398 + 30,
+  exact collection chain), ingestion gate → **3 passed**, regression batch
+  (transformation dir + copybook/generator/discovery/phase-D/pipeline
+  suites) → **2072 passed, 4 skipped, 0 failed**. Fresh E2E
+  (`bl_p2_e2e_gen.py`, GnuCOBOL oracle) → **`E2E_RESULT=4/4`**: multical
+  (multi-line CALL to a real LINKAGE callee, value-result mutation)
+  `ORACLE_MATCH=YES` (`ML[SUBB]` both sides); nested2 (two-level nested
+  copybook) `ORACLE_MATCH=YES`; goto — plan `BLOCKED` with `GO TO` named,
+  oracle truth captured (`A`×4 + `DONE`); onexc — plan `BLOCKED` with the
+  phrase named, oracle handler truth captured (`EXC-FIRED`). (The E2E
+  harness initially mis-linked the oracle callee without
+  `PROCEDURE DIVISION USING …` — oracle-only SIGSEGV; corrected to the
+  workload-fixture convention already used by
+  `fixtures/workload-call-chain`.) Exact-SHA CI at the code commit
+  `43bb9a0483dfc0ae3bf08ce958aaf70497660b5d`: Supply chain green, the
+  fast jobs green (capability-truth gate passed in CI with the new
+  20-file selection), but the backend COBOL/Java Docker job **failed — 1
+  failed, 3475 passed** in 19m34s (collection 3476 = cycle-4 3446 + 30
+  new tests, exact). The single failure is fixed, not suppressed:
+  `test_modernization_plan_enforcement.py::
+  test_pipeline_blocks_transformation_when_plan_skips_program` mocked
+  `analyze()` with a one-parameter lambda that rejected the new optional
+  `source_root` kwarg (`TypeError`); the double now takes `**kwargs` like
+  its siblings on the adjacent lines (assertions untouched) — committed
+  as `4deddfccb68d13b45e1ab6de72b4ffc847f7e6c5`. The local regression
+  batch had missed this file (its name matches none of the batch's
+  copybook/parser/discovery/generator/planner/pipeline/capability/phase
+  filters) — the full suite in the CI backend job is exactly why it is
+  the run of record. Run of record and its run IDs: see entry (p)/below.
+
+- 2026-10-14 — **(p) Phase 3 cycle 5 run of record — the combined P2
+  cycle is verified and Phase 3 is complete.** Exact-SHA CI at the final
+  code commit **`4deddfccb68d13b45e1ab6de72b4ffc847f7e6c5`**:
+  **`EXACT_SHA_CI_GREEN`, 4 runs / 14 jobs** (`head_sha` verified per run
+  *and* per job) — Push SystemaOps CI
+  [#38432430774](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432430774)
+  (4/4 SUCCESS, including the backend COBOL/Java Docker job that executed
+  the full serialized suite on a clean runner), Push Supply chain
+  [#38432430928](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432430928)
+  (3/3), PR SystemaOps CI
+  [#38432438887](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432438887)
+  (4/4), PR Supply chain
+  [#38432439246](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/38432439246)
+  (3/3). **Full suite (run of record): 3476 passed, 0 failed, 0 skipped,
+  1 warning in 19m18s** — collection reconciles exactly (3476 = cycle-4
+  3446 + 30 new cycle-5 tests); 0 skips on the Linux runner matches the
+  prior CI run's behavior (the 4 local skips are Windows-environment
+  skips that pass on Linux). The prior run at `43bb9a0` (1 failed / 3475
+  passed) is superseded by the `4deddfc` fix recorded in entry (o).
+  With this, every Phase 3 backlog item is closed: BL-031…BL-039 all
+  FIXED — VERIFIED, **no Phase 3 item remains open** (the §53.10
+  carry-forward of BL-026 is discharged by its cycle-5 fix). §53 scoring
+  and the `PHASE 3 COMPLETE — VERIFIED` verdict live in `opencode.md`.
+
 - 2026-10-10 — **BL-019…BL-024 FIXED** (`7bba5cb`). All six silent-loss / malformed-Java defects closed. BL-020's premise was **corrected**: multi-line `WHEN` arms were never broken (`build()` does pass `then_body=body`); the real defect was that a statement written *inline* on the `WHEN`/`IF` line was absorbed into the condition. BL-022 turned out to be a side effect of BL-020. BL-023 and BL-024 now fail closed with explicit diagnostics and, through real ApplicationDiscovery, classify **UNSUPPORTED** instead of SUPPORTED. BL-019 folds COBOL's negated relational into the operator (`NOT >` → `<=`) because Java cannot express it as a prefix. 68 new tests added to the fast capability-truth gate (now 216 tests, ~0.6s).
 - 2026-10-10 — Initial backlog created from the Master-README-mandated audit
   (Sections 76–77). BL-001 fixed; BL-006/BL-007 fixed; BL-011 partially fixed.
@@ -2192,7 +2340,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-023 | Numeric semantics maintainer | Phase 1 (closed) | `_build_expression` operator table; Master README §18 | `**` parsed as two `*` operators, producing an empty-named operand. | Silent wrong numeric result in a P0 risk area. | `**` is one operator or fails closed with a diagnostic; tests assert both behaviours. |
 | BL-024 | Parser / IR maintainer | Phase 1 (closed) | `_build_expression`; same defect class as BL-018 | Intrinsic `FUNCTION MIN(...)` falls through to an impossible field reference. | Undeclared Java identifier, exactly the BL-018 pattern; unproven intrinsics must never be silently field references. | `FUNCTION` prefix recognised and either mapped for the certified subset or diagnosed; never a bare field reference. |
 | BL-025 | Transformation / code-generation maintainer | Phase 1 (closed) | `_map_cobol_expression_to_java` fallthrough; new `_intrinsic_fail_closed_symbol`; Master README §16/§17/§60 | Unmapped expressions must fail closed deliberately, never by emitting implementation artefacts into generated Java. | The `str(expr)` fallthrough stringified any unhandled `Expression` into Java (`WS_A = Math.abs(IntrinsicCall(name='**', ...))`) and is fail-open for any future node — the BL-018/BL-023 defect class in a different layer. Verdict was already UNSUPPORTED, so impact is bounded to malformed output, not a wrong value. | `IntrinsicCall` maps to a deliberately undefined symbol naming the construct; the fallthrough maps unknown `Expression` nodes to `UNSUPPORTED_EXPRESSION_<NODE>`; tests assert no repr leaks, the symbol is never declared, and supported `COMPUTE` is unaffected. Evidence: `tests/transformation/test_scoped_construct_statements.py`. |
-| BL-026 | Semantic transformation maintainer | **Phase 2 → carried forward OPEN into Phase 3 (decision recorded 2026-10-12 in the BL-026 entry: §53.10 explicit carry-forward, non-blocking because verdict/planner already fail closed; not silently closed)** | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | A program containing `GO TO` raises an explicit diagnostic naming `GO TO`; the verdict stays UNSUPPORTED and the planner still blocks; the traceability comment remains; focused tests are added to the fast `capability-truth` gate; no existing test weakened. Evidence basis: semantic re-probe at `bdb4c9a` (Linux JDK audit container). |
+| BL-026 | Semantic transformation maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-036/BL-037/BL-038/BL-039; carry-forward decision of 2026-10-12 now discharged)** | Existing `UNSUPPORTED_CONSTRUCT` diagnostic channel used by `SORT`/`INSPECT` | A recognized executable statement (`GO TO`) is silently lowered to a comment with no diagnostic, unlike `SORT`/`INSPECT` in the same position — §16/§60 diagnostic-completeness gap. | Bounded: the `GO TO` registry key is UNSUPPORTED with a source pattern, real discovery classifies such programs UNSUPPORTED, and the planner blocks them (`BlockingReason.UNSUPPORTED_CONSTRUCT`) — no false verdict is reachable. Consumers reading only diagnostics would not learn control flow was dropped. | FIXED — `_parse_goto` emits an explicit `UNSUPPORTED_CONSTRUCT` warning naming `GO TO` (and its target) through the same channel `SORT`/`INSPECT` use; mapper comment kept; verdict/planner unchanged (already `UNSUPPORTED`/`BLOCKED`). 5 focused tests in `tests/test_goto_diagnostic.py` (positive, discovery-carried, verdict/planner, comment kept, comment-noise negative), wired into the `ci.yml` gate; E2E goto plan `BLOCKED` with `GO TO` named, oracle truth captured. |
 | BL-027 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed 2026-10-12 — implemented `13bdddd`, oracle-matched, CI green at `6bfcbe4`, §53 re-audit completed)** | Additive `StringStatement` IR change; capability-truth gate | `STRING ... DELIMITED BY <x>` and `WITH POINTER` are not modelled: the delimiter is concatenated into the result as data and the pointer is dropped, under a `SUPPORTED` verdict with no diagnostic — reachable silent wrong value, the one §53.10 combination that must never occur. | P0 / high: fail-closed does not hold for these `STRING` forms; a green verdict accompanies incorrect generated arithmetic — §54 `capability truth drift` and a direct §60 / §53.9 counterexample at the Phase 1 parser/IR boundary. | FIXED — VERIFIED (`13bdddd` on top of `742e39d`; re-audit 2026-10-12): delimiter/pointer parsed into `StringStatement`; mapper excludes the delimiter from the result and reads/writes the pointer; identifier delimiters, `ON OVERFLOW` and non-integer pointers return an `UNSUPPORTED_STRING$…` fail-closed symbol; 30 focused tests in the fast `capability-truth` gate (`tests/transformation/test_string_delimited_semantics.py`, wired into `ci.yml`). VERIFIED: container `javac` compile-and-execute of the emitted Java matches the independent GnuCOBOL 3.1.2 oracle byte-for-byte (`ORACLE_MATCH=YES`, `bl027_diff.py`); fail-closed forms probe correctly (`bl027_probe_run2.txt`); serialized rerun at **exactly the 26-identity environmental baseline** (zero new failures by identity vs the `bdb4c9a` clean run; +30 passed = the new BL-027 tests); exact-SHA CI **green at `6bfcbe4`** (all four workflows, all jobs, `head_sha` verified via GitHub API). Closing action done: the §53 re-audit re-ran `string_probe.py`/`nosilentloss_sweep.py` in the same container against an exact `bdb4c9a` worktree — every wrong STRING emission is fixed, all other constructs byte-identical — and re-scored criterion 9 (sibling gap `VARYING IN` filed as BL-029 and fixed in-cycle, `7dceec1`). Defect evidence basis: `string_probe.py` at `bdb4c9a` (Linux JDK audit container, real `ApplicationDiscovery` + `CapabilityAnalyzer` verdicts). |
 | BL-028 | Semantic transformation maintainer | **Phase 2 (closed in-cycle 2026-10-12 — `de8a808`)** | BL-027 `StringStatement` mapper path | COBOL fixed-width receiver overflow truncation is not modeled: the receiving field is emitted as an unbounded Java `String`, so a `STRING` result longer than the receiving field's `PIC` width does not truncate as COBOL would, and the `WITH POINTER` arithmetic has no `1 .. W + 1` boundary rule. | P2 / medium at filing (disclosed in the mapper docstring and the `STRING` registry evidence text, so no false `SUPPORTED` rested on it) — reclassified to a reachable wrong value once the oracle probe reproduced it 8/8. | FIXED — width-clipping statement `T = T.substring(0, Math.min(T.length(), W))` after the atomic pre-state write; pointer inside `1 .. W + 1` writes and advances capped at `W + 1`, outside it is a no-op with the pointer unchanged (GnuCOBOL 3.1.2 oracle); no-declared-width receivers keep the legacy emission and fail closed at `javac`. Focused tests in `tests/transformation/test_string_delimited_semantics.py` (capability-truth gate); **no existing test weakened** — the two pointer tests that encoded the pre-BL-028 model were replaced with strictly stronger boundary/cap/truncation assertions. Evidence: `bl028_post` **ORACLE_MATCH=YES 8/8**, boundary probe **3/3** (`%TEMP%\opencode\phase2\bl028_diff_out.txt`). Serialized full suite **3366 passed, 4 skipped, 0 failed** (collection 3325 → 3370 = +45, failure-identity comparison NEW_ONLY=0); exact-SHA CI green at `de8a808` (push #38218209824, PR #38218214587 rerun attempt 2, supply chain #38218209795 / #38218214592). |
 | BL-029 | Parser / IR / semantic transformation maintainer | **Phase 1 (closed in-cycle 2026-10-12 — `7dceec1`)** | Additive `StringStatement.varying_pointer` IR change; capability-truth gate | `STRING ... VARYING IN <ptr> [FROM n [BY m]]` (COBOL's alternative receiving-position form) is silently dropped at the parser tail scan: the statement writes at position 1, the pointer is never read, verdict stays `SUPPORTED`, zero diagnostics — a BL-027-class §60 counterexample found by the §53 re-audit. | P0 / high: same §54 `capability truth drift` shape as BL-027 — a green verdict accompanies incorrect generated write-position arithmetic through the supported path. | FIXED — VERIFIED (`7dceec1`): tail scan captures `VARYING IN` into `StringStatement.varying_pointer` and raises `UNSUPPORTED_CONSTRUCT` naming the phrase; mapper appends `VARYING_IN_<PTR>` to the `UNSUPPORTED_STRING$…` fail-closed reasons; registry evidence text names BL-029; 5 focused tests added. VERIFIED: container probes show both VARYING forms emitting `UNSUPPORTED_STRING$VARYING_IN_WS_P` with verdict `UNSUPPORTED` (`reaudit_varying_fixed.txt`); capability-truth gate **277 passed**; serialized full suite **26 failed / 3287 passed / 12 skipped**, failure set identical by identity to the 26-identity environmental baseline (zero new, zero changed); exact-SHA CI green (run IDs in the `⚑ §53 RE-AUDIT` block of `opencode.md`). Defect evidence basis: `bl027_varying_probe.py` at `cf35c1d` (Linux JDK audit container). |
@@ -2203,10 +2351,10 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-033 | Capability/planning maintainer | **Phase 3 (fixed in-cycle 2026-10-13)** | Discovery `CopybookReference.resolution`; planner blocking-reason mapper | An UNRESOLVED or AMBIGUOUS copybook classifies `SUPPORTED` and the plan says `READY` ("No blocking issues") while generation deterministically fails for the same inputs; the planner's `MISSING_COPYBOOK` reason is unreachable. | P1 / medium-high: capability-truth drift on the dependency component and a false READY plan; final verdict still protected by generation's fail-closed errors and the NOT_VERIFIED central gate. | FIXED — `_analyze_copybook` fails closed: any reference that is `UNRESOLVED`, `AMBIGUOUS`, or without a resolved path (incl. mixed resolve/unresolve sets and names with no reference) classifies `UNSUPPORTED` with a reason naming the copybook and its resolution status; `_map_blocking_reasons` maps copybook reasons containing missing/unresolved/ambiguous to `MISSING_COPYBOOK` (was dead code); consuming-program verdict unchanged; resolved copybooks keep `SUPPORTED`. 15 focused tests in `tests/test_copybook_resolution_capability.py` wired into the `ci.yml` capability-truth gate; pre-fix defect proven (`bl033_pre_fix.txt`: all three unresolvable shapes `SUPPORTED` + plan `READY` + "No blocking issues identified" while generation failed). |
 | BL-034 | Application discovery maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined with BL-035)** | Comment/inline-comment/literal masking helpers already present in `application_discovery.py` | `_extract_calls`/`_extract_copybooks` scanned raw source, so comment lines and string literals created phantom unresolved CALL/COPY dependencies: valid plans blocked with `UNRESOLVED_CALL` and a comment-only `COPY` failed generation. | P1 / medium: fail-closed on correct input (never fail-open), but it blocked valid workloads and polluted the Phase 3 graph with edges that do not exist. | FIXED — single literal-aware scanner (`_scan_call_copy`) replaces the raw regexes: comment lines blanked offset-preservingly, non-operand string literals and `*>` inline comments consumed whole by alternation priority, word guard against identifier suffixes. Real quoted/bare CALL/COPY still extract and still fail closed unresolved; USING handling and negative contracts unchanged. Probe also exposed and hardened a BL-033 residual (unanchored `"call"` substring matched "determi**call**y" → word-boundary match). 13 focused tests in `tests/test_phantom_dependency_masking.py`, wired into the `ci.yml` gate; pre-fix red proven (`%TEMP%\opencode\phase3\bl034_pre_fix.txt`); post-fix `bl034_post_probe.txt`; E2E `ORACLE_MATCH=YES 2/2`. |
 | BL-035 | Copybook resolution maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined with BL-034)** | `test_copybook_m7.py` resolution-precedence contracts | Discovery searched every subdirectory recursively while generation searched only the source root and unit parents non-recursively — subdirectory layouts got `RESOLVED`/`READY` at plan time and `Missing COPY target` at generation. | P1 / medium-high for real corpora (copybook directories are conventional); the verdict and the artifact-producing path disagreed for the same tree. | FIXED — one shared deterministic search-directory builder `copybook_resolver.copybook_search_dirs` (root first, then every directory holding a file, sorted) feeds both lanes; `ApplicationDiscovery._copybook_search_dirs` delegates to it and `prepare_application_copybooks` uses exactly that set when `source_root` is given (unit-parent fallback only for the no-root legacy path). Non-recursive per-directory scan, ambiguity explicit in both lanes, resolver precedence untouched. 13 focused tests in `tests/test_copybook_search_path_parity.py`, wired into the `ci.yml` gate; pre-fix red proven (`%TEMP%\opencode\phase3\bl035_pre_fix.txt`); post-fix `bl035_post_probe.txt`; E2E `ORACLE_MATCH=YES 1/1`. |
-| BL-036 | Parser / IR maintainer | Phase 3 | `CobolParser` statement splitting; discovery regex lane | Multi-line `CALL` (target/USING on following lines) produces zero `CallStatement`s and three `unparsed_statement` diagnostics while discovery records the edge — lanes disagree about the same statement. | P2 / medium for coverage, zero for trust: verdict honestly `UNSUPPORTED`, plan blocks (conservative), but the reason is wrong and valid formatting is rejected. | Line-wrapped CALL parses to the same IR/verdict as its single-line spelling; diagnostics name CALL once; cross-lane consistency tested in the gate. |
-| BL-037 | Parser / IR maintainer | Phase 3 | `CobolParser._parse_call`; arity analysis | `CALL … ON EXCEPTION …` swallows the phrase and its statement into the USING list → false arity 5 vs 1 → `UNSUPPORTED` with a factually wrong reason; planner maps it to `UNKNOWN_CONSTRUCT`. | P2 / medium: fail-closed, but the diagnostic claims an arity mismatch that does not exist and a standard CALL phrase is unparsed. | Argument capture stops at the phrase; the phrase is modeled or named in a diagnostic; arity failures map to an arity-specific blocking reason; focused tests in the gate. |
-| BL-038 | Application discovery maintainer | Phase 3 | Edge-metadata stamping (`resolution=…` on `DependencyEdge`) | `ProgramCall.resolution` stays at its `UNRESOLVED` default even for resolved static calls, contradicting the edge metadata and the plan for the same call. | P2 / low: no verdict consumes the field (capability reads edge metadata), so no false classification is reachable; traceability-only. | `ProgramCall.resolution` equals the edge's resolution for every call (or the field is removed in favor of the edge); consistency test in the gate. |
-| BL-039 | Capability maintainer | Phase 3 | BL-031's `_expand_copybook_text` (implemented) | `_analyze_copybook` scans only the top-level copybook file, so constructs inside nested copybooks — now materialized into the merged IR — are never classified. | P2 / medium-low: potential false `SUPPORTED` COPYBOOK component for nested content; bounded to data-division constructs in nested files. | The COPYBOOK verdict scans the expanded text and names the nested file in its reason; expanded-scan results never contradict generation; focused tests in the gate. |
+| BL-036 | Parser / IR maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-037/BL-038/BL-039)** | `CobolParser` statement splitting; discovery regex lane | Multi-line `CALL` (target/USING on following lines) produces zero `CallStatement`s and three `unparsed_statement` diagnostics while discovery records the edge — lanes disagree about the same statement. | P2 / medium for coverage, zero for trust: verdict honestly `UNSUPPORTED`, plan blocks (conservative), but the reason is wrong and valid formatting is rejected. | FIXED — the dispatcher required `"CALL "` (operand on the same line); a bare `CALL` line now routes into `_parse_call`, whose continuation loop joins the target/USING lines. Same IR as the single-line spelling (program-name/arguments/dynamics), zero split diagnostics, cross-lane edge parity. 13 focused tests in `tests/test_call_statement_parsing.py` (with BL-037), wired into the `ci.yml` gate; E2E multi-line CALL with a real LINKAGE callee `ORACLE_MATCH=YES`. |
+| BL-037 | Parser / IR maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-038/BL-039)** | `CobolParser._parse_call`; arity analysis | `CALL … ON EXCEPTION …` swallows the phrase and its statement into the USING list → false arity 5 vs 1 → `UNSUPPORTED` with a factually wrong reason; planner maps it to `UNKNOWN_CONSTRUCT`. | P2 / medium: fail-closed, but the diagnostic claims an arity mismatch that does not exist and a standard CALL phrase is unparsed. | FIXED — `_parse_call` stops the USING capture at `ON EXCEPTION`/`ON OVERFLOW` (correct arity) and names the phrase in an explicit `UNSUPPORTED_CONSTRUCT` diagnostic; the planner maps linkage-arity failures to a new `ARITY_MISMATCH` `BlockingReason` instead of `UNKNOWN_CONSTRUCT`. Verified: correct arity + phrase named + no false-arity reason + `ARITY_MISMATCH` in the plan summary; tests in `tests/test_call_statement_parsing.py`; E2E onexc plan `BLOCKED` with the phrase named, oracle handler truth captured. |
+| BL-038 | Application discovery maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-037/BL-039)** | Edge-metadata stamping (`resolution=…` on `DependencyEdge`) | `ProgramCall.resolution` stays at its `UNRESOLVED` default even for resolved static calls, contradicting the edge metadata and the plan for the same call. | P2 / low: no verdict consumes the field (capability reads edge metadata), so no false classification is reachable; traceability-only. | FIXED — `_build_dependency_graph` stamps `ProgramCall.resolution` from the same decision that stamps the edge metadata (frozen dataclass replaced, unit tuple rebuilt before the application is constructed). Verified: resolved static `RESOLVED`, missing static `UNRESOLVED`, dynamic never resolves even with a coinciding program-id, and a 3-call invariant test pins record == edge; 4 focused tests in `tests/test_call_resolution_truth.py`, wired into the `ci.yml` gate. |
+| BL-039 | Capability maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-037/BL-038)** | BL-031's `_expand_copybook_text` (implemented) | `_analyze_copybook` scans only the top-level copybook file, so constructs inside nested copybooks — now materialized into the merged IR — are never classified. | P2 / medium-low: potential false `SUPPORTED` COPYBOOK component for nested content; bounded to data-division constructs in nested files. | FIXED — `copybook_model.collect_copybook_texts` walks the top-level file plus every reachable nested COPY target (same strict resolver, cycle-guarded, nested problems recorded as the same `ERROR` diagnostics generation fails on); `_analyze_copybook` scans per file with the shared search-directory authority (`analyze(..., source_root=...)`, threaded from planner and pipeline). Reason names the nested file carrying the worst-level keys; nested problems fail the component closed with generation's own message; flat copybooks keep the exact legacy reason. 9 focused tests in `tests/test_copybook_capability_transitivity.py`, wired into the `ci.yml` gate; E2E nested2 `ORACLE_MATCH=YES`. |
 
 ### PR disposition snapshot — 2026-10-10
 
