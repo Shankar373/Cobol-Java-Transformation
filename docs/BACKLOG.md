@@ -898,30 +898,58 @@ produced evidence, not re-run here).
   but a consumer that mis-reports could hide errors; the contract
   (`diagnostics: tuple[Diagnostic, …]`) is violated at the source.
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle C)**; defect-proven-first:
+  the new focused file
+  `tests/transformation/test_producer_diagnostics_contract.py` ran **5
+  failed / 1 passed** against the unmodified producers
+  (`%TEMP%\opencode\phase4\bl042_pre_fix.txt`) — internal-native
+  returned plain `dict` diagnostics (proven `['dict']` in the failure)
+  and the OpenSourceCOBOL4J adapter returned engine diagnostics whose
+  enum level made `has_errors` silently mis-report `False` for a real
+  ERROR diagnostic.
 - **Found by:** audit group T3; verified: `producers/internal_native.py
   L148-156` and `L169-175` build plain `dict`s where the result type
   declares `Diagnostic`; T3 found three mutually incompatible shapes across
   `internal_native.py`, `contracts.py`, `opensource4j.py`.
 - **Observed behavior (verified):** dict items reach consumers expecting
-  `.level`/`.code` attributes.
+  `.level`/`.code` attributes; enum-level diagnostics make the string
+  comparisons in `has_errors`/`has_warnings` return False.
 - **Expected behavior:** every producer emits real `Diagnostic` instances;
   `has_errors` and any `.level` access work identically for all producers.
 - **Root cause:** producers written against an ad-hoc dict convention
-  predating the `Diagnostic` dataclass.
-- **Affected files:** `engine/transformation/producers/internal_native.py`
-  L148-176, `engine/transformation/contracts.py`,
-  `engine/transformation/producers/opensource4j.py` (per T3).
+  predating the `Diagnostic` dataclass; the adapter reused the engine
+  enum-level Diagnostic at a boundary whose contract is string-level.
+- **Affected files:** `engine/transformation/producers/internal_native.py`,
+  `engine/transformation/producers/opensource4j.py`,
+  `engine/transformation/diagnostics.py` (new `to_contract_diagnostic`
+  helper).
 - **Impact:** contract violation at the producer boundary; downstream
-  error visibility depends on which consumer runs.
-- **Remediation (planned):** construct `Diagnostic` objects in all
-  producers; contract test asserting type + `has_errors` equivalence.
-- **Acceptance criteria:** all producers pass a diagnostics-shape contract
-  test; full suite green.
+  error visibility depended on which consumer ran (crash vs mis-report).
+- **Remediation (done):** new `to_contract_diagnostic` in
+  `diagnostics.py` converts engine diagnostics (enum level/code) to the
+  boundary `contracts.Diagnostic` (string level/code) through one shared
+  helper; internal-native converts `diagnostics.all` through it and
+  constructs a real `Diagnostic(level="ERROR", code="TRANSFORMATION_ERROR",
+  …)` on its exception path; the adapter wraps all five
+  `Diagnostic.error(...)` sites. **Honesty note:** the pre-existing
+  dict-shape assertions in `tests/transformation/test_producer_contract.py`
+  (L106-107, 158, 169, 195, 207) were updated to attribute access — this
+  is an alignment strengthening toward the declared
+  `tuple[Diagnostic, ...]` contract (attribute access now works for every
+  producer), not a weakening; no assertion's meaning was reduced.
+  `engine/transformation/producer.py` (legacy `errors: tuple[str, …]`
+  result with no diagnostics field, used only by the RUN_DOCKER_TESTS
+  claims tests) is a separate contract and out of this item's scope.
+- **Acceptance criteria:** met — all producers pass the diagnostics-shape
+  contract test (6 focused tests: red 5/1 pre-fix → green 6/6 post-fix,
+  including has_errors/has_warnings equivalence across producers);
+  producer-contract + capability-consistency batch **42 passed**;
+  full `tests/transformation` + `tests/integration` regression **2257
+  passed / 4 skipped / 0 failed**. No existing test weakened.
 - **Owner/role:** transformation producer maintainer. **Target phase:**
-  unassigned. **Dependency:** none. **Residual risk:** consumers that
-  tolerate dicts mask the mismatch today.
+  **Phase 4 (cycle C — fixed 2026-10-14)**. **Dependency:** none.
+  **Residual risk:** none for the two live producers; the legacy
+  `producer.py` contract remains separate by design.
 
 ### BL-043 — Modernization planner defaults *missing* copybook/file capability components to `SUPPORTED` (fail-open)
 
@@ -2174,8 +2202,18 @@ level and evidence location.
   length is always a multiple of the record length by construction), but
   reachable via metadata mismatch or direct comparator use.
 - **Severity:** low-medium (latent).
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle C, defect-proven-first)**.
+  Failing test written first: `tests/comparators/
+  test_fixed_record_trailing_partial.py` (9 tests) → red **5 failed /
+  4 passed** captured at `%TEMP%\opencode\phase4\bl052_pre_fix.txt`
+  (all five defect tests returned false `MATCH`, controls passed); fix in
+  `engine/comparators/framework.py` (`_compare_record_by_record` now
+  compares the bytes beyond the last whole record and reports them as a
+  `trailing_partial_record` difference when they differ); focused run
+  **9 passed**; regressions `tests/comparators` + `tests/adversarial`
+  **282 passed** and the FIXED_RECORD integration set (inventory
+  generalization, phase-D integrated proof, payroll artifacts, claims
+  batch, identities) **172 passed**; gate-wired in `ci.yml`.
 - **Found by:** audit group T5; verified: `comparators/framework.py
   L568-569` counts records by floor division; a trailing partial record
   on either side is never compared, and `L498` only guards declared
@@ -2189,12 +2227,20 @@ level and evidence location.
 - **Affected files:** `engine/comparators/framework.py` L559-622.
 - **Impact:** false MATCH if artifact metadata ever disagrees with content
   (integrity validator is the second line of defense).
-- **Remediation (planned):** explicit remainder check → MISMATCH with the
-  trailing bytes reported; adversarial test with a truncated tail.
+- **Remediation (done):** explicit tail comparison after the record loop →
+  MISMATCH with the trailing bytes reported
+  (`location="trailing_partial_record"`, expected/actual carry the tail
+  bytes); adversarial tests cover oracle-tail, candidate-tail,
+  differing equal-length tails, content shorter than the declared record
+  length, plus whole-record/identical-content controls.
 - **Acceptance criteria:** partial trailing records mismatch; comparator
-  tests green.
-- **Owner/role:** comparator maintainer. **Target phase:** unassigned.
-  **Dependency:** none. **Residual risk:** V1 pipeline unaffected today.
+  tests green. **Met** (evidence above).
+- **Owner/role:** comparator maintainer. **Target phase:** Phase 4
+  cycle C. **Dependency:** none. **Residual risk:** V1 pipeline unaffected
+  today (capture path enforces whole records); behavior change is
+  strictly fail-closed — byte-identical content still matches via the
+  equality fast path above record inference.
+
 
 ### BL-053 — `derive_from_validated` does not re-check the seal (TOCTOU between validation and verdict derivation)
 
@@ -2261,25 +2307,40 @@ level and evidence location.
   exception instead of a named diagnostic; COBOL sources legitimately use
   lowercase.
 - **Severity:** medium-low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
-- **Found by:** audit group T1; verified: `cobol_parser.py L2018-2026` —
-  the guard tests `" UNTIL " in upper` but `line.split(" UNTIL ", 1)[1]`
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle C)**; defect-proven-first:
+  the new focused file `tests/transformation/test_perform_lowercase.py`
+  ran **5 failed / 1 passed** against the unmodified parser
+  (`%TEMP%\opencode\phase4\bl055_pre_fix.txt`) — every lowercase and
+  mixed-case inline `perform … until …` / `perform varying … until …`
+  raised `IndexError: list index out of range` exactly at the
+  case-sensitive split, as the audit claimed.
+- **Found by:** audit group T1; verified: `cobol_parser.py` — the
+  guard tests `" UNTIL " in upper` but `line.split(" UNTIL ", 1)[1]`
   splits the *original-case* line → `IndexError` when the source is
   lowercase.
-- **Observed behavior (verified at code level):** `perform v1 until x > 5`
-  ⇒ `IndexError` out of `_parse_perform`.
+- **Observed behavior (verified):** `perform v1 until x > 5` ⇒
+  `IndexError` out of `_parse_perform` (both the PERFORM UNTIL and the
+  inline PERFORM VARYING branch).
 - **Expected behavior:** case-insensitive handling like the rest of the
-  parser (split on the uppercased position or normalize first).
-- **Root cause:** mixed-case access (`upper` guard, original split).
-- **Affected files:** `engine/transformation/cobol_parser.py` L2018-2026.
+  parser.
+- **Root cause:** mixed-case access (`upper` guard, original-case split).
+- **Affected files:** `engine/transformation/cobol_parser.py`
+  (`_parse_perform` inline branch).
 - **Impact:** unhandled crash on valid lowercase COBOL.
-- **Remediation (planned):** normalize the split; focused test with
-  lowercase PERFORM UNTIL/VARYING.
-- **Acceptance criteria:** lowercase forms parse identically to uppercase;
-  parser tests green.
-- **Owner/role:** parser / IR maintainer. **Target phase:** unassigned.
-  **Dependency:** none. **Residual risk:** none once normalized.
+- **Remediation (done):** the two `line.split(" UNTIL ", 1)` sites now
+  use one `re.split(r"\s+UNTIL\s+", line, maxsplit=1, flags=re.IGNORECASE)`
+  computed once for the inline branch; guard and split can no longer
+  disagree on case (they share one case-insensitive boundary), and
+  multi-space spellings (`perform  until  x`) are handled too.
+- **Acceptance criteria:** met — lowercase forms parse identically to
+  their uppercase twins (6 focused tests: red 5/1 pre-fix → green 6/6
+  post-fix, incl. a fully lowercase program end-to-end and the
+  uppercase regression); PERFORM/control-flow selection batch **37
+  passed**. No existing test weakened.
+- **Owner/role:** parser / IR maintainer. **Target phase:** **Phase 4
+  (cycle C — fixed 2026-10-14)**. **Dependency:** none. **Residual
+  risk:** none for PERFORM; other verbs were checked — this was the
+  only `line.split("<UPPER>")` mixed-case pattern in the parser.
 
 ### BL-056 — `UnicodeDecodeError` escapes the copybook lanes' `except OSError` (crash instead of COPYBOOK_UNREADABLE; lanes can disagree on the same bytes)
 
@@ -2288,8 +2349,20 @@ level and evidence location.
   the analyzer reads the same bytes with `errors="replace"` so the two
   lanes can disagree on one file.
 - **Severity:** low-medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand at L282.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle C, defect-proven-first)**.
+  Failing test written first: `tests/test_copybook_decode_fail_closed.py`
+  (8 tests) → red **8 failed / 0 passed**, every failure a raw
+  `UnicodeDecodeError` escaping both lanes, captured at
+  `%TEMP%\opencode\phase4\bl056_pre_fix.txt`; fix in
+  `engine/transformation/copybook_model.py` (all three read sites now
+  catch `(OSError, UnicodeError)`, mirroring the repo's established
+  convention in `application_discovery.py` L246) and
+  `engine/modernization/capability_analyzer.py` (copybook reader is now
+  strict UTF-8, so a decode failure takes the analyzer's exact
+  read-failure path instead of the lenient `errors="replace"` read);
+  focused run **8 passed**; regressions copybook+capability batch
+  **239 passed** and analyzer-importing batch **441 passed**; gate-wired
+  in `ci.yml`.
 - **Found by:** audit group T2; verified: `copybook_model.py L281-293`
   (`_expand_copybook_text`) and the `collect_copybook_texts` reader catch
   only `OSError` around `read_text(encoding="utf-8")`;
@@ -2305,13 +2378,24 @@ level and evidence location.
   (errors="replace" reader).
 - **Impact:** crash instead of diagnostic; analyzer/materializer can
   classify the same file differently.
-- **Remediation (planned):** catch `UnicodeDecodeError` alongside
-  `OSError` (or read bytes once, decode once); focused test with a
-  binary-content copybook.
+- **Remediation (done):** catch `(OSError, UnicodeError)` alongside each
+  strict `read_text(encoding="utf-8")` in `_expand_copybook_text`
+  (top-level re-raise preserved), `collect_copybook_texts`, and the
+  `prepare_application_copybooks` handler — decode failures now produce
+  the same `COPYBOOK_UNREADABLE` diagnostic as read failures; the
+  analyzer's copybook reader dropped `errors="replace"` so decode
+  failures land in its existing "could not be read" path (valid UTF-8
+  reads unchanged). Focused test: binary-content copybook, top level and
+  nested target, in both lanes plus the shared BL-039 reader, with a
+  lane-parity assertion (the analyzer's reason quotes generation's exact
+  unreadable message for the same bytes).
 - **Acceptance criteria:** binary copybook ⇒ `COPYBOOK_UNREADABLE` in all
-  lanes; copybook tests green.
+  lanes; copybook tests green. **Met** (evidence above).
 - **Owner/role:** copybook materialization maintainer. **Target phase:**
-  unassigned. **Dependency:** none. **Residual risk:** none once bounded.
+  Phase 4 cycle C. **Dependency:** none. **Residual risk:** none once
+  bounded — behavior change is strictly fail-closed (a binary copybook
+  previously crashed; it now fails with a diagnostic) and valid UTF-8
+  copybooks read identically.
 
 ### BL-057 — CICS generator renders literals with Python `repr()` (single-quoted → invalid Java)
 
@@ -2385,9 +2469,19 @@ level and evidence location.
 - **Priority:** P2 — under-reporting blocks valid applications (fail-closed
   direction: no false green).
 - **Severity:** medium-low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T1); hand-check of the
-  cited lines pending.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle C, defect-proven-first)**.
+  Failing test written first: `tests/transformation/
+  test_capability_walker_depth.py` (15 tests) → red **12 failed /
+  3 passed** (the three controls — ADD top level, IF body, AT END body —
+  green; every defect red, including the backlog's literal observed case
+  `perform=True, arithmetic=False`) captured at
+  `%TEMP%\opencode\phase4\bl059_pre_fix.txt`; fix in
+  `engine/transformation/ir.py` (`has_arithmetic` now covers
+  ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE; `_flatten_statements` walks
+  inline-PERFORM `body` and the INVALID KEY / NOT INVALID KEY bodies of
+  READ/START/WRITE/REWRITE/DELETE alongside the existing IF and AT END
+  recursion); focused run **15 passed**; regression `tests/transformation`
+  **1919 passed / 4 skipped / 0 failed**; gate-wired in `ci.yml`.
 - **Found by:** audit group T1: `ir.py` L829, L914-930 — arithmetic
   capability derived from ADD-family statements only; inline-PERFORM and
   INVALID-KEY bodies not walked.
@@ -2400,13 +2494,24 @@ level and evidence location.
 - **Affected files:** `engine/transformation/ir.py` L829, L914-930.
 - **Impact:** valid programs classified with reduced capability (planner
   more conservative than reality).
-- **Remediation (planned):** extend the walker; focused tests for
-  SUBTRACT/MULTIPLY/COMPUTE and inline bodies.
+- **Remediation (done):** `has_arithmetic` extended to the five
+  arithmetic statement types the class docstring always promised;
+  `_flatten_statements` extended to every compound body (inline PERFORM,
+  INVALID KEY / NOT INVALID KEY across READ/START/WRITE/REWRITE/DELETE) —
+  nested statements now contribute to *every* detection (assignment,
+  display, decision, …), not just arithmetic. Focused tests cover each
+  arithmetic type, each INVALID KEY owner (parametrized), the two READ
+  key sides, nested assignment/display, an end-to-end parsed
+  PERFORM-UNTIL+SUBTRACT, plus ADD/IF/AT-END controls pinning the
+  recursion that already worked.
 - **Acceptance criteria:** capability reflects all arithmetic at any
-  depth; capability tests green.
-- **Owner/role:** IR/capability maintainer. **Target phase:** unassigned.
-  **Dependency:** none. **Residual risk:** conservative misclassification
-  persists.
+  depth; capability tests green. **Met** (evidence above).
+- **Owner/role:** IR/capability maintainer. **Target phase:** Phase 4
+  cycle C. **Dependency:** none. **Residual risk:** none once bounded —
+  strictly truth-ward (statements genuinely present in the IR are now
+  reported); the only engine consumer of capability-based mode selection
+  (`_derive_generation_mode`) reads `decision`/`input_record_mapping`,
+  both covered by the transformation regression batch.
 
 ### BL-060 — SQL execution error handlers build `Db2SqlStatus(sqlstate="")`, which raises `ValueError` from `__post_init__` inside the handler
 
@@ -2521,9 +2626,17 @@ level and evidence location.
   (fail-closed), so no false green; broken output for any copybook
   workload on that lane.
 - **Severity:** medium-low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T4/T3); hand-check
-  pending.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle C, defect-proven-first)**.
+  Failing test written first: `tests/transformation/
+  test_spring_model_emission_unique.py` (4 tests) → red **3 failed /
+  1 passed** (model-less control green; every model path duplicated)
+  captured at `%TEMP%\opencode\phase4\bl064_pre_fix.txt`; `git blame`
+  identified the duplicate as the loop added by `fa0fa62a` (2026-09-24
+  22:22) on top of the original M7 loop (`76583572`, 21:05) — the fix
+  removes the accidental re-add and pins the surviving loop as the single
+  emission site; focused run **14 passed** (incl. M7 integration);
+  regressions `tests/transformation` **1923 passed / 4 skipped** and the
+  root Spring-consumer batch **100 passed**; gate-wired in `ci.yml`.
 - **Found by:** audit group T3: `spring_boot_generator.py` L108-130.
 - **Observed behavior (verified at code level):** model generation loop
   appends each copybook class file twice.
@@ -2534,12 +2647,17 @@ level and evidence location.
   L108-130.
 - **Impact:** uncompilable output for copybook workloads on the Spring
   Boot lane.
-- **Remediation (planned):** single emission path; generation test
-  asserting unique file names.
-- **Acceptance criteria:** each model emitted once; generator tests green.
+- **Remediation (done):** single emission path — the accidental duplicate
+  loop was deleted (blame-proven re-add) and the original M7 loop
+  documented as the only model-emission site; generation tests assert
+  per-model and global path uniqueness (single model, two models, plus a
+  model-less control pinning the rest of the emission order).
+- **Acceptance criteria:** each model emitted once; generator tests
+  green. **Met** (evidence above).
 - **Owner/role:** Spring Boot generator maintainer. **Target phase:**
-  unassigned. **Dependency:** none. **Residual risk:** none once
-  de-duplicated.
+  Phase 4 cycle C. **Dependency:** none. **Residual risk:** none once
+  de-duplicated — output file *set* and content are unchanged (the model
+  renderer is pure); only the duplicated list entry is gone.
 
 ### BL-065 — Legacy Java-generator paths isinstance-check IR classes that are never imported (`NameError` if reached)
 
@@ -3443,6 +3561,58 @@ level and evidence location.
   files are wired into the `ci.yml` capability-truth gate; backlog
   entries and register rows updated in the same pass.
 
+- 2026-10-14 — **(u) Phase 4 cycle C: BL-042, BL-052, BL-055, BL-056,
+  BL-059, BL-064 (all P2) FIXED; BL-058 carried forward as an explicit
+  design call.** Every item followed defect-proven-first (failing focused
+  test → red evidence → fix → focused green → regression batch →
+  `ci.yml` gate wiring → entry + register row); no existing test
+  weakened or skipped. **BL-042** (producer diagnostics contract): red
+  5/1 (`bl042_pre_fix.txt`) — `to_contract_diagnostic` added at the
+  enum→string boundary; internal-native error path returns a real
+  `Diagnostic(TRANSFORMATION_ERROR)`; opensource4j wraps all five sites;
+  legacy `engine/transformation/producer.py` is out of scope by design;
+  the dict→attribute alignment in `test_producer_contract.py` is
+  documented as strengthening; 6 tests, transformation+integration
+  regression 2257 passed / 0 failed. **BL-052** (FIXED_RECORD trailing
+  partial bytes): red 5/4 (`bl052_pre_fix.txt`, all five defect cases
+  false `MATCH`) — `_compare_record_by_record` now compares the bytes
+  past the last whole record and reports `trailing_partial_record`;
+  9 tests, regressions 282 + FIXED_RECORD integration set 172.
+  **BL-055** (lowercase `perform … until` IndexError): red 5/1
+  (`bl055_pre_fix.txt`) — one shared case-insensitive
+  `re.split(r"\s+UNTIL\s+", …, maxsplit=1)` feeds both inline branches
+  (guard/split can no longer disagree; multi-space spellings fixed as a
+  side effect; branch count unchanged); 6 tests, regressions 81 + 37.
+  **BL-056** (`UnicodeDecodeError` escapes the copybook lanes): red 8/0,
+  every failure a raw `UnicodeDecodeError` (`bl056_pre_fix.txt`) — all
+  three copybook read sites now catch `(OSError, UnicodeError)`
+  (mirroring the repo convention in `application_discovery.py` L246) and
+  the analyzer's copybook reader dropped `errors="replace"` so decode
+  failures take its exact read-failure path (the lenient reader could
+  classify bytes generation rejects); 8 tests incl. a lane-parity
+  assertion (the analyzer's reason quotes generation's exact
+  `COPYBOOK_UNREADABLE` message for the same bytes); regressions
+  239 + 441. **BL-059** (capability walker under-reports arithmetic and
+  inline bodies): red 12/3 (`bl059_pre_fix.txt`, the three controls
+  green) — `has_arithmetic` covers ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE
+  and `_flatten_statements` walks inline-PERFORM bodies plus the
+  INVALID KEY / NOT INVALID KEY bodies of READ/START/WRITE/REWRITE/
+  DELETE (nested statements now feed *every* detection); 15 tests incl.
+  the backlog's literal observed case; `tests/transformation`
+  regression 1919 passed / 0 failed. **BL-064** (duplicate copybook
+  model emission): red 3/1 (`bl064_pre_fix.txt`, model-less control
+  green) — `git blame` proved the duplicate loop was an accidental
+  re-add (`fa0fa62a`, 2026-09-24 22:22) on top of the original M7 loop
+  (`76583572`, 21:05); the re-add was removed and the surviving loop
+  pinned as the single emission site; 4 tests, regressions
+  1923 + root Spring consumers 100. All six focused test files are
+  wired into the `ci.yml` capability-truth gate (32 files, 524 passed
+  locally); backlog entries and register rows updated in the same pass. **BL-058** stays OPEN and
+  assigned (Phase 4 cycle C residual): it is a design call —
+  deduplicating model *class names* across lanes must not collapse
+  legitimate per-program models — and carries its own acceptance
+  criteria rather than being silently waived.
+
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
   `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked
@@ -3531,7 +3701,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-039 | Capability maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-037/BL-038)** | BL-031's `_expand_copybook_text` (implemented) | `_analyze_copybook` scans only the top-level copybook file, so constructs inside nested copybooks — now materialized into the merged IR — are never classified. | P2 / medium-low: potential false `SUPPORTED` COPYBOOK component for nested content; bounded to data-division constructs in nested files. | FIXED — `copybook_model.collect_copybook_texts` walks the top-level file plus every reachable nested COPY target (same strict resolver, cycle-guarded, nested problems recorded as the same `ERROR` diagnostics generation fails on); `_analyze_copybook` scans per file with the shared search-directory authority (`analyze(..., source_root=...)`, threaded from planner and pipeline). Reason names the nested file carrying the worst-level keys; nested problems fail the component closed with generation's own message; flat copybooks keep the exact legacy reason. 9 focused tests in `tests/test_copybook_capability_transitivity.py`, wired into the `ci.yml` gate; E2E nested2 `ORACLE_MATCH=YES`. |
 | BL-040 | Parser / IR maintainer | **Phase 4 (cycle A — fixed in-cycle 2026-10-14)** | Period-bound statement termination in the parser | §53.9 forbids silent semantic loss; P0 per §77 (green-verdict-over-wrong-program shape). | Residual: same-line two-statement spelling out of scope (line-oriented statement model, applies to every verb). | FIXED — `_parse_string` period-bounded + verb/scope-terminator boundary (word-boundary matched, `_STRING_CONTINUATION_STOP` derived from the dispatcher verb vocabulary); complete-unterminated STRING stays lenient/lossless, incomplete fails closed via `_emit_unparsed`; 12 focused tests in `tests/transformation/test_string_period_termination.py` wired into the `ci.yml` gate; pre-fix red 7/4 proven (`%TEMP%\opencode\phase4\bl040_pre_fix.txt`); gate 440 passed; no existing test weakened. |
 | BL-041 | Java generator maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_stmt_to_string` (already renders every statement type) | Silent statement drop contradicts the no-silent-loss invariant; reachable path confirmed (`_derive_generation_mode` selects `file_io` for `caps.input_record_mapping`). | Residual: empty `JavaBlock` now fails closed instead of rendering as no-op (fail-closed direction). | FIXED — all main-body statements rendered via `_stmt_to_string` into the main body in source order (comments keep record-loop placement); unmapped/empty rendering fails closed `MISSING_REQUIRED_SEMANTIC` naming the type; dead `stmt_str` removed; audit claim "RETURN dropped" corrected (JavaReturn carries `.expression`; regression test pins it); 7 focused tests in `tests/transformation/test_file_io_main_body_rendering.py` wired into the `ci.yml` gate; pre-fix red 5/2 proven (`%TEMP%\opencode\phase4\bl041_pre_fix.txt`); generator/file-lane regression 168 passed; no existing test weakened. |
-| BL-042 | Transformation producer maintainer | Phase 4 (cycle C) | `Diagnostic` dataclass as the single diagnostics shape | Producer contract violated at the source; consumers crash or mis-report. | Error visibility depends on the consumer path. | All producers pass a diagnostics-shape contract test; full suite green. |
+| BL-042 | Transformation producer maintainer | **Phase 4 (cycle C — fixed in-cycle 2026-10-14)** | `to_contract_diagnostic` helper in `diagnostics.py` (enum→string boundary conversion) | Producer contract violated at the source; consumers crashed (dict) or mis-reported (enum level vs string compare). | Residual: legacy `producer.py` result (`errors: tuple[str,…]`, no diagnostics field) is a separate contract, out of scope by design. | FIXED — every producer diagnostic is a `contracts.Diagnostic` (internal-native converts `diagnostics.all` + real `Diagnostic` on the exception path; adapter wraps all five sites); 6 focused tests in `tests/transformation/test_producer_diagnostics_contract.py` wired into the `ci.yml` gate; pre-fix red 5/1 proven (`%TEMP%\opencode/phase4/bl042_pre_fix.txt`); old dict-shape assertions in `test_producer_contract.py` aligned to attribute access (strengthening, documented); transformation+integration regression 2257 passed / 0 failed. |
 | BL-043 | Modernization planner maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_build_program_plan` fail-closed default (UNKNOWN + `UNKNOWN_CONSTRUCT`) | Fail-open default contradicts the fail-closed program default (capability truth). | None — the fail-closed default cannot green-light missing analysis. | FIXED — `_build_copybook_plan`/`_build_file_plan` mirror the program path (`cap=None` ⇒ `UNKNOWN`, "No copybook/file capability analysis available", `UNKNOWN_CONSTRUCT`, `SKIP`/`SKIP` strategies); 7 focused tests in `tests/transformation/test_planner_missing_component_fail_closed.py` wired into the `ci.yml` gate; pre-fix red 5/2 proven (`%TEMP%\opencode\phase4\bl043_pre_fix.txt`); planner-dependent regression batch 189 passed; no existing test weakened. |
 | BL-044 | Application discovery maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | Shared `normalize_cobol_name` in `engine/transformation/ir.py` | One CALL fact could contradict itself across lanes (BL-038 class). | None for program-id joins; other name spaces (copybook stems, file names) still compare as-spelled pending a demonstrated contradiction. | FIXED — shared uppercase normalization applied to every program-id join (discovery known_programs/target check; analyzer arity by_id/target, `program_levels` keys/callee lookup; self-CALL checks in `_analyze_call` and planner fallback); spelling of `target`/edge preserved, only comparisons normalize; 7 focused tests in `tests/transformation/test_call_name_case_normalization.py` wired into the `ci.yml` gate; pre-fix red 4/3 proven (`%TEMP%\opencode\phase4\bl044_pre_fix.txt`); CALL/discovery/analyzer/planner regression batch 249 passed; no existing test weakened. |
 | BL-045 | Mapping maintainer | Phase 12 (carry-forward 2026-10-14 — Phase 3 lane item, not scheduled in Phase 4) | `called_programs` collector threading | Nested CALLs lose resolution metadata (coverage/provenance). | Incomplete program references in mapping output. | Nested CALL contributes to called_programs; focused + regression tests green. |
@@ -3541,19 +3711,19 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-049 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Error-path correctness: 500 instead of 401 on non-ASCII tokens. | Availability/log noise only; no bypass. | Non-ASCII token yields 401; security tests green. |
 | BL-050 | Candidate adapter maintainer | Phase 9 (carry-forward 2026-10-14) | Shared cleanup helper | Timeout path masks the real error and leaks a container. | Leaks accumulate on the daemon; diagnostics mislead. | Timeout returns the timeout message; container removed; adapter tests green. |
 | BL-051 | Oracle adapter maintainer | Phase 9 (carry-forward 2026-10-14) | Shared cleanup helper (Stage D) | Timed-out oracle containers persist; no parity with candidate cleanup. | Daemon resource leak on the hot verification path. | Timed-out oracle containers are removed; oracle adapter tests green. |
-| BL-052 | Comparator maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Byte-exactness must cover every byte; floor division ignores tails. | Latent false MATCH via metadata mismatch (V1 pipeline unaffected today). | Partial trailing records mismatch; comparator tests green. |
+| BL-052 | Comparator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Byte-exactness must cover every byte; floor division ignores tails. | Latent false MATCH via metadata mismatch (V1 pipeline unaffected today). | Partial trailing records mismatch; comparator tests green. **FIXED**: explicit tail comparison after the record loop reports `trailing_partial_record`; test_fixed_record_trailing_partial.py (9) red 5/1 → green; regressions 282 + 172 passed; gate-wired. |
 | BL-053 | Verdict maintainer | Phase 10 (carry-forward 2026-10-14) | None | Trust-boundary TOCTOU: post-validation mutation is trusted verbatim. | Future callers can accidentally bypass the seal. | Mutated manifest fails derivation closed; verdict tests green. |
 | BL-054 | Candidate adapter / pipeline maintainer | Phase 9 (carry-forward 2026-10-14) | None | Build output written into the identity tree ⇒ non-reproducible hashes. | Non-reproducible evidence identity on the Spring Boot lane. | Repeated builds ⇒ identical candidate_hash; adapter tests green. |
-| BL-055 | Parser / IR maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Lowercase valid COBOL crashes instead of diagnosing. | Unhandled IndexError on lowercase PERFORM UNTIL/VARYING. | Lowercase forms parse identically to uppercase; parser tests green. |
-| BL-056 | Copybook materialization maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Decode errors escape OSError handlers; lanes can disagree on one file. | Crash instead of COPYBOOK_UNREADABLE; analyzer/materializer divergence. | Binary copybook ⇒ COPYBOOK_UNREADABLE in all lanes; copybook tests green. |
+| BL-055 | Parser / IR maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Lowercase valid COBOL crashes instead of diagnosing. | Unhandled IndexError on lowercase PERFORM UNTIL/VARYING. | Lowercase forms parse identically to uppercase; parser tests green. **FIXED**: shared case-insensitive UNTIL split in both inline branches (guard/split can no longer disagree; also fixes multi-space spellings); test_perform_lowercase.py (6) red 5/1 → green; regression 81+37 passed; gate-wired. |
+| BL-056 | Copybook materialization maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Decode errors escape OSError handlers; lanes can disagree on one file. | Crash instead of COPYBOOK_UNREADABLE; analyzer/materializer divergence. | Binary copybook ⇒ COPYBOOK_UNREADABLE in all lanes; copybook tests green. **FIXED**: all three copybook read sites (`_expand_copybook_text`, `collect_copybook_texts`, `prepare_application_copybooks`) catch `(OSError, UnicodeError)`; analyzer copybook reader is strict UTF-8 taking the read-failure path; `tests/test_copybook_decode_fail_closed.py` (8) red 8/0 (all raw UnicodeDecodeError, `%TEMP%\opencode\phase4\bl056_pre_fix.txt`) → green; regressions 239 + 441 passed; gate-wired. |
 | BL-057 | CICS lane maintainer | Phase 7 (carry-forward 2026-10-14) | Shared escaping helper (BL-046) | Python repr() quoting emits invalid Java. | Uncompilable CICS-lane output (fail-closed at javac). | CICS generation emits valid Java literals; cics tests green. |
 | BL-058 | Parser / IR maintainer | **Phase 4 carry-forward (design decision required; P2)** — probe-sharpened 2026-10-14, not fixed in-cycle | Group-nesting representation decision | Hierarchy silently dropped; behavior-affecting fix needs a design call. Probe confirmed WS group node dropped, WS 88-level dropped, WS REDEFINES uncaptured, all diagnostic-free; verdict stays fail-closed via source-scan UNKNOWN (BL-003). | Declaration-shape fidelity unpinned. | Documented, tested representation of group nesting; agreed-shape tests green. |
-| BL-059 | IR/capability maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Capability walker under-reports arithmetic and inline bodies (conservative). | Valid programs blocked more than reality requires. | Capability reflects all arithmetic at any depth; capability tests green. |
+| BL-059 | IR/capability maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Capability walker under-reports arithmetic and inline bodies (conservative). | Valid programs blocked more than reality requires. | Capability reflects all arithmetic at any depth; capability tests green. **FIXED**: `has_arithmetic` covers all five statement types; `_flatten_statements` walks inline-PERFORM bodies and INVALID KEY/NOT INVALID KEY bodies of READ/START/WRITE/REWRITE/DELETE; `test_capability_walker_depth.py` (15) red 12/3 (controls green) → green; transformation regression 1919 passed / 0 failed; gate-wired. |
 | BL-060 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Error handler itself raises ValueError (invalid sentinel). | Crash instead of the designed "-1" status. | Unmapped SQLSTATE returns the "-1" status; sql tests green. |
 | BL-061 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Cursor bind handoff missing (DECLARE discards binds). | Host-variable cursors fail loudly; documented subset narrower than claimed. | Host-variable cursors bind or fail closed named; sql tests green. |
 | BL-062 | SQL parser maintainer | Phase 6 (carry-forward 2026-10-14) | None | Column-less INSERT mis-parses VALUES as columns. | Wrong column metadata for a common form. | Both INSERT forms parse correctly or fail closed named; sql parser tests green. |
 | BL-063 | JCL lane maintainer | Phase 5 (carry-forward 2026-10-14) | Shared discovery matcher | Consumer's file selection diverges from discovery; decode errors escape. | Silently skipped members in blocked-reason reporting. | .jcllib/extensionless members scanned; collisions reported; jcl tests green. |
-| BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. |
+| BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. **FIXED**: blame-proven duplicate loop removed (accidental re-add `fa0fa62a` over original M7 loop), single emission site pinned; `test_spring_model_emission_unique.py` (4) red 3/1 → green; regressions 1923 + 100 passed; gate-wired. |
 | BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
 | BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
 | BL-067 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | Cap enforced with a 4xx/413; API tests green. |

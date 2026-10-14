@@ -2036,14 +2036,19 @@ class CobolParser:
                 or bool(re.match(r"\d+\s+TIMES", rest))
             )
         if inline:
+            # BL-055: the UNTIL boundary is detected on the uppercased line
+            # but must split the original-case line case-insensitively — a
+            # lowercase `perform … until …` previously raised IndexError
+            # (guard matched `upper`, split missed the lowercase spelling).
+            until_split = re.split(r"\s+UNTIL\s+", line, maxsplit=1, flags=re.IGNORECASE)
             if upper.startswith("PERFORM VARYING "):
                 suffix = line[len("PERFORM "):].strip()
                 structured_condition = (
-                    self._build_condition(line.split(" UNTIL ", 1)[1].strip())
-                    if " UNTIL " in upper else None
+                    self._build_condition(until_split[1].strip())
+                    if len(until_split) > 1 else None
                 )
-            elif " UNTIL " in upper:
-                suffix = line.split(" UNTIL ", 1)[1].strip()
+            elif len(until_split) > 1:
+                suffix = until_split[1].strip()
                 structured_condition = self._build_condition(suffix)
             else:
                 suffix = line[len("PERFORM "):].strip()

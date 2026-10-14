@@ -19,6 +19,7 @@ Architecture:
 from __future__ import annotations
 
 from engine.transformation.contracts import (
+    Diagnostic,
     GeneratedFile,
     ProducerCapability,
     TransformationProducer,
@@ -26,7 +27,10 @@ from engine.transformation.contracts import (
     TransformationStatus,
 )
 from engine.transformation.cobol_parser import CobolParser
-from engine.transformation.diagnostics import DiagnosticCollector
+from engine.transformation.diagnostics import (
+    DiagnosticCollector,
+    to_contract_diagnostic,
+)
 from engine.transformation.java_generator import JavaGenerator
 from engine.transformation.semantic_capability import (
     CONSTRUCT_REGISTRY,
@@ -145,14 +149,11 @@ class InternalNativeJavaProducer(TransformationProducer):
                 producer_version=self.PRODUCER_VERSION,
                 supported_constructs=_PRODUCER_SUPPORTED_CONSTRUCTS,
                 unsupported_constructs=_PRODUCER_UNSUPPORTED_CONSTRUCTS,
+                # BL-042: the declared contract is tuple[contracts.Diagnostic,
+                # ...] — convert engine diagnostics (enum level/code) at the
+                # producer boundary so consumers always see one shape.
                 diagnostics=tuple(
-                    {
-                        "level": d.level.value,
-                        "code": d.code.value,
-                        "message": d.message,
-                        "location": d.location,
-                    }
-                    for d in diagnostics.all
+                    to_contract_diagnostic(d) for d in diagnostics.all
                 ),
                 metadata={
                     "source_hash": self._compute_hash(cobol_source),
@@ -167,11 +168,11 @@ class InternalNativeJavaProducer(TransformationProducer):
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
                 diagnostics=(
-                    {
-                        "level": "ERROR",
-                        "code": "TRANSFORMATION_ERROR",
-                        "message": str(e),
-                    },
+                    Diagnostic(
+                        level="ERROR",
+                        code="TRANSFORMATION_ERROR",
+                        message=str(e),
+                    ),
                 ),
             )
 

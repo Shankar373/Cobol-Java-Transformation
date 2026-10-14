@@ -269,18 +269,21 @@ def _expand_copybook_text(
     sibling order are preserved).
 
     Fail-closed contract — a nested target that is missing, ambiguous,
-    unreadable, or part of a cycle appends an ``ERROR`` diagnostic (which
-    fails generation with the message surfaced verbatim) and the statement is
-    skipped: never silently dropped, never expanded twice, never recursed
+    unreadable (filesystem error *or* non-UTF-8 decode failure), or part
+    of a cycle appends an ``ERROR`` diagnostic (which fails generation
+    with the message surfaced verbatim) and the statement is skipped:
+    never silently dropped, never expanded twice, never recursed
     without bound.  ``chain`` holds the ancestor copybook stems of the
-    current expansion path (cycle scope), and is empty only at the top level,
-    where a read failure is re-raised so the caller reports it verbatim as
-    ``COPYBOOK_UNREADABLE``.
+    current expansion path (cycle scope), and is empty only at the top
+    level, where a read or decode failure is re-raised so the caller
+    reports it verbatim as ``COPYBOOK_UNREADABLE``.
     """
     stem = path.stem.upper()
     try:
         text = _strip_sequence_numbers(path.read_text(encoding="utf-8"))
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
+        # UnicodeDecodeError (a ValueError, not an OSError) must take the
+        # exact same fail-closed path as a filesystem error — BL-056.
         if not chain:
             raise
         diagnostics.append(
@@ -375,9 +378,10 @@ def collect_copybook_texts(
     deterministic depth-first order.  Resolution reuses the same strict
     resolver and search directories as generation, so the file set matches
     what ``_expand_copybook_text`` merges; a missing, ambiguous, unreadable
-    or cyclic nested target appends the same ``ERROR`` diagnostic (naming
-    the parent copybook) and its file is simply absent — never silently
-    expanded, never recursed without bound.  ``REPLACING`` pairs are
+    (filesystem error or non-UTF-8 decode failure) or cyclic nested target
+    appends the same ``ERROR`` diagnostic (naming the parent copybook) and
+    its file is simply absent — never silently expanded, never recursed
+    without bound.  ``REPLACING`` pairs are
     irrelevant for construct scanning and are not applied.  Sequence
     numbers are stripped exactly as at generation time.  Capability
     analysis scans these texts so constructs inside nested copybooks
@@ -390,7 +394,7 @@ def collect_copybook_texts(
         stem = current.stem.upper()
         try:
             text = _strip_sequence_numbers(current.read_text(encoding="utf-8"))
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             diagnostics.append(CopybookDiagnostic(
                 level="ERROR",
                 code="COPYBOOK_UNREADABLE",
@@ -967,7 +971,7 @@ def prepare_application_copybooks(
                 diagnostics,
                 replacing=pairs or (),
             )
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             diagnostics.append(
                 CopybookDiagnostic(
                     level="ERROR",

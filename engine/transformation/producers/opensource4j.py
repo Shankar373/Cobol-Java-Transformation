@@ -31,7 +31,11 @@ from engine.transformation.contracts import (
     TransformationResult,
     TransformationStatus,
 )
-from engine.transformation.diagnostics import Diagnostic, DiagnosticCode
+from engine.transformation.diagnostics import (
+    Diagnostic,
+    DiagnosticCode,
+    to_contract_diagnostic,
+)
 
 
 # Declared capability surface of this adapter.  Hoisted to module scope (rather
@@ -102,10 +106,10 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
                 diagnostics=(
-                    Diagnostic.error(
+                    to_contract_diagnostic(Diagnostic.error(
                         DiagnosticCode.GENERATION_ERROR,
                         "OpenSourceCOBOL4J adapter requires Docker",
-                    ),
+                    )),
                 ),
             )
 
@@ -135,10 +139,10 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                         producer_identity=self.PRODUCER_IDENTITY,
                         producer_version=self.PRODUCER_VERSION,
                         diagnostics=(
-                            Diagnostic.error(
+                            to_contract_diagnostic(Diagnostic.error(
                                 DiagnosticCode.GENERATION_ERROR,
                                 f"OpenSourceCOBOL4J compilation failed: {result.stderr}",
-                            ),
+                            )),
                         ),
                     )
 
@@ -150,10 +154,10 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                         producer_identity=self.PRODUCER_IDENTITY,
                         producer_version=self.PRODUCER_VERSION,
                         diagnostics=(
-                            Diagnostic.error(
+                            to_contract_diagnostic(Diagnostic.error(
                                 DiagnosticCode.GENERATION_ERROR,
                                 "OpenSourceCOBOL4J did not generate Java file",
-                            ),
+                            )),
                         ),
                     )
 
@@ -190,10 +194,10 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
                 diagnostics=(
-                    Diagnostic.error(
+                    to_contract_diagnostic(Diagnostic.error(
                         DiagnosticCode.GENERATION_ERROR,
                         "OpenSourceCOBOL4J compilation timed out",
-                    ),
+                    )),
                 ),
             )
         except Exception as e:
@@ -202,10 +206,10 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
                 diagnostics=(
-                    Diagnostic.error(
+                    to_contract_diagnostic(Diagnostic.error(
                         DiagnosticCode.GENERATION_ERROR,
                         f"OpenSourceCOBOL4J adapter error: {e}",
-                    ),
+                    )),
                 ),
             )
 

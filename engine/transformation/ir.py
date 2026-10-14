@@ -839,7 +839,15 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
             all_stmts.extend(_flatten_statements(stmt))
 
     has_move = any(isinstance(s, MoveStatement) for s in all_stmts)
-    has_arithmetic = any(isinstance(s, (AddStatement, DivideStatement)) for s in all_stmts)
+    # BL-059: every arithmetic statement type counts (the class docstring's
+    # ADD, SUBTRACT, MULTIPLY, DIVIDE, COMPUTE) — not just ADD/DIVIDE.
+    has_arithmetic = any(
+        isinstance(
+            s,
+            (AddStatement, SubtractStatement, MultiplyStatement, DivideStatement, ComputeStatement),
+        )
+        for s in all_stmts
+    )
     has_condition = any(isinstance(s, IfStatement) for s in all_stmts)
     has_display = any(isinstance(s, DisplayStatement) for s in all_stmts)
     has_goto = any(isinstance(s, GoToStatement) for s in all_stmts)
@@ -925,17 +933,36 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
 
 
 def _flatten_statements(stmt: Statement) -> list[Statement]:
-    """Recursively flatten compound statements into a list."""
+    """Recursively flatten compound statements into a list.
+
+    BL-059: every statement node contributes its capability at any
+    nesting depth — IF/ELSE, READ AT END/NOT AT END (already walked),
+    the INVALID KEY / NOT INVALID KEY bodies of READ/START/WRITE/
+    REWRITE/DELETE, and inline PERFORM bodies are all recursed, so a
+    nested SUBTRACT/COMPUTE/DISPLAY/MOVE can never escape the
+    capability verdict.
+    """
     result = [stmt]
+    bodies: list[tuple[Statement, ...]] = []
     if isinstance(stmt, IfStatement):
-        for s in stmt.then_body:
-            result.extend(_flatten_statements(s))
-        for s in stmt.else_body:
-            result.extend(_flatten_statements(s))
+        bodies.extend((stmt.then_body, stmt.else_body))
     if isinstance(stmt, ReadStatement):
-        for s in stmt.not_at_end_body:
-            result.extend(_flatten_statements(s))
-        for s in stmt.at_end_body:
+        bodies.extend(
+            (
+                stmt.at_end_body,
+                stmt.not_at_end_body,
+                stmt.invalid_key_body,
+                stmt.not_invalid_key_body,
+            )
+        )
+    if isinstance(
+        stmt, (StartStatement, WriteStatement, RewriteStatement, DeleteStatement)
+    ):
+        bodies.extend((stmt.invalid_key_body, stmt.not_invalid_key_body))
+    if isinstance(stmt, PerformStatement):
+        bodies.append(stmt.body)
+    for body in bodies:
+        for s in body:
             result.extend(_flatten_statements(s))
     return result
 

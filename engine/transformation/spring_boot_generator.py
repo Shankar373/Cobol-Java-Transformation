@@ -105,9 +105,10 @@ class SpringBootGenerator:
                 ))
                 emitted_cobol_file_io = True
 
-        # Shared copybook models (data holders)
-        for model in application.models:
-            files.append(self._generate_model(model))
+        # Shared copybook models are emitted by the single M7 loop below
+        # (after the adapter implementations) — BL-064: a second loop here
+        # appended every model class file twice, producing duplicate
+        # same-package classes (javac failure) for every copybook workload.
 
         # Repositories (interfaces)
         for repo in application.repositories:
@@ -125,7 +126,9 @@ class SpringBootGenerator:
         for impl in application.adapter_implementations:
             files.append(self._generate_adapter_implementation(impl))
 
-        # Shared copybook data models (M7): data holders only.
+        # Shared copybook data models (M7): data holders only.  This is
+        # the single model-emission site (BL-064) — exactly one file per
+        # model, never appended twice.
         for model in application.models:
             files.append(self._generate_model(model))
 

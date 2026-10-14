@@ -602,6 +602,24 @@ class FixedRecordComparator(TypedComparator):
                     description=f"Record {i} differs",
                 ))
 
+        # BL-052: floor division above leaves any bytes beyond the last whole
+        # record uncovered by the loop, so a trailing partial record could hide
+        # behind record counting. Compare those tails explicitly: every byte
+        # not covered by a compared record must still be accounted for.
+        oracle_tail = oracle_content[oracle_count * record_length:]
+        candidate_tail = candidate_content[candidate_count * record_length:]
+        if oracle_tail != candidate_tail:
+            differences.append(ComparisonDifference(
+                location="trailing_partial_record",
+                expected=str(oracle_tail),
+                actual=str(candidate_tail),
+                description=(
+                    f"Trailing partial-record bytes differ: oracle "
+                    f"{len(oracle_tail)} byte(s) vs candidate {len(candidate_tail)} "
+                    f"beyond {max_count} whole record(s) of length {record_length}"
+                ),
+            ))
+
         if differences:
             return ComparatorResult(
                 comparator_id=self._comparator_id,

@@ -897,9 +897,13 @@ class CapabilityAnalyzer:
         read_error = ""
         for path in resolved_paths:
             try:
-                content = Path(path).read_text(encoding="utf-8", errors="replace")
+                # Strict UTF-8 (BL-056): a decode failure must take this
+                # exact read-failure path — the lenient errors="replace"
+                # reader let the analyzer classify bytes generation rejects
+                # as (falsely) clean.  Valid UTF-8 reads are unchanged.
+                content = Path(path).read_text(encoding="utf-8")
                 break
-            except OSError as exc:
+            except (OSError, UnicodeError) as exc:
                 read_error = str(exc)
 
         if not content and read_error:

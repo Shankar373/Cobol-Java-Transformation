@@ -36,6 +36,7 @@ jobs:
           set -o pipefail
           python -m pytest -q \
             tests/transformation/test_capability_registry_reconciliation.py \
+            tests/transformation/test_capability_walker_depth.py \
             tests/transformation/test_producer_capability_consistency.py \
             tests/transformation/test_usage_capability.py \
             tests/transformation/test_structural_capability.py \
@@ -48,9 +49,13 @@ jobs:
             tests/transformation/test_string_period_termination.py \
             tests/transformation/test_multiply_diagnostic.py \
             tests/transformation/test_rewrite_binding.py \
+            tests/transformation/test_spring_model_emission_unique.py \
             tests/transformation/test_file_io_main_body_rendering.py \
             tests/transformation/test_planner_missing_component_fail_closed.py \
             tests/transformation/test_call_name_case_normalization.py \
+            tests/transformation/test_producer_diagnostics_contract.py \
+            tests/transformation/test_perform_lowercase.py \
+            tests/comparators/test_fixed_record_trailing_partial.py \
             tests/test_silent_loss_registry.py \
             tests/test_nested_copybook_materialization.py \
             tests/test_copy_replacing_materialization.py \
@@ -58,6 +63,7 @@ jobs:
             tests/test_phantom_dependency_masking.py \
             tests/test_copybook_search_path_parity.py \
             tests/test_copybook_capability_transitivity.py \
+            tests/test_copybook_decode_fail_closed.py \
             tests/test_call_statement_parsing.py \
             tests/test_call_resolution_truth.py \
             tests/test_goto_diagnostic.py
