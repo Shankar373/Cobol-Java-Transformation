@@ -236,6 +236,12 @@ class SpringBootGenerator:
             lines.append("# Database configuration — strategy UNSPECIFIED")
             lines.append("# Configure datasource when persistence strategy is selected")
 
+        if application.autoconfigure_excludes:
+            lines.append(
+                "spring.autoconfigure.exclude="
+                + ",".join(application.autoconfigure_excludes)
+            )
+
         if config and config.has_web:
             lines.append("server.port=8080")
 

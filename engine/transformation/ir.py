@@ -1203,6 +1203,11 @@ class JclJob:
     steps: tuple[JclStep, ...] = ()
     comments: tuple[str, ...] = ()
     source_path: str = ""  # filesystem path to the JCL source
+    # DD statements written before the job's first EXEC (JOBLIB, job
+    # message datasets, ...). Preserved so job-level datasets are never
+    # silently dropped (BL-073); they are diagnosed as outside the
+    # semantic profile's supported subset.
+    job_dd_statements: tuple[JclDD, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -79,6 +79,7 @@ _UNSUPPORTED_CONSTRUCT_TEXT = {
     JclDiagnosticCode.UNSUPPORTED_CONTINUATION: "DD continuations",
     JclDiagnosticCode.STEP_NO_EXEC: "steps without an EXEC program",
     JclDiagnosticCode.JOB_UNNAMED: "unnamed jobs",
+    JclDiagnosticCode.JOB_LEVEL_DD: "job-level DD statements",
 }
 
 

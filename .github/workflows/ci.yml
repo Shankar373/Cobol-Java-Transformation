@@ -66,7 +66,11 @@ jobs:
             tests/test_copybook_decode_fail_closed.py \
             tests/test_call_statement_parsing.py \
             tests/test_call_resolution_truth.py \
-            tests/test_goto_diagnostic.py
+            tests/test_goto_diagnostic.py \
+            tests/transformation/test_jcl_multi_job_parsing.py \
+            tests/transformation/test_jcl_job_level_dd.py \
+            tests/transformation/test_jcl_cobol_file_linking.py \
+            tests/test_jcl_build_environment.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

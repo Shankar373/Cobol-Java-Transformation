@@ -394,6 +394,12 @@ class SpringBootApplication:
     packages: tuple[SpringBootPackage, ...] = ()
     # Source traceability
     source_application_id: str = ""  # JavaApplication.application_id
+    # Spring auto-configuration classes this application explicitly turns
+    # off (emitted as spring.autoconfigure.exclude in application.properties).
+    # The structural JCL lane sets DataSource auto-configuration: the batch
+    # starter pulls in JDBC auto-config but a JCL profile configures no
+    # datasource (BL-071). Empty default: existing lanes are unaffected.
+    autoconfigure_excludes: tuple[str, ...] = ()
 
     def get_service(self, name: str) -> SpringBootService | None:
         """Find a service by name."""

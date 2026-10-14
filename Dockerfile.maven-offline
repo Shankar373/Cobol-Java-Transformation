@@ -6,9 +6,13 @@
 # changes that are out of scope. See docs/supply-chain/DEPENDENCY_AUDIT.md.
 FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320
 
-# Pre-cache Spring Boot dependencies for offline build
+# Pre-cache Spring Boot dependencies for offline build.
+# The precache pom must list every starter any generated lane emits:
+# the COBOL lanes emit spring-boot-starter, the JCL lane emits
+# spring-boot-starter-batch (BL-071 — the JCL project could not compile
+# offline before it was added here).
 RUN mkdir -p /tmp/precache/src/main/java/precache && \
-    echo '<project><modelVersion>4.0.0</modelVersion><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.2.5</version></parent><groupId>precache</groupId><artifactId>precache</artifactId><version>0.0.1</version><properties><java.version>21</java.version></properties><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency></dependencies><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>' > /tmp/precache/pom.xml && \
+    echo '<project><modelVersion>4.0.0</modelVersion><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.2.5</version></parent><groupId>precache</groupId><artifactId>precache</artifactId><version>0.0.1</version><properties><java.version>21</java.version></properties><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-batch</artifactId></dependency></dependencies><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>' > /tmp/precache/pom.xml && \
     echo 'package precache;public class Precache{public static void main(String[] a){}}' > /tmp/precache/src/main/java/precache/Precache.java && \
     cd /tmp/precache && mvn -B -DskipTests dependency:go-offline package && \
     rm -rf /tmp/precache

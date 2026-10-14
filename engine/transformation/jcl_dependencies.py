@@ -3,7 +3,8 @@
 ``JclParser`` and ``JclDiscovery`` carried verbatim copies of this
 construction; the single implementation here keeps the two lanes from
 drifting.  Order is preserved exactly (step-order pairs per job, then EXEC
-program references, then DD dataset references).
+program references, then step DD dataset references, then job-level DD
+dataset references).
 """
 
 from __future__ import annotations
@@ -49,5 +50,16 @@ def build_all_dependencies(jobs: list[JclJob]) -> list[JclDependency]:
                         dependency_type="JCL_DD",
                         metadata=f"disp={dd.disposition}" if dd.disposition else "",
                     ))
+
+        # Job-level DD datasets (JOBLIB & co. — BL-073): the job is the
+        # owning scope, so the edge source has no step segment.
+        for dd in job.job_dd_statements:
+            if dd.dataset:
+                dependencies.append(JclDependency(
+                    source=f"{job.name}.{dd.name}",
+                    target=dd.dataset,
+                    dependency_type="JCL_DD",
+                    metadata=f"disp={dd.disposition}" if dd.disposition else "",
+                ))
 
     return dependencies

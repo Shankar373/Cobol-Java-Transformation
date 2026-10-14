@@ -2,7 +2,7 @@
 
 ## Phase 5 started — JCL Modernization (2026-10-15)
 
-### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `e0e649944c75ad1488f46159075651102ca65f9c` — inventory 7 NEW + BL-063 verified, P0: none, remediation not yet started**)
+### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `e0e649944c75ad1488f46159075651102ca65f9c` + BATCH P1 COMPLETE (BL-071/072/073/074 ALL FIXED) — full serialized suite 3608 passed / 4 skipped / 0 failed; batch P2 (BL-063/075/076/077) next; P0: none**)
 
 - **Phase 4 is closed (`COMPLETE — VERIFIED`)** and is not reopened.
   Baseline for Phase 5: branch `codex/universal-core`, HEAD `e0e6499…`
@@ -33,17 +33,21 @@
   **generated JCL Spring Boot project does not compile in the canonical
   offline Maven image** — `spring-boot-starter-batch:3.2.5` never
   precached (PROBE16, full Maven error captured).
-- **Inventory recorded in `docs/BACKLOG.md` (w)**: BL-071 (P1 offline
+- **Inventory recorded in `docs/BACKLOG.md` (w)/(x)**: BL-071 (P1 offline
   compile failure + false doc claim), BL-072 (P1 silent multi-JOB
   merge), BL-073 (P1 silent job-level DD drop), BL-074 (P1 phantom/
   wrong file edges), BL-075 (P2 DISP/SPACE truncation), BL-076 (P2
   dependency-lane divergence), BL-077 (P3 hygiene/stale spec), all with
   register rows; **P0: none**. Approved batching: **batch P1** =
-  BL-071/072/073/074 → **batch P2** = BL-063/075/076/077; per-item
-  defect-proven-first (own red `%TEMP%\opencode\phase5\blNNN_pre_fix.txt`,
+  BL-071/072/073/074 — **ALL FIXED (change-log (x))**, red evidence
+  `bl071…bl074_pre_fix.txt` (+ `bl071_startup_pre_fix.txt`), focused
+  greens `bl0NN_focused_green.txt`, gate-wired, regression 3608/4/0;
+  **batch P2** = BL-063/075/076/077 pending; per-item defect-proven-first
+  (own red `%TEMP%\opencode\phase5\blNNN_pre_fix.txt`,
   own focused green, own entry/register), one regression sweep + gate
-  wiring + commit + exact-SHA CI verification per batch; fresh Phase-5
-  E2E = Docker-gated JCL compile (`RUN_DOCKER_TESTS=1`). No LLM
+  wiring + commit + exact-SHA CI verification per batch; Phase-5 E2E
+  executed: Docker-gated JCL project compile **and startup** proven in
+  `tests/integration/test_jcl_spring_boot_compile.py`. No LLM
   anywhere; no merge to `main`.
 
 ## Phase 4 started — Files / VSAM / Data Semantics (2026-10-14)

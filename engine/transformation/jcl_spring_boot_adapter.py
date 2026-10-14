@@ -13,6 +13,8 @@ It imports only from:
 The generated Spring Boot project is a **structural representation**:
 it compiles, starts, and prints what each JCL step would do.
 It does NOT execute real batch processing.
+The claim is executed proof by
+``tests/integration/test_jcl_spring_boot_compile.py`` (BL-071).
 """
 
 from __future__ import annotations
@@ -171,7 +173,8 @@ def jcl_to_spring_boot(
 
     The generated project is a **structural representation**:
     it compiles, starts, and prints what each JCL step would do.
-    It does NOT execute real batch processing.
+    It does NOT execute real batch processing.  Executed proof:
+    ``tests/integration/test_jcl_spring_boot_compile.py`` (BL-071).
 
     Args:
         app: JCL Spring Batch application (from ``modernize_jcl``).
@@ -212,4 +215,11 @@ def jcl_to_spring_boot(
         services=services,
         entry_point=entry_point,
         dependencies=dependencies,
+        # The JCL profile is structural (no JES/z/OS, no persistence), but
+        # spring-boot-starter-batch pulls in JDBC auto-configuration, which
+        # fails startup without a datasource URL.  Exclude it so the
+        # generated app starts as the adapter documents (BL-071).
+        autoconfigure_excludes=(
+            "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
+        ),
     )

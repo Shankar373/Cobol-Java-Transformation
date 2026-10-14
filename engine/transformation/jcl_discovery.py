@@ -32,6 +32,7 @@ Architecture:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from engine.transformation.jcl_parser import JclParser
@@ -42,6 +43,20 @@ from engine.transformation.ir import (
     JclJob,
 )
 from engine.transformation.jcl_dependencies import build_all_dependencies
+
+
+def _dataset_matches_file(dataset: str, file_key: str) -> bool:
+    """Precise dataset↔COBOL-file match (BL-074).
+
+    ``file_key`` is the upper-cased COBOL file name.  A dataset matches
+    only when it equals the file name or ends with ``.<file name>``
+    (qualified tail, e.g. ``PAY.INPUT`` ↔ ``INPUT``).  Substring
+    fragments never match.
+    """
+    if not file_key:
+        return False
+    dsn = dataset.upper()
+    return dsn == file_key or dsn.endswith("." + file_key)
 
 
 class JclDiscovery:
@@ -83,14 +98,13 @@ class JclDiscovery:
         for jcl_file in jcl_files:
             try:
                 source = jcl_file.read_text(encoding="utf-8")
-                job = self._parser.parse(source)
-                jobs.append(JclJob(
-                    name=job.name,
-                    parameters=job.parameters,
-                    steps=job.steps,
-                    comments=job.comments,
-                    source_path=str(jcl_file.relative_to(source_path)),
-                ))
+                # One job per JOB statement (multi-job members are split,
+                # never merged — BL-072); replace() preserves every field.
+                for job in self._parser.parse_jobs(source):
+                    jobs.append(replace(
+                        job,
+                        source_path=str(jcl_file.relative_to(source_path)),
+                    ))
             except Exception:
                 continue
 
@@ -126,11 +140,18 @@ class JclDiscovery:
         # Build program ID lookup
         known_programs = {p.program_id for p in cobol_app.programs}
 
-        # Build file dependency lookup: dataset_name → (program_id, file_name)
-        file_lookup: dict[str, tuple[str, str]] = {}
+        # Index every COBOL file dependency by file name (case-insensitive),
+        # keeping ALL programs that declare the same file: a shared file must
+        # not silently overwrite its other readers (BL-074).  Empty file
+        # names are skipped — they would match every dataset.
+        file_lookup: dict[str, list[tuple[str, str]]] = {}
         for program in cobol_app.programs:
             for fd in program.file_dependencies:
-                file_lookup[fd.file_name] = (program.program_id, fd.file_name)
+                if not fd.file_name:
+                    continue
+                file_lookup.setdefault(fd.file_name.upper(), []).append(
+                    (program.program_id, fd.file_name)
+                )
 
         # Link JCL steps to COBOL programs
         for job in jcl_app.jobs:
@@ -147,18 +168,26 @@ class JclDiscovery:
                         metadata=f"resolution={resolution}",
                     ))
 
-                # Link DD datasets to COBOL files
+                # Link DD datasets to COBOL files.  Matching is precise:
+                # DSN equals the file name, or DSN ends with ".<file name>"
+                # (qualified tail).  Loose bidirectional substring matching
+                # produced phantom and wrong-target edges (BL-074).
                 for dd in step.dd_statements:
-                    if dd.dataset:
-                        # Try to match dataset to COBOL file
-                        for prog_id, file_name in file_lookup.values():
-                            if dd.dataset.upper() in file_name.upper() or file_name.upper() in dd.dataset.upper():
-                                dependencies.append(JclDependency(
-                                    source=f"{job.name}.{step.name}.{dd.name}",
-                                    target=f"{prog_id}.{file_name}",
-                                    dependency_type="COBOL_FILE",
-                                    metadata=f"dsn={dd.dataset}",
-                                ))
+                    if not dd.dataset:
+                        continue
+                    for file_key, decls in file_lookup.items():
+                        if not _dataset_matches_file(dd.dataset, file_key):
+                            continue
+                        resolution = "AMBIGUOUS" if len(decls) > 1 else "RESOLVED"
+                        for prog_id, file_name in decls:
+                            dependencies.append(JclDependency(
+                                source=f"{job.name}.{step.name}.{dd.name}",
+                                target=f"{prog_id}.{file_name}",
+                                dependency_type="COBOL_FILE",
+                                metadata=(
+                                    f"dsn={dd.dataset};resolution={resolution}"
+                                ),
+                            ))
 
         return JclApplication(
             jobs=jcl_app.jobs,
