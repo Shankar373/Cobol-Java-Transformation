@@ -3613,6 +3613,44 @@ level and evidence location.
   legitimate per-program models — and carries its own acceptance
   criteria rather than being silently waived.
 
+- 2026-10-14 — **(v) Phase 4 (Files / VSAM / Data Semantics) COMPLETE —
+  verified at `e73fb95…` (cycle A+B code) and
+  `7bcf7146408a07d17ffe6903850f13610b1e78b3` (cycle C code + docs) per
+  Master README §53; scoring table in `opencode.md`.** Full cycle:
+  audit-first gap discovery (change-log (s)/(t)/(u)), defect-proven-first
+  remediation, then run-of-record verification. **Inventory: 12 FIXED** —
+  BL-040 (cycle A, change-log (s)), BL-041/043/044/069/070 (cycle B, (t)),
+  BL-042/052/055/056/059/064 (cycle C, (u)) — plus **BL-058 carried
+  forward** as an explicit design call with full §53.10 fields (owner/
+  role, reason, dependency, risk, acceptance criteria) and a register row;
+  register sweep confirmed no Phase-4 item is unowned (BL-045→Phase 12).
+  Red evidence: 12 pre-fix captures in `%TEMP%\opencode\phase4\`
+  (`bl040…bl070_pre_fix.txt`; exact red/green counts per BL in entries
+  (s)–(u)). **Exact-SHA CI (run of record)**: full 40-char SHA `7bcf714…`
+  → `runs=4`, 14/14 jobs success (push SystemaOps `#38583899840` 4/4
+  incl. the Backend and COBOL/Java Docker job, push Supply `#38583899888`
+  3/3, PR SystemaOps `#38583906168` 4/4, PR Supply `#38583906305` 3/3;
+  `ci_verify_7bcf714.txt`); cycle A+B SHA `e73fb95…` also 14/14
+  (`ci_verify_e73fb95_full.txt`); a short-SHA query returned `runs=0` and
+  the verifier correctly refused a vacuous pass (kept as gotcha evidence).
+  **Capability-truth gate**: 32 files, 524 passed locally (`gate_cycleC.txt`,
+  list `gate_list.txt`). **Serialized full suite** at `7bcf714…`:
+  3556 passed / 12 failed / 4 skipped (52m51s) → all 12 = the Phase-3
+  identity flake class (10× fail-closed `ValueError` from the oracle-lane
+  10s `docker image inspect` timeout, 1× probe `UNAVAILABLE`, 1× cascade;
+  `rr_failures.txt`) → rerun of the failed set 12/12 on an idle daemon →
+  effective **3568 passed / 4 skipped / 0 failed = collection identity
+  3572 = 3524 + 48** (`full_suite_7bcf714_run_of_record.txt`,
+  `full_suite_7bcf714_rerun.txt`). **Fresh Phase-4 E2E vs GnuCOBOL 3.1.2**
+  (`RUN_DOCKER_TESTS=1`, eight oracle lanes) at `7bcf714…`: 119 passed /
+  9 failed → all 9 same flake class → rerun 9/9 → effective **128 passed /
+  0 failed** (`e2e_phase4_fresh.txt` + `_rerun.txt`). **Remaining
+  limitations (§53.10)**: BL-058 carried (deduplicating model class names
+  must not collapse legitimate per-program models); COMP/REDEFINES/OCCURS/
+  88-level semantics remain UNKNOWN fail-closed by design; PR #2/#6
+  status unchanged from Phase 3; 4 Windows local skips run green on Linux
+  CI. Evidence index: `%TEMP%\opencode\phase4\PHASE4_EVIDENCE_INDEX.txt`.
+
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
   `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked

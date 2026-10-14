@@ -2,7 +2,7 @@
 
 ## Phase 4 started — Files / VSAM / Data Semantics (2026-10-14)
 
-### ⚑ PHASE 4 STATUS — read this first (2026-10-14, **IN PROGRESS — Stage C/D/E CI-green at `87f582f`; Phase 4 cycles A+B committed+CI-green at `e73fb95` (BL-040 P0 + BL-041/043/044/069/070); cycle C (BL-042/052/055/056/059/064, all P2) COMPLETE in the working tree, commit + exact-SHA CI pending; carry-forwards open**)
+### ⚑ PHASE 4 STATUS — read this first (2026-10-14, **COMPLETE — VERIFIED at `7bcf7146408a07d17ffe6903850f13610b1e78b3` — BL-040…BL-070 ALL APPLICABLE ITEMS FIXED: three cycles (P0 + 5×P1 + 6×P2), 12 FIXED + BL-058 carried per §53.10, serialized full suite effective 3568 passed / 4 skipped / 0 failed, fresh oracle E2E effective 128 passed / 0 failed, exact-SHA CI green 4 runs / 14 jobs at `7bcf714`; §53 scored 13/13 below**)
 
 - **Stage C/D/E is closed and green.** The repository-wide audit (12
   findings reports), behavior-preserving optimization (Batches 1–3), and
@@ -58,8 +58,11 @@
   runs=4 — a short SHA yields runs=0 and a vacuous pass); local
   serialized full suite at that commit **3513 passed, 4 skipped,
   0 failed**.
-- **Working tree at this checkpoint (cycle C pre-commit):** cycle C is
-  **fully implemented, tested, gated, and documented — uncommitted**:
+- **Cycle C is committed and pushed as `7bcf714…`; exact-SHA CI is
+  GREEN** — 4 workflows / all jobs on head_sha `7bcf714…`, push + PR,
+  including the Backend+COBOL/Java Docker run-of-record job (run ids
+  38583899840 / 38583899888 / 38583906168 / 38583906305; runs=4,
+  14/14 jobs success — `ci_verify_7bcf714.txt`). The six cycle-C fixes:
   **BL-042** producer diagnostics contract (`diagnostics.py`
   `to_contract_diagnostic` + internal-native/opensource4j producers; 6
   tests, red 5/1), **BL-052** FIXED_RECORD trailing partial tail
@@ -76,22 +79,27 @@
   `%TEMP%\opencode\phase4\bl042/052/055/056/059/064_pre_fix.txt`.
   `tests/transformation/test_producer_contract.py` dict→attribute
   alignment documented as strengthening. `ci.yml` capability-truth gate
-  now **32 files, 524 passed** locally; regressions: transformation +
-  integration 2257, comparators+adversarial 282, FIXED_RECORD
-  integration 172, parse batches 81+37, copybook+capability 239,
-  analyzer-import 441, `tests/transformation` 1923, root Spring
-  consumers 100. `docs/BACKLOG.md`: six entries → FIXED with evidence,
-  six register rows updated, change-log **(u)** written. Expected
-  collection **3572 = 3524 + 48** (verify by `--collect-only` before
-  commit). Next: serialized full suite → commit → push → exact-SHA CI
-  (full 40-char SHA) → fresh E2E vs GnuCOBOL 3.1.2 oracle → §53
-  scoring.
-- **Phase 4 is NOT complete** until cycle C is committed, pushed, and
-  verified green by exact-SHA CI, plus the serialized full suite, a
-  fresh E2E oracle run, and the §53 scoring report. Carry-forwards
-  open: BL-045→Phase 12, BL-058 (group-nesting representation,
-  **design decision required**, P2, explicitly NOT waived), plus the
-  phase-assigned register (BL-046…BL-070 lanes for Phases 5-12).
+  now **32 files, 524 passed** locally; change-log **(u)** and the
+  Phase 4 completion change-log **(v)** are written in
+  `docs/BACKLOG.md`.
+- **Phase 4 run-of-record verification at `7bcf714…` (all 2026-10-14):**
+  collection identity **3572 = 3524 + 48** (`--collect-only`);
+  serialized full suite 3556 passed / 12 failed / 4 skipped (52m51s) →
+  all 12 = the documented Phase-3 identity flake class (10× oracle-lane
+  `docker image inspect` 10s-timeout `ValueError`, 1× probe
+  `UNAVAILABLE`, 1× cascade) → failed-set rerun 12/12 on an idle
+  daemon → effective **3568 passed / 4 skipped / 0 failed = 3572**;
+  fresh Phase-4 E2E vs GnuCOBOL 3.1.2 (`RUN_DOCKER_TESTS=1`, eight
+  oracle lanes) 119 passed / 9 failed → all 9 same flake class → rerun
+  9/9 → effective **128 passed / 0 failed**; gate 32 files / 524
+  passed. Evidence index:
+  `%TEMP%\opencode\phase4\PHASE4_EVIDENCE_INDEX.txt`; §53 scoring in
+  the *⚑ §53 VERDICT — Phase 4 at `7bcf714…`* block below.
+- **Carry-forwards after Phase 4:** BL-045→Phase 12, **BL-058** carried
+  per §53.10 (group-nesting model-class dedup, **design decision
+  required**, P2, full fields in the register — explicitly NOT waived),
+  plus the phase-assigned register (BL-046…BL-070 lanes for Phases
+  5-12).
 - **Docker provenance note (this session):** the committed
   `test-artifacts/docker-image-provenance.json` pins live-image digests;
   rebuilding the oracle/maven images locally changed the `maven-offline`
@@ -105,6 +113,87 @@
   pending explicit human authorization; PR #6 do-not-merge; COMP byte
   encoding and REDEFINES/OCCURS/88-level remain `UNKNOWN`/fail-closed by
   design; `test-artifacts/*` churn stays uncommitted.
+
+## ⚑ §53 VERDICT — Phase 4 at `7bcf7146408a07d17ffe6903850f13610b1e78b3` (2026-10-14)
+
+**`PHASE 4 COMPLETE — VERIFIED`.** All thirteen §53 criteria pass. Scope of
+this phase: Files / VSAM / Data-Semantics truthfulness (Master README
+§6–§7) — twelve defects across three cycles (P0 + 5×P1 + 6×P2), every one
+reproduced before it was fixed, fixed with deterministic (no-LLM) code, and
+verified by focused suites, the capability-truth gate, regression batches,
+a fresh E2E against the independent GnuCOBOL 3.1.2 oracle, the full
+serialized suite, and exact-SHA CI.
+
+- **Commits:** `e73fb95…` (cycles A+B code) +
+  `7bcf7146408a07d17ffe6903850f13610b1e78b3` (cycle C code; this docs
+  commit carries the verdict) on `codex/universal-core`.
+- **Fixed & closed this phase (3 cycles, 12/12 applicable):**
+  - **BL-040** (P0) — `STRING` without `END-STRING` silently swallowed the
+    rest of the PROCEDURE DIVISION. Period-bounded termination +
+    verb/scope-terminator boundary regex; red 7/4 → 12 focused tests.
+  - **BL-041** (P1) — `file_io` main-body statements silently dropped;
+    now all render via `_stmt_to_string`, unmapped types fail closed
+    `MISSING_REQUIRED_SEMANTIC` naming the type.
+  - **BL-043** (P1) — planner copybook/file plan fail-open default made
+    fail-closed (`cap=None` ⇒ `UNKNOWN`/`UNKNOWN_CONSTRUCT`).
+  - **BL-044** (P1) — mixed-case CALL fact parity via shared
+    `normalize_cobol_name` on every program-id join (spelling preserved).
+  - **BL-069** (P1) — `MULTIPLY a BY b BY c` / `ON SIZE ERROR` empty IR
+    node with zero diagnostics → `_emit_unparsed` like ADD/SUBTRACT/DIVIDE.
+  - **BL-070** (P1) — `REWRITE` file binding consults FD `_record_owner`
+    first, then convention fallback.
+  - **BL-042** (P2) — producer diagnostics contract:
+    `to_contract_diagnostic` at the enum→string boundary; internal-native
+    and opensource4j producers aligned (red 5/1).
+  - **BL-052** (P2) — FIXED_RECORD trailing partial bytes now compared
+    and reported `trailing_partial_record` (red 5/4, all five defect
+    cases were false `MATCH`).
+  - **BL-055** (P2) — lowercase `perform … until` IndexError; one shared
+    case-insensitive UNTIL split feeds both inline branches (red 5/1).
+  - **BL-056** (P2) — `UnicodeDecodeError` escapes from all three copybook
+    read sites → catch `(OSError, UnicodeError)`; analyzer reader strict
+    UTF-8 (red 8/0, every failure a raw `UnicodeDecodeError`).
+  - **BL-059** (P2) — capability walker under-reports arithmetic and
+    inline bodies → `has_arithmetic` covers five types, flattener walks
+    inline-PERFORM and INVALID KEY bodies (red 12/3).
+  - **BL-064** (P2) — duplicate copybook model emission; `git blame`
+    proved an accidental re-add — removed, survivor pinned as single
+    emission site (red 3/1).
+- **Carried forward (§53.10, non-blocking, disclosed):** **BL-058**
+  (group-nesting model-class dedup, P2) — a design call: deduplicating
+  model *class names* across lanes must not collapse legitimate
+  per-program models; full §53.10 fields (owner/role, reason,
+  dependency, risk, acceptance criteria) in the register; acceptance
+  criteria not waived. BL-045→Phase 12. Unchanged disclosed limitations:
+  COMP byte encoding and REDEFINES/OCCURS/88-level classify `UNKNOWN`
+  (fail-closed, never claimed supported); PR #2 unmerged pending explicit
+  human authorization; PR #6 do-not-merge; prior-phase items unchanged.
+
+**13-point scoring:**
+
+| # | Criterion | Result | Evidence |
+|---|-----------|--------|----------|
+| 1 | implementation exists and matches the current architecture | PASS | All twelve fixes sit in the canonical-pipeline lanes as Master README defines them: file I/O statement rendering and REWRITE owner binding (§6), record comparators and FIXED_RECORD (§7), parser scope-terminator and PERFORM-UNTIL handling (§16), copybook decode authority (§20), capability arithmetic/body detection (§14), planner fail-closed capability defaults (§15), producer diagnostics contract (§11), generator single-emission site (§24) |
+| 2 | relevant contracts are satisfied | PASS | Negative contracts preserved and re-asserted: unmapped statement types fail closed `MISSING_REQUIRED_SEMANTIC`; `cap=None` ⇒ `UNKNOWN`; decode failures produce `COPYBOOK_UNREADABLE` diagnostics with generator/analyzer lane-parity; MULTIPLY variants fail closed *with* diagnostics; contracts green in every cycle run |
+| 3 | focused tests pass | PASS | 48 new tests from cycles A/B (`e73fb95`, collection 3524 = 3476 + 48) plus 48 from cycle C (`7bcf714`, collection 3572 = 3524 + 48), all green locally and in CI; capability-truth gate grew 20→26→32 files and passed **524** locally at cycle C (`gate_cycleC.txt`), gate job green in CI |
+| 4 | regression tests pass | PASS | Run of record: CI Backend+COBOL/Java Docker job **conclusion=success** on head_sha `7bcf714…` (runs 38583899840 push / 38583906168 PR; job-log fetch 403 unauthenticated, cited as job success); local serialized full suite effective **3568 passed / 4 skipped / 0 failed = collection identity 3572** (raw 3556/12/4 → all 12 = documented identity flake class → failed-set rerun 12/12) |
+| 5 | integration behavior is verified | PASS | Per-cycle regression batches: transformation+integration 2257, comparators+adversarial 282, FIXED_RECORD integration 172, parse batches 81+37, copybook 239, analyzer 441, `tests/transformation` 1919/1923, root Spring consumers 100 — all 0 failed post-fix |
+| 6 | fresh end-to-end behavior is verified where applicable | PASS | Fresh Phase-4 E2E vs GnuCOBOL 3.1.2 (`RUN_DOCKER_TESTS=1`, eight lanes: claims transformation, copybook runtime, indexed semantics, relative semantics, numeric oracle proof, payroll artifacts, oracle source format) at `7bcf714…`: 119 passed / 9 failed → all 9 identity flake → rerun 9/9 → effective **128 passed / 0 failed** (`e2e_phase4_fresh.txt` + `_rerun.txt`) |
+| 7 | evidence is reproducible, identity-tied, and integrity-validated | PASS | 12 red captures + post-fix greens, regressions, gate, E2Es, CI verifies all indexed in `PHASE4_EVIDENCE_INDEX.txt`; exact-SHA CI verified `head_sha` per run *and* per job (short-SHA `runs=0` attempt kept as gotcha evidence); oracle identity pinned (`gnucobol-ocesql:latest`, GnuCOBOL 3.1.2) |
+| 8 | known limitations and residual risks are documented | PASS | Every backlog entry carries priority, severity, rationale, dependency and residual-risk text; disclosed limitations (COMP, REDEFINES/OCCURS/88, keyless modes, PR #2/#6) unchanged and honest |
+| 9 | **no silent semantic loss remains** | PASS | Every fixed gap was a §54/§60 silent-drift class — `STRING` swallowing the rest of the PROCEDURE DIVISION, file_io statements dropped, false-MATCH on trailing partial bytes, raw `UnicodeDecodeError` escaping the lanes, walker under-reporting arithmetic/inline bodies, MULTIPLY returning an empty node with zero diagnostics, REWRITE bound by heuristic only, duplicate model emission, lowercase `perform…until` crash — each now either correct or fail-closed with a diagnostic naming the construct; **BL-058 disclosed as the one carried item (fail-closed, criteria not waived)** |
+| 10 | every discovered defect and gap is fixed or explicitly carried forward | PASS | Phase 4 inventory: **12 FIXED — VERIFIED** (BL-040/041/042/043/044/052/055/056/059/064/069/070) + **BL-058 carried** with full §53.10 fields and a register row; BL-045→Phase 12; register sweep confirmed no Phase-4 item unowned |
+| 11 | applicable code, test, security, architecture, API/UI, operations and documentation gaps are audited | PASS | Audit-first (§76) per cycle with real-path probes (`probe_p4_r1.py`); Stage C repository-wide audit (465 findings, 29 promoted to BL-040…BL-068) preceded remediation; the §76 gap inventory drove the three-cycle plan |
+| 12 | acceptance criteria are satisfied | PASS | Each entry's acceptance set discharged by its focused tests plus probes (STRING boundary, file_io rendering, trailing-partial report, lane-parity decode reason, five-type arithmetic detection, single emission site, REWRITE owner binding) — no criterion waived; BL-058's criteria carried explicitly |
+| 13 | the live checkpoint is updated from actual repository and test results | PASS | This checkpoint, `docs/BACKLOG.md` (entries + register + change-log (s)–(v)) and the phase matrix are reconciled to actual run outputs — every number quoted here traces to an indexed evidence file or a linked CI run |
+
+**Remaining limitations (unchanged, disclosed):** BL-058 carried with
+acceptance criteria; COMP byte-encoding and REDEFINES/OCCURS/88-level
+semantics remain `UNKNOWN`/fail-closed by design; BY VALUE / BY CONTENT
+keyless forms unclassified by design; JCL/SQL/CICS transformation depth
+bounded to the documented subsets; 4 Windows local skips run green on the
+Linux CI runner; PR #2 stays unmerged pending explicit human
+authorization; PR #6 do-not-merge.
 
 ## Phase 3 started — CALL / COPYBOOK / Application Graph (2026-10-12)
 
