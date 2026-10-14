@@ -58,6 +58,7 @@ from engine.transformation.ir import (
     DependencyEdge,
     FileDependency,
     ProgramCall,
+    normalize_cobol_name,
 )
 
 
@@ -561,7 +562,7 @@ class ModernizationPlanner:
                 level = CapabilityLevel.PARTIAL
                 reason = "Unresolved static call target"
                 blocking = (BlockingReason.UNRESOLVED_CALL,)
-            elif edge.source == edge.target:
+            elif normalize_cobol_name(edge.source) == normalize_cobol_name(edge.target):
                 level = CapabilityLevel.UNSUPPORTED
                 reason = "Recursive/self CALL is out of scope"
                 blocking = (BlockingReason.RECURSIVE_CALL,)
@@ -607,9 +608,12 @@ class ModernizationPlanner:
             reason = cap.reason
             blocking = self._map_blocking_reasons(cap.level, cap.reason)
         else:
-            level = CapabilityLevel.SUPPORTED
-            reason = "Copybook resolution supported"
-            blocking = ()
+            # BL-043: missing analyzer output must fail closed like the
+            # program path (`_build_program_plan`) — never default to
+            # SUPPORTED with an optimistic reason.
+            level = CapabilityLevel.UNKNOWN
+            reason = "No copybook capability analysis available"
+            blocking = (BlockingReason.UNKNOWN_CONSTRUCT,)
 
         if level == CapabilityLevel.SUPPORTED:
             strategy = TransformationStrategy.INTERNAL_NATIVE
@@ -639,9 +643,12 @@ class ModernizationPlanner:
             reason = cap.reason
             blocking = self._map_blocking_reasons(cap.level, cap.reason)
         else:
-            level = CapabilityLevel.SUPPORTED
-            reason = f"Sequential file {fd.operation} supported"
-            blocking = ()
+            # BL-043: missing analyzer output must fail closed like the
+            # program path (`_build_program_plan`) — never default to
+            # SUPPORTED with an optimistic reason.
+            level = CapabilityLevel.UNKNOWN
+            reason = "No file capability analysis available"
+            blocking = (BlockingReason.UNKNOWN_CONSTRUCT,)
 
         if level == CapabilityLevel.SUPPORTED:
             strategy = TransformationStrategy.INTERNAL_NATIVE

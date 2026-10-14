@@ -430,14 +430,24 @@ public class {class_name} {{
         # Find the main method and extract its body
         for method in java_class.methods:
             if method.name == "main":
-                # Split into loop and non-loop parts
+                # Split into loop and non-loop parts: comments annotate the
+                # record loop; every executable statement is rendered into
+                # the main body in source order (BL-041: never silently drop
+                # statements). A statement type with no renderable mapping
+                # fails closed naming the unmapped type.
                 for stmt in method.body_statements:
-                    # Simple heuristic: comments become loop body
-                    stmt_str = str(type(stmt).__name__)
-                    if hasattr(stmt, 'text') and stmt.text:
+                    if hasattr(stmt, "text") and stmt.text:
                         loop_body += f"            // {stmt.text}\n"
-                    elif hasattr(stmt, 'expression'):
-                        main_body += f"        {self._stmt_to_string(stmt)}\n"
+                    else:
+                        rendered = self._stmt_to_string(stmt)
+                        if not rendered:
+                            raise ValueError(
+                                "MISSING_REQUIRED_SEMANTIC: file_io main body "
+                                f"statement type {type(stmt).__name__} has no "
+                                "generator mapping."
+                            )
+                        for line in rendered.split("\n"):
+                            main_body += f"        {line}\n"
 
         return f'''import java.io.BufferedReader;
 import java.io.FileReader;

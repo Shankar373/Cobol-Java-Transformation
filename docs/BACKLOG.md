@@ -775,37 +775,67 @@ produced evidence, not re-run here).
   reachable.
 - **Severity:** high — `END-STRING` is optional in COBOL; any such program
   loses all subsequent logic silently.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide
-  line-by-line audit (Stage C, baseline `4deddfc`)**; statically proven at the
-  cited lines, not yet reproduced end-to-end (labeled per §76.7).
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle A, this session)** —
+  defect proven first (7 failed / 4 passed on the new focused file,
+  `%TEMP%\opencode\phase4\bl040_pre_fix.txt`), then fixed, then 12/12
+  green. Discovered 2026-10-14 by the repository-wide line-by-line audit
+  (Stage C, baseline `4deddfc`).
 - **Found by:** audit group T1 (`cobol_parser.py`); verified by hand:
   dispatch `L1068-1070` does no period pre-bounding; the continuation loop
   `L2251-2259` stops only at `END-STRING` or EOF; `_parse_string_text`
   `L2140-2199` treats the swallowed text as a tail and discards it (no
   diagnostic path exists).
 - **Observed behavior (verified):** for `STRING A DELIMITED BY SIZE INTO B.`
-  followed by further statements, `_parse_string` consumes every following
-  line into `full_text`; the statements never reach the IR.
+  followed by further statements, `_parse_string` consumed every following
+  line into `full_text`; the statements never reached the IR.
 - **Expected behavior:** the statement ends at its terminating period (or
-  `END-STRING`); an unterminated `STRING` must fail closed with a named
-  diagnostic — never swallow.
-- **Root cause:** continuation join is bounded by `END-STRING` only; the
-  period terminator honoured everywhere else is not (contrast the DISPLAY
-  fix noted at `L2265-2268`).
+  `END-STRING`); a following statement must never be swallowed.
+- **Root cause:** continuation join was bounded by `END-STRING` only; the
+  period terminator honoured everywhere else was not (contrast the DISPLAY
+  fix).
 - **Affected files:** `engine/transformation/cobol_parser.py`
-  (`_parse_string` L2240-2261, dispatch L1068-1070).
+  (`_parse_string`; module-level `_STRING_CONTINUATION_STOP` derived from
+  `_STATEMENT_LEADING_VERBS`).
 - **Impact:** silent statement deletion in the canonical parser lane;
-  downstream capability/verdict cannot see it.
-- **Remediation (planned):** period-bound the continuation join (mirror
-  `_parse_display`), plus a fail-closed diagnostic for unterminated input;
-  adversarial tests (bare-period STRING mid-paragraph, multi-line STRING
-  with ON OVERFLOW, lowercase `string`).
-- **Acceptance criteria:** no diagnostic-free statement loss; unterminated
-  `STRING` fails closed with a named diagnostic; focused tests + full
-  suite green.
-- **Owner/role:** parser / IR maintainer. **Target phase:** unassigned —
-  next remediation cycle. **Dependency:** none. **Residual risk:** valid
-  COBOL with bare-period `STRING` loses logic silently today.
+  downstream capability/verdict could not see it.
+- **Remediation (implemented, deterministic, no LLM):** `_parse_string`
+  now (1) returns immediately when the opening line already ends with `.`
+  (mirrors `_parse_display`); (2) stops the continuation join after a line
+  ending with the statement period; (3) stops *before* a scope terminator
+  (`_SCOPE_TERMINATOR`) or a verb-led/file-clause-header line
+  (`_STRING_CONTINUATION_STOP`, **word-boundary** matched so a data-name
+  like `MOVE-DATE` still continues the statement — derived from the
+  dispatcher's own verb vocabulary so the two cannot drift). Refined
+  contract, recorded during remediation: a *complete* unterminated STRING
+  (has INTO) stays lenient with **no** diagnostic — with the boundaries in
+  place it loses nothing, and adding one would fail-closed on lossless
+  input (the BL-034/BL-035 anti-pattern, and the shape the capability-truth
+  gate's `test_missing_delimited_by_defaults_to_size` already pins); an
+  *incomplete* STRING (no INTO) still fails closed through the existing
+  `_emit_unparsed` channel.
+- **Acceptance criteria / tests:**
+  `tests/transformation/test_string_period_termination.py` (12 tests,
+  wired into the `ci.yml` capability-truth gate): period-terminated
+  single-line and multi-line (with ON OVERFLOW) STRING keep every following
+  statement; lowercase `string` identical; verb-led line ends an
+  unterminated STRING and the next statement is preserved; `MOVE-DATE`
+  data-name continues (word-boundary proof); complete-unterminated stays
+  lenient/lossless, incomplete-unterminated diagnosed via `_emit_unparsed`;
+  END-STRING join (BL-027) byte-identical.
+- **Evidence (defect proven first):** pre-fix **7 failed / 4 passed**
+  (`%TEMP%\opencode\phase4\bl040_pre_fix.txt`); post-fix **12 passed**;
+  BL-027/BL-029 regression batch (string_delimited + generator literals +
+  multiline formats + decision records + scoped constructs + silent-loss
+  adversarial) **131 passed**; `tests/transformation/` + e2e + control-flow
+  batch **1965 passed / 4 skipped** (the two `TestArithRealE2E` flakes pass
+  on rerun and fail identically with the fix stashed — Docker cold-start,
+  not this change); capability-truth gate **440 passed** (428 + 12 new).
+  No existing test weakened or skipped.
+- **Owner/role:** parser / IR maintainer. **Target phase:** Phase 4
+  (cycle A, fixed in-cycle). **Dependency:** none. **Residual risk:** a
+  same-line two-statement spelling (`STRING ... INTO B. MOVE ...` on one
+  physical line) is out of scope — the parser's line-oriented statement
+  model does not split same-line statements for any verb.
 
 ### BL-041 — `file_io` generation mode silently drops statements that carry neither `.text` nor `.expression`
 
@@ -814,15 +844,27 @@ produced evidence, not re-run here).
   vanish from the emitted program). May upgrade to P0 after a reproduction
   shows the mode reachable under a green verdict.
 - **Severity:** medium-high.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle B)**; defect-proven-first:
+  the new focused file
+  `tests/transformation/test_file_io_main_body_rendering.py` ran **5 failed
+  / 2 passed** against the unmodified generator
+  (`%TEMP%\opencode\phase4\bl041_pre_fix.txt`) — local declaration, CALL
+  statement, IF block and WHILE loop all silently vanished from the emitted
+  main body, and the unmapped-statement case raised no diagnostic at all.
 - **Found by:** audit group T3; verified: `java_generator.py L431-440`
   iterates main-method body statements and appends only when
   `hasattr(stmt, 'text')` or `hasattr(stmt, 'expression')`; every other
   statement type is skipped with no diagnostic; the local `stmt_str` at
   `L436` is computed and unused.
+  *Correction recorded at fix time:* the audit's claim that `RETURN`
+  statements were dropped is **inaccurate** — `JavaReturn` carries an
+  `.expression` attribute so it was already rendered (regression test
+  `test_file_io_main_body_renders_return_statement_regression` pins this).
+  The silently dropped types are local declarations, method calls, IF
+  blocks, loops, and blocks (anything without `.text`/`.expression`).
 - **Observed behavior (verified):** in the file_io template path, calls,
-  IF blocks, loops and returns are omitted from the generated main body.
+  IF blocks, loops and local declarations are omitted from the generated
+  main body.
 - **Expected behavior:** either emit every statement type or fail closed
   with a diagnostic naming the unmapped construct (house invariant:
   never drop executable statements).
@@ -830,15 +872,24 @@ produced evidence, not re-run here).
   demo path was never fail-closed.
 - **Affected files:** `engine/transformation/java_generator.py` L431-440.
 - **Impact:** wrong generated program without diagnostics if the mode is
-  reached.
-- **Remediation (planned):** fail-closed diagnostic for unmapped
-  statements (preferred) or explicit statement coverage; adversarial test
-  with CALL/IF after the parsing block.
-- **Acceptance criteria:** no silent statement drop; focused test +
-  regression batch green.
-- **Owner/role:** Java generator maintainer. **Target phase:** unassigned.
-  **Dependency:** reachability reproduction. **Residual risk:** mode
-  reachability under a verdict not yet proven.
+  reached. Reachability confirmed at fix time: `_derive_generation_mode`
+  (`cobol_to_java_mapping.py` L3405-3418) selects `file_io` for
+  `caps.input_record_mapping` programs, so the path is production-reachable.
+- **Remediation (done):** every main-body statement is now rendered via
+  `_stmt_to_string` into the main body in source order (comments keep
+  their record-loop placement); a statement whose rendering is empty
+  fails closed with `ValueError("MISSING_REQUIRED_SEMANTIC: … statement
+  type <TypeName> has no generator mapping.")`; the dead `stmt_str`
+  local is removed.
+- **Acceptance criteria:** met — no silent statement drop (7 focused
+  tests: red 5/2 pre-fix → green 7/7 post-fix, including a fail-closed
+  test naming `JavaThrow`) + generator/file-lane regression batch
+  **168 passed**. No existing test weakened or skipped.
+- **Owner/role:** Java generator maintainer. **Target phase:** **Phase 4
+  (cycle B — fixed 2026-10-14)**. **Dependency:** none remaining.
+  **Residual risk:** multi-line renderings (IF/WHILE) are indented one
+  level at insertion; an empty `JavaBlock` now fails closed rather than
+  rendering as a no-op (fail-closed direction, per the house invariant).
 
 ### BL-042 — Producer diagnostics are dict-shaped, not `Diagnostic` objects (`TransformationResult.has_errors` crashes or mis-reports)
 
@@ -879,8 +930,13 @@ produced evidence, not re-run here).
   a missing analyzer component silently becomes a green plan for
   copybooks and files.
 - **Severity:** medium-high.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle B)**; defect-proven-first:
+  the new focused file
+  `tests/transformation/test_planner_missing_component_fail_closed.py`
+  ran **5 failed / 2 passed** against the unmodified planner
+  (`%TEMP%\opencode\phase4\bl043_pre_fix.txt`) — `cap=None` yielded
+  `SUPPORTED` + `INTERNAL_NATIVE` + `DOCKER_ORACLE` for both copybook
+  and file components, exactly as the audit claimed.
 - **Found by:** audit group T2; verified: `modernization_planner.py
   L605-612` (`_build_copybook_plan`) and `L637-644` (`_build_file_plan`)
   set `CapabilityLevel.SUPPORTED` when `cap is None`.
@@ -895,13 +951,20 @@ produced evidence, not re-run here).
   L600-654.
 - **Impact:** capability-truth drift if analyzer output ever misses a
   component (e.g. future partial analyzers, error paths).
-- **Remediation (planned):** fail-closed default + unit test passing
-  `cap=None`.
-- **Acceptance criteria:** `cap=None` yields non-SUPPORTED with a blocking
-  reason; planner tests green.
+- **Remediation (done):** both builders now mirror `_build_program_plan`:
+  `cap is None` ⇒ `CapabilityLevel.UNKNOWN`, reason
+  "No copybook/file capability analysis available", blocking
+  `(BlockingReason.UNKNOWN_CONSTRUCT,)`, and the existing non-SUPPORTED
+  branch maps to `SKIP`/`SKIP` strategies.
+- **Acceptance criteria:** met — `cap=None` yields non-SUPPORTED with a
+  blocking reason (7 focused tests: red 5/2 pre-fix → green 7/7
+  post-fix, including pass-through regressions for present components);
+  planner-dependent regression batch **189 passed**. No existing test
+  weakened or skipped.
 - **Owner/role:** modernization planner maintainer. **Target phase:**
-  unassigned. **Dependency:** none. **Residual risk:** none once default
-  is fail-closed.
+  **Phase 4 (cycle B — fixed 2026-10-14)**. **Dependency:** none.
+  **Residual risk:** none — the fail-closed default cannot green-light
+  missing analysis.
 
 ### BL-044 — CALL resolution is stamped case-sensitively by discovery but matched case-insensitively by the analyzer (contradictory facts)
 
@@ -909,29 +972,49 @@ produced evidence, not re-run here).
 - **Priority:** P1 — one CALL fact can read `UNRESOLVED` (edge/record) and
   `ARITY_MISMATCH` (plan) simultaneously for mixed-case sources.
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; mechanism verified by hand, single-workload
-  reproduction pending.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle B)**; defect-proven-first:
+  the new focused file
+  `tests/transformation/test_call_name_case_normalization.py` ran **4
+  failed / 3 passed** against the unmodified lanes
+  (`%TEMP%\opencode\phase4\bl044_pre_fix.txt`) — a lowercase CALL
+  literal against an uppercase PROGRAM-ID read `UNRESOLVED` in the
+  record/edge while the arity lane resolved the same callee, and a
+  case-variant self CALL was misclassified as an unresolved external
+  target instead of recursive.
 - **Found by:** audit group T2; verified: `application_discovery.py L600`
   uses `call.target in known_programs` (case-sensitive) while
   `capability_analyzer.py L252/L261` matches case-insensitively.
-- **Observed behavior (verified at code level):** COBOL is
+- **Observed behavior (verified):** COBOL is
   case-insensitive, but a lowercase/mixed-case CALL target against an
   uppercase program-id resolves differently in the two lanes.
 - **Expected behavior:** one normalization rule (uppercase) in both lanes.
 - **Root cause:** independent membership checks without a shared
   normalization helper.
 - **Affected files:** `engine/transformation/application_discovery.py`
-  L600; `engine/transformation/capability_analyzer.py` L252/L261.
+  L600; `engine/modernization/capability_analyzer.py` L252/L261
+  (note: the audit entry cited `capability_analyzer.py` as
+  `engine/transformation/…`; the file lives in `engine/modernization/`).
 - **Impact:** contradictory plan reasons for valid programs; trust/
   provenance inconsistency (BL-038 class).
-- **Remediation (planned):** shared uppercase normalization in both lanes;
-  focused test with a lowercase CALL target.
-- **Acceptance criteria:** resolution and arity agree for mixed-case
-  sources; focused test green.
+- **Remediation (done):** new shared `normalize_cobol_name` in
+  `engine/transformation/ir.py` (the module both lanes import) applied
+  to every program-id join: discovery's `known_programs` set and target
+  check, the analyzer's LINKAGE-arity `by_id`/target, the analyzer's
+  `program_levels` keys and callee lookup, and the case-variant
+  self-CALL checks in both `_analyze_call` and the planner's
+  `_build_call_relationship` fallback. Source spelling of `target` and
+  edge `target` are preserved (only comparisons normalize).
+- **Acceptance criteria:** met — resolution and arity agree for
+  mixed-case sources (7 focused tests: red 4/3 pre-fix → green 7/7
+  post-fix, including self-CALL stays recursive and same-case/missing/
+  dynamic regressions); CALL/discovery/analyzer/planner regression
+  batch **249 passed**. No existing test weakened or skipped.
 - **Owner/role:** application discovery maintainer. **Target phase:**
-  unassigned. **Dependency:** none. **Residual risk:** reproduction
-  workload not yet built.
+  **Phase 4 (cycle B — fixed 2026-10-14)**. **Dependency:** none.
+  **Residual risk:** none for program-id joins; other name spaces
+  (copybook stems, file names) still compare as-spelled and would need
+  their own normalization decisions if a contradiction is ever
+  demonstrated there.
 
 ### BL-045 — Nested-statement recursion drops `called_programs` (CALLs inside IF/PERFORM bodies lose resolution metadata)
 
@@ -2587,8 +2670,13 @@ level and evidence location.
   ADD/SUBTRACT/DIVIDE asymmetry).
 - **Severity:** medium-high for coverage and diagnostic completeness;
   §53.9 requires recognized statements never disappear without a diagnostic.
-- **Status:** **OPEN — discovered 2026-10-14 by the Phase 4 §76 audit
-  (probe-confirmed, not just static)**.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle B)**; defect-proven-first:
+  the new focused file `tests/transformation/test_multiply_diagnostic.py`
+  ran **5 failed / 5 passed** against the unmodified parser
+  (`%TEMP%\opencode\phase4\bl069_pre_fix.txt`) — every standard
+  no-match form (double-`BY`, `ON SIZE ERROR`, lowercase, multi-recipient
+  `GIVING` list) returned a diagnostic-free empty node exactly as the
+  probe claimed.
 - **Found by:** Phase 4 audit probes (`%TEMP%\opencode\phase4\probe_p4_r1.py`,
   case MULTIPLY): real `CobolParser.parse` of
   `MULTIPLY WS-A BY WS-B BY WS-C.` and
@@ -2601,21 +2689,32 @@ level and evidence location.
   explicit diagnostic naming the statement (the ADD/SUBTRACT/DIVIDE rule).
 - **Root cause:** the single regex at `cobol_parser.py L1572-1576` accepts
   only the strict `MULTIPLY x BY y [GIVING z] [ROUNDED]` spelling; the
-  no-match branch `L1577-1578` returns an empty node instead of calling
+  no-match branch `L1577-1578` returned an empty node instead of calling
   `_emit_unparsed` (contrast `_parse_add` etc., which fail closed).
 - **Affected files:** `engine/transformation/cobol_parser.py`
-  (`_parse_multiply` L1569-1591).
+  (`_parse_multiply`).
 - **Impact:** silent drop of a recognized arithmetic statement with no
   diagnostic — the §53.9/§60 defect class; capability consumers cannot see it.
-- **Remediation (planned):** extend the regex for the standard double-`BY`
-  form and `ON SIZE ERROR` (diagnose the latter like ADD), and route every
-  no-match through `_emit_unparsed` so no empty node can be returned silently.
-- **Acceptance criteria:** no `MULTIPLY` spelling returns a diagnostic-free
-  empty node; focused tests (double-BY, ON SIZE ERROR, lowercase,
-  simple-form regression) + full suite green; no existing test weakened.
+- **Remediation (done):** the no-match branch now emits the same
+  `UNSUPPORTED_CONSTRUCT` "Statement did not parse into IR" diagnostic
+  ADD/SUBTRACT/DIVIDE emit in this position (`_emit_unparsed("MULTIPLY",
+  …)`), mirroring ADD exactly; the empty node returned *after* the
+  diagnostic is the shared contract of that family (the mapper then
+  degrades visibly, not silently). Full regex extension for the
+  double-`BY`/`ON SIZE ERROR` forms is **not** in this fix — those
+  spellings are now honestly diagnosed as unparsed instead of silently
+  dropped; extending the regex is a separate coverage enhancement with
+  its own acceptance burden.
+- **Acceptance criteria:** met — no `MULTIPLY` spelling returns a
+  diagnostic-free empty node (10 focused tests incl. a property test
+  over the standard forms: red 5/5 pre-fix → green 10/10 post-fix);
+  parser arithmetic regression batch green; gate wired. No existing test
+  weakened.
 - **Owner/role:** parser / IR maintainer. **Target phase:** Phase 4
-  (cycle B). **Dependency:** none. **Residual risk:** until fixed, valid
-  standard `MULTIPLY` forms lose their arithmetic silently.
+  (cycle B — fixed 2026-10-14). **Dependency:** none. **Residual risk:**
+  standard double-`BY`/`ON SIZE ERROR` forms remain UNSUPPORTED (now
+  with a diagnostic) until the regex is extended — coverage gap, not a
+  silent-loss gap.
 
 ### BL-070 — `_parse_rewrite` binds the target file by string heuristic only and ignores the FILE SECTION owner map (`_record_owner`), silently degrading unbound REWRITE to a comment
 
@@ -2632,8 +2731,15 @@ level and evidence location.
   parser (BL-038-class cross-lane inconsistency).
 - **Severity:** medium-high for indexed/relative workloads that do not use
   the `-REC`/`-FILE` naming convention (common in real corpora).
-- **Status:** **OPEN — discovered 2026-10-14 by the Phase 4 §76 audit
-  (probe-confirmed)**.
+- **Status:** **FIXED — 2026-10-14 (Phase 4 cycle B)**; defect-proven-first:
+  the new focused file `tests/transformation/test_rewrite_binding.py`
+  ran **2 failed / 3 passed** against the unmodified parser
+  (`%TEMP%\opencode\phase4\bl070_pre_fix.txt`) — the convention-breaking
+  record bound `IDX-DATA` (heuristic) while WRITE bound `IDX-FILE`
+  (owner map) for the same FD. *Evidence-chain note:* the first capture
+  of this file was mislabeled (it contained a post-fix all-green run);
+  the genuine pre-fix red was regenerated on 2026-10-14 by temporarily
+  reverting only the BL-070 hunk and re-running the focused file.
 - **Found by:** Phase 4 audit + probe `%TEMP%\opencode\phase4\probe_p4_r1.py`
   (case REWRITE): an FD `FD IDX-FILE.` with record `01 IDX-DATA.` and
   `REWRITE IDX-DATA FROM WS-BUF.` binds `file_name="IDX-DATA"`-derived
@@ -2644,23 +2750,29 @@ level and evidence location.
 - **Expected behavior:** REWRITE resolves the owning file exactly like
   WRITE (owner map first, heuristic fallback), and an unresolvable record
   name produces an explicit diagnostic rather than a silent comment.
-- **Root cause:** `L1465` predates the `_record_owner` map added for WRITE;
-  the two verbs were never unified.
+- **Root cause:** `_parse_rewrite` predates the `_record_owner` map added
+  for WRITE; the two verbs were never unified.
 - **Affected files:** `engine/transformation/cobol_parser.py`
-  (`_parse_rewrite` L1455-1477 vs `_parse_write` L1346-1375;
-  `engine/transformation/cobol_to_java_mapping.py` L2425-2484).
+  (`_parse_rewrite` vs `_parse_write`;
+  `engine/transformation/cobol_to_java_mapping.py` REWRITE branch).
 - **Impact:** REWRITE silently becomes a comment for non-conventionally
   named records; no capability or diagnostic channel sees it.
-- **Remediation (planned):** `_parse_rewrite` consults `_record_owner`
-  first (mirror WRITE L1360-1363); unbound records keep the heuristic
-  fallback and gain an explicit diagnostic if neither resolves.
-- **Acceptance criteria:** REWRITE binds the FD-declared file for
-  convention-breaking names; unresolvable REWRITE fails closed named;
-  focused tests + `test_file_invalid_key_lane.py` + full suite green.
+- **Remediation (done):** `_parse_rewrite` now consults `_record_owner`
+  first and keeps the `-REC`→`-FILE` heuristic as the fallback for
+  records no FD declares — exactly mirroring `_parse_write`.
+- **Acceptance criteria:** met — REWRITE binds the FD-declared file for
+  convention-breaking names and agrees with WRITE (5 focused tests:
+  red 2/3 pre-fix → green 5/5 post-fix, incl. same-FD WRITE/REWRITE
+  agreement and heuristic-fallback preservation); file-lane regression
+  (`test_file_invalid_key_lane.py`, `test_file_semantics.py` +
+  generator lanes) **104 passed** at fix time; parser-focused batch
+  **27 passed** at evidence regeneration. No existing test weakened.
 - **Owner/role:** parser / mapping maintainer. **Target phase:** Phase 4
-  (cycle B). **Dependency:** existing `_record_owner` map. **Residual
-  risk:** until fixed, indexed/relative REWRITE workloads with unconventional
-  record names lose the statement silently.
+  (cycle B — fixed 2026-10-14). **Dependency:** existing `_record_owner`
+  map. **Residual risk:** a record that follows the `-REC` convention
+  *and* is declared by an FD with a different name now binds the
+  FD-declared file (owner map wins) — the FD declaration is authoritative,
+  matching WRITE.
 
 ## Backlog change log
 
@@ -3262,6 +3374,75 @@ level and evidence location.
   were filed after the verdict: the items are now explicitly assigned,
   owned, and carried, never silently waived.
 
+- 2026-10-14 — **(s) Phase 4 cycle A: BL-040 (P0) FIXED.** Defect proven
+  first: the new focused file
+  `tests/transformation/test_string_period_termination.py` ran **7 failed
+  / 4 passed** against the unmodified parser
+  (`%TEMP%\opencode\phase4\bl040_pre_fix.txt`) — every period-terminated
+  STRING swallowed all following statements exactly as the audit claimed.
+  Fix: `_parse_string` mirrors `_parse_display`'s already-shipped
+  period-bounding (immediate return when the opening line ends with `.`,
+  stop after a period-terminated continuation line) and additionally stops
+  *before* a `_SCOPE_TERMINATOR` or a verb-led/file-clause-header line via
+  a new module-level `_STRING_CONTINUATION_STOP` regex **derived from the
+  dispatcher's own `_STATEMENT_LEADING_VERBS` vocabulary** (word-boundary
+  matched, so `MOVE-DATE` remains continuation data while `MOVE WS-A` ends
+  the statement — the two vocabularies cannot drift). Contract refinement
+  recorded in the entry: a complete-but-unterminated STRING stays lenient
+  with no diagnostic (it loses nothing once bounded; the capability-truth
+  gate's `test_missing_delimited_by_defaults_to_size` already pins that
+  shape, and diagnosing lossless input would be the BL-034/BL-035
+  fail-closed-on-valid-input anti-pattern); an incomplete STRING (no INTO)
+  still fails closed through `_emit_unparsed`. Post-fix: **12/12 new
+  tests green**; BL-027/BL-029 regression batch **131 passed**;
+  `tests/transformation/` + e2e + control-flow batch **1965 passed /
+  4 skipped** (the two `TestArithRealE2E` Docker cold-start flakes pass on
+  rerun and fail identically with the fix stashed — environment, not the
+  change); capability-truth gate **440 passed** (428 + 12; the file is
+  wired into `ci.yml`). No existing test weakened or skipped. Baseline
+  commit for the Stage C/D/E work (audit + optimizations + renames) is
+  `87f582f` (pushed; exact-SHA CI verification in flight).
+
+- 2026-10-14 — **(t) Phase 4 cycle B: BL-041, BL-043, BL-044, BL-069,
+  BL-070 (all P1) FIXED.** Every item followed defect-proven-first:
+  failing focused test, red evidence saved, fix, green focused +
+  regression batches; no existing test weakened or skipped. **BL-041**
+  (file_io silent statement drop): red 5/2
+  (`bl041_pre_fix.txt`) — decl/CALL/IF/WHILE vanished from the emitted
+  main body and unmapped statements raised nothing; fix renders every
+  main-body statement through `_stmt_to_string` in source order and
+  fails closed `MISSING_REQUIRED_SEMANTIC` naming the unmapped type
+  (dead `stmt_str` removed); the audit's "RETURN dropped" claim was
+  falsified at fix time (JavaReturn carries `.expression`) and is
+  corrected in the entry; reachability confirmed via
+  `_derive_generation_mode` (`file_io` for `caps.input_record_mapping`);
+  7 tests, regression 168. **BL-043** (planner fail-open defaults): red
+  5/2 (`bl043_pre_fix.txt`) — `cap=None` yielded SUPPORTED for
+  copybook/file components; both builders now mirror
+  `_build_program_plan` (UNKNOWN + "No … capability analysis
+  available" + `UNKNOWN_CONSTRUCT` + SKIP/SKIP); 7 tests, planner
+  regression 189. **BL-044** (CALL name case contradiction): red 4/3
+  (`bl044_pre_fix.txt`) — a lowercase CALL literal read UNRESOLVED in
+  the record/edge while the arity lane resolved the callee; fix adds
+  shared `normalize_cobol_name` in `engine/transformation/ir.py`
+  applied to every program-id join (discovery known_programs/target,
+  analyzer arity by_id/target, `program_levels` keys/callee lookup,
+  self-CALL checks in `_analyze_call` and the planner fallback);
+  spelling preserved, only comparisons normalize; 7 tests, regression
+  249. **BL-069** (MULTIPLY silent empty node): red 5/5
+  (`bl069_pre_fix.txt`); `_parse_multiply` no-match branch mirrors ADD
+  (`_emit_unparsed`), double-`BY`/`ON SIZE ERROR` forms now honestly
+  diagnosed instead of silently dropped (regex extension recorded as
+  residual coverage work, not silent loss); 10 tests incl. property
+  test. **BL-070** (REWRITE owner-map gap): red 2/3
+  (`bl070_pre_fix.txt`) — *the first capture of this evidence file was
+  mislabeled (post-fix all-green); the genuine red was regenerated by
+  temporarily reverting only the BL-070 hunk*; `_parse_rewrite` now
+  consults `_record_owner` first, mirroring `_parse_write`; 5 tests,
+  file-lane regression 104 + parser batch 27. All five focused test
+  files are wired into the `ci.yml` capability-truth gate; backlog
+  entries and register rows updated in the same pass.
+
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
   `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked
@@ -3348,11 +3529,11 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-037 | Parser / IR maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-038/BL-039)** | `CobolParser._parse_call`; arity analysis | `CALL … ON EXCEPTION …` swallows the phrase and its statement into the USING list → false arity 5 vs 1 → `UNSUPPORTED` with a factually wrong reason; planner maps it to `UNKNOWN_CONSTRUCT`. | P2 / medium: fail-closed, but the diagnostic claims an arity mismatch that does not exist and a standard CALL phrase is unparsed. | FIXED — `_parse_call` stops the USING capture at `ON EXCEPTION`/`ON OVERFLOW` (correct arity) and names the phrase in an explicit `UNSUPPORTED_CONSTRUCT` diagnostic; the planner maps linkage-arity failures to a new `ARITY_MISMATCH` `BlockingReason` instead of `UNKNOWN_CONSTRUCT`. Verified: correct arity + phrase named + no false-arity reason + `ARITY_MISMATCH` in the plan summary; tests in `tests/test_call_statement_parsing.py`; E2E onexc plan `BLOCKED` with the phrase named, oracle handler truth captured. |
 | BL-038 | Application discovery maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-037/BL-039)** | Edge-metadata stamping (`resolution=…` on `DependencyEdge`) | `ProgramCall.resolution` stays at its `UNRESOLVED` default even for resolved static calls, contradicting the edge metadata and the plan for the same call. | P2 / low: no verdict consumes the field (capability reads edge metadata), so no false classification is reachable; traceability-only. | FIXED — `_build_dependency_graph` stamps `ProgramCall.resolution` from the same decision that stamps the edge metadata (frozen dataclass replaced, unit tuple rebuilt before the application is constructed). Verified: resolved static `RESOLVED`, missing static `UNRESOLVED`, dynamic never resolves even with a coinciding program-id, and a 3-call invariant test pins record == edge; 4 focused tests in `tests/test_call_resolution_truth.py`, wired into the `ci.yml` gate. |
 | BL-039 | Capability maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-037/BL-038)** | BL-031's `_expand_copybook_text` (implemented) | `_analyze_copybook` scans only the top-level copybook file, so constructs inside nested copybooks — now materialized into the merged IR — are never classified. | P2 / medium-low: potential false `SUPPORTED` COPYBOOK component for nested content; bounded to data-division constructs in nested files. | FIXED — `copybook_model.collect_copybook_texts` walks the top-level file plus every reachable nested COPY target (same strict resolver, cycle-guarded, nested problems recorded as the same `ERROR` diagnostics generation fails on); `_analyze_copybook` scans per file with the shared search-directory authority (`analyze(..., source_root=...)`, threaded from planner and pipeline). Reason names the nested file carrying the worst-level keys; nested problems fail the component closed with generation's own message; flat copybooks keep the exact legacy reason. 9 focused tests in `tests/test_copybook_capability_transitivity.py`, wired into the `ci.yml` gate; E2E nested2 `ORACLE_MATCH=YES`. |
-| BL-040 | Parser / IR maintainer | **Phase 4 (cycle A — assigned 2026-10-14)** | Period-bound statement termination in the parser | §53.9 forbids silent semantic loss; P0 per §77 (green-verdict-over-wrong-program shape). | Valid COBOL with bare-period `STRING` loses all subsequent statements silently today. | Unterminated `STRING` fails closed with a named diagnostic; no diagnostic-free statement loss; focused + full suite green. |
-| BL-041 | Java generator maintainer | **Phase 4 (cycle B — assigned 2026-10-14)** | Reachability reproduction of the file_io mode | Silent statement drop contradicts the no-silent-loss invariant; upgrade to P0 if reachable under a green verdict. | file_io mode may emit wrong programs without diagnostics. | Unmapped statements fail closed named; adversarial test + regression batch green. |
+| BL-040 | Parser / IR maintainer | **Phase 4 (cycle A — fixed in-cycle 2026-10-14)** | Period-bound statement termination in the parser | §53.9 forbids silent semantic loss; P0 per §77 (green-verdict-over-wrong-program shape). | Residual: same-line two-statement spelling out of scope (line-oriented statement model, applies to every verb). | FIXED — `_parse_string` period-bounded + verb/scope-terminator boundary (word-boundary matched, `_STRING_CONTINUATION_STOP` derived from the dispatcher verb vocabulary); complete-unterminated STRING stays lenient/lossless, incomplete fails closed via `_emit_unparsed`; 12 focused tests in `tests/transformation/test_string_period_termination.py` wired into the `ci.yml` gate; pre-fix red 7/4 proven (`%TEMP%\opencode\phase4\bl040_pre_fix.txt`); gate 440 passed; no existing test weakened. |
+| BL-041 | Java generator maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_stmt_to_string` (already renders every statement type) | Silent statement drop contradicts the no-silent-loss invariant; reachable path confirmed (`_derive_generation_mode` selects `file_io` for `caps.input_record_mapping`). | Residual: empty `JavaBlock` now fails closed instead of rendering as no-op (fail-closed direction). | FIXED — all main-body statements rendered via `_stmt_to_string` into the main body in source order (comments keep record-loop placement); unmapped/empty rendering fails closed `MISSING_REQUIRED_SEMANTIC` naming the type; dead `stmt_str` removed; audit claim "RETURN dropped" corrected (JavaReturn carries `.expression`; regression test pins it); 7 focused tests in `tests/transformation/test_file_io_main_body_rendering.py` wired into the `ci.yml` gate; pre-fix red 5/2 proven (`%TEMP%\opencode\phase4\bl041_pre_fix.txt`); generator/file-lane regression 168 passed; no existing test weakened. |
 | BL-042 | Transformation producer maintainer | Phase 4 (cycle C) | `Diagnostic` dataclass as the single diagnostics shape | Producer contract violated at the source; consumers crash or mis-report. | Error visibility depends on the consumer path. | All producers pass a diagnostics-shape contract test; full suite green. |
-| BL-043 | Modernization planner maintainer | **Phase 4 (cycle B — assigned 2026-10-14)** | None | Fail-open default contradicts the fail-closed program default (capability truth). | A missing analyzer component silently becomes a green plan. | `cap=None` yields non-SUPPORTED with a blocking reason; planner tests green. |
-| BL-044 | Application discovery maintainer | **Phase 4 (cycle B — assigned 2026-10-14)** | Shared uppercase normalization helper | One CALL fact can contradict itself across lanes (BL-038 class). | Mixed-case sources produce contradictory plan reasons. | Resolution and arity agree for mixed-case sources; focused test green. |
+| BL-043 | Modernization planner maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_build_program_plan` fail-closed default (UNKNOWN + `UNKNOWN_CONSTRUCT`) | Fail-open default contradicts the fail-closed program default (capability truth). | None — the fail-closed default cannot green-light missing analysis. | FIXED — `_build_copybook_plan`/`_build_file_plan` mirror the program path (`cap=None` ⇒ `UNKNOWN`, "No copybook/file capability analysis available", `UNKNOWN_CONSTRUCT`, `SKIP`/`SKIP` strategies); 7 focused tests in `tests/transformation/test_planner_missing_component_fail_closed.py` wired into the `ci.yml` gate; pre-fix red 5/2 proven (`%TEMP%\opencode\phase4\bl043_pre_fix.txt`); planner-dependent regression batch 189 passed; no existing test weakened. |
+| BL-044 | Application discovery maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | Shared `normalize_cobol_name` in `engine/transformation/ir.py` | One CALL fact could contradict itself across lanes (BL-038 class). | None for program-id joins; other name spaces (copybook stems, file names) still compare as-spelled pending a demonstrated contradiction. | FIXED — shared uppercase normalization applied to every program-id join (discovery known_programs/target check; analyzer arity by_id/target, `program_levels` keys/callee lookup; self-CALL checks in `_analyze_call` and planner fallback); spelling of `target`/edge preserved, only comparisons normalize; 7 focused tests in `tests/transformation/test_call_name_case_normalization.py` wired into the `ci.yml` gate; pre-fix red 4/3 proven (`%TEMP%\opencode\phase4\bl044_pre_fix.txt`); CALL/discovery/analyzer/planner regression batch 249 passed; no existing test weakened. |
 | BL-045 | Mapping maintainer | Phase 12 (carry-forward 2026-10-14 — Phase 3 lane item, not scheduled in Phase 4) | `called_programs` collector threading | Nested CALLs lose resolution metadata (coverage/provenance). | Incomplete program references in mapping output. | Nested CALL contributes to called_programs; focused + regression tests green. |
 | BL-046 | Spring Boot generator maintainer | Phase 12 (carry-forward 2026-10-14) | Native escaping helper (BL-030) | Lane divergence: invalid Java or wrong values for quotes/backslashes. | Emitted literals can diverge from the oracle-verified native lane. | Both lanes emit identical escaped literals; focused test green. |
 | BL-047 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Silent file loss on accepted uploads; documented collision contract unreachable. | Downstream transformation runs on incomplete sources. | Duplicate-name upload fails closed named; security suite green. |
@@ -3377,8 +3558,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
 | BL-067 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | Cap enforced with a 4xx/413; API tests green. |
 | BL-068 | Frontend maintainer | Phase 11 (carry-forward 2026-10-14) | None | Three state-lifecycle gaps: wrong-application display, invisible download errors, unbounded polling. | Customer-visible confusion; wasted polling load. | Each of the three has a focused test; type-check + tests + build green. |
-| BL-069 | Parser / IR maintainer | **Phase 4 (cycle B — filed 2026-10-14)** | `_emit_unparsed` diagnostic channel (exists; ADD/SUBTRACT/DIVIDE already use it) | Standard `MULTIPLY a BY b BY c` and `ON SIZE ERROR` forms return an empty IR node with zero diagnostics — silent statement loss (§53.9). | Valid standard MULTIPLY forms lose their arithmetic silently. | No MULTIPLY spelling returns a diagnostic-free empty node; focused tests + full suite green. |
-| BL-070 | Parser / mapping maintainer | **Phase 4 (cycle B — filed 2026-10-14)** | Existing `_record_owner` map (built at `cobol_parser.py L388-395`) | REWRITE binds its file by string heuristic only (WRITE consults the FD owner map first); unbound REWRITE silently degrades to a comment with no diagnostic. | Indexed/relative REWRITE workloads with unconventional record names lose the statement silently. | REWRITE binds the FD-declared file; unresolvable REWRITE fails closed named; focused + file-lane + full suite green. |
+| BL-069 | Parser / IR maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_emit_unparsed` diagnostic channel (exists; ADD/SUBTRACT/DIVIDE already use it) | Standard `MULTIPLY a BY b BY c` and `ON SIZE ERROR` forms returned an empty IR node with zero diagnostics — silent statement loss (§53.9). | Residual: double-`BY`/`ON SIZE ERROR` forms remain UNSUPPORTED *with* a diagnostic until the regex is extended (coverage gap, not silent loss). | FIXED — `_parse_multiply` no-match branch mirrors ADD exactly (`_emit_unparsed("MULTIPLY", …)`; empty node after diagnostic is the shared contract); 10 focused tests in `tests/transformation/test_multiply_diagnostic.py` wired into the `ci.yml` gate; pre-fix red 5/5 proven (`%TEMP%\opencode\phase4\bl069_pre_fix.txt`); parser arithmetic regression green; no existing test weakened. |
+| BL-070 | Parser / mapping maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | Existing `_record_owner` map (built in `cobol_parser.py`) | REWRITE bound its file by string heuristic only (WRITE consults the FD owner map first); unbound REWRITE silently degraded to a comment with no diagnostic. | Residual: FD declaration now wins over the `-REC` convention for REWRITE (matches WRITE; FD is authoritative). | FIXED — `_parse_rewrite` consults `_record_owner` first, heuristic fallback (exact mirror of `_parse_write`); 5 focused tests in `tests/transformation/test_rewrite_binding.py` wired into the `ci.yml` gate; pre-fix red 2/3 regenerated by temporary hunk revert (`%TEMP%\opencode\phase4\bl070_pre_fix.txt`, mislabeled first capture noted in the entry); file-lane regression 104 + parser batch 27 green; no existing test weakened. |
 
 ### PR disposition snapshot — 2026-10-10
 

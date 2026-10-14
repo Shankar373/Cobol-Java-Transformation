@@ -49,6 +49,7 @@ from engine.transformation.ir import (
     FileDefinition,
     FileDependency,
     ProgramCall,
+    normalize_cobol_name,
 )
 from engine.transformation.diagnostics import DiagnosticCode
 
@@ -584,8 +585,13 @@ class ApplicationDiscovery:
         """Build dependency graph from program units."""
         edges: list[DependencyEdge] = []
 
-        # Build program ID set for resolution
-        known_programs = {p.program_id for p in program_units}
+        # Build program ID set for resolution.  BL-044: COBOL names are
+        # case-insensitive — join through the shared normalization so a
+        # lowercase CALL literal resolves against an uppercase PROGRAM-ID
+        # exactly as the capability analyzer does.
+        known_programs = {
+            normalize_cobol_name(p.program_id) for p in program_units
+        }
 
         for index, unit in enumerate(program_units):
             # Add CALL edges. Dynamic CALLs (CALL data-item) never resolve
@@ -596,7 +602,11 @@ class ApplicationDiscovery:
                 if call.call_type == "DYNAMIC":
                     resolution = "UNRESOLVED"
                 else:
-                    resolution = "RESOLVED" if call.target in known_programs else "UNRESOLVED"
+                    resolution = (
+                        "RESOLVED"
+                        if normalize_cobol_name(call.target) in known_programs
+                        else "UNRESOLVED"
+                    )
                 # BL-038: stamp the IR record with the same resolution
                 # decision that stamps the edge metadata, so the two fields
                 # of one fact can never contradict each other.  Frozen

@@ -122,6 +122,22 @@ _STATEMENT_LEADING_VERBS: tuple[str, ...] = (
     "GOBACK", "GO", "GOTO", "ACCEPT", "SORT", "MERGE", "ALTER",
 )
 
+# A line that can never be STRING continuation text (BL-040): it begins a
+# new statement, closes a scope, or opens a file clause.  Derived from
+# ``_STATEMENT_LEADING_VERBS`` so the two vocabularies cannot drift, with
+# **word-boundary** matching — ``MOVE-DATE`` is a legal data-name and must
+# still continue the statement, while ``MOVE WS-A TO WS-B.`` ends it.  In
+# valid COBOL a sending item can never *be* a reserved verb, so a verb-led
+# line is always a new statement, never continuation data.
+_STRING_CONTINUATION_STOP = re.compile(
+    r"^(?:"
+    + "|".join(re.escape(v) for v in _STATEMENT_LEADING_VERBS)
+    + r"|ELSE"
+    + r"|(?:NOT\s+)?(?:AT\s+END|INVALID\s+KEY)"
+    + r")(?:\s|\.$|$)",
+    re.IGNORECASE,
+)
+
 
 def split_condition_from_inline_statements(text: str) -> tuple[str, str]:
     """Split ``text`` into (condition, inline statement text).
@@ -1462,7 +1478,17 @@ class CobolParser:
         record_name = match.group(1).rstrip(".") if match else ""
         from_match = re.search(r"\bFROM\s+(\S+)", header_text, re.IGNORECASE)
         from_field = from_match.group(1).rstrip(".") if from_match else ""
-        file_name = record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
+
+        # BL-070: bind the file through the FILE SECTION record-owner map
+        # first, exactly like WRITE — the "-REC" -> "-FILE" convention is
+        # only a fallback for records no FD declares.  Before this the
+        # heuristic ran alone, so a convention-breaking record bound to a
+        # wrong file name and the mapper silently degraded the REWRITE to
+        # a comment.
+        file_name = (
+            self._record_owner.get(record_name)
+            or record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
+        )
 
         sections, next_index = self._collect_file_clauses(
             lines, start, allowed, ("END-REWRITE",), f"REWRITE {record_name}",
@@ -1567,7 +1593,15 @@ class CobolParser:
         ), start + 1
 
     def _parse_multiply(self, lines: list[str], start: int) -> tuple[MultiplyStatement, int]:
-        """Parse MULTIPLY source BY field [GIVING target]."""
+        """Parse MULTIPLY source BY field [GIVING target].
+
+        BL-069: the no-match branch must raise the same
+        ``UNSUPPORTED_CONSTRUCT`` diagnostic ADD/SUBTRACT/DIVIDE raise in
+        this position — before it returned an **empty** node with zero
+        diagnostics, so the standard multi-recipient / ``ON SIZE ERROR``
+        forms vanished silently while the arithmetic registry key stayed
+        reachable.  The simple certified form is unchanged.
+        """
         line = lines[start].strip().rstrip(".").strip()
         match = re.search(
             r"MULTIPLY\s+(\S+)\s+BY\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
@@ -1575,6 +1609,7 @@ class CobolParser:
             re.IGNORECASE,
         )
         if not match:
+            self._emit_unparsed("MULTIPLY", lines[start])
             return MultiplyStatement(source="", multiplicand=""), start + 1
         source = match.group(1).rstrip(".")
         multiplicand = match.group(2).rstrip(".")
@@ -2226,12 +2261,25 @@ class CobolParser:
     def _parse_string(self, lines: list[str], start: int) -> tuple[StringStatement, int]:
         """Parse STRING parts INTO target [WITH POINTER ...] [ON OVERFLOW ...].
 
-        Continuation lines are joined up to END-STRING, then the statement
-        text is parsed by :meth:`_parse_string_text`.
+        Continuation lines are only consumed while the statement is open
+        (BL-040): the join stops at ``END-STRING``, at the statement's
+        terminating period (``END-STRING`` is optional in COBOL — before
+        BL-040 the join stopped only at ``END-STRING``/EOF and swallowed
+        **every following statement** with zero diagnostics), and at a line
+        that begins a new statement (scope terminator, verb-led with word
+        boundary, or file-clause header).  A complete-but-unterminated
+        STRING still parses leniently with no diagnostic (the contract
+        pinned by ``test_missing_delimited_by_defaults_to_size``): with the
+        boundary fixes no statement is lost, so nothing needs a diagnostic;
+        an *incomplete* STRING (no INTO) already fails closed through
+        ``_emit_unparsed``.
         """
         line = lines[start].strip()
 
-        # Parse the STRING line and continuation lines
+        # Statement already terminated on the opening line — do not continue.
+        if line.endswith("."):
+            return self._parse_string_text(line), start + 1
+
         full_text = line
         i = start + 1
         while i < len(lines):
@@ -2240,9 +2288,16 @@ class CobolParser:
             if u.startswith("END-STRING"):
                 i += 1
                 break
+            # BL-040: a scope terminator or a new statement's header is
+            # never STRING continuation — stop before it so the following
+            # statement reaches the IR instead of being swallowed.
+            if _SCOPE_TERMINATOR.match(l) or _STRING_CONTINUATION_STOP.match(u):
+                break
             if l:
                 full_text += " " + l
             i += 1
+            if l.endswith("."):
+                break
 
         return self._parse_string_text(full_text), i
 

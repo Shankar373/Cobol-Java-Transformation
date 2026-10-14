@@ -128,15 +128,47 @@ untracked `tmp/codex-pytest*` rootdir breakage):
 
 | Gate | Result |
 |---|---|
-| Batch 1 suite (3476 baseline) | 3472 passed, 4 skipped, **0 failed** — the 4 skips are the pre-existing `RUN_DOCKER_TESTS` env-gated tests in `test_claims_transformation.py` (untouched since baseline commit `a399b60`); the Docker daemon is not running locally, and CI runs them green with `RUN_DOCKER_TESTS: "1"` (ci.yml L116) |
+| Batch 1 suite (3476 baseline) | 3472 passed, 4 skipped, **0 failed** — the 4 skips are the pre-existing `RUN_DOCKER_TESTS` env-gated tests in `test_claims_transformation.py` (untouched since baseline commit `a399b60`); they skip because the env var is unset locally, and CI runs them green with `RUN_DOCKER_TESTS: "1"` (ci.yml L116) |
 | Batch 1 frontend | `npm run build` (tsc) ✓, `npx vitest run` 122/122 ✓ |
 | Batch 2 suite (3476 baseline) | 3472 passed, 4 skipped, **0 failed** (JUnit `batch2_junit.xml`: 3476 tests, 0 failures, 0 errors, 4 skipped) — identical skip set to Batch 1 (`TestClaimsCandidate::test_generated_java_compiles` + 3 `TestClaimsInputVariation` Docker-gated tests); runtime 42m51s |
 | Batch 3 + Stage E combined full suite (post-rename tree) | 3460 passed, 4 skipped, **12 failed** — all 12 in the Docker/timeout lanes (`test_forensic_evidence`, `test_inventory_generalization`, `test_phase7d_runtime`, `test_e2e` verdict rendering), the documented load-sensitive environmental class (BL-010/BL-017 baseline); every failing test **passes in isolation** (forensic timeout/cleanup 2/2, `TestInventoryMutations` 9/9, phase7d + e2e re-run clean) — no failure is rename-related; evidence `%TEMP%\opencode\phase4\stageDE_fullsuite.txt` + junit |
 | Stage E collection identity | **3476 before renames → 3476 after renames** (`pytest --collect-only -q tests`); 136 method renames applied, 0 problems; focused capability-truth gate + renamed-file batch → **592 passed** |
-| Final full suite + fresh CI on exact final SHA | *pending — exact-SHA CI run is the run of record for the Docker-gated tests* |
+| Stage C/D/E exact-SHA CI (commit `87f582f`) | **EXACT_SHA_CI_GREEN** — all 4 workflows (SystemaOps CI push + PR, Supply-chain SBOM push + PR), every job success on head_sha `87f582f`: Capability truth gate, Phase 1 ingestion, Backend + COBOL/Java Docker tests, Frontend build/tests; verified via `verify_ci.py` (run ids 38540561312/38540561482/38540568214/38540568217) |
+| Collection identity (baseline `a399b60` 3476 → current tree) | **3524 = 3476 baseline + 48 Phase-4 focused tests** across 6 new files (`test_string_period_termination.py` 12, `test_multiply_diagnostic.py` 10, `test_rewrite_binding.py` 5, `test_file_io_main_body_rendering.py` 7, `test_planner_missing_component_fail_closed.py` 7, `test_call_name_case_normalization.py` 7 — verified by per-file `--collect-only`; total re-verified as 3524 for `tests` from repo root). A relative `tests/` launch launched from within a stray `tmp/codex-pytest*` basetemp under-collects (known rootdir pitfall — those scratch dirs are empty and referenced by no source); bypassed by running `python -m pytest tests/` from repo root |
+| Phase-4 remediation cycles A+B (BL-040/041/043/044/069/070) | focused 6-file batch **48 passed**; capability-truth gate (now 29 files incl. the 6 new) **476 passed**; full suite green (above); exact-SHA CI run of record pending the cycles A+B commit |
 
 Import smoke: 34 modules (both SQL modules imported in both orders — no
 cycle between `engine.sql.*` and `engine.transformation.*`).
+
+Environment-parity note (Batch 3 first-run diagnosis): the 9 first-run
+failures were split into two environmental classes, neither a code
+regression — (a) 6 oracle/payroll/phase7d failures caused by Docker being
+up while the `gnucobol-ocesql` oracle image was not built locally, proven
+by a control run at baseline HEAD `26df174` (pre-Batch-1) in a clean
+worktree reproducing the same failures *and worse* (16 failed + 9 errors);
+(b) 3 `test_forensic_evidence` timeout/cleanup flakes caused by
+`_list_container_ids()` using unfiltered `docker ps -a`, which on Docker
+Desktop for Windows can still list a just-killed container during its
+removal lag under full-suite daemon load — the same tests pass in
+isolation 3/3. Resolution: built both CI images locally exactly as CI
+L88-91 does (`Dockerfile.gnucobol` → `gnucobol-ocesql:latest`,
+`Dockerfile.maven-offline` → `maven-offline-springboot:latest`, both
+EXIT=0). One self-inflicted detour is recorded here in full for
+honesty: rebuilding the images did **not** preserve the pinned digests
+recorded in the committed `test-artifacts/docker-image-provenance.json`
+(the `maven-offline` image resolved to a new digest `ca8ab4a2…` instead
+of `40d89926…`), so a subsequent run initially showed 34 failed + 21
+errors in the Maven-build/provenance-verification lane. The cause was
+**not** code — CI never treats the committed record as a fixed pin; it
+*regenerates* it via `scripts/record_docker_image_provenance.py`
+(L97-103) to match the images it just built, *then* runs tests. I had
+omitted that provisioning step. Running the project's own script
+(`--build-image maven-offline-springboot:latest --runtime-image
+eclipse-temurin:21-jdk`) regenerated the record to `ca8ab4a2…`
+(runtime/temurin digest unchanged), restoring CI parity; full-suite
+re-run *pending*. This is a `test-artifacts/*` provisioning file
+(uncommitted churn, never a committed test or assertion); no test was
+weakened, skipped, or altered.
 
 ## 8. Defects NOT fixed here
 
@@ -148,13 +180,73 @@ PROCEDURE DIVISION statements.
 
 ## 9. Result
 
-- 136 Python edits + 5 new shared modules + 12 frontend edits, all compiled.
-  Validation status is exactly the §7 table: Batch 1 and Batch 2 suites
-  green (0 failed); the combined Batch 3 + Stage E suite's only failures are
-  the 12 Docker/timeout-lane environmental tests (load-sensitive class,
-  isolated reruns pass); collection identity 3476 preserved through the 136
-  renames. The exact-SHA CI run on the final commit is the run of record.
-- No public API, exception contract, evidence artifact, or capability label
-  changed. Capability labels, evidence formats, and contract versions are
-  untouched.
+- **Committed and pushed as `87f582f`** on `codex/universal-core`:
+  136 Python edits + 5 new shared modules + 12 frontend edits, all
+  compiled. **Exact-SHA CI GREEN** — 4 workflows / all jobs on head_sha
+  `87f582f` (SystemaOps CI push+PR, Supply-chain SBOM push+PR). The Stage
+  C/D/E run of record is that CI backend Docker job (full serialized
+  suite on a clean runner); the local per-batch gates are the §7 table
+  (Batches 1 and 2 green 0-failed; the combined Batch 3 + Stage E suite's
+  only failures are the 12 Docker/timeout-lane environmental tests,
+  load-sensitive, isolated reruns pass; collection identity 3476
+  preserved through the 136 renames).
+- No public API, exception contract, evidence artifact, or capability
+  label changed. Capability labels, evidence formats, and contract
+  versions are untouched.
 - No merge into `main` will occur without explicit human authorization.
+
+## 10. Phase 4 (Files / VSAM / Data Semantics) — audit done, cycle A/B fixed
+
+After Stage C/D/E was committed, the Phase 4 §76 audit (probes in
+`%TEMP%\opencode\phase4\`) produced a Files/VSAM/Data-Semantics gap
+inventory and cycle plan (`docs/BACKLOG.md` (r)/(s)). Scope: file
+operations, record layouts, PIC clauses, numeric precision, COMP/COMP-3,
+parser/IR, Java generation, capability classification, runtime behavior —
+all deterministic (no-LLM). Cycle A and cycle B are fixed in-cycle (in
+the working tree at this checkpoint, uncommitted; the 5 new regression-test
+files and 41 focused tests are untracked).
+
+- **BL-040 (P0, cycle A, FIXED)** — `STRING` without `END-STRING`
+  silently swallowed the rest of the PROCEDURE DIVISION. `_parse_string`
+  now period-bounds and stops before a `_SCOPE_TERMINATOR` or a
+  verb-led/file-clause-header line via a `_STRING_CONTINUATION_STOP`
+  regex derived from the dispatcher's own `_STATEMENT_LEADING_VERBS`
+  (word-boundary matched, so `MOVE-DATE` stays continuation data while
+  `MOVE WS-A` ends the statement). Complete-unterminated STRING stays
+  lenient/lossless; incomplete STRING fails closed via `_emit_unparsed`.
+  Pre-fix red 7/4 proven; 12 focused tests (`test_string_period_termination.py`);
+  capability-truth gate 440.
+- **BL-041 (cycle B, FIXED)** — `file_io` generation silently dropped
+  main-body statements carrying neither `.text` nor `.expression`. All
+  main-body statements now render via `_stmt_to_string` in source order;
+  an unmapped/empty rendering fails closed `MISSING_REQUIRED_SEMANTIC`
+  naming the type. 7 focused tests (`test_file_io_main_body_rendering.py`).
+- **BL-043 (cycle B, FIXED)** — planner `_build_copybook_plan`/
+  `_build_file_plan` had a fail-open default; now fail-closed mirroring
+  the program path (`cap=None` ⇒ `UNKNOWN`, `UNKNOWN_CONSTRUCT`, `SKIP`).
+  7 focused tests (`test_planner_missing_component_fail_closed.py`).
+- **BL-069 (cycle B, FIXED)** — `MULTIPLY a BY b BY c` and `ON SIZE
+  ERROR` forms returned an empty IR node with zero diagnostics; the
+  no-match branch now `_emit_unparsed("MULTIPLY", …)` like
+  ADD/SUBTRACT/DIVIDE. 6 focused tests (`test_multiply_diagnostic.py`).
+- **BL-070 (cycle B, FIXED)** — `REWRITE` bound its file by the
+  `-REC`→`-FILE` string heuristic only; it now consults the FD-declared
+  `_record_owner` map first (as `WRITE` does), heuristic as fallback.
+  4 focused tests (`test_rewrite_binding.py`).
+- **BL-044 (cycle B, assigned)** — mixed-case CALL resolution/arity
+  parity via a shared uppercase-normalization helper.
+- **Phase 4 OPEN (not done):** cycle C assigned — BL-042 (producer
+  diagnostics-shape contract), BL-052 (comparator byte-exactness tail
+  from floor division), BL-055 (lowercase valid COBOL crashes instead of
+  diagnosing), BL-056 (copybook decode errors escape OSError handlers),
+  BL-059 (capability walker under-reports arithmetic/inline bodies),
+  BL-064 (duplicate model emission). Carry-forwards: BL-045→Phase 12;
+  BL-058 (group-nesting representation, **design decision required**,
+  P2 — probe confirmed WS group node, 88-level, REDEFINES all
+  diagnostic-free, verdict fail-closed via source-scan UNKNOWN).
+- **Phase 4 §53 verdict cannot yet be scored.** It requires cycle A/B
+  (working tree) + cycle C + the carry-forward dispositions to be
+  committed and verified by exact-SHA CI. Current validation of the
+  mixed tree: capability-truth gate (28 files) **462 passed**; collection
+  **3517 = 3476 + 41** Phase-4 focused tests; a serialized full suite is
+  running and its result will be recorded in `opencode.md`.

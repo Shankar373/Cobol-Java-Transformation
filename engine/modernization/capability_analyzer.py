@@ -42,6 +42,7 @@ from engine.transformation.ir import (
     FileOrganization,
     FileAccessMode,
     ProgramCall,
+    normalize_cobol_name,
 )
 from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.contracts import TransformationProducer
@@ -249,7 +250,9 @@ def _analyze_call_linkage_arity(
     by_id = {}
     for unit in application.programs:
         if unit.program is not None:
-            by_id[unit.program.program_id.upper()] = unit.program
+            # BL-044: one shared uppercase normalization for every
+            # program-id join (discovery stamps resolution the same way).
+            by_id[normalize_cobol_name(unit.program.program_id)] = unit.program
 
     findings: list[ComponentCapability] = []
     for unit in application.programs:
@@ -258,7 +261,7 @@ def _analyze_call_linkage_arity(
         for stmt in _iter_call_statements(unit.program):
             if stmt.is_dynamic:
                 continue
-            target = stmt.program_name.rstrip(".").upper()
+            target = normalize_cobol_name(stmt.program_name.rstrip("."))
             callee = by_id.get(target)
             if callee is None:
                 continue  # existing unresolved-target path governs
@@ -329,7 +332,10 @@ class CapabilityAnalyzer:
             components.extend(unit_components)
             for comp in unit_components:
                 if comp.component_type == "PROGRAM":
-                    program_levels[comp.component_id] = comp.level
+                    # BL-044: normalized keys so a resolved edge whose
+                    # target spelling differs only in case still finds
+                    # its callee's level.
+                    program_levels[normalize_cobol_name(comp.component_id)] = comp.level
 
         # Analyze copybook references (resolution is recorded at discovery)
         for cb_name in application.copybooks:
@@ -1040,7 +1046,11 @@ class CapabilityAnalyzer:
         metadata = edge.metadata or ""
         is_resolved = "resolution=RESOLVED" in metadata
         is_dynamic = "call_type=DYNAMIC" in metadata
-        is_self_call = edge.source == edge.target
+        # BL-044: names join case-insensitively — a case-variant self CALL
+        # must stay classified as recursive, not "resolved".
+        is_self_call = (
+            normalize_cobol_name(edge.source) == normalize_cobol_name(edge.target)
+        )
 
         if is_dynamic:
             level = CapabilityLevel.UNSUPPORTED
@@ -1053,7 +1063,7 @@ class CapabilityAnalyzer:
             reason = "Unresolved static call target"
         else:
             # A resolved call is only as transformable as its callee.
-            callee = program_levels.get(edge.target)
+            callee = program_levels.get(normalize_cobol_name(edge.target))
             if callee is None or callee is CapabilityLevel.SUPPORTED:
                 level = CapabilityLevel.SUPPORTED
                 reason = "Resolved"

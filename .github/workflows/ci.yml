@@ -45,6 +45,12 @@ jobs:
             tests/transformation/test_scoped_construct_statements.py \
             tests/transformation/test_negated_conditions.py \
             tests/transformation/test_string_delimited_semantics.py \
+            tests/transformation/test_string_period_termination.py \
+            tests/transformation/test_multiply_diagnostic.py \
+            tests/transformation/test_rewrite_binding.py \
+            tests/transformation/test_file_io_main_body_rendering.py \
+            tests/transformation/test_planner_missing_component_fail_closed.py \
+            tests/transformation/test_call_name_case_normalization.py \
             tests/test_silent_loss_registry.py \
             tests/test_nested_copybook_materialization.py \
             tests/test_copy_replacing_materialization.py \

@@ -37,6 +37,18 @@ from enum import Enum
 
 from engine.transformation.figurative import ZERO
 
+
+def normalize_cobol_name(name: str) -> str:
+    """Uppercase form of a COBOL name for cross-lane identity joins (BL-044).
+
+    COBOL is case-insensitive: a CALL literal ``'subprog'`` names the same
+    program as ``PROGRAM-ID SUBPROG``.  Every lane that joins names
+    (discovery resolution stamping, capability-analyzer callee lookups,
+    self-call detection, LINKAGE arity) must compare through this single
+    normalization so two lanes can never classify one CALL differently.
+    """
+    return name.upper()
+
 # ---------------------------------------------------------------------------
 # PIC clause types
 # ---------------------------------------------------------------------------
