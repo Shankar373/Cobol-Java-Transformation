@@ -215,7 +215,7 @@ class TestAdversarial01_TamperedComparisonResult:
     but the content_hash of the comparison detects the tampering.
     """
 
-    def test_tampered_comparison_detected(self):
+    def test_tampered_comparison_result_still_passes_structural_validation(self):
         run_id = RunId(value="run-tamper-comp")
 
         # Real comparison is MISMATCH; forged comparison claims MATCH
@@ -255,7 +255,7 @@ class TestAdversarial02_ReplacedArtifactContent:
     doesn't have), content hash verification requires the content.
     """
 
-    def test_replaced_content_detected_by_hash(self):
+    def test_replaced_artifact_content_still_validates_without_byte_check(self):
         run_id = RunId(value="run-replace-content")
         # Create artifact with specific content_hash
         art = _art_ev("art-o", "STDOUT", "ORACLE", "original-hash", "oracle-exec-1")
@@ -444,7 +444,7 @@ class TestAdversarial06_ChangedWorkloadId:
     execution evidence is bound to run_id.
     """
 
-    def test_changed_workload_id_detected(self):
+    def test_changed_workload_id_changes_integrity_hash(self):
         run_id = RunId(value="run-changed-wl")
 
         # Create a valid manifest for workload A
@@ -625,7 +625,7 @@ class TestAdversarial10_ChangedOracleDigest:
     that oracle execution evidence exists.
     """
 
-    def test_changed_oracle_digest_detected(self):
+    def test_changed_oracle_digest_changes_integrity_hash(self):
         run_id = RunId(value="run-oracle-digest")
 
         manifest = _manifest(
@@ -812,7 +812,7 @@ class TestAdversarial14_TamperedControlledInput:
     so the integrity hash changes.
     """
 
-    def test_tampered_input_detected(self):
+    def test_tampered_controlled_input_changes_integrity_hash(self):
         run_id = RunId(value="run-input-tamper")
 
         manifest = _manifest(run_id=run_id)
@@ -851,7 +851,7 @@ class TestAdversarial15_MutatedArtifactOwnership:
     content_hash remains consistent.
     """
 
-    def test_mutated_ownership_detected(self):
+    def test_valid_artifact_ownership_passes_validation(self):
         run_id = RunId(value="run-ownership")
 
         art_oracle = _art_ev("art-o", "STDOUT", "ORACLE", "data", "oracle-exec-1")
@@ -926,7 +926,7 @@ class TestAdversarial17_ForgedManifestHash:
     so any tampering is detected.
     """
 
-    def test_forged_hash_detected(self):
+    def test_recomputed_forged_manifest_changes_integrity_hash(self):
         run_id = RunId(value="run-forged-hash")
 
         manifest = _manifest(run_id=run_id)
@@ -972,7 +972,7 @@ class TestAdversarial18_ReplaySameArtifactIdsDifferentOwnership:
     The run binding catches this because execution_id must match.
     """
 
-    def test_replay_same_ids_different_ownership(self):
+    def test_artifact_replayed_across_runs_rejected_cross_run(self):
         run_a = RunId(value="run-A-replay-ids")
         run_b = RunId(value="run-B-replay-ids")
 
@@ -1079,7 +1079,7 @@ class TestAdversarial20_VerdictDeriverRemainsPure:
     """Prove that VerdictDeriver does not accept raw evidence directly
     in the production path. The pipeline calls validator first."""
 
-    def test_verdict_deriver_pure(self):
+    def test_clean_manifest_validates_then_derives_verified_separately(self):
         """VerdictDeriver.derive() is still a pure function.
         The validator is called separately in the pipeline."""
         run_id = RunId(value="run-pure")
@@ -1125,13 +1125,23 @@ class TestPositiveWorkloads:
             ),
         )
 
-    @pytest.mark.parametrize("wl", ["payroll", "inventory", "claims", "indexed", "relative"])
+    @pytest.mark.parametrize(
+        "wl",
+        ["payroll", "inventory", "claims", "indexed", "relative"],
+        ids=["workload-payroll", "workload-inventory", "workload-claims",
+             "workload-indexed", "workload-relative"],
+    )
     def test_valid_workload_validates(self, wl: str):
         manifest = self._valid_manifest(wl)
         result = validator.validate(manifest)
         assert isinstance(result, ValidatedEvidenceManifest)
 
-    @pytest.mark.parametrize("wl", ["payroll", "inventory", "claims", "indexed", "relative"])
+    @pytest.mark.parametrize(
+        "wl",
+        ["payroll", "inventory", "claims", "indexed", "relative"],
+        ids=["workload-payroll", "workload-inventory", "workload-claims",
+             "workload-indexed", "workload-relative"],
+    )
     def test_valid_workload_verdict_verified(self, wl: str):
         manifest = self._valid_manifest(wl)
         verdict = derive_verdict(manifest)

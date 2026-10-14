@@ -177,7 +177,6 @@ class JclSemanticBuilder:
             )
         else:
             mode = JclExecMode.NONE
-            target = ""
             self.diagnostics.error(
                 JclDiagnosticCode.STEP_NO_EXEC,
                 f"Step {step.name} EXEC has neither PGM nor PROC",
@@ -403,7 +402,7 @@ class JclSemanticBuilder:
                 continue
 
             location = f"line {line_number}"
-            if stripped.startswith(",") or re.match(r"^\s+,", content):
+            if stripped.startswith(","):
                 self.diagnostics.error(
                     JclDiagnosticCode.UNSUPPORTED_CONTINUATION,
                     "DD continuation / split statements are outside the supported subset",

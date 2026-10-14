@@ -25,11 +25,6 @@ class WorkloadExecutionError(RuntimeError):
     """Raised when a workload statement cannot be executed."""
 
 
-def _execute_workload_sql(db: Db2ControlledDatabase, stmt) -> Db2SqlStatus | None:
-    """Execute one non-cursor, non-singleton statement, returning status."""
-    return db.execute(stmt).status
-
-
 def run_db2_workload(
     cobol_text: str,
     program_id: str,

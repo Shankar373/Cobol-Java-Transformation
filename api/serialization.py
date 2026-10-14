@@ -131,20 +131,6 @@ def _opt_str(payload: dict, key: str) -> str | None:
     return _expect_str(value, key)
 
 
-def _opt_int(payload: dict, key: str) -> int | None:
-    value = payload.get(key)
-    if value is None:
-        return None
-    return _expect_int(value, key)
-
-
-def _opt_hash(payload: dict, key: str) -> ContentHash | None:
-    value = payload.get(key)
-    if value is None:
-        return None
-    return _parse_hash(value, key)
-
-
 def _hash(payload: dict, key: str, where: str | None = None) -> ContentHash:
     """Read a required sha256 hash field (``where`` only labels errors)."""
     label = f"{where}.{key}" if where else key

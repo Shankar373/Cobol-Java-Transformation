@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components';
 import { Dashboard, NewModernization, ModernizationRun } from './pages';
 import type { ApplicationResponse, RunResponse } from './api/client';

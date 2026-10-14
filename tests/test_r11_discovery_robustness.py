@@ -72,7 +72,7 @@ def test_nested_copy_resolves_via_workspace_root_dirs(tmp_path: Path) -> None:
     assert unit.copybooks and unit.copybooks[0].copybook_name == "CUSTREC"
 
 
-def test_uppercase_cobol_fixture_still_parses(tmp_path: Path) -> None:
+def test_uppercase_cobol_mainprog_parses_without_error(tmp_path: Path) -> None:
     root = _tree(tmp_path)
     app = ApplicationDiscovery().discover(root)
     unit = next(p for p in app.programs if p.program_id == "MAINPROG")

@@ -57,6 +57,8 @@ class TestFileVerbClassification:
             "    START ACCT-FILE KEY >= WS-A.",
             "    WRITE ACCT-REC INVALID KEY DISPLAY 'X'.",
         ],
+        ids=["verb-CLOSE", "verb-REWRITE", "verb-DELETE", "verb-START",
+             "verb-WRITE-invalid-key"],
     )
     def test_file_construct_is_not_supported(self, verb_line: str) -> None:
         level, reason = _capability_levels(verb_line)
@@ -73,7 +75,7 @@ class TestFileVerbClassification:
 class TestInvalidKeyNotSwallowed:
     """A clause body must not become top-level executable code."""
 
-    def test_read_invalid_key_is_visible(self) -> None:
+    def test_read_invalid_key_classified_unsupported_or_unknown(self) -> None:
         level, reason = _capability_levels(
             "    READ ACCT-FILE INVALID KEY DISPLAY 'MISS'.\n"
         )
@@ -139,6 +141,8 @@ class TestEmptyIrFallbackDiagnostics:
             "    DIVIDE WS-A BY.",
             "    COMPUTE = WS-A.",
         ],
+        ids=["stmt-move", "stmt-add", "stmt-subtract", "stmt-divide-by",
+             "stmt-divide-missing-operand", "stmt-compute-missing-target"],
     )
     def test_empty_ir_statement_is_diagnosed(self, body: str) -> None:
         parser = CobolParser()

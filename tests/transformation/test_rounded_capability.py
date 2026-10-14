@@ -98,7 +98,7 @@ class TestMappingEvidence:
 
 
 class TestMatrixDocumentsRounded:
-    def test_documented(self) -> None:
+    def test_rounded_key_appears_in_the_silent_loss_matrix(self) -> None:
         from tests.test_silent_loss_registry import _matrix_text
 
         assert "ROUNDED" in _matrix_text()

@@ -383,12 +383,6 @@ def collect_copybook_texts(
     analysis scans these texts so constructs inside nested copybooks
     cannot escape the verdict.
     """
-    from engine.transformation.copybook_resolver import (
-        AmbiguousCopybookError,
-        CopybookResolutionError,
-        resolve_copybook,
-    )
-
     files: list[tuple[Path, str]] = []
     diagnostics: list[CopybookDiagnostic] = []
 
@@ -811,7 +805,7 @@ def materialize_copybooks_into_program(
                 existing.add(leaf.name.upper())
                 merged.append(leaf)
 
-    return replace(program, working_storage=tuple(merged), linkage_section=program.linkage_section, using_parameters=program.using_parameters), tuple(diagnostics)
+    return replace(program, working_storage=tuple(merged)), tuple(diagnostics)
 
 
 # ---------------------------------------------------------------------------
@@ -1133,8 +1127,6 @@ def build_copybook_model_class(plan: CopybookModelPlan):
     converts them to private instance state with public accessors. The
     class carries data only: no business-logic methods, no ``main``.
     """
-    from dataclasses import replace as dc_replace
-
     from engine.transformation.cobol_to_java_mapping import (
         map_cobol_data_items_to_fields,
     )
@@ -1152,7 +1144,7 @@ def build_copybook_model_class(plan: CopybookModelPlan):
 
     static_fields = map_cobol_data_items_to_fields(plan.fields)
     fields = tuple(
-        dc_replace(f, is_static=False, modifiers=("private",))
+        replace(f, is_static=False, modifiers=("private",))
         for f in static_fields
     )
 

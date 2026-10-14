@@ -110,7 +110,7 @@ class TestDeriveApplicationNameFromZip:
         name = derive_application_name_from_zip("cobol-project.zip", None)
         assert name == "cobol-project"
 
-    def test_workspace_not_dir(self, tmp_path):
+    def test_missing_workspace_directory_falls_back_to_zip_filename(self, tmp_path):
         name = derive_application_name_from_zip("app.zip", tmp_path / "nonexistent")
         assert name == "app"
 
@@ -152,7 +152,7 @@ class TestDeriveApplicationNameFromZipBytes:
         assert name == "upload"
         assert entries == ["ingest-abc123"]
 
-    def test_invalid_zip(self):
+    def test_invalid_zip_bytes_fall_back_to_filename(self):
         name, entries = derive_application_name_from_zip_bytes(b"not a zip", "app.zip")
         assert name == "app"
         assert entries == []

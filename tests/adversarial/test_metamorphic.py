@@ -112,7 +112,7 @@ class TestMetamorphicIdentity:
 class TestMetamorphicSymmetry:
     """Comparison is symmetric: if A=B then B=A."""
 
-    def test_stdout_symmetry(self):
+    def test_stdout_mismatch_symmetric_under_operand_swap(self):
         comp = StdoutComparator()
         ora = _art("ora", "ORACLE", b"X")
         cand = _art("cand", "CANDIDATE", b"Y")
@@ -135,7 +135,7 @@ class TestMetamorphicSymmetry:
 class TestMetamorphicTransitivity:
     """If A=MATCH B and B=MATCH C, then A=MATCH C."""
 
-    def test_transitivity(self):
+    def test_equal_stdout_content_matches_transitively(self):
         comp = StdoutComparator()
         a = _art("a", "ORACLE", b"data")
         b = _art("b", "CANDIDATE", b"data")
@@ -178,8 +178,10 @@ class TestMetamorphicEmptyEquivalence:
 class TestMetamorphicZeroChecksNeverVerified:
     """Zero comparison checks can never produce VERIFIED."""
 
-    @pytest.mark.parametrize("n_artifacts", [0, 1, 3, 10])
-    def test_zero_comparisons(self, n_artifacts: int):
+    @pytest.mark.parametrize("n_artifacts", [0, 1, 3, 10],
+                             ids=["artifact-count-0", "artifact-count-1",
+                                  "artifact-count-3", "artifact-count-10"])
+    def test_zero_comparisons_never_verified_for_any_artifact_count(self, n_artifacts: int):
         from engine.domain.identities import (
             RunId,
         )

@@ -430,7 +430,7 @@ class TestZipIngestionE2E:
             "UNAVAILABLE", "UNSUPPORTED", "ERROR",
         )
 
-    def test_download_endpoint(self):
+    def test_download_after_modernize_returns_zip_content_type(self):
         """Download generated ZIP after modernization."""
         resp = client.post("/applications", json={
             "name": "dl-test",

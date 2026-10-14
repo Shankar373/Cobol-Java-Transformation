@@ -19,7 +19,7 @@ from engine.execution.abstractions import (
 # ---------------------------------------------------------------------------
 
 class TestResourceLimits:
-    def test_valid_limits(self):
+    def test_limit_fields_are_preserved(self):
         limits = ResourceLimits(memory="512m", cpu="1.0", pids=256, timeout_seconds=30)
         assert limits.memory == "512m"
         assert limits.timeout_seconds == 30
@@ -38,7 +38,7 @@ class TestResourceLimits:
 # ---------------------------------------------------------------------------
 
 class TestFilesystemPolicy:
-    def test_valid_policy(self):
+    def test_read_only_and_no_write_paths_are_preserved(self):
         policy = FilesystemPolicy(
             read_only_paths=("/workspace",),
             no_write_paths=("/source",),
@@ -74,7 +74,7 @@ class TestNetworkPolicy:
 # ---------------------------------------------------------------------------
 
 class TestExecutionCommand:
-    def test_simple_command(self):
+    def test_to_string_joins_command_and_arguments(self):
         cmd = ExecutionCommand(command="echo", arguments=("hello",))
         assert cmd.to_string() == "echo hello"
 
@@ -167,7 +167,7 @@ class TestStagedSource:
 # ---------------------------------------------------------------------------
 
 class TestExecutionEnvironment:
-    def test_valid_environment(self):
+    def test_compliant_policy_set_validates_without_violations(self):
         env = ExecutionEnvironment(
             policies=frozenset({
                 ExecutionPolicy.CONTAINER_PER_EXECUTION,
@@ -203,7 +203,7 @@ class TestExecutionEnvironment:
 # ---------------------------------------------------------------------------
 
 class TestExecutionEngine:
-    def test_valid_engine(self):
+    def test_engine_validate_environment_accepts_compliant_environment(self):
         env = ExecutionEnvironment(
             policies=frozenset({
                 ExecutionPolicy.CONTAINER_PER_EXECUTION,

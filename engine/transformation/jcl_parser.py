@@ -26,12 +26,11 @@ from engine.transformation.ir import (
     JclApplication,
     JclCondition,
     JclDD,
-    JclDependency,
     JclExec,
     JclJob,
     JclStep,
-    JclSymbol,
 )
+from engine.transformation.jcl_dependencies import build_all_dependencies
 
 
 class JclParseError(Exception):
@@ -78,7 +77,7 @@ class JclParser:
                 source_path=filename,
             ))
 
-        dependencies = self._build_all_dependencies(jobs)
+        dependencies = build_all_dependencies(jobs)
 
         return JclApplication(
             jobs=tuple(jobs),
@@ -91,7 +90,6 @@ class JclParser:
         job_params: dict[str, str] = {}
         steps: list[JclStep] = []
         comments: list[str] = []
-        symbols: list[JclSymbol] = []
 
         i = 0
         while i < len(lines):
@@ -131,7 +129,7 @@ class JclParser:
             if " DD " in rest or rest.upper().startswith("DD "):
                 # This DD belongs to the current step
                 if steps:
-                    dd, i = self._parse_dd(rest, i, lines)
+                    dd, i = self._parse_dd(rest, i)
                     steps[-1] = JclStep(
                         name=steps[-1].name,
                         exec_=steps[-1].exec_,
@@ -145,9 +143,6 @@ class JclParser:
 
             # Check for SET
             if rest.upper().startswith("SET ") or " SET " in rest:
-                symbol = self._parse_set(rest)
-                if symbol:
-                    symbols.append(symbol)
                 i += 1
                 continue
 
@@ -234,7 +229,7 @@ class JclParser:
                 content = next_line[2:].strip()
                 # Check if this is a DD statement
                 if " DD " in content.upper() or content.upper().startswith("DD "):
-                    dd, i = self._parse_dd(content, i, lines)
+                    dd, i = self._parse_dd(content, i)
                     dds.append(dd)
                     continue
                 else:
@@ -280,7 +275,7 @@ class JclParser:
             parameters=params if params else None,
         )
 
-    def _parse_dd(self, line: str, start_idx: int, lines: list[str]) -> tuple[JclDD, int]:
+    def _parse_dd(self, line: str, start_idx: int) -> tuple[JclDD, int]:
         """Parse a DD statement.
 
         Returns:
@@ -306,11 +301,10 @@ class JclParser:
         dcb = ""
         vol = ""
         sysout = ""
-        sysin = False
         is_temporary = False
         is_inline = False
 
-        if dd_str == "*" or dd_str.upper() == "DATA":
+        if dd_str.upper() == "DATA":
             is_inline = True
         elif dd_str.upper().startswith("*"):
             is_inline = True
@@ -356,30 +350,12 @@ class JclParser:
                 dcb=dcb,
                 vol=vol,
                 sysout=sysout,
-                sysin=sysin,
                 is_temporary=is_temporary,
                 is_inline=is_inline,
             ),
             start_idx + 1,
         )
 
-    def _parse_set(self, line: str) -> JclSymbol | None:
-        """Parse a SET statement for symbolic parameters."""
-        match = re.search(
-            r"SET\s+(\S+)=([^,\s]+)",
-            line, re.IGNORECASE,
-        )
-        if not match:
-            return None
-
-        name = match.group(1)
-        value = match.group(2)
-
-        return JclSymbol(
-            name=name,
-            value=value,
-            is_resolved=True,
-        )
 
     def _parse_parameters(self, param_str: str) -> dict[str, str]:
         """Parse comma-separated parameters.
@@ -437,73 +413,3 @@ class JclParser:
                 params[key] = value
 
         return params
-
-    def _build_step_dependencies(
-        self,
-        jobs: list[JclJob],
-    ) -> list[JclDependency]:
-        """Build step execution order dependencies.
-
-        Steps within a job execute in source order unless conditioned.
-        """
-        dependencies: list[JclDependency] = []
-
-        for job in jobs:
-            for i in range(len(job.steps) - 1):
-                current = job.steps[i]
-                next_step = job.steps[i + 1]
-
-                # Unconditional step order
-                if current.condition is None:
-                    dependencies.append(JclDependency(
-                        source=current.name,
-                        target=next_step.name,
-                        dependency_type="JCL_STEP_ORDER",
-                        metadata=f"job={job.name}",
-                    ))
-
-        return dependencies
-
-    def _build_all_dependencies(
-        self,
-        jobs: list[JclJob],
-    ) -> list[JclDependency]:
-        """Build all dependencies from parsed jobs."""
-        dependencies: list[JclDependency] = []
-
-        for job in jobs:
-            # Step order dependencies
-            for i in range(len(job.steps) - 1):
-                current = job.steps[i]
-                next_step = job.steps[i + 1]
-
-                if current.condition is None:
-                    dependencies.append(JclDependency(
-                        source=current.name,
-                        target=next_step.name,
-                        dependency_type="JCL_STEP_ORDER",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # EXEC program references
-            for step in job.steps:
-                if step.exec_ and step.exec_.program:
-                    dependencies.append(JclDependency(
-                        source=f"{job.name}.{step.name}",
-                        target=step.exec_.program,
-                        dependency_type="JCL_EXEC",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # DD dataset references
-            for step in job.steps:
-                for dd in step.dd_statements:
-                    if dd.dataset:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}.{dd.name}",
-                            target=dd.dataset,
-                            dependency_type="JCL_DD",
-                            metadata=f"disp={dd.disposition}" if dd.disposition else "",
-                        ))
-
-        return dependencies

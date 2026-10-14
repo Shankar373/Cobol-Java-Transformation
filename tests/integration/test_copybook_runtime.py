@@ -334,7 +334,7 @@ class TestDockerExecution:
         )
         return exec_result
 
-    def test_execution_succeeds(self, execution_result):
+    def test_execution_status_is_succeeded_or_available(self, execution_result):
         """JAR execution completes successfully."""
         assert execution_result.status in (AdapterStatus.AVAILABLE, AdapterStatus.SUCCEEDED)
 

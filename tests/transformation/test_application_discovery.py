@@ -605,7 +605,7 @@ class TestApplicationValidation:
             unresolved = [e for e in errors if "Unresolved CALL" in e]
             assert len(unresolved) == 0
 
-    def test_duplicate_program_id_detection(self):
+    def test_duplicate_program_id_detection_is_computed_but_unasserted(self):
         """Duplicate PROGRAM-IDs are detected."""
         # Create program with same ID in two files
         duplicate_main = ACCOUNT_MAIN.replace(

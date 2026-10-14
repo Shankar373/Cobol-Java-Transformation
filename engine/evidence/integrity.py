@@ -318,11 +318,6 @@ class EvidenceIntegrityValidator:
             if e.runtime_id.startswith("oracle")
         ]
 
-        if not oracle_execs and manifest.oracle_identity is not None:
-            # No oracle execution evidence — this is caught by
-            # _validate_required_evidence, but we also check identity binding
-            pass
-
         # Verify that oracle identity is present
         if manifest.oracle_identity is None:
             violations.append(IntegrityViolation(

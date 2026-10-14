@@ -41,7 +41,7 @@ class TestFixtureDiscovery:
 class TestFixtureModernization:
     """End-to-end modernization of the fixture workload."""
 
-    def test_supported_fixtures_full(self) -> None:
+    def test_mixed_jcl_fixture_modernizes_with_all_four_jobs(self) -> None:
         sources = load_sources()
         discovery = JclDiscovery()
         app = discovery.discover(FIXTURES)

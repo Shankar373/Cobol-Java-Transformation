@@ -307,7 +307,7 @@ class TestEvidenceManifest:
         )
         assert manifest1.manifest_hash == manifest2.manifest_hash
 
-    def test_is_complete_incomplete(
+    def test_incomplete_manifest_is_not_complete(
         self,
         sample_run_id: RunId,
         sample_workload_id: WorkloadId,

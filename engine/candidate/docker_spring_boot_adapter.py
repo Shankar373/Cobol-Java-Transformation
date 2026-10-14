@@ -47,6 +47,7 @@ from engine.candidate.image_provenance import (
     resolve_docker_image_identity,
     verify_image_identity,
 )
+from engine.docker_cli import check_docker_available, cleanup_container
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
@@ -137,16 +138,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         return provenance.build_identity
 
     def _check_docker(self) -> bool:
-        try:
-            result = subprocess.run(
-                ["docker", "ps"],
-                capture_output=True,
-                timeout=30,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        return check_docker_available("ps", 30)
 
     def _resolve_image_observation(self, image: str) -> DockerImageObservation:
         """Resolve immutable Docker identity evidence for one image reference."""
@@ -295,43 +287,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
     @staticmethod
     def _cleanup_container(container_name: str) -> tuple[bool, str]:
-        _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        try:
-            stop_result = subprocess.run(
-                ["docker", "stop", "--time", "5", container_name],
-                capture_output=True,
-                timeout=15,
-                creationflags=_flags,
-            )
-            stop_ok = stop_result.returncode == 0
-        except Exception:
-            stop_ok = False
-
-        try:
-            rm_result = subprocess.run(
-                ["docker", "rm", "-f", container_name],
-                capture_output=True,
-                timeout=10,
-                creationflags=_flags,
-            )
-            rm_ok = rm_result.returncode == 0
-        except Exception:
-            rm_ok = False
-
-        try:
-            inspect_result = subprocess.run(
-                ["docker", "inspect", container_name],
-                capture_output=True,
-                timeout=10,
-                creationflags=_flags,
-            )
-            exists = inspect_result.returncode == 0
-        except Exception:
-            exists = True
-
-        removed = rm_ok and not exists
-        detail = f"stop={stop_ok}, rm={rm_ok}, exists_after={exists}"
-        return removed, detail
+        return cleanup_container(container_name)
 
     def probe(self) -> AdapterStatus:
         return self._status

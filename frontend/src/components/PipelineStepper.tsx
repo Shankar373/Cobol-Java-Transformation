@@ -124,7 +124,6 @@ function XIcon() {
 export interface PipelineStepperProps {
   stage: RunStage;
   showIngested?: boolean;
-  failedReachedIndex?: number;
 }
 
 export function PipelineStepper({ stage }: PipelineStepperProps) {

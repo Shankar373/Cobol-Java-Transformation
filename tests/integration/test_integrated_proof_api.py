@@ -64,7 +64,7 @@ def _await_terminal(run_id: str, timeout_s: float = 10.0) -> dict:
 # ---------------------------------------------------------------------------
 
 class TestIntegratedProofModels:
-    def test_models_import(self):
+    def test_integrated_proof_models_are_importable(self):
         from api.models import IntegratedProofResult, IntegratedProofResponse
         assert IntegratedProofResult
         assert IntegratedProofResponse

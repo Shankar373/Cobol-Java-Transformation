@@ -295,7 +295,7 @@ class TestEvaluate:
         assert isinstance(stmt, IfStatement)
         assert "WS-G" in stmt.condition
 
-    def test_multiple_when_nest(self) -> None:
+    def test_multiple_when_clauses_nest_as_if_statements(self) -> None:
         stmt = self._eval(
             "WHEN 'A'\n    MOVE 'ALPHA' TO WS-R\n"
             "WHEN 'B'\n    MOVE 'BETA ' TO WS-R\n"
@@ -467,7 +467,7 @@ class TestGoTo:
 # ---------------------------------------------------------------------------
 
 class TestCallUsing:
-    def test_modes_parse(self) -> None:
+    def test_by_reference_and_by_content_call_modes_parse(self) -> None:
         src = textwrap.dedent("""\
             IDENTIFICATION DIVISION.
             PROGRAM-ID. TPROG.

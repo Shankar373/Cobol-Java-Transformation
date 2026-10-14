@@ -47,7 +47,7 @@ class TestAdapterOutput:
         result, spring_app, _ = _generate_from_fixtures()
         assert len(spring_app.services) == result.job_count
 
-    def test_entry_point_set(self) -> None:
+    def test_entry_point_class_is_jcl_batch_application(self) -> None:
         _, spring_app, _ = _generate_from_fixtures()
         assert spring_app.entry_point is not None
         assert spring_app.entry_point.class_name == "JclBatchApplication"
@@ -58,7 +58,7 @@ class TestAdapterOutput:
         assert "spring-boot-starter" in dep_names
         assert "spring-boot-starter-batch" in dep_names
 
-    def test_methods_per_job(self) -> None:
+    def test_each_job_service_exposes_one_method_per_step(self) -> None:
         result, spring_app, _ = _generate_from_fixtures()
         methods_per_service = {s.name: len(s.methods) for s in spring_app.services}
         for job in result.profile.application.jobs:
@@ -107,7 +107,7 @@ class TestGeneratorOutput:
         paths = {f.path for f in files}
         assert any("application.properties" in p for p in paths)
 
-    def test_file_count(self) -> None:
+    def test_generation_emits_exactly_seven_files_for_four_jobs(self) -> None:
         _, _, files = _generate_from_fixtures()
         # pom.xml + application.properties + entry point + 4 services = 7
         assert len(files) == 7
@@ -201,7 +201,7 @@ class TestInMemoryGeneration:
         assert "System.out.println" in svc.source_code
         assert "HELLO" in svc.source_code
 
-    def test_empty_generation(self) -> None:
+    def test_empty_jcl_yields_pom_properties_and_entry_point_only(self) -> None:
         result = modernize_jcl_from_sources({}, application_id="empty-gen")
         spring_app = jcl_to_spring_boot(result.profile.application)
         gen = SpringBootGenerator()
@@ -233,7 +233,7 @@ class TestGenerationDeterminism:
 class TestGeneratorRegression:
     """The existing SpringBootGenerator is not broken by JCL usage."""
 
-    def test_generator_still_works_for_cobol_shaped_input(self) -> None:
+    def test_cobol_shaped_ir_generates_pom_and_main_entry_point(self) -> None:
         from engine.transformation.java_ir import JavaBasicType, JavaType
         from engine.transformation.spring_boot_ir import (
             SpringBootApplication,

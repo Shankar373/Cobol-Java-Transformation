@@ -11,19 +11,19 @@ Implements container-per-execution with:
 
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 
+from engine.docker_cli import check_docker_available
 from engine.domain.identities import ContentHash
 from engine.execution.abstractions import (
     ExecutionCommand,
     ExecutionResult,
 )
 from engine.execution.sandbox_paths import to_host_path
+from engine.source_hash import compute_source_tree_hash
 
 
 @dataclass(frozen=True)
@@ -50,16 +50,7 @@ class DockerRunner:
 
     def _check_docker(self) -> bool:
         """Check if Docker is available."""
-        try:
-            result = subprocess.run(
-                ["docker", "info"],
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        return check_docker_available()
 
     @property
     def available(self) -> bool:
@@ -67,16 +58,7 @@ class DockerRunner:
 
     def compute_source_hash(self, source_path: str) -> ContentHash:
         """Compute SHA-256 hash of source directory contents."""
-        hasher = hashlib.sha256()
-        path = Path(source_path)
-        if path.is_file():
-            hasher.update(path.read_bytes())
-        elif path.is_dir():
-            for f in sorted(path.rglob("*")):
-                if f.is_file():
-                    hasher.update(str(f.relative_to(path)).encode())
-                    hasher.update(f.read_bytes())
-        return ContentHash(digest=hasher.hexdigest())
+        return compute_source_tree_hash(source_path)
 
     def execute(self, config: DockerRunConfig) -> ExecutionResult:
         """Execute a command in a Docker container."""

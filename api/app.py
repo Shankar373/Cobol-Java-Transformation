@@ -48,6 +48,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.errors import ApiError, PayloadTooLargeError
 from api.ingestion import IngestionError
+from api.limits import env_int_limit
 from api.models import (
     ApplicationCreate,
     ApplicationResponse,
@@ -94,15 +95,7 @@ def _store_path() -> str:
 
 
 def _env_limit(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        logger.warning("Invalid %s=%r; using %d", name, raw, default)
-        return default
-    return value if value > 0 else default
+    return env_int_limit(name, default, logger)
 
 
 _store = Store(_store_path())

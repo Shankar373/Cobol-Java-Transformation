@@ -39,7 +39,7 @@ def build(source: str, path: str = "test.jcl"):
 class TestParserModelRegression:
     """Parser output must flow into the semantic model unchanged."""
 
-    def test_simple_job(self) -> None:
+    def test_simple_batch_model_preserves_step_order_and_programs(self) -> None:
         model, _ = build(load_fixture("simple_batch.jcl"), "simple_batch.jcl")
         job = model.get_job("SIMPLEB")
         assert job is not None
@@ -225,7 +225,7 @@ class TestDeterminism:
 class TestValidation:
     """Semantic model validation."""
 
-    def test_validate_proc_hidden(self) -> None:
+    def test_proc_step_fixture_has_no_model_consistency_errors(self) -> None:
         model, _ = build(load_fixture("unsupported.jcl"), "unsupported.jcl")
         errors = model.validate()
         assert errors == []  # model consistency, not construct support

@@ -41,6 +41,7 @@ from engine.transformation.ir import (
     JclDependency,
     JclJob,
 )
+from engine.transformation.jcl_dependencies import build_all_dependencies
 
 
 class JclDiscovery:
@@ -94,7 +95,7 @@ class JclDiscovery:
                 continue
 
         # Build dependencies
-        dependencies = self._build_dependencies(jobs)
+        dependencies = build_all_dependencies(jobs)
 
         return JclApplication(
             jobs=tuple(jobs),
@@ -136,26 +137,21 @@ class JclDiscovery:
             for step in job.steps:
                 if step.exec_ and step.exec_.program:
                     program_id = step.exec_.program
-                    if program_id in known_programs:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}",
-                            target=program_id,
-                            dependency_type="COBOL_PROGRAM",
-                            metadata="resolution=RESOLVED",
-                        ))
-                    else:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}",
-                            target=program_id,
-                            dependency_type="COBOL_PROGRAM",
-                            metadata="resolution=UNRESOLVED",
-                        ))
+                    resolution = (
+                        "RESOLVED" if program_id in known_programs else "UNRESOLVED"
+                    )
+                    dependencies.append(JclDependency(
+                        source=f"{job.name}.{step.name}",
+                        target=program_id,
+                        dependency_type="COBOL_PROGRAM",
+                        metadata=f"resolution={resolution}",
+                    ))
 
                 # Link DD datasets to COBOL files
                 for dd in step.dd_statements:
                     if dd.dataset:
                         # Try to match dataset to COBOL file
-                        for file_key, (prog_id, file_name) in file_lookup.items():
+                        for prog_id, file_name in file_lookup.values():
                             if dd.dataset.upper() in file_name.upper() or file_name.upper() in dd.dataset.upper():
                                 dependencies.append(JclDependency(
                                     source=f"{job.name}.{step.name}.{dd.name}",
@@ -175,15 +171,14 @@ class JclDiscovery:
     def _find_jcl_files(self, source_path: Path) -> list[Path]:
         """Find all JCL source files in the directory tree."""
         jcl_exts = {".jcl", ".jcllib"}
-        jcl_files: list[Path] = [
-            f
-            for f in source_path.rglob("*")
-            if f.is_file() and f.suffix.lower() in jcl_exts
-        ]
-
-        # Also check for files with no extension that look like JCL
+        jcl_files: list[Path] = []
         for f in source_path.rglob("*"):
-            if f.is_file() and f.suffix == "":
+            if not f.is_file():
+                continue
+            if f.suffix.lower() in jcl_exts:
+                jcl_files.append(f)
+            elif f.suffix == "":
+                # Also check for files with no extension that look like JCL
                 try:
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     # JCL typically starts with //
@@ -193,47 +188,3 @@ class JclDiscovery:
                     continue
 
         return sorted(set(jcl_files))
-
-    def _build_dependencies(
-        self,
-        jobs: list[JclJob],
-    ) -> list[JclDependency]:
-        """Build all dependencies from parsed jobs."""
-        dependencies: list[JclDependency] = []
-
-        for job in jobs:
-            # Step order dependencies
-            for i in range(len(job.steps) - 1):
-                current = job.steps[i]
-                next_step = job.steps[i + 1]
-
-                if current.condition is None:
-                    dependencies.append(JclDependency(
-                        source=current.name,
-                        target=next_step.name,
-                        dependency_type="JCL_STEP_ORDER",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # EXEC program references
-            for step in job.steps:
-                if step.exec_ and step.exec_.program:
-                    dependencies.append(JclDependency(
-                        source=f"{job.name}.{step.name}",
-                        target=step.exec_.program,
-                        dependency_type="JCL_EXEC",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # DD dataset references
-            for step in job.steps:
-                for dd in step.dd_statements:
-                    if dd.dataset:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}.{dd.name}",
-                            target=dd.dataset,
-                            dependency_type="JCL_DD",
-                            metadata=f"disp={dd.disposition}" if dd.disposition else "",
-                        ))
-
-        return dependencies

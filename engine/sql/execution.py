@@ -310,8 +310,8 @@ class Db2ControlledDatabase:
         self, semantic_stmt, masked_sql: str, values: list
     ) -> Db2SqlExecutionResult:
         stype = semantic_stmt.statement_type
+        cur = self._connection.execute(masked_sql, values)
         if stype == "SELECT":
-            cur = self._connection.execute(masked_sql, values)
             rows = [tuple(r) for r in cur.fetchall()]
             return Db2SqlExecutionResult(
                 statement_type="SELECT",
@@ -319,7 +319,6 @@ class Db2ControlledDatabase:
                 rows=tuple(rows),
                 translated_sql=masked_sql,
             )
-        cur = self._connection.execute(masked_sql, values)
         return Db2SqlExecutionResult(
             statement_type=stype,
             status=Db2SqlStatus.success(),

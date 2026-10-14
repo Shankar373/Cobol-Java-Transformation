@@ -166,7 +166,7 @@ class TestNegativeCases:
     def test_empty_all_literal_is_not_a_constant(self):
         assert figurative.parse_figurative_constant('ALL ""') is None
 
-    def test_ordinary_move_stays_a_field_reference(self):
+    def test_ordinary_move_source_stays_a_literal_not_a_figurative(self):
         [move] = _moves(_program("MOVE 5 TO WS-NUM."))
         assert isinstance(move.source_expr, Literal)
         assert not isinstance(move.source_expr, FigurativeConstant)

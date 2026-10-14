@@ -3,7 +3,7 @@ import { tokens } from '../theme/tokens';
 import type { IntegratedProofResponse } from '../api/client';
 import { Badge } from './Badge';
 import { SectionCard } from './SectionCard';
-import { IconCheckCircle, IconAlert, IconXCircle, IconHelp, IconBan, IconDatabase, IconFileText, IconCode, IconLayers } from './icons';
+import { IconCheckCircle, IconAlert, IconXCircle, IconHelp, IconDatabase, IconFileText, IconCode, IconLayers } from './icons';
 
 interface IntegratedProofProps {
   proof: IntegratedProofResponse;

@@ -1,6 +1,6 @@
 import React from 'react';
 import { tokens } from '../theme/tokens';
-import { IconChevronRight, IconDownload } from './icons';
+import { IconChevronRight } from './icons';
 
 export interface BreadcrumbItem {
   label: string;

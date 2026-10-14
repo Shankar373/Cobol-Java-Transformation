@@ -57,7 +57,6 @@ class EvidenceEnvelope:
 
     def verify_integrity(self) -> bool:
         """Verify evidence content hasn't been tampered with."""
-        import json
         content_bytes = json.dumps(self.content, sort_keys=True).encode("utf-8")
         return self.content_hash.verify(content_bytes)
 

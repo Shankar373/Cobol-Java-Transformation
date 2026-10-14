@@ -58,7 +58,7 @@ class TestContentHash:
 
 
 class TestWorkloadId:
-    def test_valid(self):
+    def test_nonempty_workload_id_is_accepted(self):
         w = WorkloadId(value="wl-001")
         assert w.value == "wl-001"
 
@@ -68,7 +68,7 @@ class TestWorkloadId:
 
 
 class TestRunId:
-    def test_valid(self):
+    def test_nonempty_run_id_is_accepted(self):
         r = RunId(value="run-001")
         assert r.value == "run-001"
 
@@ -78,7 +78,7 @@ class TestRunId:
 
 
 class TestSourceIdentity:
-    def test_valid(self):
+    def test_source_identity_preserves_source_id(self):
         s = SourceIdentity(
             source_id="src-001",
             source_hash=make_hash("source"),
@@ -98,7 +98,7 @@ class TestSourceIdentity:
 
 
 class TestCandidateIdentity:
-    def test_valid(self):
+    def test_candidate_identity_preserves_candidate_id(self):
         c = CandidateIdentity(
             candidate_id="cand-001",
             candidate_hash=make_hash("candidate"),
@@ -120,7 +120,7 @@ class TestCandidateIdentity:
 
 
 class TestOracleIdentity:
-    def test_valid(self):
+    def test_oracle_identity_defaults_preprocessor_version_to_none(self):
         o = OracleIdentity(
             oracle_id="gnucobol-3.1.2",
             image_digest="sha256:" + "a" * 64,
@@ -155,7 +155,7 @@ class TestOracleIdentity:
 
 
 class TestEnvironmentIdentity:
-    def test_valid(self):
+    def test_network_policy_defaults_to_none(self):
         e = EnvironmentIdentity(runtime_id="env-001")
         assert e.runtime_id == "env-001"
         assert e.network_policy == "none"
@@ -169,7 +169,7 @@ class TestEnvironmentIdentity:
 
 
 class TestInputIdentity:
-    def test_valid(self):
+    def test_input_identity_preserves_input_id(self):
         i = InputIdentity(input_id="inp-001")
         assert i.input_id == "inp-001"
 
@@ -199,7 +199,7 @@ class TestInputIdentity:
 
 
 class TestArtifactIdentity:
-    def test_valid_types(self):
+    def test_all_five_artifact_types_are_accepted(self):
         for artifact_type in ["STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD"]:
             a = ArtifactIdentity(
                 artifact_id="art-001",
@@ -222,7 +222,7 @@ class TestArtifactIdentity:
                 size_bytes=100,
             )
 
-    def test_valid_producer_roles(self):
+    def test_oracle_and_candidate_producer_roles_are_accepted(self):
         for role in ["ORACLE", "CANDIDATE"]:
             a = ArtifactIdentity(
                 artifact_id="art-001",
@@ -247,7 +247,7 @@ class TestArtifactIdentity:
 
 
 class TestExecutionId:
-    def test_valid(self):
+    def test_nonempty_execution_id_is_accepted(self):
         e = ExecutionId(value="exec-001")
         assert e.value == "exec-001"
 
@@ -257,7 +257,7 @@ class TestExecutionId:
 
 
 class TestComparisonId:
-    def test_valid(self):
+    def test_nonempty_comparison_id_is_accepted(self):
         c = ComparisonId(value="comp-001")
         assert c.value == "comp-001"
 
@@ -267,7 +267,7 @@ class TestComparisonId:
 
 
 class TestContractId:
-    def test_valid_types(self):
+    def test_all_five_contract_types_are_accepted(self):
         for ct in ["ORACLE", "ARTIFACT", "VERDICT", "JAVA_CANDIDATE", "PRODUCER"]:
             c = ContractId(contract_type=ct, version="1.0")
             assert c.contract_type == ct
@@ -278,7 +278,7 @@ class TestContractId:
 
 
 class TestComparatorId:
-    def test_valid(self):
+    def test_nonempty_comparator_id_is_accepted(self):
         c = ComparatorId(comparator_id="STDOUT_COMPARATOR", version="1.0.0")
         assert c.comparator_id == "STDOUT_COMPARATOR"
 
@@ -288,7 +288,7 @@ class TestComparatorId:
 
 
 class TestAdapterStatus:
-    def test_all_values(self):
+    def test_adapter_status_defines_exactly_four_values(self):
         statuses = list(AdapterStatus)
         assert len(statuses) == 4
         assert AdapterStatus.AVAILABLE in statuses

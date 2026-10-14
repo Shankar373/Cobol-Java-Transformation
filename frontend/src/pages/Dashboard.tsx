@@ -1,4 +1,3 @@
-import React from 'react';
 import { tokens } from '../theme/tokens';
 import { PageContainer, StatCard, SectionCard, Badge, Button, EmptyState, Header } from '../components';
 import {
@@ -34,31 +33,6 @@ function stageBadgeVariant(stage: string): 'success' | 'error' | 'info' | 'warni
   )
     return 'info';
   return 'default';
-}
-
-function stageLabel(stage: string): string {
-  const map: Record<string, string> = {
-    CREATED: 'Created',
-    INGESTING: 'Ingesting',
-    DISCOVERING: 'Discovering',
-    DISCOVERY_COMPLETED: 'Discovered',
-    ANALYZING: 'Analyzing',
-    ANALYSIS_COMPLETED: 'Analyzed',
-    PLANNING: 'Planning',
-    PLAN_COMPLETED: 'Planned',
-    TRANSFORMING: 'Transforming',
-    GENERATING: 'Generating',
-    ASSEMBLING: 'Assembling',
-    ASSEMBLY_COMPLETED: 'Assembled',
-    EXECUTING_ORACLE: 'Oracle Exec',
-    BUILDING: 'Building',
-    EXECUTING_GENERATED: 'Java Exec',
-    COMPARING: 'Comparing',
-    VALIDATING_EVIDENCE: 'Validating',
-    COMPLETED: 'Completed',
-    FAILED: 'Failed',
-  };
-  return map[stage] ?? stage;
 }
 
 function runDuration(run: RunResponse): string {

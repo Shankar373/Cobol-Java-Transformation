@@ -63,7 +63,7 @@ class TestJclDiscoveryIntegration:
         assert result.profile is not None
         assert len(result.profile.application.jobs) == 4
 
-    def test_discover_step_count(self) -> None:
+    def test_fixture_directory_reports_at_least_ten_steps(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert result.step_count >= 10  # 2+3+4+5 steps across 4 jobs
 
@@ -198,20 +198,20 @@ class TestUnsupportedPreserved:
 class TestSpringBatchIRConsumer:
     """Prove the Spring Batch representation is accessible at the consumer boundary."""
 
-    def test_job_bean_naming(self) -> None:
+    def test_simpleb_job_bean_is_pascal_name_with_start_step01(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("SIMPLEB")
         assert job.job_bean == "SimplebJob"
         assert job.start_step == "Step01"
 
-    def test_step_tasklet_bean(self) -> None:
+    def test_step01_tasklet_bean_derives_from_step_name_and_program(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("SIMPLEB")
         step = job.steps[0]
         assert step.tasklet_bean == "Step01Tasklet"
         assert step.program == "SIMPLE-CALC"
 
-    def test_resource_mapping(self) -> None:
+    def test_payorder_input_dd_maps_to_input_type_with_dsn(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("PAYORDER")
         input_res = job.steps[0].resources[0]
@@ -219,7 +219,7 @@ class TestSpringBatchIRConsumer:
         assert input_res.resource_type == SpringBatchResourceType.INPUT
         assert input_res.dsn == "ORDER.INPUT"
 
-    def test_flow_edges(self) -> None:
+    def test_simpleb_sequential_steps_yield_success_flow_edge(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("SIMPLEB")
         assert len(job.flows) == 1
@@ -235,13 +235,13 @@ class TestSpringBatchIRConsumer:
         flow_even = next(f for f in job.flows if f.target == "Step03")
         assert flow_even.on_status == EXIT_STATUS_ANY
 
-    def test_dataset_edges(self) -> None:
+    def test_dataset_edges_record_order_input_and_order_output(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         edges = {(e.dataset, e.producer, e.consumer) for e in result.profile.application.dataset_edges}
         assert ("ORDER.INPUT", "", "Step01") in edges
         assert ("ORDER.OUTPUT", "Step03", "") in edges
 
-    def test_validate_clean(self) -> None:
+    def test_fixture_profile_validates_with_no_errors(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert result.profile.application.validate() == []
 
@@ -282,7 +282,7 @@ class TestInMemorySources:
 class TestNoRegression:
     """Verify existing JCL tests still pass (baseline preserved)."""
 
-    def test_parser_regression(self) -> None:
+    def test_parser_extracts_single_job_step_and_program(self) -> None:
         from engine.transformation.jcl_parser import JclParser
 
         jcl = (
@@ -295,7 +295,7 @@ class TestNoRegression:
         assert app.jobs[0].name == "TESTJOB"
         assert app.jobs[0].steps[0].exec_.program == "CALC"
 
-    def test_discovery_still_works(self) -> None:
+    def test_discovery_returns_all_four_fixture_jobs(self) -> None:
         from engine.transformation.jcl_discovery import JclDiscovery
 
         discovery = JclDiscovery()
@@ -312,7 +312,7 @@ class TestNoRegression:
 class TestErrorHandling:
     """Consumer must not silently swallow errors."""
 
-    def test_nonexistent_path(self) -> None:
+    def test_missing_directory_raises_file_not_found(self) -> None:
         with pytest.raises(FileNotFoundError):
             modernize_jcl_workload("/nonexistent/path/xyz")
 

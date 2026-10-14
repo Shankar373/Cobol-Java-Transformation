@@ -61,7 +61,7 @@ class TestSourceDrivenGeneration:
         result2 = producer.transform(cobol, program_id="SETTLEMENT")
         assert result2.entrypoint == "Claims"  # Same — parameter is ignored
 
-    def test_threshold_change_does_not_modify_generated_java(self):
+    def test_threshold_change_updates_the_threshold_literal_in_generated_java(self):
         """SOURCE-DRIVEN: Threshold change now modifies generated Java.
 
         The generator reads the threshold from the parsed IR (ThresholdRule).
@@ -100,7 +100,7 @@ class TestSourceDrivenGeneration:
         assert '"/workspace/input"' in java1
         assert '"/claims.dat"' in java1
 
-    def test_status_code_change_does_not_modify_generated_java(self):
+    def test_status_code_change_updates_the_status_literal_in_generated_java(self):
         """KNOWN LIMITATION: Status code change does NOT modify generated Java.
 
         The generator now extracts status codes from the IR.

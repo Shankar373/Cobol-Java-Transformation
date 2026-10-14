@@ -43,7 +43,7 @@ JAVA_CANDIDATE_MUTATED = str(FIXTURES / "java-candidate-mutated")
 class TestOracleE2E:
     """Real Docker GnuCOBOL execution tests."""
 
-    def test_oracle_adapter_probe(self):
+    def test_oracle_probe_returns_a_known_status(self):
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
             image_digest="",
@@ -95,7 +95,7 @@ class TestOracleE2E:
 class TestJavaE2E:
     """Real javac/java execution tests."""
 
-    def test_java_adapter_probe(self):
+    def test_java_probe_returns_a_known_status(self):
         adapter = RealJavaCandidateAdapter()
         status = adapter.probe()
         assert status in (AdapterStatus.AVAILABLE, AdapterStatus.UNAVAILABLE)

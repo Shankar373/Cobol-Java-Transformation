@@ -196,15 +196,14 @@ class ApplicationDiscovery:
     def _find_cobol_files(self, source_path: Path) -> list[Path]:
         """Find all COBOL source files in the directory tree."""
         cobol_exts = {".cob", ".cbl"}
-        cobol_files: list[Path] = [
-            f
-            for f in source_path.rglob("*")
-            if f.is_file() and f.suffix.lower() in cobol_exts
-        ]
-
-        # Also check for files without extension that might be COBOL
+        cobol_files: list[Path] = []
         for f in source_path.rglob("*"):
-            if f.is_file() and f.suffix == "":
+            if not f.is_file():
+                continue
+            if f.suffix.lower() in cobol_exts:
+                cobol_files.append(f)
+            elif f.suffix == "":
+                # Also check for files without extension that might be COBOL
                 try:
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     if "IDENTIFICATION DIVISION" in content.upper():

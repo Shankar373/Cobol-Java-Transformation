@@ -70,7 +70,6 @@ class JavaType:
     class_name: str = ""  # for named types (e.g. "List", "Map")
     is_array: bool = False
     array_element_type: JavaType | None = None
-    is_nullable: bool = False
     generic_type_params: tuple[JavaType, ...] = ()  # e.g. List<String>
 
     @property

@@ -440,10 +440,11 @@ class Service:
         """Normalise and de-collide upload entry names (fail closed)."""
         if not files:
             raise ServiceError("No files supplied")
-        if len(files) > _upload_file_limit():
+        upload_limit = _upload_file_limit()
+        if len(files) > upload_limit:
             raise ServiceError(
                 f"Too many files in one upload"
-                f" ({len(files)} > {_upload_file_limit()})"
+                f" ({len(files)} > {upload_limit})"
             )
 
         resolved: list[tuple[str, Path]] = []
@@ -1181,8 +1182,10 @@ class Service:
 
         app = self.get_application(run.application_id)
         runtime = runtime_evidence_from_result(_ResultFacade())
-        jcl_status = run_report.get(
-            "jcl_status", _jcl_status_for_source(app.cobol_source_path)
+        jcl_status = (
+            run_report["jcl_status"]
+            if "jcl_status" in run_report
+            else _jcl_status_for_source(app.cobol_source_path)
         )
         proof = _proof_payload(app.workload_id, facade, runtime, jcl_status)
         return {"run_id": run.id, "proof": proof}

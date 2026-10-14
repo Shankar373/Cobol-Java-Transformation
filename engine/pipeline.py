@@ -162,22 +162,17 @@ class VerticalSlicePipeline:
     def _compute_source_identity(self) -> SourceIdentity:
         source_path = Path(self._config.cobol_source_path)
         hasher = hashlib.sha256()
+        file_count = 0
+        total_size = 0
         if source_path.is_file():
             hasher.update(source_path.read_bytes())
+            file_count = 1
+            total_size = source_path.stat().st_size
         elif source_path.is_dir():
             for f in sorted(source_path.rglob("*")):
                 if f.is_file():
                     hasher.update(str(f.relative_to(source_path)).encode())
                     hasher.update(f.read_bytes())
-
-        file_count = 0
-        total_size = 0
-        if source_path.is_file():
-            file_count = 1
-            total_size = source_path.stat().st_size
-        elif source_path.is_dir():
-            for f in source_path.rglob("*"):
-                if f.is_file():
                     file_count += 1
                     total_size += f.stat().st_size
 
@@ -564,7 +559,6 @@ class VerticalSlicePipeline:
                     input_files=input_files,
                 )
         else:
-            from datetime import timezone as tz
             candidate_result = CandidateExecutionResult(
                 execution_id=ExecutionId(value=f"candidate-{run_id.value}-compile-fail"),
                 run_id=run_id,
@@ -572,8 +566,8 @@ class VerticalSlicePipeline:
                 exit_code=1,
                 stdout=b"",
                 stderr="; ".join(compilation.compilation_errors).encode(),
-                start_time=datetime.now(tz.utc).isoformat(),
-                end_time=datetime.now(tz.utc).isoformat(),
+                start_time=datetime.now(timezone.utc).isoformat(),
+                end_time=datetime.now(timezone.utc).isoformat(),
                 termination_status="nonzero_exit",
                 timeout_applied=False,
             )

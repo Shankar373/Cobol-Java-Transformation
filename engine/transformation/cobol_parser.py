@@ -33,6 +33,7 @@ from engine.transformation.semantic_capability import canonical_usage
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
+    ComputeStatement,
     BinaryExpression,
     BooleanCondition,
     CobolProgram,
@@ -249,16 +250,6 @@ def _parse_usage_clause(rest: str) -> str | None:
     if not match:
         return None
     return canonical_usage(match.group(0))
-
-
-def _clean_line(line: str) -> str:
-    """Remove leading/trailing whitespace and trailing period."""
-    return line.rstrip()
-
-
-def _is_area_a(line: str) -> bool:
-    """Check if line starts in COBOL Area A (columns 8-11)."""
-    return len(line) >= 8 and line[7:8] in (" ", "*", "/")
 
 
 def _strip_area_prefix(line: str) -> str:
@@ -1096,7 +1087,6 @@ class CobolParser:
             return None, start + 1
 
         # Unknown statement — skip
-        line = lines[start].strip()
         self._diagnostics.warning(
             DiagnosticCode.UNSUPPORTED_CONSTRUCT,
             f"Skipped unsupported statement: {line[:60]}",
@@ -1231,7 +1221,6 @@ class CobolParser:
                 _feed(name, tail)
                 current_section = name
             if closed or line0.rstrip().endswith("."):
-                closed = True
                 return sections, start + 1
         elif line0.rstrip().endswith("."):
             # Period-terminated verb with no clause: the statement is complete.
@@ -1274,7 +1263,7 @@ class CobolParser:
                 break
 
             stmt, i = self._parse_statement(lines, i)
-            if stmt is not None and current_section is not None:
+            if stmt is not None:
                 sections[current_section].append(stmt)
             if raw.endswith("."):
                 # The period terminates the sentence, and with it the clause.
@@ -1728,8 +1717,6 @@ class CobolParser:
 
     def _parse_compute(self, lines: list[str], start: int) -> tuple['ComputeStatement', int]:
         """Parse COMPUTE target = expression."""
-        from engine.transformation.ir import ComputeStatement
-
         line = lines[start].strip()
 
         match = re.search(
@@ -2011,7 +1998,6 @@ class CobolParser:
             inline = (
                 rest.startswith("UNTIL ")
                 or rest.startswith("VARYING ")
-                or bool(re.match(r"\d+\s+TIMES$", rest))
                 or bool(re.match(r"\d+\s+TIMES", rest))
             )
         if inline:
@@ -2444,24 +2430,6 @@ class CobolParser:
 
         return codes
 
-    def _extract_primary_threshold(self, lines: list[str]) -> ThresholdRule | None:
-        """Extract the primary numeric threshold from IF conditions.
-
-        Looks for patterns like:
-            IF WS-CLAIM-AMOUNT < 500
-        """
-        for line in lines:
-            match = re.search(
-                r"IF\s+(\S+)\s*(<|>)\s*(\d+)",
-                line, re.IGNORECASE,
-            )
-            if match:
-                return ThresholdRule(
-                    field_name=match.group(1),
-                    operator=match.group(2),
-                    value=int(match.group(3)),
-                )
-        return None
 
     def _extract_report_header(self, lines: list[str]) -> str:
         """Extract the report header from a header VALUE clause.
@@ -2484,63 +2452,6 @@ class CobolParser:
                         return match.group(1)
         return ""
 
-    def _extract_output_fields(self, lines: list[str], record_name: str) -> list[OutputFieldDefinition]:
-        """Extract output field definitions from STRING statements.
-
-        Looks for STRING ... INTO <record_name> patterns.
-        """
-        fields: list[OutputFieldDefinition] = []
-        in_string = False
-        current_parts: list[str] = []
-
-        for line in lines:
-            upper = line.upper().strip()
-            if "STRING " in upper and f"INTO {record_name}" in upper:
-                in_string = True
-                current_parts = []
-                # Extract parts from the same line
-                parts_match = re.search(r"STRING\s+(.+?)\s+INTO", line, re.IGNORECASE)
-                if parts_match:
-                    tokens = re.findall(r'"([^"]+)"|(\S+)', parts_match.group(1))
-                    for t in tokens:
-                        current_parts.append(t[0] if t[0] else t[1])
-                continue
-
-            if in_string:
-                if "END-STRING" in upper:
-                    in_string = False
-                    # Process collected parts into field definitions
-                    i = 0
-                    while i < len(current_parts):
-                        part = current_parts[i]
-                        if part.startswith('"') and part.endswith('"'):
-                            # Delimiter
-                            delim = part.strip('"')
-                            if delim == "|":
-                                fields.append(OutputFieldDefinition(
-                                    field_name=f"delim_{len(fields)}",
-                                    delimiter="|",
-                                ))
-                            elif delim == " ":
-                                fields.append(OutputFieldDefinition(
-                                    field_name=f"space_{len(fields)}",
-                                    delimiter=" ",
-                                ))
-                        else:
-                            # Field name
-                            fields.append(OutputFieldDefinition(
-                                field_name=part,
-                                delimiter="FIELD",
-                            ))
-                        i += 1
-                    current_parts = []
-                else:
-                    # Collect parts
-                    tokens = re.findall(r'"([^"]+)"|(\S+)', line.strip())
-                    for t in tokens:
-                        current_parts.append(t[0] if t[0] else t[1])
-
-        return fields
 
     def _extract_summary_fields(self, lines: list[str]) -> list[str]:
         """Extract DISPLAY summary field labels.
@@ -2608,22 +2519,6 @@ class CobolParser:
                     labels.append(label)
         return labels
 
-    def _find_record_name(self, lines: list[str], prefix: str) -> str | None:
-        """Find a record name from STRING ... INTO statements with a given prefix.
-
-        Searches for STRING ... INTO <record> patterns where the record name
-        contains the given prefix (case-insensitive).
-        """
-        prefix_upper = prefix.upper()
-        for line in lines:
-            upper = line.upper()
-            if "STRING " in upper and "INTO " in upper:
-                match = re.search(r"INTO\s+(\S+)", line, re.IGNORECASE)
-                if match:
-                    record_name = match.group(1).rstrip(".")
-                    if prefix_upper in record_name.upper():
-                        return record_name
-        return None
 
     def _extract_record_format(self, lines: list[str], record_name: str) -> RecordFormat | None:
         """Extract record format from STRING ... INTO <record_name> statements.

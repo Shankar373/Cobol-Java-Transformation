@@ -150,11 +150,7 @@ class Db2SqlModel:
     validation: tuple[str, ...] = ()          # deterministic analyzer diagnostics
 
     def table_names(self) -> list[str]:
-        ordered: list[str] = []
-        for t in self.tables:
-            if t.table_name not in ordered:
-                ordered.append(t.table_name)
-        return ordered
+        return list(dict.fromkeys(t.table_name for t in self.tables))
 
     def get_table(self, table_name: str) -> Db2TableUsage | None:
         for t in self.tables:

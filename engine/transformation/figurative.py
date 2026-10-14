@@ -62,6 +62,11 @@ CANONICAL_FIGURATIVES: dict[str, str] = {
     "HIGH-VALUES": HIGH_VALUE,
 }
 
+#: The reserved figurative spellings, derived from the canonical map so the
+#: two can never drift.  Exact whole-token membership is what
+#: :func:`_is_reserved_figurative` needs.
+_RESERVED_FIGURATIVES = frozenset(CANONICAL_FIGURATIVES)
+
 
 #: Semantic kind -> the character it fills each position with.  ``ZERO`` is
 #: absent because it is numeric, not a character fill; it maps to the integer
@@ -102,17 +107,13 @@ _ALL_FIGURATIVE_WORD = re.compile(
 def _is_reserved_figurative(token: str) -> bool:
     """True when ``token`` spells a reserved figurative constant word.
 
-    Reserved words are always full hyphen-delimited COBOL words, so the
-    lookarounds refuse adjacent word characters *and* hyphens.  That keeps a
-    data item or paragraph such as ``ZERO-COUNT``, ``SPACES-AVAIL`` or
-    ``HIGH-VALUE-FLAG`` from being mistaken for the verb, mirroring the
-    boundary rule already used by the capability source patterns.
+    Membership is exact: the stripped, upper-cased token must be one of the
+    canonical spellings (:data:`_RESERVED_FIGURATIVES`), so a data item or
+    paragraph such as ``ZERO-COUNT``, ``SPACES-AVAIL`` or ``HIGH-VALUE-FLAG``
+    is never mistaken for the verb, mirroring the boundary rule already used
+    by the capability source patterns.
     """
-    return re.fullmatch(
-        r"(?<![\w-])(ZEROES|ZEROS|ZERO-ZERO-ZERO|ZERO|SPACES|SPACE"
-        r"|QUOTES|QUOTE|LOW-VALUES|LOW-VALUE|HIGH-VALUES|HIGH-VALUE)(?![\w-])",
-        token.strip().upper(),
-    ) is not None
+    return token.strip().upper() in _RESERVED_FIGURATIVES
 
 
 def parse_figurative_constant(text: str) -> tuple[str, str | None] | None:

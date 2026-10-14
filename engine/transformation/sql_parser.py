@@ -37,6 +37,25 @@ from engine.transformation.ir import (
     SqlPredicate,
 )
 
+from engine.transformation.sql_split import split_sql_statements
+
+
+#: Host-variable reference (``:NAME``) in raw embedded SQL text.
+_HOST_VARIABLE_RE = re.compile(r":([A-Z][A-Z0-9-]*)", re.IGNORECASE)
+
+#: Predicate operator token -> ``SqlOperator`` for `_parse_predicate`.
+_PREDICATE_OP_MAP = {
+    "=": SqlOperator.EQUALS,
+    "<>": SqlOperator.NOT_EQUALS,
+    ">": SqlOperator.GREATER,
+    "<": SqlOperator.LESS,
+    ">=": SqlOperator.GREATER_EQUALS,
+    "<=": SqlOperator.LESS_EQUALS,
+    "LIKE": SqlOperator.LIKE,
+    "IN": SqlOperator.IN,
+    "BETWEEN": SqlOperator.BETWEEN,
+}
+
 
 class SqlParser:
     """Parse embedded SQL statements into SQL IR.
@@ -73,8 +92,6 @@ class SqlParser:
                 select = self._parse_select(stmt_text)
                 if select:
                     stmt_type = SqlStatementType.SELECT
-                    if select.into_variables:
-                        stmt_type = SqlStatementType.SELECT
                     statements.append(SqlStatement(
                         statement_type=stmt_type,
                         raw_sql=stmt_text,
@@ -211,8 +228,7 @@ class SqlParser:
                         seen.add(hv.name)
 
             # Extract from raw SQL using regex
-            pattern = re.compile(r":([A-Z][A-Z0-9-]*)", re.IGNORECASE)
-            for match in pattern.finditer(stmt.raw_sql):
+            for match in _HOST_VARIABLE_RE.finditer(stmt.raw_sql):
                 var_name = match.group(1)
                 if var_name not in seen:
                     host_vars.append(SqlHostVariable(name=var_name))
@@ -272,33 +288,7 @@ class SqlParser:
 
     def _split_statements(self, sql_text: str) -> list[str]:
         """Split SQL text into individual statements."""
-        # Simple split by semicolon, respecting quoted strings
-        stmts: list[str] = []
-        current: list[str] = []
-        in_quote = False
-        quote_char = ""
-
-        for ch in sql_text:
-            if in_quote:
-                current.append(ch)
-                if ch == quote_char:
-                    in_quote = False
-                continue
-
-            if ch in ("'", '"'):
-                in_quote = True
-                quote_char = ch
-                current.append(ch)
-            elif ch == ";":
-                stmts.append("".join(current))
-                current = []
-            else:
-                current.append(ch)
-
-        if current:
-            stmts.append("".join(current))
-
-        return stmts
+        return split_sql_statements(sql_text)
 
     def _parse_select(self, sql_text: str) -> SqlSelect | None:
         """Parse a SELECT statement."""
@@ -681,21 +671,9 @@ class SqlParser:
                     left_expr = self._parse_expression(left_text)
                     right_expr = self._parse_expression(right_text)
 
-                    op_map = {
-                        "=": SqlOperator.EQUALS,
-                        "<>": SqlOperator.NOT_EQUALS,
-                        ">": SqlOperator.GREATER,
-                        "<": SqlOperator.LESS,
-                        ">=": SqlOperator.GREATER_EQUALS,
-                        "<=": SqlOperator.LESS_EQUALS,
-                        "LIKE": SqlOperator.LIKE,
-                        "IN": SqlOperator.IN,
-                        "BETWEEN": SqlOperator.BETWEEN,
-                    }
-
                     return SqlPredicate(
                         left=left_expr,
-                        operator=op_map.get(op_str, SqlOperator.EQUALS),
+                        operator=_PREDICATE_OP_MAP.get(op_str, SqlOperator.EQUALS),
                         right=right_expr,
                     )
 

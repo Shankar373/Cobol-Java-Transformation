@@ -351,7 +351,7 @@ class TestModernizationPlannerCopybookRelationships:
             assert cb.capability_level == CapabilityLevel.SUPPORTED
             assert cb.may_proceed is True
 
-    def test_missing_copybook_not_in_plan(self):
+    def test_missing_copybook_still_creates_one_copybook_relationship_in_plan(self):
         """Missing copybooks are handled in capability analysis."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "MAIN.cob").write_text(PROGRAM_WITH_COPY)
@@ -396,7 +396,7 @@ class TestModernizationPlannerFailClosed:
             assert prog.capability_level == CapabilityLevel.SUPPORTED
             assert prog.may_proceed is True
 
-    def test_partial_cannot_proceed(self):
+    def test_unresolved_call_relationship_sets_plan_status_to_partial(self):
         """PARTIAL programs cannot proceed (fail-closed)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "MAIN.cob").write_text(UNRESOLVED_CALL)
@@ -420,7 +420,7 @@ class TestModernizationPlannerFailClosed:
             assert BlockingReason.UNSUPPORTED_CONSTRUCT in prog.blocking_reasons
             assert plan.overall_status == ModernizationStatus.BLOCKED
 
-    def test_unavailable_blocked(self):
+    def test_docker_unavailable_may_proceed_is_false_when_level_is_unavailable(self):
         """UNAVAILABLE (Docker not available) blocks transformation."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "SIMPLE.cob").write_text(SIMPLE_PROGRAM)
@@ -435,7 +435,7 @@ class TestModernizationPlannerFailClosed:
                 assert prog.may_proceed is False
                 assert BlockingReason.DOCKER_UNAVAILABLE in prog.blocking_reasons
 
-    def test_unknown_blocked(self):
+    def test_unknown_level_blocking_is_expected_but_unasserted(self):
         """UNKNOWN capability level is blocked."""
         # This is tested implicitly - UNKNOWN should never be returned
         # but if it is, it should be treated as blocked

@@ -384,7 +384,7 @@ class TestMultilineBehaviourUnchanged:
 # ---------------------------------------------------------------------------
 
 class TestWhenAlso:
-    def test_two_values(self):
+    def test_when_with_two_also_values_folds_into_one_or_condition(self):
         stmt = _first_statement(_program(
             "EVALUATE WS-A",
             "    WHEN 1 ALSO 2",
@@ -393,7 +393,7 @@ class TestWhenAlso:
         ))
         assert stmt.condition == "WS-A = 1 OR WS-A = 2", stmt.condition
 
-    def test_three_values(self):
+    def test_when_with_three_also_values_folds_into_one_or_condition(self):
         stmt = _first_statement(_program(
             "EVALUATE WS-A",
             "    WHEN 1 ALSO 2 ALSO 3",

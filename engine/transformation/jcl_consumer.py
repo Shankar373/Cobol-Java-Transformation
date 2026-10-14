@@ -65,6 +65,26 @@ class JclConsumerResult:
     profile: JclModernizationProfile | None = None
 
 
+def _result_for(profile, application_id: str, source_path: str) -> JclConsumerResult:
+    """Summarize a JCL modernization profile into its consumer result."""
+    job_count = len(profile.application.jobs)
+    step_count = sum(len(job.steps) for job in profile.application.jobs)
+
+    return JclConsumerResult(
+        application_id=application_id,
+        source_path=source_path,
+        status=profile.status,
+        has_errors=profile.has_errors,
+        has_warnings=profile.has_warnings,
+        job_count=job_count,
+        step_count=step_count,
+        supported_constructs=profile.supported_constructs,
+        unsupported_constructs=profile.unsupported_constructs,
+        diagnostics=profile.diagnostics,
+        profile=profile,
+    )
+
+
 def modernize_jcl_workload(
     source_path: str | Path,
     application_id: str = "jcl-modernization",
@@ -120,22 +140,7 @@ def modernize_jcl_workload(
     )
 
     # 4. Summarize.
-    job_count = len(profile.application.jobs)
-    step_count = sum(len(job.steps) for job in profile.application.jobs)
-
-    return JclConsumerResult(
-        application_id=application_id,
-        source_path=str(source.resolve()),
-        status=profile.status,
-        has_errors=profile.has_errors,
-        has_warnings=profile.has_warnings,
-        job_count=job_count,
-        step_count=step_count,
-        supported_constructs=profile.supported_constructs,
-        unsupported_constructs=profile.unsupported_constructs,
-        diagnostics=profile.diagnostics,
-        profile=profile,
-    )
+    return _result_for(profile, application_id, str(source.resolve()))
 
 
 def modernize_jcl_from_sources(
@@ -172,19 +177,4 @@ def modernize_jcl_from_sources(
     )
 
     # 3. Summarize.
-    job_count = len(profile.application.jobs)
-    step_count = sum(len(job.steps) for job in profile.application.jobs)
-
-    return JclConsumerResult(
-        application_id=application_id,
-        source_path="(in-memory)",
-        status=profile.status,
-        has_errors=profile.has_errors,
-        has_warnings=profile.has_warnings,
-        job_count=job_count,
-        step_count=step_count,
-        supported_constructs=profile.supported_constructs,
-        unsupported_constructs=profile.unsupported_constructs,
-        diagnostics=profile.diagnostics,
-        profile=profile,
-    )
+    return _result_for(profile, application_id, "(in-memory)")

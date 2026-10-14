@@ -35,6 +35,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from engine.transformation.figurative import ZERO
+
 # ---------------------------------------------------------------------------
 # PIC clause types
 # ---------------------------------------------------------------------------
@@ -117,7 +119,7 @@ class FigurativeConstant(Expression):
     @property
     def is_numeric(self) -> bool:
         """True when the constant supplies a numeric value (ZERO family)."""
-        return self.kind in ("ZERO",)
+        return self.kind == ZERO
 
 
 @dataclass(frozen=True)
@@ -655,7 +657,6 @@ Statement = (
     | ComputeStatement
     | CallStatement
     | DivideStatement
-    | ComputeStatement
     | IfStatement
     | PerformStatement
     | PerformTimesStatement
@@ -924,9 +925,6 @@ def _flatten_statements(stmt: Statement) -> list[Statement]:
             result.extend(_flatten_statements(s))
         for s in stmt.at_end_body:
             result.extend(_flatten_statements(s))
-    if isinstance(stmt, PerformStatement):
-        # PERFORM body statements are in paragraphs, not in the statement itself
-        pass
     return result
 
 
@@ -1140,8 +1138,6 @@ class CobolApplication:
         for edge in self.edges:
             if edge.source not in seen_ids:
                 errors.append(f"Dependency source not in application: {edge.source}")
-            if edge.target not in seen_ids and edge.edge_type == "CALL":
-                pass  # Already reported as unresolved
 
         # Detect cycles (informational, not necessarily errors)
         cycles = self.detect_cycles()
@@ -1365,14 +1361,6 @@ class JclApplication:
                     errors.append(f"Malformed EXEC: step {step.name} has no EXEC statement")
                 elif not step.exec_.program and not step.exec_.procedure:
                     errors.append(f"Malformed EXEC: step {step.name} has no PGM or PROC")
-
-        # Check for unresolved PGM references
-        known_programs = set()  # Would need COBOL application to resolve
-        for job in self.jobs:
-            for step in job.steps:
-                if step.exec_ and step.exec_.program:
-                    if step.exec_.program not in known_programs:
-                        pass  # Will be resolved when linked with COBOL
 
         # Check for invalid dependency references
         all_step_names: set[str] = set()

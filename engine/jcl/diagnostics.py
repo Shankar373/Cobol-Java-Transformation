@@ -107,11 +107,11 @@ class JclDiagnosticCollector:
 
     @property
     def has_errors(self) -> bool:
-        return any(d.level == JclDiagnosticLevel.ERROR for d in self._diagnostics)
+        return bool(self.errors)
 
     @property
     def has_warnings(self) -> bool:
-        return any(d.level == JclDiagnosticLevel.WARNING for d in self._diagnostics)
+        return bool(self.warnings)
 
     @property
     def errors(self) -> list[JclDiagnostic]:

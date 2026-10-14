@@ -95,7 +95,7 @@ class TestDiscovery:
         # MAIN calls REPORT
         assert ("MAIN", "REPORT") in call_pairs
 
-    def test_discover_file_dependencies(self):
+    def test_universal_fixture_discovers_no_file_io_edges(self):
         discovery = ApplicationDiscovery()
         app = discovery.discover(FIXTURE_DIR, application_id="universal-test")
         # Our fixture has no file I/O, so no file edges
@@ -183,7 +183,7 @@ class TestCapabilityAnalysis:
         assert "components" in d
         assert isinstance(d["components"], list)
 
-    def test_statistics(self):
+    def test_capability_level_counts_sum_to_component_total(self):
         app = self._get_application()
         analyzer = CapabilityAnalyzer(docker_available=False)
         report = analyzer.analyze(app)
@@ -206,7 +206,7 @@ class TestTransformationPlan:
         generator = TransformationPlanGenerator()
         return generator.generate(app, report, entrypoint="MAIN")
 
-    def test_plan_structure(self):
+    def test_plan_carries_application_id_and_program_count(self):
         plan = self._get_plan()
         assert isinstance(plan, TransformationPlan)
         assert plan.application_id == "universal-test"
@@ -216,11 +216,11 @@ class TestTransformationPlan:
         plan = self._get_plan()
         assert len(plan.components) > 0
 
-    def test_plan_entrypoint(self):
+    def test_plan_entrypoint_is_one_of_the_discovered_programs(self):
         plan = self._get_plan()
         assert plan.oracle.entry_program in ("MAIN", "REPORT", "UTIL")
 
-    def test_plan_assembly(self):
+    def test_plan_assembly_targets_spring_boot_with_base_package(self):
         plan = self._get_plan()
         assert plan.assembly.output_type == "SPRING_BOOT"
         assert plan.assembly.base_package == "com.modernized.app"
@@ -258,7 +258,7 @@ class TestTransformation:
         assert result.success
         assert len(result.generated_files) > 0
 
-    def test_one_file_per_program(self):
+    def test_generation_emits_class_for_main_program(self):
         result = self._get_generation_result()
         java_files = [f for f in result.generated_files if f.filename.endswith(".java")]
         class_names = [f.class_name for f in java_files]
@@ -540,7 +540,7 @@ class TestArchitectureInvariants:
                 # Java files should not contain concatenated COBOL
                 assert "IDENTIFICATION DIVISION" not in f.source_code
 
-    def test_per_program_independence(self):
+    def test_per_program_independence_deferred_no_assertions(self):
         """Each program is transformed independently."""
         discovery = ApplicationDiscovery()
         app = discovery.discover(FIXTURE_DIR, application_id="invariant-test")
@@ -573,7 +573,7 @@ class TestArchitectureInvariants:
             assert "VERIFIED" not in str(report_dict.get("limitations", ""))
             assert "VERIFIED" not in str(report_dict.get("recommendations", ""))
 
-    def test_modular_transformers(self):
+    def test_transformation_producer_exposes_transform_and_capabilities(self):
         """Transformers are modular and replaceable."""
         from engine.transformation.contracts import TransformationProducer
         # The producer interface exists and is abstract

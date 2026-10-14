@@ -140,24 +140,6 @@ function stageBadgeVariant(stage: string): 'success' | 'error' | 'info' {
   return 'info';
 }
 
-/**
- * FAILED runs carry no stage value in RUN_STAGES — infer how far the
- * pipeline is evidenced as having progressed from real artifacts only.
- */
-function failedReachedIndex(
-  verdict: VerdictResponse | null,
-  artifacts: ArtifactMetadata[] | null,
-  report: ModernizationReportResponse | null,
-): number {
-  if (verdict || (artifacts && artifacts.length > 0)) {
-    return RUN_STAGES.indexOf('VALIDATING_EVIDENCE');
-  }
-  if (readPipelineReport(report)) {
-    return RUN_STAGES.indexOf('ASSEMBLY_COMPLETED');
-  }
-  return -1;
-}
-
 export function ModernizationRun({
   runId,
   applicationId,
@@ -512,7 +494,6 @@ export function ModernizationRun({
             <PipelineStepper
               stage={run.stage}
               showIngested={!!ingestionEvidence}
-              failedReachedIndex={failedReachedIndex(verdict, artifacts, report)}
             />
           </SectionCard>
 

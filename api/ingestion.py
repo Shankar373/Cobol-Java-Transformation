@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 import re
 import zipfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from api.limits import env_int_limit
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +37,7 @@ _MAX_TOTAL_EXTRACTED_BYTES_DEFAULT = 200 * 1024 * 1024
 
 
 def _zip_limit(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        logger.warning("Invalid %s=%r; using %d", name, raw, default)
-        return default
-    return value if value > 0 else default
+    return env_int_limit(name, default, logger)
 
 
 def _get_max_zip_archive_bytes() -> int:
@@ -267,7 +260,6 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
 
         # Link JCL with COBOL if both exist
         if result.cobol_programs:
-            from engine.transformation.ir import CobolApplication
             cobol_discovery2 = ApplicationDiscovery()
             cobol_app2 = cobol_discovery2.discover(str(workspace), application_id=application_id)
             jcl_app = jcl_discovery.link_with_cobol(jcl_app, cobol_app2)

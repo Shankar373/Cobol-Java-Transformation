@@ -12,7 +12,6 @@ Implements the oracle adapter with real Docker execution:
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shlex
@@ -24,6 +23,7 @@ from engine.candidate.image_provenance import (
     digest_of_identity,
     resolve_docker_image_identity,
 )
+from engine.docker_cli import check_docker_available
 from engine.domain.identities import (
     AdapterStatus,
     ContentHash,
@@ -37,6 +37,7 @@ from engine.oracle.adapter import (
     OracleAdapterConfig,
     OracleExecutionResult,
 )
+from engine.source_hash import compute_source_tree_hash
 
 
 class DockerOracleAdapter(OracleAdapter):
@@ -80,16 +81,7 @@ class DockerOracleAdapter(OracleAdapter):
         return run_ref, self._digest_of(run_ref)
 
     def _check_docker(self) -> bool:
-        try:
-            result = subprocess.run(
-                ["docker", "info"],
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        return check_docker_available()
 
     def probe(self) -> AdapterStatus:
         if not self._docker_available:
@@ -280,16 +272,7 @@ class DockerOracleAdapter(OracleAdapter):
         return "-free " if formats == {"free"} else ""
 
     def _compute_source_hash(self, source_path: str) -> ContentHash:
-        hasher = hashlib.sha256()
-        path = Path(source_path)
-        if path.is_file():
-            hasher.update(path.read_bytes())
-        elif path.is_dir():
-            for f in sorted(path.rglob("*")):
-                if f.is_file():
-                    hasher.update(str(f.relative_to(path)).encode())
-                    hasher.update(f.read_bytes())
-        return ContentHash(digest=hasher.hexdigest())
+        return compute_source_tree_hash(source_path)
 
     def execute(
         self,
@@ -395,7 +378,6 @@ class DockerOracleAdapter(OracleAdapter):
                     # We do NOT compile adjacent .cob sibling programs.
                     for sibling in cobol_source.parent.iterdir():
                         if sibling.is_file() and sibling.suffix.lower() in (".cpy", ".cbl") \
-                                and sibling.suffix.lower() != ".cob" \
                                 and sibling != cobol_source:
                             (dest.parent / sibling.name).write_bytes(sibling.read_bytes())
                     container_src = "/workspace/src"

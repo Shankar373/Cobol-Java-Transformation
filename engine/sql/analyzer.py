@@ -42,6 +42,8 @@ from engine.transformation.ir import (
 
 _HOST_VAR_RE = re.compile(r":([A-Z][A-Z0-9-]*)", re.IGNORECASE)
 _INDICATOR_PAIR_RE = re.compile(r":([A-Z][A-Z0-9-]*):([A-Z][A-Z0-9-]*)", re.IGNORECASE)
+_INTO_CLAUSE_RE = re.compile(r"\bINTO\b")
+_FROM_AFTER_RE = re.compile(r"\bFROM\b")
 
 
 class Db2SemanticAnalyzer:
@@ -147,7 +149,8 @@ class Db2SemanticAnalyzer:
     # Per-statement analyzers
     # ------------------------------------------------------------------
 
-    def _analyze_select(self, select: SqlSelect, raw: str) -> Db2StmtSemantic:
+    @staticmethod
+    def _collect_select_read_columns(select: SqlSelect) -> list[SqlColumnReference]:
         read_cols: list[SqlColumnReference] = []
         read_cols.extend(select.columns)
         read_cols.extend(collect_predicate_columns(select.where_predicate))
@@ -158,6 +161,10 @@ class Db2SemanticAnalyzer:
         for order in select.order_by:
             if order.column is not None:
                 read_cols.append(order.column)
+        return read_cols
+
+    def _analyze_select(self, select: SqlSelect, raw: str) -> Db2StmtSemantic:
+        read_cols = self._collect_select_read_columns(select)
 
         is_singleton = bool(select.into_variables)
         return Db2StmtSemantic(
@@ -222,15 +229,7 @@ class Db2SemanticAnalyzer:
         read_cols: list[SqlColumnReference] = []
         tables: tuple = ()
         if query is not None:
-            read_cols.extend(query.columns)
-            read_cols.extend(collect_predicate_columns(query.where_predicate))
-            read_cols.extend(collect_predicate_columns(query.having))
-            for group in query.group_by:
-                if group.column is not None:
-                    read_cols.append(group.column)
-            for order in query.order_by:
-                if order.column is not None:
-                    read_cols.append(order.column)
+            read_cols.extend(self._collect_select_read_columns(query))
             tables = tuple(query.from_tables)
 
         return Db2StmtSemantic(
@@ -260,11 +259,11 @@ class Db2SemanticAnalyzer:
     def _into_span(self, raw: str) -> tuple[int, int] | None:
         """Index span of the INTO clause (``[start, end)``), if present."""
         upper = raw.upper()
-        into_match = re.search(r"\bINTO\b", upper)
+        into_match = _INTO_CLAUSE_RE.search(upper)
         if not into_match:
             return None
         start = into_match.start()
-        from_match = re.search(r"\bFROM\b", upper[start + 4:])
+        from_match = _FROM_AFTER_RE.search(upper[start + 4:])
         if from_match:
             end = start + 4 + from_match.start()
         else:

@@ -60,7 +60,7 @@ class TestGeneratedRepresentation:
         assert job.flows[0].target == "Step02"
         assert job.flows[0].on_status == EXIT_STATUS_SUCCESS
 
-    def test_resource_mapping(self) -> None:
+    def test_dd_resources_map_to_input_and_sysout_log_types(self) -> None:
         profile = modernize(load_fixture("order_flow.jcl"), "order_flow.jcl")
         job = profile.application.get_job("PAYORDER")
         input_res = job.steps[0].resources[0]
@@ -211,7 +211,7 @@ class TestDeterminism:
             e.dsn for e in right.application.resources
         ]
 
-    def test_bean_naming(self) -> None:
+    def test_payorder_job_and_step01_tasklet_bean_names_derive(self) -> None:
         profile = modernize(load_fixture("order_flow.jcl"), "order_flow.jcl")
         job = profile.application.get_job("PAYORDER")
         assert job.job_bean == "PayorderJob"

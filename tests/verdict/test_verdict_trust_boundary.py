@@ -246,7 +246,7 @@ class TestDeriveThroughValidatedManifest:
         # Both paths must agree on the verdict for a clean manifest
         assert verdict_raw.state == verdict_validated.state
 
-    def test_zero_comparisons_produces_unproven_through_validated_path(self):
+    def test_zero_comparisons_yield_unproven_when_validation_passes(self):
         """A manifest with no comparison evidence produces UNPROVEN.
         This tests that zero-check manifests are handled correctly through
         the validated path.

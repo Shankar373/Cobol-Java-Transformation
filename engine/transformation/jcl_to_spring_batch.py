@@ -32,6 +32,7 @@ from engine.jcl.diagnostics import (
     JclDiagnostic,
     JclDiagnosticCode,
     JclDiagnosticCollector,
+    JclDiagnosticLevel,
 )
 from engine.jcl.model import (
     JclControlKind,
@@ -81,6 +82,16 @@ _UNSUPPORTED_CONSTRUCT_TEXT = {
 }
 
 
+#: Control kind -> Spring Batch step exit status (the mapper-side table).
+_ACTIVATION_BY_CONTROL_KIND: dict[JclControlKind, str] = {
+    JclControlKind.SEQUENTIAL: EXIT_STATUS_SUCCESS,
+    JclControlKind.EVEN: EXIT_STATUS_ANY,
+    JclControlKind.ONLY: EXIT_STATUS_FAILED,
+    JclControlKind.RETURN_CODE: EXIT_STATUS_CONDITIONAL,
+    JclControlKind.UNSUPPORTED: EXIT_STATUS_UNKNOWN,
+}
+
+
 class JclProfileStatus:
     """Overall modernization profile status."""
 
@@ -110,11 +121,11 @@ class JclModernizationProfile:
 
     @property
     def has_errors(self) -> bool:
-        return any(d.level.value == "ERROR" for d in self.diagnostics)
+        return any(d.level == JclDiagnosticLevel.ERROR for d in self.diagnostics)
 
     @property
     def has_warnings(self) -> bool:
-        return any(d.level.value == "WARNING" for d in self.diagnostics)
+        return any(d.level == JclDiagnosticLevel.WARNING for d in self.diagnostics)
 
     @property
     def supported_constructs(self) -> tuple[str, ...]:
@@ -183,8 +194,6 @@ class JclSpringBatchMapper:
         program = ""
         if step.exec_ is not None:
             program = step.exec_.program
-        if not program:
-            program = ""
 
         activation, raw_condition = self._activation(step)
         step_name = _camel_bean(step.name) if step.name else "Step"
@@ -233,14 +242,7 @@ class JclSpringBatchMapper:
     def _activation(self, step: JclSemanticStep) -> tuple[str, str]:
         if step.control is None:
             return EXIT_STATUS_SUCCESS, ""
-        mapping = {
-            JclControlKind.SEQUENTIAL: EXIT_STATUS_SUCCESS,
-            JclControlKind.EVEN: EXIT_STATUS_ANY,
-            JclControlKind.ONLY: EXIT_STATUS_FAILED,
-            JclControlKind.RETURN_CODE: EXIT_STATUS_CONDITIONAL,
-            JclControlKind.UNSUPPORTED: EXIT_STATUS_UNKNOWN,
-        }
-        return mapping[step.control.kind], step.control.expression
+        return _ACTIVATION_BY_CONTROL_KIND[step.control.kind], step.control.expression
 
     def _build_flow_edges(self, steps) -> list[SpringBatchFlowEdge]:
         edges: list[SpringBatchFlowEdge] = []

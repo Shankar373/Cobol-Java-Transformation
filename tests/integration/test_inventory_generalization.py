@@ -71,7 +71,7 @@ def _make_config(
 class TestInventoryOracleE2E:
     """Verify the COBOL oracle produces correct inventory output."""
 
-    def test_oracle_executes(self) -> None:
+    def test_oracle_execution_is_covered_by_following_tests(self) -> None:
         pass  # Handled by other tests that verify oracle output
 
     def test_oracle_stdout_format(self) -> None:
@@ -585,7 +585,7 @@ class TestInventoryDeterminism:
 class TestInventoryEvidence:
     """Verify evidence manifests are complete."""
 
-    def test_evidence_counts(self) -> None:
+    def test_evidence_has_ten_artifact_and_five_comparison_records(self) -> None:
         import sys as _sys
         fixtures_dir = str(FIXTURES.parent)
         if fixtures_dir not in _sys.path:

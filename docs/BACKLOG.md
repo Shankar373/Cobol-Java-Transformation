@@ -765,6 +765,288 @@ produced evidence, not re-run here).
   Push CI #453 and PR CI #454 both passed, including the capability-truth gate.
   Coverage thresholds and mutation testing remain explicitly deferred below.
 
+### BL-040 — `STRING` without `END-STRING` silently swallows the rest of the PROCEDURE DIVISION
+
+- **Type:** defect (silent semantic loss — §54/§60 class).
+- **Priority:** P0 — phase-blocking. Same shape as BL-027/BL-030: a valid
+  program (`STRING … INTO T.` without the optional `END-STRING`) parses
+  "successfully" while every statement after the `STRING` is dropped from
+  the IR with no diagnostic — a green verdict over a wrong program is
+  reachable.
+- **Severity:** high — `END-STRING` is optional in COBOL; any such program
+  loses all subsequent logic silently.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide
+  line-by-line audit (Stage C, baseline `4deddfc`)**; statically proven at the
+  cited lines, not yet reproduced end-to-end (labeled per §76.7).
+- **Found by:** audit group T1 (`cobol_parser.py`); verified by hand:
+  dispatch `L1068-1070` does no period pre-bounding; the continuation loop
+  `L2251-2259` stops only at `END-STRING` or EOF; `_parse_string_text`
+  `L2140-2199` treats the swallowed text as a tail and discards it (no
+  diagnostic path exists).
+- **Observed behavior (verified):** for `STRING A DELIMITED BY SIZE INTO B.`
+  followed by further statements, `_parse_string` consumes every following
+  line into `full_text`; the statements never reach the IR.
+- **Expected behavior:** the statement ends at its terminating period (or
+  `END-STRING`); an unterminated `STRING` must fail closed with a named
+  diagnostic — never swallow.
+- **Root cause:** continuation join is bounded by `END-STRING` only; the
+  period terminator honoured everywhere else is not (contrast the DISPLAY
+  fix noted at `L2265-2268`).
+- **Affected files:** `engine/transformation/cobol_parser.py`
+  (`_parse_string` L2240-2261, dispatch L1068-1070).
+- **Impact:** silent statement deletion in the canonical parser lane;
+  downstream capability/verdict cannot see it.
+- **Remediation (planned):** period-bound the continuation join (mirror
+  `_parse_display`), plus a fail-closed diagnostic for unterminated input;
+  adversarial tests (bare-period STRING mid-paragraph, multi-line STRING
+  with ON OVERFLOW, lowercase `string`).
+- **Acceptance criteria:** no diagnostic-free statement loss; unterminated
+  `STRING` fails closed with a named diagnostic; focused tests + full
+  suite green.
+- **Owner/role:** parser / IR maintainer. **Target phase:** unassigned —
+  next remediation cycle. **Dependency:** none. **Residual risk:** valid
+  COBOL with bare-period `STRING` loses logic silently today.
+
+### BL-041 — `file_io` generation mode silently drops statements that carry neither `.text` nor `.expression`
+
+- **Type:** defect (silent semantic loss).
+- **Priority:** P1 — silent logic loss (CALL/IF/PERFORM/RETURN statements
+  vanish from the emitted program). May upgrade to P0 after a reproduction
+  shows the mode reachable under a green verdict.
+- **Severity:** medium-high.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T3; verified: `java_generator.py L431-440`
+  iterates main-method body statements and appends only when
+  `hasattr(stmt, 'text')` or `hasattr(stmt, 'expression')`; every other
+  statement type is skipped with no diagnostic; the local `stmt_str` at
+  `L436` is computed and unused.
+- **Observed behavior (verified):** in the file_io template path, calls,
+  IF blocks, loops and returns are omitted from the generated main body.
+- **Expected behavior:** either emit every statement type or fail closed
+  with a diagnostic naming the unmapped construct (house invariant:
+  never drop executable statements).
+- **Root cause:** heuristic comment/expression split written for a narrow
+  demo path was never fail-closed.
+- **Affected files:** `engine/transformation/java_generator.py` L431-440.
+- **Impact:** wrong generated program without diagnostics if the mode is
+  reached.
+- **Remediation (planned):** fail-closed diagnostic for unmapped
+  statements (preferred) or explicit statement coverage; adversarial test
+  with CALL/IF after the parsing block.
+- **Acceptance criteria:** no silent statement drop; focused test +
+  regression batch green.
+- **Owner/role:** Java generator maintainer. **Target phase:** unassigned.
+  **Dependency:** reachability reproduction. **Residual risk:** mode
+  reachability under a verdict not yet proven.
+
+### BL-042 — Producer diagnostics are dict-shaped, not `Diagnostic` objects (`TransformationResult.has_errors` crashes or mis-reports)
+
+- **Type:** defect (contract mismatch / capability-truth risk).
+- **Priority:** P1 — a diagnostics consumer that crashes is fail-closed,
+  but a consumer that mis-reports could hide errors; the contract
+  (`diagnostics: tuple[Diagnostic, …]`) is violated at the source.
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T3; verified: `producers/internal_native.py
+  L148-156` and `L169-175` build plain `dict`s where the result type
+  declares `Diagnostic`; T3 found three mutually incompatible shapes across
+  `internal_native.py`, `contracts.py`, `opensource4j.py`.
+- **Observed behavior (verified):** dict items reach consumers expecting
+  `.level`/`.code` attributes.
+- **Expected behavior:** every producer emits real `Diagnostic` instances;
+  `has_errors` and any `.level` access work identically for all producers.
+- **Root cause:** producers written against an ad-hoc dict convention
+  predating the `Diagnostic` dataclass.
+- **Affected files:** `engine/transformation/producers/internal_native.py`
+  L148-176, `engine/transformation/contracts.py`,
+  `engine/transformation/producers/opensource4j.py` (per T3).
+- **Impact:** contract violation at the producer boundary; downstream
+  error visibility depends on which consumer runs.
+- **Remediation (planned):** construct `Diagnostic` objects in all
+  producers; contract test asserting type + `has_errors` equivalence.
+- **Acceptance criteria:** all producers pass a diagnostics-shape contract
+  test; full suite green.
+- **Owner/role:** transformation producer maintainer. **Target phase:**
+  unassigned. **Dependency:** none. **Residual risk:** consumers that
+  tolerate dicts mask the mismatch today.
+
+### BL-043 — Modernization planner defaults *missing* copybook/file capability components to `SUPPORTED` (fail-open)
+
+- **Type:** defect (capability truth).
+- **Priority:** P1 — contradicts the fail-closed default used for programs;
+  a missing analyzer component silently becomes a green plan for
+  copybooks and files.
+- **Severity:** medium-high.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T2; verified: `modernization_planner.py
+  L605-612` (`_build_copybook_plan`) and `L637-644` (`_build_file_plan`)
+  set `CapabilityLevel.SUPPORTED` when `cap is None`.
+- **Observed behavior (verified):** absent capability component ⇒
+  `SUPPORTED` + `INTERNAL_NATIVE` + `DOCKER_ORACLE` strategies with the
+  reason "Copybook resolution supported" / "…supported".
+- **Expected behavior:** missing component must fail closed (UNKNOWN or
+  UNSUPPORTED) like the program path.
+- **Root cause:** optimistic default guarded only by the invariant "the
+  analyzer always emits every component" — an unenforced assumption.
+- **Affected files:** `engine/modernization/modernization_planner.py`
+  L600-654.
+- **Impact:** capability-truth drift if analyzer output ever misses a
+  component (e.g. future partial analyzers, error paths).
+- **Remediation (planned):** fail-closed default + unit test passing
+  `cap=None`.
+- **Acceptance criteria:** `cap=None` yields non-SUPPORTED with a blocking
+  reason; planner tests green.
+- **Owner/role:** modernization planner maintainer. **Target phase:**
+  unassigned. **Dependency:** none. **Residual risk:** none once default
+  is fail-closed.
+
+### BL-044 — CALL resolution is stamped case-sensitively by discovery but matched case-insensitively by the analyzer (contradictory facts)
+
+- **Type:** defect (consistency / provenance).
+- **Priority:** P1 — one CALL fact can read `UNRESOLVED` (edge/record) and
+  `ARITY_MISMATCH` (plan) simultaneously for mixed-case sources.
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; mechanism verified by hand, single-workload
+  reproduction pending.
+- **Found by:** audit group T2; verified: `application_discovery.py L600`
+  uses `call.target in known_programs` (case-sensitive) while
+  `capability_analyzer.py L252/L261` matches case-insensitively.
+- **Observed behavior (verified at code level):** COBOL is
+  case-insensitive, but a lowercase/mixed-case CALL target against an
+  uppercase program-id resolves differently in the two lanes.
+- **Expected behavior:** one normalization rule (uppercase) in both lanes.
+- **Root cause:** independent membership checks without a shared
+  normalization helper.
+- **Affected files:** `engine/transformation/application_discovery.py`
+  L600; `engine/transformation/capability_analyzer.py` L252/L261.
+- **Impact:** contradictory plan reasons for valid programs; trust/
+  provenance inconsistency (BL-038 class).
+- **Remediation (planned):** shared uppercase normalization in both lanes;
+  focused test with a lowercase CALL target.
+- **Acceptance criteria:** resolution and arity agree for mixed-case
+  sources; focused test green.
+- **Owner/role:** application discovery maintainer. **Target phase:**
+  unassigned. **Dependency:** none. **Residual risk:** reproduction
+  workload not yet built.
+
+### BL-045 — Nested-statement recursion drops `called_programs` (CALLs inside IF/PERFORM bodies lose resolution metadata)
+
+- **Type:** defect (provenance/coverage).
+- **Priority:** P1 — nested CALLs (standard COBOL) lose value-result/
+  entry-point resolution metadata in the mapping lane.
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; line-read verified (T3), hand-verified at
+  `L2183-2195`.
+- **Found by:** audit group T3 (`cobol_to_java_mapping.py` L2183-2195,
+  L2584-2677): recursive `map_cobol_statement` calls for IF/PERFORM bodies
+  return Java statements only; the caller-side `called_programs`
+  collection is not updated for nested CALLs.
+- **Observed behavior (verified at code level):** top-level CALL edges are
+  collected; nested CALLs are mapped but never registered.
+- **Expected behavior:** every reachable CALL (at any nesting depth)
+  contributes its program reference.
+- **Root cause:** recursion path predates the called_programs collector and
+  was never updated (BL-038-adjacent).
+- **Affected files:** `engine/transformation/cobol_to_java_mapping.py`
+  L2183-2195, L2584-2677.
+- **Impact:** incomplete program references in the generated metadata;
+  downstream resolution cannot see nested callers.
+- **Remediation (planned):** thread the collector through recursion (or
+  collect from IR post-mapping); focused test with a CALL inside an IF.
+- **Acceptance criteria:** nested CALL appears in called_programs;
+  focused + regression tests green.
+- **Owner/role:** mapping maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once threaded.
+
+### BL-046 — Spring Boot generator emits String literals without BL-030 escaping (invalid Java or semantic divergence from the native lane)
+
+- **Type:** defect (semantic equivalence).
+- **Priority:** P1 — the native lane escapes quotes/backslashes (BL-030);
+  the Spring Boot lane does not, so the same COBOL literal can produce
+  invalid Java (`"A"B"`) or divergent values.
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T3; verified: `spring_boot_generator.py
+  L654-669` renders `f'"{expr.value}"'` with no escaping at either site.
+- **Observed behavior (verified):** a literal containing `"` or `\` emits
+  uncompilable or wrong Java.
+- **Expected behavior:** identical escaping helper as the native lane
+  (single source of truth).
+- **Root cause:** duplicated literal renderer written before BL-030.
+- **Affected files:** `engine/transformation/spring_boot_generator.py`
+  L654-669.
+- **Impact:** fail-closed at javac (no false green) but wrong-value risk
+  where the emitted string still compiles (e.g. backslash forms).
+- **Remediation (planned):** reuse the native escaping helper; oracle/
+  compile test with quotes and backslashes in literals.
+- **Acceptance criteria:** both lanes emit identical escaped literals;
+  focused test green.
+- **Owner/role:** Spring Boot generator maintainer. **Target phase:**
+  unassigned. **Dependency:** native escaping helper reuse. **Residual
+  risk:** none once shared.
+
+### BL-047 — Duplicate upload filenames silently collapse in the API ingestion dict (one file never written; collision check bypassed)
+
+- **Type:** defect + security (ingestion integrity; silent file loss).
+- **Priority:** P1 — silent data loss on an accepted upload; the
+  service-level collision detector can never fire because the dict has
+  already merged the keys.
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T6; verified: `api/app.py L298-301` keys
+  `contents: dict[str, bytes]` by filename, so duplicates overwrite;
+  `files_received` undercounts what the client actually sent.
+- **Observed behavior (verified):** two files with the same name ⇒ last
+  wins; no 4xx; the collision check documented in
+  `service.upload_cobol_source` never sees the duplicate.
+- **Expected behavior:** duplicate names rejected (or disambiguated) with
+  an explicit error — matching the documented contract.
+- **Root cause:** dict keyed by unvalidated filename.
+- **Affected files:** `api/app.py` L298-301 (with
+  `api/service.py` `_write_upload` collision contract).
+- **Impact:** accepted upload silently loses a file; downstream
+  transformation runs on incomplete sources.
+- **Remediation (planned):** detect duplicates while building the dict →
+  4xx; adversarial test with duplicate names.
+- **Acceptance criteria:** duplicate-name upload fails closed with a
+  named error; security suite green.
+- **Owner/role:** API maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once rejected.
+
+### BL-048 — Upload endpoints delete the previous source directory before the new upload is validated and written (data loss on a rejected upload)
+
+- **Type:** defect (operations/data-loss).
+- **Priority:** P1 — an update that fails validation (traversal, collision,
+  disk error) leaves the record pointing at a deleted directory and the
+  previous good source gone.
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T6; verified: `api/service.py L488-490`
+  (`upload_cobol_source`) and `L503-506` (`upload_java_candidate`) call
+  `_cleanup_temp_dir` before `_write_upload`.
+- **Observed behavior (verified):** cleanup precedes write; a raise in
+  `_write_upload` strands the record.
+- **Expected behavior:** write new → persist → delete old (or delete only
+  after successful persist).
+- **Root cause:** cleanup ordered by "previous artifact" thinking, not by
+  transactionality.
+- **Affected files:** `api/service.py` L488-490, L503-506.
+- **Impact:** previous source lost on any rejected re-upload.
+- **Remediation (planned):** reorder to write-then-cleanup; test with a
+  traversal-rejecting re-upload asserting the old source still exists.
+- **Acceptance criteria:** failed re-upload preserves the previous
+  directory; service tests green.
+- **Owner/role:** API/service maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once reordered.
+
 ## P2 — coverage, quality, documentation
 
 ### BL-018 — Figurative constants parsed as field references (silent, non-compiling Java)
@@ -1722,6 +2004,664 @@ level and evidence location.
 
 ---
 
+### BL-049 — Non-ASCII bearer token causes `hmac.compare_digest` TypeError → 500 instead of 401
+
+- **Type:** defect (error handling / security surface).
+- **Priority:** P2 — unauthenticated request causes a 500 (availability/
+  log-noise), not an auth bypass.
+- **Severity:** low-medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T6; verified: `api/app.py L206-210` —
+  `hmac.compare_digest(str, str)` raises `TypeError` when either side
+  contains non-ASCII characters (HTTP headers are latin-1 decodable).
+- **Observed behavior (verified):** `Authorization: Bearer <non-ASCII>`
+  ⇒ 500.
+- **Expected behavior:** 401 with the existing challenge body.
+- **Root cause:** no ASCII normalization/guard before the digest compare.
+- **Affected files:** `api/app.py` L206-215.
+- **Impact:** error-path only; token never compared (no bypass).
+- **Remediation (planned):** encode/compare on bytes or catch TypeError →
+  401; adversarial test with a non-ASCII header.
+- **Acceptance criteria:** non-ASCII token yields 401; security tests
+  green.
+- **Owner/role:** API maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none.
+
+### BL-050 — Docker Java adapter compile-timeout path raises `UnboundLocalError` (wrong error message) and leaks the container
+
+- **Type:** defect (error handling / operations).
+- **Priority:** P2 — timeout is a normal path for slow builds; the real
+  error is masked and the container is never cleaned.
+- **Severity:** medium (leak accumulates on the daemon).
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T5; verified: `docker_java_adapter.py
+  L341-402` — `proc` is assigned only inside `try`; the `TimeoutExpired`
+  handler's `if proc is not None:` (L385) raises `UnboundLocalError`,
+  caught by the outer `except Exception` (L404) which returns a generic
+  failure; the cleanup at L393 never runs.
+- **Observed behavior (verified):** compile timeout ⇒ wrong message +
+  `docker rm` skipped.
+- **Expected behavior:** `proc = None` before the try (as `execute()` does
+  at L508) so the handler reports the timeout and removes the container.
+- **Root cause:** two similar blocks written independently; one missed the
+  initialization.
+- **Affected files:** `engine/candidate/docker_java_adapter.py` L341-402.
+- **Impact:** misleading diagnostics; container leak on the slow path.
+- **Remediation (planned):** initialize `proc = None`; timeout test
+  asserting the message and cleanup call.
+- **Acceptance criteria:** timeout returns the timeout message; container
+  removed; adapter tests green.
+- **Owner/role:** candidate adapter maintainer. **Target phase:**
+  unassigned. **Dependency:** none. **Residual risk:** none once fixed.
+
+### BL-051 — Oracle Docker timeout path has no container name and no stop/rm cleanup
+
+- **Type:** defect (operations).
+- **Priority:** P2 — a timed-out oracle container persists on the daemon;
+  no correctness impact (oracle failure is fail-closed).
+- **Severity:** medium (leak on the hot verification path).
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T5; verified: `oracle/docker_adapter.py
+  L473-504` — `docker run` without `--name`; timeout handler only sets
+  stderr/exit/termination, unlike the candidate adapters' stop/rm/verify
+  cleanup.
+- **Observed behavior (verified):** oracle timeout ⇒ container left
+  running/stopped on the daemon.
+- **Expected behavior:** named container + bounded cleanup on every exit
+  path (parity with candidate adapters).
+- **Root cause:** cleanup pattern implemented per-adapter; oracle predates
+  it.
+- **Affected files:** `engine/oracle/docker_adapter.py` L473-504.
+- **Impact:** daemon resource leak; repeated timeouts accumulate.
+- **Remediation (planned):** `--name` + shared `_cleanup_container`
+  helper (also closes the duplication T5 found); timeout test.
+- **Acceptance criteria:** timed-out oracle containers are removed;
+  oracle adapter tests green.
+- **Owner/role:** oracle adapter maintainer. **Target phase:** unassigned.
+  **Dependency:** shared cleanup helper (see Stage D). **Residual risk:**
+  none once fixed.
+
+### BL-052 — FIXED_RECORD comparator ignores trailing partial-record bytes (floor division; potential false MATCH via metadata mismatch)
+
+- **Type:** defect (comparison integrity; defense-in-depth).
+- **Priority:** P2 — unreachable via the current V1 capture path (content
+  length is always a multiple of the record length by construction), but
+  reachable via metadata mismatch or direct comparator use.
+- **Severity:** low-medium (latent).
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T5; verified: `comparators/framework.py
+  L568-569` counts records by floor division; a trailing partial record
+  on either side is never compared, and `L498` only guards declared
+  record-count mismatch.
+- **Observed behavior (verified at code level):** oracle length 105 /
+  candidate 100 with equal first 10 records ⇒ MATCH (tail 5 bytes
+  unexamined).
+- **Expected behavior:** any byte not covered by a compared record is a
+  mismatch.
+- **Root cause:** floor-division counting without a remainder check.
+- **Affected files:** `engine/comparators/framework.py` L559-622.
+- **Impact:** false MATCH if artifact metadata ever disagrees with content
+  (integrity validator is the second line of defense).
+- **Remediation (planned):** explicit remainder check → MISMATCH with the
+  trailing bytes reported; adversarial test with a truncated tail.
+- **Acceptance criteria:** partial trailing records mismatch; comparator
+  tests green.
+- **Owner/role:** comparator maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** V1 pipeline unaffected today.
+
+### BL-053 — `derive_from_validated` does not re-check the seal (TOCTOU between validation and verdict derivation)
+
+- **Type:** defect (trust boundary / evidence integrity).
+- **Priority:** P2 — the docstring promises "calling code that bypasses
+  the validator cannot produce an incorrect verdict", but a manifest
+  mutated after validation is trusted verbatim.
+- **Severity:** medium (hardening gap; no current caller mutates).
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T5; verified: `verdict/derivation.py L86-95`
+  — `return self.derive(validated.manifest)` with no
+  `integrity_hash == manifest.manifest_hash` re-check.
+- **Observed behavior (verified):** post-validation mutation of the
+  mutable manifest flows into the verdict.
+- **Expected behavior:** re-check the seal (or freeze the manifest) so the
+  docstring's guarantee holds.
+- **Root cause:** trust handed to the wrapper object without re-binding it
+  to the hash.
+- **Affected files:** `engine/verdict/derivation.py` L86-95.
+- **Impact:** future callers can accidentally create a trust bypass.
+- **Remediation (planned):** re-verify the seal inside
+  `derive_from_validated`; negative test with a mutated manifest.
+- **Acceptance criteria:** mutated manifest fails derivation closed;
+  verdict tests green.
+- **Owner/role:** verdict maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once sealed.
+
+### BL-054 — Spring Boot adapter writes the built JAR back into `candidate_path/target`, making `candidate_hash` non-deterministic across runs
+
+- **Type:** defect (identity determinism).
+- **Priority:** P2 — latent (the default lane is DockerJava); when the
+  Spring Boot lane is used, repeated runs over the same tree re-hash a
+  growing `target/` directory.
+- **Severity:** medium-low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T5; verified: `docker_spring_boot_adapter.py
+  L457-460` writes `candidate_path/target/<jar>`; `pipeline.py L191-206`
+  hashes every file under the candidate path with no exclusions.
+- **Observed behavior (verified at code level):** second run hashes the
+  JAR written by the first ⇒ different `candidate_hash` for identical
+  sources.
+- **Expected behavior:** candidate identity derived only from
+  input/source-controlled files (or exclusion of build outputs).
+- **Root cause:** execute()-findability workaround colliding with the
+  identity walker.
+- **Affected files:** `engine/candidate/docker_spring_boot_adapter.py`
+  L457-460; `engine/pipeline.py` L191-206.
+- **Impact:** non-reproducible evidence identity on that lane.
+- **Remediation (planned):** exclude `target/` from the identity walk (or
+  stage the JAR outside the candidate path); determinism test running
+  compile twice.
+- **Acceptance criteria:** repeated builds ⇒ identical `candidate_hash`;
+  adapter tests green.
+- **Owner/role:** candidate adapter / pipeline maintainer. **Target
+  phase:** unassigned. **Dependency:** none. **Residual risk:** lane
+  unused in the validated scope today.
+
+### BL-055 — Lowercase `perform … until …` crashes with `IndexError` (case-sensitivity bug in an otherwise case-insensitive parser)
+
+- **Type:** defect (robustness / diagnostics).
+- **Priority:** P2 — crash is fail-closed (no false green) but produces an
+  exception instead of a named diagnostic; COBOL sources legitimately use
+  lowercase.
+- **Severity:** medium-low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T1; verified: `cobol_parser.py L2018-2026` —
+  the guard tests `" UNTIL " in upper` but `line.split(" UNTIL ", 1)[1]`
+  splits the *original-case* line → `IndexError` when the source is
+  lowercase.
+- **Observed behavior (verified at code level):** `perform v1 until x > 5`
+  ⇒ `IndexError` out of `_parse_perform`.
+- **Expected behavior:** case-insensitive handling like the rest of the
+  parser (split on the uppercased position or normalize first).
+- **Root cause:** mixed-case access (`upper` guard, original split).
+- **Affected files:** `engine/transformation/cobol_parser.py` L2018-2026.
+- **Impact:** unhandled crash on valid lowercase COBOL.
+- **Remediation (planned):** normalize the split; focused test with
+  lowercase PERFORM UNTIL/VARYING.
+- **Acceptance criteria:** lowercase forms parse identically to uppercase;
+  parser tests green.
+- **Owner/role:** parser / IR maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once normalized.
+
+### BL-056 — `UnicodeDecodeError` escapes the copybook lanes' `except OSError` (crash instead of COPYBOOK_UNREADABLE; lanes can disagree on the same bytes)
+
+- **Type:** defect (error handling / lane consistency).
+- **Priority:** P2 — fail-closed direction (crash, not false green), but
+  the analyzer reads the same bytes with `errors="replace"` so the two
+  lanes can disagree on one file.
+- **Severity:** low-medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand at L282.
+- **Found by:** audit group T2; verified: `copybook_model.py L281-293`
+  (`_expand_copybook_text`) and the `collect_copybook_texts` reader catch
+  only `OSError` around `read_text(encoding="utf-8")`;
+  `capability_analyzer` reads with `errors="replace"`.
+- **Observed behavior (verified at code level):** a non-UTF-8 copybook
+  raises `UnicodeDecodeError` out of expansion (top level: re-raised as
+  `COPYBOOK_UNREADABLE` only for `OSError`).
+- **Expected behavior:** decode failures produce the same
+  `COPYBOOK_UNREADABLE` diagnostic as read failures in every lane.
+- **Root cause:** exception tuple written for filesystem errors only.
+- **Affected files:** `engine/transformation/copybook_model.py` L281-293,
+  L395-410; compare `engine/transformation/capability_analyzer.py`
+  (errors="replace" reader).
+- **Impact:** crash instead of diagnostic; analyzer/materializer can
+  classify the same file differently.
+- **Remediation (planned):** catch `UnicodeDecodeError` alongside
+  `OSError` (or read bytes once, decode once); focused test with a
+  binary-content copybook.
+- **Acceptance criteria:** binary copybook ⇒ `COPYBOOK_UNREADABLE` in all
+  lanes; copybook tests green.
+- **Owner/role:** copybook materialization maintainer. **Target phase:**
+  unassigned. **Dependency:** none. **Residual risk:** none once bounded.
+
+### BL-057 — CICS generator renders literals with Python `repr()` (single-quoted → invalid Java)
+
+- **Type:** defect (correctness of emitted code).
+- **Priority:** P2 — CICS has no runtime lane (central status
+  NOT_VERIFIED), so this cannot reach a green runtime verdict; still a
+  correctness defect in generated output.
+- **Severity:** medium-low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T4; verified: `cics/generator.py L562-568`
+  (`_java_arg(quoted=True)` → `repr(value)`) used at L462/L473/L484.
+- **Observed behavior (verified):** `cics.receive('MAP1');` — a Java char
+  literal syntax error for multi-character strings.
+- **Expected behavior:** double-quoted Java string literal via the shared
+  Java-literal escaping helper (see BL-046).
+- **Root cause:** Python-native quoting chosen for a Java emitter.
+- **Affected files:** `engine/cics/generator.py` L462, L473, L484,
+  L562-568.
+- **Impact:** uncompilable CICS-lane output (fail-closed at javac).
+- **Remediation (planned):** emit `"…"` with escaping; generation test
+  pinning the literal form.
+- **Acceptance criteria:** CICS generation emits valid Java string
+  literals; cics tests green.
+- **Owner/role:** CICS lane maintainer. **Target phase:** unassigned.
+  **Dependency:** shared escaping helper (BL-046). **Residual risk:**
+  blocked from runtime by the existing NOT_VERIFIED gate.
+
+### BL-058 — WORKING-STORAGE group hierarchy is silently dropped (`current_group_children` write-only)
+
+- **Type:** defect (IR fidelity; decision required).
+- **Priority:** P2 — the group nesting is never materialized; whether
+  children leak to top level or vanish changes downstream declarations
+  (behavior-affecting fix — needs a design call, not a blind patch).
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T1 line-by-line; the
+  structure was re-read by hand at L866-897); **sharpened 2026-10-14 by the
+  Phase 4 §76 probes** (`%TEMP%\opencode\phase4\probe_p4_r1.py`, case WS):
+  against the real parse path, a two-level group
+  (`01 GRP. 05 A PIC X. 05 B PIC 9.`) yields **flat level-1 children with the
+  group node itself gone** (not nested, not diagnosed); **WS 88-level items
+  are dropped entirely** (no IR node, no diagnostic); **WS `REDEFINES` is not
+  captured on the DataItem** (field exists, never set on this lane). None of
+  the three losses raises a diagnostic today. Verdict impact stays bounded
+  because the source-scan classifier independently marks these programs
+  `UNKNOWN` (BL-003 wiring), so no false `SUPPORTED` is reachable — but the
+  IR-loss channel itself is real and unpinned.
+- **Found by:** audit group T1: `cobol_parser.py L814-899` —
+  `current_group_children` is appended to but never read; the inner
+  `pic_match` branch at L886 is unreachable for the level-10 path.
+- **Observed behavior (verified at code level and by probe):** group nesting
+  is lost; level-10 PIC children are not emitted as nested DataItems; WS
+  88-level items and WS REDEFINES vanish without diagnostics.
+- **Expected behavior:** group structure preserved in the IR (or an
+  explicit diagnostic that the hierarchy is flattened).
+- **Root cause:** hierarchy scaffolding left half-implemented.
+- **Affected files:** `engine/transformation/cobol_parser.py` L814-899.
+- **Impact:** declaration-shape fidelity; interacts with OCCURS groups.
+- **Remediation (planned):** decide nested-vs-flattened representation
+  (owner call), implement + tests with a two-level group fixture.
+- **Acceptance criteria:** documented, tested representation of group
+  nesting; no behavior change outside the agreed shape.
+- **Owner/role:** parser / IR maintainer. **Target phase:** unassigned.
+  **Dependency:** representation decision. **Residual risk:** current
+  flattening remains untested/unpinned.
+
+### BL-059 — Capability derivation under-reports arithmetic (SUBTRACT/MULTIPLY/COMPUTE missing) and never recurses into inline-PERFORM/INVALID-KEY bodies
+
+- **Type:** defect (capability coverage; conservative direction).
+- **Priority:** P2 — under-reporting blocks valid applications (fail-closed
+  direction: no false green).
+- **Severity:** medium-low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T1); hand-check of the
+  cited lines pending.
+- **Found by:** audit group T1: `ir.py` L829, L914-930 — arithmetic
+  capability derived from ADD-family statements only; inline-PERFORM and
+  INVALID-KEY bodies not walked.
+- **Observed behavior (verified at code level):** a program whose only
+  executable content is SUBTRACT/COMPUTE inside an inline PERFORM derives
+  no arithmetic capability.
+- **Expected behavior:** every statement node contributes its capability
+  at any nesting depth.
+- **Root cause:** capability walker predates the inline-body nodes.
+- **Affected files:** `engine/transformation/ir.py` L829, L914-930.
+- **Impact:** valid programs classified with reduced capability (planner
+  more conservative than reality).
+- **Remediation (planned):** extend the walker; focused tests for
+  SUBTRACT/MULTIPLY/COMPUTE and inline bodies.
+- **Acceptance criteria:** capability reflects all arithmetic at any
+  depth; capability tests green.
+- **Owner/role:** IR/capability maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** conservative misclassification
+  persists.
+
+### BL-060 — SQL execution error handlers build `Db2SqlStatus(sqlstate="")`, which raises `ValueError` from `__post_init__` inside the handler
+
+- **Type:** defect (error handling).
+- **Priority:** P2 — the handler designed to map IntegrityError/
+  OperationalError to a "-1" status instead crashes with `ValueError`.
+- **Severity:** medium-low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
+  pending.
+- **Found by:** audit group T4: `engine/sql/execution.py` L432, L441 —
+  unmapped SQLSTATE paths construct a status whose dataclass rejects the
+  empty SQLSTATE.
+- **Observed behavior (verified at code level):** `IntegrityError` with
+  an unmapped SQLSTATE ⇒ `ValueError` out of the handler.
+- **Expected behavior:** a well-formed status (e.g. a reserved
+  "UNKNOWN"/"-1" code) returned per the DB2-status contract.
+- **Root cause:** invalid sentinel value chosen for the dataclass.
+- **Affected files:** `engine/sql/execution.py` L432, L441.
+- **Impact:** crash instead of the designed "-1" graceful result.
+- **Remediation (planned):** valid sentinel + focused test injecting an
+  unmapped SQLSTATE.
+- **Acceptance criteria:** unmapped SQLSTATE returns the "-1" status;
+  sql tests green.
+- **Owner/role:** SQL lane maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once fixed.
+
+### BL-061 — DECLARE CURSOR bind information is discarded (host-variable cursors fail uncaught at OPEN)
+
+- **Type:** defect (SQL lane correctness).
+- **Priority:** P2 — bounded to the SQL lane (never runtime-verified);
+  fails loudly, not silently.
+- **Severity:** low-medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
+  pending.
+- **Found by:** audit group T4: `engine/sql/execution.py` L172, L184-190 —
+  `_declare_cursor` masks the query and drops the bind map
+  (`masked, _binds = …`), so OPEN cannot bind `:HV` values.
+- **Observed behavior (verified at code level):** cursor queries with
+  host variables raise an uncaught `ProgrammingError` at OPEN.
+- **Expected behavior:** binds carried from DECLARE to OPEN (or an
+  explicit unsupported diagnostic).
+- **Root cause:** two-phase cursor implementation missing the bind handoff.
+- **Affected files:** `engine/sql/execution.py` L172-190.
+- **Impact:** declared unsupported in practice; loud failure.
+- **Remediation (planned):** thread the binds or fail closed with a named
+  diagnostic; focused test.
+- **Acceptance criteria:** host-variable cursors bind or fail closed
+  named; sql tests green.
+- **Owner/role:** SQL lane maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** disclosed subset stays
+  narrower than documented.
+
+### BL-062 — `INSERT INTO T VALUES (…)` without a column list mis-parses the VALUES list as the column list
+
+- **Type:** defect (parser correctness).
+- **Priority:** P2 — wrong columns derived silently within the SQL
+  subset (SQL never gets a runtime verdict, so impact is bounded).
+- **Severity:** low-medium.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
+  pending.
+- **Found by:** audit group T4: `engine/transformation/sql_parser.py`
+  L422-425.
+- **Observed behavior (verified at code level):** values are recorded as
+  target columns.
+- **Expected behavior:** column list optional; VALUES positionally maps
+  to the table's columns or fails closed.
+- **Root cause:** parser assumes the parenthesised list is always the
+  column list.
+- **Affected files:** `engine/transformation/sql_parser.py` L422-425.
+- **Impact:** wrong column metadata for a common statement form.
+- **Remediation (planned):** optional-column-list grammar; focused tests.
+- **Acceptance criteria:** both forms parse correctly or fail closed
+  named; sql parser tests green.
+- **Owner/role:** SQL parser maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once parsed.
+
+### BL-063 — JCL consumer: unsupported-construct scan covers only `*.jcl`, raw sources keyed by basename (collisions/skips), `except OSError` misses `UnicodeDecodeError`
+
+- **Type:** defect (coverage/truth for the JCL lane).
+- **Priority:** P2 — JCL is never runtime-verified (central NOT_VERIFIED),
+  but blocked-reason truth can be incomplete for `.jcllib`/extensionless
+  members and colliding basenames.
+- **Severity:** medium-low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
+  pending.
+- **Found by:** audit group T4: `engine/transformation/jcl_consumer.py`
+  L107-112.
+- **Observed behavior (verified at code level):** discovery finds
+  `.jcllib`/extensionless members; the consumer's unsupported scan and
+  basename-keyed source map do not see them uniformly; decode errors
+  escape the OSError handler.
+- **Expected behavior:** one discovery rule shared by both lanes; decode
+  failures diagnosed.
+- **Root cause:** independent file-selection logic in the consumer.
+- **Affected files:** `engine/transformation/jcl_consumer.py` L107-112.
+- **Impact:** silently skipped members in blocked-reason reporting.
+- **Remediation (planned):** share the discovery matcher; collision-safe
+  keys; decode-error diagnostic; focused tests.
+- **Acceptance criteria:** `.jcllib`/extensionless members scanned;
+  collisions reported; jcl tests green.
+- **Owner/role:** JCL lane maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** none once unified.
+
+### BL-064 — Spring Boot generator emits every copybook model file twice (duplicate class files in the output tree)
+
+- **Type:** defect (generation correctness).
+- **Priority:** P2 — duplicate same-package classes fail at javac
+  (fail-closed), so no false green; broken output for any copybook
+  workload on that lane.
+- **Severity:** medium-low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T4/T3); hand-check
+  pending.
+- **Found by:** audit group T3: `spring_boot_generator.py` L108-130.
+- **Observed behavior (verified at code level):** model generation loop
+  appends each copybook class file twice.
+- **Expected behavior:** one file per model.
+- **Root cause:** two append sites (per-program + per-copybook pass)
+  without de-duplication.
+- **Affected files:** `engine/transformation/spring_boot_generator.py`
+  L108-130.
+- **Impact:** uncompilable output for copybook workloads on the Spring
+  Boot lane.
+- **Remediation (planned):** single emission path; generation test
+  asserting unique file names.
+- **Acceptance criteria:** each model emitted once; generator tests green.
+- **Owner/role:** Spring Boot generator maintainer. **Target phase:**
+  unassigned. **Dependency:** none. **Residual risk:** none once
+  de-duplicated.
+
+### BL-065 — Legacy Java-generator paths isinstance-check IR classes that are never imported (`NameError` if reached)
+
+- **Type:** defect (robustness; fail-closed direction).
+- **Priority:** P2 — crash instead of a diagnostic if a legacy path is
+  reached; no false green.
+- **Severity:** low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T3); hand-check
+  pending.
+- **Found by:** audit group T3: `java_generator.py` L1775-1899 —
+  `_extract_statements` references `ReadStatement` without a module import
+  (T3 found several such classes in the legacy region).
+- **Observed behavior (verified at code level):** reaching the branch
+  raises `NameError`.
+- **Expected behavior:** import the classes or delete the dead legacy
+  region (inventory decision).
+- **Root cause:** half-removed legacy path.
+- **Affected files:** `engine/transformation/java_generator.py`
+  L1775-1899.
+- **Impact:** crash path; confusing diagnostics.
+- **Remediation (planned):** inventory the legacy region; delete if
+  unreferenced (with API call) or import + diagnose.
+- **Acceptance criteria:** no `NameError` path remains; generator tests
+  green.
+- **Owner/role:** Java generator maintainer. **Target phase:** unassigned.
+  **Dependency:** legacy-region inventory decision. **Residual risk:**
+  none once resolved.
+
+### BL-066 — Planner reason mapping substring-parses analyzer prose (`_map_blocking_reasons`): duplicate UNSUPPORTED_CONSTRUCT lines for GO TO; any "parsed" wording maps to PARSE_FAILURE
+
+- **Type:** defect (maintainability / diagnostic precision).
+- **Priority:** P3 — current prose is stable and pinned by tests; the
+  coupling breaks silently on future wording changes.
+- **Severity:** low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T2); hand-check
+  pending.
+- **Found by:** audit group T2: `modernization_planner.py` L686-738 —
+  GO TO reasons already carry `UNSUPPORTED_CONSTRUCT` and get it appended
+  a second time; the `"parse"` substring matches "parsed …" prose.
+- **Observed behavior (verified at code level):** duplicate summary lines
+  for GO TO-blocked plans.
+- **Expected behavior:** reason codes carried structurally (enum on the
+  diagnostic), not re-derived from prose.
+- **Root cause:** prose-as-contract from the pre-BL-033 era.
+- **Affected files:** `engine/modernization/modernization_planner.py`
+  L686-738.
+- **Impact:** cosmetic duplication today; silent mis-mapping risk on
+  wording changes.
+- **Remediation (planned):** structural codes on analyzer diagnostics;
+  planner maps codes; keep prose for humans.
+- **Acceptance criteria:** no prose substring mapping remains; planner +
+  contracts tests green.
+- **Owner/role:** modernization planner maintainer. **Target phase:**
+  unassigned. **Dependency:** diagnostic-code plumbing. **Residual risk:**
+  duplication remains until fixed.
+
+### BL-067 — API generated-app download zips the whole tree into memory with no size or file-count cap
+
+- **Type:** defect (operations / resource exhaustion).
+- **Priority:** P3 — authenticated GET; generated trees are small in the
+  validated scope; unbounded memory is a DoS-shaped gap.
+- **Severity:** low.
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Found by:** audit group T6; verified: `api/app.py L691-696` —
+  `io.BytesIO` + full `rglob` with no cap before `StreamingResponse`.
+- **Observed behavior (verified):** the entire archive is built in RAM
+  per request.
+- **Expected behavior:** streamed zip or an explicit size cap.
+- **Root cause:** simplest-possible implementation left unbounded.
+- **Affected files:** `api/app.py` L691-702.
+- **Impact:** memory exhaustion on pathological trees.
+- **Remediation (planned):** cap files/bytes (reuse the upload-limit
+  pattern) and fail closed; test with an oversized tree.
+- **Acceptance criteria:** cap enforced with a 4xx/413; API tests green.
+- **Owner/role:** API maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** bounded by deployment memory
+  until fixed.
+
+### BL-068 — Frontend state-correctness trio: stale `selectedAppId` renders the wrong application; download errors never displayed; `runIds` never pruned (unbounded 2s polling)
+
+- **Type:** defect (UI correctness / operations).
+- **Priority:** P3 — customer-visible confusion and wasted polling; no
+  data or verdict impact.
+- **Severity:** medium-low (wrong-application display is the worst of the
+  three).
+- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
+  (Stage C, baseline `4deddfc`)**; statically verified (T8 line-by-line);
+  hand-check pending.
+- **Found by:** audit group T8:
+  (a) `src/App.tsx` L14, L26-35, L141, L209-210 — `selectedAppId` is not
+  reset when a run is opened from the Dashboard, so discovery/ingest
+  summary render for the previously created application;
+  (b) `src/pages/ModernizationRun.tsx` L318 vs L371/L780/L824 — download
+  failures set `pollError`, but that UI only renders on non-terminal runs
+  while Download only exists on COMPLETED, so the error is never shown;
+  (c) `src/App.tsx` L24, L80-104 — `runIds` is only appended and never
+  pruned; every run started in a session is polled every 2s forever, in
+  addition to the run page's own polling.
+- **Observed behavior (verified at code level):** as above.
+- **Expected behavior:** the opened run's own application is displayed;
+  download errors surfaced; terminal runs dropped from polling.
+- **Root cause:** three independent state-lifecycle gaps.
+- **Affected files:** `src/App.tsx`, `src/pages/ModernizationRun.tsx`.
+- **Impact:** wrong-context UI; silent download failures; growing poll
+  load.
+- **Remediation (planned):** set/clear `selectedAppId` with the run;
+  render download errors in the completed state; prune terminal ids (or
+  stop polling terminal runs); component tests.
+- **Acceptance criteria:** each of the three has a focused test; frontend
+  type-check + tests + build green.
+- **Owner/role:** frontend maintainer. **Target phase:** unassigned.
+  **Dependency:** none. **Residual risk:** cosmetic wrongness remains
+  until fixed.
+
+### BL-069 — `_parse_multiply` silently returns an empty `MultiplyStatement` for standard `MULTIPLY a BY b BY c` and `ON SIZE ERROR` forms (no diagnostic)
+
+- **Type:** defect (silent semantic loss).
+- **Priority:** P1 — a recognized arithmetic statement produces an empty IR
+  node (source="", multiplicand="") with **no** `_emit_unparsed` diagnostic,
+  so the multiplication vanishes from the generated program. Unlike
+  `ADD`/`SUBTRACT`/`DIVIDE`, which emit `UNSUPPORTED_CONSTRUCT` for the same
+  shape, nothing downstream can see the loss. Verdict impact is bounded today
+  only because the empty operands make downstream mapping produce no real
+  arithmetic — but the diagnostic channel is missing entirely (the exact
+  ADD/SUBTRACT/DIVIDE asymmetry).
+- **Severity:** medium-high for coverage and diagnostic completeness;
+  §53.9 requires recognized statements never disappear without a diagnostic.
+- **Status:** **OPEN — discovered 2026-10-14 by the Phase 4 §76 audit
+  (probe-confirmed, not just static)**.
+- **Found by:** Phase 4 audit probes (`%TEMP%\opencode\phase4\probe_p4_r1.py`,
+  case MULTIPLY): real `CobolParser.parse` of
+  `MULTIPLY WS-A BY WS-B BY WS-C.` and
+  `MULTIPLY WS-A BY WS-B ON SIZE ERROR DISPLAY "E".` — both yield a
+  `MultiplyStatement(source="", multiplicand="")` and **zero diagnostics**;
+  the same sources through `ADD`/`SUBTRACT`/`DIVIDE` positions emit
+  `UNSUPPORTED_CONSTRUCT` "Statement did not parse into IR".
+- **Expected behavior:** the standard double-`BY` form and the
+  `ON SIZE ERROR` form either parse into full IR or fail closed with an
+  explicit diagnostic naming the statement (the ADD/SUBTRACT/DIVIDE rule).
+- **Root cause:** the single regex at `cobol_parser.py L1572-1576` accepts
+  only the strict `MULTIPLY x BY y [GIVING z] [ROUNDED]` spelling; the
+  no-match branch `L1577-1578` returns an empty node instead of calling
+  `_emit_unparsed` (contrast `_parse_add` etc., which fail closed).
+- **Affected files:** `engine/transformation/cobol_parser.py`
+  (`_parse_multiply` L1569-1591).
+- **Impact:** silent drop of a recognized arithmetic statement with no
+  diagnostic — the §53.9/§60 defect class; capability consumers cannot see it.
+- **Remediation (planned):** extend the regex for the standard double-`BY`
+  form and `ON SIZE ERROR` (diagnose the latter like ADD), and route every
+  no-match through `_emit_unparsed` so no empty node can be returned silently.
+- **Acceptance criteria:** no `MULTIPLY` spelling returns a diagnostic-free
+  empty node; focused tests (double-BY, ON SIZE ERROR, lowercase,
+  simple-form regression) + full suite green; no existing test weakened.
+- **Owner/role:** parser / IR maintainer. **Target phase:** Phase 4
+  (cycle B). **Dependency:** none. **Residual risk:** until fixed, valid
+  standard `MULTIPLY` forms lose their arithmetic silently.
+
+### BL-070 — `_parse_rewrite` binds the target file by string heuristic only and ignores the FILE SECTION owner map (`_record_owner`), silently degrading unbound REWRITE to a comment
+
+- **Type:** defect (silent semantic loss / lane inconsistency).
+- **Priority:** P1 — `WRITE` resolves its file via the authoritative
+  `_record_owner` map first (built from FD declarations at
+  `cobol_parser.py L388-395`) and only falls back to the naming heuristic;
+  `REWRITE` (`L1465`) uses **only** `record_name.replace("-REC","-FILE")`.
+  A record whose FD name does not follow the `-REC` convention binds to a
+  wrong/nonexistent file name, and the mapper's REWRITE branch then emits a
+  bare `// REWRITE ...` comment with **no diagnostic** (mapping
+  `L2425-2484` path for an unresolved file) — the statement disappears from
+  the generated program invisibly. Contradicts the WRITE path in the same
+  parser (BL-038-class cross-lane inconsistency).
+- **Severity:** medium-high for indexed/relative workloads that do not use
+  the `-REC`/`-FILE` naming convention (common in real corpora).
+- **Status:** **OPEN — discovered 2026-10-14 by the Phase 4 §76 audit
+  (probe-confirmed)**.
+- **Found by:** Phase 4 audit + probe `%TEMP%\opencode\phase4\probe_p4_r1.py`
+  (case REWRITE): an FD `FD IDX-FILE.` with record `01 IDX-DATA.` and
+  `REWRITE IDX-DATA FROM WS-BUF.` binds `file_name="IDX-DATA"`-derived
+  heuristic value while `_record_owner["IDX-DATA"] == "IDX-FILE"` exists
+  unused; `_parse_write` for the same FD binds correctly. (An earlier audit
+  claim that REWRITE is swapped with DELETE in the real path was **falsified**
+  by the probe — the defect is the owner-map gap only.)
+- **Expected behavior:** REWRITE resolves the owning file exactly like
+  WRITE (owner map first, heuristic fallback), and an unresolvable record
+  name produces an explicit diagnostic rather than a silent comment.
+- **Root cause:** `L1465` predates the `_record_owner` map added for WRITE;
+  the two verbs were never unified.
+- **Affected files:** `engine/transformation/cobol_parser.py`
+  (`_parse_rewrite` L1455-1477 vs `_parse_write` L1346-1375;
+  `engine/transformation/cobol_to_java_mapping.py` L2425-2484).
+- **Impact:** REWRITE silently becomes a comment for non-conventionally
+  named records; no capability or diagnostic channel sees it.
+- **Remediation (planned):** `_parse_rewrite` consults `_record_owner`
+  first (mirror WRITE L1360-1363); unbound records keep the heuristic
+  fallback and gain an explicit diagnostic if neither resolves.
+- **Acceptance criteria:** REWRITE binds the FD-declared file for
+  convention-breaking names; unresolvable REWRITE fails closed named;
+  focused tests + `test_file_invalid_key_lane.py` + full suite green.
+- **Owner/role:** parser / mapping maintainer. **Target phase:** Phase 4
+  (cycle B). **Dependency:** existing `_record_owner` map. **Residual
+  risk:** until fixed, indexed/relative REWRITE workloads with unconventional
+  record names lose the statement silently.
+
 ## Backlog change log
 
 - 2026-10-11 — **Phase 1 closure audit at `bdb4c9a` (documentation only).**
@@ -2269,6 +3209,59 @@ level and evidence location.
   undefined `UNSUPPORTED_INTRINSIC_<NAME>` symbol (and
   `UNSUPPORTED_EXPRESSION_<NODE>` for any other unhandled node), so `javac`
   reports the construct by name. Not detected by CI or by any pre-existing test.
+- 2026-10-14 — **(q) Repository-wide line-by-line audit (post-Phase-3; Stage C
+  of the owner-directed review, baseline `4deddfc`/`26df174`).** Eight
+  parallel reviewers covered 100% of tracked executable source by
+  execution path — parser/IR, copybook/discovery/capability/planning,
+  mapping/generation, JCL/SQL/CICS, runtime/oracle/evidence/comparison/
+  verdict, API, CI/workflows/scripts/config, frontend — plus a four-group
+  naming audit of all 3,476 collected test ids; fixtures and test bodies
+  were inventoried structurally (honest scope in
+  `docs/CODE_AUDIT_REPORT.md`). ~350 findings were produced; every
+  error-handling/edge finding was re-verified by hand against the code
+  before filing. **29 new items filed OPEN as BL-040…BL-068** (1×P0,
+  8×P1, 17×P2, 3×P3), each with baseline line references and §76.7-conformant
+  metadata; the P0 (BL-040) is a BL-027-class silent statement-loss in the
+  `STRING` continuation join. Behavior-preserving cleanups are executed
+  separately (Stage D) and recorded in `docs/CODE_OPTIMIZATION_REPORT.md`
+  so audit and implementation stay separable per §76; nothing was silently
+  closed.
+
+- 2026-10-14 — **(r) Phase 4 §76 audit-first gap inventory (Files / VSAM /
+  Data Semantics); BL-069 and BL-070 filed; BL-058 sharpened; §53.10
+  carry-forward register completed for all Phase 3-lane items.** Two
+  independent audits (file-operations lane and data-semantics lane) plus a
+  manual probe round (`%TEMP%\opencode\phase4\probe_p4_r1.py`, real
+  `CobolParser.parse` / discovery / capability path) produced the Phase 4
+  gap inventory. Two audit claims were **falsified by probe** and are not
+  filed: (i) "REWRITE is swapped with DELETE in the real mapping path" —
+  the real path dispatches each verb correctly; (ii) "PERFORM UNTIL is
+  swallowed by the parser" — `until_condition` parses correctly (the audit
+  used wrong IR field names). **New findings filed:** BL-069 (P1 —
+  `_parse_multiply` L1577-1578 returns an empty `MultiplyStatement` for the
+  standard double-`BY` and `ON SIZE ERROR` forms with **no**
+  `_emit_unparsed` diagnostic, unlike ADD/SUBTRACT/DIVIDE in the same
+  position; probe-confirmed) and BL-070 (P1 — `_parse_rewrite` L1465 binds
+  the file by string heuristic only, ignoring the `_record_owner` FD map
+  that `_parse_write` L1360-1363 consults first; unbound REWRITE silently
+  degrades to a comment in the mapper with no diagnostic;
+  probe-confirmed). **BL-058 sharpened with probe evidence:** WS group
+  nodes are dropped entirely (children promoted flat), WS 88-level items
+  are dropped, WS `REDEFINES` is not captured — all diagnostic-free;
+  verdict impact stays bounded by the source-scan `UNKNOWN` classification
+  (BL-003 wiring), so the item stays P2 carried-forward pending a
+  representation design call. **Phase 4 cycle plan recorded in the
+  register:** cycle A (P0) = BL-040; cycle B (P1) = BL-041, BL-043,
+  BL-044, BL-069, BL-070; cycle C (P2) = BL-042, BL-052, BL-055, BL-056,
+  BL-059, BL-064; everything else received an explicit §53.10 target-phase
+  assignment in the register (Phase 5 = BL-063; Phase 6 = BL-060/061/062;
+  Phase 7 = BL-057; Phase 9 = BL-050/051/054; Phase 10 = BL-053; Phase 11
+  = BL-047/048/049/067/068; Phase 12 = BL-045/046/065/066) — this closes
+  the contradiction where the Phase 3 verdict claimed "nothing deferred"
+  while 29 Stage C items (several in Phase 3 lanes: BL-043/044/045/056/064)
+  were filed after the verdict: the items are now explicitly assigned,
+  owned, and carried, never silently waived.
+
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
   `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked
@@ -2355,6 +3348,37 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-037 | Parser / IR maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-038/BL-039)** | `CobolParser._parse_call`; arity analysis | `CALL … ON EXCEPTION …` swallows the phrase and its statement into the USING list → false arity 5 vs 1 → `UNSUPPORTED` with a factually wrong reason; planner maps it to `UNKNOWN_CONSTRUCT`. | P2 / medium: fail-closed, but the diagnostic claims an arity mismatch that does not exist and a standard CALL phrase is unparsed. | FIXED — `_parse_call` stops the USING capture at `ON EXCEPTION`/`ON OVERFLOW` (correct arity) and names the phrase in an explicit `UNSUPPORTED_CONSTRUCT` diagnostic; the planner maps linkage-arity failures to a new `ARITY_MISMATCH` `BlockingReason` instead of `UNKNOWN_CONSTRUCT`. Verified: correct arity + phrase named + no false-arity reason + `ARITY_MISMATCH` in the plan summary; tests in `tests/test_call_statement_parsing.py`; E2E onexc plan `BLOCKED` with the phrase named, oracle handler truth captured. |
 | BL-038 | Application discovery maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-037/BL-039)** | Edge-metadata stamping (`resolution=…` on `DependencyEdge`) | `ProgramCall.resolution` stays at its `UNRESOLVED` default even for resolved static calls, contradicting the edge metadata and the plan for the same call. | P2 / low: no verdict consumes the field (capability reads edge metadata), so no false classification is reachable; traceability-only. | FIXED — `_build_dependency_graph` stamps `ProgramCall.resolution` from the same decision that stamps the edge metadata (frozen dataclass replaced, unit tuple rebuilt before the application is constructed). Verified: resolved static `RESOLVED`, missing static `UNRESOLVED`, dynamic never resolves even with a coinciding program-id, and a 3-call invariant test pins record == edge; 4 focused tests in `tests/test_call_resolution_truth.py`, wired into the `ci.yml` gate. |
 | BL-039 | Capability maintainer | **Phase 3 (fixed in-cycle 2026-10-13, combined cycle 5 with BL-026/BL-036/BL-037/BL-038)** | BL-031's `_expand_copybook_text` (implemented) | `_analyze_copybook` scans only the top-level copybook file, so constructs inside nested copybooks — now materialized into the merged IR — are never classified. | P2 / medium-low: potential false `SUPPORTED` COPYBOOK component for nested content; bounded to data-division constructs in nested files. | FIXED — `copybook_model.collect_copybook_texts` walks the top-level file plus every reachable nested COPY target (same strict resolver, cycle-guarded, nested problems recorded as the same `ERROR` diagnostics generation fails on); `_analyze_copybook` scans per file with the shared search-directory authority (`analyze(..., source_root=...)`, threaded from planner and pipeline). Reason names the nested file carrying the worst-level keys; nested problems fail the component closed with generation's own message; flat copybooks keep the exact legacy reason. 9 focused tests in `tests/test_copybook_capability_transitivity.py`, wired into the `ci.yml` gate; E2E nested2 `ORACLE_MATCH=YES`. |
+| BL-040 | Parser / IR maintainer | **Phase 4 (cycle A — assigned 2026-10-14)** | Period-bound statement termination in the parser | §53.9 forbids silent semantic loss; P0 per §77 (green-verdict-over-wrong-program shape). | Valid COBOL with bare-period `STRING` loses all subsequent statements silently today. | Unterminated `STRING` fails closed with a named diagnostic; no diagnostic-free statement loss; focused + full suite green. |
+| BL-041 | Java generator maintainer | **Phase 4 (cycle B — assigned 2026-10-14)** | Reachability reproduction of the file_io mode | Silent statement drop contradicts the no-silent-loss invariant; upgrade to P0 if reachable under a green verdict. | file_io mode may emit wrong programs without diagnostics. | Unmapped statements fail closed named; adversarial test + regression batch green. |
+| BL-042 | Transformation producer maintainer | Phase 4 (cycle C) | `Diagnostic` dataclass as the single diagnostics shape | Producer contract violated at the source; consumers crash or mis-report. | Error visibility depends on the consumer path. | All producers pass a diagnostics-shape contract test; full suite green. |
+| BL-043 | Modernization planner maintainer | **Phase 4 (cycle B — assigned 2026-10-14)** | None | Fail-open default contradicts the fail-closed program default (capability truth). | A missing analyzer component silently becomes a green plan. | `cap=None` yields non-SUPPORTED with a blocking reason; planner tests green. |
+| BL-044 | Application discovery maintainer | **Phase 4 (cycle B — assigned 2026-10-14)** | Shared uppercase normalization helper | One CALL fact can contradict itself across lanes (BL-038 class). | Mixed-case sources produce contradictory plan reasons. | Resolution and arity agree for mixed-case sources; focused test green. |
+| BL-045 | Mapping maintainer | Phase 12 (carry-forward 2026-10-14 — Phase 3 lane item, not scheduled in Phase 4) | `called_programs` collector threading | Nested CALLs lose resolution metadata (coverage/provenance). | Incomplete program references in mapping output. | Nested CALL contributes to called_programs; focused + regression tests green. |
+| BL-046 | Spring Boot generator maintainer | Phase 12 (carry-forward 2026-10-14) | Native escaping helper (BL-030) | Lane divergence: invalid Java or wrong values for quotes/backslashes. | Emitted literals can diverge from the oracle-verified native lane. | Both lanes emit identical escaped literals; focused test green. |
+| BL-047 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Silent file loss on accepted uploads; documented collision contract unreachable. | Downstream transformation runs on incomplete sources. | Duplicate-name upload fails closed named; security suite green. |
+| BL-048 | API/service maintainer | Phase 11 (carry-forward 2026-10-14) | None | Failed re-upload destroys the previous source (data-loss on error path). | Record points at a deleted directory after a rejected upload. | Failed re-upload preserves the previous directory; service tests green. |
+| BL-049 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Error-path correctness: 500 instead of 401 on non-ASCII tokens. | Availability/log noise only; no bypass. | Non-ASCII token yields 401; security tests green. |
+| BL-050 | Candidate adapter maintainer | Phase 9 (carry-forward 2026-10-14) | Shared cleanup helper | Timeout path masks the real error and leaks a container. | Leaks accumulate on the daemon; diagnostics mislead. | Timeout returns the timeout message; container removed; adapter tests green. |
+| BL-051 | Oracle adapter maintainer | Phase 9 (carry-forward 2026-10-14) | Shared cleanup helper (Stage D) | Timed-out oracle containers persist; no parity with candidate cleanup. | Daemon resource leak on the hot verification path. | Timed-out oracle containers are removed; oracle adapter tests green. |
+| BL-052 | Comparator maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Byte-exactness must cover every byte; floor division ignores tails. | Latent false MATCH via metadata mismatch (V1 pipeline unaffected today). | Partial trailing records mismatch; comparator tests green. |
+| BL-053 | Verdict maintainer | Phase 10 (carry-forward 2026-10-14) | None | Trust-boundary TOCTOU: post-validation mutation is trusted verbatim. | Future callers can accidentally bypass the seal. | Mutated manifest fails derivation closed; verdict tests green. |
+| BL-054 | Candidate adapter / pipeline maintainer | Phase 9 (carry-forward 2026-10-14) | None | Build output written into the identity tree ⇒ non-reproducible hashes. | Non-reproducible evidence identity on the Spring Boot lane. | Repeated builds ⇒ identical candidate_hash; adapter tests green. |
+| BL-055 | Parser / IR maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Lowercase valid COBOL crashes instead of diagnosing. | Unhandled IndexError on lowercase PERFORM UNTIL/VARYING. | Lowercase forms parse identically to uppercase; parser tests green. |
+| BL-056 | Copybook materialization maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Decode errors escape OSError handlers; lanes can disagree on one file. | Crash instead of COPYBOOK_UNREADABLE; analyzer/materializer divergence. | Binary copybook ⇒ COPYBOOK_UNREADABLE in all lanes; copybook tests green. |
+| BL-057 | CICS lane maintainer | Phase 7 (carry-forward 2026-10-14) | Shared escaping helper (BL-046) | Python repr() quoting emits invalid Java. | Uncompilable CICS-lane output (fail-closed at javac). | CICS generation emits valid Java literals; cics tests green. |
+| BL-058 | Parser / IR maintainer | **Phase 4 carry-forward (design decision required; P2)** — probe-sharpened 2026-10-14, not fixed in-cycle | Group-nesting representation decision | Hierarchy silently dropped; behavior-affecting fix needs a design call. Probe confirmed WS group node dropped, WS 88-level dropped, WS REDEFINES uncaptured, all diagnostic-free; verdict stays fail-closed via source-scan UNKNOWN (BL-003). | Declaration-shape fidelity unpinned. | Documented, tested representation of group nesting; agreed-shape tests green. |
+| BL-059 | IR/capability maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Capability walker under-reports arithmetic and inline bodies (conservative). | Valid programs blocked more than reality requires. | Capability reflects all arithmetic at any depth; capability tests green. |
+| BL-060 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Error handler itself raises ValueError (invalid sentinel). | Crash instead of the designed "-1" status. | Unmapped SQLSTATE returns the "-1" status; sql tests green. |
+| BL-061 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Cursor bind handoff missing (DECLARE discards binds). | Host-variable cursors fail loudly; documented subset narrower than claimed. | Host-variable cursors bind or fail closed named; sql tests green. |
+| BL-062 | SQL parser maintainer | Phase 6 (carry-forward 2026-10-14) | None | Column-less INSERT mis-parses VALUES as columns. | Wrong column metadata for a common form. | Both INSERT forms parse correctly or fail closed named; sql parser tests green. |
+| BL-063 | JCL lane maintainer | Phase 5 (carry-forward 2026-10-14) | Shared discovery matcher | Consumer's file selection diverges from discovery; decode errors escape. | Silently skipped members in blocked-reason reporting. | .jcllib/extensionless members scanned; collisions reported; jcl tests green. |
+| BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — assigned 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. |
+| BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
+| BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
+| BL-067 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | Cap enforced with a 4xx/413; API tests green. |
+| BL-068 | Frontend maintainer | Phase 11 (carry-forward 2026-10-14) | None | Three state-lifecycle gaps: wrong-application display, invisible download errors, unbounded polling. | Customer-visible confusion; wasted polling load. | Each of the three has a focused test; type-check + tests + build green. |
+| BL-069 | Parser / IR maintainer | **Phase 4 (cycle B — filed 2026-10-14)** | `_emit_unparsed` diagnostic channel (exists; ADD/SUBTRACT/DIVIDE already use it) | Standard `MULTIPLY a BY b BY c` and `ON SIZE ERROR` forms return an empty IR node with zero diagnostics — silent statement loss (§53.9). | Valid standard MULTIPLY forms lose their arithmetic silently. | No MULTIPLY spelling returns a diagnostic-free empty node; focused tests + full suite green. |
+| BL-070 | Parser / mapping maintainer | **Phase 4 (cycle B — filed 2026-10-14)** | Existing `_record_owner` map (built at `cobol_parser.py L388-395`) | REWRITE binds its file by string heuristic only (WRITE consults the FD owner map first); unbound REWRITE silently degrades to a comment with no diagnostic. | Indexed/relative REWRITE workloads with unconventional record names lose the statement silently. | REWRITE binds the FD-declared file; unresolvable REWRITE fails closed named; focused + file-lane + full suite green. |
 
 ### PR disposition snapshot — 2026-10-10
 

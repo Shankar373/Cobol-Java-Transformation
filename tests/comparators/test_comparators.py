@@ -58,7 +58,7 @@ class TestComparatorRegistry:
         with pytest.raises(ValueError, match="already registered"):
             registry.register(StdoutComparator())
 
-    def test_get_all(self):
+    def test_get_all_returns_all_five_default_comparators(self):
         registry = create_default_registry()
         all_comparators = registry.get_all()
         assert len(all_comparators) == 5

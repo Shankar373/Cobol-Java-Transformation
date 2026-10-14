@@ -6,7 +6,6 @@ import {
   IconBox,
   IconDatabase,
   IconPulse,
-  IconCheckCircle,
   IconFileText,
 } from './icons';
 
