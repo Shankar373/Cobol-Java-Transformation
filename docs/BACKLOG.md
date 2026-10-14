@@ -2599,24 +2599,48 @@ level and evidence location.
   members and colliding basenames.
 - **Severity:** medium-low.
 - **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
-  pending.
+  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-verified
+  2026-10-15 by the Phase 5 §76 probes at `e0e6499`
+  (`%TEMP%\opencode\phase5\probe_p5_r1.py` PROBE1-5, `probe_p5_r2.py`
+  PROBE12/14).
 - **Found by:** audit group T4: `engine/transformation/jcl_consumer.py`
   L107-112.
-- **Observed behavior (verified at code level):** discovery finds
+- **Observed behavior (verified by execution):** discovery finds
   `.jcllib`/extensionless members; the consumer's unsupported scan and
-  basename-keyed source map do not see them uniformly; decode errors
-  escape the OSError handler.
-- **Expected behavior:** one discovery rule shared by both lanes; decode
-  failures diagnosed.
-- **Root cause:** independent file-selection logic in the consumer.
-- **Affected files:** `engine/transformation/jcl_consumer.py` L107-112.
-- **Impact:** silently skipped members in blocked-reason reporting.
-- **Remediation (planned):** share the discovery matcher; collision-safe
-  keys; decode-error diagnostic; focused tests.
-- **Acceptance criteria:** `.jcllib`/extensionless members scanned;
-  collisions reported; jcl tests green.
-- **Owner/role:** JCL lane maintainer. **Target phase:** unassigned.
+  basename-keyed source map do not see them uniformly — PROBE1: `.jcllib`
+  member containing `IF/THEN` → status **FULL**, zero unsupported
+  diagnostics (same for extensionless in PROBE2); PROBE12: basename
+  collision `a/dup.jcl` (unsupported) + `b/dup.jcl` (clean) → the first
+  file's text never enters the scan pool → **FULL, silent loss**;
+  PROBE4: non-UTF8 `.jcl` → `UnicodeDecodeError` escapes
+  `modernize_jcl_workload` while `JclDiscovery` silently drops the same
+  file (one lane crashes, the other vanishes the job); PROBE5:
+  `api/service.py::_jcl_status_for_source` returns `NOT_PRESENT` for a
+  `.jcllib`-only tree while the consumer returns `FULL` (presence gate
+  uses its own `rglob("*.jcl")`). PROBE14: `UPPER.JCL` scans on Windows
+  only because the FS is case-insensitive — on Linux CI the same
+  `rglob("*.jcl")` (consumer + API gate) would miss uppercase suffixes
+  (static finding, not demonstrable on win32).
+- **Expected behavior:** one discovery rule shared by both lanes (and the
+  API presence gate); decode failures diagnosed, never escaped and never
+  silently skipped; basename collisions reported instead of overwriting.
+- **Root cause:** independent file-selection logic in the consumer and in
+  `api/service.py`.
+- **Affected files:** `engine/transformation/jcl_consumer.py` L107-132,
+  `engine/transformation/jcl_discovery.py` (per-file `except Exception:
+  continue`), `api/service.py` `_jcl_status_for_source` L194-211.
+- **Impact:** silently skipped members in blocked-reason reporting; false
+  FULL status for unscanned members; decode crash for direct callers;
+  JCL lane invisible in the ledger for non-`*.jcl` trees.
+- **Remediation (planned):** share the discovery matcher (case-insensitive,
+  `.jcl`/`.jcllib`/extensionless) across consumer scan and API presence
+  gate; collision-safe keys (full relative path) with collisions
+  reported; decode failures diagnosed fail-closed; focused tests.
+- **Acceptance criteria:** `.jcllib`/extensionless/uppercase members
+  scanned; collisions reported; decode failures diagnosed (no escape, no
+  silent drop); API and consumer statuses agree; jcl tests green.
+- **Owner/role:** JCL lane maintainer. **Target phase:** Phase 5
+  (batch P2, per register).
   **Dependency:** none. **Residual risk:** none once unified.
 
 ### BL-064 — Spring Boot generator emits every copybook model file twice (duplicate class files in the output tree)
@@ -2891,6 +2915,291 @@ level and evidence location.
   *and* is declared by an FD with a different name now binds the
   FD-declared file (owner map wins) — the FD declaration is authoritative,
   matching WRITE.
+
+### BL-071 — JCL-generated Spring Boot project cannot compile in the canonical offline build environment while the adapter docstring claims "it compiles, starts"
+
+- **Type:** defect (generation/build truth) + test gap.
+- **Priority:** P1 — the JCL lane's own deliverable fails to build in the
+  repository's canonical Maven environment and the code claims otherwise
+  (doc-vs-reality contradiction, §76.6); no test ever attempted the build
+  (missing end-to-end proof). Not P0: no false VERIFIED is reachable
+  (the JCL lane can never reach PROVEN in the central gate).
+- **Severity:** high (capability claim is false as shipped).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
+  `e0e6499`, probe-verified.**
+- **Found by:** Phase 5 audit probe `%TEMP%\opencode\phase5\probe_p5_compile.py`
+  (PROBE16).
+- **Observed behavior (verified by execution):** fixtures →
+  `modernize_jcl_workload` → `jcl_to_spring_boot` → `SpringBootGenerator`
+  → 7 files → `DockerSpringBootCandidateAdapter.compile` →
+  **`success=False`**: `Cannot access central … in offline mode and the
+  artifact org.springframework.boot:spring-boot-starter-batch:jar:3.2.5
+  has not been downloaded from it before` (full Maven output:
+  `%TEMP%\opencode\phase5\probe16_full_maven_error.txt`; run log
+  `probe_p5_compile_out.txt`). `Dockerfile.maven-offline` L11 precaches
+  only `spring-boot-starter` — never `spring-boot-starter-batch`, which
+  the JCL adapter declares (`jcl_spring_boot_adapter.py` L198-207).
+- **Expected behavior:** the generated project compiles in the canonical
+  offline build environment, and any docstring claim about compiling /
+  starting is backed by an executed test.
+- **Root cause:** the offline-image precache pom was written for the
+  COBOL lane's dependency set; the JCL lane's `spring-boot-starter-batch`
+  was never added, and no test builds JCL output (`tests/test_jcl_generation.py`
+  L8-9 explicitly does not).
+- **Affected files:** `Dockerfile.maven-offline` (precache pom),
+  `engine/transformation/jcl_spring_boot_adapter.py` (docstring claim),
+  `docs/specs/JCL_MODERNIZATION_PROFILE.md` L169 (honest disclosure —
+  keep in sync), new Docker-gated compile test.
+- **Impact:** JCL modernization output is not buildable as shipped; the
+  "it compiles, starts" claim is currently false; CI would never catch it.
+- **Remediation (planned):** add `spring-boot-starter-batch` to the
+  offline precache; rebuild the image locally and regenerate provenance
+  (CI rebuilds it per run at L102); add a `RUN_DOCKER_TESTS`-gated
+  compile test proving `success=True`; only then may the docstring claim
+  stand, with the test as evidence.
+- **Acceptance criteria:** PROBE16 rerun returns `success=True`; focused
+  Docker test green locally (`RUN_DOCKER_TESTS=1`) and in the CI Backend
+  Docker job; docstring claim cites the test; no existing test weakened.
+- **Owner/role:** JCL lane maintainer + build/CI owner. **Target phase:**
+  Phase 5 (batch P1). **Dependency:** `maven-offline-springboot` image
+  rebuild. **Residual risk:** image digest changes → `test-artifacts`
+  provenance churn (regenerated via `scripts/record_docker_image_provenance.py`,
+  stays uncommitted by policy).
+
+### BL-072 — multiple JOB statements in one file are silently merged into one job (name of the first job lost, steps misattributed, status FULL, no diagnostic)
+
+- **Type:** defect (JCL parsing / job-step attribution).
+- **Priority:** P1 — silent structural misattribution of a workload
+  (§54 silent-loss class in §22 dependency representation), contradicting
+  the profile spec's explicit "no silent dropping"
+  (`docs/specs/JCL_MODERNIZATION_PROFILE.md` L84-85). Not P0: the lane
+  makes no execution claims and the central gate never passes JCL.
+- **Severity:** high for multi-job members/jobstreams.
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
+  `e0e6499`, probe-verified.**
+- **Found by:** probes 7/13 (`probe_p5_r1.py`, `probe_p5_r2.py`).
+- **Observed behavior (verified by execution):** source with
+  `//JOBONE JOB … / //S1 EXEC PGM=ONE / //JOBTWO JOB … / //S2 EXEC PGM=TWO`
+  parses to **one** `JclJob` named `JOBTWO` holding **both** S1 and S2
+  (`parse` returns a single job; `_parse_lines` reassigns `job_name` on
+  the second JOB statement without resetting/flushing `steps`);
+  profile status **FULL**, zero diagnostics.
+- **Expected behavior:** one `JclJob` per JOB statement (job identity and
+  step attribution preserved), or an explicit fail-closed diagnostic if
+  multi-job members are unsupported.
+- **Root cause:** `_parse_lines` was written for one job per file and
+  never handles a second `JOB` statement.
+- **Affected files:** `engine/transformation/jcl_parser.py`
+  (`_parse_lines`, `parse`, `parse_application`), callers
+  (`jcl_discovery.py`).
+- **Impact:** wrong job graph and wrong Spring Batch job composition,
+  reported as fully classified.
+- **Remediation (planned):** multi-job parse (`parse_jobs` returning the
+  ordered jobs; `parse` keeps its single-job contract for one-job input);
+  `parse_application`/`JclDiscovery` consume the list; regression tests.
+- **Acceptance criteria:** two-job file yields 2 jobs with correct step
+  attribution and correct status/diagnostics; existing single-job tests
+  unchanged and green; focused tests wired into the `ci.yml` gate.
+- **Owner/role:** JCL lane maintainer. **Target phase:** Phase 5 (batch
+  P1). **Dependency:** none. **Residual risk:** none once split is
+  explicit.
+
+### BL-073 — job-level DD statements (JOBLIB etc.) are silently dropped from the IR with no diagnostic and never reach the dataset inventory
+
+- **Type:** defect (JCL parsing / dataset dependency representation).
+- **Priority:** P1 — a common, dependency-bearing construct vanishes with
+  no diagnostic and status FULL, violating the spec's "never silently
+  dropped" policy (`docs/specs/JCL_MODERNIZATION_PROFILE.md` L84-85) and
+  §22's dependency-representation requirement. Same class as Phase 4's
+  BL-041 (silently dropped statements, P1).
+- **Severity:** high (JOBLIB is standard in production JCL).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
+  `e0e6499`, probe-verified.**
+- **Found by:** probes 8/15 (`probe_p5_r1.py`, `probe_p5_r2.py`).
+- **Observed behavior (verified by execution):** `//JOBLIB DD DSN=USER.LOADLIB,DISP=SHR`
+  before the first EXEC: parser `_parse_lines` hits the DD branch with
+  `steps == []` and skips the line; no `JclDD` anywhere, no diagnostic
+  (raw scan sees a recognized `DD` line and accepts it), status FULL,
+  `USER.LOADLIB` absent from resources/inventory (`probe15`: resources =
+  `[('INPUT', 'IN.DATA')]`).
+- **Expected behavior:** job-level DDs are either represented (job-level
+  resources/dependencies) or explicitly diagnosed as outside the
+  supported subset — never silently discarded.
+- **Root cause:** the parser only attaches DDs to the current/last step;
+  the raw scanner classifies any `DD` line as recognized.
+- **Affected files:** `engine/transformation/jcl_parser.py`
+  (`_parse_lines` DD branch), `engine/jcl/builder.py` (raw scan), IR
+  `JclJob` (additive field if represented).
+- **Impact:** dataset dependencies (steplib, job-message datasets) missing
+  from the dependency graph and dataset inventory, under FULL status.
+- **Remediation (planned):** parser preserves job-level DDs on `JclJob`
+  (additive, default-empty); `build_all_dependencies` emits `JCL_DD`
+  edges for them; builder raw scan diagnoses job-level DDs as outside the
+  supported subset (ERROR → status PARTIAL, honest); dataset inventory
+  behavior disclosed.
+- **Acceptance criteria:** probe8/probe15 shape yields the preserved DD +
+  a diagnostic naming the job-level DD (status not FULL); JOBLIB dataset
+  visible in the discovery dependency graph; focused tests green +
+  gate-wired; no existing test weakened (any test pinning the silent drop
+  is replaced with a strictly stronger assertion, documented).
+- **Owner/role:** JCL lane maintainer. **Target phase:** Phase 5 (batch
+  P1). **Dependency:** additive `ir.JclJob` field (mirrors prior additive
+  IR changes). **Residual risk:** job-level DDs remain unmodeled in the
+  Spring Batch representation (diagnosed, disclosed).
+
+### BL-074 — `link_with_cobol` matches datasets to COBOL files by loose bidirectional substring and a file-name-keyed dict, producing phantom, wrong-target, and missing `COBOL_FILE` edges in the production ingestion graph with no ambiguity signal
+
+- **Type:** defect (dependency graph truth; production ingestion path).
+- **Priority:** P1 — wrong edges reach `api/ingestion.py` L265-272
+  (production dependency graph) silently; the Phase 3 phantom-dependency
+  class (BL-034, P1) in the JCL↔COBOL linker. Not P0: graph-display and
+  planning input, not a verdict/certification bypass.
+- **Severity:** high.
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
+  `e0e6499`, probe-verified.**
+- **Found by:** probe 10 (`probe_p5_r1.py`).
+- **Observed behavior (verified by execution):** DSN `ORDER.INPUT` vs
+  COBOL file `DER.INPUT` → linked (substring), even for an unrelated
+  program; `file_lookup[fd.file_name] = …` keeps only the **last**
+  program for a shared file name, so in probe10 the executed program
+  PROG1's edge was overwritten by unrelated PROG2
+  (`COBOL_FILE_links=[('LINKJOB.STEP01.INPUT', 'PROG2.DER.INPUT', …)]`);
+  >1 match would append duplicate edges; no ambiguity is ever reported
+  (no diagnostic channel).
+- **Expected behavior:** deterministic, precise matching (dataset name or
+  a dot-qualified dataset qualifier equals the COBOL file name,
+  case-insensitive); **all** matching programs represented; ambiguous
+  matches flagged in edge metadata; no substring phantoms.
+- **Root cause:** convenience substring check plus a dict keyed by file
+  name that silently overwrites co-readers.
+- **Affected files:** `engine/transformation/jcl_discovery.py`
+  (`link_with_cobol` L129-161), consumed by `api/ingestion.py`.
+- **Impact:** phantom and wrong-target file edges, silently dropped
+  co-reader programs, no ambiguity signal in the customer-facing graph.
+- **Remediation (planned):** qualifier-based exact matching; accumulate
+  one edge per matching program; `resolution=AMBIGUOUS` metadata when a
+  file maps to multiple programs; focused tests.
+- **Acceptance criteria:** probe10 shape yields no phantom edge for
+  `DER.INPUT`, and a real match (`DSN=PAY.INPUT` ↔ file `INPUT`) yields
+  one edge per matching program with ambiguity flagged; ingestion graph
+  tests green; no existing test weakened.
+- **Owner/role:** JCL/discovery maintainer. **Target phase:** Phase 5
+  (batch P1). **Dependency:** none. **Residual risk:** legitimate
+  DSN↔file relations that rely on true substring nicknames will no longer
+  link — they must be represented by exact/qualifier names (fail-closed
+  under-linking rather than phantom over-linking).
+
+### BL-075 — compound `DISP=`/`SPACE=` values are silently truncated by a paren-unaware comma split (`DISP=(NEW,CATLG,DELETE)` stored as `"(NEW"`)
+
+- **Type:** defect (DD parameter fidelity) + weak-assertion test gap.
+- **Priority:** P2 — raw DD contract text is corrupted in the IR and the
+  Spring Batch representation with no diagnostic, but the disposition
+  *direction* (INPUT/OUTPUT) survives (first sub-parameter drives it), no
+  execution claim rests on it, and the central gate is unaffected.
+- **Severity:** medium (dataset lifecycle detail — CATLG/DELETE/PASS —
+  silently lost).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
+  `e0e6499`, probe-verified.**
+- **Found by:** probe 6 (`probe_p5_r1.py`).
+- **Observed behavior (verified by execution):** `_parse_dd` splits with
+  a quote-aware but paren-unaware regex, so
+  `DISP=(NEW,CATLG,DELETE),SPACE=(TRK,(10,5))` yields
+  `disposition='(NEW'`, `space='(TRK'`; the truncated text propagates
+  `JclDD` → `JclResource` → `SpringBatchResource.disposition`; status
+  FULL, no diagnostic. `tests/transformation/test_jcl_parser.py` L340's
+  `assert "NEW" in new_dd.disposition` is too weak to notice.
+- **Expected behavior:** compound DISP/SPACE values preserved verbatim
+  (paren-depth-aware split, as `_parse_parameters` already does for
+  JOB/EXEC); strong assertion pinning the full text.
+- **Root cause:** `_parse_dd` predates the paren-aware splitter used by
+  `_parse_parameters`; the test only substring-checks.
+- **Affected files:** `engine/transformation/jcl_parser.py` (`_parse_dd`),
+  `tests/transformation/test_jcl_parser.py` (strengthen L340-class
+  assertions — documented strengthening, not a weakening).
+- **Impact:** mangled disposition/space text in artifacts and profiles;
+  lifecycle sub-parameters (CATLG/DELETE/PASS/KEEP) unrecoverable
+  downstream.
+- **Remediation (planned):** shared paren-depth-aware parameter splitter
+  used by `_parse_dd`; full-value assertions; disclose that
+  SPACE/UNIT/VOL/DCB are preserved on `JclDD` but not modeled in the
+  semantic resource (spec limitations line).
+- **Acceptance criteria:** probe6 rerun shows full verbatim values in
+  `JclDD` and `SpringBatchResource`; focused tests green + gate-wired;
+  existing compound-disposition tests strengthened, none weakened.
+- **Owner/role:** JCL parser maintainer. **Target phase:** Phase 5 (batch
+  P2). **Dependency:** none. **Residual risk:** non-parenthesized exotic
+  DISP forms remain bounded to the documented subset.
+
+### BL-076 — application-graph step-order edges diverge between lanes: `build_all_dependencies` omits the edge after a COND step while the semantic builder emits it
+
+- **Type:** defect (lane divergence / dependency graph completeness).
+- **Priority:** P2 — a missing (not wrong) edge in one of two product
+  surfaces; no false claim, verdict unaffected; Phase 3's lane-divergence
+  class (BL-036/BL-038, P2) applied to JCL.
+- **Severity:** medium.
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
+  `e0e6499`, probe-verified.**
+- **Found by:** probe 9 (`probe_p5_r1.py`).
+- **Observed behavior (verified by execution):** for `S1 / S2(COND=EVEN) / S3`,
+  `build_all_dependencies` returns `JCL_STEP_ORDER` edges
+  `[('S1','S2')]` — **S2→S3 missing** (the loop skips the pair when
+  `current.condition is not None`) — while
+  `JclSemanticBuilder._build_step_dependencies` returns
+  `[('','S1'), ('S1','S2','ANY'), ('S2','S3','SUCCESS')]`.
+  `api/ingestion.py` publishes the former.
+- **Expected behavior:** both lanes carry every step-order pair; the
+  condition belongs in edge metadata, not as a reason to drop the edge.
+- **Root cause:** `jcl_dependencies.py` L24 conditions edge emission on
+  `current.condition is None`.
+- **Affected files:** `engine/transformation/jcl_dependencies.py` L19-30,
+  consumed by `jcl_parser.parse_application` / `jcl_discovery.discover`
+  → `api/ingestion.py`.
+- **Impact:** ingestion dependency graph silently missing edges after
+  COND steps; the two lanes disagree.
+- **Remediation (planned):** always emit the step-order pair; carry
+  `cond=…` metadata; parity test against the semantic lane.
+- **Acceptance criteria:** probe9 shape shows S2→S3 present with
+  condition metadata and both lanes agree; existing dependency tests
+  green (expectations updated only where they pin the wrong absence,
+  documented as strengthening).
+- **Owner/role:** JCL dependency maintainer. **Target phase:** Phase 5
+  (batch P2). **Dependency:** none. **Residual risk:** none.
+
+### BL-077 — JCL lane hygiene: dead/never-set fields and stale spec status
+
+- **Type:** documentation + code hygiene (P3).
+- **Priority:** P3 — no behavior or trust impact; kept visible so it is
+  not silently forgotten (§77).
+- **Severity:** low.
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
+  `e0e6499` (static).**
+- **Found by:** Phase 5 §76.6 documentation-consistency audit.
+- **Observed behavior (static):** (a) `JclDD.sysin` is never set by the
+  parser, so `jcl/builder.py` L199's `dd.name.upper() == "SYSIN" and
+  dd.sysin` is dead (always False; `DD *` is already covered by
+  `is_inline`); (b) `JclParseError` is declared but never raised;
+  (c) `JclDatasetFlow.disposition` is never populated by the builder;
+  (d) `capability_analyzer.py` L74's comment lists a `"JCL"` component
+  type that is never emitted; (e) `docs/specs/JCL_INTEGRATION_CONTRACT.md`
+  still says "no `api/` wiring applied" although `api/service.py` and
+  `api/ingestion.py` now consume the lane, and its example keys sources
+  by basename (the BL-063 collision source); (f)
+  `docs/COBOL_UNIVERSALITY_ROADMAP.md` L132's "JCL SUPPORTED (parser +
+  diagnostics)" label overstates until BL-072/BL-073 silent drops close.
+- **Expected behavior:** no dead conditions or unused exceptions left
+  unexplained; spec status matches repository reality (§78).
+- **Affected files:** `engine/jcl/builder.py`, `engine/transformation/jcl_parser.py`,
+  `engine/jcl/model.py`, `engine/modernization/capability_analyzer.py`,
+  `docs/specs/JCL_INTEGRATION_CONTRACT.md`, `docs/COBOL_UNIVERSALITY_ROADMAP.md`.
+- **Impact:** reader confusion; latent drift.
+- **Remediation (planned):** remove/annotate dead code, refresh spec
+  status and examples, reconcile the roadmap label after BL-072/BL-073
+  land.
+- **Acceptance criteria:** each lettered item either fixed or explicitly
+  justified in-place; ruff clean; JCL suites green.
+- **Owner/role:** JCL lane maintainer. **Target phase:** Phase 5 (batch
+  P2/P3). **Dependency:** BL-072/BL-073 for item (f). **Residual risk:**
+  none.
 
 ## Backlog change log
 
@@ -3651,6 +3960,56 @@ level and evidence location.
   status unchanged from Phase 3; 4 Windows local skips run green on Linux
   CI. Evidence index: `%TEMP%\opencode\phase4\PHASE4_EVIDENCE_INDEX.txt`.
 
+- 2026-10-15 — **(w) Phase 5 (JCL Modernization) §76 audit-first gap
+  inventory — no source modified during the audit; baseline
+  `e0e649944c75ad1488f46159075651102ca65f9c` (= origin, branch
+  `codex/universal-core`, CI green 4/4 runs × 14/14 jobs).** Audit scope
+  per §76.3/§76.4: all seven `engine/transformation/jcl_*.py` modules,
+  `engine/jcl/*` (builder/model/diagnostics), `api/service.py::_jcl_status_for_source`,
+  `api/ingestion.py` JCL discovery path, `integrated_proof.py::jcl_ledger_entry`,
+  capability classification (JCL is ledger-only — never in the central
+  PROVEN set, verdict path fail-closed by construction), runtime
+  integration (structural-only; no JCL runtime lane, honestly disclosed),
+  tests/CI (187 JCL tests green; **none wired into the `ci.yml`
+  capability-truth gate**; no JCL build/compile test exists), and docs
+  (`docs/specs/JCL_MODERNIZATION_PROFILE.md` L84 "no silent dropping",
+  L169 honest "not runtime verified"; `JCL_INTEGRATION_CONTRACT.md`
+  stale status; roadmap L132 label). **Evidence: 16 execution probes** in
+  `%TEMP%\opencode\phase5\` (`probe_p5_r1.py` PROBE1-11,
+  `probe_p5_r2.py` PROBE12-15, `probe_p5_compile.py` PROBE16 + outputs
+  `probe_p5_r1_out.txt`, `probe_p5_r2_out.txt`, `probe_p5_compile_out.txt`,
+  `probe16_full_maven_error.txt`). **Key probe results:** PROBE1/2/12 →
+  `.jcllib`/extensionless members and basename collisions leave
+  unsupported constructs **undetected at status FULL**; PROBE4 →
+  non-UTF8 `.jcl` crashes the consumer (`UnicodeDecodeError`) while
+  discovery silently drops the file; PROBE5 → API presence gate
+  (`NOT_PRESENT`) diverges from consumer (`FULL`) for `.jcllib`-only
+  trees; PROBE6 → `DISP=(NEW,CATLG,DELETE)` stored as `"(NEW"`;
+  PROBE7/13 → two JOB statements silently merged into one job
+  (`JOBTWO` holding JOBONE's step) at FULL; PROBE8/15 → job-level
+  `JOBLIB DD` silently dropped, dataset never inventoried; PROBE9 →
+  `JCL_STEP_ORDER` edge after a COND step missing from the application
+  graph but present in the semantic lane; PROBE10 → substring phantom
+  + wrong-target + dropped co-reader `COBOL_FILE` edges;
+  PROBE16 → **generated JCL Spring Boot project fails to compile** in
+  the canonical offline Maven image (`spring-boot-starter-batch:3.2.5`
+  never precached) while the adapter docstring claims "it compiles,
+  starts". **Inventory: 7 NEW backlog items** — BL-071 (P1, offline
+  compile failure + false doc claim), BL-072 (P1, silent multi-JOB
+  merge), BL-073 (P1, silent job-level DD drop), BL-074 (P1, phantom/
+  wrong `COBOL_FILE` edges) | BL-075 (P2, compound DISP/SPACE
+  truncation), BL-076 (P2, step-order edge lane divergence), BL-077
+  (P3, hygiene/stale spec status) — plus carried **BL-063** hand-
+  verified and scope-extended (API presence gate + discovery silent
+  drop + Linux case-sensitivity), all with full §77 register rows
+  (owner/role, target phase, dependency, residual risk, acceptance
+  criteria). **P0: none found.** Remediation plan (approved batching):
+  batch P1 = BL-071/072/073/074, batch P2 = BL-063/075/076 + BL-077;
+  each item defect-proven-first (own red capture, own focused green,
+  own entry/register update), one regression sweep + gate wiring +
+  commit + exact-SHA CI verification per batch; fresh Phase-5 E2E =
+  Docker-gated JCL project compile (`RUN_DOCKER_TESTS=1`).
+
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
   `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked
@@ -3767,7 +4126,14 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-067 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | Cap enforced with a 4xx/413; API tests green. |
 | BL-068 | Frontend maintainer | Phase 11 (carry-forward 2026-10-14) | None | Three state-lifecycle gaps: wrong-application display, invisible download errors, unbounded polling. | Customer-visible confusion; wasted polling load. | Each of the three has a focused test; type-check + tests + build green. |
 | BL-069 | Parser / IR maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_emit_unparsed` diagnostic channel (exists; ADD/SUBTRACT/DIVIDE already use it) | Standard `MULTIPLY a BY b BY c` and `ON SIZE ERROR` forms returned an empty IR node with zero diagnostics — silent statement loss (§53.9). | Residual: double-`BY`/`ON SIZE ERROR` forms remain UNSUPPORTED *with* a diagnostic until the regex is extended (coverage gap, not silent loss). | FIXED — `_parse_multiply` no-match branch mirrors ADD exactly (`_emit_unparsed("MULTIPLY", …)`; empty node after diagnostic is the shared contract); 10 focused tests in `tests/transformation/test_multiply_diagnostic.py` wired into the `ci.yml` gate; pre-fix red 5/5 proven (`%TEMP%\opencode\phase4\bl069_pre_fix.txt`); parser arithmetic regression green; no existing test weakened. |
-| BL-070 | Parser / mapping maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | Existing `_record_owner` map (built in `cobol_parser.py`) | REWRITE bound its file by string heuristic only (WRITE consults the FD owner map first); unbound REWRITE silently degraded to a comment with no diagnostic. | Residual: FD declaration now wins over the `-REC` convention for REWRITE (matches WRITE; FD is authoritative). | FIXED — `_parse_rewrite` consults `_record_owner` first, heuristic fallback (exact mirror of `_parse_write`); 5 focused tests in `tests/transformation/test_rewrite_binding.py` wired into the `ci.yml` gate; pre-fix red 2/3 regenerated by temporary hunk revert (`%TEMP%\opencode\phase4\bl070_pre_fix.txt`, mislabeled first capture noted in the entry); file-lane regression 104 + parser batch 27 green; no existing test weakened. |
+| BL-070 | Parser / mapping maintainer | **Phase 4 (cycle B - fixed in-cycle 2026-10-14)** | Existing `_record_owner` map (built in `cobol_parser.py`) | REWRITE bound its file by string heuristic only (WRITE consults the FD owner map first); unbound REWRITE silently degraded to a comment with no diagnostic. | Residual: FD declaration now wins over the `-REC` convention for REWRITE (matches WRITE; FD is authoritative). | FIXED - `_parse_rewrite` consults `_record_owner` first, heuristic fallback (exact mirror of `_parse_write`); 5 focused tests in `tests/transformation/test_rewrite_binding.py` wired into the `ci.yml` gate; pre-fix red 2/3 regenerated by temporary hunk revert (`%TEMP%\opencode\phase4\bl070_pre_fix.txt`, mislabeled first capture noted in the entry); file-lane regression 104 + parser batch 27 green; no existing test weakened. |
+| BL-071 | JCL lane maintainer + build/CI owner | **Phase 5 (batch P1 - carry-forward 2026-10-15)** | `maven-offline-springboot` image rebuild (offline precache pom) | Generated JCL Spring Boot project cannot compile in the canonical offline build environment (`spring-boot-starter-batch` never precached) while the adapter docstring claims "it compiles, starts"; no test ever attempted the build. | Image digest changes cause `test-artifacts` provenance churn (regenerated, stays uncommitted by policy). | PROBE16 rerun `success=True`; `RUN_DOCKER_TESTS`-gated compile test green locally and in the CI Backend Docker job; docstring claim cites the test; no existing test weakened. |
+| BL-072 | JCL lane maintainer | **Phase 5 (batch P1 - carry-forward 2026-10-15)** | None | Multiple JOB statements in one file are silently merged into a single job (first job's name lost, steps misattributed, status FULL, no diagnostic), contradicting the profile spec's "no silent dropping". | Two-job members produce a wrong job graph today with no signal. | Two-job file yields 2 jobs with correct step attribution and correct status/diagnostics; single-job tests unchanged and green; focused tests `ci.yml`-wired. |
+| BL-073 | JCL lane maintainer | **Phase 5 (batch P1 - carry-forward 2026-10-15)** | Additive `ir.JclJob` field (mirrors prior additive IR changes) | Job-level DD statements (JOBLIB etc.) silently dropped from the IR with no diagnostic and never reach the dataset inventory, under status FULL. | Job-level DDs stay unmodeled in the Spring Batch representation (diagnosed + disclosed). | Probe8/15 shape yields the preserved DD plus a diagnostic naming the job-level DD (status not FULL); JOBLIB visible in the discovery dependency graph; focused tests green + gate-wired; no test pinning the silent drop kept without a strictly stronger replacement (documented). |
+| BL-074 | JCL/discovery maintainer | **Phase 5 (batch P1 - carry-forward 2026-10-15)** | None | `link_with_cobol` matches datasets to COBOL files by loose bidirectional substring and a file-name-keyed dict, producing phantom, wrong-target, and missing `COBOL_FILE` edges in the production ingestion graph with no ambiguity signal. | Legitimate DSN↔file relations that relied on true substring nicknames stop linking (fail-closed under-linking instead of phantom over-linking). | Probe10 shape: no phantom for `DER.INPUT`; real match (`DSN=PAY.INPUT` ↔ file `INPUT`) yields one edge per matching program with `resolution=AMBIGUOUS` flagged; ingestion graph tests green; no existing test weakened. |
+| BL-075 | JCL parser maintainer | **Phase 5 (batch P2 - carry-forward 2026-10-15)** | None | Compound `DISP=`/`SPACE=` values silently truncated by a paren-unaware comma split (`DISP=(NEW,CATLG,DELETE)` stored as `"(NEW"`); weak test assertion tolerated it. | Non-parenthesized exotic DISP forms remain bounded to the documented subset. | Probe6 rerun shows full verbatim values in `JclDD` and `SpringBatchResource`; focused tests green + gate-wired; compound-disposition assertions strengthened, none weakened. |
+| BL-076 | JCL dependency maintainer | **Phase 5 (batch P2 - carry-forward 2026-10-15)** | None | Application-graph step-order edges diverge between lanes: `build_all_dependencies` omits the edge after a COND step while the semantic builder emits it; `api/ingestion.py` publishes the incomplete set. | None once both lanes agree. | Probe9 shape shows S2→S3 present with `cond=` metadata and both lanes agree; existing dependency tests green (expectations pinned to the wrong absence updated as documented strengthening). |
+| BL-077 | JCL lane maintainer | **Phase 5 (batch P2/P3 - carry-forward 2026-10-15)** | BL-072/BL-073 for the roadmap-label item | JCL lane hygiene: dead `dd.sysin` condition, never-raised `JclParseError`, never-populated `JclDatasetFlow.disposition`, never-emitted `"JCL"` capability component type, stale `JCL_INTEGRATION_CONTRACT` status/basename example, overstated roadmap label. | Reader confusion / latent drift. | Each lettered item fixed or explicitly justified in-place; ruff clean; JCL suites green. |
 
 ### PR disposition snapshot — 2026-10-10
 

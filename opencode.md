@@ -1,5 +1,51 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 5 started — JCL Modernization (2026-10-15)
+
+### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `e0e649944c75ad1488f46159075651102ca65f9c` — inventory 7 NEW + BL-063 verified, P0: none, remediation not yet started**)
+
+- **Phase 4 is closed (`COMPLETE — VERIFIED`)** and is not reopened.
+  Baseline for Phase 5: branch `codex/universal-core`, HEAD `e0e6499…`
+  = origin, exact-SHA CI green (4 runs / 14 jobs at `e0e6499`);
+  JCL test baseline **187 passed** (6 files, 0.51s).
+- **§76 audit-first complete, source untouched during audit.** Scope:
+  JCL parsing (`jcl_parser.py`), job/step dependencies
+  (`jcl_dependencies.py`, builder), DD/dataset handling (`_parse_dd`,
+  `jcl/builder.py`, `jcl/model.py`), execution semantics (COND/IF/SET —
+  declared gates only, no JES claims), error handling (consumer/discovery/
+  API), capability classification (ledger-only via
+  `jcl_ledger_entry`; never in the central PROVEN set — fail-closed),
+  runtime integration (structural-only; `api/service.py`,
+  `api/ingestion.py`), tests/CI (187 green, **0 in the capability-truth
+  gate**, no compile test), docs (profile spec L84 "no silent dropping",
+  L169 honest "not runtime verified" vs adapter docstring "it compiles,
+  starts"). Carried item **BL-063** probed and scope-extended.
+- **Evidence: 16 execution probes** in `%TEMP%\opencode\phase5\`
+  (`probe_p5_r1.py`, `probe_p5_r2.py`, `probe_p5_compile.py` + `*_out.txt`,
+  `probe16_full_maven_error.txt`). Decisive results: `.jcllib`/
+  extensionless/collision members escape the unsupported scan at status
+  FULL (PROBE1/2/12); non-UTF8 crashes consumer while discovery silently
+  drops (PROBE4); API `NOT_PRESENT` vs consumer `FULL` (PROBE5);
+  `DISP=(NEW,CATLG,DELETE)` → `"(NEW"` (PROBE6); multi-JOB files merged
+  silently (PROBE7/13); job-level `JOBLIB DD` dropped silently
+  (PROBE8/15); step-order edge missing after COND in the application
+  graph (PROBE9); phantom/wrong `COBOL_FILE` edges (PROBE10);
+  **generated JCL Spring Boot project does not compile in the canonical
+  offline Maven image** — `spring-boot-starter-batch:3.2.5` never
+  precached (PROBE16, full Maven error captured).
+- **Inventory recorded in `docs/BACKLOG.md` (w)**: BL-071 (P1 offline
+  compile failure + false doc claim), BL-072 (P1 silent multi-JOB
+  merge), BL-073 (P1 silent job-level DD drop), BL-074 (P1 phantom/
+  wrong file edges), BL-075 (P2 DISP/SPACE truncation), BL-076 (P2
+  dependency-lane divergence), BL-077 (P3 hygiene/stale spec), all with
+  register rows; **P0: none**. Approved batching: **batch P1** =
+  BL-071/072/073/074 → **batch P2** = BL-063/075/076/077; per-item
+  defect-proven-first (own red `%TEMP%\opencode\phase5\blNNN_pre_fix.txt`,
+  own focused green, own entry/register), one regression sweep + gate
+  wiring + commit + exact-SHA CI verification per batch; fresh Phase-5
+  E2E = Docker-gated JCL compile (`RUN_DOCKER_TESTS=1`). No LLM
+  anywhere; no merge to `main`.
+
 ## Phase 4 started — Files / VSAM / Data Semantics (2026-10-14)
 
 ### ⚑ PHASE 4 STATUS — read this first (2026-10-14, **COMPLETE — VERIFIED at `7bcf7146408a07d17ffe6903850f13610b1e78b3` — BL-040…BL-070 ALL APPLICABLE ITEMS FIXED: three cycles (P0 + 5×P1 + 6×P2), 12 FIXED + BL-058 carried per §53.10, serialized full suite effective 3568 passed / 4 skipped / 0 failed, fresh oracle E2E effective 128 passed / 0 failed, exact-SHA CI green 4 runs / 14 jobs at `7bcf714`; §53 scored 13/13 below**)
