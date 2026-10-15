@@ -1158,6 +1158,127 @@ produced evidence, not re-run here).
 - **Owner/role:** API/service maintainer. **Target phase:** unassigned.
   **Dependency:** none. **Residual risk:** none once reordered.
 
+### BL-078 — WHERE-predicate string literals are uppercased into the semantic model (`'abc'` → `'ABC'`)
+
+- **Type:** defect (silent semantic corruption).
+- **Priority:** P1 — the SQL semantic model misrepresents data values that
+  DB2 compares case-sensitively; the corruption is silent and flows into
+  `SqlPredicate.right.literal`, the analyzer's read model, and any future
+  Java generation derived from it.
+- **Severity:** high (wrong value recorded as truth).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
+  (baseline `41c98ef`)**; behaviorally verified (audit probe G).
+- **Found by:** Phase 6 audit probe G
+  (`%TEMP%\opencode\phase6\audit_probes.txt`).
+- **Observed behavior (verified):** `SELECT … WHERE NAME = 'abc'` yields
+  `predicate.right.literal == 'ABC'` — `_parse_predicate` splits the
+  **uppercased** text (`text.upper().split(op)`) and feeds the uppercase
+  halves to `_parse_expression`, so literal data values are case-destroyed.
+- **Expected behavior:** operand text is sliced from the **original** SQL
+  string at offsets found in the uppercase copy (identifier folding is
+  fine; literal data must survive verbatim).
+- **Root cause:** convenience uppercasing of the whole operand text instead
+  of case-insensitive position search + original-text slicing.
+- **Affected files:** `engine/transformation/sql_parser.py`
+  (`_parse_predicate`).
+- **Impact:** silent value corruption in the semantic model; wrong truth in
+  dependency/usage records and any downstream consumer.
+- **Remediation (planned):** search on the uppercased copy, split the
+  original text at the same offsets; focused tests pin literal-case
+  preservation (string literal + host variable + column control).
+- **Acceptance criteria:** red test captured pre-fix; focused suite green;
+  no existing test weakened.
+- **Owner/role:** SQL parser maintainer. **Target phase:** Phase 6 (batch
+  P1). **Dependency:** none (shares `_parse_predicate` with BL-079).
+  **Residual risk:** none.
+
+### BL-079 — compound/IN/BETWEEN WHERE predicates are mangled into invented fake column names that flow into table usage and dependency records
+
+- **Type:** defect (silent semantic corruption / invented data).
+- **Priority:** P1 — the parser invents column names that never existed in
+  the SQL and they propagate into `read_columns`, `Db2TableUsage`, and
+  `Db2TableDependency` (the database-dependency graph).
+- **Severity:** high (fabricated identifiers in the dependency truth).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
+  (baseline `41c98ef`)**; behaviorally verified (audit probes H, L, M).
+- **Found by:** Phase 6 audit probes H/L/M
+  (`%TEMP%\opencode\phase6\audit_probes.txt`).
+- **Observed behavior (verified):**
+  (H) `WHERE ACCT = 1 AND BAL = 2` → `right.column.column_name ==
+  '1 AND BAL = 2'` (one fake column), and the analyzer records
+  `read_columns == ['ACCT', '1 AND BAL = 2']`;
+  (L) `WHERE ACCT IN (1, 2, 3)` → `right.column.column_name == '(1, 2, 3)'`,
+  `right_list` stays empty;
+  (M) `WHERE BAL BETWEEN 100 AND 500` → `right.column.column_name ==
+  '100 AND 500'`, `left_operand`/`right_operand` never populated.
+  `_PREDICATE_OP_MAP` declares IN/BETWEEN/LIKE support the parser never
+  delivers.
+- **Expected behavior:** every conjunct parsed on its own (top-level AND/OR
+  split, quote- and paren-aware, BETWEEN's AND not split); IN lists go to
+  `right_list`; BETWEEN goes to `left_operand`/`right_operand`; operand
+  text that is not a clean column/literal/host-variable is never
+  fabricated into a column name.
+- **Root cause:** single-pass "first operator wins" split of the entire
+  WHERE text; IR fields `right_list`/`left_operand`/`right_operand`
+  defined but never populated.
+- **Affected files:** `engine/transformation/sql_parser.py`
+  (`_parse_predicate`, `_parse_expression`), `engine/sql/analyzer.py`
+  (`_collect_select_read_columns`), additive `ir.SqlSelect` field for the
+  conjunct list.
+- **Impact:** fake columns in the database dependency graph; `BAL` (and any
+  further conjunct columns) missing from read-column truth.
+- **Remediation (planned):** conjunct splitting helper + IN/BETWEEN
+  fidelity + analyzer collection of every conjunct's columns; additive
+  `SqlSelect.where_predicates` (all conjuncts, canonical view) keeping
+  `where_predicate` as the first conjunct for compatibility; unparsed
+  conjuncts produce no fabricated column (diagnostic via BL-080 channel).
+- **Acceptance criteria:** red tests captured pre-fix (one per probe shape
+  H/L/M + column-collection parity); focused suite green; dependency
+  records contain only genuine SQL identifiers.
+- **Owner/role:** SQL parser maintainer. **Target phase:** Phase 6 (batch
+  P1). **Dependency:** shares `_parse_predicate` with BL-078; feeds
+  BL-081 (ON conditions). **Residual risk:** AND/OR grouping is recorded
+  as a flat conjunct list (documented subset limitation — no boolean tree
+  invented).
+
+### BL-080 — unsupported EXEC SQL statements are silently dropped with zero diagnostics, and EXECUTE IMMEDIATE is misclassified as plain EXECUTE
+
+- **Type:** defect (silent loss, contract inconsistency).
+- **Priority:** P1 — contradicts the SQL lane's own no-silent-loss
+  doctrine (`db2_sqlite.py`: "It never silently drops semantics") and
+  §24's unsupported-semantics requirement; the modernization ledger can
+  claim a complete SQL model while whole declarations vanish.
+- **Severity:** medium-high.
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
+  (baseline `41c98ef`)**; behaviorally verified (audit probe F).
+- **Found by:** Phase 6 audit probe F
+  (`%TEMP%\opencode\phase6\audit_probes.txt`).
+- **Observed behavior (verified):** a block containing
+  `BEGIN DECLARE SECTION;`, `INCLUDE SQLCA;`,
+  `WHENEVER NOT FOUND CONTINUE;`, `DECLARE STMT1 STATEMENT FOR …;`,
+  `EXECUTE IMMEDIATE :SQL-TEXT;`, `SELECT …;` yields exactly 2 statements —
+  the four unsupported lines vanish with no record (`EmbeddedSqlBlock`
+  has no diagnostic channel), and `EXECUTE IMMEDIATE` parses as plain
+  `EXECUTE` with `execute_immediate=False` (IR field exists, never set).
+- **Expected behavior:** every unclassified statement text preserved in an
+  `unsupported_statements` channel on `EmbeddedSqlBlock` (additive,
+  default empty); the analyzer surfaces them as validation diagnostics;
+  `EXECUTE IMMEDIATE` sets the IR flag so its semantics stay distinct.
+- **Root cause:** parser dispatch loop has no else-branch; IR flag never
+  wired.
+- **Affected files:** `engine/transformation/sql_parser.py`,
+  `engine/transformation/ir.py` (additive `EmbeddedSqlBlock` field),
+  `engine/sql/analyzer.py` (validation surfacing).
+- **Impact:** ledger truth claims can overstate SQL coverage; WHENEVER /
+  SQLCA declarations invisible to modernization planning.
+- **Remediation (planned):** additive `unsupported_statements` tuple +
+  else-branch capture + analyzer validation entries + `execute_immediate`
+  wiring; focused tests pin preservation and diagnostics.
+- **Acceptance criteria:** red test captured pre-fix; focused suite green;
+  existing blocks (fully-supported SQL) unchanged.
+- **Owner/role:** SQL parser + analyzer maintainer. **Target phase:**
+  Phase 6 (batch P1). **Dependency:** none. **Residual risk:** none.
+
 ## P2 — coverage, quality, documentation
 
 ### BL-018 — Figurative constants parsed as field references (silent, non-compiling Java)
@@ -3334,6 +3455,109 @@ level and evidence location.
   P2/P3). **Dependency:** BL-072/BL-073 for item (f). **Residual risk:**
   none.
 
+### BL-081 — INNER/OUTER JOIN tables and ON conditions are silently lost though `SqlSelect.joins` exists to represent them
+
+- **Type:** defect (silent semantic loss inside representable IR).
+- **Priority:** P2 — table `T2` in `FROM T1 INNER JOIN T2 ON …` never
+  reaches `from_tables`/`joins`, so the database-dependency graph omits
+  the joined table while the SELECT list still references its columns
+  (`B.NAME`) — an internally inconsistent model.
+- **Severity:** medium (under-reported dependencies, no fabrication).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
+  (baseline `41c98ef`)**; behaviorally verified (audit probe I).
+- **Found by:** Phase 6 audit probe I
+  (`%TEMP%\opencode\phase6\audit_probes.txt`).
+- **Observed behavior (verified):** `SELECT A.ID, B.NAME FROM T1 A INNER
+  JOIN T2 B ON A.ID = B.ID WHERE A.ID = 1` → `from_tables == [T1 A]`
+  only; `T2` and the ON condition vanish (`_parse_select` cuts the table
+  text at the JOIN keyword and never parses the rest; `joins` stays
+  empty).
+- **Expected behavior:** joined tables parsed into `SqlSelect.joins` with
+  their join type, alias and ON predicate; analyzer table usages include
+  joined tables and ON-condition read columns.
+- **Root cause:** `_parse_select` predates the `joins` IR field; table
+  text is truncated at the first JOIN.
+- **Affected files:** `engine/transformation/sql_parser.py`
+  (`_parse_select`), `engine/sql/analyzer.py`
+  (`statement_table_usages`, `_collect_select_read_columns`).
+- **Impact:** missing table entries in the dependency truth for any join
+  query; silent by construction.
+- **Remediation (planned):** parse `[INNER|LEFT|RIGHT|FULL [OUTER]] JOIN`
+  segments after the first table; ON condition parsed with the fixed
+  predicate parser (BL-078/BL-079); analyzer reads joined-table columns.
+- **Acceptance criteria:** red test captured pre-fix; focused suite green;
+  non-join SELECTs unchanged.
+- **Owner/role:** SQL parser + analyzer maintainer. **Target phase:**
+  Phase 6 (batch P2). **Dependency:** BL-078/BL-079 (ON condition parsing
+  fidelity). **Residual risk:** CROSS JOIN and comma-form multi-table
+  remain documented subset (comma form already lands in `from_tables`).
+
+### BL-082 — ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text
+
+- **Type:** defect (text bleed into semantic names).
+- **Priority:** P2 — model-only pollution; execution uses raw SQL so
+  behavior on the controlled database is unaffected.
+- **Severity:** low-medium (wrong column name in the semantic model).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
+  (baseline `41c98ef`)**; behaviorally verified (audit probe J).
+- **Found by:** Phase 6 audit probe J
+  (`%TEMP%\opencode\phase6\audit_probes.txt`).
+- **Observed behavior (verified):** `SELECT … ORDER BY ACCT DESC FETCH
+  FIRST 5 ROWS ONLY` → `order_by[0].column.column_name == 'ACCT FETCH
+  FIRST 5 ROWS ONLY'` (`_parse_select` slices ORDER BY text to end of
+  statement; `_parse_order_by` then treats the residue as one column).
+- **Expected behavior:** ORDER BY text ends at `FETCH FIRST` (or any
+  trailing clause); one clean column per item.
+- **Root cause:** unbounded `sql_text[order_start:]` slice.
+- **Affected files:** `engine/transformation/sql_parser.py`
+  (`_parse_select` ORDER BY branch).
+- **Impact:** wrong column identifiers in the semantic model; wrong
+  ordering truth for future generation.
+- **Remediation (planned):** bound the ORDER BY slice at FETCH FIRST
+  (offset search on the uppercased copy, original-text slicing per
+  BL-078); focused tests for ASC/DESC + FETCH FIRST combinations.
+- **Acceptance criteria:** red test captured pre-fix; focused suite green.
+- **Owner/role:** SQL parser maintainer. **Target phase:** Phase 6 (batch
+  P2). **Dependency:** none. **Residual risk:** none.
+
+### BL-083 — the SQL lane never reaches the platform ledger: `DependencyKind.DB2` is produced by no product code and `sqlcode_field` has no consumer
+
+- **Type:** gap (integration/disclosure), not silent corruption.
+- **Priority:** P2 — documented honestly today (`integrated_proof.py`
+  claims only "parsed and classified" for DB2), but §24's "database
+  dependencies" surface stops at the lane boundary: table dependencies
+  extracted by `extract_table_dependencies` / `Db2SqlModel` never enter
+  the integrated proof, the API, or the modernization ledger, and the
+  SQLCA field names stored on the model are never consumed.
+- **Severity:** medium (capability truth incomplete at platform level).
+- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
+  (baseline `41c98ef`)**; statically verified (repo-wide grep + probe K).
+- **Found by:** Phase 6 audit probe K + repository grep
+  (`%TEMP%\opencode\phase6\audit_probes.txt`).
+- **Observed behavior (verified):** `DependencyKind.DB2` appears only in
+  the enum and one negative test; no producer exists; `sqlcode_field` is
+  written by the analyzer/extractor and read by nothing in `engine/` or
+  `api/`.
+- **Expected behavior:** either (a) a product producer feeds classified
+  DB2 dependencies into the integrated proof (ledger-visible), or (b) the
+  gap stays explicitly disclosed in the register/roadmap with a target
+  phase — no doc may imply the platform sees DB2 dependencies.
+- **Root cause:** lane-first build order; platform wiring deferred and
+  never scheduled.
+- **Affected files:** `engine/modernization/integrated_proof.py`,
+  `api/service.py`, `engine/sql/model.py`.
+- **Impact:** platform-level dependency inventory silently excludes DB2
+  tables (the lane-level truth is correct).
+- **Remediation (planned):** register/disclosure now; producer wiring is
+  an integration-lane decision (evidence/integrated-proof phase) — no
+  half-wiring in Phase 6.
+- **Acceptance criteria:** disclosure present in register + roadmap +
+  Phase 6 verdict limitations; no documentation overstates platform
+  visibility.
+- **Owner/role:** platform integration owner. **Target phase:**
+  Phase 10 (evidence / integrated proof) — deferred by design decision,
+  disclosed. **Dependency:** none. **Residual risk:** disclosed.
+
 ## Backlog change log
 
 - 2026-10-11 — **Phase 1 closure audit at `bdb4c9a` (documentation only).**
@@ -4278,6 +4502,94 @@ level and evidence location.
   (`p2_batch_full_regression.txt`) — 3608 P1 baseline + 33 new P2
   tests (8 fidelity + 6 parity + 5 hygiene + 14 discovery-matching),
   exact collection reconciliation.
+  **Post-push CI correction (disclosed):** the exact-SHA run for `41c98ef`
+  came back **NOT GREEN** — the dependency-free `Capability truth gate`
+  job failed in both runs (push + PR) because two BL-063 API-parity tests
+  inside the gate-wired `test_jcl_discovery_matching.py` import
+  `api.service` (needs `pydantic`, absent by design in that gate's
+  pytest-only environment); reproduced deterministically in a bare
+  pytest venv (`%TEMP%\opencode\phase6\gate_repro_41c98ef.txt`:
+  `2 failed, 593 passed`). Fix: the two parity tests moved unchanged to
+  `tests/test_jcl_api_discovery_parity.py` (full-deps home; the backend
+  CI job runs the whole `tests` tree, so parity stays enforced) and the
+  gate file stays dependency-free (bare-venv gate `593 passed`, full env
+  `14 passed` = 12 trimmed + 2 parity, exact reconciliation). No test
+  weakened; gate list unchanged. Follow-up commit; see change-log (ab).
+
+- 2026-10-15 — **(aa) Phase 6 (DB2 / SQL Modernization) §76 audit-first
+  gap inventory — 3 carried + 3 new P1 + 2 new P2 + 1 disclosed gap.**
+  Audit executed read-only at `41c98ef` (Phase 5 P2 batch commit) before
+  any remediation, per Master README §§52–53, 76–80 and §24 (DB2/SQL:
+  embedded SQL discovery, parsing, host variables, cursors, transactions,
+  SQLCODE/SQLSTATE, dependencies, schema mapping, Java mapping, runtime
+  claims discipline). Method: full read of the SQL lane (`sql_parser.py`
+  783 lines, `engine/sql/*` 10 modules) + 13 behavioral probes captured
+  to `%TEMP%\opencode\phase6\audit_probes.txt`. **Carried items
+  re-verified live:** BL-060 (P2) — unmapped `IntegrityError`
+  (`NOT NULL constraint failed`) and every `OperationalError` route into
+  handlers that build `Db2SqlStatus(sqlstate="")` → the error handler
+  itself crashes with `ValueError` from `__post_init__` (probes A2/B,
+  exact tracebacks); BL-061 (P2) — host-variable DECLARE CURSOR fails
+  uncaught at OPEN: harness passes no bindings for OPEN (`ProgrammingError:
+  Incorrect number of bindings`), and `Db2ControlledDatabase.execute`
+  given an IR `SqlStatement` silently misroutes the enum-typed
+  `DECLARE_CURSOR` into the DML path (probes C/D); BL-062 (P2) —
+  `INSERT INTO T VALUES (:A, :B)` stores the VALUES list as the column
+  list (`columns=[':HV1', ':HV2']`, probe E) polluting write-columns and
+  INSERT dependency records. **New defects found by adversarial
+  probing:** BL-078 (P1) — WHERE-predicate string literals uppercased
+  into the model (`'abc'` → `'ABC'`, probe G); BL-079 (P1) — compound
+  AND / IN / BETWEEN predicates mangled into **invented fake column
+  names** (`'1 AND BAL = 2'`, `'(1, 2, 3)'`, `'100 AND 500'`) that flow
+  into `read_columns`/`Db2TableUsage`/`Db2TableDependency` (probes
+  H/L/M; `right_list`/`left_operand`/`right_operand` IR fields defined,
+  never populated); BL-080 (P1) — unsupported EXEC SQL statements
+  (`BEGIN DECLARE SECTION`, `INCLUDE SQLCA`, `WHENEVER …`,
+  `DECLARE … STATEMENT`) silently dropped with zero diagnostics
+  (`EmbeddedSqlBlock` has no diagnostic channel) and `EXECUTE IMMEDIATE`
+  misclassified as plain EXECUTE (`execute_immediate` IR flag never set)
+  (probe F: 4 of 6 statements vanish); BL-081 (P2) — JOIN tables and ON
+  conditions silently lost although `SqlSelect.joins` exists to hold
+  them (probe I: `T2` missing from dependency truth while the SELECT
+  list references `B.NAME`); BL-082 (P2) — ORDER BY column names swallow
+  trailing `FETCH FIRST n ROWS ONLY` text (probe J). **Disclosed
+  integration gap:** BL-083 (register + roadmap + verdict limitations;
+  no doc overstates platform visibility) — `DependencyKind.DB2` has no
+  product producer (repo-wide grep: enum + one negative test only) and
+  `sqlcode_field` has no consumer in `engine/` or `api/` (probe K);
+  wiring scheduled for the integrated-proof phase, not half-built here.
+  **Verified sound (no action):** DDL translation fails loudly
+  (`UnsupportedTranslationError`) on table-level constraint clauses —
+  correct fail-closed behavior, documented as a subset limitation
+  (probe A1); CALL/PREPARE/EXECUTE classified non-portable with explicit
+  notes; `compatibility_report` never manufactures
+  `DB2_RUNTIME_VERIFIED` (lane rule intact); repository/service mapping
+  is deterministic with the default-`String` type caveat recorded.
+  No repository file was modified by the audit itself. Batches: P1 =
+  BL-078/079/080, P2 = BL-060/061/062/081/082 (+BL-083 disclosure),
+  defect-proven-first per item, one commit + exact-SHA CI per batch.
+
+- 2026-10-15 — **(ab) Phase 5 P2 batch exact-SHA CI came back NOT GREEN
+  on `41c98ef`; capability-gate dependency leak fixed in one follow-up
+  commit (no test weakened).** The failing job was `Capability truth
+  gate` in both `SystemaOps CI` runs (push + PR; every other job green):
+  two BL-063 API-parity tests wired into the gate file
+  `tests/transformation/test_jcl_discovery_matching.py` import
+  `api.service`, which needs `pydantic` — the gate deliberately installs
+  pytest only (no `requirements.lock`) so registry/analyzer/producer
+  truth stays runtime-independent (BL-012 design). Reproduced exactly in
+  a bare venv at `41c98ef` (`gate_repro_41c98ef.txt`: `2 failed, 593
+  passed` — same two tests as CI). Fix: the two parity tests moved
+  **unchanged** (same names, same assertions) to
+  `tests/test_jcl_api_discovery_parity.py`, a full-deps file deliberately
+  kept off the `ci.yml` gate list (header documents why); the gate file
+  gains a pointer comment and stays import-clean. Verification: bare
+  venv gate list `593 passed` (exact reconciliation: 595 − 2 moved),
+  full env `14 passed` (12 trimmed + 2 parity). Root-cause note for the
+  batch process: the local full-env sweep (3641 green) could not see a
+  pytest-only environment defect — the exact-SHA CI run of record
+  caught it, which is why §53 requires it. New exact-SHA CI verification
+  runs against the follow-up commit.
 
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
@@ -4388,7 +4700,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-060 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Error handler itself raises ValueError (invalid sentinel). | Crash instead of the designed "-1" status. | Unmapped SQLSTATE returns the "-1" status; sql tests green. |
 | BL-061 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Cursor bind handoff missing (DECLARE discards binds). | Host-variable cursors fail loudly; documented subset narrower than claimed. | Host-variable cursors bind or fail closed named; sql tests green. |
 | BL-062 | SQL parser maintainer | Phase 6 (carry-forward 2026-10-14) | None | Column-less INSERT mis-parses VALUES as columns. | Wrong column metadata for a common form. | Both INSERT forms parse correctly or fail closed named; sql parser tests green. |
-| BL-063 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | Shared discovery matcher (`is_jcl_member` / `find_jcl_members`) | Consumer's file selection diverges from discovery; decode errors escape; basename keys silently overwrite colliding members; API presence gate blind to non-`*.jcl` members. | Path-keyed sources (strictly stronger than collision reporting: collisions cannot occur); `JCL_SOURCE_DECODE_FAILED` ERROR fail-closed. | FIXED - red in `bl063_pre_fix_import.txt` (matcher absent) + `bl063_pre_fix.txt` (`6 failed/8 passed` behavioral); shared rule used by discovery + consumer + API gate; decode diagnostics via `pre_diagnostics`; focused green `14 passed`, JCL regression `255 passed`, Docker-gated `5 passed`; gate-wired. |
+| BL-063 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | Shared discovery matcher (`is_jcl_member` / `find_jcl_members`) | Consumer's file selection diverges from discovery; decode errors escape; basename keys silently overwrite colliding members; API presence gate blind to non-`*.jcl` members. | Path-keyed sources (strictly stronger than collision reporting: collisions cannot occur); `JCL_SOURCE_DECODE_FAILED` ERROR fail-closed. | FIXED - red in `bl063_pre_fix_import.txt` (matcher absent) + `bl063_pre_fix.txt` (`6 failed/8 passed` behavioral); shared rule used by discovery + consumer + API gate; decode diagnostics via `pre_diagnostics`; focused green `14 passed`, JCL regression `255 passed`, Docker-gated `5 passed`; gate-wired (12 matcher/decode tests; the 2 API-parity tests split to `tests/test_jcl_api_discovery_parity.py` post-push — the gate is dependency-free, `api.service` needs the runtime stack; change-log (ab)). |
 | BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. **FIXED**: blame-proven duplicate loop removed (accidental re-add `fa0fa62a` over original M7 loop), single emission site pinned; `test_spring_model_emission_unique.py` (4) red 3/1 → green; regressions 1923 + 100 passed; gate-wired. |
 | BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
 | BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
@@ -4403,6 +4715,13 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-075 | JCL parser maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | None | Compound `DISP=`/`SPACE=` values silently truncated by a paren-unaware comma split (`DISP=(NEW,CATLG,DELETE)` stored as `"(NEW"`); weak test assertion tolerated it. | Non-parenthesized exotic DISP forms remain bounded to the documented subset. | FIXED - red in `bl075_pre_fix.txt` (`5 failed/3 passed`); shared `_split_parameters` used by `_parse_dd` + `_parse_parameters`; new `test_jcl_dd_parameter_fidelity.py` (8 tests, gate-wired); weak assertion strengthened to exact equality; focused green `82 passed`; none weakened. |
 | BL-076 | JCL dependency maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | None | Application-graph step-order edges diverge between lanes: `build_all_dependencies` omits the edge after a COND step while the semantic builder emits it; `api/ingestion.py` publishes the incomplete set. | None once both lanes agree. | FIXED - red in `bl076_pre_fix.txt` (`3 failed/3 passed`); every consecutive pair emitted, COND disclosed as `job=…;cond=<code>` metadata; new `test_jcl_step_order_parity.py` (6 tests incl. lane parity + controls, gate-wired); vacuous `test_conditional_step_no_order_dependency` strengthened to pin the edge; focused green `193 passed`. |
 | BL-077 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | BL-072/BL-073 for the roadmap-label item | JCL lane hygiene: dead `dd.sysin` condition, never-raised `JclParseError`, never-populated `JclDatasetFlow.disposition`, never-emitted `"JCL"` capability component type, stale `JCL_INTEGRATION_CONTRACT` status/basename example, overstated roadmap label. | Reader confusion / latent drift. | FIXED - red in `bl077_pre_fix.txt` (`4 failed/1 passed`, one absence-pin per dead construct + live-branch control); all six lettered items fixed; `test_jcl_lane_hygiene.py` (5 tests) pins the removals, gate-wired; ruff inapplicable (no lint config/job, change-log (x)); JCL suites green. |
+| BL-078 | SQL parser maintainer | **Phase 6 (batch P1 — OPEN, remediation planned 2026-10-15)** | None | WHERE-predicate string literals uppercased into the semantic model (`'abc'` → `'ABC'`); whole operand text split after `.upper()`. | None once sliced from original text. | OPEN - audit probe G (`audit_probes.txt`); planned: operator search on uppercased copy + original-text slicing; new `tests/transformation/test_sql_predicate_fidelity.py` (gate-wired). Red/green evidence to be captured pre/post fix. |
+| BL-079 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 — OPEN, remediation planned 2026-10-15)** | Additive `ir.SqlSelect.where_predicates` field (planned) | Compound AND/OR, IN, and BETWEEN WHERE predicates mangled into invented fake column names (`'1 AND BAL = 2'`, `'(1, 2, 3)'`, `'100 AND 500'`) flowing into `read_columns`/`Db2TableUsage`/`Db2TableDependency`; `right_list`/`left_operand`/`right_operand` IR fields never populated. | AND/OR grouping would be recorded as a flat conjunct list (documented: no boolean tree invented). | OPEN - audit probes H/L/M (`audit_probes.txt`); planned: quote/paren-aware conjunct splitting (BETWEEN's AND protected), IN → `right_list`, BETWEEN → operands, never-fabricate operand rule, analyzer collects every conjunct, additive `where_predicates`. Red/green evidence pending. |
+| BL-080 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 — OPEN, remediation planned 2026-10-15)** | Additive `ir.EmbeddedSqlBlock.unsupported_statements` field (planned) | Unsupported EXEC SQL statements (`BEGIN DECLARE SECTION`, `INCLUDE`, `WHENEVER`, `DECLARE … STATEMENT`) silently dropped with zero diagnostics; `EXECUTE IMMEDIATE` classified as plain EXECUTE (`execute_immediate` never set). | Statements remain unmodeled but would be preserved + diagnosed. | OPEN - audit probe F (`audit_probes.txt`); planned: else-branch capture into `unsupported_statements`, analyzer validation entries, `execute_immediate` wiring. Red/green evidence pending. |
+| BL-081 | SQL parser + analyzer maintainer | **Phase 6 (batch P2 — OPEN, remediation planned 2026-10-15)** | None | JOIN tables/ON conditions silently lost though `SqlSelect.joins` exists (`T2` absent from dependency truth while SELECT list references `B.NAME`). | CROSS JOIN + comma form documented subset (comma form already in `from_tables`). | OPEN - audit probe I (`audit_probes.txt`); planned: JOIN segments parsed into `joins` with ON predicate (BL-079 parser); analyzer includes joined tables + ON columns. Red/green evidence pending. |
+| BL-082 | SQL parser maintainer | **Phase 6 (batch P2 — OPEN, remediation planned 2026-10-15)** | None | ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text (`'ACCT FETCH FIRST 5 ROWS ONLY'`). | None once bounded. | OPEN - audit probe J (`audit_probes.txt`); planned: ORDER BY slice bounded at FETCH FIRST via offset search + original-text slicing. Red/green evidence pending. |
+| BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap + Phase 6 verdict limitations state the gap; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
+| BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap + Phase 6 verdict limitations state the gap; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
 
 ### PR disposition snapshot — 2026-10-10
 

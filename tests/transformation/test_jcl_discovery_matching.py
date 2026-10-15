@@ -140,21 +140,7 @@ class TestDecodeFailuresAreDiagnosedNotEscaped:
         result = modernize_jcl_workload(tmp_path, application_id="bl063")
         assert any(job.name == "GOODJOB" for job in result.profile.application.jobs)
 
-
-class TestApiPresenceGateMatchesTheConsumer:
-    def test_jcllib_only_tree_is_present_for_the_api_gate(
-        self, tmp_path: Path
-    ) -> None:
-        from api.service import _jcl_status_for_source
-
-        (tmp_path / "member.jcllib").write_text(JCLLIB_TREE, encoding="utf-8")
-        status = _jcl_status_for_source(tmp_path)
-        assert status != "NOT_PRESENT", "presence gate blind to .jcllib members"
-
-    def test_tree_without_any_jcl_member_is_absent_for_both(
-        self, tmp_path: Path
-    ) -> None:
-        from api.service import _jcl_status_for_source
-
-        (tmp_path / "notes.txt").write_text("no jcl here", encoding="utf-8")
-        assert _jcl_status_for_source(tmp_path) == "NOT_PRESENT"
+    # BL-063 API parity (presence gate vs consumer) lives in
+    # tests/test_jcl_api_discovery_parity.py: this module stays
+    # dependency-free for the capability-truth gate (pytest only), while
+    # api.service needs the runtime stack.
