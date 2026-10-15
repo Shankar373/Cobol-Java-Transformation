@@ -2,7 +2,7 @@
 
 ## Phase 6 started — DB2 / SQL Modernization (2026-10-15)
 
-### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `41c98ef` (change-log (aa)): 3 carried + 5 new defects + 1 disclosed gap; BATCH P1 COMPLETE (BL-078/079/080 ALL FIXED, change-log (ac), sweep in flight); P0: none; BATCH P2 next (BL-060/061/062/081/082 + BL-083 disclosure)**)
+### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `41c98ef` (change-log (aa)): 3 carried + 5 new defects + 1 disclosed gap; BATCH P1 COMPLETE (BL-078/079/080 ALL FIXED, change-log (ac), sweep 3663/4/0 = 3641 + 22 exact); Phase 5 CLOSED — VERIFIED (§53 13/13); P0: none; BATCH P2 next (BL-060/061/062/081/082 + BL-083 disclosure)**)
 
 - **Phase 5 status: CLOSED — `COMPLETE — VERIFIED`** (§53 13/13 verdict
   block below the Phase 5 section). P1 batch `d88045331e4aefeffc6c3a6d08ffbf9204437a6a`
@@ -60,8 +60,9 @@
     **bare-venv dependency-free gate verified first** (the (ab)
     failure mode): `615 passed` = 593 + 22 exact. Focused greens:
     `bl079_focused_green.txt` (14), `bl080_focused_green.txt` (223
-    SQL lane). Full serialized P1 sweep in flight
-    (`p1_batch_full_regression.txt`, expected 3663/4/0).
+    SQL lane). Full serialized P1 sweep **3663 passed / 4 skipped /
+    0 failed** in 31m49s (`p1_batch_full_regression.txt`) =
+    3641 + 22 exact.
   Per-item defect-proven-first, no LLM anywhere, no merge to `main`.
 
 ## Phase 5 started — JCL Modernization (2026-10-15)

@@ -74,7 +74,9 @@ jobs:
             tests/transformation/test_jcl_step_order_parity.py \
             tests/transformation/test_jcl_discovery_matching.py \
             tests/test_jcl_lane_hygiene.py \
-            tests/test_jcl_build_environment.py
+            tests/test_jcl_build_environment.py \
+            tests/transformation/test_sql_predicate_fidelity.py \
+            tests/transformation/test_sql_unsupported_statement_diagnostics.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

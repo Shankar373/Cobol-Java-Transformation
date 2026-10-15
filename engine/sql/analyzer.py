@@ -66,15 +66,27 @@ class Db2SemanticAnalyzer:
         sqlcode_field: str = "",
         sqlstate_field: str = "",
     ) -> Db2SqlModel:
-        """Analyze all SQL blocks of a program into a DB2 semantic model."""
+        """Analyze all SQL blocks of a program into a DB2 semantic model.
+
+        Statement texts the parser could not model reach ``validation``
+        as deterministic diagnostics (BL-080) — the model never silently
+        understates what the program contains.
+        """
         stmt_semantics: list[Db2StmtSemantic] = []
         table_usages: list[Db2TableUsage] = []
+        unsupported_diagnostics: list[str] = []
 
         for block in blocks:
             for stmt in block.statements:
                 sem = self.analyze_statement(stmt)
                 stmt_semantics.append(sem)
                 table_usages.extend(self.statement_table_usages(stmt, sem))
+            for unsupported_text in block.unsupported_statements:
+                stripped = unsupported_text.strip()
+                first_line = stripped.splitlines()[0] if stripped else ""
+                unsupported_diagnostics.append(
+                    f"unsupported SQL text preserved: {first_line}"
+                )
 
         return Db2SqlModel(
             program_id=program_id,
@@ -83,7 +95,10 @@ class Db2SemanticAnalyzer:
             tables=merge_table_usages(table_usages),
             sqlcode_field=sqlcode_field,
             sqlstate_field=sqlstate_field,
-            validation=tuple(self.program_diagnostics(stmt_semantics)),
+            validation=(
+                tuple(self.program_diagnostics(stmt_semantics))
+                + tuple(unsupported_diagnostics)
+            ),
         )
 
     def analyze_statement(self, stmt) -> Db2StmtSemantic:
@@ -154,6 +169,8 @@ class Db2SemanticAnalyzer:
         read_cols: list[SqlColumnReference] = []
         read_cols.extend(select.columns)
         read_cols.extend(collect_predicate_columns(select.where_predicate))
+        for pred in select.where_predicates:
+            read_cols.extend(collect_predicate_columns(pred))
         read_cols.extend(collect_predicate_columns(select.having))
         for group in select.group_by:
             if group.column is not None:
@@ -200,6 +217,8 @@ class Db2SemanticAnalyzer:
             write_cols.append(column)
             read_cols.extend(collect_expression_columns(value))
         read_cols.extend(collect_predicate_columns(update.where_predicate))
+        for pred in update.where_predicates:
+            read_cols.extend(collect_predicate_columns(pred))
 
         return Db2StmtSemantic(
             raw_sql=raw,
@@ -214,6 +233,8 @@ class Db2SemanticAnalyzer:
     def _analyze_delete(self, stmt, raw: str) -> Db2StmtSemantic:
         delete = stmt.delete
         read_cols = collect_predicate_columns(delete.where_predicate)
+        for pred in delete.where_predicates:
+            read_cols.extend(collect_predicate_columns(pred))
         return Db2StmtSemantic(
             raw_sql=raw,
             statement_type=SqlStatementType.DELETE.value,

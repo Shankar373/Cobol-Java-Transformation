@@ -1592,6 +1592,10 @@ class SqlSelect:
     from_tables: tuple[SqlTableReference, ...] = ()
     joins: tuple[SqlJoin, ...] = ()
     where_predicate: SqlPredicate | None = None
+    #: Every top-level WHERE conjunct (BL-079). ``where_predicate`` is
+    #: kept as the first conjunct for compatibility; a flat list is the
+    #: documented subset (no AND/OR boolean tree invented).
+    where_predicates: tuple[SqlPredicate, ...] = ()
     group_by: tuple[SqlGroupBy, ...] = ()
     having: SqlPredicate | None = None
     order_by: tuple[SqlOrderBy, ...] = ()
@@ -1619,6 +1623,8 @@ class SqlUpdate:
     table: SqlTableReference | None = None
     assignments: tuple[tuple[SqlColumnReference, SqlExpression], ...] = ()
     where_predicate: SqlPredicate | None = None
+    #: Every top-level WHERE conjunct (BL-079); first == where_predicate.
+    where_predicates: tuple[SqlPredicate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1629,6 +1635,8 @@ class SqlDelete:
     """
     table: SqlTableReference | None = None
     where_predicate: SqlPredicate | None = None
+    #: Every top-level WHERE conjunct (BL-079); first == where_predicate.
+    where_predicates: tuple[SqlPredicate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1676,6 +1684,10 @@ class EmbeddedSqlBlock:
     """
     statements: tuple[SqlStatement, ...] = ()
     raw_text: str = ""  # original embedded SQL text
+    #: Statement texts this parser cannot model (BL-080) — preserved,
+    #: never silently dropped; the analyzer surfaces them as validation
+    #: diagnostics. Empty for fully-supported blocks.
+    unsupported_statements: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

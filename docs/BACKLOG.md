@@ -4672,8 +4672,11 @@ level and evidence location.
   venv first** (the (ab) failure mode): `615 passed` = 593 + 22 exact.
   **Evidence:** focused greens `bl079_focused_green.txt` (14),
   `bl080_focused_green.txt` (223 incl. the whole SQL lane);
-  `py_compile` clean. **Regression sweep (run of record):** see the
-  follow-up note appended after the sweep completes.
+  `py_compile` clean. **Regression sweep (run of record): FULL
+  serialized suite `3663 passed / 4 skipped / 0 failed` in 31m49s
+  (`%TEMP%\opencode\phase6\p1_batch_full_regression.txt`) = 3641 P2-batch
+  baseline + 22 new (14 predicate-fidelity + 8 unsupported-diagnostics),
+  exact collection reconciliation.**
 
 - 2026-10-15 — **(z) Phase 5 (JCL Modernization) COMPLETION VERDICT:
   `PHASE 5 COMPLETE — VERIFIED` — §53 scored 13/13.** Scope per the

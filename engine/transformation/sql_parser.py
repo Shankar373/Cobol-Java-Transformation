@@ -72,10 +72,12 @@ class SqlParser:
             sql_text: the SQL text (without EXEC SQL/END-EXEC markers)
 
         Returns:
-            EmbeddedSqlBlock with parsed statements
+            EmbeddedSqlBlock with parsed statements; statement texts this
+            parser cannot model are preserved in ``unsupported_statements``
+            (BL-080) instead of being silently dropped.
         """
         statements: list[SqlStatement] = []
-        cursor_declarations: list[SqlCursor] = []
+        unsupported: list[str] = []
 
         # Split into individual statements
         stmts = self._split_statements(sql_text)
@@ -91,12 +93,13 @@ class SqlParser:
             if upper.startswith("SELECT"):
                 select = self._parse_select(stmt_text)
                 if select:
-                    stmt_type = SqlStatementType.SELECT
                     statements.append(SqlStatement(
-                        statement_type=stmt_type,
+                        statement_type=SqlStatementType.SELECT,
                         raw_sql=stmt_text,
                         select=select,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # INSERT
             elif upper.startswith("INSERT"):
@@ -107,6 +110,8 @@ class SqlParser:
                         raw_sql=stmt_text,
                         insert=insert,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # UPDATE
             elif upper.startswith("UPDATE"):
@@ -117,6 +122,8 @@ class SqlParser:
                         raw_sql=stmt_text,
                         update=update,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # DELETE
             elif upper.startswith("DELETE"):
@@ -127,17 +134,20 @@ class SqlParser:
                         raw_sql=stmt_text,
                         delete=delete,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # DECLARE CURSOR
             elif "DECLARE" in upper and "CURSOR" in upper:
                 cursor = self._parse_declare_cursor(stmt_text)
                 if cursor:
-                    cursor_declarations.append(cursor)
                     statements.append(SqlStatement(
                         statement_type=SqlStatementType.DECLARE_CURSOR,
                         raw_sql=stmt_text,
                         cursor=cursor,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # OPEN cursor
             elif upper.startswith("OPEN"):
@@ -148,6 +158,8 @@ class SqlParser:
                         raw_sql=stmt_text,
                         cursor_name=cursor_name,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # FETCH cursor
             elif upper.startswith("FETCH"):
@@ -158,6 +170,8 @@ class SqlParser:
                         raw_sql=stmt_text,
                         cursor_name=cursor_name,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # CLOSE cursor
             elif upper.startswith("CLOSE"):
@@ -168,6 +182,8 @@ class SqlParser:
                         raw_sql=stmt_text,
                         cursor_name=cursor_name,
                     ))
+                else:
+                    unsupported.append(stmt_text)
 
             # COMMIT
             elif upper.startswith("COMMIT"):
@@ -188,11 +204,14 @@ class SqlParser:
             # CALL
             elif upper.startswith("CALL"):
                 proc_name = self._extract_procedure_name(stmt_text)
-                statements.append(SqlStatement(
-                    statement_type=SqlStatementType.CALL,
-                    raw_sql=stmt_text,
-                    procedure_name=proc_name,
-                ))
+                if proc_name:
+                    statements.append(SqlStatement(
+                        statement_type=SqlStatementType.CALL,
+                        raw_sql=stmt_text,
+                        procedure_name=proc_name,
+                    ))
+                else:
+                    unsupported.append(stmt_text)
 
             # PREPARE
             elif upper.startswith("PREPARE"):
@@ -202,16 +221,24 @@ class SqlParser:
                     prepare_statement=stmt_text,
                 ))
 
-            # EXECUTE
+            # EXECUTE (IMMEDIATE carries its IR flag, BL-080)
             elif upper.startswith("EXECUTE"):
                 statements.append(SqlStatement(
                     statement_type=SqlStatementType.EXECUTE,
                     raw_sql=stmt_text,
+                    execute_immediate=bool(
+                        re.match(r"EXECUTE\s+IMMEDIATE\b", upper)
+                    ),
                 ))
+
+            # Anything else is preserved, never silently dropped (BL-080).
+            else:
+                unsupported.append(stmt_text)
 
         return EmbeddedSqlBlock(
             statements=tuple(statements),
             raw_text=sql_text,
+            unsupported_statements=tuple(unsupported),
         )
 
     def extract_host_variables(self, block: EmbeddedSqlBlock) -> list[SqlHostVariable]:
@@ -337,8 +364,9 @@ class SqlParser:
 
         from_tables = self._parse_table_list(tables_text)
 
-        # Extract WHERE clause
+        # Extract WHERE clause (all honest conjuncts, BL-079)
         where_predicate = None
+        where_predicates: tuple[SqlPredicate, ...] = ()
         if where_match:
             where_start = from_start + where_match.start() + 5
             # Find end of WHERE (GROUP BY, ORDER BY, FETCH FIRST, or end)
@@ -350,7 +378,10 @@ class SqlParser:
                 where_text = sql_text[where_start:where_start + end_match.start()].strip()
             else:
                 where_text = sql_text[where_start:].strip()
-            where_predicate = self._parse_predicate(where_text)
+            parsed_preds = self._parse_predicates(where_text)
+            if parsed_preds:
+                where_predicate = parsed_preds[0]
+                where_predicates = tuple(parsed_preds)
 
         # Extract ORDER BY
         order_by: tuple[SqlOrderBy, ...] = ()
@@ -383,6 +414,7 @@ class SqlParser:
             into_variables=into_variables,
             from_tables=tuple(from_tables),
             where_predicate=where_predicate,
+            where_predicates=where_predicates,
             order_by=order_by,
             group_by=group_by,
             distinct=distinct,
@@ -463,17 +495,22 @@ class SqlParser:
         # Parse assignments
         assignments = self._parse_assignments(set_text)
 
-        # Parse WHERE
+        # Parse WHERE (all honest conjuncts, BL-079)
         where_predicate = None
+        where_predicates: tuple[SqlPredicate, ...] = ()
         if where_match:
             where_start = set_start + where_match.start() + 5
             where_text = sql_text[where_start:].strip()
-            where_predicate = self._parse_predicate(where_text)
+            parsed_preds = self._parse_predicates(where_text)
+            if parsed_preds:
+                where_predicate = parsed_preds[0]
+                where_predicates = tuple(parsed_preds)
 
         return SqlUpdate(
             table=table,
             assignments=tuple(assignments),
             where_predicate=where_predicate,
+            where_predicates=where_predicates,
         )
 
     def _parse_delete(self, sql_text: str) -> SqlDelete | None:
@@ -494,17 +531,22 @@ class SqlParser:
 
         table = SqlTableReference(table_name=table_name, schema=schema)
 
-        # Find WHERE clause
+        # Find WHERE clause (all honest conjuncts, BL-079)
         where_predicate = None
+        where_predicates: tuple[SqlPredicate, ...] = ()
         where_match = re.search(r"\bWHERE\b", upper[from_match.end():])
         if where_match:
             where_start = from_match.end() + where_match.start() + 5
             where_text = sql_text[where_start:].strip()
-            where_predicate = self._parse_predicate(where_text)
+            parsed_preds = self._parse_predicates(where_text)
+            if parsed_preds:
+                where_predicate = parsed_preds[0]
+                where_predicates = tuple(parsed_preds)
 
         return SqlDelete(
             table=table,
             where_predicate=where_predicate,
+            where_predicates=where_predicates,
         )
 
     def _parse_declare_cursor(self, sql_text: str) -> SqlCursor | None:
@@ -654,47 +696,283 @@ class SqlParser:
 
         return host_vars
 
-    def _parse_predicate(self, text: str) -> SqlPredicate | None:
-        """Parse a WHERE predicate."""
-        if not text:
+    def _mask_literals(self, text: str) -> str:
+        """Blank out quoted literal spans (same length) so keyword and
+        operator searches never match inside data values."""
+        out: list[str] = []
+        in_quote = False
+        quote_char = ""
+        for ch in text:
+            if in_quote:
+                out.append(" ")
+                if ch == quote_char:
+                    in_quote = False
+                continue
+            if ch in ("'", '"'):
+                in_quote = True
+                quote_char = ch
+                out.append(" ")
+                continue
+            out.append(ch)
+        return "".join(out)
+
+    def _split_where_conjuncts(self, text: str) -> list[str]:
+        """Split WHERE text on top-level ``AND``/``OR`` tokens.
+
+        Quote- and paren-aware; the ``AND`` belonging to a
+        ``BETWEEN low AND high`` range is not a split point (BL-079).
+        Returns the non-empty stripped segments.
+        """
+        depth = 0
+        in_quote = False
+        quote_char = ""
+        between_pending = False
+        word_start = -1
+        segments: list[str] = []
+        last = 0
+        i = 0
+        n = len(text)
+
+        def handle_word(end: int, start: int) -> bool:
+            """True when the word ending at ``end`` is a split point."""
+            nonlocal between_pending
+            word = text[start:end].upper()
+            if word == "BETWEEN":
+                between_pending = True
+                return False
+            if word == "AND" and between_pending:
+                between_pending = False
+                return False
+            return word in ("AND", "OR")
+
+        while i < n:
+            ch = text[i]
+            if in_quote:
+                if ch == quote_char:
+                    in_quote = False
+                i += 1
+                continue
+            if ch in ("'", '"'):
+                in_quote = True
+                quote_char = ch
+                word_start = -1
+                i += 1
+                continue
+            if ch == "(":
+                depth += 1
+                i += 1
+                continue
+            if ch == ")":
+                depth = max(0, depth - 1)
+                i += 1
+                continue
+            if ch.isalnum() or ch in "_-":
+                if word_start < 0:
+                    word_start = i
+                i += 1
+                continue
+            if depth == 0 and word_start >= 0 and handle_word(i, word_start):
+                segments.append(text[last:word_start].strip())
+                last = i
+            word_start = -1
+            i += 1
+
+        if depth == 0 and word_start >= 0 and handle_word(n, word_start):
+            segments.append(text[last:word_start].strip())
+            last = n
+        tail = text[last:].strip()
+        if tail:
+            segments.append(tail)
+        return segments
+
+    def _find_top_level_and(self, text: str) -> int:
+        """Character index of the first top-level ``AND`` token (-1 if none).
+
+        Quote- and paren-aware; words inside literals or groups never match.
+        """
+        depth = 0
+        in_quote = False
+        quote_char = ""
+        word_start = -1
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if in_quote:
+                if ch == quote_char:
+                    in_quote = False
+                i += 1
+                continue
+            if ch in ("'", '"'):
+                in_quote = True
+                quote_char = ch
+                word_start = -1
+                i += 1
+                continue
+            if ch == "(":
+                depth += 1
+                i += 1
+                continue
+            if ch == ")":
+                depth = max(0, depth - 1)
+                i += 1
+                continue
+            if ch.isalnum() or ch in "_-":
+                if word_start < 0:
+                    word_start = i
+                i += 1
+                continue
+            if depth == 0 and word_start >= 0 and text[word_start:i].upper() == "AND":
+                return word_start
+            word_start = -1
+            i += 1
+        if depth == 0 and word_start >= 0 and text[word_start:].upper() == "AND":
+            return word_start
+        return -1
+
+    def _is_simple_operand(self, text: str) -> bool:
+        """True for a single column ref, quoted literal, host variable or number.
+
+        Anything else (compound text, parenthesized sub-expressions,
+        function calls) is NOT representable by this parser's operand
+        fields and must never be fabricated into a column name (BL-079).
+        """
+        t = text.strip()
+        if not t:
+            return False
+        if len(t) >= 2 and t[0] == "'" and t[-1] == "'":
+            return True
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", t):
+            return True
+        return re.fullmatch(
+            r":?[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*)?", t
+        ) is not None
+
+    def _parse_simple_predicate(self, text: str) -> SqlPredicate | None:
+        """Parse one conjunct (no AND/OR left at top level) honestly.
+
+        Operator/keyword positions are located on the literal-masked
+        uppercase copy; operands are sliced from the ORIGINAL text so
+        string literals and host-variable names survive verbatim
+        (BL-078). An unparseable conjunct yields ``None`` — never a
+        fabricated column name (BL-079).
+        """
+        if not text or not text.strip():
             return None
 
-        # Simple predicate parsing
-        # Handle: column = value, column <> value, etc.
-        for op_str in ["<>", ">=", "<=", "=", ">", "<", "LIKE", "IN", "BETWEEN"]:
-            if f" {op_str} " in text.upper():
-                parts = text.upper().split(f" {op_str} ", 1)
-                if len(parts) == 2:
-                    left_text = parts[0].strip()
-                    right_text = parts[1].strip()
+        masked = self._mask_literals(text)
+        upper = masked.upper()
 
-                    left_expr = self._parse_expression(left_text)
-                    right_expr = self._parse_expression(right_text)
-
-                    return SqlPredicate(
-                        left=left_expr,
-                        operator=_PREDICATE_OP_MAP.get(op_str, SqlOperator.EQUALS),
-                        right=right_expr,
-                    )
-
-        # Check for NULL
-        upper = text.upper()
-        if "IS NULL" in upper:
-            col_text = upper.replace("IS NULL", "").strip()
-            col_expr = self._parse_expression(col_text)
+        # BETWEEN low AND high — one conjunct; its AND is not a split.
+        between_match = re.search(r"\bBETWEEN\b", upper)
+        if between_match:
+            left_text = text[:between_match.start()].strip()
+            bounds = text[between_match.end():].strip()
+            split = self._find_top_level_and(bounds)
+            if split < 0:
+                return None
+            low = bounds[:split].strip()
+            high = bounds[split + 3:].strip()
+            if not all(
+                self._is_simple_operand(t) for t in (left_text, low, high)
+            ):
+                return None
             return SqlPredicate(
-                left=col_expr,
-                operator=SqlOperator.IS_NULL,
+                left=self._parse_expression(left_text),
+                operator=SqlOperator.BETWEEN,
+                left_operand=self._parse_expression(low),
+                right_operand=self._parse_expression(high),
             )
-        elif "IS NOT NULL" in upper:
-            col_text = upper.replace("IS NOT NULL", "").strip()
-            col_expr = self._parse_expression(col_text)
+
+        # IN (v1, v2, ...) — items go to right_list, never a fake column.
+        in_match = re.search(r"\bIN\b", upper)
+        if in_match:
+            left_text = text[:in_match.start()].strip()
+            items_text = text[in_match.end():].strip()
+            if not items_text.startswith("(") or not items_text.endswith(")"):
+                return None
+            items = [p.strip() for p in items_text[1:-1].split(",") if p.strip()]
+            if not self._is_simple_operand(left_text) or not items:
+                return None
+            if not all(self._is_simple_operand(p) for p in items):
+                return None
             return SqlPredicate(
-                left=col_expr,
-                operator=SqlOperator.IS_NOT_NULL,
+                left=self._parse_expression(left_text),
+                operator=SqlOperator.IN,
+                right_list=tuple(self._parse_expression(p) for p in items),
             )
+
+        # Simple comparison operators (first operator wins; operands must
+        # be simple or the conjunct is honestly unparsed).
+        for op_str in ["<>", ">=", "<=", "=", ">", "<"]:
+            idx = upper.find(op_str)
+            if idx < 0:
+                continue
+            left_text = text[:idx].strip()
+            right_text = text[idx + len(op_str):].strip()
+            if not self._is_simple_operand(left_text):
+                return None
+            if not self._is_simple_operand(right_text):
+                return None
+            return SqlPredicate(
+                left=self._parse_expression(left_text),
+                operator=_PREDICATE_OP_MAP.get(op_str, SqlOperator.EQUALS),
+                right=self._parse_expression(right_text),
+            )
+
+        like_match = re.search(r"\bLIKE\b", upper)
+        if like_match:
+            left_text = text[:like_match.start()].strip()
+            right_text = text[like_match.end():].strip()
+            if not self._is_simple_operand(left_text):
+                return None
+            if not self._is_simple_operand(right_text):
+                return None
+            return SqlPredicate(
+                left=self._parse_expression(left_text),
+                operator=SqlOperator.LIKE,
+                right=self._parse_expression(right_text),
+            )
+
+        # NULL checks (operands sliced from the original text, BL-078)
+        not_null_match = re.search(r"\bIS\s+NOT\s+NULL\b", upper)
+        if not_null_match:
+            col_text = text[:not_null_match.start()].strip()
+            if self._is_simple_operand(col_text):
+                return SqlPredicate(
+                    left=self._parse_expression(col_text),
+                    operator=SqlOperator.IS_NOT_NULL,
+                )
+            return None
+        null_match = re.search(r"\bIS\s+NULL\b", upper)
+        if null_match:
+            col_text = text[:null_match.start()].strip()
+            if self._is_simple_operand(col_text):
+                return SqlPredicate(
+                    left=self._parse_expression(col_text),
+                    operator=SqlOperator.IS_NULL,
+                )
+            return None
 
         return None
+
+    def _parse_predicates(self, text: str) -> list[SqlPredicate]:
+        """Parse WHERE text into its honest conjunct list (BL-079).
+
+        Top-level AND/OR segments are parsed individually; conjuncts this
+        parser cannot represent are skipped rather than fabricated.
+        """
+        results: list[SqlPredicate] = []
+        for segment in self._split_where_conjuncts(text):
+            pred = self._parse_simple_predicate(segment)
+            if pred is not None:
+                results.append(pred)
+        return results
+
+    def _parse_predicate(self, text: str) -> SqlPredicate | None:
+        """First honest conjunct of a WHERE text (compatibility view)."""
+        preds = self._parse_predicates(text)
+        return preds[0] if preds else None
 
     def _parse_expression(self, text: str) -> SqlExpression:
         """Parse a SQL expression (column, literal, or host variable)."""
@@ -714,13 +992,16 @@ class SqlParser:
         if text.replace(".", "").replace("-", "").isdigit():
             return SqlExpression(literal=text)
 
-        # Column reference
+        # Column reference (unquoted identifiers fold to uppercase per
+        # DB2 rules; literals/host variables keep their source case).
         table_name = ""
         col_name = text
         if "." in text:
             parts = text.split(".")
-            table_name = parts[0]
-            col_name = parts[1]
+            table_name = parts[0].upper()
+            col_name = parts[1].upper()
+        else:
+            col_name = text.upper()
 
         return SqlExpression(
             column=SqlColumnReference(
