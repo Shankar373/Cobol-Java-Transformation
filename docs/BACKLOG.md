@@ -2598,11 +2598,18 @@ level and evidence location.
   but blocked-reason truth can be incomplete for `.jcllib`/extensionless
   members and colliding basenames.
 - **Severity:** medium-low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-verified
-  2026-10-15 by the Phase 5 §76 probes at `e0e6499`
-  (`%TEMP%\opencode\phase5\probe_p5_r1.py` PROBE1-5, `probe_p5_r2.py`
-  PROBE12/14).
+- **Status:** **FIXED — in-cycle 2026-10-15 (Phase 5 batch P2, defect-
+  proven-first).** Two red captures: `bl063_pre_fix_import.txt` (the new
+  shared matcher did not exist — collection `ImportError`) and, after
+  implementing only the matcher, `bl063_pre_fix.txt` — **`6 failed,
+  8 passed`** proving the behavioral defects on the unchanged consumer/gate
+  (`.jcllib` and extensionless members reported FULL, basename collision
+  silently lost the unsupported member, non-UTF8 member escaped as an
+  exception, the decodable-beside-bad case failed, and the API presence
+  gate said `NOT_PRESENT` for a `.jcllib`-only tree).  Green: focused
+  `14 passed` (`bl063_focused_green.txt`), full JCL regression
+  `255 passed` (`bl063_jcl_regression.txt`), Docker-gated JCL files
+  `5 passed` (`bl063_docker_regression.txt`).
 - **Found by:** audit group T4: `engine/transformation/jcl_consumer.py`
   L107-112.
 - **Observed behavior (verified by execution):** discovery finds
@@ -2632,10 +2639,25 @@ level and evidence location.
 - **Impact:** silently skipped members in blocked-reason reporting; false
   FULL status for unscanned members; decode crash for direct callers;
   JCL lane invisible in the ledger for non-`*.jcl` trees.
-- **Remediation (planned):** share the discovery matcher (case-insensitive,
-  `.jcl`/`.jcllib`/extensionless) across consumer scan and API presence
-  gate; collision-safe keys (full relative path) with collisions
-  reported; decode failures diagnosed fail-closed; focused tests.
+- **Remediation (delivered):** `engine/transformation/jcl_discovery.py`
+  gained the single member rule — `is_jcl_member` (case-insensitive
+  `.jcl`/`.jcllib` suffixes; extensionless members sniffed leniently so a
+  non-UTF8 member is still recognized, never dropped at the membership
+  layer) and `find_jcl_members` (whole-tree walk, so uppercase suffixes
+  survive case-sensitive filesystems) — now used by discovery
+  (`_find_jcl_files` delegates), the consumer scan, and the API presence
+  gate (`api/service.py::_jcl_status_for_source`); the consumer keys
+  raw sources by member-relative POSIX path, so colliding basenames
+  cannot overwrite each other and every member contributes to the
+  unsupported scan (this is strictly stronger than "collisions
+  reported" — with path keys a collision cannot occur); undecodable or
+  unreadable members are diagnosed fail-closed via the new
+  `JCL_SOURCE_DECODE_FAILED` ERROR code entering the same diagnostic
+  collector as `pre_diagnostics` on `modernize_jcl`, so status can never
+  overstate a member as covered (`FULL` → `PARTIAL`); discovery's broad
+  `except Exception: continue` narrowed to `(OSError, UnicodeDecodeError)`
+  with the no-silent-loss rationale inline.  Focused suite
+  `tests/transformation/test_jcl_discovery_matching.py` (gate-wired).
 - **Acceptance criteria:** `.jcllib`/extensionless/uppercase members
   scanned; collisions reported; decode failures diagnosed (no escape, no
   silent drop); API and consumer statuses agree; jcl tests green.
@@ -3157,8 +3179,13 @@ level and evidence location.
   execution claim rests on it, and the central gate is unaffected.
 - **Severity:** medium (dataset lifecycle detail — CATLG/DELETE/PASS —
   silently lost).
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
-  `e0e6499`, probe-verified.**
+- **Status:** **FIXED — in-cycle 2026-10-15 (Phase 5 batch P2, defect-
+  proven-first).** Red evidence: `5 failed, 3 passed` in
+  `%TEMP%\opencode\phase5\bl075_pre_fix.txt` (the file also records two
+  early test-harness fixes — wrong IR accessor names — before the product
+  red, noted for honesty). Green: focused `82 passed`
+  (`bl075_focused_green.txt`: 8 fidelity tests + the full parser suite
+  including the strengthened full-value assertion).
 - **Found by:** probe 6 (`probe_p5_r1.py`).
 - **Observed behavior (verified by execution):** `_parse_dd` splits with
   a quote-aware but paren-unaware regex, so
@@ -3178,10 +3205,16 @@ level and evidence location.
 - **Impact:** mangled disposition/space text in artifacts and profiles;
   lifecycle sub-parameters (CATLG/DELETE/PASS/KEEP) unrecoverable
   downstream.
-- **Remediation (planned):** shared paren-depth-aware parameter splitter
-  used by `_parse_dd`; full-value assertions; disclose that
-  SPACE/UNIT/VOL/DCB are preserved on `JclDD` but not modeled in the
-  semantic resource (spec limitations line).
+- **Remediation (delivered):** shared `_split_parameters` static method
+  (paren-depth + quote aware) now used by both `_parse_dd` and
+  `_parse_parameters` (`engine/transformation/jcl_parser.py`); new focused
+  suite `tests/transformation/test_jcl_dd_parameter_fidelity.py` (verbatim
+  `JclDD` and `SpringBatchResource` values, boundary and negative cases,
+  gate-wired); the weak `test_compound_and_simple_disp_values_parse_in_full`
+  (renamed from `test_parse_disp`) assertion now pins the exact
+  `"(NEW,CATLG,DELETE)"` text.  SPACE/UNIT/VOL/DCB remain preserved on
+  `JclDD` but not modeled in the semantic resource (documented subset
+  limitation, unchanged).
 - **Acceptance criteria:** probe6 rerun shows full verbatim values in
   `JclDD` and `SpringBatchResource`; focused tests green + gate-wired;
   existing compound-disposition tests strengthened, none weakened.
@@ -3196,8 +3229,19 @@ level and evidence location.
   surfaces; no false claim, verdict unaffected; Phase 3's lane-divergence
   class (BL-036/BL-038, P2) applied to JCL.
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
-  `e0e6499`, probe-verified.**
+- **Status:** **FIXED — in-cycle 2026-10-15 (Phase 5 batch P2, defect-
+  proven-first).** Red evidence: `3 failed, 3 passed` in
+  `%TEMP%\opencode\phase5\bl076_pre_fix.txt` (COND edge missing, cond
+  metadata missing, lane parity; both controls green — one harness
+  expectation was corrected before capture: plain order edges carry
+  `job=…` metadata, noted for honesty).  The vacuous
+  `test_conditional_step_no_order_dependency` (asserted `len==0` against a
+  hand-built `JclApplication` with no dependencies at all) was
+  strengthened to `test_conditional_step_keeps_its_order_edge_with_cond_metadata`
+  (parses via `parse_application`, pins the edge + `job=…;cond=(0,NE)`
+  metadata) and went red pre-fix with the same run.  Green: focused
+  `193 passed` (`bl076_focused_green.txt`: new parity suite + parser +
+  semantic + fixtures + consumer + generation + spring-batch suites).
 - **Found by:** probe 9 (`probe_p5_r1.py`).
 - **Observed behavior (verified by execution):** for `S1 / S2(COND=EVEN) / S3`,
   `build_all_dependencies` returns `JCL_STEP_ORDER` edges
@@ -3215,8 +3259,12 @@ level and evidence location.
   → `api/ingestion.py`.
 - **Impact:** ingestion dependency graph silently missing edges after
   COND steps; the two lanes disagree.
-- **Remediation (planned):** always emit the step-order pair; carry
-  `cond=…` metadata; parity test against the semantic lane.
+- **Remediation (delivered):** `build_all_dependencies` now emits every
+  consecutive step-order pair; when the current step carries a condition
+  the metadata becomes `job=…;cond=<code>` (BL-076); new focused suite
+  `tests/transformation/test_jcl_step_order_parity.py` (COND edge present,
+  cond metadata, application↔semantic lane parity, linear + single-step
+  controls; gate-wired).
 - **Acceptance criteria:** probe9 shape shows S2→S3 present with
   condition metadata and both lanes agree; existing dependency tests
   green (expectations updated only where they pin the wrong absence,
@@ -3230,8 +3278,15 @@ level and evidence location.
 - **Priority:** P3 — no behavior or trust impact; kept visible so it is
   not silently forgotten (§77).
 - **Severity:** low.
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 5 §76 audit at
-  `e0e6499` (static).**
+- **Status:** **FIXED — in-cycle 2026-10-15 (Phase 5 batch P2, hygiene
+  with regression pins).** Red evidence: `4 failed, 1 passed` in
+  `%TEMP%\opencode\phase5\bl077_pre_fix.txt` — one absence-pin per dead
+  construct (all four existed pre-fix), the fifth test is a control
+  proving the live inline-`SYSIN DD *` branch survives the removals.
+  Green: focused `5 passed` (`test_jcl_lane_hygiene.py`, gate-wired).
+  "ruff clean" is **inapplicable** — this repository has no ruff
+  configuration and no lint job (noted in change-log (x)); the hygiene
+  bar is pytest green + `py_compile` clean, both met.
 - **Found by:** Phase 5 §76.6 documentation-consistency audit.
 - **Observed behavior (static):** (a) `JclDD.sysin` is never set by the
   parser, so `jcl/builder.py` L199's `dd.name.upper() == "SYSIN" and
@@ -3251,11 +3306,30 @@ level and evidence location.
   `engine/jcl/model.py`, `engine/modernization/capability_analyzer.py`,
   `docs/specs/JCL_INTEGRATION_CONTRACT.md`, `docs/COBOL_UNIVERSALITY_ROADMAP.md`.
 - **Impact:** reader confusion; latent drift.
-- **Remediation (planned):** remove/annotate dead code, refresh spec
-  status and examples, reconcile the roadmap label after BL-072/BL-073
-  land.
+- **Remediation (delivered):** (a) `JclDD.sysin` field removed from
+  `engine/transformation/ir.py` and the dead builder clause collapsed to
+  `dd.is_inline` (`engine/jcl/builder.py`); (b) never-raised
+  `JclParseError` removed from `jcl_parser.py` (the parser's fail-soft
+  contract is unchanged and now the only contract); (c)
+  `JclDatasetFlow.disposition` removed from `engine/jcl/model.py`, along
+  with the zero-caller no-op `JclSemanticModel.unsupported_jobs` stub;
+  (d) `capability_analyzer.py` component-type comment corrected to the
+  four emitted values (`PROGRAM`/`COPYBOOK`/`CALL`/`FILE`) with the
+  JCL-is-ledger-only rationale inline; (e)
+  `docs/specs/JCL_INTEGRATION_CONTRACT.md` header status now says
+  implemented (PARTIAL-capped), the sourcing example uses
+  `find_jcl_members` with member-relative path keys (never basenames),
+  the entry-point signature documents `pre_diagnostics`, and the tail
+  Status section reflects the live `jcl_consumer`/`api` wiring; (f)
+  `docs/COBOL_UNIVERSALITY_ROADMAP.md` L132 relabeled
+  "SUPPORTED subset (bounded construct set + explicit diagnostics;
+  PARTIAL-capped by construction)" after BL-072/BL-073 landed.
+  Every removal is pinned by an absence test in
+  `tests/test_jcl_lane_hygiene.py` so the dead construct cannot silently
+  return.
 - **Acceptance criteria:** each lettered item either fixed or explicitly
-  justified in-place; ruff clean; JCL suites green.
+  justified in-place; JCL suites green (ruff inapplicable — no lint
+  config/job in this repository, per change-log (x)).
 - **Owner/role:** JCL lane maintainer. **Target phase:** Phase 5 (batch
   P2/P3). **Dependency:** BL-072/BL-073 for item (f). **Residual risk:**
   none.
@@ -4118,6 +4192,93 @@ level and evidence location.
   repository configures no linter (§78); syntax/behavior evidence is
   pytest.
 
+- 2026-10-15 — **(y) Phase 5 batch P2 (BL-063, BL-075, BL-076, BL-077)
+  ALL FIXED — defect-proven-first, one commit, gate-wired, full
+  serialized sweep green.** Per item: failing tests written first, red
+  captured to `%TEMP%\opencode\phase5\blNNN_pre_fix.txt`, fix applied,
+  focused green captured, entry + register row updated; no existing test
+  weakened. **BL-075** (DD parameter fidelity): red `5 failed, 3 passed`
+  (`bl075_pre_fix.txt`; two pre-fix test-harness iterations — wrong IR
+  accessor names — recorded in the same file for honesty) → shared
+  `_split_parameters` static method (paren-depth + quote aware) now feeds
+  both `_parse_dd` and `_parse_parameters`; new
+  `tests/transformation/test_jcl_dd_parameter_fidelity.py` (8 tests:
+  verbatim `JclDD`/`SpringBatchResource` values, boundary + negative
+  cases); the weak `test_parse_disp` substring assertion strengthened to
+  exact `"(NEW,CATLG,DELETE)"` equality (renamed
+  `test_compound_and_simple_disp_values_parse_in_full`). Green `82
+  passed` (`bl075_focused_green.txt`). **BL-076** (dependency-lane
+  parity): red `3 failed, 3 passed` (`bl076_pre_fix.txt`; one harness
+  expectation corrected pre-capture — plain order edges carry
+  `job=…` metadata — so the recorded red is pure product defect) →
+  `build_all_dependencies` now emits every consecutive step-order pair;
+  a COND step's edge carries `job=…;cond=<code>` metadata (semantic-lane
+  parity); new `tests/transformation/test_jcl_step_order_parity.py`
+  (6 tests: COND edge present, cond metadata, application↔semantic lane
+  parity, linear + single-step controls); the vacuous
+  `test_conditional_step_no_order_dependency` (asserted `len==0` against
+  a hand-built `JclApplication` with no dependencies at all — always
+  true, pinning the wrong absence) strengthened to parse via
+  `parse_application` and pin the edge + metadata. Green `193 passed`
+  (`bl076_focused_green.txt`). **BL-077** (hygiene): red `4 failed,
+  1 passed` (`bl077_pre_fix.txt`; one absence-pin per dead construct +
+  the live inline-`SYSIN DD *` control) → (a) `JclDD.sysin` removed and
+  the dead builder clause collapsed to `dd.is_inline`; (b) never-raised
+  `JclParseError` removed (the parser's fail-soft contract is the only
+  contract); (c) never-populated `JclDatasetFlow.disposition` and the
+  zero-caller no-op `JclSemanticModel.unsupported_jobs` stub removed;
+  (d) `capability_analyzer.py` component-type comment corrected to the
+  four actually-emitted values with the JCL-is-ledger-only rationale;
+  (e) `JCL_INTEGRATION_CONTRACT.md` header status, sourcing example
+  (now `find_jcl_members` + member-relative path keys), entry-point
+  signature (`pre_diagnostics`) and tail Status section refreshed to
+  repository reality (§78); (f) roadmap L132 relabeled "SUPPORTED subset
+  (bounded construct set + explicit diagnostics; PARTIAL-capped by
+  construction)". `tests/test_jcl_lane_hygiene.py` (5 tests) pins every
+  removal; "ruff clean" remains inapplicable (no lint config/job —
+  change-log (x)); the hygiene bar is pytest green + `py_compile`
+  (both met). Green `5 passed`. **BL-063** (carried from the Stage-C
+  audit; two reds): `bl063_pre_fix_import.txt` (the shared matcher did
+  not exist — collection ImportError) then, with only the matcher
+  implemented, `bl063_pre_fix.txt` — **`6 failed, 8 passed`** proving
+  the behavioral defects on the unchanged consumer/gate (`.jcllib` and
+  extensionless members reported FULL, basename collision silently lost
+  the unsupported member, non-UTF8 member escaped as
+  `UnicodeDecodeError`, decodable-beside-bad failed, API presence gate
+  `NOT_PRESENT` for a `.jcllib`-only tree) → public `is_jcl_member` /
+  `find_jcl_members` in `jcl_discovery.py` (case-insensitive
+  `.jcl`/`.jcllib`; extensionless members sniffed leniently so a
+  non-UTF8 member is still recognized at the membership layer) now
+  shared by discovery (`_find_jcl_files` delegates), the consumer
+  unsupported scan, and `api/service.py::_jcl_status_for_source`; the
+  consumer keys raw sources by member-relative POSIX path (collisions
+  cannot occur — strictly stronger than "collisions reported");
+  undecodable/unreadable members diagnosed fail-closed via the new
+  `JCL_SOURCE_DECODE_FAILED` ERROR code entering the same collector as
+  `modernize_jcl(pre_diagnostics=…)` (so `FULL` can never overstate an
+  unreadable member); discovery's broad `except Exception: continue`
+  narrowed to `(OSError, UnicodeDecodeError)` with the no-silent-loss
+  rationale inline. New
+  `tests/transformation/test_jcl_discovery_matching.py` (14 tests incl.
+  matcher negatives/boundaries and API-gate parity). Green `14 passed`
+  (`bl063_focused_green.txt`), JCL regression `255 passed`
+  (`bl063_jcl_regression.txt`), Docker-gated JCL files `5 passed`
+  (`bl063_docker_regression.txt`); one test-side presence probe in
+  `tests/integration/test_integrated_proof_api.py` aligned to the
+  shared rule (helper parity, assertions untouched). **Test naming
+  (Phase 5 scope):** 94 method renames to condition-and-expected-
+  behavior names — `test_jcl_parser.py` (66),
+  `test_jcl_consumer_integration.py` (18), and
+  `test_jcl_{fixtures,generation,semantic_model,spring_batch}.py`
+  (25 across the four files) — assertions untouched; every JCL suite
+  green after renaming. **Gate wiring:** the four new pure JCL test
+  files added to the `ci.yml` capability-truth gate. **Regression
+  sweep (run of record):** full serialized suite
+  `3641 passed / 4 skipped / 0 failed` in 33m35s
+  (`p2_batch_full_regression.txt`) — 3608 P1 baseline + 33 new P2
+  tests (8 fidelity + 6 parity + 5 hygiene + 14 discovery-matching),
+  exact collection reconciliation.
+
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
   `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked
@@ -4227,7 +4388,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-060 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Error handler itself raises ValueError (invalid sentinel). | Crash instead of the designed "-1" status. | Unmapped SQLSTATE returns the "-1" status; sql tests green. |
 | BL-061 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Cursor bind handoff missing (DECLARE discards binds). | Host-variable cursors fail loudly; documented subset narrower than claimed. | Host-variable cursors bind or fail closed named; sql tests green. |
 | BL-062 | SQL parser maintainer | Phase 6 (carry-forward 2026-10-14) | None | Column-less INSERT mis-parses VALUES as columns. | Wrong column metadata for a common form. | Both INSERT forms parse correctly or fail closed named; sql parser tests green. |
-| BL-063 | JCL lane maintainer | Phase 5 (carry-forward 2026-10-14) | Shared discovery matcher | Consumer's file selection diverges from discovery; decode errors escape. | Silently skipped members in blocked-reason reporting. | .jcllib/extensionless members scanned; collisions reported; jcl tests green. |
+| BL-063 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | Shared discovery matcher (`is_jcl_member` / `find_jcl_members`) | Consumer's file selection diverges from discovery; decode errors escape; basename keys silently overwrite colliding members; API presence gate blind to non-`*.jcl` members. | Path-keyed sources (strictly stronger than collision reporting: collisions cannot occur); `JCL_SOURCE_DECODE_FAILED` ERROR fail-closed. | FIXED - red in `bl063_pre_fix_import.txt` (matcher absent) + `bl063_pre_fix.txt` (`6 failed/8 passed` behavioral); shared rule used by discovery + consumer + API gate; decode diagnostics via `pre_diagnostics`; focused green `14 passed`, JCL regression `255 passed`, Docker-gated `5 passed`; gate-wired. |
 | BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. **FIXED**: blame-proven duplicate loop removed (accidental re-add `fa0fa62a` over original M7 loop), single emission site pinned; `test_spring_model_emission_unique.py` (4) red 3/1 → green; regressions 1923 + 100 passed; gate-wired. |
 | BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
 | BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
@@ -4239,9 +4400,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-072 | JCL lane maintainer | **Phase 5 (batch P1 - fixed in-cycle 2026-10-15)** | None | Multiple JOB statements in one file are silently merged into a single job (first job's name lost, steps misattributed, status FULL, no diagnostic), contradicting the profile spec's "no silent dropping". | Two-job members produce a wrong job graph today with no signal. | FIXED - `parse_jobs` splits per JOB statement (`parse` keeps single-job contract); builder scans each raw source once with JOB-in-effect attribution; red 13/1 (`bl072_pre_fix.txt`) -> green 14 + 299 JCL regression; `tests/transformation/test_jcl_multi_job_parsing.py` `ci.yml`-wired. |
 | BL-073 | JCL lane maintainer | **Phase 5 (batch P1 - fixed in-cycle 2026-10-15)** | Additive `ir.JclJob` field (mirrors prior additive IR changes) | Job-level DD statements (JOBLIB etc.) silently dropped from the IR with no diagnostic and never reach the dataset inventory, under status FULL. | Job-level DDs stay unmodeled in the Spring Batch representation (diagnosed + disclosed); they reach the dependency graph but not the dataset inventory. | FIXED - `JclJob.job_dd_statements` (additive) + `JCL_DD` edges (`<job>.<dd>`) + IR-based `JOB_LEVEL_DD` ERROR diagnostic -> status PARTIAL with `job-level DD statements` in the status contract; red 9/3 (`bl073_pre_fix.txt`) -> green 12 + 299 regression; `tests/transformation/test_jcl_job_level_dd.py` `ci.yml`-wired; no existing test pinned the drop. |
 | BL-074 | JCL/discovery maintainer | **Phase 5 (batch P1 - fixed in-cycle 2026-10-15)** | None | `link_with_cobol` matches datasets to COBOL files by loose bidirectional substring and a file-name-keyed dict, producing phantom, wrong-target, and missing `COBOL_FILE` edges in the production ingestion graph with no ambiguity signal. | Legitimate DSN↔file relations that relied on true substring nicknames stop linking (fail-closed under-linking instead of phantom over-linking). | FIXED - `_dataset_matches_file` (exact/qualified-tail, case-insensitive), one edge per matching program, `resolution=RESOLVED|AMBIGUOUS` metadata; red 6/3 (`bl074_pre_fix.txt`) -> green 9 + 299 regression incl. existing linker tests; `tests/transformation/test_jcl_cobol_file_linking.py` `ci.yml`-wired. |
-| BL-075 | JCL parser maintainer | **Phase 5 (batch P2 - carry-forward 2026-10-15)** | None | Compound `DISP=`/`SPACE=` values silently truncated by a paren-unaware comma split (`DISP=(NEW,CATLG,DELETE)` stored as `"(NEW"`); weak test assertion tolerated it. | Non-parenthesized exotic DISP forms remain bounded to the documented subset. | Probe6 rerun shows full verbatim values in `JclDD` and `SpringBatchResource`; focused tests green + gate-wired; compound-disposition assertions strengthened, none weakened. |
-| BL-076 | JCL dependency maintainer | **Phase 5 (batch P2 - carry-forward 2026-10-15)** | None | Application-graph step-order edges diverge between lanes: `build_all_dependencies` omits the edge after a COND step while the semantic builder emits it; `api/ingestion.py` publishes the incomplete set. | None once both lanes agree. | Probe9 shape shows S2→S3 present with `cond=` metadata and both lanes agree; existing dependency tests green (expectations pinned to the wrong absence updated as documented strengthening). |
-| BL-077 | JCL lane maintainer | **Phase 5 (batch P2/P3 - carry-forward 2026-10-15)** | BL-072/BL-073 for the roadmap-label item | JCL lane hygiene: dead `dd.sysin` condition, never-raised `JclParseError`, never-populated `JclDatasetFlow.disposition`, never-emitted `"JCL"` capability component type, stale `JCL_INTEGRATION_CONTRACT` status/basename example, overstated roadmap label. | Reader confusion / latent drift. | Each lettered item fixed or explicitly justified in-place; ruff clean; JCL suites green. |
+| BL-075 | JCL parser maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | None | Compound `DISP=`/`SPACE=` values silently truncated by a paren-unaware comma split (`DISP=(NEW,CATLG,DELETE)` stored as `"(NEW"`); weak test assertion tolerated it. | Non-parenthesized exotic DISP forms remain bounded to the documented subset. | FIXED - red in `bl075_pre_fix.txt` (`5 failed/3 passed`); shared `_split_parameters` used by `_parse_dd` + `_parse_parameters`; new `test_jcl_dd_parameter_fidelity.py` (8 tests, gate-wired); weak assertion strengthened to exact equality; focused green `82 passed`; none weakened. |
+| BL-076 | JCL dependency maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | None | Application-graph step-order edges diverge between lanes: `build_all_dependencies` omits the edge after a COND step while the semantic builder emits it; `api/ingestion.py` publishes the incomplete set. | None once both lanes agree. | FIXED - red in `bl076_pre_fix.txt` (`3 failed/3 passed`); every consecutive pair emitted, COND disclosed as `job=…;cond=<code>` metadata; new `test_jcl_step_order_parity.py` (6 tests incl. lane parity + controls, gate-wired); vacuous `test_conditional_step_no_order_dependency` strengthened to pin the edge; focused green `193 passed`. |
+| BL-077 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | BL-072/BL-073 for the roadmap-label item | JCL lane hygiene: dead `dd.sysin` condition, never-raised `JclParseError`, never-populated `JclDatasetFlow.disposition`, never-emitted `"JCL"` capability component type, stale `JCL_INTEGRATION_CONTRACT` status/basename example, overstated roadmap label. | Reader confusion / latent drift. | FIXED - red in `bl077_pre_fix.txt` (`4 failed/1 passed`, one absence-pin per dead construct + live-branch control); all six lettered items fixed; `test_jcl_lane_hygiene.py` (5 tests) pins the removals, gate-wired; ruff inapplicable (no lint config/job, change-log (x)); JCL suites green. |
 
 ### PR disposition snapshot — 2026-10-10
 

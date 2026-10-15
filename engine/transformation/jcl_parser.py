@@ -34,10 +34,6 @@ from engine.transformation.ir import (
 from engine.transformation.jcl_dependencies import build_all_dependencies
 
 
-class JclParseError(Exception):
-    """Raised when JCL parsing encounters unrecoverable syntax."""
-
-
 class JclParser:
     """Parse JCL source text into JCL IR.
 
@@ -357,8 +353,10 @@ class JclParser:
                 sysout = sysout_match.group(1).rstrip(",")
         else:
             # Parse DSN, DISP, etc.
-            # Split by comma first, then parse each part
-            parts = re.split(r",(?=(?:[^']*\'[^']*\')*[^']*$)", dd_str)
+            # Split by comma, respecting parenthesis depth and quotes so
+            # compound values like DISP=(NEW,CATLG,DELETE) or
+            # SPACE=(TRK,(10,5)) stay single parameters (BL-075).
+            parts = self._split_parameters(dd_str)
 
             for part in parts:
                 part = part.strip()
@@ -400,22 +398,22 @@ class JclParser:
         )
 
 
-    def _parse_parameters(self, param_str: str) -> dict[str, str]:
-        """Parse comma-separated parameters.
+    @staticmethod
+    def _split_parameters(text: str) -> list[str]:
+        """Split comma-separated JCL parameters.
 
-        Handles parentheses in values like COND=(0,NE).
+        Commas inside parentheses (``DISP=(NEW,CATLG,DELETE)``,
+        ``SPACE=(TRK,(10,5))``) and inside quoted strings
+        (``DSN='A,B'``) do not separate parameters; only top-level
+        commas do (BL-075).
         """
-        params: dict[str, str] = {}
-
-        # Split by comma, but handle parentheses and quoted strings
-        # This regex respects parentheses depth and quoted strings
         parts: list[str] = []
-        depth = 0
         current: list[str] = []
+        depth = 0
         in_quote = False
         quote_char = ""
 
-        for ch in param_str:
+        for ch in text:
             if in_quote:
                 current.append(ch)
                 if ch == quote_char:
@@ -432,7 +430,7 @@ class JclParser:
                 depth += 1
                 current.append(ch)
             elif ch == ")":
-                depth -= 1
+                depth = max(0, depth - 1)
                 current.append(ch)
             elif ch == "," and depth == 0:
                 parts.append("".join(current))
@@ -442,6 +440,16 @@ class JclParser:
 
         if current:
             parts.append("".join(current))
+        return parts
+
+    def _parse_parameters(self, param_str: str) -> dict[str, str]:
+        """Parse comma-separated parameters.
+
+        Handles parentheses in values like COND=(0,NE).
+        """
+        params: dict[str, str] = {}
+
+        parts = self._split_parameters(param_str)
 
         for part in parts:
             part = part.strip()

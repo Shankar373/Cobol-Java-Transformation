@@ -194,8 +194,11 @@ def _report_facade(report: dict | None) -> object | None:
 def _jcl_status_for_source(source: str | Path | None) -> str:
     """Best-effort JCL lane status for a source tree ("" when absent).
 
-    Returns ``NOT_PRESENT`` when no ``*.jcl`` file exists, otherwise the
-    JCL consumer status.  Never raises: an unusable JCL tree fails closed
+    Returns ``NOT_PRESENT`` when no JCL member exists under the shared
+    BL-063 member rule (case-insensitive ``.jcl`` / ``.jcllib`` or
+    extensionless JCL-looking members — the exact set the consumer
+    scans, so the two can no longer disagree), otherwise the JCL
+    consumer status.  Never raises: an unusable JCL tree fails closed
     to ``ERROR`` so the ledger keeps the lane visible and blocked.
     """
     if source is None:
@@ -203,7 +206,9 @@ def _jcl_status_for_source(source: str | Path | None) -> str:
     root = Path(source)
     if not root.exists() or not root.is_dir():
         return "NOT_PRESENT"
-    if not any(root.rglob("*.jcl")):
+    from engine.transformation.jcl_discovery import find_jcl_members
+
+    if not find_jcl_members(root):
         return "NOT_PRESENT"
     from engine.transformation.jcl_consumer import modernize_jcl_workload
 

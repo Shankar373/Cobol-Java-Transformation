@@ -211,7 +211,10 @@ class JclSemanticBuilder:
             kind = JclResourceKind.SYSOUT
             norm_disp = JclDisposition.UNSPECIFIED
             dataset_use = JclDatasetUse.UNSPECIFIED
-        elif dd.is_inline or (dd.name.upper() == "SYSIN" and dd.sysin):
+        elif dd.is_inline:
+            # Inline data (DD * / DD DATA).  The old
+            # `dd.name.upper() == "SYSIN" and dd.sysin` extra clause was
+            # dead: the parser never set `sysin` (BL-077).
             kind = JclResourceKind.SYSIN_INLINE
             norm_disp = JclDisposition.UNSPECIFIED
             dataset_use = JclDatasetUse.INPUT

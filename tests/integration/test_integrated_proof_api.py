@@ -386,7 +386,10 @@ class TestIntegratedProofBackend:
         result = pipeline.run()
         evidence = runtime_evidence_from_result(result)
         from engine.transformation.jcl_consumer import modernize_jcl_workload
-        jcl_status = modernize_jcl_workload(source).status if Path(source).rglob("*.jcl") else "NOT_PRESENT"
+        # BL-063 parity: the presence probe now uses the same shared
+        # member rule as api/service.py::_jcl_status_for_source.
+        from engine.transformation.jcl_discovery import find_jcl_members
+        jcl_status = modernize_jcl_workload(source).status if find_jcl_members(source) else "NOT_PRESENT"
         proof = integrated_proof_from_pipelines(workload_id="proof-test", report=report, runtime=evidence, jcl_status=jcl_status)
         assert proof.central_status in (CentralStatus.VERIFIED, CentralStatus.NOT_VERIFIED)
         assert isinstance(proof.dependency_ledger, tuple)

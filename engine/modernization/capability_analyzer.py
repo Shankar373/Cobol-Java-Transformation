@@ -71,7 +71,11 @@ __all__ = [
 class ComponentCapability:
     """Capability status for a single component or construct."""
     component_id: str
-    component_type: str  # "PROGRAM", "COPYBOOK", "CALL", "FILE", "SQL", "CICS", "JCL"
+    # Emitted values: "PROGRAM", "COPYBOOK", "CALL", "FILE".
+    # JCL is deliberately absent: it is tracked by the JCL ledger
+    # (integrated_proof.jcl_ledger_entry), never as a capability
+    # component (Phase 5 audit, BL-077).
+    component_type: str
     level: CapabilityLevel
     reason: str = ""
     details: dict[str, str] = field(default_factory=dict)

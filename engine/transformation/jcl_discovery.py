@@ -59,6 +59,46 @@ def _dataset_matches_file(dataset: str, file_key: str) -> bool:
     return dsn == file_key or dsn.endswith("." + file_key)
 
 
+_JCL_MEMBER_SUFFIXES = (".jcl", ".jcllib")
+
+
+def is_jcl_member(path: Path) -> bool:
+    """One shared JCL member rule (BL-063).
+
+    True for case-insensitive ``.jcl`` / ``.jcllib`` suffixes and for
+    extensionless members whose content looks like JCL (starts with
+    ``//``).  The content sniff is lenient (``errors="replace"``) so a
+    non-UTF8 member is still recognized here; strict decoding happens at
+    read time, where failures are diagnosed instead of silently dropped.
+    """
+    name = path.name
+    if not name:
+        return False
+    if name.lower().endswith(_JCL_MEMBER_SUFFIXES):
+        return True
+    if name.startswith(".") or "." in name:
+        return False
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return head.lstrip().startswith("//")
+
+
+def find_jcl_members(source_path: str | Path) -> list[Path]:
+    """Every JCL member under ``source_path``, sorted for determinism.
+
+    Walks the whole tree (not a suffix glob) so uppercase suffixes are
+    found on case-sensitive filesystems too.  Discovery, the consumer's
+    unsupported scan, and the API presence gate all use this one
+    function, so they can no longer disagree about what counts as JCL.
+    """
+    root = Path(source_path)
+    return sorted(
+        {p for p in root.rglob("*") if p.is_file() and is_jcl_member(p)}
+    )
+
+
 class JclDiscovery:
     """Discovers JCL application structure and links to COBOL.
 
@@ -105,7 +145,11 @@ class JclDiscovery:
                         job,
                         source_path=str(jcl_file.relative_to(source_path)),
                     ))
-            except Exception:
+            except (OSError, UnicodeDecodeError):
+                # No diagnostics channel here; the consumer's own scan
+                # uses the same member set (find_jcl_members) and turns
+                # read/decode failures into diagnostics, so a member is
+                # never silently lost from the reporting surface (BL-063).
                 continue
 
         # Build dependencies
@@ -198,22 +242,9 @@ class JclDiscovery:
         )
 
     def _find_jcl_files(self, source_path: Path) -> list[Path]:
-        """Find all JCL source files in the directory tree."""
-        jcl_exts = {".jcl", ".jcllib"}
-        jcl_files: list[Path] = []
-        for f in source_path.rglob("*"):
-            if not f.is_file():
-                continue
-            if f.suffix.lower() in jcl_exts:
-                jcl_files.append(f)
-            elif f.suffix == "":
-                # Also check for files with no extension that look like JCL
-                try:
-                    content = f.read_text(encoding="utf-8", errors="ignore")
-                    # JCL typically starts with //
-                    if content.lstrip().startswith("//"):
-                        jcl_files.append(f)
-                except Exception:
-                    continue
+        """Find all JCL source files in the directory tree.
 
-        return sorted(set(jcl_files))
+        Delegates to the shared BL-063 member rule so discovery, the
+        consumer scan, and the API presence gate select the same files.
+        """
+        return find_jcl_members(source_path)

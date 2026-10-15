@@ -129,7 +129,7 @@ ambiguous/missing COPY.
 | CALL dynamic/unresolved/cyclic/arity-mismatch | SUPPORTED | SUPPORTED (UNSUPPORTED/PARTIAL + reason) | UNSUPPORTED (blocked) | UNSUPPORTED | Blocked by design |
 | Sequential files | SUPPORTED | SUPPORTED (certified boundary) | SUPPORTED | SUPPORTED (integrated workload, 4 artifacts MATCH) | SUPPORTED subset |
 | Indexed / relative files | SUPPORTED | PARTIAL (detected, rejected outside boundary) | PARTIAL (INVALID KEY lane only) | PARTIAL (fail-closed negatives) | NOT certified |
-| JCL | SUPPORTED (parser + diagnostics) | PARTIAL (max PARTIAL by construction) | PARTIAL (Spring Batch structure) | UNAVAILABLE (no runtime lane) | NOT_VERIFIED by construction |
+| JCL | SUPPORTED subset (bounded construct set + explicit diagnostics; PARTIAL-capped by construction) | PARTIAL (max PARTIAL by construction) | PARTIAL (Spring Batch structure) | UNAVAILABLE (no runtime lane) | NOT_VERIFIED by construction |
 | DB2 / EXEC SQL | SUPPORTED (extractor + analyzer) | UNSUPPORTED for central lane (`runtime_verified_features()` empty by construction) | PARTIAL (SQLite harness = controlled semantics, not DB2 equivalence) | UNAVAILABLE (no DB2 subsystem) | NOT_VERIFIED by construction |
 | CICS / EXEC CICS | SUPPORTED (parser recognizes superset of subset) | UNSUPPORTED outside subset v1.0.0; subset structural only | PARTIAL (boundaries/request-response, never runtime logic) | UNAVAILABLE (no CICS runtime; RESP/commarea/isolation out of scope) | NOT_VERIFIED by construction |
 | IMS | UNKNOWN (no detection patterns found) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | NOT certified |

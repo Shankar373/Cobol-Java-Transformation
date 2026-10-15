@@ -43,7 +43,7 @@ def _generate_from_fixtures():
 class TestAdapterOutput:
     """The adapter must produce a valid SpringBootApplication."""
 
-    def test_services_match_jobs(self) -> None:
+    def test_service_count_matches_job_count(self) -> None:
         result, spring_app, _ = _generate_from_fixtures()
         assert len(spring_app.services) == result.job_count
 
@@ -52,7 +52,7 @@ class TestAdapterOutput:
         assert spring_app.entry_point is not None
         assert spring_app.entry_point.class_name == "JclBatchApplication"
 
-    def test_dependencies_include_batch(self) -> None:
+    def test_generated_dependencies_include_starter_and_batch(self) -> None:
         _, spring_app, _ = _generate_from_fixtures()
         dep_names = {d.name for d in spring_app.dependencies}
         assert "spring-boot-starter" in dep_names
@@ -72,7 +72,7 @@ class TestAdapterOutput:
         assert "step01" in method_names
         assert "step02" in method_names
 
-    def test_application_id_propagated(self) -> None:
+    def test_custom_application_id_reaches_the_generated_application(self) -> None:
         _, spring_app, _ = _generate_from_fixtures()
         assert spring_app.application_id == "gen-test"
 
@@ -84,17 +84,17 @@ class TestAdapterOutput:
 class TestGeneratorOutput:
     """The generator must produce a complete set of files."""
 
-    def test_pom_exists(self) -> None:
+    def test_generated_artifacts_include_pom_xml(self) -> None:
         _, _, files = _generate_from_fixtures()
         paths = {f.path for f in files}
         assert "pom.xml" in paths
 
-    def test_entry_point_exists(self) -> None:
+    def test_generated_artifacts_include_jcl_batch_application_main(self) -> None:
         _, _, files = _generate_from_fixtures()
         paths = {f.path for f in files}
         assert any("JclBatchApplication.java" in p for p in paths)
 
-    def test_service_files_exist(self) -> None:
+    def test_generated_artifacts_include_one_job_class_per_fixture_job(self) -> None:
         _, _, files = _generate_from_fixtures()
         class_names = {f.class_name for f in files}
         assert "SimplebJob" in class_names
@@ -102,7 +102,7 @@ class TestGeneratorOutput:
         assert "CondjobJob" in class_names
         assert "UnsuppJob" in class_names
 
-    def test_application_properties_exists(self) -> None:
+    def test_generated_artifacts_include_application_properties(self) -> None:
         _, _, files = _generate_from_fixtures()
         paths = {f.path for f in files}
         assert any("application.properties" in p for p in paths)
@@ -112,7 +112,7 @@ class TestGeneratorOutput:
         # pom.xml + application.properties + entry point + 4 services = 7
         assert len(files) == 7
 
-    def test_all_files_have_source(self) -> None:
+    def test_every_generated_artifact_carries_nonempty_source(self) -> None:
         _, _, files = _generate_from_fixtures()
         for f in files:
             assert f.source_code, f"{f.path} has empty source"
@@ -217,7 +217,7 @@ class TestInMemoryGeneration:
 class TestGenerationDeterminism:
     """Generated output must be deterministic."""
 
-    def test_two_runs_identical(self) -> None:
+    def test_two_generations_over_same_input_produce_identical_artifacts(self) -> None:
         _, _, files_a = _generate_from_fixtures()
         _, _, files_b = _generate_from_fixtures()
         assert len(files_a) == len(files_b)

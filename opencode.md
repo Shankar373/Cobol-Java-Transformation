@@ -2,7 +2,7 @@
 
 ## Phase 5 started — JCL Modernization (2026-10-15)
 
-### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `e0e649944c75ad1488f46159075651102ca65f9c` + BATCH P1 COMPLETE (BL-071/072/073/074 ALL FIXED) — full serialized suite 3608 passed / 4 skipped / 0 failed; batch P2 (BL-063/075/076/077) next; P0: none**)
+### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `e0e649944c75ad1488f46159075651102ca65f9c`; BATCH P1 COMPLETE (BL-071/072/073/074 FIXED, committed `d880453`, exact-SHA CI green 4 runs/14 jobs); BATCH P2 CODE COMPLETE (BL-063/075/076/077 ALL FIXED — full serialized sweep + commit + exact-SHA CI pending); P0: none**)
 
 - **Phase 4 is closed (`COMPLETE — VERIFIED`)** and is not reopened.
   Baseline for Phase 5: branch `codex/universal-core`, HEAD `e0e6499…`
@@ -42,7 +42,63 @@
   BL-071/072/073/074 — **ALL FIXED (change-log (x))**, red evidence
   `bl071…bl074_pre_fix.txt` (+ `bl071_startup_pre_fix.txt`), focused
   greens `bl0NN_focused_green.txt`, gate-wired, regression 3608/4/0;
-  **batch P2** = BL-063/075/076/077 pending; per-item defect-proven-first
+  exact-SHA CI green 4 runs / 14 jobs at `d880453` (full 40-char SHA,
+  `verify_ci.py`). **Batch P2 = BL-063/075/076/077 - ALL FIXED
+  (change-log (y); sweep/commit/CI of this batch pending when this
+  header was revised)**:
+  - **BL-075**: red `5 failed, 3 passed` (`bl075_pre_fix.txt`; two
+    pre-fix harness iterations honestly recorded) -> shared
+    `_split_parameters` (paren-depth + quote aware) feeds `_parse_dd`
+    and `_parse_parameters`; new `tests/transformation/
+    test_jcl_dd_parameter_fidelity.py` (8 tests); the weak
+    `test_parse_disp` assertion strengthened to exact equality (renamed
+    `test_compound_and_simple_disp_values_parse_in_full`). Green 82.
+  - **BL-076**: red `3 failed, 3 passed` (`bl076_pre_fix.txt`; one
+    harness expectation corrected pre-capture - plain edges carry
+    `job=...`) -> `build_all_dependencies` emits every consecutive pair,
+    COND disclosed as `job=...;cond=<code>` metadata; new
+    `tests/transformation/test_jcl_step_order_parity.py` (6 tests incl.
+    application/semantic lane parity); the vacuous
+    `test_conditional_step_no_order_dependency` strengthened to pin the
+    edge. Green 193.
+  - **BL-077**: red `4 failed, 1 passed` (`bl077_pre_fix.txt`, one
+    absence-pin per dead construct + live-inline-`SYSIN` control) ->
+    `JclDD.sysin` field + dead builder clause removed, never-raised
+    `JclParseError` removed, `JclDatasetFlow.disposition` +
+    zero-caller `unsupported_jobs` stub removed, capability comment
+    corrected (4 emitted types, JCL-is-ledger-only rationale),
+    `JCL_INTEGRATION_CONTRACT.md` status/example/signature/tail
+    refreshed (path-keyed example, `pre_diagnostics` documented),
+    roadmap L132 relabeled "SUPPORTED subset ... PARTIAL-capped";
+    `tests/test_jcl_lane_hygiene.py` (5 tests) pins every removal.
+    Ruff is **inapplicable** (no lint config/job in this repo - see
+    change-log (x)).
+  - **BL-063**: two reds - `bl063_pre_fix_import.txt` (matcher absent)
+    then `bl063_pre_fix.txt` (`6 failed, 8 passed` behavioral on the
+    unchanged consumer/gate) -> shared `is_jcl_member` /
+    `find_jcl_members` in `jcl_discovery.py` (case-insensitive
+    `.jcl`/`.jcllib`/extensionless-with-JCL-content) used by discovery,
+    the consumer scan, and `api/service.py::_jcl_status_for_source`;
+    consumer keys members by relative POSIX path (collisions cannot
+    occur); decode/read failures diagnosed fail-closed via new
+    `JCL_SOURCE_DECODE_FAILED` ERROR entering the lane collector as
+    `modernize_jcl(pre_diagnostics=...)` so `FULL` can never overstate
+    an unreadable member; discovery's broad `except Exception:
+    continue` narrowed. New `tests/transformation/
+    test_jcl_discovery_matching.py` (14 tests). Green 14 focused / 255
+    JCL regression / 5 Docker-gated.
+  - **Test naming (Phase 5 scope):** 94 method renames to
+    condition-and-expected-behavior names across
+    `test_jcl_parser.py` (66), `test_jcl_consumer_integration.py` (18),
+    and `test_jcl_fixtures/generation/semantic_model/spring_batch.py`
+    (25 across the four files) - assertions untouched, every JCL suite
+    green after renaming.
+  - **Gate wiring:** the four new pure JCL test files
+    (`test_jcl_dd_parameter_fidelity.py`,
+    `test_jcl_step_order_parity.py`,
+    `test_jcl_discovery_matching.py`, `test_jcl_lane_hygiene.py`) added
+    to the `ci.yml` capability-truth gate.
+  Per-item defect-proven-first
   (own red `%TEMP%\opencode\phase5\blNNN_pre_fix.txt`,
   own focused green, own entry/register), one regression sweep + gate
   wiring + commit + exact-SHA CI verification per batch; Phase-5 E2E

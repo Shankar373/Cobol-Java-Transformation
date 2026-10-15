@@ -80,6 +80,7 @@ _UNSUPPORTED_CONSTRUCT_TEXT = {
     JclDiagnosticCode.STEP_NO_EXEC: "steps without an EXEC program",
     JclDiagnosticCode.JOB_UNNAMED: "unnamed jobs",
     JclDiagnosticCode.JOB_LEVEL_DD: "job-level DD statements",
+    JclDiagnosticCode.SOURCE_DECODE_FAILED: "undecodable JCL source files",
 }
 
 
@@ -318,6 +319,7 @@ def modernize_jcl(
     raw_sources: dict[str, str] | None = None,
     application_id: str = "jcl-modernization",
     base_package: str = "com.generated.batch",
+    pre_diagnostics: tuple[JclDiagnostic, ...] = (),
 ) -> JclModernizationProfile:
     """Profile a parsed JCL application into a Java/Spring Batch representation.
 
@@ -335,12 +337,18 @@ def modernize_jcl(
             to detect (and explicitly diagnose) unsupported constructs.
         application_id: identifier for the resulting Spring Batch application.
         base_package: target Java package namespace for the batch layer.
+        pre_diagnostics: diagnostics raised while sourcing the raw sources
+            (e.g. BL-063 decode failures).  They enter the same collector,
+            so an unreadable member counts as an ERROR and the derived
+            status can never overstate coverage as FULL.
 
     Returns:
         A ``JclModernizationProfile`` containing the generated Spring Batch
         representation and the full diagnostic trail.
     """
     builder = JclSemanticBuilder()
+    for diagnostic in pre_diagnostics:
+        builder.diagnostics.add(diagnostic)
     model = builder.build(app, raw_sources)
 
     mapper = JclSpringBatchMapper(diagnostics=builder.diagnostics)

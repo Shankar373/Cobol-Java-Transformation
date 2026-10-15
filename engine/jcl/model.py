@@ -128,7 +128,6 @@ class JclDatasetFlow:
     dataset: str
     producer: str
     consumers: tuple[str, ...]
-    disposition: str = ""
 
 
 @dataclass(frozen=True)
@@ -251,10 +250,3 @@ class JclSemanticModel:
                     )
         return errors
 
-    def unsupported_jobs(self) -> list[str]:
-        """Job names whose model indicates unsupported constructs (no-op stub).
-
-        Provided for symmetry with the shared IR; the diagnostics carried by
-        the modernization profile are the authoritative signal.
-        """
-        return []

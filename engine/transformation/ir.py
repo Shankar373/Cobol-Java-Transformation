@@ -1251,7 +1251,6 @@ class JclDD:
     dcb: str = ""  # DCB= value
     vol: str = ""  # VOL= value
     sysout: str = ""  # SYSOUT= value
-    sysin: bool = False  # SYSIN DD * indicator
     is_temporary: bool = False  # temporary dataset (SYSOUT=* or DSN=&&...)
     is_inline: bool = False  # inline data (DD * or DD DATA)
 

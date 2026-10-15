@@ -17,18 +17,24 @@ def build_all_dependencies(jobs: list[JclJob]) -> list[JclDependency]:
     dependencies: list[JclDependency] = []
 
     for job in jobs:
-        # Step order dependencies
+        # Step order dependencies.  Every consecutive pair gets an edge:
+        # a COND step still has a source-order successor (the semantic
+        # lane emits it too — BL-076 parity).  The condition stays
+        # visible in metadata instead of the edge silently vanishing.
         for i in range(len(job.steps) - 1):
             current = job.steps[i]
             next_step = job.steps[i + 1]
 
-            if current.condition is None:
-                dependencies.append(JclDependency(
-                    source=current.name,
-                    target=next_step.name,
-                    dependency_type="JCL_STEP_ORDER",
-                    metadata=f"job={job.name}",
-                ))
+            metadata = f"job={job.name}"
+            if current.condition is not None:
+                code = current.condition.code or current.condition.condition_type
+                metadata = f"{metadata};cond={code}"
+            dependencies.append(JclDependency(
+                source=current.name,
+                target=next_step.name,
+                dependency_type="JCL_STEP_ORDER",
+                metadata=metadata,
+            ))
 
         # EXEC program references
         for step in job.steps:
