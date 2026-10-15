@@ -1,8 +1,72 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 6 started — DB2 / SQL Modernization (2026-10-15)
+
+### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `41c98ef` (change-log (aa)): 3 carried + 5 new defects + 1 disclosed gap; BATCH P1 COMPLETE (BL-078/079/080 ALL FIXED, change-log (ac), sweep in flight); P0: none; BATCH P2 next (BL-060/061/062/081/082 + BL-083 disclosure)**)
+
+- **Phase 5 status: CLOSED — `COMPLETE — VERIFIED`** (§53 13/13 verdict
+  block below the Phase 5 section). P1 batch `d88045331e4aefeffc6c3a6d08ffbf9204437a6a`
+  exact-SHA CI green; P2 batch `41c98ef` — **exact-SHA CI NOT GREEN**
+  (capability gate: 2 API-parity tests imported `pydantic` in the
+  deliberately pytest-only gate; deterministic bare-venv reproduction
+  kept) → fixed in **`b7f62463896aa9ab2f910e1024251e8686ddd2bf`**
+  (tests moved unchanged to `tests/test_jcl_api_discovery_parity.py`;
+  change-log (ab)) — **exact-SHA CI GREEN** (runs=4, all jobs).
+  Full serialized sweep **3641 passed / 4 skipped / 0 failed** (33m35s).
+- **§76 audit-first complete, source untouched during audit.** Scope per
+  Master README §24: SQL parsing (`sql_parser.py`), embedded-SQL
+  discovery (`extractor.py`), host variables (`analyzer.py`), cursor
+  lifecycle (`execution.py`/`harness.py`), transactions, SQLCODE/
+  SQLSTATE (`status.py`), data-type mapping (`db2_sqlite.py`),
+  Java mapping (`repository_model.py`), runtime claims discipline
+  (`dialect.py`), unsupported semantics, platform integration.
+  13 behavioral probes → `%TEMP%\opencode\phase6\audit_probes.txt`.
+- **Inventory (change-log (aa), BACKLOG):** carried BL-060 (P2) —
+  unmapped-error handlers crash with `ValueError` out of the handler
+  (probes A2/B); BL-061 (P2) — host-variable cursors fail uncaught at
+  OPEN + IR/enum statement-type silent misrouting (probes C/D); BL-062
+  (P2) — column-less INSERT stores VALUES as columns (probe E). New:
+  **BL-078 (P1)** predicate literals uppercased `'abc'`→`'ABC'`
+  (probe G); **BL-079 (P1)** compound/IN/BETWEEN predicates fabricated
+  into fake column names flowing into the dependency graph (probes
+  H/L/M); **BL-080 (P1)** unsupported statements silently dropped +
+  `EXECUTE IMMEDIATE` flag never set (probe F); BL-081 (P2) JOIN
+  tables/ON lost though `SqlSelect.joins` exists (probe I); BL-082
+  (P2) ORDER BY swallows `FETCH FIRST` text (probe J); **BL-083
+  (disclosed)** SQL lane never reaches the platform ledger
+  (`DependencyKind.DB2` has no producer; `sqlcode_field` unconsumed) —
+  deferred to Phase 10 by design decision, documented, no doc
+  overstates platform visibility. Verified sound: DDL fails loudly on
+  table-level constraints (fail-closed), CALL/PREPARE/EXECUTE
+  non-portable with notes, `DB2_RUNTIME_VERIFIED` never manufacturable.
+- **Batch P1 = BL-078/079/080 — ALL FIXED (change-log (ac)):**
+  - **BL-078**: red `3 failed, 1 passed` (`bl078_pre_fix.txt`) →
+    literal-masked operator search + original-text slicing + DB2
+    identifier folding in `_parse_expression`.
+  - **BL-079**: red `8 failed, 5 passed` (`bl079_pre_fix.txt`) →
+    quote/paren-aware `_split_where_conjuncts` (BETWEEN protected),
+    `_is_simple_operand` never-fabricate rule, IN → `right_list`,
+    BETWEEN → operands, additive `where_predicates` on
+    Select/Update/Delete, analyzer collects every conjunct; underscore
+    boundary caught by the existing suite mid-fix (`1 failed/213
+    passed`) and pinned.
+  - **BL-080**: red `5 failed, 3 passed` (`bl080_pre_fix.txt`; one was
+    the new test's own `;`-expectation, corrected post-red with
+    inline disclosure) → `EmbeddedSqlBlock.unsupported_statements`,
+    else-branch + None-parse capture, `execute_immediate` wiring,
+    analyzer validation entries; dead `cursor_declarations` removed.
+  - New gate files `test_sql_predicate_fidelity.py` (14) +
+    `test_sql_unsupported_statement_diagnostics.py` (8);
+    **bare-venv dependency-free gate verified first** (the (ab)
+    failure mode): `615 passed` = 593 + 22 exact. Focused greens:
+    `bl079_focused_green.txt` (14), `bl080_focused_green.txt` (223
+    SQL lane). Full serialized P1 sweep in flight
+    (`p1_batch_full_regression.txt`, expected 3663/4/0).
+  Per-item defect-proven-first, no LLM anywhere, no merge to `main`.
+
 ## Phase 5 started — JCL Modernization (2026-10-15)
 
-### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `e0e649944c75ad1488f46159075651102ca65f9c`; BATCH P1 COMPLETE (BL-071/072/073/074 FIXED, committed `d880453`, exact-SHA CI green 4 runs/14 jobs); BATCH P2 CODE COMPLETE (BL-063/075/076/077 ALL FIXED — full serialized sweep + commit + exact-SHA CI pending); P0: none**)
+### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **COMPLETE — VERIFIED at `b7f62463896aa9ab2f910e1024251e8686ddd2bf` — BL-063 + BL-071…BL-077 ALL FIXED: two batches (4×P1 + 4×P2), serialized sweep 3641 passed / 4 skipped / 0 failed, exact-SHA CI green 4 runs / 14 jobs at BOTH `d880453` and `b7f6246` (`EXACT_SHA_CI_GREEN`, per-job head_sha matched; the failed `41c98ef` run + its deterministic bare-venv reproduction kept as evidence); §53 scored 13/13 below**)
 
 - **Phase 4 is closed (`COMPLETE — VERIFIED`)** and is not reopened.
   Baseline for Phase 5: branch `codex/universal-core`, HEAD `e0e6499…`
@@ -44,8 +108,13 @@
   greens `bl0NN_focused_green.txt`, gate-wired, regression 3608/4/0;
   exact-SHA CI green 4 runs / 14 jobs at `d880453` (full 40-char SHA,
   `verify_ci.py`). **Batch P2 = BL-063/075/076/077 - ALL FIXED
-  (change-log (y); sweep/commit/CI of this batch pending when this
-  header was revised)**:
+  (change-log (y): sweep `3641 passed / 4 skipped / 0 failed` in
+  33m35s = 3608 + 33 exact; committed `41c98ef`; exact-SHA CI caught a
+  capability-gate dependency leak in two BL-063 tests → moved unchanged
+  to `tests/test_jcl_api_discovery_parity.py` and committed as
+  `b7f6246`, change-log (ab); **exact-SHA CI GREEN** — runs=4, all
+  jobs success incl. the capability gate (`ci_b7f6246.txt`,
+  `EXACT_SHA_CI_GREEN`))**:
   - **BL-075**: red `5 failed, 3 passed` (`bl075_pre_fix.txt`; two
     pre-fix harness iterations honestly recorded) -> shared
     `_split_parameters` (paren-depth + quote aware) feeds `_parse_dd`
@@ -85,7 +154,10 @@
     `modernize_jcl(pre_diagnostics=...)` so `FULL` can never overstate
     an unreadable member; discovery's broad `except Exception:
     continue` narrowed. New `tests/transformation/
-    test_jcl_discovery_matching.py` (14 tests). Green 14 focused / 255
+    test_jcl_discovery_matching.py` (14 tests — the 2 API-parity tests
+    later moved unchanged to `tests/test_jcl_api_discovery_parity.py`
+    so the gate stays dependency-free, change-log (ab); 12 stay
+    gate-wired). Green 14 focused / 255
     JCL regression / 5 Docker-gated.
   - **Test naming (Phase 5 scope):** 94 method renames to
     condition-and-expected-behavior names across
@@ -105,6 +177,96 @@
   executed: Docker-gated JCL project compile **and startup** proven in
   `tests/integration/test_jcl_spring_boot_compile.py`. No LLM
   anywhere; no merge to `main`.
+
+## ⚑ §53 VERDICT — Phase 5 at `b7f62463896aa9ab2f910e1024251e8686ddd2bf` (2026-10-15)
+
+**`PHASE 5 COMPLETE — VERIFIED`.** All thirteen §53 criteria pass. Scope
+of this phase: JCL Modernization (Master README §19 — parsing, job/step
+dependencies, DD/dataset handling, declared-gate execution semantics
+(COND/IF/SET, no JES claims), error handling, capability classification,
+Spring Boot generation, contracts/docs) — eight defects across two
+batches (4×P1 + 4×P2), every one reproduced before it was fixed, fixed
+with deterministic (no-LLM) code, and verified by focused suites, the
+capability-truth gate, regression sweeps, the Docker-gated compile+startup
+E2E, and exact-SHA CI. The exact-SHA CI run of record **caught and forced
+the fix of a real gate defect** the local full-env sweep could not see
+(`41c98ef` NOT-green → `b7f6246` green) — the §53 requirement working as
+designed.
+
+- **Commits:** `d88045331e4aefeffc6c3a6d08ffbf9204437a6a` (batch P1) +
+  `41c98ef432c1e224ab249a241794e1a5bf562862` (batch P2; failed CI kept
+  as evidence) + `b7f62463896aa9ab2f910e1024251e8686ddd2bf` (gate-leak
+  fix, change-log (ab); exact-SHA CI GREEN runs=4 — this docs commit
+  carries the verdict) on `codex/universal-core`.
+- **Fixed & closed this phase (8/8 applicable):**
+  - **BL-071** (P1) — JCL-generated Spring Boot project failed the
+    canonical offline build while the adapter doc claimed "it compiles,
+    starts"; doc and reality reconciled (red `bl071_pre_fix.txt` +
+    `bl071_startup_pre_fix.txt`).
+  - **BL-072** (P1) — multiple `JOB` statements in one file silently
+    merged into one job (first job's name lost, steps misattributed,
+    status FULL, no diagnostic) → per-job models.
+  - **BL-073** (P1) — job-level `DD` statements (JOBLIB etc.) silently
+    dropped from the IR with no diagnostic and never reached the dataset
+    inventory → inventoried + diagnosed.
+  - **BL-074** (P1) — `link_with_cobol` matched datasets to COBOL files
+    by loose bidirectional substring + file-name-keyed dict, producing
+    phantom / wrong-target / missing `COBOL_FILE` edges with no
+    ambiguity signal → deterministic keying + explicit ambiguity.
+  - **BL-075** (P2) — DISP/SPACE truncation: shared paren-depth +
+    quote-aware `_split_parameters` feeds `_parse_dd`/`_parse_parameters`
+    (red `5 failed, 3 passed`; weak `test_parse_disp` strengthened to
+    exact equality). Green 82.
+  - **BL-076** (P2) — dependency-lane divergence: `build_all_dependencies`
+    emits every consecutive pair; COND edges disclosed as
+    `job=…;cond=<code>` metadata; vacuous COND test strengthened (red
+    `3 failed, 3 passed`). Green 193.
+  - **BL-077** (P2) — lane hygiene: dead `JclDD.sysin` field + builder
+    clause, never-raised `JclParseError`, never-populated
+    `JclDatasetFlow.disposition`, zero-caller `unsupported_jobs` stub,
+    stale contract status/example, overstated roadmap label — every
+    removal absence-pinned in `test_jcl_lane_hygiene.py` (red
+    `4 failed, 1 passed`). Green 5. Ruff inapplicable (no lint
+    config/job — documented, change-log (x)).
+  - **BL-063** (P2, scope-extended) — one discovery rule for every JCL
+    consumer: shared `is_jcl_member`/`find_jcl_members`; sources keyed
+    by relative POSIX path (basename collisions cannot occur); decode
+    failures diagnosed fail-closed (`JCL_SOURCE_DECODE_FAILED` ERROR via
+    `modernize_jcl(pre_diagnostics=…)` so `FULL` can never overstate an
+    unreadable member); API presence gate aligned (red: matcher-absent
+    import capture + `6 failed, 8 passed`); 12 gate-wired tests + 2
+    API-parity tests in the full-deps home.
+- **Carried forward (§53.10):** no new carry-forwards from Phase 5 —
+  the (w) inventory is 8/8 FIXED. Prior-phase carry-forwards (BL-057 →
+  Phase 7, BL-050/051/054 → 9, BL-053 → 10, BL-047/048/049/067/068 →
+  11, BL-045/046/065/066 + BL-058 → 12, BL-060/061/062 → Phase 6, now
+  remediated per change-log (aa)–(ac)) unchanged.
+- **Disclosed limitations (unchanged or added):** JCL is a
+  SUPPORTED-subset lane capped `PARTIAL` by construction in the central
+  gate (`jcl_ledger_entry`) — never PROVEN, never FULL; ruff is
+  inapplicable in this repository (no lint config or job — the quality
+  bar is pytest green + `py_compile`, documented in the register and
+  change-logs (x)/(y)); the BL-063 API-parity tests live outside the
+  dependency-free gate by design (change-log (ab)); PR #2 stays unmerged
+  pending explicit human authorization; PR #6 do-not-merge.
+
+**13-point scoring:**
+
+| # | Criterion | Result | Evidence |
+|---|-----------|--------|----------|
+| 1 | implementation exists and matches the current architecture | PASS | All eight fixes sit in the canonical JCL lane (`jcl_parser.py` → `jcl_dependencies.py`/`jcl/builder.py` → `jcl_consumer.py`/`jcl_discovery.py` → `api/service.py` status → Spring Batch generation); the shared discovery matcher is used by discovery, the consumer scan and the API presence gate; contracts doc (`JCL_INTEGRATION_CONTRACT.md`) reconciled to the code |
+| 2 | relevant contracts are satisfied | PASS | `JCL_INTEGRATION_CONTRACT.md` refreshed (path-keyed example, `pre_diagnostics`, status); ledger contract intact — JCL capped `PARTIAL` by construction (`jcl_ledger_entry`), no FULL claim for the supported subset; `JCL_SOURCE_DECODE_FAILED` ERROR fail-closed; capability-truth gate dependency-free invariant restored **and now locally enforced with a bare pytest venv before every gate-list change** (the (ab) failure mode) |
+| 3 | focused tests pass | PASS | Per-item defect-proven-first: reds `bl071…bl077_pre_fix.txt` + `bl063_pre_fix_import.txt` (`bl063_pre_fix.txt` `6 failed, 8 passed`), greens `bl063_focused_green.txt` (14), `bl075_focused_green.txt` (82), `bl076_focused_green.txt` (193), `bl077_focused_green.txt` (5); 94 test-name renames (condition-and-expected-behavior, assertions untouched) all green; bare-venv gate at `b7f6246` **593 passed** (40 files) |
+| 4 | regression tests pass | PASS | Run of record: full serialized sweep **3641 passed / 4 skipped / 0 failed** in 33m35s (`p2_batch_full_regression.txt`) = 3608 baseline + 33 new, exact reconciliation; CI Backend+COBOL/Java Docker job conclusion=success on head_sha `d880453…` and `b7f6246…` (push + PR, per-job head_sha matched — `ci_d880453_verify.txt`, `ci_b7f6246.txt`) |
+| 5 | integration behavior is verified | PASS | JCL consumer integration regression 255 green (`bl063_jcl_regression.txt`); API parity 14 green in the full-deps file (`test_jcl_api_discovery_parity.py` + trimmed gate file); integrated-proof presence probe aligned to the shared matcher (collect-only verified); Docker-gated JCL test files 5 green (`bl063_docker_regression.txt`) |
+| 6 | fresh end-to-end behavior is verified where applicable | PASS | Phase-5 E2E: Docker-gated JCL Spring Boot project **compile and startup** proven in `tests/integration/test_jcl_spring_boot_compile.py`, green locally and in the CI backend Docker job at both batch SHAs; JCL has no runtime execution lane — E2E is generation→compile→startup level, disclosed as such |
+| 7 | evidence is reproducible, identity-tied, and integrity-validated | PASS | Every red, focused green, regression, gate reproduction and CI verify is a named file under `%TEMP%\opencode\phase5\` and `%TEMP%\opencode\phase6\gate_repro_41c98ef.txt`; exact 40-char SHAs everywhere (short SHA yields runs=0 — kept as a documented gotcha); runs=4 with per-job `head_sha` matching per SHA; the `41c98ef` CI **failure** and its deterministic bare-venv reproduction are kept as positive evidence of the gate's integrity |
+| 8 | known limitations and residual risks are documented | PASS | PARTIAL-cap rationale and subset scope in the register, contract doc, roadmap L132 relabel; ruff-inapplicable documented (change-log (x)); the API-parity/gate dependency split documented (change-log (ab)); every entry carries owner/phase/dependency/residual-risk fields |
+| 9 | **no silent semantic loss remains** | PASS | The phase closed the §54-class losses it found: silent multi-JOB merge (BL-072), silent job-level DD drop (BL-073), phantom/wrong/missing `COBOL_FILE` edges (BL-074), vacuous COND dependency lanes (BL-076), DISP/SPACE truncation (BL-075), divergent discovery rules + basename-key silent overwrite + decode crash (BL-063) — each now correct or fail-closed with a diagnostic; BL-077's dead constructs removed and absence-pinned so they cannot silently return |
+| 10 | every discovered defect and gap is fixed or explicitly carried forward | PASS | Phase-5 inventory: **8 FIXED — VERIFIED** (BL-071/072/073/074/075/076/077/063), **0 open**; no new carry-forwards; prior-phase carry-forwards unchanged and disclosed above |
+| 11 | applicable code, tests, security, architecture, API/UI, operations and documentation gaps are audited | PASS | §76 audit-first (change-log (w)) with deterministic probes covering parser, dependencies, DD/dataset handling, execution semantics (declared gates only), error handling, capability classification, API status, contracts and docs; the audit's own claims were re-validated by the exact-SHA CI run of record (which found the gate leak the local sweep could not) |
+| 12 | acceptance criteria are satisfied | PASS | Each entry's acceptance set discharged by its focused tests + regressions (multi-job per-job truth, JOBLIB inventory, deterministic file linking, DISP full-value parsing, every-pair dependencies + COND metadata, absence-pins for removals, shared-rule parity) — no criterion waived; the ruff criterion documented inapplicable with an equivalent bar (pytest + `py_compile`) |
+| 13 | the live checkpoint is updated from actual repository and test results | PASS | This checkpoint and `docs/BACKLOG.md` (entries + register + change-logs (w)–(z)) are reconciled to actual run outputs — every number quoted traces to a named evidence file or a linked exact-SHA CI run |
 
 ## Phase 4 started — Files / VSAM / Data Semantics (2026-10-14)
 

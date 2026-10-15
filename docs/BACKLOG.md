@@ -1166,8 +1166,18 @@ produced evidence, not re-run here).
   `SqlPredicate.right.literal`, the analyzer's read model, and any future
   Java generation derived from it.
 - **Severity:** high (wrong value recorded as truth).
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
-  (baseline `41c98ef`)**; behaviorally verified (audit probe G).
+- **Status:** **FIXED — 2026-10-15, Phase 6 batch P1 (defect-proven-
+  first).** Red `3 failed, 1 passed`
+  (`%TEMP%\opencode\phase6\bl078_pre_fix.txt`: both literal-case tests +
+  the host-variable case test failed; the identifier-folding control
+  passed) → operator/keyword positions located on a literal-masked
+  uppercase copy, operands sliced from the original text, unquoted
+  identifiers fold to uppercase inside `_parse_expression` (DB2
+  identifier rules). Focused green `14 passed`
+  (`bl079_focused_green.txt`, whole fidelity file); SQL-lane regression
+  `223 passed` (`bl080_focused_green.txt`); gate-wired
+  (`test_sql_predicate_fidelity.py`, bare-venv dependency-free gate
+  `615 passed`). No existing test weakened.
 - **Found by:** Phase 6 audit probe G
   (`%TEMP%\opencode\phase6\audit_probes.txt`).
 - **Observed behavior (verified):** `SELECT … WHERE NAME = 'abc'` yields
@@ -1199,8 +1209,22 @@ produced evidence, not re-run here).
   the SQL and they propagate into `read_columns`, `Db2TableUsage`, and
   `Db2TableDependency` (the database-dependency graph).
 - **Severity:** high (fabricated identifiers in the dependency truth).
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
-  (baseline `41c98ef`)**; behaviorally verified (audit probes H, L, M).
+- **Status:** **FIXED — 2026-10-15, Phase 6 batch P1 (defect-proven-
+  first).** Red `8 failed, 5 passed`
+  (`%TEMP%\opencode\phase6\bl079_pre_fix.txt`; missing-IR-field
+  AttributeErrors + fake-column assertions) → quote/paren-aware
+  conjunct splitter (BETWEEN's AND protected), literal-masked operator
+  search, `_is_simple_operand` never-fabricate rule, IN → `right_list`,
+  BETWEEN → `left_operand`/`right_operand`, additive
+  `where_predicates` on `SqlSelect`/`SqlUpdate`/`SqlDelete`
+  (`where_predicate` = first conjunct, compatibility), analyzer
+  collects every conjunct's columns; one boundary bug caught by the
+  existing suite mid-fix (`p1_sql_regression_after_bl079.txt`:
+  `1 failed, 213 passed` — underscore identifiers rejected by the new
+  operand regex) → regex fixed, underscore pin added to the fidelity
+  file. Focused green `14 passed` (`bl079_focused_green.txt`); SQL-lane
+  regression `223 passed`; gate-wired (bare-venv `615 passed`). No
+  existing test weakened.
 - **Found by:** Phase 6 audit probes H/L/M
   (`%TEMP%\opencode\phase6\audit_probes.txt`).
 - **Observed behavior (verified):**
@@ -1249,8 +1273,22 @@ produced evidence, not re-run here).
   §24's unsupported-semantics requirement; the modernization ledger can
   claim a complete SQL model while whole declarations vanish.
 - **Severity:** medium-high.
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
-  (baseline `41c98ef`)**; behaviorally verified (audit probe F).
+- **Status:** **FIXED — 2026-10-15, Phase 6 batch P1 (defect-proven-
+  first).** Red `5 failed, 3 passed`
+  (`%TEMP%\opencode\phase6\bl080_pre_fix.txt`; disclosure: one of the
+  five was the new test's own wrong expectation that preserved texts
+  keep the `;` delimiter — the shared splitter strips top-level `;`
+  uniformly for every statement, exactly like `raw_sql`; expectation
+  corrected post-red with an inline comment, product behavior
+  unchanged) → `EmbeddedSqlBlock.unsupported_statements` (additive)
+  + else-branch capture + None-parse capture for every typed branch +
+  `CALL` without a name + `execute_immediate` wiring + analyzer
+  `validation` entries (`unsupported SQL text preserved: …`). Focused
+  green `223 passed` (`bl080_focused_green.txt`, unsupported file +
+  fidelity file + whole SQL lane); gate-wired
+  (`test_sql_unsupported_statement_diagnostics.py`, bare-venv
+  `615 passed`). Fully-supported blocks unchanged
+  (`unsupported_statements == ()` pinned). No existing test weakened.
 - **Found by:** Phase 6 audit probe F
   (`%TEMP%\opencode\phase6\audit_probes.txt`).
 - **Observed behavior (verified):** a block containing
@@ -4591,6 +4629,80 @@ level and evidence location.
   caught it, which is why §53 requires it. New exact-SHA CI verification
   runs against the follow-up commit.
 
+- 2026-10-15 — **(ac) Phase 6 batch P1 (BL-078, BL-079, BL-080)
+  ALL FIXED — defect-proven-first, gate-wired, bare-venv gate
+  dependency-free check applied from the start.** Per item: failing
+  test first, red captured to `%TEMP%\opencode\phase6\blNNN_pre_fix.txt`,
+  fix, focused green, entry + register updated; no existing test
+  weakened. **BL-078** (predicate literal case): red `3 failed,
+  1 passed` (identifier-folding control already passed) → operator/
+  keyword search on a **literal-masked** uppercase copy with operands
+  sliced from the original text; unquoted identifiers fold to uppercase
+  inside `_parse_expression` (DB2 identifier rules — keeps the previous
+  observable folding while literals/host variables survive verbatim).
+  **BL-079** (compound/IN/BETWEEN fidelity): red `8 failed, 5 passed`
+  (missing additive IR fields + fake-column assertions) →
+  `_split_where_conjuncts` (quote/paren-aware, BETWEEN's AND never a
+  split point), `_is_simple_operand` **never-fabricate** rule (an
+  operand this parser cannot represent yields an honestly unparsed
+  conjunct, never a fake column name), IN → `right_list`, BETWEEN →
+  `left_operand`/`right_operand`, additive `where_predicates` on
+  `SqlSelect`/`SqlUpdate`/`SqlDelete` (`where_predicate` = first
+  conjunct — existing consumers unchanged), analyzer collects every
+  conjunct's columns into `read_columns`; mid-fix boundary caught by
+  the **existing** suite (`1 failed, 213 passed` — underscore
+  identifiers rejected by the new operand regex) → regex fixed and an
+  underscore pin added to the fidelity file (red evidence for that
+  micro-gap is the regression capture, disclosed). **BL-080**
+  (silent statement drop): red `5 failed, 3 passed` (disclosure: one
+  of the five was the new test's own wrong `;`-delimiter expectation —
+  the shared splitter strips top-level `;` uniformly, exactly like
+  `raw_sql`; corrected post-red with an inline comment, product
+  behavior unchanged) → `EmbeddedSqlBlock.unsupported_statements`
+  (additive) fed by an else-branch for unrecognized statements,
+  None-parse capture for every typed branch (unparsable SELECT/FETCH/…
+  survive too), nameless `CALL` treated as unsupported,
+  `execute_immediate` wired for `EXECUTE IMMEDIATE`, analyzer
+  `validation` gains deterministic `unsupported SQL text preserved: …`
+  entries; dead `cursor_declarations` list (collected, never read)
+  removed in the same cleanup. **Gate wiring:** the two new files
+  (`test_sql_predicate_fidelity.py` 14 tests,
+  `test_sql_unsupported_statement_diagnostics.py` 8 tests) added to
+  the `ci.yml` capability gate and verified in a **bare pytest-only
+  venv first** (the (ab) failure mode): `615 passed` = 593 + 22 exact.
+  **Evidence:** focused greens `bl079_focused_green.txt` (14),
+  `bl080_focused_green.txt` (223 incl. the whole SQL lane);
+  `py_compile` clean. **Regression sweep (run of record):** see the
+  follow-up note appended after the sweep completes.
+
+- 2026-10-15 — **(z) Phase 5 (JCL Modernization) COMPLETION VERDICT:
+  `PHASE 5 COMPLETE — VERIFIED` — §53 scored 13/13.** Scope per the
+  (w) audit inventory, two approved batches, every item defect-proven-
+  first: batch P1 = BL-071/072/073/074 (change-log (x), committed
+  `d88045331e4aefeffc6c3a6d08ffbf9204437a6a`, exact-SHA CI GREEN runs=4
+  re-verified at verdict time — `ci_d880453_verify.txt`);
+  batch P2 = BL-063/075/076/077 (change-log (y), sweep `3641 passed /
+  4 skipped / 0 failed` = 3608 + 33 exact, committed
+  `41c98ef432c1e224ab249a241794e1a5bf562862` whose exact-SHA CI came
+  back **NOT GREEN** — two BL-063 API-parity tests imported `pydantic`
+  in the deliberately pytest-only capability gate; deterministic
+  bare-venv reproduction kept; fixed by moving the two tests unchanged
+  to `tests/test_jcl_api_discovery_parity.py` and committed as
+  `b7f62463896aa9ab2f910e1024251e8686ddd2bf`, change-log (ab)) —
+  **exact-SHA CI GREEN at `b7f6246`: runs=4, 14/14 jobs success
+  including the capability gate** (`ci_b7f6246.txt`,
+  `EXACT_SHA_CI_GREEN`). Inventory closed **8/8 FIXED, 0 open, no new
+  carry-forwards**; prior-phase carry-forwards unchanged; disclosed
+  limitations: JCL SUPPORTED-subset capped `PARTIAL` by construction in
+  the central gate (never PROVEN/FULL), ruff inapplicable (no lint
+  config/job — quality bar pytest + `py_compile`, documented), API-
+  parity tests outside the dependency-free gate by design. The failed
+  `41c98ef` run + its reproduction are kept as positive evidence that
+  the exact-SHA run of record catches what local full-env sweeps cannot
+  (a pytest-only environment defect). Full 13-point scoring table in
+  `opencode.md` (§53 VERDICT — Phase 5 block); verdict docs committed
+  separately from Phase 6 batch-P1 code.
+
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
   `479bed7`: a **nested inline `IF`** whose body was empty while `END_IF` leaked
@@ -4715,9 +4827,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-075 | JCL parser maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | None | Compound `DISP=`/`SPACE=` values silently truncated by a paren-unaware comma split (`DISP=(NEW,CATLG,DELETE)` stored as `"(NEW"`); weak test assertion tolerated it. | Non-parenthesized exotic DISP forms remain bounded to the documented subset. | FIXED - red in `bl075_pre_fix.txt` (`5 failed/3 passed`); shared `_split_parameters` used by `_parse_dd` + `_parse_parameters`; new `test_jcl_dd_parameter_fidelity.py` (8 tests, gate-wired); weak assertion strengthened to exact equality; focused green `82 passed`; none weakened. |
 | BL-076 | JCL dependency maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | None | Application-graph step-order edges diverge between lanes: `build_all_dependencies` omits the edge after a COND step while the semantic builder emits it; `api/ingestion.py` publishes the incomplete set. | None once both lanes agree. | FIXED - red in `bl076_pre_fix.txt` (`3 failed/3 passed`); every consecutive pair emitted, COND disclosed as `job=…;cond=<code>` metadata; new `test_jcl_step_order_parity.py` (6 tests incl. lane parity + controls, gate-wired); vacuous `test_conditional_step_no_order_dependency` strengthened to pin the edge; focused green `193 passed`. |
 | BL-077 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | BL-072/BL-073 for the roadmap-label item | JCL lane hygiene: dead `dd.sysin` condition, never-raised `JclParseError`, never-populated `JclDatasetFlow.disposition`, never-emitted `"JCL"` capability component type, stale `JCL_INTEGRATION_CONTRACT` status/basename example, overstated roadmap label. | Reader confusion / latent drift. | FIXED - red in `bl077_pre_fix.txt` (`4 failed/1 passed`, one absence-pin per dead construct + live-branch control); all six lettered items fixed; `test_jcl_lane_hygiene.py` (5 tests) pins the removals, gate-wired; ruff inapplicable (no lint config/job, change-log (x)); JCL suites green. |
-| BL-078 | SQL parser maintainer | **Phase 6 (batch P1 — OPEN, remediation planned 2026-10-15)** | None | WHERE-predicate string literals uppercased into the semantic model (`'abc'` → `'ABC'`); whole operand text split after `.upper()`. | None once sliced from original text. | OPEN - audit probe G (`audit_probes.txt`); planned: operator search on uppercased copy + original-text slicing; new `tests/transformation/test_sql_predicate_fidelity.py` (gate-wired). Red/green evidence to be captured pre/post fix. |
-| BL-079 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 — OPEN, remediation planned 2026-10-15)** | Additive `ir.SqlSelect.where_predicates` field (planned) | Compound AND/OR, IN, and BETWEEN WHERE predicates mangled into invented fake column names (`'1 AND BAL = 2'`, `'(1, 2, 3)'`, `'100 AND 500'`) flowing into `read_columns`/`Db2TableUsage`/`Db2TableDependency`; `right_list`/`left_operand`/`right_operand` IR fields never populated. | AND/OR grouping would be recorded as a flat conjunct list (documented: no boolean tree invented). | OPEN - audit probes H/L/M (`audit_probes.txt`); planned: quote/paren-aware conjunct splitting (BETWEEN's AND protected), IN → `right_list`, BETWEEN → operands, never-fabricate operand rule, analyzer collects every conjunct, additive `where_predicates`. Red/green evidence pending. |
-| BL-080 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 — OPEN, remediation planned 2026-10-15)** | Additive `ir.EmbeddedSqlBlock.unsupported_statements` field (planned) | Unsupported EXEC SQL statements (`BEGIN DECLARE SECTION`, `INCLUDE`, `WHENEVER`, `DECLARE … STATEMENT`) silently dropped with zero diagnostics; `EXECUTE IMMEDIATE` classified as plain EXECUTE (`execute_immediate` never set). | Statements remain unmodeled but would be preserved + diagnosed. | OPEN - audit probe F (`audit_probes.txt`); planned: else-branch capture into `unsupported_statements`, analyzer validation entries, `execute_immediate` wiring. Red/green evidence pending. |
+| BL-078 | SQL parser maintainer | **Phase 6 (batch P1 - fixed in-cycle 2026-10-15)** | None | WHERE-predicate string literals uppercased into the semantic model (`'abc'` → `'ABC'`); whole operand text split after `.upper()`. | None. | FIXED - red `3 failed/1 passed` (`bl078_pre_fix.txt`); literal-masked operator search + original-text slicing + DB2 identifier folding; `test_sql_predicate_fidelity.py` gate-wired (bare-venv `615 passed`); focused `14 passed`, SQL regression `223 passed`; no existing test weakened. |
+| BL-079 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 - fixed in-cycle 2026-10-15)** | Additive `ir.SqlSelect/SqlUpdate/SqlDelete.where_predicates` fields | Compound AND/OR, IN, and BETWEEN WHERE predicates mangled into invented fake column names (`'1 AND BAL = 2'`, `'(1, 2, 3)'`, `'100 AND 500'`) flowing into `read_columns`/`Db2TableUsage`/`Db2TableDependency`; `right_list`/`left_operand`/`right_operand` IR fields never populated. | AND/OR grouping recorded as a flat conjunct list (documented: no boolean tree invented). | FIXED - red `8 failed/5 passed` (`bl079_pre_fix.txt`); quote/paren-aware conjunct splitting (BETWEEN protected), never-fabricate `_is_simple_operand` rule, IN/BETWEEN IR fidelity, analyzer collects every conjunct; underscore-identifier boundary caught by existing suite mid-fix (`1 failed/213 passed`) and pinned; focused `14 passed`, SQL regression `223 passed`, gate-wired (bare-venv `615 passed`); no existing test weakened. |
+| BL-080 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 - fixed in-cycle 2026-10-15)** | Additive `ir.EmbeddedSqlBlock.unsupported_statements` field | Unsupported EXEC SQL statements (`BEGIN DECLARE SECTION`, `INCLUDE`, `WHENEVER`, `DECLARE … STATEMENT`) silently dropped with zero diagnostics; `EXECUTE IMMEDIATE` classified as plain EXECUTE (`execute_immediate` never set). | Statements unmodeled but preserved + diagnosed. | FIXED - red `5 failed/3 passed` (`bl080_pre_fix.txt`; one of the five was the new test's own `;`-delimiter expectation, corrected post-red with inline disclosure); else-branch + None-parse capture, analyzer validation entries, `execute_immediate` wiring, dead `cursor_declarations` list removed; focused `223 passed`, gate-wired (bare-venv `615 passed`); no existing test weakened. |
 | BL-081 | SQL parser + analyzer maintainer | **Phase 6 (batch P2 — OPEN, remediation planned 2026-10-15)** | None | JOIN tables/ON conditions silently lost though `SqlSelect.joins` exists (`T2` absent from dependency truth while SELECT list references `B.NAME`). | CROSS JOIN + comma form documented subset (comma form already in `from_tables`). | OPEN - audit probe I (`audit_probes.txt`); planned: JOIN segments parsed into `joins` with ON predicate (BL-079 parser); analyzer includes joined tables + ON columns. Red/green evidence pending. |
 | BL-082 | SQL parser maintainer | **Phase 6 (batch P2 — OPEN, remediation planned 2026-10-15)** | None | ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text (`'ACCT FETCH FIRST 5 ROWS ONLY'`). | None once bounded. | OPEN - audit probe J (`audit_probes.txt`); planned: ORDER BY slice bounded at FETCH FIRST via offset search + original-text slicing. Red/green evidence pending. |
 | BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap + Phase 6 verdict limitations state the gap; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
