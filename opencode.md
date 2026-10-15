@@ -1,5 +1,172 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 8 started — Runtime Adapter Architecture (2026-10-15)
+
+### ⚑ PHASE 8 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 8 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE; batches P0/P1/P2 = BL-088/089/090 ALL FIXED, change-log (an)(ao); gate 50 files / 43 focused tests; CI primary: 12/12 runs green across the three batch SHAs `2917a4f` + `216064d` + `5f82889`, each exact-SHA verified via the GitHub API; §32 three-target scope closed: spring_boot + plain_java + jakarta_ee all implemented through the single adapter registry over the ONE shared parser/transformer; NO LLM; no merge to main; Phase 9 NOT started**)
+
+- **Prerequisites verified before touching Phase 8 scope:** Phase 7
+  verdict `COMPLETE — VERIFIED — 13/13` at `e67b59e` (Phase 7 block
+  below); Phases 0–7 all closed.  §32 read (Master README line 887);
+  red probes captured (`%TEMP%\opencode\phase8\bl088_red_probe.txt`).
+- **Batches (each: commit → push → exact-SHA CI 4/4 green):**
+  P0 `2917a4f` (BL-088 §32 seam) → P1 `216064d` (BL-089 plain_java) →
+  P2 `5f82889` (BL-090 jakarta_ee).  All three §32 targets implemented;
+  no test weakened; generation-only bounds disclosed (build/runtime
+  evidence = Phase 9 scope; no equivalence claim anywhere).
+- **Verdict chain:** `3882772` (Phase 7 closing, parallel session —
+  preserved) → `2917a4f` → `216064d` → `5f82889`.  ALL exact-SHA CI
+  green.
+
+## ⚑ §53 VERDICT — Phase 8 (scored 2026-10-15; work SHAs `2917a4f` + `216064d` + `5f82889`; HEAD `5f8288992bf69cf14dec9a2c5713ab6c41a4a9a3` — exact-SHA CI 12/12 runs success)
+
+**PHASE 8 COMPLETE — VERIFIED — 13/13 PASS.**  Master README §53 is
+the authoritative rule; every criterion below is scored against
+repository state and preserved evidence, not against CI-green alone.
+NO LLM anywhere (scan: no `llm`/`openai`/`anthropic`/`langchain`
+imports in `engine`/`api`; no such packages in
+`requirements.lock`/Dockerfiles).  No merge to main; Phase 9 NOT
+started.
+
+### CI evidence (independently re-verified via the GitHub API, not from the checkpoint)
+- `2917a4f…` (full SHA in git log) — 4/4 runs success (SystemaOps CI
+  push 38783676047 + PR 38783676021; Supply chain push 38783683726 +
+  PR 38783683551).
+- `216064d476ac3da87a49dec4836ab555de1343de` — 4/4 runs success
+  (SystemaOps CI push 38795835252 + PR 38795827719; Supply chain push
+  38795835174 + PR 38795827729).
+- `5f8288992bf69cf14dec9a2c5713ab6c41a4a9a3` — 4/4 runs success
+  (SystemaOps CI push 38800144782 + PR 38800137821; Supply chain push
+  38800144696 + PR 38800137969).
+- Run-level `head_sha` asserted equal to the exact SHAs for all 12
+  runs; 0 non-success.  Limitation: CI junit artifacts/logs require
+  auth (401/403 unauth), so CI totals are recorded at run/job/step
+  granularity; exact test totals come from the preserved local logs.
+
+### The 13 criteria
+1. **Implementation matches architecture — PASS.**  §32 "one shared
+   parser/transformer, runtime-specific behavior in adapters" is
+   implemented exactly: new `engine/transformation/runtime_adapters.py`
+   (`RuntimeTargetConfig` fail-closed §32 five-key validation;
+   `RuntimeAdapter` seam; `SpringBootRuntimeAdapter` moved verbatim;
+   `PlainJavaRuntimeAdapter` + `JakartaEeRuntimeAdapter` sharing the
+   ONE `JavaGenerator`/`JavaApplication` IR; registry
+   `get_runtime_adapter`; `plan_output_type_for`);
+   `ModernizationConfig` §32 keys + `__post_init__`; adapter resolved
+   BEFORE any phase; plan `assembly_output_type` threading;
+   `ModernizationReport.target_runtime` + `assembly.target_runtime`;
+   API/store selection surface (`ApplicationRecord.target_runtime`,
+   schema migration 4, `ApplicationCreate`/`ApplicationResponse`,
+   fail-closed 400, modernize pre-flight).  No parser/mapper/generator
+   duplication; `_assemble_spring_boot` is a thin registry delegation.
+2. **Contracts satisfied — PASS.**  Capability-truth gate grew 49→50
+   files (`tests/test_runtime_adapter_architecture.py` appended,
+   dependency-free) and is green on CI at all three SHAs (run-level)
+   and locally (43 focused tests).  Plan-truth (`output_type` exact
+   mapping), config fail-closed (field+value+supported named), and
+   registry-lookup fail-closed (unknown → `ValueError`; declared-
+   unimplemented → `RuntimeAdapterNotImplementedError`, never a silent
+   spring fallback) contracts all asserted.
+3. **Focused tests — PASS.**  Gate file `tests/test_runtime_
+   architecture.py`: **43 passed** at P2 (36 at P0 + 5 plain-target at
+   P1 + 3 jakarta-target at P2, minus 1 flipped staged test rewritten
+   synthetically).  Red-first evidence preserved
+   (`bl088_red_probe.txt`: TypeError on §32 keys + hardcoded
+   `_assemble_spring_boot`).  API surface verified live at P1 (201
+   default, 201 plain, 400 invalid, preflight `ServiceError`); store
+   round-trip/update/legacy-migration probes green.
+4. **Regression — PASS.**  Fast local regression at each batch (no full
+   sweep, per CI-first rule): P1 = 135 passed / 2 failed; P2 = 121
+   passed / 1 failed — every failure is the documented cold-daemon
+   `docker_adapter.py:125` oracle-identity family (green in CI full
+   suite).  CI full-suite backend job success at all three SHAs.  No
+   test weakened; the two staged fail-closed tests were rewritten to
+   synthesize the declared-but-unimplemented state via registry
+   monkeypatch (all targets real now — the guard stays covered without
+   a fake pending target).
+5. **Integration — PASS.**  API create→store→read round-trip persists
+   `target_runtime` (verified live); modernize pre-flight rejects a
+   corrupt stored target before any run; `_generate_application`
+   threads the target into `ModernizationConfig`; `_fill_discovery`
+   carries `target_runtime` (pre-existing report-rebuild bug found and
+   fixed by the new tests — the exact §54 report-truth shape the seam
+   exists to prevent).
+6. **Fresh end-to-end where applicable — PASS (scope-limited by
+   design).**  Phase 8 creates no runtime lane and issues no
+   certification; `plain_java`/`jakarta_ee` are generation-only by
+   documented bound (build execution = Phase 9 scope; no offline
+   Jakarta artifacts exist).  Fresh execution that IS applicable: the
+   full docker/oracle suite in CI at all three SHAs (success).  No
+   equivalence claim is made anywhere.
+7. **Reproducible evidence tied to identities — PASS (limitation).**
+   Every number cites a preserved file (`%TEMP%\opencode\phase8\`) or
+   an exact SHA + run ID.  Limitation: CI artifacts/logs need auth →
+   job/step granularity; Phase 8 issues no certification, so no new
+   manifest integrity claim is made.
+8. **Known limitations documented — PASS.**  Generation-only bounds
+   stated in every BACKLOG/record row for plain_java and jakarta_ee
+   (build/runtime evidence = Phase 9 scope; Rung 0–1, never
+   certified); the report `_derive_limitations` discloses per-target;
+   the matrix row records the structural-generation-only classification.
+9. **No silent semantic loss — PASS.**  §32 config validation is
+   fail-closed (unknown value names field+value+supported — never
+   silent acceptance); adapter lookup is fail-closed (unknown →
+   `ValueError`; declared-unimplemented → explicit
+   `RuntimeAdapterNotImplementedError` — never a silent spring
+   fallback); plan `output_type` records the configured target
+   truthfully (SPRING_BOOT/NATIVE_JAVA/JAKARTA_EE); report carries
+   `assembly.target_runtime` + per-target limitation; the
+   `_fill_discovery` report-rebuild bug (which silently reset
+   `target_runtime` to the default) was caught and fixed by the new
+   tests; gate grew 49→50 files, nothing weakened or skipped.
+10. **Phase-assigned gaps fixed or carried — PASS.**  Phase-8-assigned:
+    BL-088 (P0), BL-089 (P1), BL-090 (P2) — ALL FIXED with red→green
+    evidence and register rows updated.  13 remaining OPEN items are
+    assigned OUTSIDE this phase (BL-045/046/065/066 → Phase 12;
+    BL-047/048/049/067/068 → Phase 11; BL-050/051/054 → Phase 9;
+    BL-053 → Phase 10).
+11. **Breadth audit — PASS.**  Code/tests: audit-first probes + focused
+    tests + fast regression; security: Supply-chain (SBOM, audit)
+    green ×3 SHAs; architecture: no new lanes, gate still
+    dependency-free; API/UI: create/read/preflight surface verified +
+    frontend job green; ops: CI jobs; docs: matrix row + backlog
+    register + change-log (an)(ao).
+12. **Acceptance criteria — PASS.**  Every BL section's acceptance list
+    maps 1:1 to a green test (see criterion 3), plus plan-truth,
+    config fail-closed, registry fail-closed, distinct-pom, and
+    no-spring assertions; nothing pre-claimed: each section was filed
+    OPEN first (audit-first), red captured, then flipped FIXED with
+    real numbers.
+13. **Live checkpoint from actual results — PASS.**  This block + the
+    Phase 8 status header are written from the preserved evidence and
+    fresh GitHub API responses above; no number here is aspirational.
+
+### Implemented functionality — separation of claims
+- **Working and verified:** §32 runtime adapter architecture (fail-closed
+  five-key config, registry dispatch, pre-phase lookup, truthful plan
+  output_type, report target_runtime + limitations); three assembly
+  targets (Spring Boot byte-identical to pre-change; plain_java
+  dependency-free Maven jar; jakarta_ee distinct Jakarta-marked pom
+  profile) over the ONE shared parser/transformer; API/store
+  `target_runtime` selection with schema migration 4.
+- **Generation-only (NOT built, NOT runtime-proven):** `plain_java` and
+  `jakarta_ee` project shapes — Maven build execution and runtime
+  equivalence evidence are Phase 9 scope; no offline Jakarta EE
+  artifacts exist (Rung 0–1, never certified).  No equivalence claim is
+  made anywhere.
+- **Universality position:** the §32 "capable of targeting multiple Java
+  runtime architectures" requirement is met at the generation/assembly
+  level with a single shared semantic transformation; universal runtime
+  equivalence remains explicitly unclaimed (§53 rule honored).
+
+### Records updated
+`docs/BACKLOG.md` (BL-088/089/090 FIXED + change-log (an)(ao)),
+`docs/SEMANTIC_PROOF_MATRIX.md` (§32 runtime-targets row),
+`docs/PHASE_6_7_FINAL_REPORT.md` (Phase 8 section), this checkpoint.
+Evidence dir: `%TEMP%\opencode\phase8\`.  **Next action:** Phase 9
+only on explicit authorization (verdict = COMPLETE — VERIFIED; no
+merge to main).
+
+
 ## Phase 7 started — CICS / MQ / IMS / External Dependencies (2026-10-15)
 
 ### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 7 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE; batches 1–3 = BL-057/058 + BL-084/085 + BL-086/087 ALL FIXED, change-log (af)–(ak) + CI evidence (al); gate 49 files / 685 bare-venv; local full Docker sweep of record for batch 3 COMPLETED 3739 passed / 0 failed / 0 skipped in 59m11s (`full_sweep_batch3.txt`) — note: the interim “INTERRUPTED at ~11%” reading was a stale-progress snapshot, chronology preserved in the batch-3 bullet below; CI primary: 8/8 runs + 28/28 jobs green on `03ec9f9` + `c2dd227` incl. Capability truth gate + full-suite backend job; batches 1+2 sweep 3704/6 all resolved; verdict chain: `06d9b98` → `03ec9f9` → `c2dd227` → `e67b59e` (verdict docs + pins, CI 4/4, job+step verified) → `8d2f48f` (CI 4/4, job verified, change-log (al)(am)); ALL exact-SHA CI green; Phase-7 work baseline `c2dd227`; NO LLM; no merge to main; Phase 8 NOT started**)
