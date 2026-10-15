@@ -1555,10 +1555,15 @@ class SqlJoin:
     """A SQL JOIN clause.
 
     Represents table join with condition.
+
+    ``on_predicates`` holds every honest ON conjunct (BL-081, same
+    additive pattern as ``SqlSelect.where_predicates``); ``on_condition``
+    remains the first conjunct for single-predicate consumers.
     """
     join_type: SqlJoinType = SqlJoinType.INNER
     table: SqlTableReference | None = None
     on_condition: SqlPredicate | None = None
+    on_predicates: tuple[SqlPredicate, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -76,7 +76,10 @@ jobs:
             tests/test_jcl_lane_hygiene.py \
             tests/test_jcl_build_environment.py \
             tests/transformation/test_sql_predicate_fidelity.py \
-            tests/transformation/test_sql_unsupported_statement_diagnostics.py
+            tests/transformation/test_sql_unsupported_statement_diagnostics.py \
+            tests/transformation/test_sql_clause_fidelity.py \
+            tests/test_db2_unmapped_error_statuses.py \
+            tests/test_db2_cursor_host_variable_lifecycle.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

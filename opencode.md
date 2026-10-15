@@ -2,7 +2,7 @@
 
 ## Phase 6 started — DB2 / SQL Modernization (2026-10-15)
 
-### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `41c98ef` (change-log (aa)): 3 carried + 5 new defects + 1 disclosed gap; BATCH P1 COMPLETE (BL-078/079/080 ALL FIXED, change-log (ac), sweep 3663/4/0 = 3641 + 22 exact); Phase 5 CLOSED — VERIFIED (§53 13/13); P0: none; BATCH P2 next (BL-060/061/062/081/082 + BL-083 disclosure)**)
+### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `41c98ef` (change-log (aa)): 3 carried + 5 new defects + 1 disclosed gap; BATCH P1 COMPLETE (BL-078/079/080 ALL FIXED, change-log (ac), sweep 3663/4/0, CI green at `fa1c631`); BATCH P2 COMPLETE (BL-060/061/062/081/082 ALL FIXED + BL-083 roadmap disclosure, change-log (ad), gate 45 files/635 bare-venv, effective sweep 3683/4/0 — 1 Docker-flake rerun green); Phase 5 CLOSED — VERIFIED (§53 13/13); P0: none**)
 
 - **Phase 5 status: CLOSED — `COMPLETE — VERIFIED`** (§53 13/13 verdict
   block below the Phase 5 section). P1 batch `d88045331e4aefeffc6c3a6d08ffbf9204437a6a`
@@ -62,12 +62,60 @@
     `bl079_focused_green.txt` (14), `bl080_focused_green.txt` (223
     SQL lane). Full serialized P1 sweep **3663 passed / 4 skipped /
     0 failed** in 31m49s (`p1_batch_full_regression.txt`) =
-    3641 + 22 exact.
+    3641 + 22 exact. Exact-SHA CI at the batch commit `fa1c631…`:
+    **`EXACT_SHA_CI_GREEN`** (runs=4, 14/14 jobs incl. capability gate;
+    `ci_fa1c631.txt`).
+  - **Batch P2 = BL-060/061/062/081/082 + BL-083 disclosure — ALL
+    FIXED (change-log (ad)):**
+    - **BL-060**: red `bl060_pre_fix.txt` (collection ImportError —
+      sentinel constants absent; behavioral crash proven by probes
+      A2/B) → `-1`/`'56000'` documented lane sentinel
+      (`SQLCODE_UNMAPPED_ERROR`/`SQLSTATE_UNMAPPED_ERROR` +
+      `Db2SqlStatus.unmapped_error`) wired into both handlers; green 4.
+    - **BL-061**: red `bl061_pre_fix.txt` (4 failed) → DECLARE-time
+      bind plan stored on `_CursorState.bind_info` (re-masking
+      already-masked SQL at OPEN was the lost handoff), harness passes
+      the OPEN statement's bindings entry (DB2 binds at OPEN),
+      `execute()` fails closed (TypeError naming the analyzer for
+      unanalyzed IR; ValueError naming unknown statement types), dead
+      `_bind_from_sql` removed; green 4.
+    - **BL-062**: red `bl062_pre_fix.txt` (`2 failed, 1 passed` —
+      explicit-column control green) → column list parsed only from
+      parens before `VALUES`, values only from parens after; green 3.
+    - **BL-081**: reds `bl081_pre_fix.txt` (`4 failed, 1 passed` —
+      non-join control) + `bl081_deps_pre_fix.txt` (`1 failed`,
+      baseline-parser stash capture for the `extract_table_dependencies`
+      door) → JOIN segments parsed into `joins` with ON conjuncts
+      (additive `ir.SqlJoin.on_predicates`, first conjunct =
+      `on_condition`), analyzer table usage/`table_refs`/read columns
+      and `extract_table_dependencies` include joined tables, FROM
+      section bounded at the next clause keyword; green 6.
+    - **BL-082**: red `bl082_pre_fix.txt` (`1 failed, 2 passed` — both
+      controls green) → ORDER BY slice bounded at `FETCH FIRST`; green 3.
+    - **BL-083**: roadmap `COBOL_UNIVERSALITY_ROADMAP.md` §15 item
+      **P3-7** discloses the `DependencyKind.DB2`-no-producer /
+      `sqlcode_field`-unconsumed gap + Phase-10 scheduling; duplicate
+      register row removed (pure duplication, no claim change);
+      Phase 6 verdict limitations at completion.
+    - New gate files `test_sql_clause_fidelity.py` (12) +
+      `test_db2_unmapped_error_statuses.py` (4) +
+      `test_db2_cursor_host_variable_lifecycle.py` (4); gate now 45
+      files, **bare-venv dependency-free gate verified BEFORE wiring**:
+      `635 passed` = 615 + 20 exact, no warnings. SQL-lane regression
+      `2098 passed / 4 skipped` (incl. the golden-trace workload);
+      batch green `p2_new_tests_all_green.txt` (20 passed).
+      Full serialized P2 sweep: **`3682 passed / 4 skipped / 1 failed`**
+      in 33m44s (`p2_batch_full_regression.txt`) — the 1 failure was the
+      known Docker-oracle image-identity flake (`docker_adapter.py:125`,
+      transient mid-sweep); failed set rerun on the idle daemon
+      **1 passed** + digest verified (`p2_sflake_rerun.txt`,
+      `p2_sflake_docker_state.txt`), nothing weakened; effective
+      **3683 passed / 4 skipped / 0 failed** = 3663 + 20 exact.
   Per-item defect-proven-first, no LLM anywhere, no merge to `main`.
 
 ## Phase 5 started — JCL Modernization (2026-10-15)
 
-### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **COMPLETE — VERIFIED at `b7f62463896aa9ab2f910e1024251e8686ddd2bf` — BL-063 + BL-071…BL-077 ALL FIXED: two batches (4×P1 + 4×P2), serialized sweep 3641 passed / 4 skipped / 0 failed, exact-SHA CI green 4 runs / 14 jobs at BOTH `d880453` and `b7f6246` (`EXACT_SHA_CI_GREEN`, per-job head_sha matched; the failed `41c98ef` run + its deterministic bare-venv reproduction kept as evidence); §53 scored 13/13 below**)
+### ⚑ PHASE 5 STATUS — read this first (2026-10-15, **COMPLETE — VERIFIED at `b7f62463896aa9ab2f910e1024251e8686ddd2bf` — BL-063 + BL-071…BL-077 ALL FIXED: two batches (4×P1 + 4×P2), serialized sweep 3641 passed / 4 skipped / 0 failed, exact-SHA CI green 4 runs / 14 jobs at `d880453`, `b7f6246` AND the verdict docs commit `07948fe` (`EXACT_SHA_CI_GREEN`, per-job head_sha matched; the failed `41c98ef` run + its deterministic bare-venv reproduction kept as evidence); §53 scored 13/13 below**)
 
 - **Phase 4 is closed (`COMPLETE — VERIFIED`)** and is not reopened.
   Baseline for Phase 5: branch `codex/universal-core`, HEAD `e0e6499…`
@@ -198,7 +246,9 @@ designed.
   `41c98ef432c1e224ab249a241794e1a5bf562862` (batch P2; failed CI kept
   as evidence) + `b7f62463896aa9ab2f910e1024251e8686ddd2bf` (gate-leak
   fix, change-log (ab); exact-SHA CI GREEN runs=4 — this docs commit
-  carries the verdict) on `codex/universal-core`.
+  carries the verdict, and the verdict docs commit
+  `07948fee12eba92b7b3d701bf7cdff8a33d90d7c` also has exact-SHA CI
+  **GREEN** runs=4 / 14 jobs, `ci_07948fe.txt`) on `codex/universal-core`.
 - **Fixed & closed this phase (8/8 applicable):**
   - **BL-071** (P1) — JCL-generated Spring Boot project failed the
     canonical offline build while the adapter doc claimed "it compiles,

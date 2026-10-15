@@ -440,6 +440,17 @@ first pattern. Risk: low.
 P3-6 External dependency modeling (call-graph edges to non-COBOL targets):
 visible → classified → BLOCKED ledger entries via integrated_proof
 `extra_dependencies`. Mostly exists; extend edge vocabulary. Risk: low.
+P3-7 DB2 dependency ledger wiring (BL-083, disclosed 2026-10-15):
+`DependencyKind.DB2` has no product producer and `sqlcode_field` has no
+consumer in `engine/`/`api/` — parsed DB2 table dependencies stay inside
+the SQL lane and never enter the integrated proof, the API, or the
+modernization ledger, so the platform dependency inventory excludes DB2
+tables. Lane-level truth is correct; `integrated_proof` claims only
+"parsed and classified" for DB2 and no documentation claims platform
+visibility. Wiring is an integration-lane decision scheduled for the
+evidence / integrated-proof phase (Master README Phase 10); until then
+the gap stays disclosed here — never half-built. Risk: low
+(disclosure only).
 
 ## 16. Test strategy (no fake coverage)
 

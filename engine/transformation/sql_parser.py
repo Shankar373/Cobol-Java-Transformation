@@ -26,6 +26,8 @@ from engine.transformation.ir import (
     SqlExpression,
     SqlHostVariable,
     SqlInsert,
+    SqlJoin,
+    SqlJoinType,
     SqlOrderBy,
     SqlOperator,
     SqlSelect,
@@ -273,7 +275,12 @@ class SqlParser:
 
         for stmt in block.statements:
             if stmt.select:
-                for table in stmt.select.from_tables:
+                select_targets = list(stmt.select.from_tables)
+                # Joined tables are dependency targets too (BL-081)
+                select_targets.extend(
+                    join.table for join in stmt.select.joins if join.table
+                )
+                for table in select_targets:
                     columns = [col.column_name for col in stmt.select.columns]
                     deps.append(Db2TableDependency(
                         program_id=program_id,
@@ -350,19 +357,34 @@ class SqlParser:
 
         columns = self._parse_column_list(cols_text)
 
-        # Extract tables from FROM clause
+        # Extract tables from the FROM section (BL-081: JOIN segments and
+        # their ON conditions are preserved in SqlSelect.joins instead of
+        # being dropped; the section ends at the next clause keyword so no
+        # trailing clause text can leak into a table name)
         from_start = start_pos + from_match.start() + 4
         where_match = re.search(r"\bWHERE\b", upper[from_start:])
-        join_match = re.search(r"\b(?:INNER\s+)?JOIN\b", upper[from_start:])
+        clause_match = re.search(
+            r"\b(?:WHERE|GROUP\s+BY|HAVING|ORDER\s+BY|FETCH\s+FIRST)\b",
+            upper[from_start:],
+        )
+        section_end = (
+            from_start + clause_match.start() if clause_match else len(sql_text)
+        )
+        from_section = sql_text[from_start:section_end]
 
-        if where_match:
-            tables_text = sql_text[from_start:from_start + where_match.start()].strip()
-        elif join_match:
-            tables_text = sql_text[from_start:from_start + join_match.start()].strip()
+        joins: tuple[SqlJoin, ...] = ()
+        join_match = re.search(
+            r"\b(?:(?:INNER|LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?)?JOIN\b",
+            from_section,
+            re.IGNORECASE,
+        )
+        if join_match:
+            from_tables = self._parse_table_list(
+                from_section[:join_match.start()].strip()
+            )
+            joins = self._parse_join_segments(from_section[join_match.start():])
         else:
-            tables_text = sql_text[from_start:].strip()
-
-        from_tables = self._parse_table_list(tables_text)
+            from_tables = self._parse_table_list(from_section.strip())
 
         # Extract WHERE clause (all honest conjuncts, BL-079)
         where_predicate = None
@@ -383,12 +405,20 @@ class SqlParser:
                 where_predicate = parsed_preds[0]
                 where_predicates = tuple(parsed_preds)
 
-        # Extract ORDER BY
+        # Extract ORDER BY (BL-082: bounded at FETCH FIRST so the column
+        # names never absorb the trailing FETCH clause)
         order_by: tuple[SqlOrderBy, ...] = ()
         order_match = re.search(r"\bORDER\s+BY\b", upper)
         if order_match:
             order_start = order_match.end()
             order_text = sql_text[order_start:].strip()
+            fetch_after_order = re.search(
+                r"\bFETCH\s+FIRST\b", upper[order_start:]
+            )
+            if fetch_after_order:
+                order_text = sql_text[
+                    order_start:order_start + fetch_after_order.start()
+                ].strip()
             order_by = self._parse_order_by(order_text)
 
         # Extract GROUP BY
@@ -413,6 +443,7 @@ class SqlParser:
             columns=tuple(columns),
             into_variables=into_variables,
             from_tables=tuple(from_tables),
+            joins=joins,
             where_predicate=where_predicate,
             where_predicates=where_predicates,
             order_by=order_by,
@@ -439,19 +470,29 @@ class SqlParser:
 
         table = SqlTableReference(table_name=table_name, schema=schema)
 
-        # Find columns
+        # Column list: parentheses between the table name and VALUES
+        # (BL-062). A column-less INSERT (`INSERT INTO T VALUES (...)`)
+        # has no column list — the column set is undetermined from the
+        # text alone, so it stays empty instead of inventing columns
+        # from the VALUES list. Execution uses raw_sql and is unaffected.
         columns: tuple[SqlColumnReference, ...] = ()
-        col_match = re.search(r"\(([^)]+)\)", sql_text[into_match.end():])
-        if col_match:
-            col_text = col_match.group(1)
-            columns = tuple(self._parse_column_list(col_text))
-
-        # Find VALUES
         values: tuple[SqlExpression, ...] = ()
-        values_match = re.search(r"\bVALUES\s*\(([^)]+)\)", upper)
+        after_table = sql_text[into_match.end():]
+        values_match = re.search(r"\bVALUES\b", after_table, re.IGNORECASE)
         if values_match:
-            values_text = values_match.group(1)
-            values = tuple(self._parse_expression_list(values_text))
+            before_values = after_table[:values_match.start()]
+            values_region = after_table[values_match.end():]
+        else:
+            before_values = after_table
+            values_region = ""
+
+        col_match = re.search(r"\(([^)]+)\)", before_values)
+        if col_match:
+            columns = tuple(self._parse_column_list(col_match.group(1)))
+
+        values_match = re.search(r"\(([^)]+)\)", values_region)
+        if values_match:
+            values = tuple(self._parse_expression_list(values_match.group(1)))
 
         return SqlInsert(
             table=table,
@@ -664,6 +705,65 @@ class SqlParser:
             ))
 
         return tables
+
+    _JOIN_KEYWORD_RE = re.compile(
+        r"\b(?:(INNER|LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?)?(CROSS\s+)?JOIN\b",
+        re.IGNORECASE,
+    )
+
+    def _parse_join_segments(self, text: str) -> tuple[SqlJoin, ...]:
+        """Parse ``<type> JOIN <table> [ON <pred>] …`` segments (BL-081).
+
+        Each segment runs from its JOIN keyword to the next JOIN keyword.
+        The ON condition is parsed with the conjunct splitter (BL-079);
+        all conjuncts are retained in ``on_predicates`` and the first one
+        also populates ``on_condition``. A join without ON (e.g. CROSS
+        JOIN) keeps ``on_condition=None``.
+        """
+        matches = list(self._JOIN_KEYWORD_RE.finditer(text))
+        joins: list[SqlJoin] = []
+        for idx, match in enumerate(matches):
+            seg_start = match.end()
+            seg_end = (
+                matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+            )
+            segment = text[seg_start:seg_end].strip()
+
+            type_word = (match.group(1) or "").upper()
+            if type_word in ("INNER", "LEFT", "RIGHT", "FULL"):
+                join_type = SqlJoinType[type_word]
+            elif match.group(2):
+                join_type = SqlJoinType.CROSS
+            else:
+                join_type = SqlJoinType.INNER
+
+            on_match = re.search(r"\bON\b", segment, re.IGNORECASE)
+            if on_match:
+                table_text = segment[:on_match.start()].strip()
+                on_text = segment[on_match.end():].strip()
+            else:
+                table_text = segment
+                on_text = ""
+
+            tables = self._parse_table_list(table_text)
+            table = tables[0] if tables else None
+
+            on_condition = None
+            on_predicates: tuple[SqlPredicate, ...] = ()
+            if on_text:
+                preds = self._parse_predicates(on_text)
+                if preds:
+                    on_condition = preds[0]
+                    on_predicates = tuple(preds)
+
+            joins.append(SqlJoin(
+                join_type=join_type,
+                table=table,
+                on_condition=on_condition,
+                on_predicates=on_predicates,
+            ))
+
+        return tuple(joins)
 
     def _parse_host_variable_list(self, text: str) -> list[SqlHostVariable]:
         """Parse a comma-separated host variable list."""

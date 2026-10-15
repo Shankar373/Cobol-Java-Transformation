@@ -42,6 +42,8 @@ def run_db2_workload(
 
     ``statement_bindings`` supplies input host-variable values in the order
     of ``model.statements``; an empty dict is used for any missing entry.
+    Cursor queries bind their host variables at ``OPEN`` — the values
+    belong in the ``OPEN`` statement's entry (BL-061).
     """
     model = Db2SemanticAnalyzer().analyze_program(
         program_id,
@@ -77,7 +79,10 @@ def run_db2_workload(
             if stmt.statement_type == "OPEN_CURSOR" and cursor_name not in holders:
                 raise WorkloadExecutionError(f"OPEN before DECLARE: {cursor_name}")
             operation = "OPEN" if stmt.statement_type == "OPEN_CURSOR" else "CLOSE"
-            trace(operation, db.execute(stmt).status, name=cursor_name)
+            # Query host variables bind at OPEN (BL-061): the OPEN
+            # statement's bindings entry supplies the cursor query values.
+            trace(operation, db.execute(stmt, bindings=stmt_bindings).status,
+                  name=cursor_name)
             continue
         if stmt.statement_type == "FETCH_CURSOR":
             cursor_name = _cursor_name(stmt)

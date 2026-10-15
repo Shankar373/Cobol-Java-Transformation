@@ -2678,9 +2678,10 @@ level and evidence location.
 - **Priority:** P2 — the handler designed to map IntegrityError/
   OperationalError to a "-1" status instead crashes with `ValueError`.
 - **Severity:** medium-low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
-  pending.
+- **Status:** **FIXED — VERIFIED 2026-10-15 (Phase 6 batch P2)**; red
+  `bl060_pre_fix.txt` (collection ImportError — the sentinel constants
+  did not exist; the behavioral `ValueError` crash proven by audit
+  probes A2/B), focused green `bl060_focused_green.txt` (4 passed).
 - **Found by:** audit group T4: `engine/sql/execution.py` L432, L441 —
   unmapped SQLSTATE paths construct a status whose dataclass rejects the
   empty SQLSTATE.
@@ -2704,9 +2705,9 @@ level and evidence location.
 - **Priority:** P2 — bounded to the SQL lane (never runtime-verified);
   fails loudly, not silently.
 - **Severity:** low-medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
-  pending.
+- **Status:** **FIXED — VERIFIED 2026-10-15 (Phase 6 batch P2)**; red
+  `bl061_pre_fix.txt` (4 failed: host-variable OPEN fails uncaught,
+  misuse unguarded), focused green `bl061_focused_green.txt` (4 passed).
 - **Found by:** audit group T4: `engine/sql/execution.py` L172, L184-190 —
   `_declare_cursor` masks the query and drops the bind map
   (`masked, _binds = …`), so OPEN cannot bind `:HV` values.
@@ -2731,9 +2732,9 @@ level and evidence location.
 - **Priority:** P2 — wrong columns derived silently within the SQL
   subset (SQL never gets a runtime verdict, so impact is bounded).
 - **Severity:** low-medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T4); hand-check
-  pending.
+- **Status:** **FIXED — VERIFIED 2026-10-15 (Phase 6 batch P2)**; red
+  `bl062_pre_fix.txt` (`2 failed, 1 passed` — control form green),
+  focused green `bl062_focused_green.txt` (3 passed).
 - **Found by:** audit group T4: `engine/transformation/sql_parser.py`
   L422-425.
 - **Observed behavior (verified at code level):** values are recorded as
@@ -3501,8 +3502,11 @@ level and evidence location.
   the joined table while the SELECT list still references its columns
   (`B.NAME`) — an internally inconsistent model.
 - **Severity:** medium (under-reported dependencies, no fabrication).
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
-  (baseline `41c98ef`)**; behaviorally verified (audit probe I).
+- **Status:** **FIXED — VERIFIED 2026-10-15 (Phase 6 batch P2)**;
+  behaviorally verified by audit probe I; red
+  `bl081_pre_fix.txt` (`4 failed, 1 passed` — non-join control green)
+  + `bl081_deps_pre_fix.txt` (dependency door, `1 failed`), focused
+  green `bl081_focused_green.txt` (6 passed).
 - **Found by:** Phase 6 audit probe I
   (`%TEMP%\opencode\phase6\audit_probes.txt`).
 - **Observed behavior (verified):** `SELECT A.ID, B.NAME FROM T1 A INNER
@@ -3536,8 +3540,10 @@ level and evidence location.
 - **Priority:** P2 — model-only pollution; execution uses raw SQL so
   behavior on the controlled database is unaffected.
 - **Severity:** low-medium (wrong column name in the semantic model).
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
-  (baseline `41c98ef`)**; behaviorally verified (audit probe J).
+- **Status:** **FIXED — VERIFIED 2026-10-15 (Phase 6 batch P2)**;
+  behaviorally verified (audit probe J); red `bl082_pre_fix.txt`
+  (`1 failed, 2 passed` — both controls green), focused green
+  `bl082_focused_green.txt` (3 passed).
 - **Found by:** Phase 6 audit probe J
   (`%TEMP%\opencode\phase6\audit_probes.txt`).
 - **Observed behavior (verified):** `SELECT … ORDER BY ACCT DESC FETCH
@@ -3568,8 +3574,10 @@ level and evidence location.
   the integrated proof, the API, or the modernization ledger, and the
   SQLCA field names stored on the model are never consumed.
 - **Severity:** medium (capability truth incomplete at platform level).
-- **Status:** **OPEN — discovered 2026-10-15 by the Phase 6 DB2/SQL audit
-  (baseline `41c98ef`)**; statically verified (repo-wide grep + probe K).
+- **Status:** **DISCLOSED — 2026-10-15 (Phase 6 audit); roadmap P3-7
+  disclosure added with the batch-P2 docs**; register row present;
+  Phase 6 verdict limitations to be written at completion; deferred to
+  Phase 10 by design decision.
 - **Found by:** Phase 6 audit probe K + repository grep
   (`%TEMP%\opencode\phase6\audit_probes.txt`).
 - **Observed behavior (verified):** `DependencyKind.DB2` appears only in
@@ -4676,7 +4684,11 @@ level and evidence location.
   serialized suite `3663 passed / 4 skipped / 0 failed` in 31m49s
   (`%TEMP%\opencode\phase6\p1_batch_full_regression.txt`) = 3641 P2-batch
   baseline + 22 new (14 predicate-fidelity + 8 unsupported-diagnostics),
-  exact collection reconciliation.**
+  exact collection reconciliation.** **Exact-SHA CI (run of record) at
+  the batch commit `fa1c63145c1e14d3a868bcde3aa07885bdd65dcd`:
+  `EXACT_SHA_CI_GREEN` — runs=4 (SystemaOps CI + Supply chain, push +
+  pull_request), 14/14 jobs success including the capability gate
+  (`ci_fa1c631.txt`, per-job `head_sha` matched).**
 
 - 2026-10-15 — **(z) Phase 5 (JCL Modernization) COMPLETION VERDICT:
   `PHASE 5 COMPLETE — VERIFIED` — §53 scored 13/13.** Scope per the
@@ -4704,7 +4716,73 @@ level and evidence location.
   the exact-SHA run of record catches what local full-env sweeps cannot
   (a pytest-only environment defect). Full 13-point scoring table in
   `opencode.md` (§53 VERDICT — Phase 5 block); verdict docs committed
-  separately from Phase 6 batch-P1 code.
+  separately from Phase 6 batch-P1 code. Verdict docs commit
+  `07948fee12eba92b7b3d701bf7cdff8a33d90d7c`: **exact-SHA CI GREEN**
+  (runs=4, all jobs incl. capability gate; `ci_07948fe.txt`) — the
+  verdict's run of record.
+
+- 2026-10-15 — **(ad) Phase 6 (DB2/SQL) batch P2 — BL-060/061/062/081/082
+  ALL FIXED + BL-083 disclosure; defect-proven-first per item, no
+  existing test weakened.** **BL-060** (unmapped error handlers crashed
+  with `ValueError` on `sqlstate=""`): red `bl060_pre_fix.txt`
+  (collection ImportError — sentinel constants absent; behavioral crash
+  proven by audit probes A2/B) → `SQLCODE_UNMAPPED_ERROR = -1` /
+  `SQLSTATE_UNMAPPED_ERROR = '56000'` (documented lane sentinel, never a
+  DB2-code claim) + `Db2SqlStatus.unmapped_error`, both handler sites
+  wired → green `bl060_focused_green.txt` (4). **BL-061** (cursor bind
+  handoff missing; harness passed no bindings at OPEN; `execute()`
+  misroute): red `bl061_pre_fix.txt` (4 failed — host-variable OPEN
+  failed uncaught via re-masking already-masked SQL, misuse unguarded) →
+  DECLARE-time bind plan stored in `_CursorState.bind_info` (carried
+  through OPEN/FETCH), OPEN binds from the workload's OPEN entry (DB2
+  binds at OPEN), `execute()` fails closed (TypeError naming the
+  analyzer requirement for unanalyzed IR, ValueError naming unknown
+  statement types), dead `_bind_from_sql` removed, harness passes
+  `stmt_bindings` at OPEN → green `bl061_focused_green.txt` (4);
+  golden-trace workload + SQL lane `2098 passed / 4 skipped`.
+  **BL-062** (column-less INSERT stored VALUES parens as columns): red
+  `bl062_pre_fix.txt` (`2 failed, 1 passed`) → column list parsed only
+  from parens before `VALUES`, values only from parens after → green
+  `bl062_focused_green.txt` (3; analyzer `write_columns == ()`
+  pinned). **BL-081** (JOIN tables/ON conditions silently lost though
+  `SqlSelect.joins` exists): reds `bl081_pre_fix.txt` (`4 failed,
+  1 passed` — non-join control) + `bl081_deps_pre_fix.txt` (`1 failed`,
+  baseline-parser capture via stash for the `extract_table_dependencies`
+  door) → JOIN segments parsed into `joins` with ON conjuncts
+  (BL-079 splitter; additive `ir.SqlJoin.on_predicates`, first conjunct
+  = `on_condition`), analyzer table usage/`table_refs`/read columns and
+  `extract_table_dependencies` include joined tables, FROM section
+  bounded at the next clause keyword → green
+  `bl081_focused_green.txt` (6). **BL-082** (ORDER BY column names
+  swallowed `FETCH FIRST n ROWS ONLY`): red `bl082_pre_fix.txt`
+  (`1 failed, 2 passed` — both controls green) → ORDER BY slice bounded
+  at `FETCH FIRST` over the original text → green
+  `bl082_focused_green.txt` (3). **BL-083 disclosure**: roadmap
+  `COBOL_UNIVERSALITY_ROADMAP.md` §15 gains item P3-7 stating the
+  `DependencyKind.DB2`-no-producer / `sqlcode_field`-unconsumed gap with
+  Phase-10 scheduling (register row already present; Phase 6 verdict
+  limitations land at completion); a duplicate BL-083 register row was
+  removed as pure duplication (same content, no claim change). New
+  gate-wired files: `tests/transformation/test_sql_clause_fidelity.py`
+  (12), `tests/test_db2_unmapped_error_statuses.py` (4),
+  `tests/test_db2_cursor_host_variable_lifecycle.py` (4); gate list now
+  45 files, **bare-venv dependency-free gate verified BEFORE wiring**
+  (the (ab) failure mode): `635 passed` = 615 + 20 exact, no warnings.
+  Per-item evidence: `bl0NN_pre_fix.txt` + `bl0NN_focused_green.txt`
+  under `%TEMP%\opencode\phase6\`; batch green
+  `p2_new_tests_all_green.txt` (20 passed); `py_compile` clean on all
+  touched modules. **Regression sweep (run of record):** full serialized
+  suite `3682 passed / 4 skipped / 1 failed` in 33m44s
+  (`p2_batch_full_regression.txt`); the single failure was the known
+  Docker-oracle flake class — `test_inventory_generalization.py::
+  TestInventoryMutations::test_mutation_detected[no-report-file]` hit
+  `docker_adapter.py:125` "oracle image identity is not established"
+  transiently mid-sweep (count reconciles exactly: 3682 + 1 = 3683 =
+  3663 + 20 new). Per flake policy the failed set was rerun on the idle
+  daemon: **1 passed** (`p2_sflake_rerun.txt`) with the image identity
+  verified (`gnucobol-ocesql@sha256:68900cc01cd6…`,
+  `p2_sflake_docker_state.txt`); nothing weakened. Effective outcome:
+  **3683 passed / 4 skipped / 0 failed**.
 
 - 2026-10-11 — **Phase 1 completion audit at `46c1cb7`.** Two further BL-020-class
   silent-loss defects found by adversarial re-probing (not by CI) and fixed in
@@ -4812,9 +4890,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-057 | CICS lane maintainer | Phase 7 (carry-forward 2026-10-14) | Shared escaping helper (BL-046) | Python repr() quoting emits invalid Java. | Uncompilable CICS-lane output (fail-closed at javac). | CICS generation emits valid Java literals; cics tests green. |
 | BL-058 | Parser / IR maintainer | **Phase 4 carry-forward (design decision required; P2)** — probe-sharpened 2026-10-14, not fixed in-cycle | Group-nesting representation decision | Hierarchy silently dropped; behavior-affecting fix needs a design call. Probe confirmed WS group node dropped, WS 88-level dropped, WS REDEFINES uncaptured, all diagnostic-free; verdict stays fail-closed via source-scan UNKNOWN (BL-003). | Declaration-shape fidelity unpinned. | Documented, tested representation of group nesting; agreed-shape tests green. |
 | BL-059 | IR/capability maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Capability walker under-reports arithmetic and inline bodies (conservative). | Valid programs blocked more than reality requires. | Capability reflects all arithmetic at any depth; capability tests green. **FIXED**: `has_arithmetic` covers all five statement types; `_flatten_statements` walks inline-PERFORM bodies and INVALID KEY/NOT INVALID KEY bodies of READ/START/WRITE/REWRITE/DELETE; `test_capability_walker_depth.py` (15) red 12/3 (controls green) → green; transformation regression 1919 passed / 0 failed; gate-wired. |
-| BL-060 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Error handler itself raises ValueError (invalid sentinel). | Crash instead of the designed "-1" status. | Unmapped SQLSTATE returns the "-1" status; sql tests green. |
-| BL-061 | SQL lane maintainer | Phase 6 (carry-forward 2026-10-14) | None | Cursor bind handoff missing (DECLARE discards binds). | Host-variable cursors fail loudly; documented subset narrower than claimed. | Host-variable cursors bind or fail closed named; sql tests green. |
-| BL-062 | SQL parser maintainer | Phase 6 (carry-forward 2026-10-14) | None | Column-less INSERT mis-parses VALUES as columns. | Wrong column metadata for a common form. | Both INSERT forms parse correctly or fail closed named; sql parser tests green. |
+| BL-060 | SQL lane maintainer | **Phase 6 (batch P2 - fixed in-cycle 2026-10-15)** | None | Error handler itself raises ValueError (invalid sentinel). | None once fixed: `-1`/`'56000'` is an explicit documented lane sentinel (`SQLCODE_UNMAPPED_ERROR`/`SQLSTATE_UNMAPPED_ERROR`), never a claim about the exact DB2 code. | FIXED - red `bl060_pre_fix.txt` (collection ImportError: sentinel constants absent; behavioral `ValueError` crash proven by audit probes A2/B); `Db2SqlStatus.unmapped_error` added, both handler sites wired; new `tests/test_db2_unmapped_error_statuses.py` (4 tests, gate-wired, bare-venv `635 passed`); focused green `4 passed`, SQL-lane regression `2098 passed / 4 skipped`; no existing test weakened. |
+| BL-061 | SQL lane maintainer | **Phase 6 (batch P2 - fixed in-cycle 2026-10-15)** | None | Cursor bind handoff missing (DECLARE discards binds; re-masking masked SQL at OPEN); harness passed no bindings at OPEN; `execute()` misroutes unanalyzed IR. | None once fixed: genuinely missing OPEN bindings fail loud with the host variable named (`KeyError`). | FIXED - red `bl061_pre_fix.txt` (4 failed), focused green `4 passed` (`bl061_focused_green.txt`); DECLARE-time bind plan stored in `_CursorState.bind_info` (carried through OPEN/FETCH), OPEN binds from the workload's OPEN statement entry (DB2 semantics), `execute()` fails closed (TypeError for unanalyzed IR with analyzer hint, ValueError naming unknown types), dead `_bind_from_sql` removed; new `tests/test_db2_cursor_host_variable_lifecycle.py` (4 tests, gate-wired); SQL-lane regression incl. golden-trace workload `2098 passed / 4 skipped`. |
+| BL-062 | SQL parser maintainer | **Phase 6 (batch P2 - fixed in-cycle 2026-10-15)** | None | Column-less INSERT mis-parses VALUES as columns. | Column set undetermined from text alone stays empty (documented; execution uses raw_sql). | FIXED - red `bl062_pre_fix.txt` (`2 failed, 1 passed` - explicit-column control green), focused green `3 passed` (`bl062_focused_green.txt`); column list parsed only from parens between table name and VALUES, values from parens after VALUES; analyzer `write_columns` stays `()` for the column-less form; in `tests/transformation/test_sql_clause_fidelity.py` (gate-wired); SQL-lane regression `2098 passed / 4 skipped`. |
 | BL-063 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | Shared discovery matcher (`is_jcl_member` / `find_jcl_members`) | Consumer's file selection diverges from discovery; decode errors escape; basename keys silently overwrite colliding members; API presence gate blind to non-`*.jcl` members. | Path-keyed sources (strictly stronger than collision reporting: collisions cannot occur); `JCL_SOURCE_DECODE_FAILED` ERROR fail-closed. | FIXED - red in `bl063_pre_fix_import.txt` (matcher absent) + `bl063_pre_fix.txt` (`6 failed/8 passed` behavioral); shared rule used by discovery + consumer + API gate; decode diagnostics via `pre_diagnostics`; focused green `14 passed`, JCL regression `255 passed`, Docker-gated `5 passed`; gate-wired (12 matcher/decode tests; the 2 API-parity tests split to `tests/test_jcl_api_discovery_parity.py` post-push — the gate is dependency-free, `api.service` needs the runtime stack; change-log (ab)). |
 | BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. **FIXED**: blame-proven duplicate loop removed (accidental re-add `fa0fa62a` over original M7 loop), single emission site pinned; `test_spring_model_emission_unique.py` (4) red 3/1 → green; regressions 1923 + 100 passed; gate-wired. |
 | BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
@@ -4833,10 +4911,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-078 | SQL parser maintainer | **Phase 6 (batch P1 - fixed in-cycle 2026-10-15)** | None | WHERE-predicate string literals uppercased into the semantic model (`'abc'` → `'ABC'`); whole operand text split after `.upper()`. | None. | FIXED - red `3 failed/1 passed` (`bl078_pre_fix.txt`); literal-masked operator search + original-text slicing + DB2 identifier folding; `test_sql_predicate_fidelity.py` gate-wired (bare-venv `615 passed`); focused `14 passed`, SQL regression `223 passed`; no existing test weakened. |
 | BL-079 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 - fixed in-cycle 2026-10-15)** | Additive `ir.SqlSelect/SqlUpdate/SqlDelete.where_predicates` fields | Compound AND/OR, IN, and BETWEEN WHERE predicates mangled into invented fake column names (`'1 AND BAL = 2'`, `'(1, 2, 3)'`, `'100 AND 500'`) flowing into `read_columns`/`Db2TableUsage`/`Db2TableDependency`; `right_list`/`left_operand`/`right_operand` IR fields never populated. | AND/OR grouping recorded as a flat conjunct list (documented: no boolean tree invented). | FIXED - red `8 failed/5 passed` (`bl079_pre_fix.txt`); quote/paren-aware conjunct splitting (BETWEEN protected), never-fabricate `_is_simple_operand` rule, IN/BETWEEN IR fidelity, analyzer collects every conjunct; underscore-identifier boundary caught by existing suite mid-fix (`1 failed/213 passed`) and pinned; focused `14 passed`, SQL regression `223 passed`, gate-wired (bare-venv `615 passed`); no existing test weakened. |
 | BL-080 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 - fixed in-cycle 2026-10-15)** | Additive `ir.EmbeddedSqlBlock.unsupported_statements` field | Unsupported EXEC SQL statements (`BEGIN DECLARE SECTION`, `INCLUDE`, `WHENEVER`, `DECLARE … STATEMENT`) silently dropped with zero diagnostics; `EXECUTE IMMEDIATE` classified as plain EXECUTE (`execute_immediate` never set). | Statements unmodeled but preserved + diagnosed. | FIXED - red `5 failed/3 passed` (`bl080_pre_fix.txt`; one of the five was the new test's own `;`-delimiter expectation, corrected post-red with inline disclosure); else-branch + None-parse capture, analyzer validation entries, `execute_immediate` wiring, dead `cursor_declarations` list removed; focused `223 passed`, gate-wired (bare-venv `615 passed`); no existing test weakened. |
-| BL-081 | SQL parser + analyzer maintainer | **Phase 6 (batch P2 — OPEN, remediation planned 2026-10-15)** | None | JOIN tables/ON conditions silently lost though `SqlSelect.joins` exists (`T2` absent from dependency truth while SELECT list references `B.NAME`). | CROSS JOIN + comma form documented subset (comma form already in `from_tables`). | OPEN - audit probe I (`audit_probes.txt`); planned: JOIN segments parsed into `joins` with ON predicate (BL-079 parser); analyzer includes joined tables + ON columns. Red/green evidence pending. |
-| BL-082 | SQL parser maintainer | **Phase 6 (batch P2 — OPEN, remediation planned 2026-10-15)** | None | ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text (`'ACCT FETCH FIRST 5 ROWS ONLY'`). | None once bounded. | OPEN - audit probe J (`audit_probes.txt`); planned: ORDER BY slice bounded at FETCH FIRST via offset search + original-text slicing. Red/green evidence pending. |
-| BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap + Phase 6 verdict limitations state the gap; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
-| BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap + Phase 6 verdict limitations state the gap; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
+| BL-081 | SQL parser + analyzer maintainer | **Phase 6 (batch P2 — fixed in-cycle 2026-10-15)** | Additive `ir.SqlJoin.on_predicates` field | JOIN tables/ON conditions silently lost though `SqlSelect.joins` exists (`T2` absent from dependency truth while SELECT list references `B.NAME`). | CROSS JOIN / no-ON segments parse by construction but stay outside the focused subset (documented); comma form remains in `from_tables`. | FIXED - red `bl081_pre_fix.txt` (`4 failed, 1 passed` — non-join control green) + `bl081_deps_pre_fix.txt` (`1 failed`, baseline-parser capture of the second dependency door); JOIN segments parsed into `joins` with ON conjuncts (BL-079 splitter; first conjunct also `on_condition`), analyzer table usage/`table_refs`/read columns and `extract_table_dependencies` include joined tables, FROM section bounded at the next clause keyword; focused green `6 passed` (`bl081_focused_green.txt`); SQL-lane regression `2098 passed / 4 skipped`. |
+| BL-082 | SQL parser maintainer | **Phase 6 (batch P2 — fixed in-cycle 2026-10-15)** | None | ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text (`'ACCT FETCH FIRST 5 ROWS ONLY'`). | None once bounded. | FIXED - red `bl082_pre_fix.txt` (`1 failed, 2 passed` — both controls green), focused green `3 passed` (`bl082_focused_green.txt`); ORDER BY slice bounded at `FETCH FIRST` by offset search over the original text; in `tests/transformation/test_sql_clause_fidelity.py` (gate-wired); SQL-lane regression `2098 passed / 4 skipped`. |
+| BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap P3-7 state the gap (roadmap disclosure added with batch-P2 docs 2026-10-15); Phase 6 verdict limitations to be written at completion; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
 
 ### PR disposition snapshot — 2026-10-10
 

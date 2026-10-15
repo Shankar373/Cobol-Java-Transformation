@@ -171,6 +171,12 @@ class Db2SemanticAnalyzer:
         read_cols.extend(collect_predicate_columns(select.where_predicate))
         for pred in select.where_predicates:
             read_cols.extend(collect_predicate_columns(pred))
+        # ON-condition columns of joined tables (BL-081)
+        for join in select.joins:
+            for pred in join.on_predicates or (
+                (join.on_condition,) if join.on_condition else ()
+            ):
+                read_cols.extend(collect_predicate_columns(pred))
         read_cols.extend(collect_predicate_columns(select.having))
         for group in select.group_by:
             if group.column is not None:
@@ -184,11 +190,14 @@ class Db2SemanticAnalyzer:
         read_cols = self._collect_select_read_columns(select)
 
         is_singleton = bool(select.into_variables)
+        table_refs = tuple(select.from_tables) + tuple(
+            join.table for join in select.joins if join.table
+        )
         return Db2StmtSemantic(
             raw_sql=raw,
             statement_type=SqlStatementType.SELECT.value,
             host_variables=self._host_variables(raw, into_span=is_singleton),
-            table_refs=tuple(select.from_tables),
+            table_refs=table_refs,
             read_columns=tuple(column_full_names(read_cols)),
             possible_statuses=SINGLETON_SELECT_STATUSES if is_singleton else (),
         )
@@ -251,7 +260,9 @@ class Db2SemanticAnalyzer:
         tables: tuple = ()
         if query is not None:
             read_cols.extend(self._collect_select_read_columns(query))
-            tables = tuple(query.from_tables)
+            tables = tuple(query.from_tables) + tuple(
+                join.table for join in query.joins if join.table
+            )
 
         return Db2StmtSemantic(
             raw_sql=raw,
@@ -362,6 +373,11 @@ class Db2SemanticAnalyzer:
 
         if stype == SqlStatementType.SELECT:
             targets = list(stmt.select.from_tables) if stmt.select is not None else []
+            if stmt.select is not None:
+                # Joined tables are usage targets as well (BL-081)
+                targets.extend(
+                    join.table for join in stmt.select.joins if join.table
+                )
             for t in targets:
                 usages.append(Db2TableUsage(
                     table_name=t.table_name, schema=t.schema,
@@ -401,7 +417,10 @@ class Db2SemanticAnalyzer:
         if stype == SqlStatementType.DECLARE_CURSOR and stmt.cursor is not None:
             query = stmt.cursor.query
             if query is not None:
-                for t in query.from_tables:
+                query_targets = list(query.from_tables) + [
+                    join.table for join in query.joins if join.table
+                ]
+                for t in query_targets:
                     usages.append(Db2TableUsage(
                         table_name=t.table_name, schema=t.schema,
                         operations=("SELECT",), read_columns=sem.read_columns,
