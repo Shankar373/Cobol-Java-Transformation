@@ -3761,6 +3761,125 @@ level and evidence location.
   message format, correlation, retry and dead-letter semantics remain
   future work (Master README §27 items not yet modeled).
 
+### BL-086 — external utilities / system services / VSAM specifics are Rung 0: no source patterns, no registry keys (roadmap P3-5; Master README §29)
+
+- **Type:** gap (universality detection; conservative direction).
+- **Priority:** P2 — programs using these constructs pass the scan
+  without any construct-specific classification (they still fail closed
+  overall via BL-003 UNKNOWN wiring, so no false SUPPORTED is reachable),
+  but §29's ladder (`Detected → Classified → …`) never starts and the
+  verdict reason never names the construct.
+- **Severity:** medium (universality visibility).
+- **Status:** **FIXED — 2026-10-15 (Phase 7 batch 3).** Discovered OPEN
+  by the audit-first batch-3 review before any source change; red-first
+  evidence in
+  `%TEMP%\opencode\phase7\batch3_red_tests.txt` (8 failed / 7 passed on
+  the focused file, all eight failures the undetected keys).  After the
+  fix: focused gate `tests/test_utilities_vsam_detection.py`
+  **15 passed**; matrix-parity suites `test_silent_loss_registry` +
+  `test_usage_capability` **37 passed** after the SEMANTIC_PROOF_MATRIX
+  rows landed; bare-venv capability-truth gate **685 passed** at 49
+  files (656 + 15 + 14) verified BEFORE wiring and again after wiring
+  the two new files into `ci.yml`.  Classification only — no IR, no
+  mapper, no VSAM or utility runtime, no equivalence claim.
+- **Found by:** roadmap Rung-0 list (COBOL_UNIVERSALITY_ROADMAP §11:
+  "utilities, system services, VSAM specifics") + Phase 7 registry
+  inventory (`RELEASE`, `IDCAMS`, `ORGANIZATION INDEXED/RELATIVE`,
+  `ACCESS DYNAMIC`, `RECORD KEY` absent from `_SOURCE_PATTERNS` /
+  `CONSTRUCT_REGISTRY` while §9 already lists DYNAMIC access and
+  file-based SORT as blocked concepts).
+- **Observed behavior (static, pre-change):** `scan_constructs` never
+  reports these constructs; CAPABILITY_MATRIX rows read
+  "UNKNOWN (no detection patterns)" for Utilities/system services and
+  "UNKNOWN (no VSAM parse path…)" for VSAM specifics.
+- **Expected behavior:** roadmap **P3-5** (detection-first, no runtime):
+  source patterns + registry keys classified `UNSUPPORTED` at both
+  levels, verdict reasons naming the construct, negatives for comment /
+  string-literal / word-boundary cases; no IR, no mapper, no VSAM
+  runtime, no equivalence claim.
+- **Root cause:** lane-first build order; these constructs never received
+  detection patterns.
+- **Affected files:** `engine/transformation/semantic_capability.py`,
+  `docs/SEMANTIC_PROOF_MATRIX.md`, `docs/CAPABILITY_MATRIX.md`,
+  `docs/COBOL_UNIVERSALITY_ROADMAP.md`.
+- **Impact:** §29 dependencies (utilities, system services, VSAM) stay
+  invisible to classification.
+- **Remediation (planned):** `_SOURCE_PATTERNS` + `CONSTRUCT_REGISTRY`
+  keys for `RELEASE` (SORT-family utility I/O), `IDCAMS` (named
+  external utility), `ORGANIZATION INDEXED`, `ORGANIZATION RELATIVE`,
+  `ACCESS DYNAMIC`, `RECORD KEY` (VSAM specifics), each `_unsupported`;
+  matrix/roadmap rows updated; focused gate tests red→green.
+- **Acceptance criteria / tests:** gate-wired focused tests prove
+  detection fires only on real statements/phrases (comment and
+  string-literal text never detect; word boundaries hold), registry
+  levels `UNSUPPORTED`, analyzer reason names the construct, plans stay
+  BLOCKED, existing fail-closed diagnostics retained; no existing test
+  weakened.
+- **Owner/role:** capability/registry maintainer. **Target phase:**
+  Phase 7 (in-cycle). **Dependency:** none. **Residual risk:** phrase
+  coverage stays a documented subset (detection-first bound).
+
+### BL-087 — MQ queue names and IMS PCB/segment references never reach the platform dependency ledger (`extra_dependencies` has no producer)
+
+- **Type:** gap (integration/dependency visibility; conservative
+  direction).
+- **Priority:** P2 — the ledger mechanism exists
+  (`integrated_proof.build_dependency_ledger(extra_dependencies=…)` and
+  `DependencyKind.CICS/DB2` were reserved for exactly this) but nothing
+  produces MQ queue-name or IMS PCB/segment entries, so an application
+  that references external queues/PCBs reports a dependency inventory
+  that omits them (roadmap P3-6 explicitly deferred "queue-name
+  dependency edges and PCB/segment edges" out of P3-4).
+- **Severity:** medium (platform-level inventory incomplete; central
+  status cannot account for MQ/IMS dependencies).
+- **Status:** **FIXED — 2026-10-15 (Phase 7 batch 3).** Discovered OPEN
+  by the audit-first batch-3 review before any source change; red-first
+  evidence in
+  `%TEMP%\opencode\phase7\batch3_red_tests.txt` (`ModuleNotFoundError`
+  for `engine.modernization.external_dependency_edges`, the BL-060
+  precedent: the test file exists and fails red on the missing module).
+  After the fix: focused gate `tests/test_external_dependency_edges.py`
+  **14 passed** (positives, ledger-entry shape, comment/literal/no-block
+  negatives, dedup, determinism, ledger integration keeping central
+  status fail-closed); API wiring verified through
+  `_persist_integrated_proof` → `_proof_payload(extra_dependencies=…)`;
+  bare-venv gate **685 passed** at 49 files.  Ledger visibility and
+  fail-closed classification only — no MQ or IMS runtime, no
+  message-semantics claim.
+- **Found by:** Phase 7 continuation review of `integrated_proof.py`
+  (extra_dependencies parameter documented for JCL/DB2/CICS lanes, zero
+  producers in `engine/`/`api/`) + roadmap P3-6 line ("queue-name
+  dependency edges and PCB/segment edges stay future work").
+- **Observed behavior (static, pre-change):** no MQ/IMS ledger entries
+  exist in any code path; `api.service._proof_payload` calls
+  `build_dependency_ledger` without `extra_dependencies`.
+- **Expected behavior:** roadmap **P3-6**: queue-name and PCB/segment
+  references extracted from real `EXEC MQI` / `EXEC DLI` blocks (never
+  comment or string-literal text) become `visible` ledger entries
+  classified `UNSUPPORTED` with proof state `BLOCKED` (no MQ/IMS runtime
+  lane exists — same structural truth as the JCL lane), deduplicated and
+  deterministic; central status accounts for them fail-closed.
+- **Root cause:** mechanism-first build order; producers were never
+  scheduled.
+- **Affected files:** new
+  `engine/modernization/external_dependency_edges.py`,
+  `engine/modernization/integrated_proof.py` (`DependencyKind` additions),
+  `api/service.py` (`_proof_payload` wiring), docs.
+- **Impact:** platform dependency inventory silently excludes MQ queues
+  and IMS PCBs/segments.
+- **Remediation (planned):** extractor module + `DependencyKind.MQ` /
+  `DependencyKind.IMS` + API wiring; focused gate tests red→green; docs
+  rows.
+- **Acceptance criteria / tests:** extraction fires only inside real
+  `EXEC MQI` / `EXEC DLI` blocks (comment/literal negatives), entries
+  are `visible=True`, `UNSUPPORTED`, `BLOCKED`, `required=True`,
+  deterministic and deduplicated; ledger integration keeps central
+  status fail-closed; no existing test weakened.
+- **Owner/role:** integration/ledger maintainer. **Target phase:**
+  Phase 7 (in-cycle). **Dependency:** none. **Residual risk:** extraction
+  covers the documented statement forms (`QUEUE(…)`/`Q(…)`,
+  `PCB(…)`/`PCB NAME=…`, `SEGMENT(…)`/`SEGMENT NAME=…`) only.
+
 ## Backlog change log
 
 - 2026-10-11 — **Phase 1 closure audit at `bdb4c9a` (documentation only).**
@@ -4859,6 +4978,34 @@ level and evidence location.
   test change, nothing weakened. BL-058 remains OPEN (design call) and
   BL-050/051/054/053 etc. keep their existing phase assignments.
 
+- 2026-10-15 — **(aj) Phase 7 batch 3: BL-086 (utilities / VSAM
+  detection) + BL-087 (MQ/IMS dependency ledger edges) FIXED
+  (audit-first, red→green).**
+  *Filed OPEN first* by the batch-3 review, then red evidence in
+  `%TEMP%\opencode\phase7\batch3_red_tests.txt` (8 failed/7 passed
+  focused; `ModuleNotFoundError` for the not-yet-created extractor
+  module, BL-060 precedent). *BL-086 shipped:* `_SOURCE_PATTERNS` +
+  `CONSTRUCT_REGISTRY` keys `RELEASE`, `IDCAMS`, `ORGANIZATION INDEXED`,
+  `ORGANIZATION RELATIVE`, `ACCESS DYNAMIC`, `RECORD KEY` (all
+  `_unsupported`, both levels), analyzer pre-`PROCEDURE DIVISION` data
+  door extended to the four FILE-CONTROL phrases, SEMANTIC_PROOF_MATRIX
+  rows, roadmap §6.4/§6.5/§10/§11/§15 P3-5 DONE, 15 focused gate tests.
+  *BL-087 shipped:* `engine/modernization/external_dependency_edges.py`
+  (comment- and literal-mask-aware, deterministic, deduplicated
+  `MQ:QUEUE=…`/`IMS:PCB=…`/`IMS:SEGMENT=…` extraction from real
+  `EXEC MQI`/`EXEC DLI` blocks), `DependencyKind.MQ`/`IMS`,
+  `api.service._persist_integrated_proof` →
+  `_proof_payload(extra_dependencies=…)` wiring mirroring the BL-063
+  member rule, roadmap §15 P3-6 DONE, 14 focused gate tests (every entry
+  `visible=True`/`UNSUPPORTED`/`BLOCKED`/`required=True`; central status
+  stays fail-closed). *Gate:* `ci.yml` extended to 49 files;
+  bare-venv capability-truth gate **685 passed** (was 656 at 47 files)
+  verified before relying on CI.  Indexed/relative integration failures
+  seen in the interim sweep are the pre-existing cold-daemon
+  oracle-identity family (no digest pin without the warm daemon), not
+  regressions — the full Docker sweep of record follows in the closing
+  batch.  No runtime, no equivalence claim; nothing weakened.
+
 - 2026-10-15 — **(ai) Phase 7 batch 2: BL-058 WORKING-STORAGE hierarchy
   FIXED (defect-proven-first) + Windows Docker Desktop connectivity
   established for the full regression of record.**
@@ -5193,6 +5340,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap P3-7 state the gap (roadmap disclosure added with batch-P2 docs 2026-10-15); Phase 6 verdict limitations to be written at completion; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
 | BL-084 | Capability/registry maintainer | **Phase 7 (filed OPEN 2026-10-15 by the audit-first probe; FIXED 2026-10-15 — batch 1: pattern + registry key + matrix/roadmap rows + 14 focused gate tests, bare-venv gate 649 passed pre/post wiring)** | None | IMS (`EXEC DLI`) never detected or classified: no `_SOURCE_PATTERNS` entry, no `CONSTRUCT_REGISTRY` key (roadmap Rung 0). | IMS applications rejected with generic reasons; no IMS classification anywhere (verdict already fails closed — no false SUPPORTED). | Detection fires only on real `EXEC DLI` statements (comment/literal masked); registry `level`/`effective_source_level` = `UNSUPPORTED`; analyzer PROGRAM reason names `EXEC DLI`, never `SUPPORTED`; deterministic re-scan; existing fail-closed diagnostics kept; focused gate tests green. |
 | BL-085 | Capability/registry maintainer | **Phase 7 (filed OPEN 2026-10-15 by the audit-first probe; FIXED 2026-10-15 — batch 1: pattern + registry key + matrix/roadmap rows + 14 focused gate tests, bare-venv gate 649 passed pre/post wiring)** | None | IBM MQ (`EXEC MQI`) never detected or classified: no `_SOURCE_PATTERNS` entry, no `CONSTRUCT_REGISTRY` key (roadmap Rung 0); queue names never extracted as dependencies. | MQ applications invisible to classification and to the dependency graph (verdict already fails closed — no false SUPPORTED). | Detection fires only on real `EXEC MQI` statements (comment/literal masked); registry `level`/`effective_source_level` = `UNSUPPORTED`; analyzer PROGRAM reason names `EXEC MQI`, never `SUPPORTED`; deterministic re-scan; existing fail-closed diagnostics kept; focused gate tests green. |
+| BL-086 | Capability/registry maintainer | **FIXED 2026-10-15 (Phase 7 batch 3; roadmap P3-5 / Master README §29)** | None | Was: external utilities / system services / VSAM specifics were Rung 0 — no `_SOURCE_PATTERNS`, no `CONSTRUCT_REGISTRY` keys (RELEASE, IDCAMS, ORGANIZATION INDEXED/RELATIVE, ACCESS DYNAMIC, RECORD KEY). | Phrase coverage stays a documented detection-first subset (covered phrases only). | Shipped: 6 patterns + UNSUPPORTED registry keys, analyzer pre-PROCEDURE data door extended, SEMANTIC_PROOF_MATRIX rows, 15 focused gate tests; no IR, no mapper, no runtime, no equivalence claim. |
+| BL-087 | Integration/ledger maintainer | **FIXED 2026-10-15 (Phase 7 batch 3; roadmap P3-6)** | None | Was: MQ queue names and IMS PCB/segment references never entered the platform dependency ledger — `extra_dependencies` had no producer. | Extraction stays bounded to the documented statement forms (`QUEUE(…)`/`Q(…)`, `PCB(…)`/`PCB NAME=…`, `SEGMENT(…)`/`SEGMENT NAME=…`). | Shipped: `external_dependency_edges` extractor + `DependencyKind.MQ`/`IMS` visible/BLOCKED/required entries + `api.service` wiring + 14 focused gate tests; no runtime, no equivalence claim. |
 
 ### PR disposition snapshot — 2026-10-10
 

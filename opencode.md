@@ -2,7 +2,7 @@
 
 ## Phase 7 started — CICS / MQ / IMS / External Dependencies (2026-10-15)
 
-### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **audit-first §76 DONE — batch 1 = roadmap P3-4 (IMS/MQ detection) FIXED (BL-084/085); batch 2 = BL-058 WORKING-STORAGE hierarchy FIXED (design call recorded, change-log (ai)); Windows Docker Desktop connectivity ESTABLISHED (WSL integration) — full serialized Docker sweep of record 3704 passed / 6 failed where all 6 were resolved (5 BL-058 red probes → fixed; 1 transient copybook-runtime flake → green on idle-daemon rerun); gate now 47 files / 656 tests (bare-venv verified pre-CI); §53 verdict NOT YET SCORED (phase in progress); commit+push authorized by the operator for the exact-SHA CI run**)
+### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **audit-first §76 DONE — batch 1 = roadmap P3-4 (IMS/MQ detection) FIXED (BL-084/085); batch 2 = BL-058 WORKING-STORAGE hierarchy FIXED (design call recorded, change-log (ai)); batch 3 = BL-086 (utilities/VSAM detection, roadmap P3-5) + BL-087 (MQ/IMS dependency ledger edges, roadmap P3-6) FIXED (change-log (aj); both filed OPEN audit-first, red→green; gate now 49 files / 685 tests bare-venv verified pre-CI); batches 1+2 COMMITTED+PUSHED at `06d9b98` with operator authorization — exact-SHA CI ALL GREEN: SystemaOps CI push + pull_request success, Supply chain push + pull_request success (runs 38751445828 / 38751455539 / 38751445810 / 38751455335); Windows Docker Desktop connectivity ESTABLISHED (WSL integration) — full serialized Docker sweep of record 3704 passed / 6 failed where all 6 were resolved (5 BL-058 red probes → fixed; 1 transient copybook-runtime flake → green on idle-daemon rerun); §53 verdict NOT YET SCORED (phase in progress — remaining: renames, safe optimization, full Docker sweep of record incl. batch-3, commit/push/CI, verdict)**)
 
 - **Prerequisites verified before touching Phase 7 scope:** Phase 0
   verdict `COMPLETE — VERIFIED` (opencode.md ~line 2212); Phases 1–6 all
@@ -99,13 +99,46 @@
   sweep and passed on idle-daemon rerun (19.37s,
   `copybook_runtime_rerun.txt`) — disclosed, not hidden, nothing
   weakened.
-- **Next (batch 3 candidates, in Master README Phase 7 order):** P3-6
-  external-dependency edge vocabulary (MQ queue-name + IMS PCB/segment
-  edges into `integrated_proof.extra_dependencies` — mechanism exists,
-  no producer yet), P3-5 SORT/VSAM/system-services detection-first; safe
-  code optimization; vague test-name renames (condition+expected-behavior
-  naming); then §53 13-point scoring after the exact-SHA CI of the
-  batch-1+2 commit comes back green.
+- **Batch 3 = BL-086 (roadmap P3-5, Master README §29) + BL-087
+  (roadmap P3-6) — BOTH FIXED (change-log (aj)), uncommitted:**
+  - Filed **OPEN** in the register first (audit-first), then red
+    evidence `batch3_red_tests.txt` (utilities/VSAM file 8 failed /
+    7 passed — every positive red; extractor module absent =
+    `ModuleNotFoundError`, BL-060 precedent).
+  - **BL-086 shipped:** `_SOURCE_PATTERNS` + `CONSTRUCT_REGISTRY` keys
+    `RELEASE`, `IDCAMS`, `ORGANIZATION INDEXED`, `ORGANIZATION RELATIVE`,
+    `ACCESS DYNAMIC`, `RECORD KEY` (all `_unsupported` = both levels);
+    analyzer pre-`PROCEDURE DIVISION` data door extended to the four
+    FILE-CONTROL phrases (FILE-CONTROL lives in the ENVIRONMENT DIVISION
+    — the procedure-restricted scan cannot see it); matrix/roadmap rows;
+    15 focused gate tests.  **BL-087 shipped:**
+    `engine/modernization/external_dependency_edges.py` (comment- and
+    literal-mask-aware two-pass extraction: block spans found on a
+    same-length literal-masked view, names read from the
+    literal-preserving view — a string literal mentioning
+    `EXEC DLI … END-EXEC` can never open a block; deterministic,
+    deduplicated, sorted `MQ:QUEUE=…` / `IMS:PCB=…` / `IMS:SEGMENT=…`),
+    `DependencyKind.MQ`/`IMS` (visible, UNSUPPORTED, BLOCKED,
+    required=True — fail-closed like the JCL lane),
+    `api.service._persist_integrated_proof` →
+    `_proof_payload(extra_dependencies=…)` wired through
+    `_external_dependency_entries_for_source` (BL-063 member rule:
+    `.cbl`/`.cob` + extensionless IDENTIFICATION DIVISION); 14 focused
+    gate tests.
+  - Gate `ci.yml` 47→**49 files**; bare-venv capability-truth gate
+    **685 passed** (656 + 15 + 14) verified BEFORE wiring and after.
+    Interim regressions checked: matrix/usage parity suites green post
+    docs; indexed/relative integration failures = pre-existing
+    cold-daemon oracle-identity family (no digest pin without warm
+    daemon), not regressions — the closing full Docker sweep of record
+    will confirm.
+- **Remaining before §53:** vague test-name renames
+  (condition+expected-behavior; 3230-name survey at
+  `/tmp/opencode/all_test_names.txt`, ~132 candidates, no external
+  test-id refs, 0 xfail); 1–2 safe optimizations; full Docker sweep of
+  record including batch-3 files; commit (CRLF-normalize intended files,
+  explicit-path staging) + push via Windows-GCM credential helper + CI
+  green on the exact final SHA; §53 13-point scoring.
 
 ## Phase 6 started — DB2 / SQL Modernization (2026-10-15)
 

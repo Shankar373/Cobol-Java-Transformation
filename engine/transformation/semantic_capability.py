@@ -217,6 +217,42 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "NEXT SENTENCE": _unsupported("NEXT SENTENCE is not represented by the procedure IR"),
     "GOBACK": _unsupported("GOBACK is not represented by the procedure IR"),
     "SIZE ERROR": _unsupported("SIZE ERROR handling is not yet represented in the arithmetic IR"),
+    # Phase 7 (Master README §29, roadmap P3-5): external utilities, system
+    # services and VSAM specifics are detection-first classified — Rung 0
+    # -> 1.  No IR, no mapper, no VSAM runtime, no utility runner, no
+    # equivalence claim: the evidence text names the construct so capability
+    # verdicts say *why* a program is blocked (§29 ladder step 1: Detected
+    # -> Classified; the verification rungs stay empty and the plan stays
+    # BLOCKED).
+    "RELEASE": _unsupported(
+        "RELEASE (SORT output step) has no deterministic Java lane: no IR, "
+        "no mapper and no SORT utility runtime; classified UNSUPPORTED by "
+        "detection, never transformed"
+    ),
+    "IDCAMS": _unsupported(
+        "IDCAMS is an external system utility with no deterministic Java "
+        "lane: no IR, no mapper and no utility runner; classified "
+        "UNSUPPORTED by detection, never transformed"
+    ),
+    "ORGANIZATION INDEXED": _unsupported(
+        "ORGANIZATION INDEXED (VSAM-style key access) has no certified "
+        "file-semantics mapping: classified UNSUPPORTED by detection, "
+        "never transformed"
+    ),
+    "ORGANIZATION RELATIVE": _unsupported(
+        "ORGANIZATION RELATIVE has no certified file-semantics mapping: "
+        "classified UNSUPPORTED by detection, never transformed"
+    ),
+    "ACCESS DYNAMIC": _unsupported(
+        "ACCESS DYNAMIC file access is outside the certified sequential "
+        "file boundary: classified UNSUPPORTED by detection, never "
+        "transformed"
+    ),
+    "RECORD KEY": _unsupported(
+        "RECORD KEY / ALTERNATE RECORD KEY key fields are outside the "
+        "certified file boundary: classified UNSUPPORTED by detection, "
+        "never transformed"
+    ),
     "ROUNDED": _supported(
         "ROUNDED reaches the generated Java as a HALF_UP rounding mode on the "
         "receiving item (default stays DOWN truncation)"
@@ -407,6 +443,11 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("GO TO", re.compile(r"(?<![\w-])GO\s+TO(?![\w-])|(?<![\w-])GOTO(?![\w-])", re.IGNORECASE)),
     ("SORT", re.compile(r"(?<![\w-])SORT(?![\w-])", re.IGNORECASE)),
     ("MERGE", re.compile(r"(?<![\w-])MERGE(?![\w-])", re.IGNORECASE)),
+    # Phase 7 (roadmap P3-5): external utilities / system services —
+    # detection-first, same word-boundary discipline so identifiers such as
+    # WS-RELEASE-CODE or WS-IDCAMS-COUNT can never match.
+    ("RELEASE", re.compile(r"(?<![\w-])RELEASE(?![\w-])", re.IGNORECASE)),
+    ("IDCAMS", re.compile(r"(?<![\w-])IDCAMS(?![\w-])", re.IGNORECASE)),
     ("ACCEPT", re.compile(r"(?<![\w-])ACCEPT(?![\w-])", re.IGNORECASE)),
     ("INITIALIZE", re.compile(r"(?<![\w-])INITIALIZE(?![\w-])", re.IGNORECASE)),
     ("INSPECT", re.compile(r"(?<![\w-])INSPECT(?![\w-])", re.IGNORECASE)),
@@ -423,6 +464,23 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("REWRITE", re.compile(r"(?<![\w-])REWRITE(?![\w-])", re.IGNORECASE)),
     ("DELETE", re.compile(r"(?<![\w-])DELETE(?![\w-])", re.IGNORECASE)),
     ("INVALID KEY", re.compile(r"(?<![\w-])INVALID\s+KEY(?![\w-])", re.IGNORECASE)),
+    # Phase 7 (roadmap P3-5): VSAM specifics in FILE-CONTROL.  These sit in
+    # the ENVIRONMENT DIVISION, so the analyzer's pre-procedure data door
+    # (restrict_to_procedure=False on the source-before-PROCEDURE slice)
+    # reaches them; the word-boundary and optional-IS forms mirror COBOL
+    # phrase flexibility.
+    ("ORGANIZATION INDEXED", re.compile(
+        r"(?<![\w-])ORGANIZATION\s+(?:IS\s+)?INDEXED(?![\w-])", re.IGNORECASE,
+    )),
+    ("ORGANIZATION RELATIVE", re.compile(
+        r"(?<![\w-])ORGANIZATION\s+(?:IS\s+)?RELATIVE(?![\w-])", re.IGNORECASE,
+    )),
+    ("ACCESS DYNAMIC", re.compile(
+        r"(?<![\w-])ACCESS\s+(?:MODE\s+(?:IS\s+)?)?DYNAMIC(?![\w-])", re.IGNORECASE,
+    )),
+    ("RECORD KEY", re.compile(
+        r"(?<![\w-])(?:ALTERNATE\s+)?RECORD\s+KEY(?![\w-])", re.IGNORECASE,
+    )),
     ("ROUNDED", re.compile(r"(?<![\w-])ROUNDED(?![\w-])", re.IGNORECASE)),
     # Figurative constants.  Word boundaries also refuse adjacent hyphens so a
     # field such as HIGH-VALUE-CODE or ZERO-COUNT is never read as the

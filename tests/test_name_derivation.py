@@ -28,7 +28,7 @@ from api.store import Store, ApplicationRecord
 # ---------------------------------------------------------------------------
 
 class TestNormalizeApplicationName:
-    def test_lowercase(self):
+    def test_mixed_case_application_name_lowercases(self):
         assert normalize_application_name("MyApp") == "myapp"
 
     def test_spaces_to_hyphens(self):

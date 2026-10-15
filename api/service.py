@@ -219,11 +219,65 @@ def _jcl_status_for_source(source: str | Path | None) -> str:
         return "ERROR"
 
 
+def _external_dependency_entries_for_source(
+    source: str | Path | None,
+) -> tuple:
+    """MQ/IMS dependency edges for a source tree (empty tuple when absent).
+
+    Walks the same member set the discovery lane accepts (case-insensitive
+    ``.cbl`` / ``.cob`` plus extensionless members whose content starts an
+    IDENTIFICATION DIVISION — the BL-063 parity rule) and extracts
+    queue-name / PCB / segment ledger entries from every real
+    ``EXEC MQI`` / ``EXEC DLI`` block.  Never raises: an unreadable tree
+    fails closed to no extra entries, keeping the ledger's other lanes
+    intact (BL-087).
+    """
+    if source is None:
+        return ()
+    root = Path(source)
+    if not root.exists() or not root.is_dir():
+        return ()
+    from engine.modernization.external_dependency_edges import (
+        extract_external_dependency_entries,
+    )
+
+    seen: set[str] = set()
+    entries: list = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        suffix = path.suffix.lower()
+        if suffix not in {".cbl", ".cob"}:
+            if suffix != "":
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            # Extensionless member: accept only when the content starts an
+            # IDENTIFICATION DIVISION (single read — the text is needed for
+            # extraction anyway when the member qualifies).
+            if "IDENTIFICATION DIVISION" not in text[:4096].upper():
+                continue
+        else:
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+        for entry in extract_external_dependency_entries(text):
+            if entry.dependency_id in seen:
+                continue
+            seen.add(entry.dependency_id)
+            entries.append(entry)
+    return tuple(entries)
+
+
 def _proof_payload(
     workload_id: str,
     report: object,
     runtime,
     jcl_status: str,
+    extra_dependencies: tuple = (),
 ) -> dict:
     """Assemble the auditable integrated-proof payload.
 
@@ -231,6 +285,9 @@ def _proof_payload(
     bucketed (proven/unproven/blocked/unsupported) so the API and UI can
     render without re-deriving engine internals.  Fail-closed semantics
     live in the engine; this method only shapes the result.
+    ``extra_dependencies`` carries lanes the modernization report does not
+    model (JCL status is joined separately; MQ/IMS dependency edges come
+    from ``_external_dependency_entries_for_source``).
     """
     from engine.modernization.integrated_proof import (
         ProofState,
@@ -238,7 +295,12 @@ def _proof_payload(
         evaluate_central_status,
     )
 
-    ledger = build_dependency_ledger(report, runtime, jcl_status=jcl_status)
+    ledger = build_dependency_ledger(
+        report,
+        runtime,
+        extra_dependencies=extra_dependencies,
+        jcl_status=jcl_status,
+    )
     central_status, reasons = evaluate_central_status(
         ledger,
         runtime,
@@ -1018,6 +1080,9 @@ class Service:
             facade,
             runtime_evidence_from_result(result),
             jcl_status,
+            extra_dependencies=_external_dependency_entries_for_source(
+                app.cobol_source_path
+            ),
         )
         run_report["integrated_proof"] = proof
         run_report["jcl_status"] = jcl_status

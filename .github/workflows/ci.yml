@@ -81,7 +81,9 @@ jobs:
             tests/test_db2_unmapped_error_statuses.py \
             tests/test_db2_cursor_host_variable_lifecycle.py \
             tests/test_ims_mq_detection.py \
-            tests/test_bl058_working_storage_group_hierarchy.py
+            tests/test_bl058_working_storage_group_hierarchy.py \
+            tests/test_utilities_vsam_detection.py \
+            tests/test_external_dependency_edges.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

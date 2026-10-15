@@ -231,7 +231,7 @@ Columns: Parser | IR | Capability (registry) | Mapping | JavaGen | Runtime
 | Relative organization | SUPPORTED (RELATIVE KEY) | SUPPORTED | UNSUPPORTED outside lane | PARTIAL | PARTIAL | PARTIAL | SUPPORTED | PARTIAL | PARTIAL (relative fixtures + negatives) | NOT certified (general case) |
 | DYNAMIC access | SUPPORTED (detected) | SUPPORTED | UNSUPPORTED (explicit) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |
 | FILE STATUS | SUPPORTED (field capture) | SUPPORTED | SUPPORTED (status-bound branches) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
-| VSAM | UNKNOWN (no VSAM parse path; JCL type string only) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | UNKNOWN | NOT certified |
+| VSAM | SUPPORTED (detected: `ORGANIZATION INDEXED`/`RELATIVE`, `ACCESS DYNAMIC`, `RECORD KEY`/`ALTERNATE RECORD KEY` — roadmap P3-5, BL-086) | UNSUPPORTED | UNSUPPORTED (classified; fail-closed source-only level) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | PARTIAL (`tests/test_utilities_vsam_detection.py` focused gate: detection, comment/literal masking, word boundaries, determinism; no VSAM runtime or equivalence claim) | NOT certified |
 
 ### 6.5 Dependencies (see also §5)
 
@@ -243,7 +243,7 @@ Columns: Parser | IR | Capability (registry) | Mapping | JavaGen | Runtime
 | DB2 / EXEC SQL | SUPPORTED (extractor/parser) | SUPPORTED (`SqlStatement`, harness) | UNSUPPORTED for central lane | PARTIAL (SQLite controlled semantics) | PARTIAL | UNAVAILABLE (no DB2 subsystem; `runtime_verified_features()` empty) | UNAVAILABLE | UNAVAILABLE | PARTIAL (db2 tests; negative scenario 7) | NOT_VERIFIED by construction |
 | CICS (subset v1.0.0) | SUPPORTED (parser recognizes superset) | SUPPORTED (commands/operands/conditions) | PARTIAL-subset / UNSUPPORTED rest | PARTIAL (structure only) | PARTIAL | UNAVAILABLE | UNAVAILABLE | UNAVAILABLE | PARTIAL (cics tests; negative scenario 8) | NOT_VERIFIED by construction |
 | IMS / MQ (detection + classification, BL-084/BL-085) | SUPPORTED (`EXEC DLI` / `EXEC MQI` source-scan patterns, mask-aware) | UNSUPPORTED (no IR node by construction — the mapper can never see them) | UNSUPPORTED (classified; fail-closed source-only level) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | SUPPORTED (COBOL side only) | — | PARTIAL (`tests/test_ims_mq_detection.py` focused gate: detection, negatives, verdicts, planner blocking; no equivalence claim) | NOT certified — classification only (roadmap P3-4) |
-| Utilities / system services | UNKNOWN (no detection patterns) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | SUPPORTED (COBOL side only) | — | UNKNOWN | NOT certified |
+| Utilities / system services | SUPPORTED (detected: `RELEASE`, `IDCAMS` — roadmap P3-5, BL-086) | UNSUPPORTED | UNSUPPORTED (classified; fail-closed source-only level) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | SUPPORTED (COBOL side only) | — | PARTIAL (`tests/test_utilities_vsam_detection.py` focused gate: detection, negatives, verdicts, planner blocking; no utility runtime or equivalence claim) | NOT certified |
 
 ### 6.6 Proof-lane components (apply wherever the runtime lane runs)
 
@@ -297,22 +297,27 @@ rejection), nested programs (no path).
 - JCL/DB2/CICS: no runtime lane exists (UNAVAILABLE oracle/comparison/
   evidence); certification structurally impossible today.
 - IMS/MQ/utilities/system services/VSAM/COPY REPLACING/nested programs:
-  IMS (`EXEC DLI`) and MQ (`EXEC MQI`) now have detection patterns + registry
-  keys (roadmap P3-4, BL-084/BL-085 — classified UNSUPPORTED, still no
-  runtime); the rest have not even detection patterns — UNKNOWN, the lowest
-  universality rung.
+  IMS (`EXEC DLI`), MQ (`EXEC MQI`), utilities/system services
+  (`RELEASE`, `IDCAMS`) and VSAM specifics (`ORGANIZATION
+  INDEXED`/`RELATIVE`, `ACCESS DYNAMIC`, `RECORD KEY`) now have
+  detection patterns + registry keys (roadmap P3-4 BL-084/BL-085 and
+  P3-5 BL-086 — classified UNSUPPORTED, still no runtime); COPY
+  REPLACING and nested programs have not even detection patterns —
+  UNKNOWN, the lowest universality rung.
 
 ## 11. Universality gaps (detection ladder)
 
-Rung 0 — undetectable (no patterns): utilities, system services,
-VSAM specifics, COPY REPLACING, nested programs, edited-picture usage
-beyond rejection. Gaps: add source-scan patterns + registry keys so these
-classify instead of passing silently.
+Rung 0 — undetectable (no patterns): COPY REPLACING, nested programs,
+edited-picture usage beyond rejection. Gaps: add source-scan patterns +
+registry keys so these classify instead of passing silently.
 Rung 1 — detected, unclassified: COMP/COMP-3 usage, ROUNDED, ENTRY forms,
 BY CONTENT/BY VALUE modes. Gaps: registry keys with honest PARTIAL/UNKNOWN.
 Rung 2 — classified, unmapped: all §9 rows (working as designed) — now
-including IMS `EXEC DLI` and MQ `EXEC MQI`, moved 0 -> 2 by roadmap P3-4
-(BL-084/BL-085: detection + classification + blocked verdicts only).
+including IMS `EXEC DLI`, MQ `EXEC MQI`, utilities/system services
+(`RELEASE`, `IDCAMS`) and VSAM specifics (`ORGANIZATION
+INDEXED`/`RELATIVE`, `ACCESS DYNAMIC`, `RECORD KEY`), moved 0 -> 2 by
+roadmap P3-4 (BL-084/BL-085) and P3-5 (BL-086: detection +
+classification + blocked verdicts only).
 Rung 3 — mapped, unproven: REDEFINES/OCCURS/88-mapping, COMP runtime,
 BY CONTENT/BY VALUE runtime. Gaps: positive + negative tests before claims.
 Rung 4 — proven, uncertified-at-application-level: JCL/DB2/CICS lanes
@@ -451,13 +456,33 @@ both levels), matrix/roadmap rows, 14 focused gate tests in
 word boundaries, determinism, verdicts naming the construct, planner
 still BLOCKED, fail-closed `unparsed_statement` diagnostics retained).
 Classification only — no IR, no mapper, no runtime, no equivalence claim;
-queue-name dependency edges and PCB/segment edges stay future work under
-P3-6.
+queue-name dependency edges and PCB/segment edges were delivered by P3-6
+(BL-087, same day).
 P3-5 SORT utilities / system services / VSAM specifics: same detection-
-first pattern. Risk: low.
+first pattern. Risk: low. **DONE 2026-10-15 (BL-086)**:
+`_SOURCE_PATTERNS` + `CONSTRUCT_REGISTRY` keys — `RELEASE`, `IDCAMS`,
+`ORGANIZATION INDEXED`, `ORGANIZATION RELATIVE`, `ACCESS DYNAMIC`,
+`RECORD KEY` (all UNSUPPORTED at both levels) — plus the analyzer's
+pre-`PROCEDURE DIVISION` data door extended to the four FILE-CONTROL
+phrases, SEMANTIC_PROOF_MATRIX rows, roadmap §6.4/§6.5/§10/§11 rows,
+and 15 focused gate tests in `tests/test_utilities_vsam_detection.py`
+(detection, comment/literal masking, word boundaries, determinism,
+verdicts naming the construct, planner still BLOCKED).  Classification
+only — no IR, no mapper, no VSAM or utility runtime, no equivalence
+claim.
 P3-6 External dependency modeling (call-graph edges to non-COBOL targets):
 visible → classified → BLOCKED ledger entries via integrated_proof
 `extra_dependencies`. Mostly exists; extend edge vocabulary. Risk: low.
+**DONE 2026-10-15 (BL-087)**: `engine/modernization/external_dependency_edges.py`
+extracts `MQ:QUEUE=…` / `IMS:PCB=…` / `IMS:SEGMENT=…` ledger entries from
+real `EXEC MQI` / `EXEC DLI` blocks (comment- and literal-mask-aware,
+deterministic, deduplicated), `DependencyKind.MQ`/`DependencyKind.IMS`
+added, and `api.service._persist_integrated_proof` now passes them via
+`_proof_payload(extra_dependencies=…)`; 14 focused gate tests in
+`tests/test_external_dependency_edges.py` prove entries are `visible`,
+`UNSUPPORTED`, `BLOCKED`, `required=True` and keep central status
+fail-closed.  No MQ or IMS runtime, no message-semantics claim — ledger
+visibility and fail-closed classification only.
 P3-7 DB2 dependency ledger wiring (BL-083, disclosed 2026-10-15):
 `DependencyKind.DB2` has no product producer and `sqlcode_field` has no
 consumer in `engine/`/`api/` — parsed DB2 table dependencies stay inside

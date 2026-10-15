@@ -181,7 +181,7 @@ THREE_PROGRAM_CHAIN = {
 class TestModernizationPlannerBasic:
     """Basic planner functionality tests."""
 
-    def test_plan_simple_program(self):
+    def test_single_supported_program_yields_ready_plan(self):
         """Plan a single simple program."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "SIMPLE.cob").write_text(SIMPLE_PROGRAM)

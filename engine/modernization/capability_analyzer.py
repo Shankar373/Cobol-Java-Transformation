@@ -672,19 +672,26 @@ class CapabilityAnalyzer:
                     "no certified value or encoding mapping; items: " + items_text,
                 ))
 
-        # REDEFINES / OCCURS / 88-level (BL-003).  These are data-division
-        # constructs the mapper cannot lower (no overlay, table or
-        # condition-name lowering), so they must never be reported SUPPORTED.
-        # The procedure-restricted source scan above cannot see them, so scan
-        # the DATA DIVISION explicitly.  Classified UNKNOWN (fail-closed) until
-        # a full-ladder runtime proof exists.
+        # REDEFINES / OCCURS / 88-level (BL-003) and the VSAM FILE-CONTROL
+        # phrases (BL-086, roadmap P3-5).  These are pre-PROCEDURE-DIVISION
+        # constructs the procedure-restricted source scan above cannot see,
+        # so scan the source-before-PROCEDURE slice explicitly.  Classified
+        # UNSUPPORTED (fail-closed) until a full-ladder runtime proof exists.
         data_text = unit.source_text or ""
         proc_match = re.search(r"\bPROCEDURE\s+DIVISION\b", data_text, re.IGNORECASE)
         if proc_match:
             data_text = data_text[:proc_match.start()]
         if data_text:
             data_detected = scan_constructs(data_text, restrict_to_procedure=False)
-            for key in ("REDEFINES", "OCCURS", "88-LEVEL"):
+            for key in (
+                "REDEFINES",
+                "OCCURS",
+                "88-LEVEL",
+                "ORGANIZATION INDEXED",
+                "ORGANIZATION RELATIVE",
+                "ACCESS DYNAMIC",
+                "RECORD KEY",
+            ):
                 if key in data_detected:
                     entry = CONSTRUCT_REGISTRY[key]
                     findings.append((key, entry.level, entry.evidence))

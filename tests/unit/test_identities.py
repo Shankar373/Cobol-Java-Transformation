@@ -46,12 +46,12 @@ class TestContentHash:
         h = make_hash("test")
         assert str(h).startswith("sha256:")
 
-    def test_equality(self):
+    def test_same_input_content_hashes_are_equal(self):
         h1 = ContentHash.from_string("same")
         h2 = ContentHash.from_string("same")
         assert h1 == h2
 
-    def test_inequality(self):
+    def test_different_input_content_hashes_differ(self):
         h1 = ContentHash.from_string("one")
         h2 = ContentHash.from_string("two")
         assert h1 != h2

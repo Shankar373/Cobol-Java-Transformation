@@ -129,7 +129,7 @@ class TestContentHash:
         h = ContentHash.from_string("test data")
         assert h.verify(b"test data")
 
-    def test_deterministic(self):
+    def test_same_input_content_hashes_are_equal(self):
         h1 = ContentHash.from_string("same")
         h2 = ContentHash.from_string("same")
         assert h1 == h2
@@ -178,7 +178,7 @@ class TestContentAddressedStorage:
 # ---------------------------------------------------------------------------
 
 class TestExecutionEvidence:
-    def test_creation(self, sample_execution_evidence: ExecutionEvidence):
+    def test_created_evidence_keeps_execution_id_and_status(self, sample_execution_evidence: ExecutionEvidence):
         assert sample_execution_evidence.execution_id.value == "exec-001"
         assert sample_execution_evidence.termination_status == "normal"
 
@@ -195,7 +195,7 @@ class TestExecutionEvidence:
 # ---------------------------------------------------------------------------
 
 class TestArtifactEvidence:
-    def test_creation(self, sample_run_id: RunId):
+    def test_created_artifact_evidence_keeps_identity_and_size(self, sample_run_id: RunId):
         artifact = ArtifactIdentity(
             artifact_id="art-001",
             artifact_type="STDOUT",
@@ -220,7 +220,7 @@ class TestArtifactEvidence:
 # ---------------------------------------------------------------------------
 
 class TestComparisonEvidence:
-    def test_creation(self, sample_run_id: RunId):
+    def test_created_comparison_evidence_keeps_match_and_normalization(self, sample_run_id: RunId):
         evidence = ComparisonEvidence(
             comparison_id="comp-001",
             run_id=sample_run_id,
@@ -244,7 +244,7 @@ class TestComparisonEvidence:
 # ---------------------------------------------------------------------------
 
 class TestEvidenceManifest:
-    def test_creation(
+    def test_created_manifest_keeps_version_and_run_id(
         self,
         sample_run_id: RunId,
         sample_workload_id: WorkloadId,

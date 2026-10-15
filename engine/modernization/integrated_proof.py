@@ -72,6 +72,12 @@ class DependencyKind(str, Enum):
     DB2 = "DB2"
     CICS = "CICS"
     PARAMETER = "PARAMETER"
+    # Phase 7 (roadmap P3-6, BL-087): MQ queue names and IMS PCB/segment
+    # references extracted from real EXEC MQI / EXEC DLI blocks.  No MQ or
+    # IMS runtime lane exists, so these entries classify UNSUPPORTED and
+    # proof-state BLOCKED — same fail-closed structural truth as JCL.
+    MQ = "MQ"
+    IMS = "IMS"
 
 
 class CentralStatus(str, Enum):
