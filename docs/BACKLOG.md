@@ -5307,6 +5307,24 @@ level and evidence location.
   still recorded at run/job/step granularity (artifacts auth-gated).
 
 
+- 2026-10-15 — **(am) Phase 7 closing checkpoint commit exact-SHA CI —
+  GREEN (final recorded run IDs).**  `8d2f48fb472cfa12ae8235ed2894907a223f55bb`
+  (change-log (al) commit) — GitHub API full-40-char `head_sha`
+  asserted: **4/4 runs success** — SystemaOps push 38778036111,
+  SystemaOps PR 38778042763, Supply chain push 38778036154, Supply
+  chain PR 38778043013 (evidence `runs_8d2f48f.json`); job level on
+  SystemaOps push run 38778036111 = 4/4 jobs success incl.
+  `Capability truth gate` + `Backend and COBOL/Java Docker tests`
+  (`jobs_8d2f48f_syspush.json`).  Phase 7 close: verdict SHA chain
+  `06d9b98` (batch 1+2) → `03ec9f9` (batch 3) → `c2dd227` (checkpoint
+  honesty) → `e67b59e` (verdict docs + BL-087 pins) → `8d2f48f`
+  (CI evidence records), every exact-SHA CI run green.  This (am) entry
+  lands in the final checkpoint commit whose CI is verified live for
+  the Final Report (run IDs recorded there); Phase 8 (Runtime Adapter
+  Architecture, Master README §32) NOT started — awaiting explicit
+  authorization per the phase-by-phase rule.
+
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
