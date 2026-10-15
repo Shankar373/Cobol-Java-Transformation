@@ -2,7 +2,7 @@
 
 ## Phase 7 started — CICS / MQ / IMS / External Dependencies (2026-10-15)
 
-### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **audit-first §76 DONE — batch 1 = roadmap P3-4 (IMS/MQ detection) FIXED (BL-084/085); batch 2 = BL-058 WORKING-STORAGE hierarchy FIXED (design call recorded, change-log (ai)); batch 3 = BL-086 (utilities/VSAM detection, roadmap P3-5) + BL-087 (MQ/IMS dependency ledger edges, roadmap P3-6) FIXED (change-log (aj); both filed OPEN audit-first, red→green; gate now 49 files / 685 tests bare-venv verified pre-CI); batches 1+2 COMMITTED+PUSHED at `06d9b98` with operator authorization — exact-SHA CI ALL GREEN: SystemaOps CI push + pull_request success, Supply chain push + pull_request success (runs 38751445828 / 38751455539 / 38751445810 / 38751455335); Windows Docker Desktop connectivity ESTABLISHED (WSL integration) — full serialized Docker sweep of record 3704 passed / 6 failed where all 6 were resolved (5 BL-058 red probes → fixed; 1 transient copybook-runtime flake → green on idle-daemon rerun); §53 verdict NOT YET SCORED (phase in progress — remaining: renames, safe optimization, full Docker sweep of record incl. batch-3, commit/push/CI, verdict)**)
+### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **audit-first §76 DONE — batch 1 = roadmap P3-4 (IMS/MQ detection) FIXED (BL-084/085); batch 2 = BL-058 WORKING-STORAGE hierarchy FIXED (change-log (ai)); batch 3 = BL-086 (utilities/VSAM detection, P3-5) + BL-087 (MQ/IMS ledger edges, P3-6) FIXED + 42 test renames + 2 safe optimizations (change-log (aj); gate 49 files / 685 tests bare-venv verified pre-CI) — ALL COMMITTED+PUSHED with operator authorization at `03ec9f9` (batches 1+2 at `06d9b98`, exact-SHA CI ALL GREEN there: runs 38751445828 / 38751455539 / 38751445810 / 38751455335; batch-3 exact-SHA CI pending — operator prefers CI over the slower local sweep); Windows Docker Desktop sweep of record for batches 1+2: 3704 passed / 6 failed, all 6 resolved; the batch-3 full sweep was INTERRUPTED at ~11% by the operator's commit/push request — disclosed, bare-venv 685/49 + CI re-verify the gate instead; §53 verdict NOT YET SCORED (remaining: batch-3 exact-SHA CI green, optional sweep re-run, verdict)**)
 
 - **Prerequisites verified before touching Phase 7 scope:** Phase 0
   verdict `COMPLETE — VERIFIED` (opencode.md ~line 2212); Phases 1–6 all
@@ -100,7 +100,9 @@
   `copybook_runtime_rerun.txt`) — disclosed, not hidden, nothing
   weakened.
 - **Batch 3 = BL-086 (roadmap P3-5, Master README §29) + BL-087
-  (roadmap P3-6) — BOTH FIXED (change-log (aj)), uncommitted:**
+  (roadmap P3-6) — BOTH FIXED, COMMITTED+PUSHED at `03ec9f9` with
+  operator authorization (change-log (aj); 42 test renames + 2 safe
+  optimizations in the same commit):**
   - Filed **OPEN** in the register first (audit-first), then red
     evidence `batch3_red_tests.txt` (utilities/VSAM file 8 failed /
     7 passed — every positive red; extractor module absent =
@@ -130,15 +132,15 @@
     Interim regressions checked: matrix/usage parity suites green post
     docs; indexed/relative integration failures = pre-existing
     cold-daemon oracle-identity family (no digest pin without warm
-    daemon), not regressions — the closing full Docker sweep of record
-    will confirm.
-- **Remaining before §53:** vague test-name renames
-  (condition+expected-behavior; 3230-name survey at
-  `/tmp/opencode/all_test_names.txt`, ~132 candidates, no external
-  test-id refs, 0 xfail); 1–2 safe optimizations; full Docker sweep of
-  record including batch-3 files; commit (CRLF-normalize intended files,
-  explicit-path staging) + push via Windows-GCM credential helper + CI
-  green on the exact final SHA; §53 13-point scoring.
+    daemon), not regressions.  The batch-3 full Docker sweep of record
+    was **INTERRUPTED at ~11%** when the operator requested
+    commit/push (`full_sweep_batch3.txt` partial log kept as evidence) —
+    disclosed, nothing weakened; CI re-verifies the 49-file gate on the
+    pushed SHA, and the full sweep can be re-run detached afterwards if
+    the operator wants belt-and-braces before the §53 verdict.
+- **Remaining before §53:** batch-3 exact-SHA CI green (watching via the
+  GitHub API; push uses the Windows-GCM credential helper); optional
+  full Docker sweep re-run; §53 13-point scoring.
 
 ## Phase 6 started — DB2 / SQL Modernization (2026-10-15)
 
