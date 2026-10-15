@@ -1,5 +1,112 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 7 started — CICS / MQ / IMS / External Dependencies (2026-10-15)
+
+### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **audit-first §76 DONE — batch 1 = roadmap P3-4 (IMS/MQ detection) FIXED (BL-084/085); batch 2 = BL-058 WORKING-STORAGE hierarchy FIXED (design call recorded, change-log (ai)); Windows Docker Desktop connectivity ESTABLISHED (WSL integration) — full serialized Docker sweep of record 3704 passed / 6 failed where all 6 were resolved (5 BL-058 red probes → fixed; 1 transient copybook-runtime flake → green on idle-daemon rerun); gate now 47 files / 656 tests (bare-venv verified pre-CI); §53 verdict NOT YET SCORED (phase in progress); commit+push authorized by the operator for the exact-SHA CI run**)
+
+- **Prerequisites verified before touching Phase 7 scope:** Phase 0
+  verdict `COMPLETE — VERIFIED` (opencode.md ~line 2212); Phases 1–6 all
+  closed (Phase 6 §53 13/13 at `0efa49f`). `docs/BACKLOG.md` line-2203
+  metadata gap re-read and re-confirmed as the Phase 12 documentation
+  pass (not a Phase 0 blocker) — unchanged, disclosed.
+- **§76 audit-first, source untouched during the audit.** Scope per
+  Master README §26–§29 (line 1498: `PHASE 7  CICS / MQ / IMS /
+  External Dependencies`). Probe
+  `%TEMP%\opencode\phase7\audit_probe_phase7.py` (+ saved copy
+  `audit_inventory.txt`) verified: `EXEC DLI`, `EXEC MQI` and `EXEC CICS`
+  each fail closed today via generic per-line `unparsed_statement`
+  diagnostics (no false `SUPPORTED` reachable), but `scan_constructs`
+  had **no** DLI/MQI keys/patterns and capability reasons never named
+  IMS/MQ (roadmap rows said `UNKNOWN (no detection patterns found)` =
+  Rung 0); BL-058 (WORKING-STORAGE group hierarchy drop) re-probed and
+  **still open** (group node flattened, level numbers lost, 88-level
+  dropped, verdict UNKNOWN) — carried P2, outside Master README Phase 7
+  scope, not waived.
+- **Batch 1 = BL-084 (IMS `EXEC DLI`) + BL-085 (IBM MQ `EXEC MQI`) —
+  ALL FIXED (change-log (ag)), roadmap P3-4 Rung 0→2:**
+  - Filed **OPEN** in the register before any change (never pre-claimed),
+    then red-first: `bl084_bl085_pre_fix.txt` **5 failed / 9 passed** —
+    every positive red (no pattern, no registry key), every negative
+    already green (control program, comment/string-literal masking,
+    word boundaries, verdicts UNSUPPORTED, plans BLOCKED).
+  - Fix = `semantic_capability.py` `_SOURCE_PATTERNS` (2) +
+    `CONSTRUCT_REGISTRY` (2, `_unsupported` = both levels UNSUPPORTED)
+    + doc rows: SEMANTIC_PROOF_MATRIX (gate-required literal keys),
+    CAPABILITY_MATRIX, roadmap §5/§6/§9/§10/§11/§15 P3-4/§16. No IR, no
+    mapper, no runtime, no equivalence claim; queue-name and PCB/segment
+    dependency edges stay P3-6.
+  - Evidence: focused `bl084_bl085_focused_green.txt` **14 passed**;
+    reconciliation `bl084_reconciliation.txt` **50 passed**; bare-venv
+    capability gate **649 passed** (= 635 + 14) run **BEFORE** wiring
+    (`bl084_gate_bare_pre_wiring.txt`) and after
+    (`bl084_gate_bare_post_wiring.txt`; ci.yml gate 45→**46 files**,
+    dependency-free — the `527f679`/BL-080 failure mode avoided);
+    full serialized JDK sweep `bl084_full_sweep_post_fix.txt` **139
+    failed / 3441 passed / 96 skipped / 27 errors** vs baseline **139
+    failed / 3427 passed / 96 skipped / 27 errors**, failure identities
+    recomputed from both `-rf` logs **NEW_ONLY=0, GONE=0** (139 = known
+    Docker-gated set; +14 passed = the new tests). Docker remains
+    unavailable in this WSL distro → integration/Docker-gated runs stay
+    **blocked/unverified**, reported as such.
+  - Register: BL-084/BL-085 rows now FIXED with the numbers above.
+  - **Pre-existing flake disclosed (control-proven, not caused by this
+    batch):** `tests/test_certification_contract.py::TestContractReachesEngine`
+    intermittently fails one of its two pipeline-config tests under the
+    full serialized suite (shared class-level `_CapturingPipeline.captured`
+    overwritten by a stale background modernize worker). Post-change
+    sweeps show `test_declared_contract_drives_pipeline_config` extra;
+    the **control run with this batch fully reverted to baseline
+    content** (`bl084_baseline_state_control_run.txt`, 140 failed) fails
+    the *sibling* `test_default_contract_drives_pipeline_config` instead —
+    same class, opposite test, changes absent. Isolated rerun `19 passed`
+    (`bl084_cert_contract_rerun.txt`); 965-test prefix run
+    (`prefix_run.txt`) green at the target test. All other failure
+    identities **NEW_ONLY=0 / GONE=0** — not weakened, not skipped.
+- **Batch 2 = BL-058 (WORKING-STORAGE group hierarchy) — FIXED
+  (change-log (ai)), defect-proven-first:**
+  - **Design call (recorded in the register):** nested IR via the shared
+    `parse_data_description_lines` (roots keep true level numbers, group
+    nodes keep `children`, REDEFINES captured, 88-level condition names
+    nest under their parent) + roots+leaves top-level expansion mirroring
+    `materialize_copybooks_into_program` — elementary children stay
+    declarable exactly as before; 88-level is never promoted (not
+    storage). `_parse_working_storage` is now parser-only; no generator
+    or mapping consumer changed.
+  - Red-first: `tests/test_bl058_working_storage_group_hierarchy.py` —
+    pre-fix **5 failed / 2 passed** inside the full Docker sweep
+    (`full_sweep_docker.txt`); post-fix **7 passed**
+    (`bl058_post_fix.txt`). Gate extended 46→**47 files** (bare-venv
+    `656 passed` verified BEFORE CI reliance,
+    `gate_bare_venv_post_bl058_wired.txt`). Transformation suite
+    **2019 passed / 5 skipped** (`transformation_suite_post_bl058_jdk.txt`);
+    an ungated mid-run javac `FileNotFoundError` cluster (22) was an
+    invocation artifact (missing JDK PATH) — all green with JDK exported
+    (`transformation_22_rerun_jdk.txt`).
+- **Windows Docker Desktop connectivity established this session
+  (evidence `docker_connectivity_wsl.txt` + settings backup in the
+  evidence dir):** Docker Desktop 4.94.0 / engine 29.8.2 exposed to
+  WSL via `EnableIntegrationWithDefaultWslDistro` +
+  `IntegratedWslDistros=["Ubuntu-24.04"]` (default distro switched to
+  `Ubuntu-24.04`); WSL bind-mounts visible to the daemon; required
+  images present with immutable repo-digests (`gnucobol-ocesql@
+  sha256:68900cc0…`, `maven-offline-springboot@sha256:32139c85…`,
+  `eclipse-temurin@sha256:4d060388…`). Formerly blocked Docker set
+  (baseline 139 failed + 27 errors): rerun **246 passed / 6 failed**
+  cold (`phase7_docker_blockers_rerun.txt`) — all 6 = fail-closed
+  oracle-identity probes on the cold daemon, all 6 green on warm rerun
+  (`phase7_six_failures_rerun.txt`, 41.25s, no code change). One
+  copybook-runtime stdout assert failed transiently inside the 51-min
+  sweep and passed on idle-daemon rerun (19.37s,
+  `copybook_runtime_rerun.txt`) — disclosed, not hidden, nothing
+  weakened.
+- **Next (batch 3 candidates, in Master README Phase 7 order):** P3-6
+  external-dependency edge vocabulary (MQ queue-name + IMS PCB/segment
+  edges into `integrated_proof.extra_dependencies` — mechanism exists,
+  no producer yet), P3-5 SORT/VSAM/system-services detection-first; safe
+  code optimization; vague test-name renames (condition+expected-behavior
+  naming); then §53 13-point scoring after the exact-SHA CI of the
+  batch-1+2 commit comes back green.
+
 ## Phase 6 started — DB2 / SQL Modernization (2026-10-15)
 
 ### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 6 COMPLETE — VERIFIED at `0efa49f68b8083aba41acb4c78e8492b4f42a14a` — 13-point scoring 13/13 below; batches P1 (`fa1c631`, sweep 3663/4/0) + P2 (`0efa49f`, effective sweep 3683/4/0) ALL FIXED + BL-083 disclosure (roadmap P3-7); register updated (BL-060/061/062/081/082 FIXED, BL-083 DISCLOSED); Phase 5 also CLOSED (§53 13/13 at `07948fe`); P0: none; P2 follow-up CI in flight (`ci_0efa49f.txt`); Phase 7 audit-first started**)

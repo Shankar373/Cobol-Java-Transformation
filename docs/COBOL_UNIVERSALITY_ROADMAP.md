@@ -91,6 +91,9 @@ EXEC CICS detected (source scan)
 This chain works today for EXEC CICS (negative scenario 8), EXEC SQL
 (negative scenario 7), and PARTIAL/unsupported JCL (negative scenario 6),
 proven by `tests/integration/test_phase_d_negative_integration.py`.
+The same detect -> classify -> reason chain now also runs for `EXEC DLI`
+(IMS) and `EXEC MQI` (IBM MQ) at unit level (roadmap P3-4, BL-084/BL-085,
+`tests/test_ims_mq_detection.py`); no integration scenario claims them.
 The roadmap extends this pattern: **detect and classify first, transform and
 certify only with proof**. Anything in the matrix marked UNSUPPORTED with a
 detection mechanism is a working universality feature, not a failure.
@@ -132,8 +135,8 @@ ambiguous/missing COPY.
 | JCL | SUPPORTED subset (bounded construct set + explicit diagnostics; PARTIAL-capped by construction) | PARTIAL (max PARTIAL by construction) | PARTIAL (Spring Batch structure) | UNAVAILABLE (no runtime lane) | NOT_VERIFIED by construction |
 | DB2 / EXEC SQL | SUPPORTED (extractor + analyzer) | UNSUPPORTED for central lane (`runtime_verified_features()` empty by construction) | PARTIAL (SQLite harness = controlled semantics, not DB2 equivalence) | UNAVAILABLE (no DB2 subsystem) | NOT_VERIFIED by construction |
 | CICS / EXEC CICS | SUPPORTED (parser recognizes superset of subset) | UNSUPPORTED outside subset v1.0.0; subset structural only | PARTIAL (boundaries/request-response, never runtime logic) | UNAVAILABLE (no CICS runtime; RESP/commarea/isolation out of scope) | NOT_VERIFIED by construction |
-| IMS | UNKNOWN (no detection patterns found) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | NOT certified |
-| MQ | UNKNOWN (no detection patterns found) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | NOT certified |
+| IMS / EXEC DLI | SUPPORTED (source-scan pattern + registry key, BL-084, roadmap P3-4) | UNSUPPORTED (classified; fail-closed source-only level, no IR node by construction) | UNSUPPORTED | UNAVAILABLE | NOT certified — classification only |
+| MQ / EXEC MQI | SUPPORTED (source-scan pattern + registry key, BL-085, roadmap P3-4) | UNSUPPORTED (classified; fail-closed source-only level, no IR node by construction) | UNSUPPORTED | UNAVAILABLE | NOT certified — classification only |
 | External utilities / SORT | PARTIAL (SORT detected; utilities not modeled) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | NOT certified |
 | System services | UNKNOWN | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | NOT certified |
 | VSAM specifics | PARTIAL (JCL model carries a type string; no VSAM file semantics) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | NOT certified |
@@ -239,7 +242,8 @@ Columns: Parser | IR | Capability (registry) | Mapping | JavaGen | Runtime
 | JCL job stream | SUPPORTED (+own diagnostics) | SUPPORTED (`jcl/*` model) | PARTIAL (max, by construction) | PARTIAL (Spring Batch structure) | PARTIAL | UNAVAILABLE | UNAVAILABLE (no JCL oracle) | UNAVAILABLE | PARTIAL (model/gen tests; negative scenario 6) | NOT_VERIFIED by construction |
 | DB2 / EXEC SQL | SUPPORTED (extractor/parser) | SUPPORTED (`SqlStatement`, harness) | UNSUPPORTED for central lane | PARTIAL (SQLite controlled semantics) | PARTIAL | UNAVAILABLE (no DB2 subsystem; `runtime_verified_features()` empty) | UNAVAILABLE | UNAVAILABLE | PARTIAL (db2 tests; negative scenario 7) | NOT_VERIFIED by construction |
 | CICS (subset v1.0.0) | SUPPORTED (parser recognizes superset) | SUPPORTED (commands/operands/conditions) | PARTIAL-subset / UNSUPPORTED rest | PARTIAL (structure only) | PARTIAL | UNAVAILABLE | UNAVAILABLE | UNAVAILABLE | PARTIAL (cics tests; negative scenario 8) | NOT_VERIFIED by construction |
-| IMS / MQ / utilities / system services | UNKNOWN (no detection patterns) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | SUPPORTED (COBOL side only) | — | UNKNOWN | NOT certified |
+| IMS / MQ (detection + classification, BL-084/BL-085) | SUPPORTED (`EXEC DLI` / `EXEC MQI` source-scan patterns, mask-aware) | UNSUPPORTED (no IR node by construction — the mapper can never see them) | UNSUPPORTED (classified; fail-closed source-only level) | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | SUPPORTED (COBOL side only) | — | PARTIAL (`tests/test_ims_mq_detection.py` focused gate: detection, negatives, verdicts, planner blocking; no equivalence claim) | NOT certified — classification only (roadmap P3-4) |
+| Utilities / system services | UNKNOWN (no detection patterns) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNAVAILABLE | SUPPORTED (COBOL side only) | — | UNKNOWN | NOT certified |
 
 ### 6.6 Proof-lane components (apply wherever the runtime lane runs)
 
@@ -274,7 +278,8 @@ carriage, BY CONTENT/BY VALUE mapping without capability key.
 ## 9. Unsupported capabilities (detected, classified, blocked — correct)
 
 GO TO, SORT, MERGE, ACCEPT, INITIALIZE, INSPECT, SEARCH, SET, ALTER,
-NEXT SENTENCE, GOBACK, SIZE ERROR, EXEC CICS, EXEC SQL, dynamic/unresolved/
+NEXT SENTENCE, GOBACK, SIZE ERROR, EXEC CICS, EXEC SQL, EXEC DLI (IMS),
+EXEC MQI (IBM MQ), dynamic/unresolved/
 cyclic/arity-mismatched CALL, sequential REWRITE, DYNAMIC access,
 relational-word START, ambiguous/missing COPY, edited pictures (parse
 rejection), nested programs (no path).
@@ -292,17 +297,22 @@ rejection), nested programs (no path).
 - JCL/DB2/CICS: no runtime lane exists (UNAVAILABLE oracle/comparison/
   evidence); certification structurally impossible today.
 - IMS/MQ/utilities/system services/VSAM/COPY REPLACING/nested programs:
-  not even detection patterns — UNKNOWN, the lowest universality rung.
+  IMS (`EXEC DLI`) and MQ (`EXEC MQI`) now have detection patterns + registry
+  keys (roadmap P3-4, BL-084/BL-085 — classified UNSUPPORTED, still no
+  runtime); the rest have not even detection patterns — UNKNOWN, the lowest
+  universality rung.
 
 ## 11. Universality gaps (detection ladder)
 
-Rung 0 — undetectable (no patterns): IMS, MQ, utilities, system services,
+Rung 0 — undetectable (no patterns): utilities, system services,
 VSAM specifics, COPY REPLACING, nested programs, edited-picture usage
 beyond rejection. Gaps: add source-scan patterns + registry keys so these
 classify instead of passing silently.
 Rung 1 — detected, unclassified: COMP/COMP-3 usage, ROUNDED, ENTRY forms,
 BY CONTENT/BY VALUE modes. Gaps: registry keys with honest PARTIAL/UNKNOWN.
-Rung 2 — classified, unmapped: all §9 rows (working as designed).
+Rung 2 — classified, unmapped: all §9 rows (working as designed) — now
+including IMS `EXEC DLI` and MQ `EXEC MQI`, moved 0 -> 2 by roadmap P3-4
+(BL-084/BL-085: detection + classification + blocked verdicts only).
 Rung 3 — mapped, unproven: REDEFINES/OCCURS/88-mapping, COMP runtime,
 BY CONTENT/BY VALUE runtime. Gaps: positive + negative tests before claims.
 Rung 4 — proven, uncertified-at-application-level: JCL/DB2/CICS lanes
@@ -434,7 +444,15 @@ mapping only, never certified. Risk: very high — recommend detection-first
 investment (recognize more commands explicitly) over premature runtime.
 P3-4 IMS/MQ detection + classification (Rung 0→1→2): source patterns,
 registry keys, blocked verdicts, negatives. No runtime. Risk: low, pure
-universality gain.
+universality gain. **DONE 2026-10-15 (BL-084 `EXEC DLI`, BL-085 `EXEC
+MQI`)**: `_SOURCE_PATTERNS` + `CONSTRUCT_REGISTRY` keys (UNSUPPORTED at
+both levels), matrix/roadmap rows, 14 focused gate tests in
+`tests/test_ims_mq_detection.py` (detection, comment/literal masking,
+word boundaries, determinism, verdicts naming the construct, planner
+still BLOCKED, fail-closed `unparsed_statement` diagnostics retained).
+Classification only — no IR, no mapper, no runtime, no equivalence claim;
+queue-name dependency edges and PCB/segment edges stay future work under
+P3-6.
 P3-5 SORT utilities / system services / VSAM specifics: same detection-
 first pattern. Risk: low.
 P3-6 External dependency modeling (call-graph edges to non-COBOL targets):
@@ -459,7 +477,8 @@ the gap stays disclosed here — never half-built. Risk: low
 - Matrix cells change SUPPORTED→ only with full-ladder evidence; PARTIAL
   only with bounded proof + explicit boundary tests; UNKNOWN never ships.
 - Lock blocked behavior: GO TO/SORT/ACCEPT/ALTER/GOBACK/NEXT SENTENCE/
-  SIZE ERROR/EXEC CICS/EXEC SQL/dynamic CALL negatives must keep passing.
+  SIZE ERROR/EXEC CICS/EXEC SQL/EXEC DLI/EXEC MQI/dynamic CALL negatives
+  must keep passing.
 - Reconciliation tests: producer capability lists ⊆ registry; matrix doc
   claims ⊆ test names (audit hook: fail CI if a SUPPORTED row lacks a
   cited test).

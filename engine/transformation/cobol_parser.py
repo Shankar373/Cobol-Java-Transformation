@@ -815,95 +815,75 @@ class CobolParser:
         return []
 
     def _parse_working_storage(self, lines: list[str]) -> list[DataItem]:
-        """Parse WORKING-STORAGE SECTION to extract data items."""
-        in_ws = False
-        items: list[DataItem] = []
-        current_group_name: str | None = None
-        current_group_children: list[DataItem] = []
+        """Parse WORKING-STORAGE SECTION into hierarchical data items (BL-058).
 
-        for line in lines:
-            upper = line.upper().strip()
-            if "WORKING-STORAGE SECTION" in upper:
-                in_ws = True
-                continue
-            if in_ws:
-                if upper.startswith("PROCEDURE DIVISION"):
-                    break
-                if not upper or upper.startswith("*"):
+        Delegates to the shared data-description parser — the same shape as
+        LINKAGE/COPYBOOK parsing: the returned roots keep true COBOL level
+        numbers, group nodes keep their ``children``, ``REDEFINES`` is
+        captured on the item, and 88-level condition names are nested under
+        their parent item instead of being dropped.
+
+        Elementary children are additionally expanded onto the top level,
+        mirroring ``materialize_copybooks_into_program``: field generation
+        and name lookups read the flat list directly, so every elementary
+        child stays declarable exactly as before the hierarchy fix.  Group
+        nodes without their own PIC are structural; 88-level condition names
+        are never promoted — they are not storage.
+        """
+        start = next(
+            (
+                i + 1
+                for i, line in enumerate(lines)
+                if "WORKING-STORAGE SECTION" in line.upper()
+            ),
+            None,
+        )
+        if start is None:
+            return []
+        end = next(
+            (
+                i
+                for i in range(start, len(lines))
+                if "PROCEDURE DIVISION" in lines[i].upper()
+            ),
+            len(lines),
+        )
+        roots = self.parse_data_description_lines(lines[start:end])
+        items: list[DataItem] = list(roots)
+        seen: set[str] = {root.name.upper() for root in roots}
+        for root in roots:
+            for leaf in self._flatten_working_storage_record(root):
+                if leaf.name.upper() in seen:
                     continue
-
-                # Check for level 01 or 05 items
-                level_match = re.match(r"\s*(\d+)\s+(\S+)", line)
-                if not level_match:
-                    continue
-
-                level = int(level_match.group(1))
-                item_name = level_match.group(2).rstrip(".")
-
-                # Check for PIC clause
-                pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                value_match = re.search(
-                    r"(?:^|\s)VALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.?$)",
-                    line,
-                    re.IGNORECASE,
-                )
-                occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
-                usage = _parse_usage_clause(line[level_match.end():])
-                self._note_usage(item_name, usage)
-
-                if pic_match:
-                    pic_type, pic_length, decimal_places = self._parse_pic_details(
-                        pic_match.group(1)
-                    )
-                    value = value_match.group(1).strip().rstrip(".") if value_match else None
-                    occurs = int(occurs_match.group(1)) if occurs_match else None
-
-                    if level == 5 and current_group_name:
-                        # Level 05 under a group
-                        current_group_children.append(DataItem(
-                            name=item_name,
-                            pic_type=pic_type,
-                            pic_length=pic_length,
-                            decimal_places=decimal_places,
-                                signed=self._pic_is_signed(pic_match.group(1)),
-                            value=value,
-                            usage=usage,
-                        ))
-                    else:
-                        # Level 01 — standalone item
-                        items.append(DataItem(
-                            name=item_name,
-                            pic_type=pic_type,
-                            pic_length=pic_length,
-                            decimal_places=decimal_places,
-                                signed=self._pic_is_signed(pic_match.group(1)),
-                            value=value,
-                            occurs=occurs,
-                            usage=usage,
-                        ))
-                        current_group_name = item_name if level == 1 else None
-                        current_group_children = []
-
-                elif occurs_match and level == 5:
-                    # Level 05 group with OCCURS (table structure)
-                    current_group_name = item_name
-                    current_group_children = []
-                elif level == 10 and current_group_name:
-                    # Level 10 under a group — children
-                    if pic_match:
-                        pic_type, pic_length, decimal_places = self._parse_pic_details(
-                            pic_match.group(1)
-                        )
-                        current_group_children.append(DataItem(
-                            name=item_name,
-                            pic_type=pic_type,
-                            pic_length=pic_length,
-                            decimal_places=decimal_places,
-                                signed=self._pic_is_signed(pic_match.group(1)),
-                            usage=usage,
-                        ))
-
+                seen.add(leaf.name.upper())
+                items.append(leaf)
         return items
+
+    @staticmethod
+    def _flatten_working_storage_record(item: DataItem) -> list[DataItem]:
+        """Elementary items under one WORKING-STORAGE root, declaration order.
+
+        Same structural rule as ``copybook_model.flatten_records``: a group
+        node without its own PIC is structural only (children are carried,
+        the group itself is not promoted again); an OCCURS group keeps its
+        table shape and still exposes its children.  88-level condition
+        names are excluded — they are predicates, not declarations.
+        """
+        flat: list[DataItem] = []
+
+        def visit(node: DataItem) -> None:
+            if node.is_condition_name:
+                return
+            if node.children and node.pic_length == 0 and node.occurs is None:
+                for child in node.children:
+                    visit(child)
+                return
+            flat.append(node)
+            for child in node.children:
+                visit(child)
+
+        visit(item)
+        return flat
 
     def _parse_procedure_division(self, lines: list[str]) -> list[Paragraph]:
         """Parse PROCEDURE DIVISION into paragraphs with statements.

@@ -190,6 +190,22 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     ),
     "EXEC CICS": _unsupported("EXEC CICS is outside the certified deterministic Java lane"),
     "EXEC SQL": _unsupported("EXEC SQL requires the separate DB2/SQL semantic lane"),
+    # Phase 7 (Master README §27/§28, roadmap P3-4): IMS and IBM MQ are
+    # detected and classified explicitly — no IR, no mapper, no runtime
+    # lane, so absence of IR proves the mapper can never see them.  The
+    # evidence text names the subsystem so capability verdicts say *why*
+    # a program is blocked instead of only listing generic skipped
+    # statements.  No equivalence claim: classification only.
+    "EXEC DLI": _unsupported(
+        "EXEC DLI (IMS) has no deterministic Java lane: no IR, no mapper "
+        "and no IMS runtime; the block is classified UNSUPPORTED by "
+        "detection, never transformed"
+    ),
+    "EXEC MQI": _unsupported(
+        "EXEC MQI (IBM MQ) has no deterministic Java lane: no IR, no mapper "
+        "and no MQ runtime; the block is classified UNSUPPORTED by "
+        "detection, never transformed"
+    ),
     "SORT": _unsupported("SORT is not implemented in the deterministic mapper"),
     "MERGE": _unsupported("MERGE is not implemented in the deterministic mapper"),
     "ACCEPT": _unsupported("ACCEPT is not implemented in the deterministic mapper"),
@@ -382,6 +398,11 @@ UNSUPPORTED_CONSTRUCTS = frozenset(
 _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("EXEC CICS", re.compile(r"(?<![\w-])EXEC\s+CICS(?![\w-])", re.IGNORECASE)),
     ("EXEC SQL", re.compile(r"(?<![\w-])EXEC\s+SQL(?![\w-])", re.IGNORECASE)),
+    # Phase 7 (roadmap P3-4): IMS and IBM MQ detection — Rung 0 -> 1.
+    # Same word-boundary discipline as EXEC CICS/EXEC SQL so identifiers
+    # such as ``WS-EXEC-MQI`` or verbs like ``EXECUTE`` can never match.
+    ("EXEC DLI", re.compile(r"(?<![\w-])EXEC\s+DLI(?![\w-])", re.IGNORECASE)),
+    ("EXEC MQI", re.compile(r"(?<![\w-])EXEC\s+MQI(?![\w-])", re.IGNORECASE)),
     ("EVALUATE", re.compile(r"(?<![\w-])EVALUATE(?![\w-])", re.IGNORECASE)),
     ("GO TO", re.compile(r"(?<![\w-])GO\s+TO(?![\w-])|(?<![\w-])GOTO(?![\w-])", re.IGNORECASE)),
     ("SORT", re.compile(r"(?<![\w-])SORT(?![\w-])", re.IGNORECASE)),

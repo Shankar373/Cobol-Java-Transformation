@@ -79,7 +79,9 @@ jobs:
             tests/transformation/test_sql_unsupported_statement_diagnostics.py \
             tests/transformation/test_sql_clause_fidelity.py \
             tests/test_db2_unmapped_error_statuses.py \
-            tests/test_db2_cursor_host_variable_lifecycle.py
+            tests/test_db2_cursor_host_variable_lifecycle.py \
+            tests/test_ims_mq_detection.py \
+            tests/test_bl058_working_storage_group_hierarchy.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

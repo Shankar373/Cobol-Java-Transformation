@@ -2563,8 +2563,19 @@ level and evidence location.
   NOT_VERIFIED), so this cannot reach a green runtime verdict; still a
   correctness defect in generated output.
 - **Severity:** medium-low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-15, committed `8f107d2`
+  ("feat(phase7-p1): BL-057 CICS repr() quoting fix + focused test") by
+  the pre-session Phase 7 P1 work; discovered OPEN 2026-10-14 by the
+  repository-wide audit (Stage C, baseline `4deddfc`).** Status
+  reconciled 2026-10-15 during this session's Phase 7 verification: the
+  backlog row still read OPEN while `docs/PHASE_6_7_FINAL_REPORT.md`
+  recorded the fix — the backlog was the stale document. Re-verified
+  green in this session: `engine/cics/generator.py` `_java_arg` now
+  double-quote-escapes (`"…"`, `\`/`"`/`\n`/`\r`/`\t`/`\b`/`\f`), and
+  `tests/transformation/test_cics_java_literal_quoting.py` +
+  `tests/test_cics_generator.py` +
+  `tests/transformation/test_cics_java_lane.py` = **55 passed**
+  (`%TEMP%\opencode\phase7\bl057_verify_green.txt`).
 - **Found by:** audit group T4; verified: `cics/generator.py L562-568`
   (`_java_arg(quoted=True)` → `repr(value)`) used at L462/L473/L484.
 - **Observed behavior (verified):** `cics.receive('MAP1');` — a Java char
@@ -2590,19 +2601,31 @@ level and evidence location.
   children leak to top level or vanish changes downstream declarations
   (behavior-affecting fix — needs a design call, not a blind patch).
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T1 line-by-line; the
-  structure was re-read by hand at L866-897); **sharpened 2026-10-14 by the
-  Phase 4 §76 probes** (`%TEMP%\opencode\phase4\probe_p4_r1.py`, case WS):
-  against the real parse path, a two-level group
-  (`01 GRP. 05 A PIC X. 05 B PIC 9.`) yields **flat level-1 children with the
-  group node itself gone** (not nested, not diagnosed); **WS 88-level items
-  are dropped entirely** (no IR node, no diagnostic); **WS `REDEFINES` is not
-  captured on the DataItem** (field exists, never set on this lane). None of
-  the three losses raises a diagnostic today. Verdict impact stays bounded
-  because the source-scan classifier independently marks these programs
-  `UNKNOWN` (BL-003 wiring), so no false `SUPPORTED` is reachable — but the
-  IR-loss channel itself is real and unpinned.
+- **Status:** **FIXED — in-cycle 2026-10-15 (Phase 7, defect-proven-first;
+  design call recorded below).** Discovered 2026-10-14 by the
+  repository-wide audit (Stage C, baseline `4deddfc`); statically verified
+  (T1 line-by-line; the structure was re-read by hand at L866-897);
+  sharpened 2026-10-14 by the Phase 4 §76 probes
+  (`%TEMP%\opencode\phase4\probe_p4_r1.py`, case WS). **Design call
+  (2026-10-15):** WORKING-STORAGE parses through the shared hierarchical
+  data-description parser (`parse_data_description_lines`) — the same
+  shape as LINKAGE/COPYBOOK: roots keep true COBOL level numbers, group
+  nodes keep their `children`, `REDEFINES` is captured on the item, and
+  88-level condition names nest under their parent. Elementary children
+  are additionally expanded onto the top level (mirroring
+  `materialize_copybooks_into_program`'s roots+leaves convention) so
+  field generation and name lookups keep reading the flat list; 88-level
+  condition names are never promoted — they are not storage.
+  **Red evidence:** 5 failed / 2 passed in the full serialized Docker
+  sweep (`%TEMP%\opencode\phase7\full_sweep_docker.txt` —
+  `tests/test_bl058_working_storage_group_hierarchy.py`, pre-fix parser;
+  the two green probes are the pre-fix-parity pins). **Green evidence:**
+  focused `7 passed` (`%TEMP%\opencode\phase7\bl058_post_fix.txt`);
+  bare-venv capability gate `656 passed` across 47 files after wiring the
+  focused tests into `ci.yml` (`gate_bare_venv_post_bl058_wired.txt`,
+  verified BEFORE relying on CI — the (ab) failure mode applied
+  preemptively); transformation suite `2019 passed / 5 skipped`
+  (`transformation_suite_post_bl058_jdk.txt`). No existing test weakened.
 - **Found by:** audit group T1: `cobol_parser.py L814-899` —
   `current_group_children` is appended to but never read; the inner
   `pic_match` branch at L886 is unreachable for the level-10 path.
@@ -2614,13 +2637,21 @@ level and evidence location.
 - **Root cause:** hierarchy scaffolding left half-implemented.
 - **Affected files:** `engine/transformation/cobol_parser.py` L814-899.
 - **Impact:** declaration-shape fidelity; interacts with OCCURS groups.
-- **Remediation (planned):** decide nested-vs-flattened representation
-  (owner call), implement + tests with a two-level group fixture.
-- **Acceptance criteria:** documented, tested representation of group
-  nesting; no behavior change outside the agreed shape.
-- **Owner/role:** parser / IR maintainer. **Target phase:** unassigned.
-  **Dependency:** representation decision. **Residual risk:** current
-  flattening remains untested/unpinned.
+- **Remediation (shipped 2026-10-15):** `_parse_working_storage` now
+  slices the WS section and delegates to `parse_data_description_lines`
+  (stack-built nested roots; true levels; REDEFINES; 88-level as
+  children), then expands elementary children onto the top level via
+  `_flatten_working_storage_record` (same structural rule as
+  `copybook_model.flatten_records`, minus 88-level promotion); 7 focused
+  tests in `tests/test_bl058_working_storage_group_hierarchy.py` wired
+  into the `ci.yml` gate (47 files, bare-venv `656 passed`).
+- **Acceptance criteria (met):** documented, tested representation of
+  group nesting; elementary children remain declarable exactly as
+  before; no existing test weakened (transformation suite `2019 passed`).
+- **Owner/role:** parser / IR maintainer. **Target phase:** Phase 7
+  (closed in-cycle 2026-10-15). **Residual risk:** FILE SECTION records
+  remain flat (separate parser lane, out of BL-058 scope; no silent
+  child loss there — children are top-level by construction).
 
 ### BL-059 — Capability derivation under-reports arithmetic (SUBTRACT/MULTIPLY/COMPUTE missing) and never recurses into inline-PERFORM/INVALID-KEY bodies
 
@@ -3603,6 +3634,132 @@ level and evidence location.
 - **Owner/role:** platform integration owner. **Target phase:**
   Phase 10 (evidence / integrated proof) — deferred by design decision,
   disclosed. **Dependency:** none. **Residual risk:** disclosed.
+
+### BL-084 — IMS (`EXEC DLI`) is never detected or classified: no source pattern, no registry key (roadmap Rung 0)
+
+- **Type:** gap (missing capability / detection), not a wrong verdict.
+- **Priority:** P2 — Master README §28 requires IMS to be classified
+  explicitly and forbids unknown IMS constructs from silently passing
+  through the system. The program already fails closed today through
+  generic per-line `unparsed_statement` diagnostics (verified by probe),
+  so no false `SUPPORTED` verdict is reachable; what is missing is the
+  *classification itself* — nothing in the platform says "IMS".
+- **Severity:** medium (capability/classification coverage gap; no wrong
+  value and no false verdict).
+- **Status:** **FIXED — 2026-10-15 (Phase 7 batch 1).** Discovered OPEN
+  by the Phase 7 audit-first probe
+  (`%TEMP%\opencode\phase7\audit_probe_phase7.py`) before any source
+  change; red-first evidence in
+  `%TEMP%\opencode\phase7\bl084_bl085_pre_fix.txt` (5 failed / 9 passed —
+  every positive red, every negative already green). After the fix:
+  focused gate `tests/test_ims_mq_detection.py` **14 passed**; bare-venv
+  capability-truth gate **649 passed** (635 baseline + 14) verified
+  BEFORE wiring and again after wiring (gate now 46 files);
+  reconciliation set (`test_silent_loss_registry.py` + registry/structural
+  capability) **50 passed**; full serialized JDK sweep **139 failed /
+  3441 passed / 96 skipped / 27 errors** with failure identities
+  identical to the pre-fix baseline (NEW_ONLY=0, GONE=0 — the 139 are the
+  known Docker-gated set).
+  Later sweeps read 140 failed solely because of the pre-existing
+  `tests/test_certification_contract.py::TestContractReachesEngine`
+  timing flake (control-proven with this batch reverted — change-log
+  (ag) disclosure); all other identities remain NEW_ONLY=0/GONE=0.
+- **Found by:** Phase 7 §76 audit (Master README §26–§29 scope), CICS/MQ/
+  IMS/external-dependency inventory.
+- **Observed behavior (verified):** `EXEC DLI … END-EXEC` in PROCEDURE
+  DIVISION yields only generic per-line `unparsed_statement` diagnostics;
+  `scan_constructs` does not contain `EXEC DLI` (`CONSTRUCT_REGISTRY` has
+  no key, `_SOURCE_PATTERNS` has no pattern); capability reasons never
+  name IMS; roadmap rows record `IMS = UNKNOWN (no detection patterns
+  found)` (Rung 0).
+- **Expected behavior:** roadmap **P3-4** (Rung 0→1→2): source pattern +
+  registry key + blocked verdict + negatives, no runtime — the capability
+  verdict for an `EXEC DLI` program names `EXEC DLI` and stays
+  `UNSUPPORTED`; detection never fires on comment or string-literal text.
+- **Root cause:** the deterministic lane was built construct-by-construct
+  for the certified subset; IMS was never given a detection pattern.
+- **Affected files:** `engine/transformation/semantic_capability.py`,
+  `docs/SEMANTIC_PROOF_MATRIX.md`, `docs/CAPABILITY_MATRIX.md`,
+  `docs/COBOL_UNIVERSALITY_ROADMAP.md`.
+- **Impact:** an IMS application is rejected with a generic reason; IMS
+  is invisible to classification and to any downstream dependency
+  reporting.
+- **Remediation (planned):** registry key `EXEC DLI` (UNSUPPORTED) +
+  `_SOURCE_PATTERNS` entry + matrix/roadmap rows; no IR, no mapper, no
+  runtime lane, no equivalence claim.
+- **Acceptance criteria / tests:** gate-wired focused tests prove
+  (1) detection fires for a real `EXEC DLI` statement and not for a
+  control program, comment text or string-literal text; (2) registry
+  `level` and `effective_source_level` are `UNSUPPORTED`; (3) the
+  analyzer's PROGRAM reason names `EXEC DLI` and the verdict is never
+  `SUPPORTED`; (4) repeated scans are identical (deterministic); (5) the
+  existing fail-closed `unparsed_statement` diagnostics remain; no
+  existing test weakened or skipped.
+- **Owner/role:** capability/registry maintainer. **Target phase:**
+  Phase 7 (CICS / MQ / IMS / external dependencies). **Dependency:** none.
+  **Residual risk:** detection + classification only — no IMS DB/TM data
+  or transaction semantics, no PCB/segment dependency edges (roadmap
+  P3-6 edge vocabulary stays future work).
+
+### BL-085 — IBM MQ (`EXEC MQI`) is never detected or classified: no source pattern, no registry key (roadmap Rung 0)
+
+- **Type:** gap (missing capability / detection), not a wrong verdict.
+- **Priority:** P2 — Master README §27 requires MQ modernization to
+  support queue discovery and message semantics; nothing is detected
+  today, so an MQ application is rejected for the wrong (generic)
+  reason. No false `SUPPORTED` verdict is reachable (probe-verified:
+  generic `unparsed_statement` diagnostics already fail the program
+  closed).
+- **Severity:** medium (capability/classification coverage gap; no wrong
+  value and no false verdict).
+- **Status:** **FIXED — 2026-10-15 (Phase 7 batch 1).** Discovered OPEN
+  by the Phase 7 audit-first probe
+  (`%TEMP%\opencode\phase7\audit_probe_phase7.py`) before any source
+  change; red-first evidence in
+  `%TEMP%\opencode\phase7\bl084_bl085_pre_fix.txt` (5 failed / 9 passed).
+  After the fix: focused gate `tests/test_ims_mq_detection.py`
+  **14 passed**; bare-venv capability-truth gate **649 passed** (635
+  baseline + 14) verified BEFORE wiring and again after wiring (gate now
+  46 files); reconciliation set **50 passed**; full serialized JDK sweep
+  **139 failed / 3441 passed / 96 skipped / 27 errors** with failure
+  identities identical to the pre-fix baseline (NEW_ONLY=0, GONE=0 — the
+  139 are the known Docker-gated set).
+  Later sweeps read 140 failed solely because of the pre-existing
+  `tests/test_certification_contract.py::TestContractReachesEngine`
+  timing flake (control-proven with this batch reverted — change-log
+  (ag) disclosure); all other identities remain NEW_ONLY=0/GONE=0.
+- **Found by:** Phase 7 §76 audit (Master README §27 scope).
+- **Observed behavior (verified):** `EXEC MQI … END-EXEC` yields only
+  generic per-line `unparsed_statement` diagnostics; `scan_constructs`
+  does not contain `EXEC MQI`; capability reasons never name MQ; roadmap
+  rows record `MQ = UNKNOWN (no detection patterns found)` (Rung 0);
+  queue names (`Q(…)`/`QUEUE(…)`) are not extracted as dependencies.
+- **Expected behavior:** roadmap **P3-4** (Rung 0→1→2): source pattern +
+  registry key + blocked verdict + negatives, no runtime — the capability
+  verdict names `EXEC MQI` and stays `UNSUPPORTED`; detection never fires
+  on comment or string-literal text.
+- **Root cause:** same lane-first build order; MQ was never given a
+  detection pattern.
+- **Affected files:** `engine/transformation/semantic_capability.py`,
+  `docs/SEMANTIC_PROOF_MATRIX.md`, `docs/CAPABILITY_MATRIX.md`,
+  `docs/COBOL_UNIVERSALITY_ROADMAP.md`.
+- **Impact:** MQ applications are invisible to classification; queue
+  dependencies are invisible to the dependency graph.
+- **Remediation (planned):** registry key `EXEC MQI` (UNSUPPORTED) +
+  `_SOURCE_PATTERNS` entry + matrix/roadmap rows; no IR, no mapper, no
+  runtime lane, no message-semantics claim.
+- **Acceptance criteria / tests:** gate-wired focused tests prove
+  (1) detection fires for a real `EXEC MQI` statement and not for a
+  control program, comment text or string-literal text; (2) registry
+  `level` and `effective_source_level` are `UNSUPPORTED`; (3) the
+  analyzer's PROGRAM reason names `EXEC MQI` and the verdict is never
+  `SUPPORTED`; (4) repeated scans are identical; (5) the existing
+  fail-closed diagnostics remain; no existing test weakened or skipped.
+- **Owner/role:** capability/registry maintainer. **Target phase:**
+  Phase 7 (CICS / MQ / IMS / external dependencies). **Dependency:** none.
+  **Residual risk:** detection + classification only — queue discovery,
+  message format, correlation, retry and dead-letter semantics remain
+  future work (Master README §27 items not yet modeled).
 
 ## Backlog change log
 
@@ -4617,6 +4774,124 @@ level and evidence location.
 
 - 2026-10-15 — **(ae) Phase 6 (DB2/SQL) COMPLETION — `PHASE 6 COMPLETE — VERIFIED` (§53 13/13).** All 8 applicable items closed: P1 = BL-078/079/080 (change-log (ac), committed `fa1c631`, exact-SHA CI GREEN runs=4), P2 = BL-060/061/062/081/082 (change-log (ad), committed `0efa49f`, exact-SHA CI in flight at verdict time — `ci_0efa49f.txt` last read `pending=True`, runs=4). BL-083 disclosure: roadmap `COBOL_UNIVERSALITY_ROADMAP.md` §15 item P3-7 (duplicate register row removed as pure duplication). Full serialized sweep effective **3683 passed / 4 skipped / 0 failed** = 3663 + 20 exact (the 1 failure was the known Docker-oracle image-identity flake `docker_adapter.py:125`, transient mid-sweep; failed set rerun on the idle daemon 1 passed + digest verified, nothing weakened). Gate now 45 files, bare-venv `635 passed` = 615 + 20 exact verified BEFORE wiring. Fresh E2E: golden DB2 workload `30 passed` + `tests/integration` Docker/oracle set green on idle daemon. Phase 6 §53 13-point verdict written in `opencode.md`; Phase 7 audit-first started (BL-057 verified: `engine/cics/generator.py` L563-568 `_java_arg(quoted=True)` → `repr(value)` still emits single-quoted Python literals at L462/L473/L484 — confirmed open, no LLM anywhere, no merge to `main`).
 
+- 2026-10-15 — **(af) Phase 7 (CICS / MQ / IMS / external dependencies)
+  audit-first probe: BL-084 (IMS `EXEC DLI`) and BL-085 (IBM MQ `EXEC
+  MQI`) filed OPEN (P2, detection/classification gaps, roadmap P3-4).**
+  The probe (`%TEMP%\opencode\phase7\audit_probe_phase7.py`, run before
+  any source change) verified that both constructs fail closed today
+  through generic per-line `unparsed_statement` diagnostics — no false
+  `SUPPORTED` verdict — but that neither is *classified*: `scan_constructs`
+  finds no `EXEC DLI`/`EXEC MQI` key, capability reasons never name
+  IMS/MQ, and the roadmap matrix still records `IMS/MQ = UNKNOWN (no
+  detection patterns found)` (Rung 0). Rows written OPEN in the register
+  before any evidence exists (never pre-claimed); remediation, red/green
+  evidence and numbers to follow in the same Phase 7 batch under the
+  defect-proven-first rule. Also verified by the same probe: the BL-058
+  WORKING-STORAGE group-hierarchy drop is still present (group node
+  flattened, level numbers lost, 88-level dropped, verdict UNKNOWN via
+  source scan) — remains a Phase 7 P2 carry-forward pending its design
+  call, not silently waived.
+
+- 2026-10-15 — **(ag) Phase 7 batch 1 (roadmap P3-4): BL-084 (IMS
+  `EXEC DLI`) and BL-085 (IBM MQ `EXEC MQI`) FIXED — detection +
+  classification shipped, register updated from the red evidence.**
+  Changes: `engine/transformation/semantic_capability.py` gained two
+  `_SOURCE_PATTERNS` entries (word-boundary, case-insensitive, same
+  discipline as `EXEC CICS`/`EXEC SQL`) and two `CONSTRUCT_REGISTRY`
+  keys (`_unsupported` at both IR and source-only level — the source-only
+  analyzer path never reads registry evidence, so the fail-closed
+  template message is unchanged); docs got SEMANTIC_PROOF_MATRIX rows
+  (`EXEC DLI`, `EXEC MQI` — gate-required literal keys), CAPABILITY_MATRIX
+  rows, roadmap §5/§6 detect cells, §9 locked-blocked list, §10/§11 rung
+  moves (IMS/MQ 0→2), §15 P3-4 status, §16 lock list. Evidence chain
+  (all under `%TEMP%\opencode\phase7\`): red `bl084_bl085_pre_fix.txt`
+  **5 failed / 9 passed** (positives red, negatives already green);
+  focused `bl084_bl085_focused_green.txt` **14 passed**;
+  reconciliation `bl084_reconciliation.txt` **50 passed**; bare-venv gate
+  **649 passed** (635 baseline + 14) run BEFORE wiring
+  (`bl084_gate_bare_pre_wiring.txt`) and again after wiring
+  (`bl084_gate_bare_post_wiring.txt`, now 46 files — the
+  `527f679`/BL-080 failure mode avoided); full serialized JDK sweep
+  `bl084_full_sweep_post_fix.txt` **139 failed / 3441 passed / 96 skipped
+  / 27 errors** vs baseline 139 failed / 3427 passed / 96 skipped /
+  27 errors — failure identities recomputed from both `-rf` logs:
+  **NEW_ONLY=0, GONE=0** (the 139 = known Docker-gated set), +14 passed
+  = exactly the new focused tests. `tests/test_ims_mq_detection.py`
+  wired into the ci.yml capability-truth gate (45→46 files, dependency-free).
+  Disclosure: classification only — no IR node, no mapper, no runtime,
+  no equivalence claim; queue-name dependency edges (MQ) and PCB/segment
+  edges (IMS) remain roadmap P3-6 future work; BL-058 (WORKING-STORAGE
+  group hierarchy) still open, carried into the next Phase 7 batch. No
+  commit/push in this batch — awaiting repository authorization as
+  required by §57/§64.
+  **Pre-existing flake disclosed (not caused by this batch):**
+  `tests/test_certification_contract.py::TestContractReachesEngine` is
+  timing-flaky under the full serialized suite — its shared class-level
+  `_CapturingPipeline.captured` dict can be overwritten by a stale
+  background modernize worker, so one of its two pipeline-config tests
+  intermittently sees the wrong contract's artifacts. Observed: original
+  baseline 139 failed (neither test failing) -> post-change sweeps
+  139/140/140/140 (only `test_declared_contract_drives_pipeline_config`
+  extra) -> **control run with this batch fully reverted to baseline
+  content** (`bl084_baseline_state_control_run.txt`) also 140 failed but
+  with the *sibling* `test_default_contract_drives_pipeline_config`
+  failing instead — same class, opposite test, my changes absent. Both
+  tests pass in isolation (`19 passed`,
+  `bl084_cert_contract_rerun.txt`), and the 965-test collection prefix
+  ending at the target test passes (`prefix_run.txt`). Every other
+  failure identity: **NEW_ONLY=0, GONE=0** vs baseline. Not weakened,
+  not skipped, not silently accepted — registered here as a
+  pre-existing flake with its control evidence.
+
+- 2026-10-15 — **(ah) BL-057 status reconciliation (documentation only).**
+  The register row and section for BL-057 (CICS `_java_arg` Python
+  `repr()` quoting) still read **OPEN** while the fix had already landed
+  in HEAD `8f107d2` ("feat(phase7-p1): BL-057 CICS repr() quoting fix +
+  focused test") and `docs/PHASE_6_7_FINAL_REPORT.md` recorded it as
+  done — the backlog was the stale document (the Phase 6 completion entry
+  (ae) likewise still describes it as "confirmed open": (ae) documents
+  the pre-fix state even though it shipped in the same commit `8f107d2`
+  as the fix itself, so (ae) is left as the historical record). Reconciled: section Status and register row now read
+  FIXED at `8f107d2`, re-verified green in this session —
+  `tests/transformation/test_cics_java_literal_quoting.py` +
+  `test_cics_generator.py` + `test_cics_java_lane.py` = **55 passed**
+  (`%TEMP%\opencode\phase7\bl057_verify_green.txt`); no code change, no
+  test change, nothing weakened. BL-058 remains OPEN (design call) and
+  BL-050/051/054/053 etc. keep their existing phase assignments.
+
+- 2026-10-15 — **(ai) Phase 7 batch 2: BL-058 WORKING-STORAGE hierarchy
+  FIXED (defect-proven-first) + Windows Docker Desktop connectivity
+  established for the full regression of record.**
+  *Design call:* nested IR via the shared `parse_data_description_lines`
+  (roots with `children`, true level numbers, REDEFINES captured, 88-level
+  nested under the parent) plus roots+leaves top-level expansion mirroring
+  `materialize_copybooks_into_program` — elementary children stay
+  declarable exactly as before the fix; 88-level condition names are never
+  promoted (not storage). *Evidence:* pre-fix red 5/2 in the full
+  serialized Docker sweep (`full_sweep_docker.txt`, 3704 passed / 6 failed
+  where the 6th failure — `test_copybook_runtime.py::TestDockerExecution::
+  test_stdout_has_initial_values` — reran green on the idle daemon in
+  19.37s, `copybook_runtime_rerun.txt`, transient sweep-load flake, no
+  code change); post-fix focused `7 passed` (`bl058_post_fix.txt`);
+  `ci.yml` gate extended to 47 files / 656 tests, bare-venv verified
+  pre-CI (`gate_bare_venv_post_bl058_wired.txt`); transformation suite
+  `2019 passed / 5 skipped` (`transformation_suite_post_bl058_jdk.txt`);
+  22 mid-run javac failures in an ungated invocation were environment
+  artifacts (missing JDK PATH) and green with JDK exported (`transformation_22_rerun_jdk.txt`).
+  *Docker connectivity (same session):* Windows Docker Desktop 4.94.0 /
+  engine 29.8.2 exposed to WSL via `EnableIntegrationWithDefaultWslDistro`
+  + `IntegratedWslDistros=["Ubuntu-24.04"]` (settings-store.json backed up
+  in the evidence dir; `wsl --set-default Ubuntu-24.04`); WSL-path
+  bind-mounts now visible to the daemon (`docker_connectivity_wsl.txt`);
+  required images present with immutable repo-digests
+  (`gnucobol-ocesql@sha256:68900cc0…`, `maven-offline-springboot@sha256:32139c85…`,
+  `eclipse-temurin@sha256:4d060388…`); formerly blocked Docker set
+  (baseline 139 failed + 27 errors) re-ran 246 passed / 6 failed cold
+  (`phase7_docker_blockers_rerun.txt`) with all 6 failures = fail-closed
+  oracle-identity probes during the cold daemon and all 6 green on warm
+  rerun (`phase7_six_failures_rerun.txt`, 41.25s). No test weakened; no
+  failure hidden.
+
 - 2026-10-15 — **(ab) Phase 5 P2 batch exact-SHA CI came back NOT GREEN
   on `41c98ef`; capability-gate dependency leak fixed in one follow-up
   commit (no test weakened).** The failing job was `Capability truth
@@ -4889,8 +5164,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-054 | Candidate adapter / pipeline maintainer | Phase 9 (carry-forward 2026-10-14) | None | Build output written into the identity tree ⇒ non-reproducible hashes. | Non-reproducible evidence identity on the Spring Boot lane. | Repeated builds ⇒ identical candidate_hash; adapter tests green. |
 | BL-055 | Parser / IR maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Lowercase valid COBOL crashes instead of diagnosing. | Unhandled IndexError on lowercase PERFORM UNTIL/VARYING. | Lowercase forms parse identically to uppercase; parser tests green. **FIXED**: shared case-insensitive UNTIL split in both inline branches (guard/split can no longer disagree; also fixes multi-space spellings); test_perform_lowercase.py (6) red 5/1 → green; regression 81+37 passed; gate-wired. |
 | BL-056 | Copybook materialization maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Decode errors escape OSError handlers; lanes can disagree on one file. | Crash instead of COPYBOOK_UNREADABLE; analyzer/materializer divergence. | Binary copybook ⇒ COPYBOOK_UNREADABLE in all lanes; copybook tests green. **FIXED**: all three copybook read sites (`_expand_copybook_text`, `collect_copybook_texts`, `prepare_application_copybooks`) catch `(OSError, UnicodeError)`; analyzer copybook reader is strict UTF-8 taking the read-failure path; `tests/test_copybook_decode_fail_closed.py` (8) red 8/0 (all raw UnicodeDecodeError, `%TEMP%\opencode\phase4\bl056_pre_fix.txt`) → green; regressions 239 + 441 passed; gate-wired. |
-| BL-057 | CICS lane maintainer | Phase 7 (carry-forward 2026-10-14) | Shared escaping helper (BL-046) | Python repr() quoting emits invalid Java. | Uncompilable CICS-lane output (fail-closed at javac). | CICS generation emits valid Java literals; cics tests green. |
-| BL-058 | Parser / IR maintainer | **Phase 4 carry-forward (design decision required; P2)** — probe-sharpened 2026-10-14, not fixed in-cycle | Group-nesting representation decision | Hierarchy silently dropped; behavior-affecting fix needs a design call. Probe confirmed WS group node dropped, WS 88-level dropped, WS REDEFINES uncaptured, all diagnostic-free; verdict stays fail-closed via source-scan UNKNOWN (BL-003). | Declaration-shape fidelity unpinned. | Documented, tested representation of group nesting; agreed-shape tests green. |
+| BL-057 | CICS lane maintainer | **Phase 7 (carry-forward 2026-10-14; FIXED 2026-10-15, committed `8f107d2`, status reconciled + re-verified this session: 55 passed)** | Shared escaping helper (BL-046) | Python repr() quoting emits invalid Java. | Uncompilable CICS-lane output (fail-closed at javac). | FIXED — CICS generation emits valid Java string literals (double-quoted with escaping in `_java_arg`); focused `test_cics_java_literal_quoting.py` + CICS regression green (55 passed, `bl057_verify_green.txt`); no cics test weakened. |
+| BL-058 | Parser / IR maintainer | **Phase 7 (fixed in-cycle 2026-10-15 — defect-proven-first; design call recorded in the section)** | Shared `parse_data_description_lines` hierarchy + roots+leaves top-level expansion (mirrors `materialize_copybooks_into_program`) | WS group node dropped, children flattened to level 1 or vanished, 88-level dropped, REDEFINES uncaptured — all diagnostic-free (probe-confirmed). | FILE SECTION stays flat (separate lane, documented). | FIXED — `_parse_working_storage` delegates to the hierarchical parser; 7 focused tests gate-wired (`ci.yml` 47 files, bare-venv `656 passed`); pre-fix red 5/2 and post-fix green 7/7 (`%TEMP%\opencode\phase7\full_sweep_docker.txt`, `bl058_post_fix.txt`); transformation suite `2019 passed`; no existing test weakened. |
 | BL-059 | IR/capability maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Capability walker under-reports arithmetic and inline bodies (conservative). | Valid programs blocked more than reality requires. | Capability reflects all arithmetic at any depth; capability tests green. **FIXED**: `has_arithmetic` covers all five statement types; `_flatten_statements` walks inline-PERFORM bodies and INVALID KEY/NOT INVALID KEY bodies of READ/START/WRITE/REWRITE/DELETE; `test_capability_walker_depth.py` (15) red 12/3 (controls green) → green; transformation regression 1919 passed / 0 failed; gate-wired. |
 | BL-060 | SQL lane maintainer | **Phase 6 (batch P2 - fixed in-cycle 2026-10-15)** | None | Error handler itself raises ValueError (invalid sentinel). | None once fixed: `-1`/`'56000'` is an explicit documented lane sentinel (`SQLCODE_UNMAPPED_ERROR`/`SQLSTATE_UNMAPPED_ERROR`), never a claim about the exact DB2 code. | FIXED - red `bl060_pre_fix.txt` (collection ImportError: sentinel constants absent; behavioral `ValueError` crash proven by audit probes A2/B); `Db2SqlStatus.unmapped_error` added, both handler sites wired; new `tests/test_db2_unmapped_error_statuses.py` (4 tests, gate-wired, bare-venv `635 passed`); focused green `4 passed`, SQL-lane regression `2098 passed / 4 skipped`; no existing test weakened. |
 | BL-061 | SQL lane maintainer | **Phase 6 (batch P2 - fixed in-cycle 2026-10-15)** | None | Cursor bind handoff missing (DECLARE discards binds; re-masking masked SQL at OPEN); harness passed no bindings at OPEN; `execute()` misroutes unanalyzed IR. | None once fixed: genuinely missing OPEN bindings fail loud with the host variable named (`KeyError`). | FIXED - red `bl061_pre_fix.txt` (4 failed), focused green `4 passed` (`bl061_focused_green.txt`); DECLARE-time bind plan stored in `_CursorState.bind_info` (carried through OPEN/FETCH), OPEN binds from the workload's OPEN statement entry (DB2 semantics), `execute()` fails closed (TypeError for unanalyzed IR with analyzer hint, ValueError naming unknown types), dead `_bind_from_sql` removed; new `tests/test_db2_cursor_host_variable_lifecycle.py` (4 tests, gate-wired); SQL-lane regression incl. golden-trace workload `2098 passed / 4 skipped`. |
@@ -4916,6 +5191,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-081 | SQL parser + analyzer maintainer | **Phase 6 (batch P2 — fixed in-cycle 2026-10-15)** | Additive `ir.SqlJoin.on_predicates` field | JOIN tables/ON conditions silently lost though `SqlSelect.joins` exists (`T2` absent from dependency truth while SELECT list references `B.NAME`). | CROSS JOIN / no-ON segments parse by construction but stay outside the focused subset (documented); comma form remains in `from_tables`. | FIXED - red `bl081_pre_fix.txt` (`4 failed, 1 passed` — non-join control green) + `bl081_deps_pre_fix.txt` (`1 failed`, baseline-parser capture of the second dependency door); JOIN segments parsed into `joins` with ON conjuncts (BL-079 splitter; first conjunct also `on_condition`), analyzer table usage/`table_refs`/read columns and `extract_table_dependencies` include joined tables, FROM section bounded at the next clause keyword; focused green `6 passed` (`bl081_focused_green.txt`); SQL-lane regression `2098 passed / 4 skipped`. |
 | BL-082 | SQL parser maintainer | **Phase 6 (batch P2 — fixed in-cycle 2026-10-15)** | None | ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text (`'ACCT FETCH FIRST 5 ROWS ONLY'`). | None once bounded. | FIXED - red `bl082_pre_fix.txt` (`1 failed, 2 passed` — both controls green), focused green `3 passed` (`bl082_focused_green.txt`); ORDER BY slice bounded at `FETCH FIRST` by offset search over the original text; in `tests/transformation/test_sql_clause_fidelity.py` (gate-wired); SQL-lane regression `2098 passed / 4 skipped`. |
 | BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap P3-7 state the gap (roadmap disclosure added with batch-P2 docs 2026-10-15); Phase 6 verdict limitations to be written at completion; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
+| BL-084 | Capability/registry maintainer | **Phase 7 (filed OPEN 2026-10-15 by the audit-first probe; FIXED 2026-10-15 — batch 1: pattern + registry key + matrix/roadmap rows + 14 focused gate tests, bare-venv gate 649 passed pre/post wiring)** | None | IMS (`EXEC DLI`) never detected or classified: no `_SOURCE_PATTERNS` entry, no `CONSTRUCT_REGISTRY` key (roadmap Rung 0). | IMS applications rejected with generic reasons; no IMS classification anywhere (verdict already fails closed — no false SUPPORTED). | Detection fires only on real `EXEC DLI` statements (comment/literal masked); registry `level`/`effective_source_level` = `UNSUPPORTED`; analyzer PROGRAM reason names `EXEC DLI`, never `SUPPORTED`; deterministic re-scan; existing fail-closed diagnostics kept; focused gate tests green. |
+| BL-085 | Capability/registry maintainer | **Phase 7 (filed OPEN 2026-10-15 by the audit-first probe; FIXED 2026-10-15 — batch 1: pattern + registry key + matrix/roadmap rows + 14 focused gate tests, bare-venv gate 649 passed pre/post wiring)** | None | IBM MQ (`EXEC MQI`) never detected or classified: no `_SOURCE_PATTERNS` entry, no `CONSTRUCT_REGISTRY` key (roadmap Rung 0); queue names never extracted as dependencies. | MQ applications invisible to classification and to the dependency graph (verdict already fails closed — no false SUPPORTED). | Detection fires only on real `EXEC MQI` statements (comment/literal masked); registry `level`/`effective_source_level` = `UNSUPPORTED`; analyzer PROGRAM reason names `EXEC MQI`, never `SUPPORTED`; deterministic re-scan; existing fail-closed diagnostics kept; focused gate tests green. |
 
 ### PR disposition snapshot — 2026-10-10
 
