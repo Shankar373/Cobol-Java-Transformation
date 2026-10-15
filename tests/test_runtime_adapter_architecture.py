@@ -138,17 +138,11 @@ class TestRuntimeAdapterRegistry:
         assert adapter.target_runtime == "plain_java"
         assert type(adapter).__name__ == "PlainJavaRuntimeAdapter"
 
-    def test_pending_jakarta_target_fails_closed(self):
-        # Staged delivery: BL-090 (jakarta_ee) lands in Phase 8 batch P2.
-        # Until then the lookup must fail closed with an explicit
-        # "not implemented yet" error — never a silent spring fallback.
-        with pytest.raises(RuntimeAdapterNotImplementedError) as excinfo:
-            get_runtime_adapter("jakarta_ee")
-        message = str(excinfo.value)
-        assert "'jakarta_ee'" in message
-        assert "not implemented yet" in message
-        assert "spring_boot" in message
-        assert "plain_java" in message  # implemented set is named truthfully
+    def test_jakarta_adapter_implemented(self):
+        # BL-090 (Phase 8 batch P2) implemented jakarta_ee.
+        adapter = get_runtime_adapter("jakarta_ee")
+        assert adapter.target_runtime == "jakarta_ee"
+        assert type(adapter).__name__ == "JakartaEeRuntimeAdapter"
 
     @pytest.mark.parametrize("bad", ["tomcat", "springboot", "PLAIN_JAVA", ""])
     def test_unknown_target_fails_closed_with_supported_set(self, bad):
@@ -197,7 +191,7 @@ class TestRuntimeAdapterRegistry:
 
         assert set(_ADAPTER_FACTORIES) == set(implemented_target_runtimes())
         assert set(_ADAPTER_FACTORIES) <= set(SUPPORTED_TARGET_RUNTIMES)
-        assert set(_ADAPTER_FACTORIES) == {"spring_boot", "plain_java"}
+        assert set(_ADAPTER_FACTORIES) == {"spring_boot", "plain_java", "jakarta_ee"}
 
 
 class TestPlanTruth:
@@ -329,9 +323,15 @@ class TestPipelineAssemblyDispatch:
                 == "spring_boot"
             )
 
-    def test_unimplemented_target_fails_closed_before_any_phase(self):
-        # jakarta_ee is the remaining staged target (BL-090, batch P2).
-        pending_target = "jakarta_ee"
+    def test_unimplemented_target_fails_closed_before_any_phase(self, monkeypatch):
+        # All three §32 targets are now implemented (BL-088/089/090), so
+        # the "declared but unimplemented" fail-closed guard is exercised
+        # synthetically: temporarily remove jakarta_ee from the registry to
+        # prove the guard still rejects it before any phase, never a
+        # silent spring fallback.
+        from engine.transformation import runtime_adapters as ra
+
+        monkeypatch.delitem(ra._ADAPTER_FACTORIES, "jakarta_ee")
         with tempfile.TemporaryDirectory() as tmpdir:
             report = UniversalModernizationPipeline(
                 ModernizationConfig(
@@ -339,7 +339,7 @@ class TestPipelineAssemblyDispatch:
                     output_dir=str(Path(tmpdir) / "out"),
                     application_id="target-pending",
                     docker_available=False,
-                    target_runtime=pending_target,
+                    target_runtime="jakarta_ee",
                 )
             ).execute()
             assert report.generation_success is False
@@ -347,12 +347,17 @@ class TestPipelineAssemblyDispatch:
             assert report.generated_project_dir == ""
             limitation = "; ".join(report.limitations)
             assert "Runtime adapter unavailable" in limitation
-            assert repr(pending_target) in limitation
+            assert "'jakarta_ee'" in limitation
             assert "not implemented yet" in limitation
 
-    def test_adapter_dispatch_runs_before_discovery(self):
+    def test_adapter_dispatch_runs_before_discovery(self, monkeypatch):
         # The fail-closed lookup happens before Phase 1, so nothing is
-        # discovered/analyzed/transformed for an unusable target.
+        # discovered/analyzed/transformed for an unusable target.  All
+        # §32 targets are implemented, so the unusable state is
+        # synthesized by removing jakarta_ee from the registry.
+        from engine.transformation import runtime_adapters as ra
+
+        monkeypatch.delitem(ra._ADAPTER_FACTORIES, "jakarta_ee")
         with tempfile.TemporaryDirectory() as tmpdir:
             report = UniversalModernizationPipeline(
                 ModernizationConfig(
@@ -524,6 +529,107 @@ class TestPlainJavaTarget:
             files = _project_file_set(Path(report.generated_project_dir))
             pom = files["pom.xml"]
             assert "spring-boot-starter-parent" in pom
+
+
+class TestJakartaEeTarget:
+    """BL-090 — jakarta_ee generation profile through the §32 adapter registry."""
+
+    def test_jakarta_pipeline_run_emits_marked_profile(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            (src / "HELLO.cob").write_text(_HELLO_SOURCE, encoding="utf-8")
+            report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    source_dir=str(src),
+                    output_dir=str(root / "out"),
+                    application_id="jakarta-hello",
+                    entrypoint="HELLO",
+                    docker_available=True,
+                    target_runtime="jakarta_ee",
+                )
+            ).execute()
+
+            assert report.generation_success is True, report.generation_errors
+            assert report.target_runtime == "jakarta_ee"
+            assert (
+                report.transformation_plan.assembly.output_type == "JAKARTA_EE"
+            )
+            files = _project_file_set(Path(report.generated_project_dir))
+            assert "pom.xml" in files
+            assert "src/main/java/Hello.java" in files
+            pom = files["pom.xml"]
+            # Distinct Jakarta-EE-marked pom (not the plain_java shape).
+            assert "<groupId>com.modernized.app.jakarta</groupId>" in pom
+            assert "-jakarta</artifactId>" in pom
+            assert "<jakarta.ee.target>jakartaee10</jakarta.ee.target>" in pom
+            assert "<jakarta.ee.profile>true</jakarta.ee.profile>" in pom
+            # Generation-only bound: no dependency claimed (offline repo has
+            # no Jakarta artifacts; build execution is Phase 9 scope).
+            assert "<dependency>" not in pom
+            # No Spring coupling anywhere in the project (§32: adapters
+            # select the runtime; the shared transform never hardwires one).
+            for rel, content in files.items():
+                assert "spring" not in content.lower(), rel
+            # Bounded claim: the report discloses generation-only scope.
+            assert any("jakarta_ee" in line for line in report.limitations)
+
+    def test_jakarta_profile_distinct_from_plain_java(self):
+        # Same shared sources, different pom profile — the §32 "one
+        # transform, many runtime targets" property made visible.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            (src / "HELLO.cob").write_text(_HELLO_SOURCE, encoding="utf-8")
+            common = dict(
+                source_dir=str(src),
+                entrypoint="HELLO",
+                docker_available=True,
+            )
+            plain_report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    output_dir=str(root / "out-plain"),
+                    application_id="dist-plain",
+                    target_runtime="plain_java",
+                    **common,
+                )
+            ).execute()
+            jakarta_report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    output_dir=str(root / "out-jakarta"),
+                    application_id="dist-jakarta",
+                    target_runtime="jakarta_ee",
+                    **common,
+                )
+            ).execute()
+            assert plain_report.generation_success is True
+            assert jakarta_report.generation_success is True
+            plain_files = _project_file_set(Path(plain_report.generated_project_dir))
+            jakarta_files = _project_file_set(Path(jakarta_report.generated_project_dir))
+            # Same shared source file-set (single parser/transformer).
+            assert "src/main/java/Hello.java" in plain_files
+            assert "src/main/java/Hello.java" in jakarta_files
+            # Distinct poms: jakarta marker present only in the jakarta pom.
+            assert "jakarta.ee.target" not in plain_files["pom.xml"]
+            assert "jakarta.ee.target" in jakarta_files["pom.xml"]
+            # Distinct artifact coordinates.
+            assert "com.modernized.app.jakarta" not in plain_files["pom.xml"]
+            assert "com.modernized.app.jakarta" in jakarta_files["pom.xml"]
+
+    def test_jakarta_default_spring_and_plain_unaffected(self):
+        # Regression bound: default spring and plain_java paths still
+        # resolve their own adapters (registry completeness).
+        assert type(get_runtime_adapter("spring_boot")).__name__ == (
+            "SpringBootRuntimeAdapter"
+        )
+        assert type(get_runtime_adapter("plain_java")).__name__ == (
+            "PlainJavaRuntimeAdapter"
+        )
+        assert type(get_runtime_adapter("jakarta_ee")).__name__ == (
+            "JakartaEeRuntimeAdapter"
+        )
 
 
 class TestReportCarriesTarget:

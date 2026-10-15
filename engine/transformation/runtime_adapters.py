@@ -274,7 +274,7 @@ class PlainJavaRuntimeAdapter(RuntimeAdapter):
                 continue
             seen_models.add(cls.name)
             packaged = (
-                cls if cls.package else replace(cls, package=_PLAIN_MODEL_PACKAGE)
+                cls if cls.package else replace(cls, package=self.model_package)
             )
             rel = (
                 "src", "main", "java",
@@ -283,13 +283,48 @@ class PlainJavaRuntimeAdapter(RuntimeAdapter):
             )
             _write(rel, render_model_class(packaged))
 
-        _write(("pom.xml",), _plain_pom_xml(
+        _write(("pom.xml",), self._render_pom(
             application_id=java_application.application_id,
             entry_class=entry_class,
             java_version=runtime.java_version,
         ))
 
         return AssemblyOutcome(project_dir=project_dir, entrypoint=entry_class)
+
+    model_package: ClassVar[str] = _PLAIN_MODEL_PACKAGE
+
+    def _render_pom(
+        self, *, application_id: str, entry_class: str, java_version: str
+    ) -> str:
+        return _plain_pom_xml(
+            application_id=application_id,
+            entry_class=entry_class,
+            java_version=java_version,
+        )
+
+
+class JakartaEeRuntimeAdapter(PlainJavaRuntimeAdapter):
+    """Jakarta-EE generation profile (BL-090): the SAME shared
+    ``JavaApplication`` IR and source shape as ``plain_java``, assembled
+    under a distinct Jakarta-EE-marked Maven pom profile.
+
+    Scope bound (documented, no equivalence claim): generation profile
+    only — the offline repository carries no Jakarta EE artifacts, so no
+    build execution or runtime evidence is claimable (Rung 0–1, never
+    certified); that limitation is disclosed in the report.
+    """
+
+    target_runtime: ClassVar[str] = "jakarta_ee"
+    model_package: ClassVar[str] = "com.modernized.app.jakarta.model"
+
+    def _render_pom(
+        self, *, application_id: str, entry_class: str, java_version: str
+    ) -> str:
+        return _jakarta_pom_xml(
+            application_id=application_id,
+            entry_class=entry_class,
+            java_version=java_version,
+        )
 
 
 def _plain_pom_xml(*, application_id: str, entry_class: str, java_version: str) -> str:
@@ -335,9 +370,69 @@ def _plain_pom_xml(*, application_id: str, entry_class: str, java_version: str) 
 """
 
 
+def _jakarta_pom_xml(*, application_id: str, entry_class: str, java_version: str) -> str:
+    """Jakarta-EE-marked Maven pom for the jakarta_ee generation profile.
+
+    Structurally distinct from the plain_java pom: Jakarta-EE groupId,
+    a default-active ``jakarta-ee`` Maven profile carrying the Jakarta
+    API-version marker, and an explicit generation-only scope note.
+    Zero ``<dependency>`` elements are emitted (no offline Jakarta
+    artifacts exist; build execution is Phase 9 scope — BL-090).
+    """
+    artifact = (application_id or "generated-app").lower().replace(" ", "-").replace("_", "-")
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.modernized.app.jakarta</groupId>
+    <artifactId>{artifact}-jakarta</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>{application_id}-jakarta</name>
+    <description>Auto-generated Jakarta EE application profile (target_runtime=jakarta_ee) — generation profile only; no offline build or runtime evidence (Phase 9 scope)</description>
+
+    <properties>
+        <maven.compiler.release>{java_version}</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jakarta.ee.target>jakartaee10</jakarta.ee.target>
+    </properties>
+
+    <profiles>
+        <profile>
+            <id>jakarta-ee</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <jakarta.ee.profile>true</jakarta.ee.profile>
+            </properties>
+        </profile>
+    </profiles>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>{entry_class}</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+"""
+
+
 _ADAPTER_FACTORIES: dict[str, type[RuntimeAdapter]] = {
     "spring_boot": SpringBootRuntimeAdapter,
     "plain_java": PlainJavaRuntimeAdapter,
+    "jakarta_ee": JakartaEeRuntimeAdapter,
 }
 
 

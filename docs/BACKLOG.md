@@ -4015,10 +4015,28 @@ level and evidence location.
   wrong output exists today, and the honest scope for this repo is a
   generation profile with explicit build/runtime limitations.
 - **Severity:** low-medium (capability/visibility, conservative).
-- **Status:** **OPEN — filed 2026-10-15 (Phase 8 audit-first).**
-  Audit: zero `jakarta` references under `engine/` generation code;
-  offline Maven image has no Jakarta EE artifacts, so build evidence
-  is not claimable from this environment.
+- **Status:** **FIXED — 2026-10-15 (Phase 8 batch P2).** Filed OPEN by
+  the Phase 8 audit-first review (audit: zero `jakarta` references under
+  `engine/` generation code; offline Maven image has no Jakarta EE
+  artifacts, so build evidence is not claimable from this environment).
+  After the P0 seam (`2917a4f`) and P1 plain target (`216064d`), this
+  batch shipped `JakartaEeRuntimeAdapter` (subclass of the plain
+  adapter — same shared `JavaApplication` IR and source shape, only the
+  pom profile differs): a distinct Jakarta-EE-marked Maven pom
+  (`com.modernized.app.jakarta` groupId, `-jakarta` artifactId/classifier,
+  `jakartaee10` API-version marker, default-active `jakarta-ee` Maven
+  profile) with zero `<dependency>` elements (no offline Jakarta
+  artifacts exist; build execution is Phase 9 scope).  Registry
+  `jakarta_ee` entry; plan `JAKARTA_EE` (mapped in P0);
+  report generation-only limitation already present (pipeline P0 wiring).
+  Tests: 3 new `TestJakartaEeTarget` cases (marked pom + plan +
+  limitation + no-spring assertion; distinct-from-plain pom comparison
+  over the same shared sources; three-adapter registry completeness) +
+  the two staged fail-closed tests rewritten to exercise the
+  declared-but-unimplemented guard synthetically via registry
+  monkeypatch (all §32 targets are now implemented).  No test weakened;
+  no Jakarta EE build or runtime evidence exists or is claimed (Rung
+  0–1, never certified).
 - **Expected behavior:** `target_runtime="jakarta_ee"` assembles a
   distinct Jakarta-EE-structured project profile (shared sources,
   Jakarta-EE-`pom` marked and distinguished from plain_java) with
@@ -5521,6 +5539,32 @@ level and evidence location.
   201/201/400 + preflight; no test weakened; `jakarta_ee` stays
   fail-closed "not implemented yet" until batch P2 (BL-090).
 
+- 2026-10-15 — **(ao) Phase 8 batch P2: BL-090 (`jakarta_ee` generation
+  profile) FIXED — closes Phase 8 §32 three-target scope (audit-first,
+  red→green).**  Shipped `JakartaEeRuntimeAdapter` in `engine/
+  transformation/runtime_adapters.py` (subclass of the plain adapter —
+  the SAME shared `JavaApplication` IR and `JavaGenerator` source shape;
+  only the pom profile differs, keeping the single parser/transformer
+  property visible): distinct Jakarta-EE-marked Maven pom
+  (`com.modernized.app.jakarta` groupId, `-jakarta` artifactId,
+  `jakartaee10` API-version property, default-active `jakarta-ee`
+  profile marker), zero `<dependency>` elements (no offline Jakarta
+  artifacts exist; build execution remains Phase 9 scope — Rung 0–1,
+  never certified), `_render_pom`/`model_package` hooks factored on the
+  plain adapter so the shared assembly body is not duplicated; registry
+  `jakarta_ee` entry (all three §32 targets now implemented).
+  Tests: 3 new `TestJakartaEeTarget` cases (pipeline run emits the
+  marked pom + plan `JAKARTA_EE` + generation-only report limitation +
+  no-spring assertion over every emitted file; same shared sources with
+  a pom distinct from `plain_java`; three-adapter registry
+  completeness); the two staged fail-closed tests rewritten to
+  synthesize the declared-but-unimplemented state via registry
+  monkeypatch (all targets are real now — the guard stays covered
+  without a fake pending target); gate file now 43 passed.  No test
+  weakened; no Jakarta EE build or runtime evidence exists or is
+  claimed.  Matrix row (added in P1) already records the
+  structural-generation-only bound for both non-spring targets.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -5617,7 +5661,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-087 | Integration/ledger maintainer | **FIXED 2026-10-15 (Phase 7 batch 3; roadmap P3-6)** | None | Was: MQ queue names and IMS PCB/segment references never entered the platform dependency ledger — `extra_dependencies` had no producer. | Extraction stays bounded to the documented statement forms (`QUEUE(…)`/`Q(…)`, `PCB(…)`/`PCB NAME=…`, `SEGMENT(…)`/`SEGMENT NAME=…`). | Shipped: `external_dependency_edges` extractor + `DependencyKind.MQ`/`IMS` visible/BLOCKED/required entries + `api.service` wiring + 14 focused gate tests; no runtime, no equivalence claim. |
 | BL-088 | Runtime-adapter architecture maintainer | **FIXED 2026-10-15 (Phase 8 batch P0; `2917a4f`, exact-SHA CI 4/4 green)** | None | §32 absent: no `target_runtime` config keys (red probe `bl088_red_probe.txt` TypeError), hardcoded `_assemble_spring_boot`, plan `output_type` hardcoded `SPRING_BOOT`. | Without fail-closed validation + truthful plan output_type, a future non-spring target would report Spring artifacts (capability-truth/config-loss shape). | FIXED: `runtime_adapters.py` seam + fail-closed §32 keys + registry dispatch + truthful plan output_type + pre-phase lookup; 36 focused gate tests; default spring output byte-identical; `_fill_discovery` report-rebuild bug found+fixed by the new tests. |
 | BL-089 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P1)** | BL-088 | `plain_java` unreachable: `JavaGenerator` emits sources+main only (no pom), no assembly adapter, no API selection surface. | Missing capability (not silent loss today); plain-java build/runtime evidence deferred to Phase 9. | FIXED: `PlainJavaRuntimeAdapter` + registry + store/API `target_runtime` (schema migration 4) + plan `NATIVE_JAVA` + report limitation; 5 focused engine tests + API surface checks; spring default unchanged; build/runtime deferred to Phase 9. |
-| BL-090 | Runtime-adapter maintainer | **OPEN (Phase 8 batch P2 — filed 2026-10-15 audit-first)** | BL-088 | `jakarta_ee` target absent (§32 initial target) + Phase 8 breadth docs. | Generation profile only: offline repo has no Jakarta EE artifacts — no build/runtime evidence claimable (Rung 0–1, bounded). | `target_runtime=jakarta_ee` assembles distinct Jakarta-EE-marked profile; plan `JAKARTA_EE`; report carries no-build/no-runtime limitation; roadmap/matrix rows; spring/plain unaffected; no test weakened. |
+| BL-090 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P2)** | BL-088 | `jakarta_ee` target absent (§32 initial target) + Phase 8 breadth docs. | Generation profile only: offline repo has no Jakarta EE artifacts — no build/runtime evidence claimable (Rung 0–1, bounded). | FIXED: `JakartaEeRuntimeAdapter` (shared IR/sources, distinct Jakarta-marked pom profile) + registry + plan `JAKARTA_EE` + report limitation; 3 focused tests + synthetic fail-closed guard coverage; spring/plain unaffected; no build/runtime claim. |
 
 ### PR disposition snapshot — 2026-10-10
 
