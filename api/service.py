@@ -60,6 +60,7 @@ from api.store import ApplicationRecord, RunRecord, Store
 from api.workload_contract import resolve_certification_contract
 from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
+from engine.transformation.runtime_adapters import RuntimeTargetConfig
 
 __all__ = ["Service", "ServiceError"]
 
@@ -390,7 +391,12 @@ class Service:
         description: str,
         workload_id: str,
         java_entrypoint: str,
+        target_runtime: str = "spring_boot",
     ) -> ApplicationRecord:
+        try:
+            RuntimeTargetConfig(target_runtime=target_runtime)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from exc
         app_id = f"app-{uuid.uuid4().hex[:12]}"
         record = ApplicationRecord(
             id=app_id,
@@ -398,6 +404,7 @@ class Service:
             description=description,
             workload_id=workload_id,
             java_entrypoint=java_entrypoint,
+            target_runtime=target_runtime,
         )
         return self._store.add_application(record)
 
@@ -599,6 +606,14 @@ class Service:
 
         if app.cobol_source_path is None:
             raise ServiceError("No COBOL source uploaded for this application")
+
+        # §32 fail-closed pre-flight: reject an unusable stored target
+        # BEFORE a run is created (BL-089 — never silently modernize for
+        # a different runtime than the application declares).
+        try:
+            RuntimeTargetConfig(target_runtime=app.target_runtime)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from exc
 
         # Pre-flight: resolve the certification contract before creating a
         # run so an unusable workload fails the request instead of failing
@@ -897,6 +912,7 @@ class Service:
             application_id=app.id,
             entrypoint=self._resolve_entry_program(app),
             docker_available=True,
+            target_runtime=app.target_runtime,
         )
 
         def _pipeline_progress(phase: str) -> None:

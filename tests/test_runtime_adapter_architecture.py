@@ -132,18 +132,23 @@ class TestRuntimeAdapterRegistry:
         assert adapter.target_runtime == "spring_boot"
         assert type(adapter).__name__ == "SpringBootRuntimeAdapter"
 
-    @pytest.mark.parametrize("pending", ["plain_java", "jakarta_ee"])
-    def test_declared_targets_without_adapter_fail_closed(self, pending):
-        # Staged delivery: BL-089 (plain_java) and BL-090 (jakarta_ee)
-        # adapters land in later Phase 8 batches. Until then the lookup
-        # must fail closed with an explicit "not implemented yet" error —
-        # never a silent spring fallback.
+    def test_plain_java_adapter_implemented(self):
+        # BL-089 (Phase 8 batch P1) implemented plain_java.
+        adapter = get_runtime_adapter("plain_java")
+        assert adapter.target_runtime == "plain_java"
+        assert type(adapter).__name__ == "PlainJavaRuntimeAdapter"
+
+    def test_pending_jakarta_target_fails_closed(self):
+        # Staged delivery: BL-090 (jakarta_ee) lands in Phase 8 batch P2.
+        # Until then the lookup must fail closed with an explicit
+        # "not implemented yet" error — never a silent spring fallback.
         with pytest.raises(RuntimeAdapterNotImplementedError) as excinfo:
-            get_runtime_adapter(pending)
+            get_runtime_adapter("jakarta_ee")
         message = str(excinfo.value)
-        assert repr(pending) in message
+        assert "'jakarta_ee'" in message
         assert "not implemented yet" in message
         assert "spring_boot" in message
+        assert "plain_java" in message  # implemented set is named truthfully
 
     @pytest.mark.parametrize("bad", ["tomcat", "springboot", "PLAIN_JAVA", ""])
     def test_unknown_target_fails_closed_with_supported_set(self, bad):
@@ -192,6 +197,7 @@ class TestRuntimeAdapterRegistry:
 
         assert set(_ADAPTER_FACTORIES) == set(implemented_target_runtimes())
         assert set(_ADAPTER_FACTORIES) <= set(SUPPORTED_TARGET_RUNTIMES)
+        assert set(_ADAPTER_FACTORIES) == {"spring_boot", "plain_java"}
 
 
 class TestPlanTruth:
@@ -323,10 +329,9 @@ class TestPipelineAssemblyDispatch:
                 == "spring_boot"
             )
 
-    @pytest.mark.parametrize("pending_target", ["plain_java", "jakarta_ee"])
-    def test_unimplemented_target_fails_closed_before_any_phase(
-        self, pending_target
-    ):
+    def test_unimplemented_target_fails_closed_before_any_phase(self):
+        # jakarta_ee is the remaining staged target (BL-090, batch P2).
+        pending_target = "jakarta_ee"
         with tempfile.TemporaryDirectory() as tmpdir:
             report = UniversalModernizationPipeline(
                 ModernizationConfig(
@@ -355,12 +360,170 @@ class TestPipelineAssemblyDispatch:
                     output_dir=str(Path(tmpdir) / "out"),
                     application_id="target-pending-2",
                     docker_available=False,
-                    target_runtime="plain_java",
+                    target_runtime="jakarta_ee",
                 )
             ).execute()
             assert report.capability_report is None
             assert report.transformation_plan is None
             assert report.generation_success is False
+
+
+_COPY_SOURCE = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN.
+       COPY BOOKX.
+       PROCEDURE DIVISION.
+           DISPLAY FLD-A
+           STOP RUN.
+"""
+
+_COPYBOOK = """\\
+       01  REC.
+           05  FLD-A  PIC X(10) VALUE 'HELLO'.
+           05  FLD-B  PIC 9(4) VALUE 42.
+"""
+
+
+class TestPlainJavaTarget:
+    """BL-089 — plain_java assembly through the §32 adapter registry."""
+
+    def test_plain_pipeline_run_emits_dependency_free_maven_project(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            (src / "HELLO.cob").write_text(_HELLO_SOURCE, encoding="utf-8")
+            report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    source_dir=str(src),
+                    output_dir=str(root / "out"),
+                    application_id="plain-hello",
+                    entrypoint="HELLO",
+                    docker_available=True,
+                    target_runtime="plain_java",
+                )
+            ).execute()
+
+            assert report.generation_success is True, report.generation_errors
+            assert report.target_runtime == "plain_java"
+            assert (
+                report.transformation_plan.assembly.output_type == "NATIVE_JAVA"
+            )
+            files = _project_file_set(Path(report.generated_project_dir))
+            assert "pom.xml" in files
+            assert "src/main/java/Hello.java" in files
+            pom = files["pom.xml"]
+            # §33 shape: dependency-free, jar packaging, configured release.
+            assert "<dependency>" not in pom
+            assert "<maven.compiler.release>21</maven.compiler.release>" in pom
+            assert "<mainClass>Hello</mainClass>" in pom
+            # No Spring coupling anywhere in the project (§32: adapters
+            # select the runtime; the shared transform never hardwires one).
+            for rel, content in files.items():
+                assert "spring" not in content.lower(), rel
+            # Bounded claim: the report discloses generation-only scope.
+            assert any("plain_java" in line for line in report.limitations)
+
+    def test_plain_target_honors_configured_java_version(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            (src / "HELLO.cob").write_text(_HELLO_SOURCE, encoding="utf-8")
+            report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    source_dir=str(src),
+                    output_dir=str(root / "out"),
+                    application_id="plain-17",
+                    entrypoint="HELLO",
+                    docker_available=True,
+                    target_runtime="plain_java",
+                    java_version="17",
+                )
+            ).execute()
+            assert report.generation_success is True, report.generation_errors
+            pom = _project_file_set(Path(report.generated_project_dir))["pom.xml"]
+            assert "<maven.compiler.release>17</maven.compiler.release>" in pom
+
+    def test_plain_target_materializes_copybook_models(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            (src / "MAIN.cob").write_text(_COPY_SOURCE, encoding="utf-8")
+            (src / "BOOKX.cpy").write_text(_COPYBOOK, encoding="utf-8")
+            report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    source_dir=str(src),
+                    output_dir=str(root / "out"),
+                    application_id="plain-model",
+                    entrypoint="MAIN",
+                    docker_available=True,
+                    target_runtime="plain_java",
+                )
+            ).execute()
+            assert report.generation_success is True, report.generation_errors
+            files = _project_file_set(Path(report.generated_project_dir))
+            model_files = [
+                rel for rel in files if "BookxRecord" in rel
+            ]
+            assert model_files, sorted(files)
+            model_rel = model_files[0]
+            # Package comes from the shared copybook-model builder (single
+            # source of truth); the adapter only fills a missing package.
+            assert model_rel.startswith("src/main/java/")
+            assert model_rel.endswith("/model/BookxRecord.java")
+            model_src = files[model_rel]
+            # VALUE initializers survive (no silent loss vs the Spring lane).
+            assert '"HELLO     "' in model_src
+            assert "FLD_B" in model_src or "fld_b" in model_src.lower()
+
+    def test_plain_unknown_entrypoint_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            (src / "HELLO.cob").write_text(_HELLO_SOURCE, encoding="utf-8")
+            report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    source_dir=str(src),
+                    output_dir=str(root / "out"),
+                    application_id="plain-bad-entry",
+                    entrypoint="NOPE",
+                    docker_available=True,
+                    target_runtime="plain_java",
+                )
+            ).execute()
+            # Assembly failures surface as an empty project directory plus
+            # a named limitation (pre-existing pipeline contract; the API
+            # layer refuses to continue without a project dir).
+            assert report.generated_project_dir == ""
+            limitation = "; ".join(report.limitations)
+            assert "Assembly failed" in limitation
+            assert "NOPE" in limitation
+
+    def test_spring_default_unchanged_by_plain_adapter(self):
+        # The default path still assembles a Spring project (pom with the
+        # spring-boot parent) — P1 must not have leaked plain-java shape
+        # into the default target.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            (src / "HELLO.cob").write_text(_HELLO_SOURCE, encoding="utf-8")
+            report = UniversalModernizationPipeline(
+                ModernizationConfig(
+                    source_dir=str(src),
+                    output_dir=str(root / "out"),
+                    application_id="spring-default",
+                    entrypoint="HELLO",
+                    docker_available=True,
+                )
+            ).execute()
+            assert report.generation_success is True, report.generation_errors
+            files = _project_file_set(Path(report.generated_project_dir))
+            pom = files["pom.xml"]
+            assert "spring-boot-starter-parent" in pom
 
 
 class TestReportCarriesTarget:

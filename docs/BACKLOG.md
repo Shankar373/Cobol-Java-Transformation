@@ -3895,15 +3895,36 @@ level and evidence location.
   runtime architectures" with "runtime-specific behavior … in
   adapters" and no duplicated parser/transformer; none of that seam
   exists.
-- **Status:** **OPEN — filed 2026-10-15 (Phase 8 audit-first, §76).**
-  Red evidence `%TEMP%\opencode\phase8\bl088_red_probe.txt`:
+- **Status:** **FIXED — 2026-10-15 (Phase 8 batch P0, commit `2917a4f`).**
+  Filed OPEN by the Phase 8 audit-first review (§76); pre-fix red
+  evidence `%TEMP%\opencode\phase8\bl088_red_probe.txt`:
   `ModernizationConfig(..., target_runtime=…)` → `TypeError:
-  unexpected keyword argument 'target_runtime'`; config fields are
+  unexpected keyword argument 'target_runtime'`; config fields were
   exactly `[source_dir, output_dir, application_id, entrypoint,
   docker_available]`; assembly call-sites hardcoded
   (`pipeline.py:311/330 _assemble_spring_boot`);
   `transformation_plan.py:185` hardcodes `output_type="SPRING_BOOT"`
   (comment even lists `"NATIVE_JAVA"` as a not-wired alternative).
+  Shipped: new `engine/transformation/runtime_adapters.py`
+  (`RuntimeTargetConfig` with the five §32 keys validated fail-closed
+  naming field+value+supported set; `RuntimeAdapter` seam;
+  `SpringBootRuntimeAdapter` moved verbatim from the pipeline; registry
+  `get_runtime_adapter` — unknown → `ValueError`, declared-but-
+  unimplemented → `RuntimeAdapterNotImplementedError`, never a silent
+  spring fallback; `plan_output_type_for`);
+  `ModernizationConfig` §32 keys + `__post_init__` validation +
+  `runtime_config`; adapter resolved BEFORE any phase (fail-closed
+  early); plan `assembly_output_type` threading;
+  `ModernizationReport.target_runtime` + `assembly.target_runtime` in
+  `to_dict`; `_assemble_spring_boot` kept as thin registry delegation;
+  36 focused gate tests (`tests/test_runtime_adapter_architecture.py`,
+  capability-truth gate now 50 files); default config byte-identical
+  to the pre-change spring output.  Exact-SHA CI green at `2917a4f`
+  (4/4 runs: 38783676047/38783676021/38783683551/38783683726).
+  Observed and fixed en route (covered by the new tests): `_fill_
+  discovery` rebuilt `ModernizationReport` and silently reset
+  `target_runtime` to the default — the exact report-truth shape this
+  seam exists to prevent.
 - **Expected behavior:** §32 example configuration accepted
   (`target_runtime`, `java_version`, `build_tool`, `packaging`,
   `execution_mode`) with fail-closed validation naming the field,
@@ -3938,13 +3959,29 @@ level and evidence location.
   seam lands.
 - **Severity:** medium (no wrong output is produced today — the knob
   does not exist; the gap is missing capability, not silent loss).
-- **Status:** **OPEN — filed 2026-10-15 (Phase 8 audit-first).**
-  Audit: `JavaGenerator.generate_from_java` emits only `.java` files
-  (no `pom.xml`) and each generation mode already carries
-  `public static void main` (`java_generator.py:326/462/563`), but
-  nothing wires it into the pipeline assembly, and neither
-  `ModernizationConfig` nor `ApplicationRecord`/`ApplicationCreate`
-  carry a target.
+- **Status:** **FIXED — 2026-10-15 (Phase 8 batch P1).** Filed OPEN by
+  the Phase 8 audit-first review (audit: `JavaGenerator.generate_from_
+  java` emitted only `.java` files with `main` methods and nothing
+  wired them into pipeline assembly; no API selection surface).  After
+  the P0 seam (`2917a4f`) this batch shipped `PlainJavaRuntimeAdapter`
+  (registry `plain_java`; dependency-free Maven jar project with
+  `mainClass` manifest + compiler release from §32 `java_version`;
+  shared copybook models rendered via `copybook_model.render_model_
+  class` with VALUE initializers intact; zero Spring coupling —
+  asserted by scanning every emitted file for the substring `spring`),
+  plan `NATIVE_JAVA`, the report `assembly.target_runtime` + the
+  generation-only limitation line, and the API/store selection surface
+  (`ApplicationRecord.target_runtime` default `spring_boot`, additive
+  SQLite column + migration 4 verified against a legacy-schema DB,
+  `ApplicationCreate`/`ApplicationResponse` fields, fail-closed 400 on
+  unknown values, modernize pre-flight rejecting a corrupt stored
+  target before any run, `_generate_application` threading the target
+  into `ModernizationConfig`).  Tests: 5 new `TestPlainJavaTarget`
+  cases + flipped staged expectations (40 passed in the gate file);
+  API surface verified live (201 default, 201 plain, 400 invalid with
+  named field+value+supported set, preflight `ServiceError`).  No test
+  weakened; Maven build execution and runtime equivalence evidence
+  remain Phase 9 scope (no equivalence claim).
 - **Expected behavior:** `target_runtime="plain_java"` assembles a
   Maven project (shared generated sources under `src/main/java`, a
   dependency-free `pom.xml` with jar packaging and `mainClass`
@@ -5446,6 +5483,44 @@ level and evidence location.
   authorization per the phase-by-phase rule.
 
 
+- 2026-10-15 — **(an) Phase 8 batches P0+P1: BL-088 (§32 runtime
+  adapter seam) + BL-089 (`plain_java` target) FIXED (audit-first,
+  red→green).**  P0 `2917a4f` (exact-SHA CI 4/4 green: runs
+  38783676047/38783676021/38783683551/38783683726): new
+  `engine/transformation/runtime_adapters.py` (`RuntimeTargetConfig`
+  with the five §32 example keys validated fail-closed naming
+  field+value+supported set; `RuntimeAdapter` seam;
+  `SpringBootRuntimeAdapter` moved verbatim; registry
+  `get_runtime_adapter` with unknown→`ValueError` and declared-but-
+  unimplemented→`RuntimeAdapterNotImplementedError` — never a silent
+  spring fallback; `plan_output_type_for` spring→`SPRING_BOOT`/
+  plain→`NATIVE_JAVA`/jakarta→`JAKARTA_EE`);
+  `ModernizationConfig` §32 keys + `__post_init__` validation +
+  `runtime_config`; adapter resolved BEFORE any phase; plan
+  `assembly_output_type` threading; `ModernizationReport.target_
+  runtime` + `assembly.target_runtime`; `_assemble_spring_boot` kept
+  as thin registry delegation; 36 focused tests wired into the
+  capability-truth gate (now 50 files); default config byte-identical
+  to the pre-change spring output.  P1 (this entry):
+  `PlainJavaRuntimeAdapter` (same shared `JavaApplication` IR →
+  dependency-free Maven jar project, `mainClass` manifest, compiler
+  release from `java_version`, shared copybook-model rendering with
+  VALUE initializers intact, zero Spring coupling — asserted), API/store
+  selection surface (`ApplicationRecord.target_runtime` default
+  `spring_boot`, SQLite additive column + migration 4 verified against
+  a legacy-schema DB, `ApplicationCreate`/`ApplicationResponse` fields,
+  fail-closed 400 naming field+value+supported, modernize pre-flight
+  rejecting a corrupt stored target before any run,
+  `_generate_application` threading the target), plan `NATIVE_JAVA`,
+  report generation-only limitation (build/runtime evidence = Phase 9
+  scope, no equivalence claim), SEMANTIC_PROOF_MATRIX row.  New tests
+  caught and fixed a pre-existing report-truth bug: `_fill_discovery`
+  rebuilt `ModernizationReport` and silently reset `target_runtime` to
+  the default.  Evidence: `tests/test_runtime_adapter_architecture.py`
+  40 passed; store round-trip/update/legacy-migration probes; API smoke
+  201/201/400 + preflight; no test weakened; `jakarta_ee` stays
+  fail-closed "not implemented yet" until batch P2 (BL-090).
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -5540,7 +5615,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-085 | Capability/registry maintainer | **Phase 7 (filed OPEN 2026-10-15 by the audit-first probe; FIXED 2026-10-15 — batch 1: pattern + registry key + matrix/roadmap rows + 14 focused gate tests, bare-venv gate 649 passed pre/post wiring)** | None | IBM MQ (`EXEC MQI`) never detected or classified: no `_SOURCE_PATTERNS` entry, no `CONSTRUCT_REGISTRY` key (roadmap Rung 0); queue names never extracted as dependencies. | MQ applications invisible to classification and to the dependency graph (verdict already fails closed — no false SUPPORTED). | Detection fires only on real `EXEC MQI` statements (comment/literal masked); registry `level`/`effective_source_level` = `UNSUPPORTED`; analyzer PROGRAM reason names `EXEC MQI`, never `SUPPORTED`; deterministic re-scan; existing fail-closed diagnostics kept; focused gate tests green. |
 | BL-086 | Capability/registry maintainer | **FIXED 2026-10-15 (Phase 7 batch 3; roadmap P3-5 / Master README §29)** | None | Was: external utilities / system services / VSAM specifics were Rung 0 — no `_SOURCE_PATTERNS`, no `CONSTRUCT_REGISTRY` keys (RELEASE, IDCAMS, ORGANIZATION INDEXED/RELATIVE, ACCESS DYNAMIC, RECORD KEY). | Phrase coverage stays a documented detection-first subset (covered phrases only). | Shipped: 6 patterns + UNSUPPORTED registry keys, analyzer pre-PROCEDURE data door extended, SEMANTIC_PROOF_MATRIX rows, 15 focused gate tests; no IR, no mapper, no runtime, no equivalence claim. |
 | BL-087 | Integration/ledger maintainer | **FIXED 2026-10-15 (Phase 7 batch 3; roadmap P3-6)** | None | Was: MQ queue names and IMS PCB/segment references never entered the platform dependency ledger — `extra_dependencies` had no producer. | Extraction stays bounded to the documented statement forms (`QUEUE(…)`/`Q(…)`, `PCB(…)`/`PCB NAME=…`, `SEGMENT(…)`/`SEGMENT NAME=…`). | Shipped: `external_dependency_edges` extractor + `DependencyKind.MQ`/`IMS` visible/BLOCKED/required entries + `api.service` wiring + 14 focused gate tests; no runtime, no equivalence claim. |
-| BL-088 | Runtime-adapter architecture maintainer | **OPEN (Phase 8 batch P0 — filed 2026-10-15 audit-first)** | None | §32 absent: no `target_runtime` config keys (red probe `bl088_red_probe.txt` TypeError), hardcoded `_assemble_spring_boot`, plan `output_type` hardcoded `SPRING_BOOT`. | Without fail-closed validation + truthful plan output_type, a future non-spring target would report Spring artifacts (capability-truth/config-loss shape). | §32 example keys accepted with defaults `spring_boot/21/maven/jar/batch`; unknown values fail closed naming field+value+supported; adapter registry dispatch; plan derives from config; default output identical; shared parser/transformer untouched; gate tests green.| BL-089 | Runtime-adapter maintainer | **OPEN (Phase 8 batch P1 — filed 2026-10-15 audit-first)** | BL-088 | `plain_java` unreachable: `JavaGenerator` emits sources+main only (no pom), no assembly adapter, no API selection surface. | Missing capability (not silent loss today); plain-java build/runtime evidence deferred to Phase 9. | `target_runtime=plain_java` assembles dependency-free Maven jar project with mainClass + shared sources under `src/main/java`; plan `NATIVE_JAVA`; API persists/validates app `target_runtime` end-to-end; spring default unchanged; limitation text present; no test weakened.| BL-090 | Runtime-adapter maintainer | **OPEN (Phase 8 batch P2 — filed 2026-10-15 audit-first)** | BL-088 | `jakarta_ee` target absent (§32 initial target) + Phase 8 breadth docs. | Generation profile only: offline repo has no Jakarta EE artifacts — no build/runtime evidence claimable (Rung 0–1, bounded). | `target_runtime=jakarta_ee` assembles distinct Jakarta-EE-marked profile; plan `JAKARTA_EE`; report carries no-build/no-runtime limitation; roadmap/matrix rows; spring/plain unaffected; no test weakened.
+| BL-088 | Runtime-adapter architecture maintainer | **FIXED 2026-10-15 (Phase 8 batch P0; `2917a4f`, exact-SHA CI 4/4 green)** | None | §32 absent: no `target_runtime` config keys (red probe `bl088_red_probe.txt` TypeError), hardcoded `_assemble_spring_boot`, plan `output_type` hardcoded `SPRING_BOOT`. | Without fail-closed validation + truthful plan output_type, a future non-spring target would report Spring artifacts (capability-truth/config-loss shape). | FIXED: `runtime_adapters.py` seam + fail-closed §32 keys + registry dispatch + truthful plan output_type + pre-phase lookup; 36 focused gate tests; default spring output byte-identical; `_fill_discovery` report-rebuild bug found+fixed by the new tests. |
+| BL-089 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P1)** | BL-088 | `plain_java` unreachable: `JavaGenerator` emits sources+main only (no pom), no assembly adapter, no API selection surface. | Missing capability (not silent loss today); plain-java build/runtime evidence deferred to Phase 9. | FIXED: `PlainJavaRuntimeAdapter` + registry + store/API `target_runtime` (schema migration 4) + plan `NATIVE_JAVA` + report limitation; 5 focused engine tests + API surface checks; spring default unchanged; build/runtime deferred to Phase 9. |
+| BL-090 | Runtime-adapter maintainer | **OPEN (Phase 8 batch P2 — filed 2026-10-15 audit-first)** | BL-088 | `jakarta_ee` target absent (§32 initial target) + Phase 8 breadth docs. | Generation profile only: offline repo has no Jakarta EE artifacts — no build/runtime evidence claimable (Rung 0–1, bounded). | `target_runtime=jakarta_ee` assembles distinct Jakarta-EE-marked profile; plan `JAKARTA_EE`; report carries no-build/no-runtime limitation; roadmap/matrix rows; spring/plain unaffected; no test weakened. |
 
 ### PR disposition snapshot — 2026-10-10
 

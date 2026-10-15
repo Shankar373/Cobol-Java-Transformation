@@ -142,6 +142,8 @@ class ApplicationRecord:
     description: str
     workload_id: str
     java_entrypoint: str
+    # §32 runtime target this application is modernized for (BL-089).
+    target_runtime: str = "spring_boot"
     cobol_source_path: str | None = None
     java_candidate_path: str | None = None
     # Discovery provenance: PROGRAM-IDs seen by ApplicationDiscovery.
@@ -183,7 +185,7 @@ class RunRecord:
 
 #: Database schema version written by this code. Payload schema versions are
 #: tracked separately in :mod:`api.serialization`.
-DB_SCHEMA_VERSION = 3
+DB_SCHEMA_VERSION = 4
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS applications (
@@ -192,6 +194,7 @@ CREATE TABLE IF NOT EXISTS applications (
     description TEXT NOT NULL DEFAULT '',
     workload_id TEXT NOT NULL DEFAULT '',
     java_entrypoint TEXT NOT NULL DEFAULT 'Main',
+    target_runtime TEXT NOT NULL DEFAULT 'spring_boot',
     cobol_source_path TEXT,
     java_candidate_path TEXT,
     discovered_program_ids TEXT NOT NULL DEFAULT '[]',
@@ -278,6 +281,13 @@ class Store:
             self._conn.execute(
                 "ALTER TABLE runs ADD COLUMN certification_contract TEXT"
             )
+        app_cursor = self._conn.execute("PRAGMA table_info(applications)")
+        app_columns = {row[1] for row in app_cursor.fetchall()}
+        if "target_runtime" not in app_columns:     # migration 4 (Phase 8, BL-089)
+            self._conn.execute(
+                "ALTER TABLE applications ADD COLUMN target_runtime"
+                " TEXT NOT NULL DEFAULT 'spring_boot'"
+            )
 
     # -- applications -------------------------------------------------------
 
@@ -286,11 +296,12 @@ class Store:
             try:
                 self._conn.execute(
                     "INSERT INTO applications (id, name, description,"
-                    " workload_id, java_entrypoint, cobol_source_path,"
-                    " java_candidate_path, discovered_program_ids,"
-                    " generated_app_path, generated_entrypoint,"
-                    " generated_program_ids, created_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " workload_id, java_entrypoint, target_runtime,"
+                    " cobol_source_path, java_candidate_path,"
+                    " discovered_program_ids, generated_app_path,"
+                    " generated_entrypoint, generated_program_ids,"
+                    " created_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     self._app_params(record),
                 )
             except sqlite3.IntegrityError as exc:
@@ -320,6 +331,7 @@ class Store:
             cursor = self._conn.execute(
                 "UPDATE applications SET name = ?, description = ?,"
                 " workload_id = ?, java_entrypoint = ?,"
+                " target_runtime = ?,"
                 " cobol_source_path = ?, java_candidate_path = ?,"
                 " discovered_program_ids = ?, generated_app_path = ?,"
                 " generated_entrypoint = ?, generated_program_ids = ?,"
@@ -329,6 +341,7 @@ class Store:
                     record.description,
                     record.workload_id,
                     record.java_entrypoint,
+                    record.target_runtime,
                     record.cobol_source_path,
                     record.java_candidate_path,
                     serialization.encode_str_list(record.discovered_program_ids),
@@ -539,6 +552,7 @@ class Store:
             record.description,
             record.workload_id,
             record.java_entrypoint,
+            record.target_runtime,
             record.cobol_source_path,
             record.java_candidate_path,
             serialization.encode_str_list(record.discovered_program_ids),
@@ -556,6 +570,7 @@ class Store:
             description=row["description"] or "",
             workload_id=row["workload_id"] or "",
             java_entrypoint=row["java_entrypoint"] or "Main",
+            target_runtime=row["target_runtime"] or "spring_boot",
             cobol_source_path=row["cobol_source_path"],
             java_candidate_path=row["java_candidate_path"],
             discovered_program_ids=serialization.decode_str_list(

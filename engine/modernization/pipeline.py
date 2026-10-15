@@ -407,6 +407,7 @@ class UniversalModernizationPipeline:
             application_id=report.application_id,
             source_dir=report.source_dir,
             output_dir=report.output_dir,
+            target_runtime=report.target_runtime,
             discovered_programs=tuple(u.program_id for u in app.programs),
             discovered_copybooks=app.copybooks,
             discovered_calls=tuple(
@@ -446,6 +447,23 @@ class UniversalModernizationPipeline:
         if not report.generation_success:
             limitations.append("Java generation did not complete successfully")
             recommendations.append("Review COBOL source for parser limitations")
+
+        # §32 target-scope disclosure (fail-loud, never silent):
+        # non-Spring targets are generation-only in Phase 8 — build
+        # execution and runtime evidence are Phase 9 scope, and no
+        # equivalence claim is made (BL-089/BL-090).
+        if self._config.target_runtime == "plain_java":
+            limitations.append(
+                "target_runtime=plain_java: generation only — Maven build "
+                "execution and runtime equivalence evidence are Phase 9 "
+                "scope (no equivalence claim)"
+            )
+        elif self._config.target_runtime == "jakarta_ee":
+            limitations.append(
+                "target_runtime=jakarta_ee: generation profile only — no "
+                "offline build (Jakarta EE artifacts absent from the "
+                "offline repository), no runtime evidence, not certified"
+            )
 
         if not limitations:
             limitations = ("No limitations identified",)

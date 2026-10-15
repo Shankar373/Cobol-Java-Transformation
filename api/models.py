@@ -56,6 +56,10 @@ class ApplicationCreate(BaseModel):
     description: str = ""
     workload_id: str = Field(..., min_length=1, max_length=256)
     java_entrypoint: str = Field(default="Main", min_length=1)
+    # §32 runtime target (BL-089). Validated fail-closed by the service
+    # against SUPPORTED_TARGET_RUNTIMES — unknown values are rejected,
+    # never silently defaulted to another target.
+    target_runtime: str = Field(default="spring_boot", min_length=1, max_length=64)
 
 
 class ApplicationResponse(BaseModel):
@@ -65,6 +69,7 @@ class ApplicationResponse(BaseModel):
     description: str
     workload_id: str
     java_entrypoint: str
+    target_runtime: str = "spring_boot"
     cobol_source_path: str | None = None
     java_candidate_path: str | None = None
     generated_app_path: str | None = None

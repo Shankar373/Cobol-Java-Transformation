@@ -303,6 +303,7 @@ def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
         description=rec.description,
         workload_id=rec.workload_id,
         java_entrypoint=rec.java_entrypoint,
+        target_runtime=rec.target_runtime,
         cobol_source_path=rec.cobol_source_path,
         java_candidate_path=rec.java_candidate_path,
         generated_app_path=rec.generated_app_path,
@@ -338,6 +339,7 @@ def create_application(body: ApplicationCreate) -> ApplicationResponse:
         description=body.description,
         workload_id=body.workload_id,
         java_entrypoint=body.java_entrypoint,
+        target_runtime=body.target_runtime,
     )
     return _to_app_response(rec)
 

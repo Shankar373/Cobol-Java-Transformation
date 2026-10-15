@@ -203,8 +203,141 @@ class SpringBootRuntimeAdapter(RuntimeAdapter):
         return AssemblyOutcome(project_dir=project_dir, entrypoint=entry_fqn)
 
 
+# Model package shared by the non-Spring targets (deterministic).
+_PLAIN_MODEL_PACKAGE = "com.modernized.app.model"
+
+
+class PlainJavaRuntimeAdapter(RuntimeAdapter):
+    """Plain-Java assembly (BL-089): the SAME shared ``JavaApplication`` IR
+    emitted by the single semantic-transform lane, wrapped in a
+    dependency-free Maven jar project.
+
+    Scope bound (documented, no equivalence claim): generation only —
+    Maven build execution and runtime evidence are Phase 9 scope.  No
+    Spring dependency, wiring, or annotation is emitted anywhere in the
+    project.
+    """
+
+    target_runtime: ClassVar[str] = "plain_java"
+
+    def _assemble(
+        self,
+        java_application: Any,
+        *,
+        entry_program: str,
+        copybook_models: Any,
+        output_prefix: str,
+        runtime: RuntimeTargetConfig,
+    ) -> AssemblyOutcome:
+        from dataclasses import replace
+
+        from engine.transformation.copybook_model import render_model_class
+        from engine.transformation.java_generator import JavaGenerator
+        from engine.transformation.java_ir import JavaClass
+
+        generator = JavaGenerator()
+        program_files = generator.generate_from_java(java_application)
+        if not program_files:
+            raise RuntimeError("Plain Java generation produced no files")
+
+        models = tuple(copybook_models or ())
+        if not java_application.programs:
+            raise RuntimeError("Plain Java assembly requires at least one program")
+
+        # Deterministic entrypoint: requested program, else the first program.
+        program_ids = [p.program_id for p in java_application.programs]
+        resolved_entry = entry_program.strip() or program_ids[0]
+        if resolved_entry not in program_ids:
+            raise RuntimeError(
+                f"Plain Java entrypoint {resolved_entry!r} is not one of the "
+                f"generated programs: {', '.join(program_ids)}"
+            )
+        entry_class = generator._to_java_class_name(resolved_entry)
+
+        project_dir = Path(tempfile.mkdtemp(prefix=output_prefix))
+        project_dir.mkdir(parents=True, exist_ok=True)
+        resolved_root = project_dir.resolve()
+
+        def _write(rel_parts: tuple[str, ...], content: str) -> None:
+            target = (resolved_root / Path(*rel_parts)).resolve()
+            if target != resolved_root and resolved_root not in target.parents:
+                return
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+
+        for gen_file in program_files:
+            _write(("src", "main", "java", gen_file.filename), gen_file.source_code)
+
+        seen_models: set[str] = set()
+        for cls in models:
+            if not isinstance(cls, JavaClass) or not cls.name or cls.name in seen_models:
+                continue
+            seen_models.add(cls.name)
+            packaged = (
+                cls if cls.package else replace(cls, package=_PLAIN_MODEL_PACKAGE)
+            )
+            rel = (
+                "src", "main", "java",
+                *packaged.package.split("."),
+                f"{packaged.name}.java",
+            )
+            _write(rel, render_model_class(packaged))
+
+        _write(("pom.xml",), _plain_pom_xml(
+            application_id=java_application.application_id,
+            entry_class=entry_class,
+            java_version=runtime.java_version,
+        ))
+
+        return AssemblyOutcome(project_dir=project_dir, entrypoint=entry_class)
+
+
+def _plain_pom_xml(*, application_id: str, entry_class: str, java_version: str) -> str:
+    """Dependency-free Maven jar pom for the plain_java target.
+
+    Zero external dependencies ⇒ no hidden Spring/runtime coupling and a
+    buildable shape under §33 (actual build execution is Phase 9 scope).
+    """
+    artifact = (application_id or "generated-app").lower().replace(" ", "-").replace("_", "-")
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.modernized.app</groupId>
+    <artifactId>{artifact}</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>{application_id}</name>
+    <description>Auto-generated plain Java application (target_runtime=plain_java)</description>
+
+    <properties>
+        <maven.compiler.release>{java_version}</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>{entry_class}</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+"""
+
+
 _ADAPTER_FACTORIES: dict[str, type[RuntimeAdapter]] = {
     "spring_boot": SpringBootRuntimeAdapter,
+    "plain_java": PlainJavaRuntimeAdapter,
 }
 
 
