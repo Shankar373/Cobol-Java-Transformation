@@ -495,6 +495,17 @@ evidence / integrated-proof phase (Master README Phase 10); until then
 the gap stays disclosed here — never half-built. Risk: low
 (disclosure only).
 
+Phase 7 (CICS / MQ / IMS / External Dependencies ladder) **§53 VERDICT
+2026-10-15: COMPLETE — VERIFIED (13/13)** — P3-4 (BL-084/085), P3-5
+(BL-086) and P3-6 (BL-087) DONE with red→green evidence; BL-057
+(CICS quoting) and BL-058 (WS hierarchy) FIXED; P3-3 (CICS runtime) and
+P3-7 (DB2 ledger) remain carry-forwards assigned to later phases with
+their disclosures intact.  Evidence: `opencode.md` §53 verdict block,
+change-log (af)–(ak), `%TEMP%\opencode\phase7\` + `verdict\`.  Universal
+ANALYSIS gained; universal TRANSFORMATION and universal RUNTIME
+EQUIVALENCE remain unclaimed for the new constructs.
+
+
 ## 16. Test strategy (no fake coverage)
 
 - Every P0–P3 item ships positive tests (proves the claimed behavior runs)

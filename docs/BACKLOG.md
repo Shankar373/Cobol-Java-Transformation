@@ -5039,6 +5039,48 @@ level and evidence location.
   rerun (`phase7_six_failures_rerun.txt`, 41.25s). No test weakened; no
   failure hidden.
 
+- 2026-10-15 — **(ak) Phase 7 §53 13-point completion verdict: PHASE 7
+  COMPLETE — VERIFIED — 13/13 PASS, plus BL-087 regression-pin tests
+  (audit-evidence gap closed, mutation-verified).**
+  *Gap found during the §53 audit:* no test pinned the
+  `api.service._proof_payload(extra_dependencies=…)` threading nor the
+  `_persist_integrated_proof` → `_external_dependency_entries_for_source`
+  wiring at the real call site (existing API tests injected fake
+  proof data via the read path only). *Fixed:* three new pins in
+  `tests/integration/test_integrated_proof_api.py::TestMqImsEdgeWiring`
+  — (1) `_proof_payload` threading → ledger/required/blocked contain
+  `MQ:QUEUE=HQUEUE` + `IMS:PCB=IMSPCB`, central status ≠ VERIFIED;
+  (2) `_external_dependency_entries_for_source` tree walk (`.cob` +
+  extensionless extracted, `.txt` skipped, `None`/missing → `()`); (3)
+  full `_persist_integrated_proof` path over a real source tree.
+  *Mutation evidence (honest reds):* removing the `extra_dependencies=`
+  argument inside `_proof_payload` → 2 failed
+  (`bl087_mutationA_red.txt`); removing the argument at the
+  `_persist_integrated_proof` call site → 1 failed
+  (`bl087_mutationB_red.txt`); both restored → full integration file
+  rerun green (17 passed + 1 pre-existing
+  `docker_adapter.py:125` oracle-identity environment failure, green in
+  CI's full-suite job), `api/service.py` clean vs HEAD after restore.
+  *Sweep chronology correction (disclosure preserved, not erased):* the
+  batch-3 full Docker sweep launched 15:43 outlived its tool-interrupt;
+  the interim "INTERRUPTED at ~11%" note in `opencode.md` was a stale
+  snapshot, and the run **completed 16:43: 3739 passed / 0 failed / 0
+  skipped / 1 warning in 59m11s** with `RUN_DOCKER_TESTS=1`
+  (`%TEMP%\opencode\phase7\full_sweep_batch3.txt`, zero FAILED lines)
+  on the test-relevant tree of `03ec9f9` (= `c2dd227`). *CI:* 8/8 runs +
+  28/28 jobs success across `03ec9f9` and `c2dd227` re-verified via the
+  GitHub API with exact-`head_sha` assertions, job+step level on the
+  checkpoint (Capability truth gate + full-suite backend job steps =
+  success); artifacts/logs remain auth-gated (401/403) so CI totals are
+  recorded at run/job/step granularity. *Verdict scope:* detection/
+  classification/ledger-only for all new constructs; no MQ/IMS/VSAM/
+  utility/CICS runtime lane or equivalence claim; no Phase-7-assigned
+  OPEN items remain (13 carry-forwards assigned to Phases 9–12); Phase 8
+  not started; no merge to main. Evidence:
+  `%TEMP%\opencode\phase7\` + `verdict/`. Pin tests intentionally NOT
+  added to the 49-file bare gate (fastapi dependency; BL-080 rule) —
+  covered by CI's full suite instead.
+
 - 2026-10-15 — **(ab) Phase 5 P2 batch exact-SHA CI came back NOT GREEN
   on `41c98ef`; capability-gate dependency leak fixed in one follow-up
   commit (no test weakened).** The failing job was `Capability truth

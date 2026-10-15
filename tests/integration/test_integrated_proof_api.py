@@ -502,3 +502,108 @@ class TestIntegratedProofUI:
         assert client_file.exists()
         content = client_file.read_text(encoding="utf-8")
         assert "getIntegratedProof" in content
+class TestMqImsEdgeWiring:
+    """BL-087 acceptance: MQ/IMS dependency edges must survive the API
+    write path (``_persist_integrated_proof`` -> ``_proof_payload`` ->
+    ``build_dependency_ledger``).
+
+    Regression pins: removing the ``extra_dependencies`` hand-off at any
+    link must fail these tests (mutation-verified; change-log (ak)).
+    """
+
+    MQ_DLI_SOURCE = (
+        "       IDENTIFICATION DIVISION.\n"
+        "       PROGRAM-ID. EDGES.\n"
+        "       PROCEDURE DIVISION.\n"
+        "           EXEC MQI PUT Q(HQUEUE) MSGDESC(D) BUFFER(B) BUFLEN(8)\n"
+        "           END-EXEC.\n"
+        "           EXEC DLI GU PCB NAME=IMSPCB END-EXEC.\n"
+        "           STOP RUN.\n"
+    )
+
+    def test_proof_payload_threads_extra_dependencies_into_ledger(self):
+        from api.service import _proof_payload
+        from engine.modernization.external_dependency_edges import (
+            extract_external_dependency_entries,
+        )
+        from engine.modernization.integrated_proof import RuntimeLaneEvidence
+
+        entries = extract_external_dependency_entries(self.MQ_DLI_SOURCE)
+        assert {e.dependency_id for e in entries} == {
+            "MQ:QUEUE=HQUEUE",
+            "IMS:PCB=IMSPCB",
+        }, entries
+
+        class _Report:
+            capability_report = None
+            generation_success = True
+            application_id = "wl-edges"
+            overall_capability = "UNSUPPORTED"
+
+        payload = _proof_payload(
+            "wl-edges",
+            _Report(),
+            RuntimeLaneEvidence(),
+            "NOT_PRESENT",
+            extra_dependencies=entries,
+        )
+        ledger_ids = [e["dependency_id"] for e in payload["dependency_ledger"]]
+        assert "MQ:QUEUE=HQUEUE" in ledger_ids, ledger_ids
+        assert "IMS:PCB=IMSPCB" in ledger_ids, ledger_ids
+        required_ids = [
+            e["dependency_id"] for e in payload["required_dependencies"]
+        ]
+        assert "MQ:QUEUE=HQUEUE" in required_ids, required_ids
+        blocked_ids = [
+            e["dependency_id"] for e in payload["blocked_dependencies"]
+        ]
+        assert "IMS:PCB=IMSPCB" in blocked_ids, blocked_ids
+        assert payload["central_status"] != "VERIFIED", payload["central_status"]
+        assert payload["required_dependencies_proven"] is False
+
+    def test_external_dependency_entries_for_source_walks_tree(self, tmp_path):
+        from api.service import _external_dependency_entries_for_source
+
+        (tmp_path / "Q.cob").write_text(self.MQ_DLI_SOURCE, encoding="utf-8")
+        (tmp_path / "NOEXT").write_text(self.MQ_DLI_SOURCE, encoding="utf-8")
+        (tmp_path / "notes.txt").write_text(
+            "EXEC MQI PUT Q(JUNKQ) END-EXEC", encoding="utf-8"
+        )
+        entries = _external_dependency_entries_for_source(tmp_path)
+        assert {e.dependency_id for e in entries} == {
+            "MQ:QUEUE=HQUEUE",
+            "IMS:PCB=IMSPCB",
+        }, entries
+        assert _external_dependency_entries_for_source(None) == ()
+        assert _external_dependency_entries_for_source(tmp_path / "absent") == ()
+
+    def test_persist_integrated_proof_includes_mq_ims_edges(
+        self, fresh_service, tmp_path
+    ):
+        from types import SimpleNamespace
+
+        svc = fresh_service
+        app_rec = svc.create_application(
+            name="proof-edges",
+            description="",
+            workload_id="wl-edges",
+            java_entrypoint="Main",
+        )
+        src = tmp_path / "cobol"
+        src.mkdir()
+        (src / "EDGES.cob").write_text(self.MQ_DLI_SOURCE, encoding="utf-8")
+        app_rec.cobol_source_path = str(src)
+        run = svc._store.add_run(_fresh_run_record(svc, app_rec.id))
+        run.modernization_report = _stored_report(
+            app_rec.id, capability_level="UNSUPPORTED"
+        )
+
+        svc._persist_integrated_proof(app_rec, run, SimpleNamespace())
+
+        proof = run.modernization_report["integrated_proof"]
+        ids = {e["dependency_id"] for e in proof["dependency_ledger"]}
+        assert "MQ:QUEUE=HQUEUE" in ids, ids
+        assert "IMS:PCB=IMSPCB" in ids, ids
+        required = {e["dependency_id"] for e in proof["required_dependencies"]}
+        assert "MQ:QUEUE=HQUEUE" in required, required
+        assert proof["central_status"] != "VERIFIED", proof["central_status"]
