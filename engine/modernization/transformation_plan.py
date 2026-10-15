@@ -20,6 +20,17 @@ from pathlib import Path
 
 from engine.modernization.capability_analyzer import CapabilityLevel, CapabilityReport
 from engine.transformation.ir import CobolApplication
+from engine.transformation.runtime_adapters import VALID_PLAN_OUTPUT_TYPES
+
+
+def _require_valid_plan_output_type(value: str) -> None:
+    """Fail closed when the plan would record an unknown assembly target."""
+    if value not in VALID_PLAN_OUTPUT_TYPES:
+        raise ValueError(
+            f"invalid assembly_output_type: {value!r} — supported plan "
+            f"output types: "
+            f"{', '.join(repr(v) for v in VALID_PLAN_OUTPUT_TYPES)}"
+        )
 
 
 class TransformerType(Enum):
@@ -116,8 +127,16 @@ class TransformationPlanGenerator:
         application: CobolApplication,
         report: CapabilityReport,
         entrypoint: str = "",
+        assembly_output_type: str = "SPRING_BOOT",
     ) -> TransformationPlan:
-        """Generate a transformation plan from a capability report."""
+        """Generate a transformation plan from a capability report.
+
+        ``assembly_output_type`` records which §32 runtime target this
+        plan assembles for; it is validated fail-closed against the plan
+        vocabulary so the plan can never claim a target the pipeline is
+        not configured to emit (BL-088).
+        """
+        _require_valid_plan_output_type(assembly_output_type)
         components: list[ComponentPlan] = []
 
         # Build capability lookup
@@ -182,7 +201,7 @@ class TransformationPlanGenerator:
 
         # Build assembly plan
         assembly = AssemblyPlan(
-            output_type="SPRING_BOOT",
+            output_type=assembly_output_type,
             base_package="com.modernized.app",
             application_name=application.application_id,
             include_service_registry=len(programs) > 1,
