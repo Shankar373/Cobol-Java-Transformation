@@ -2,7 +2,7 @@
 
 ## Phase 7 started — CICS / MQ / IMS / External Dependencies (2026-10-15)
 
-### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 7 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE; batches 1–3 = BL-057/058 + BL-084/085 + BL-086/087 ALL FIXED, change-log (af)–(ak) + CI evidence (al); gate 49 files / 685 bare-venv; local full Docker sweep of record for batch 3 COMPLETED 3739 passed / 0 failed / 0 skipped in 59m11s (`full_sweep_batch3.txt`) — note: the interim “INTERRUPTED at ~11%” reading was a stale-progress snapshot, chronology preserved in the batch-3 bullet below; CI primary: 8/8 runs + 28/28 jobs green on `03ec9f9` + `c2dd227` incl. Capability truth gate + full-suite backend job; batches 1+2 sweep 3704/6 all resolved; final verdict docs commit follows with its own exact-SHA CI verification; §53 evidence commit = this Phase-7 verdict series, baseline `c2dd227`; NO LLM; no merge to main; Phase 8 NOT started**)
+### ⚑ PHASE 7 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 7 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE; batches 1–3 = BL-057/058 + BL-084/085 + BL-086/087 ALL FIXED, change-log (af)–(ak) + CI evidence (al); gate 49 files / 685 bare-venv; local full Docker sweep of record for batch 3 COMPLETED 3739 passed / 0 failed / 0 skipped in 59m11s (`full_sweep_batch3.txt`) — note: the interim “INTERRUPTED at ~11%” reading was a stale-progress snapshot, chronology preserved in the batch-3 bullet below; CI primary: 8/8 runs + 28/28 jobs green on `03ec9f9` + `c2dd227` incl. Capability truth gate + full-suite backend job; batches 1+2 sweep 3704/6 all resolved; verdict docs + BL-087 pins + scoring = `e67b59e73e58ec6f0a78711b86d52893862f8454`, exact-SHA CI 4/4 runs green (change-log (al), job+step verified: gate + full-suite backend steps success); Phase-7 work baseline `c2dd227`; NO LLM; no merge to main; Phase 8 NOT started**)
 
 - **Prerequisites verified before touching Phase 7 scope:** Phase 0
   verdict `COMPLETE — VERIFIED` (opencode.md ~line 2212); Phases 1–6 all
@@ -149,7 +149,7 @@
   GitHub API; push uses the Windows-GCM credential helper); optional
   full Docker sweep re-run; §53 13-point scoring.
 
-## ⚑ §53 VERDICT — Phase 7 (scored 2026-10-15; work SHAs `06d9b98` + `03ec9f9`, checkpoint `c2dd227`, verdict docs + BL-087 pins in the following commit)
+## ⚑ §53 VERDICT — Phase 7 (scored 2026-10-15; work SHAs `06d9b98` + `03ec9f9`, checkpoint `c2dd227`, verdict docs + BL-087 pins + this scoring = `e67b59e73e58ec6f0a78711b86d52893862f8454` — exact-SHA CI 4/4 runs success, job+step verified, change-log (al))
 
 **PHASE 7 COMPLETE — VERIFIED — 13/13 PASS.**  Master README §53 is the
 authoritative rule; every criterion below is scored against repository
@@ -312,10 +312,9 @@ Phase 8 NOT started.
 `docs/COBOL_UNIVERSALITY_ROADMAP.md` (P3-4/5/6 DONE, §11 ladder),
 `docs/SEMANTIC_PROOF_MATRIX.md` (+6 rows), `docs/PHASE_6_7_FINAL_REPORT.md`
 (Phase 7 completion), this checkpoint.  Evidence dir:
-`%TEMP%\opencode\phase7\` (+ `verdict/`).  **Next action:** commit
-these verdict docs + BL-087 pins, push, verify exact-SHA CI, then record
-run IDs in change-log (al); Phase 8 only after that, on explicit
-authorization.
+`%TEMP%\opencode\phase7\` (+ `verdict/`).  **Next action:** record
+change-log (al) run IDs, then Phase 8 only on explicit authorization
+(verdict = COMPLETE — VERIFIED; no merge to main).
 
 
 ## Phase 6 started — DB2 / SQL Modernization (2026-10-15)

@@ -5290,6 +5290,23 @@ level and evidence location.
 
 ---
 
+- 2026-10-15 — **(al) Phase 7 verdict commit exact-SHA CI — GREEN.**
+  Verdict docs + BL-087 API pins pushed as `e67b59e73e58ec6f0a78711b86d52893862f8454`
+  on `codex/universal-core`; GitHub API (full-40-char `head_sha`
+  asserted): **4/4 runs success** — SystemaOps CI push 38774440062,
+  SystemaOps CI PR 38774445268, Supply chain push 38774440146,
+  Supply chain PR 38774445364 (evidence
+  `%TEMP%\opencode\phase7\verdict\runs_e67b59e.json`). Job+step
+  level on both SystemaOps runs (8/8 jobs, zero bad steps, evidence
+  `jobs_e67b59e_38774440062.json` / `jobs_e67b59e_38774445268.json`):
+  `Capability truth gate` → step `Verify capability truth` = success;
+  `Backend and COBOL/Java Docker tests` → step `Run backend, oracle, and
+  integration tests` = success (full pytest suite incl. the three new
+  BL-087 pins); Frontend + Phase 1 ingestion jobs success.  This is the
+  exact final source state for the §53 verdict (criterion 13); totals
+  still recorded at run/job/step granularity (artifacts auth-gated).
+
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
