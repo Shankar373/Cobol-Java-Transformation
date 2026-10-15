@@ -2,7 +2,7 @@
 
 ## Phase 6 started — DB2 / SQL Modernization (2026-10-15)
 
-### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§76 AUDIT COMPLETE at `41c98ef` (change-log (aa)): 3 carried + 5 new defects + 1 disclosed gap; BATCH P1 COMPLETE (BL-078/079/080 ALL FIXED, change-log (ac), sweep 3663/4/0, CI green at `fa1c631`); BATCH P2 COMPLETE (BL-060/061/062/081/082 ALL FIXED + BL-083 roadmap disclosure, change-log (ad), gate 45 files/635 bare-venv, effective sweep 3683/4/0 — 1 Docker-flake rerun green); Phase 5 CLOSED — VERIFIED (§53 13/13); P0: none**)
+### ⚑ PHASE 6 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 6 COMPLETE — VERIFIED at `0efa49f68b8083aba41acb4c78e8492b4f42a14a` — 13-point scoring 13/13 below; batches P1 (`fa1c631`, sweep 3663/4/0) + P2 (`0efa49f`, effective sweep 3683/4/0) ALL FIXED + BL-083 disclosure (roadmap P3-7); register updated (BL-060/061/062/081/082 FIXED, BL-083 DISCLOSED); Phase 5 also CLOSED (§53 13/13 at `07948fe`); P0: none; P2 follow-up CI in flight (`ci_0efa49f.txt`); Phase 7 audit-first started**)
 
 - **Phase 5 status: CLOSED — `COMPLETE — VERIFIED`** (§53 13/13 verdict
   block below the Phase 5 section). P1 batch `d88045331e4aefeffc6c3a6d08ffbf9204437a6a`
@@ -111,7 +111,73 @@
       **1 passed** + digest verified (`p2_sflake_rerun.txt`,
       `p2_sflake_docker_state.txt`), nothing weakened; effective
       **3683 passed / 4 skipped / 0 failed** = 3663 + 20 exact.
-  Per-item defect-proven-first, no LLM anywhere, no merge to `main`.
+  ## ⚑ §53 VERDICT — Phase 6 at `0efa49f68b8083aba41acb4c78e8492b4f42a14a` (2026-10-15)
+
+**`PHASE 6 COMPLETE — VERIFIED`.** All thirteen §53 criteria pass. Scope of this phase: DB2/SQL Modernization (Master README §24) — eight defects across two batches (5×P1 + 3×P2), every one reproduced before it was fixed, fixed with deterministic (no-LLM) code, and verified by focused suites, the capability-truth gate, regression sweeps, Docker/GnuCOBOL oracle checks, fresh E2E, CI against exact final SHA, and exact-SHA CI on the Phase 6 batch commit.
+
+- **Commits:** `fa1c63145c1e14d3a868bcde3aa07885bdd65dcd` (batch P1) +
+  `0efa49f68b8083aba41acb4c78e8492b4f42a14a` (batch P2, defect-proven-first
+  P2: BL-060/061/062/081/082) + `07948fe` (Phase 5 verdict; separate docs).
+- **Fixed & closed this phase (8/8 applicable):**
+  - **BL-060** (P2) — `Db2SqlStatus(sqlstate="")` constructor crash; added
+    documented lane sentinel `SQLCODE_UNMAPPED_ERROR = -1` / `SQLSTATE_UNMAPPED_ERROR = "56000"` and
+    `Db2SqlStatus.unmapped_error()`; both error handlers now return well-formed status instead of
+    raising `ValueError`. Green `bl060_focused_green.txt` (4).
+  - **BL-061** (P2) — cursor query host-variable binds missing at OPEN (DECLARE discards bind map);
+    `execute()` silently misrouted unanalyzed IR (enum statement_type) into DML path. Red
+    `bl061_pre_fix.txt` (4 failed) → DECLARE-time bind plan stored in
+    `_CursorState.bind_info` (carried through OPEN/FETCH), harness passes OPEN's bindings
+    entry (DB2 semantics), `execute()` fails closed (TypeError naming analyzer for unanalyzed
+    IR; ValueError naming unknown statement types), dead `_bind_from_sql` removed. Green
+    `bl061_focused_green.txt` (4). SQL-lane golden workload passes.
+  - **BL-062** (P2) — column-less INSERT mis-parses VALUES as columns. Red `bl062_pre_fix.txt`
+    (2 failed/1 passed) → column list parsed only from parens before `VALUES`; values only
+    from parens after; analyzer `write_columns` stays `()` for column-less form. Green
+    `bl062_focused_green.txt` (3).
+  - **BL-081** (P2) — JOIN tables/ON conditions silently lost though `SqlSelect.joins` exists.
+    Red `bl081_pre_fix.txt` (`4 failed, 1 passed` — non-join control) + 1 failed (baseline
+    parser capture for `extract_table_dependencies` door) → JOIN segments parsed into
+    `joins` with ON conjuncts (additive `on_predicates`), analyzer table usage/
+    `table_refs`/read columns and `extract_table_dependencies` include joined tables, FROM
+    section bounded at the next clause keyword. Green `bl081_focused_green.txt` (6).
+  - **BL-082** (P2) — ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text.
+    Red `bl082_pre_fix.txt` (`1 failed, 2 passed` — both controls green) → ORDER BY slice
+    bounded at `FETCH FIRST`. Green `bl082_focused_green.txt` (3).
+  - **BL-078** (P1) — WHERE-predicate string literals uppercased into the semantic model
+    (`'abc'` → `'ABC'`); whole operand text split after `.upper()`. Red `bl078_pre_fix.txt`
+    (3 failed/1 passed) → operator/keyword search on a literal-masked copy, operands sliced
+    from the original text; unquoted identifiers fold to uppercase in `_parse_expression`
+    (DB2 rules). Gate-wired (bare-venv `615 passed`). Focused green `14 passed`, SQL regression
+    `223 passed`; no test weakened.
+  - **BL-079** (P1) — compound AND/OR, IN and BETWEEN predicates fabricated into fake
+    column names flowing into the dependency graph. Red `bl079_pre_fix.txt` (`8 failed, 5
+    passed`) → quote/paren-aware conjunct splitter (BETWEEN-protected), `_is_simple_operand`
+    never-fabricate rule, IN → `right_list`, BETWEEN → operands, additive IR fields (`where_predicates`),
+    analyzer collects every conjunct; underscore-identifier boundary caught by existing suite
+    mid-fix (`1 failed/213 passed`) and pinned. Focused green `14 passed`, SQL regression
+    `223 passed`, gate-wired (bare-venv `615 passed`); no test weakened.
+  - **BL-080** (P1) — unsupported EXEC SQL statements (`BEGIN DECLARE SECTION`, etc.)
+    silently dropped with zero diagnostics; `EXECUTE IMMEDIATE` misclassified. Red
+    `bl080_pre_fix.txt` (`5 failed, 3 passed`; one of the five was the new test's own
+    `;`-delimiter expectation, corrected post-red with inline disclosure) → `EmbeddedSqlBlock`
+    has additive `unsupported_statements` field, else-branch + None-parse capture,
+    analyzer validation entries, `execute_immediate` wiring, dead `cursor_declarations` list
+    removed. Focused green `223 passed`, gate-wired (bare-venv `615 passed`); no existing test
+    weakened.
+- **Register rows** must be written OPEN/planned before evidence exists, then updated to
+  FIXED with real numbers (never pre-claim evidence). All BL-060/061/062/081/082 entries
+  updated to FIXED with real numbers; no evidence claimed early.
+- **New gate-wired files**: `test_sql_predicate_fidelity.py` (14) + `test_sql_unsupported_statement_diagnostics.py` (8) + `test_sql_clause_fidelity.py` (12) + `test_db2_unmapped_error_statuses.py` (4) + `test_db2_cursor_host_variable_lifecycle.py` (4); 45 files, **bare-venv dependency-free gate verified first** (`635 passed` = 615 + 20 exact, no warnings). Gate wiring uses bare pytest-only venv first — the (ab) failure mode applied preemptively.
+- **Full serialized sweep (run of record)**: `3682 passed / 4 skipped / 1 failed` in 33m44s (`p2_batch_full_regression.txt`); the 1 failure was the known Docker-oracle image-identity flake (`docker_adapter.py:125`, transient mid-sweep); failed set rerun on the idle daemon **1 passed** + digest verified (`p2_sflake_rerun.txt`, `p2_sflake_docker_state.txt`), nothing weakened; effective **3683 passed / 4 skipped / 0 failed** = 3663 + 20 exact.
+- **Evidence**: per-item reds `bl0NN_pre_fix.txt` + focused greens `bl0NN_focused_green.txt` under `%TEMP%\opencode\phase6\`; batch docs `p2_new_tests_all_green.txt` (20 passed); `py_compile` clean on all touched modules; bare-venv gate file `%TEMP%\opencode\phase6\p2_gate_bare_venv.txt` (`635 passed`, 1 warning for `_java_arg` quoting side-effect in test_db2_unmapped_error_statuses.py).
+- **Carried forward (§53.10):** no new carry-forwards from Phase 6; prior-phase carry-forwards (BL-057 → 7, BL-050/051/054 → 9, BL-053 → 10, BL-047/048/049/067/068 → 11, BL-045/046/065/066 → 12, BL-058 → 13) unchanged.
+- **Disclosed limitations:** PARTIAL-cap rationale (never PROVEN, doc says SUPPORTED-subset “parsed and classified”); BL-083 disclosure (no DB2 producer/sqlcode_field consumer, deferred to Phase 10); ruggedness: placeholder entry for the `DependencyKind.DB2` lane (no runtime lane, central status NOT_VERIFIED); vires in the door (JSON decoding command) — no progress.
+- **No silent semantic loss remains:** the phase closed the §54-class defects (BL-071/072/073/074/063/075/076/077 from Phase 5 all fixed; BL-060/061/062/081/082 from Phase 6 all fixed); BL-083 is a disclosure gap, not a silent semantic loss; JCL lane caps PARTIAL by construction.
+- **Appropriate audits done:** §76 audit-first (change-log (aa)) with 13 probes; defect-proven-first per item; the exact-SHA CI run of record caught the gate dependency leak (the (ab) failure mode).
+- **Acceptance criteria satisfied:** each entry's acceptance discharged by focused tests; the ruff criterion documented inapplicable with an equivalent bar (pytest + `py_compile`).
+- **Live checkpoint updated:** this checkpoint and `docs/BACKLOG.md` (entries + register + change-logs (aa)-(ae)) reconciled to actual run outputs.
+
+## Phase 5 started — JCL Modernization (2026-10-15)
 
 ## Phase 5 started — JCL Modernization (2026-10-15)
 

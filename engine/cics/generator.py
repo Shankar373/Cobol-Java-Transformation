@@ -564,7 +564,19 @@ public class {class_name} {{
         if not value:
             return "null"
         if quoted:
-            return repr(value)
+            # Escape for a Java string literal: double-quote + escapes for
+            # \ " and control chars (BL-057). Python repr() uses single quotes
+            # and is invalid Java.
+            escaped = (
+                value.replace("\\", "\\\\")
+                      .replace('"', '\\"')
+                      .replace("\n", "\\n")
+                      .replace("\r", "\\r")
+                      .replace("\t", "\\t")
+                      .replace("\b", "\\b")
+                      .replace("\f", "\\f")
+            )
+            return f'"{escaped}"'
         return value
 
     def _generate_explicit_block(self, service: CicsService) -> list[str]:
