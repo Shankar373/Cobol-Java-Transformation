@@ -90,9 +90,47 @@ class VerdictDeriver:
         be the output of ``EvidenceIntegrityValidator.validate()``.  Calling
         code that bypasses the validator cannot produce an incorrect verdict
         via this method.
+
+        The wrapper's binding is re-checked, not merely trusted: the
+        validation-time ``integrity_hash`` is compared against the manifest
+        hash *as recomputed now*.  A manifest mutated after validation no
+        longer matches it, so derivation fails closed with an ERROR verdict
+        instead of certifying whatever the mutated graph claims (TOCTOU,
+        BL-053 / Master README §39).
         """
+        manifest = validated.manifest
+        live_hash = manifest.manifest_hash
+        if live_hash != validated.integrity_hash:
+            # Post-validation mutation: the validated binding no longer
+            # holds, so nothing derived from this manifest can certify.
+            return Verdict(
+                state=VerdictState.ERROR,
+                workload_id=manifest.workload_id,
+                run_id=manifest.run_id.value,
+                source_hash=str(manifest.source_identity.source_hash),
+                candidate_hash=(
+                    str(manifest.candidate_identity.candidate_hash)
+                    if manifest.candidate_identity else None
+                ),
+                oracle_id=manifest.oracle_identity.oracle_id,
+                oracle_digest=manifest.oracle_identity.image_digest,
+                executed_check_count=0,
+                skipped_count=0,
+                unavailable_count=0,
+                supported_scope_statement=(
+                    "Evidence mutated after validation; derivation fails"
+                    " closed"
+                ),
+                evidence_manifest_hash=str(live_hash),
+                derivation_timestamp=_utc_now_iso(),
+                differences=(
+                    "Post-validation mutation detected: manifest hash"
+                    f" {live_hash} no longer matches the validation-time"
+                    f" integrity hash {validated.integrity_hash}",
+                ),
+            )
         # ValidatedEvidenceManifest.manifest is the underlying raw evidence
-        return self.derive(validated.manifest)
+        return self.derive(manifest)
 
     def derive_unsafe_from_raw(self, manifest: EvidenceManifest) -> Verdict:
         """Derive a verdict from a raw manifest without trust-boundary enforcement.

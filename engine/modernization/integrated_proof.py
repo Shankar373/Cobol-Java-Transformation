@@ -20,6 +20,7 @@ The gate only ever downgrades:
     central VERIFIED  <=  runtime verdict is VERIFIED
                       AND evidence manifest is complete
                       AND evidence integrity validated
+                      AND the dependency ledger is non-empty
                       AND every required dependency is PROVEN
 
 JCL, DB2 and CICS have no runtime lane in this repository (see
@@ -338,9 +339,10 @@ def evaluate_central_status(
 ) -> tuple[CentralStatus, tuple[str, ...]]:
     """Pure gate.  Returns the central status and its blocking reasons.
 
-    The gate can only downgrade.  VERIFIED requires all four conditions:
-    runtime VERIFIED, complete evidence, validated integrity, and every
-    required dependency PROVEN.
+    The gate can only downgrade.  VERIFIED requires a non-empty dependency
+    ledger plus: runtime VERIFIED, complete evidence, validated integrity,
+    and every required dependency PROVEN.  An empty ledger fails closed —
+    zero enumerated dependencies is a missing input, not proof (§41).
     """
     reasons: list[str] = []
 
@@ -354,6 +356,15 @@ def evaluate_central_status(
             reasons.append("runtime evidence manifest is incomplete")
         if not runtime.evidence_integrity_valid:
             reasons.append("runtime evidence failed integrity validation")
+
+    if not ledger:
+        # §41 requires the central verdict to combine DEPENDENCY evidence;
+        # zero enumerated dependencies is a missing input, not proof.  An
+        # empty ledger must never resolve to VERIFIED (vacuous truth).
+        reasons.append(
+            "dependency ledger is empty: no declared dependency has been"
+            " proven (vacuous VERIFIED is forbidden)"
+        )
 
     for entry in ledger:
         if entry.required and entry.proof_state is not ProofState.PROVEN:

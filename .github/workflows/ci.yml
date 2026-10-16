@@ -56,6 +56,8 @@ jobs:
             tests/transformation/test_producer_diagnostics_contract.py \
             tests/transformation/test_perform_lowercase.py \
             tests/comparators/test_fixed_record_trailing_partial.py \
+            tests/test_phase10_p0_bl053_seal_recheck.py \
+            tests/test_phase10_p0_integrated_proof_gate.py \
             tests/test_silent_loss_registry.py \
             tests/test_nested_copybook_materialization.py \
             tests/test_copy_replacing_materialization.py \

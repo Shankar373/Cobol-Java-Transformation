@@ -311,6 +311,8 @@ def _proof_payload(
     def _bucket(state_value: str) -> list[dict]:
         return [e.to_dict() for e in ledger if e.proof_state.value == state_value]
 
+    required_entries = [e for e in ledger if e.required]
+
     runtime_dict = {
         "verdict_state": runtime.verdict_state,
         "executed_check_count": runtime.executed_check_count,
@@ -332,7 +334,7 @@ def _proof_payload(
         "jcl_status": jcl_status,
         "runtime": runtime_dict,
         "dependency_ledger": [e.to_dict() for e in ledger],
-        "required_dependencies": [e.to_dict() for e in ledger if e.required],
+        "required_dependencies": [e.to_dict() for e in required_entries],
         "runtime_verdict_is_verified": runtime.verdict_is_verified,
         "proven_dependencies": _bucket("PROVEN"),
         "unproven_dependencies": _bucket("UNPROVEN"),
@@ -340,9 +342,10 @@ def _proof_payload(
         "unsupported_dependencies": _bucket("UNSUPPORTED"),
         "evidence_complete": runtime.evidence_complete,
         "evidence_integrity_valid": runtime.evidence_integrity_valid,
-        "required_dependencies_proven": all(
-            e.proof_state is ProofState.PROVEN for e in ledger if e.required
-        ),
+        # Non-vacuous: all(...) over an empty required set would assert
+        # proof that does not exist (empty ledger => nothing proven, P0-c).
+        "required_dependencies_proven": bool(required_entries)
+        and all(e.proof_state is ProofState.PROVEN for e in required_entries),
         "overall_verification": central_status.value,
     }
 
@@ -1099,6 +1102,11 @@ class Service:
             ),
         )
         run_report["integrated_proof"] = proof
+        # Bind the proof to the validation generation it was computed under:
+        # ``begin_revalidation`` bumps the generation, so a later read treats
+        # this payload as stale and recomputes fail-closed instead of serving
+        # the previous attempt's claims (P0-b / F-7 generation binding).
+        proof["validation_generation"] = int(run.validation_generation)
         run_report["jcl_status"] = jcl_status
         run.modernization_report = run_report
 
@@ -1229,9 +1237,20 @@ class Service:
 
         Primary path: the proof persisted during validation
         (``run.modernization_report["integrated_proof"]``).  Fallback: for
-        runs that predate proof persistence, recompute from the stored
-        pipeline report + stored verdict/evidence.  Raises ``NotFoundError``
-        when the run has no modernization report at all.
+        runs that predate proof persistence — or whose persisted proof went
+        stale — recompute from the stored pipeline report + stored
+        verdict/evidence.  Raises ``NotFoundError`` when the run has no
+        modernization report at all.
+
+        Two trust gates run before anything is served (P0-b):
+
+        1. evidence<->verdict pair consistency — a proof derived from a
+           broken pair is not evidence (``PersistenceCorruptionError``);
+        2. validation-generation binding — the persisted payload only
+           describes the attempt that produced it.  Legacy payloads without
+           a stamp read as generation 0 (current only until the first
+           revalidation); a generation mismatch falls through to a
+           fail-closed recompute from the run's *current* artifacts.
         """
         from engine.modernization.integrated_proof import runtime_evidence_from_result
 
@@ -1242,13 +1261,31 @@ class Service:
                 "No modernization report available for this run"
             )
 
+        # Gate 1: never serve a proof beside an inconsistent pair.
+        self._check_evidence_verdict_consistency(run)
+
         proof = run_report.get("integrated_proof")
         if proof is not None:
-            return {"run_id": run.id, "proof": proof}
+            raw_stamp = proof.get("validation_generation", 0)
+            try:
+                stamped = int(raw_stamp)
+            except (TypeError, ValueError):
+                stamped = -1  # corrupt stamp never matches a generation
+            # Gate 2: only the proof of the current generation is current.
+            if stamped == int(run.validation_generation):
+                return {"run_id": run.id, "proof": proof}
+            # Stale proof: fall through to recompute from current artifacts.
 
         # Fallback: recompute from the stored report dict + stored verdict.
         facade = _report_facade(run_report)
         if facade is None:
+            if proof is not None:
+                raise NotFoundError(
+                    f"Run {run.id!r} has no current integrated proof: the"
+                    " persisted proof belongs to a previous validation"
+                    " generation and no pipeline report is available to"
+                    " recompute it"
+                )
             raise NotFoundError(
                 "No modernization report available for this run"
             )

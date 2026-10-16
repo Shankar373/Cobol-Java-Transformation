@@ -2416,12 +2416,25 @@ level and evidence location.
 ### BL-053 — `derive_from_validated` does not re-check the seal (TOCTOU between validation and verdict derivation)
 
 - **Type:** defect (trust boundary / evidence integrity).
-- **Priority:** P2 — the docstring promises "calling code that bypasses
-  the validator cannot produce an incorrect verdict", but a manifest
+- **Priority:** **P0** — reclassified 2026-10-16 by the Phase 10 audit
+  classification (was P2): Master README §77 names trust-boundary bypass
+  as P0, and the mutated hash also flows into
+  `Verdict.evidence_manifest_hash` (`derivation.py::_create_verdict`),
+  so the downstream verdict↔manifest pair check
+  (`api/service.py::_check_evidence_verdict_consistency`) cannot catch
+  it either. The docstring promises "calling code that bypasses the
+  validator cannot produce an incorrect verdict", but a manifest
   mutated after validation is trusted verbatim.
-- **Severity:** medium (hardening gap; no current caller mutates).
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Severity:** high (certification trust boundary; no current production
+  caller mutates — latent, but the wrapper's guarantee was false).
+- **Status:** **FIXED — 2026-10-16 (Phase 10 batch P0-a)** — red-first
+  evidence before any change: `tests/test_phase10_p0_bl053_seal_recheck.py`
+  (pre-fix 1 failed / 2 passed — the MISMATCH→MATCH post-validation
+  mutation certified VERIFIED) and probe
+  `%TEMP%\opencode\phase10\probe_p0a_result.txt`; post-fix 3/3 green and
+  the probe flips to GREEN (`state=ERROR`). Discovered 2026-10-14 by the
+  repository-wide audit (Stage C, baseline `4deddfc`); statically verified
+  by hand.
 - **Found by:** audit group T5; verified: `verdict/derivation.py L86-95`
   — `return self.derive(validated.manifest)` with no
   `integrity_hash == manifest.manifest_hash` re-check.
@@ -2433,12 +2446,24 @@ level and evidence location.
   to the hash.
 - **Affected files:** `engine/verdict/derivation.py` L86-95.
 - **Impact:** future callers can accidentally create a trust bypass.
-- **Remediation (planned):** re-verify the seal inside
-  `derive_from_validated`; negative test with a mutated manifest.
-- **Acceptance criteria:** mutated manifest fails derivation closed;
-  verdict tests green.
-- **Owner/role:** verdict maintainer. **Target phase:** unassigned.
-  **Dependency:** none. **Residual risk:** none once sealed.
+- **Remediation (implemented, deterministic, no LLM):** `derive_from_validated`
+  re-binds the wrapper before deriving — `validated.manifest.manifest_hash`
+  is recomputed live and compared against `validated.integrity_hash`
+  (captured at validation time); any mismatch (post-validation mutation)
+  returns an ERROR verdict naming both hashes and stating "Evidence mutated
+  after validation; derivation fails closed" — never VERIFIED — and no
+  derivation runs on the mutated graph.
+- **Acceptance criteria (met):** mutated manifest fails derivation closed;
+  unmutated evidence keeps its natural verdict (MISMATCH → FAILED, clean
+  MATCH → VERIFIED pinned in the same file); focused file 3/3 green and
+  verdict/evidence/adversarial + Phase-10 regressions green; no existing
+  test weakened.
+- **Owner/role:** verdict maintainer. **Target phase:** Phase 10 batch
+  P0-a (fixed in-cycle 2026-10-16). **Dependency:** none.
+  **Residual risk:** none — a manifest mutated *between construction and
+  validation* is already rejected by the validator's seal check
+  (`integrity.py::_validate_manifest_integrity`), and mutation *after*
+  validation now fails derivation closed.
 
 ### BL-054 — Spring Boot adapter writes the built JAR back into `candidate_path/target`, making `candidate_hash` non-deterministic across runs
 
@@ -5647,6 +5672,47 @@ level and evidence location.
   the Phase 9 per-workload build+execute wording.  No test weakened;
   focused local regression 129 passed / 2 skipped (docker-gated).
 
+- 2026-10-16 — **(as) Phase 10 batch P0: certification trust boundary —
+  BL-053 seal re-check, stale/ungated integrated-proof surface, empty-ledger
+  fail-open gate.**  Red-first (captured against unmodified code, before any
+  change): the three new focused files failed 9 / passed 3, and the three
+  probes confirmed each defect — `probe_p0a_result.txt` (post-validation
+  MISMATCH→MATCH certified VERIFIED), `probe_p0b_result.txt` (`/verdict`
+  404 while `/integrated-proof` 200 with central/runtime VERIFIED after
+  `begin_revalidation`), `probe_f2_result.txt` (`evaluate_central_status((),
+  perfect runtime)` → `(VERIFIED, ())` + vacuous
+  `required_dependencies_proven=True`).  Fixes: (a) **P0-a / BL-053**
+  `engine/verdict/derivation.py::derive_from_validated` recomputes
+  `manifest.manifest_hash` and compares it to the validation-time
+  `integrity_hash`; a mismatch (post-validation mutation) returns an ERROR
+  verdict naming both hashes before any derivation runs — mutated evidence
+  can never certify (§39), and the pair check downstream is no longer the
+  last line of defense against it.  (b) **P0-b**
+  `api/service.py::get_integrated_proof` runs
+  `_check_evidence_verdict_consistency` before serving anything (the
+  fallback recompute path is gated by the same check) and serves a
+  persisted proof only when its `validation_generation` stamp equals the
+  run's current generation; stale-generation proofs recompute fail-closed
+  from the run's current artifacts (404 when only the stale proof remains).
+  `_persist_integrated_proof` stamps the generation at write time — this
+  **discharges the F-7 generation-binding item and the F-3 fallback-pairing
+  item inside P0-b**, recorded here so the P1 batch does not double-fix
+  them.  (c) **P0-c** `engine/modernization/integrated_proof.py::
+  evaluate_central_status` fails closed on an empty dependency ledger with
+  an explicit blocking reason, and `api/service.py::_proof_payload`
+  computes `required_dependencies_proven` non-vacuously (false when no
+  required entry exists).  Evidence after the fixes:
+  `tests/test_phase10_p0_bl053_seal_recheck.py` +
+  `tests/test_phase10_p0_integrated_proof_gate.py` (engine-only, wired into
+  the dependency-free capability-truth gate) +
+  `tests/test_phase10_p0_proof_trust_api.py` (API layer) green 12/12; all
+  three probes flip GREEN (`state=ERROR`; stale proof HTTP 404; empty ledger
+  `NOT_VERIFIED` with explicit reason); Phase-10 regressions green — fast
+  batch 334 passed, integrated-proof/Phase-D/forensic batch 100 passed.
+  BL-053 re-rated **P0** per §77 (trust-boundary bypass; was filed P2).
+  No existing test weakened, no gate bypassed; nothing from Phase 11/12
+  included.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -5706,7 +5772,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-050 | Candidate adapter maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | Shared cleanup helper | Timeout path masks the real error and leaks a container. | Leaks accumulate on the daemon; diagnostics mislead. | FIXED: compile() initializes `proc = None` (parity with execute()); timeout returns the real message and always cleans the container; focused test green. |
 | BL-051 | Oracle adapter maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | Shared cleanup helper (Stage D) | Timed-out oracle containers persist; no parity with candidate cleanup. | Daemon resource leak on the hot verification path. | FIXED: oracle `docker run` gains a deterministic `--name`; timeout path kills client + calls shared `cleanup_container`; focused test green. |
 | BL-052 | Comparator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Byte-exactness must cover every byte; floor division ignores tails. | Latent false MATCH via metadata mismatch (V1 pipeline unaffected today). | Partial trailing records mismatch; comparator tests green. **FIXED**: explicit tail comparison after the record loop reports `trailing_partial_record`; test_fixed_record_trailing_partial.py (9) red 5/1 → green; regressions 282 + 172 passed; gate-wired. |
-| BL-053 | Verdict maintainer | Phase 10 (carry-forward 2026-10-14) | None | Trust-boundary TOCTOU: post-validation mutation is trusted verbatim. | Future callers can accidentally bypass the seal. | Mutated manifest fails derivation closed; verdict tests green. |
+| BL-053 | Verdict maintainer | **FIXED 2026-10-16 (Phase 10 batch P0-a)** | None | Trust-boundary TOCTOU: post-validation mutation is trusted verbatim. | Future callers can accidentally bypass the seal; the mutated hash defeats the downstream pair check. | FIXED: `derive_from_validated` re-binds `manifest.manifest_hash` (live) to the validation-time `integrity_hash`; mismatch ⇒ ERROR verdict naming both hashes, never VERIFIED; focused `tests/test_phase10_p0_bl053_seal_recheck.py` red 1 failed/2 passed → green 3/3 + probe GREEN (state=ERROR); verdict/evidence/adversarial + Phase-10 regressions green; priority re-rated P0 per §77 (was P2). |
 | BL-054 | Candidate adapter / pipeline maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | None | Build output written into the identity tree ⇒ non-reproducible hashes. | Non-reproducible evidence identity on the Spring Boot lane. | FIXED: candidate identity walk skips top-level `target/`; repeated builds ⇒ identical candidate_hash; focused test green. |
 | BL-055 | Parser / IR maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Lowercase valid COBOL crashes instead of diagnosing. | Unhandled IndexError on lowercase PERFORM UNTIL/VARYING. | Lowercase forms parse identically to uppercase; parser tests green. **FIXED**: shared case-insensitive UNTIL split in both inline branches (guard/split can no longer disagree; also fixes multi-space spellings); test_perform_lowercase.py (6) red 5/1 → green; regression 81+37 passed; gate-wired. |
 | BL-056 | Copybook materialization maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Decode errors escape OSError handlers; lanes can disagree on one file. | Crash instead of COPYBOOK_UNREADABLE; analyzer/materializer divergence. | Binary copybook ⇒ COPYBOOK_UNREADABLE in all lanes; copybook tests green. **FIXED**: all three copybook read sites (`_expand_copybook_text`, `collect_copybook_texts`, `prepare_application_copybooks`) catch `(OSError, UnicodeError)`; analyzer copybook reader is strict UTF-8 taking the read-failure path; `tests/test_copybook_decode_fail_closed.py` (8) red 8/0 (all raw UnicodeDecodeError, `%TEMP%\opencode\phase4\bl056_pre_fix.txt`) → green; regressions 239 + 441 passed; gate-wired. |
