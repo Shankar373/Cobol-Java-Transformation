@@ -25,6 +25,8 @@ produced evidence, not re-run here).
 
 ### BL-001 — Producer capability declaration contradicted the authoritative registry
 - **Type:** defect (capability truth)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P2 / medium - capability-truth contradiction (false UNSUPPORTED producer metadata); truth-layer defect, no runtime semantic loss.
 - **Status:** FIXED — 2026-10-10 (this audit/implementation session)
 - **Observed behavior:** `engine/transformation/producers/internal_native.py` returned
   a hand-maintained `supported_constructs`/`unsupported_constructs` list on every
@@ -52,6 +54,8 @@ produced evidence, not re-run here).
 
 ### BL-002 — COMP / COMP-3 USAGE silently ignored (no diagnostic, no registry key)
 - **Type:** defect (no silent loss)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - no-silent-loss class: COMP/COMP-3 storage semantics silently ignored (numeric corruption risk).
 - **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** `PIC S9(4) COMP` parses with zero diagnostics; the USAGE
   clause and its storage-encoding semantics are dropped without a trace.
@@ -92,6 +96,8 @@ produced evidence, not re-run here).
 
 ### BL-003 — REDEFINES / OCCURS / 88-level mapping unverified, no registry keys
 - **Type:** defect (capability truth)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P2 / medium - capability-truth gap: parsed-but-unproven constructs invite false confidence.
 - **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** Fixtures `workload-redefines`, `workload-occurs`,
   `workload-level88` parse, but no mapping-output or runtime evidence was found and
@@ -121,6 +127,8 @@ produced evidence, not re-run here).
 
 ### BL-004 — BY CONTENT / BY VALUE capability hole
 - **Type:** defect (capability truth)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P2 / medium - capability-truth hole closed as UNSUPPORTED-by-design (BY CONTENT/BY VALUE); classic silent-divergence risk bounded by explicit classification.
 - **Status:** **RESOLVED BY DESIGN DECISION — no code change** (2026-10-10)
 - **Observed behavior:** Mapper implements sync-in/no-sync-out for BY CONTENT/BY VALUE;
   fixtures exist; no registry key means capability UNKNOWN, and no dedicated runtime
@@ -150,6 +158,8 @@ produced evidence, not re-run here).
 
 ### BL-005 — ROUNDED flag consumption unverified
 - **Type:** defect (capability truth)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P2 / medium - numeric-semantics verification gap (ROUNDED; Master README section 18 risk area).
 - **Status:** FIXED — 2026-10-10 (this session); recorded symptom was falsified
 - **Observed behavior:** `ROUNDED` is parsed into IR on arithmetic statements but no
   mapping evidence found; no registry key.
@@ -384,6 +394,8 @@ produced evidence, not re-run here).
 
 ### BL-006 — No central defect/gap backlog existed
 - **Type:** documentation/process
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P3 / low - documentation/process gap (no central defect backlog existed); no product behavior involved.
 - **Status:** FIXED — 2026-10-10 (this file created)
 - **Observed behavior:** Master README Section 77 requires a central backlog; none
   existed (only `docs/REMEDIATION_MATRIX.md` and roadmap prose).
@@ -391,6 +403,8 @@ produced evidence, not re-run here).
 
 ### BL-007 — `opencode.md` checkpoint was stale
 - **Type:** documentation/process
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P3 / low - documentation/process gap (stale checkpoint); no product behavior involved.
 - **Status:** FIXED — 2026-10-10
 - **Observed behavior:** `opencode.md` claimed HEAD `7ae5873`, clean working tree, and
   prerequisites-not-installed, while the working tree had untracked files and the
@@ -401,6 +415,8 @@ produced evidence, not re-run here).
 
 ### BL-008 — Integrated-proof wiring claim contradicts code
 - **Type:** documentation contradiction
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P3 / low - documentation contradiction that understated implemented behavior; trust/drift risk only.
 - **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** `docs/SYSTEMAOPS_PRODUCT_STATUS.md` §18 states
   "`integrated_proof_from_pipelines` not yet wired into `api/service.py` (Phase E)",
@@ -425,6 +441,8 @@ produced evidence, not re-run here).
 
 ### BL-009 — Live status documents cite a stale baseline commit / CI run
 - **Type:** documentation contradiction
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P3 / low - documentation contradiction (stale baseline/CI citations); recurring drift class, re-exercised by Phase 12 F-02.
 - **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** `README.md`, `docs/PROJECT_STATUS.md`,
   `docs/SYSTEMAOPS_PRODUCT_STATUS.md`, `docs/CURRENT_DELIVERY_STATUS.md`,
@@ -449,6 +467,8 @@ produced evidence, not re-run here).
 
 ### BL-010 — Local Windows validation limits (no host JDK; Docker-in-Docker blocked)
 - **Type:** operations/environment
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P2 / medium - operations/environment blocker (no host JDK, Docker-in-Docker blocked) limiting local validation depth; environmental, not a product defect.
 - **Status:** BLOCKED (environment) — re-documented 2026-10-11 at `bdb4c9a`
 - **Observed behavior (accurate as of `bdb4c9a`, corrected from the earlier
   "Docker unusable" wording):**
@@ -717,6 +737,8 @@ produced evidence, not re-run here).
 
 ### BL-011 — Reconciliation audit hook (producer lists ⊆ registry) not enforced in CI
 - **Type:** test/quality
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P2 / medium - test/quality: CI did not enforce producer-vs-registry reconciliation (capability-truth gate gap).
 - **Status:** FIXED — 2026-10-10 (this session)
 - **Observed behavior:** roadmap §16 recommends a reconciliation test; BL-001 added
   one for the internal native producer only. No generic guard covered every producer.
@@ -745,6 +767,8 @@ produced evidence, not re-run here).
 
 ### BL-012 — CI depth below roadmap target
 - **Type:** test/quality
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P2 / medium - test/quality: CI depth below roadmap target; partially fixed (capability gate), remainder blocked on human decision D-3.
 - **Status:** PARTIALLY FIXED — 2026-10-10 (capability gate added)
 - **Observed behavior:** CI ran only ingestion, backend/oracle/Docker, and
   frontend jobs. Capability truth was enforced only inside the Docker-gated
@@ -1323,6 +1347,8 @@ produced evidence, not re-run here).
 
 ### BL-018 — Figurative constants parsed as field references (silent, non-compiling Java)
 - **Type:** defect (silent semantic loss + false SUPPORTED verdict)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - silent semantic loss plus a false SUPPORTED verdict (worst capability-trust class).
 - **Status:** FIXED — 2026-10-10 (Phase 1 parser/IR work)
 - **Observed behavior:** A COBOL figurative constant (`ZERO`, `ZEROS`,
   `ZEROES`, `SPACE`, `SPACES`, `QUOTE`, `QUOTES`, `LOW-VALUE(S)`,
@@ -1403,6 +1429,8 @@ produced evidence, not re-run here).
 
 ### BL-020 — Inline statements on `WHEN` / `IF ... THEN` lines are swallowed into the condition
 - **Type:** defect (silent semantic loss; mis-certified capability)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - silent semantic loss plus mis-certified capability: inline statements swallowed into conditions.
 - **Status:** FIXED - 2026-10-11 (`7bba5cb`) - inline statements now parsed into the arm body
 - **Remediation (implemented, `7bba5cb`):** `split_condition_from_inline_statements`
   separates the condition from a trailing inline statement using the same verb
@@ -1454,6 +1482,8 @@ produced evidence, not re-run here).
 
 ### BL-021 — `EVALUATE ... WHEN ... ALSO` mis-lowered into nonsense
 - **Type:** defect (silent semantic loss)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - silent semantic loss: EVALUATE ... WHEN ... ALSO lowered into nonsense.
 - **Status:** FIXED - 2026-10-11 (`7bba5cb`) - ALSO split into OR-ed alternatives
 - **Remediation (implemented, `7bba5cb`):** the `WHEN` spec is split on `ALSO` and the real
   alternatives are OR-ed; a `THRU` range inside an ALSO group contributes both bounds. A
@@ -1474,6 +1504,8 @@ produced evidence, not re-run here).
 
 ### BL-022 — `EVALUATE ... WHEN OTHER` not lowered as a fallback branch
 - **Type:** defect (silent semantic loss)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - silent semantic loss: missing WHEN OTHER fallback branch.
 - **Status:** FIXED - 2026-10-11 (`7bba5cb`) - was a side effect of BL-020; now locked by tests
 - **Premise correction:** the recorded symptom was a **side effect of BL-020**. The earlier
   probe used an inline `WHEN OTHER DISPLAY "X"`, whose trailing statement made the spec
@@ -1491,6 +1523,8 @@ produced evidence, not re-run here).
 
 ### BL-023 — `COMPUTE A = 2 ** 3` exponentiation mis-parsed
 - **Type:** defect (silent semantic loss; numeric semantics)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - silent semantic loss in numeric semantics: exponentiation mis-parsed (closed as fail-closed).
 - **Status:** FIXED - 2026-10-11 (`7bba5cb`) - fails closed with an explicit diagnostic
 - **Remediation (implemented, `7bba5cb`):** `**` is detected and represented as
   `ir.IntrinsicCall(name='**')` with an explicit `UNSUPPORTED_CONSTRUCT` diagnostic. It is
@@ -1510,6 +1544,8 @@ produced evidence, not re-run here).
 
 ### BL-024 — `COMPUTE` intrinsic functions (`FUNCTION MIN(...)`) become a field reference
 - **Type:** defect (silent semantic loss)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - silent semantic loss: COMPUTE intrinsics mis-mapped as field references (closed as fail-closed).
 - **Status:** FIXED - 2026-10-11 (`7bba5cb`) - new ir.IntrinsicCall, fails closed
 - **Remediation (implemented, `7bba5cb`):** `FUNCTION NAME(...)` is recognised and represented
   as `ir.IntrinsicCall(name=..., arguments=<source text>)` with an explicit diagnostic. A
@@ -2202,31 +2238,40 @@ produced evidence, not re-run here).
   **Residual risk:** until fixed, nested copybook constructs are invisible
   to the capability graph.
 
-### Backlog metadata note (documentation gap, P2)
+### Backlog metadata note (resolved by the Phase 12 documentation pass)
 
 Master README §77 asks each item to carry "priority and severity with
-rationale". **BL-001…BL-024 do not record an explicit priority/severity field** —
-a pre-existing gap in this document, not something introduced by the Phase 1
-work. BL-025, BL-026, BL-027, BL-028, BL-029 and BL-030 are the first entries to carry it. The gap is recorded
-here rather
-than papered over: retro-fitting priority to 24 historical items without
-re-assessing each one would fabricate precision that was never established.
-Target: Phase 12 documentation pass.
+rationale". **BL-001…BL-024 did not record an explicit priority/severity
+field** — a pre-existing gap, recorded here rather than papered over
+(retro-fitting priority without re-assessing each item would fabricate
+precision that was never established). **Resolved 2026-10-16 (Phase 12
+batch P3, audit finding F-05):** every existing BL-001…BL-024 section now
+carries an explicit "Priority/Severity (F-05 assessment 2026-10-16)"
+bullet derived from that section's own documented type/impact text and
+labelled as a Phase 12 historical assessment — not a claim about what was
+known at discovery time. BL-013…BL-017 have no detail sections
+(register-only rows); their standing is recorded in the register below
+(human-decision/deferred items). BL-025+ already carried
+Priority/Severity in their own sections.
 
-A second, smaller gap (same pass target): the short documentation/process
-entries (**BL-006, BL-007**) carry only type, status, observed behaviour and
-remediation in their own sections — root cause, affected files, verification
-level and evidence location are either n/a or live only in the carry-forward
-register below. Everything else claimed here is verified: the §53.10 required
-set (backlog ID, owner/role, target phase, dependency, reason, residual risk,
-acceptance criteria) is present for **30/30** items in the register, and the
-defect entries (BL-001…BL-005, BL-008…BL-010, BL-018…BL-030) each carry type,
-observed/expected behaviour, root cause or explicit premise correction,
-affected files, impact, remediation, acceptance criteria/tests, verification
-level and evidence location.
+A second, smaller gap remains **documented and bounded** (not silently
+dropped): the short documentation/process entries (**BL-006, BL-007**)
+carry only type, status, observed behaviour and remediation in their own
+sections — root cause, affected files, verification level and evidence
+location are n/a or live only in the carry-forward register. Retro-fitting
+full §77 evidence fields onto closed 2026-10-10 process items would
+fabricate provenance that never existed. The §53.10 required set (backlog
+ID, owner/role, target phase, dependency, reason, residual risk,
+acceptance criteria) is present for every item in the register, and the
+defect entries (BL-001…BL-005, BL-008…BL-010, BL-018…BL-030) each carry
+type, observed/expected behaviour, root cause or explicit premise
+correction, affected files, impact, remediation, acceptance
+criteria/tests, verification level and evidence location.
 
 ### BL-019 — `NOT` in conditions is mangled into non-compiling Java
 - **Type:** defect (silent semantic loss)
+- **Priority/Severity (F-05 assessment 2026-10-16, derived from this
+  section's own documented type/impact):** P1 / high - silent semantic loss: negated conditions produced non-compiling Java.
 - **Status:** FIXED - 2026-10-11 (`7bba5cb`) - negated relational folded into the operator
 - **Remediation (implemented, `7bba5cb`):** `_fold_negated_relational` folds COBOL's negated
   relational into the operator itself (`NOT >` -> `<=`, `NOT =` -> `!=`) because Java cannot
@@ -2948,9 +2993,10 @@ level and evidence location.
 - **Priority:** P2 — crash instead of a diagnostic if a legacy path is
   reached; no false green.
 - **Severity:** low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T3); hand-check
-  pending.
+- **Status:** **FIXED — 2026-10-16 (Phase 12 batch P2; red-first, 4 NameError
+  reds → 5 passed; commit `162520b`, exact-SHA CI 4/4 green).** Originally
+  discovered 2026-10-14 by the repository-wide audit (Stage C, baseline
+  `4deddfc`).
 - **Found by:** audit group T3: `java_generator.py` L1775-1899 —
   `_extract_statements` references `ReadStatement` without a module import
   (T3 found several such classes in the legacy region).
@@ -4179,11 +4225,13 @@ level and evidence location.
   regression into a passing suite.
 - **Severity:** medium-high (capability-truth integrity: evidence that
   a path works can be produced by a skip).
-- **Status:** **OPEN (2026-10-16).** Filed from audit finding F-03 at
-  `f3d0352`: `tests/test_universal_modernization.py:311` skips when
-  generation fails; `tests/integration/test_phase_d_negative_integration.py:379`
-  conditionally skips. Both were confirmed by static review of the
-  exact lines during the audit.
+- **Status:** **FIXED — 2026-10-16 (Phase 12 batch P2; red-first behavioral
+  tests, 2 reds → 2 passed; commit `162520b`, exact-SHA CI 4/4 green).**
+  Filed from audit finding F-03 at `f3d0352`:
+  `tests/test_universal_modernization.py:311` skipped when generation
+  failed; `tests/integration/test_phase_d_negative_integration.py:379`
+  conditionally skipped. Both confirmed by static review of the exact
+  lines during the audit.
 - **Expected behavior:** generation failure raises/fails the test (or
   asserts the intended fail-closed behavior); a genuine environmental
   limitation may remain a skip only when documented as such.
@@ -6048,6 +6096,68 @@ level and evidence location.
   certification) carried.  No product code changed by this entry, no
   test weakened, no `test-artifacts/*` staged or modified.
 
+- 2026-10-16 — **(ay) Phase 12 batch P1: BL-045 nested CALL threading +
+  BL-046 spring string escaping (red-first; committed `accc81a`, pushed;
+  exact-SHA CI 4/4 green — runs 38920133049 / 38920133001 / 38920141540 /
+  38920141655, all 14 jobs success).**
+  - **BL-045:** `called_programs` threaded through all 6 nested recursion
+    sites in `cobol_to_java_mapping.py` (IfStatement then/else bodies,
+    PERFORM VARYING/TIMES/UNTIL inline bodies) so nested CALLs get the
+    same value-result/BY REFERENCE sync and paragraph-entry resolution
+    as top-level CALLs (Write INVALID KEY paths were already threaded;
+    no EvaluateStatement site exists). Red-first: 7 parity reds
+    (sync targets seen: [], nested-vs-top-level divergence) inside a
+    14-failed red run → 15 passed focused; frozen gate 748 passed +
+    4 known Windows-only local failures (CI-Linux green); CALL/spring
+    integration batch 56 passed.
+  - **BL-046:** spring lane reuses the canonical
+    `JavaGenerator._escape_java_string` at both literal quote-emission
+    sites in `spring_boot_generator.py` and mirrors the native lane's
+    single-quoted COBOL-spelling normalization (also fixed the untyped
+    `'COBOL spelling'` divergence); red-first: 7 reds (unescaped
+    quotes/tabs/NUL, lane divergence) → green; lane parity pinned.
+  No test weakened; no gate bypassed; no `test-artifacts/*` staged.
+
+- 2026-10-16 — **(az) Phase 12 batch P2: BL-065 legacy-generator NameError
+  path + BL-092 masking skips (F-03) + F-02 documentation reconciliation;
+  BL-012 documented-deferred (committed `162520b`, pushed; exact-SHA CI
+  4/4 green — runs 38928312923 / 38928312930 / 38928316773 / 38928316724).**
+  - **BL-065:** 9 COBOL IR statement classes were isinstance-checked but
+    never imported in `java_generator`'s legacy CobolProgram lanes →
+    NameError if reached. Reachability proven red-first: the
+    `_generate_decision_java` minimal fallback (L1089) is reachable
+    (4 NameError reds → 5 passed); the zero-caller `_generate_file_io_java`
+    lane keeps its `MISSING_REQUIRED_SEMANTIC` fail-closed guard (pinned).
+    A module-level `from engine.transformation.ir import` violates
+    `test_no_cobol_imports_in_generator` (caught by the local full suite
+    as 1 genuine red) — fixed with name-based type checks
+    (`type(stmt).__name__`), the same pattern as
+    `ModernizationPlanner._has_stop_run`. Full-suite reconciliation:
+    3863 passed / 5 failed (4 known Windows-only + the architecture red,
+    since fixed) / 4 documented env skips.
+  - **BL-092 (F-03):** both masking skips replaced with enforcement
+    asserts (`assert gen_result.success`; `assert result.status != "FULL"`
+    on the unsupported-JCL fixture); behavioral red tests convert a
+    `Skipped` outcome into an explicit red failure: 2 reds → 2 passed;
+    both modified suites green; no new skips introduced.
+  - **F-02:** 22 cross-document contradictions (original C1–C16 classes +
+    the wider stale-SHA cluster found in the full re-derivation)
+    reconciled against the canonical matrices and §78: 8 historical
+    phase reports received dated HISTORICAL labels (GO TO=UNSUPPORTED,
+    OCCURS=UNVERIFIED, indexed/relative not-certified, arithmetic now
+    supported); live docs corrected in place (README stale CURRENT
+    BASELINE → dated snapshot, CODE_AUDIT_REPORT 29 OPEN → 25 FIXED /
+    4 OPEN dated correction, five backlog detail sections synced to
+    their FIXED register rows, CURRENT_PROJECT_STATE / CURRENT_DELIVERY_STATUS /
+    SYSTEMAOPS_PRODUCT_STATUS / KNOWN_ISSUES / PROJECT_STATUS stale
+    SHA+CI claims dated, SPS §16/§17 GOBACK wording unified, ROADMAP
+    GO TO row relabeled RECOGNIZED (status UNSUPPORTED)); no history
+    rewritten.
+  - **BL-012:** D-3 (coverage/mutation scope) re-confirmed unresolved in
+    the authoritative documents → documented deferred, no completion
+    claimed. BL-091 (D-1) and BL-093 (D-4) remain blocked as registered.
+  No test weakened; no gate bypassed; no `test-artifacts/*` staged.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -6119,7 +6229,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-062 | SQL parser maintainer | **Phase 6 (batch P2 - fixed in-cycle 2026-10-15)** | None | Column-less INSERT mis-parses VALUES as columns. | Column set undetermined from text alone stays empty (documented; execution uses raw_sql). | FIXED - red `bl062_pre_fix.txt` (`2 failed, 1 passed` - explicit-column control green), focused green `3 passed` (`bl062_focused_green.txt`); column list parsed only from parens between table name and VALUES, values from parens after VALUES; analyzer `write_columns` stays `()` for the column-less form; in `tests/transformation/test_sql_clause_fidelity.py` (gate-wired); SQL-lane regression `2098 passed / 4 skipped`. |
 | BL-063 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | Shared discovery matcher (`is_jcl_member` / `find_jcl_members`) | Consumer's file selection diverges from discovery; decode errors escape; basename keys silently overwrite colliding members; API presence gate blind to non-`*.jcl` members. | Path-keyed sources (strictly stronger than collision reporting: collisions cannot occur); `JCL_SOURCE_DECODE_FAILED` ERROR fail-closed. | FIXED - red in `bl063_pre_fix_import.txt` (matcher absent) + `bl063_pre_fix.txt` (`6 failed/8 passed` behavioral); shared rule used by discovery + consumer + API gate; decode diagnostics via `pre_diagnostics`; focused green `14 passed`, JCL regression `255 passed`, Docker-gated `5 passed`; gate-wired (12 matcher/decode tests; the 2 API-parity tests split to `tests/test_jcl_api_discovery_parity.py` post-push — the gate is dependency-free, `api.service` needs the runtime stack; change-log (ab)). |
 | BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. **FIXED**: blame-proven duplicate loop removed (accidental re-add `fa0fa62a` over original M7 loop), single emission site pinned; `test_spring_model_emission_unique.py` (4) red 3/1 → green; regressions 1923 + 100 passed; gate-wired. |
-| BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
+| BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
 | BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
 | BL-067 | API maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2 - re-rated P3 -> P2)** | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | FIXED - download route enforces `CONTROL_PLANE_MAX_DOWNLOAD_FILES`/`_BYTES` caps over the sorted file list before any bytes are buffered, failing closed with 413; oversized byte and file-count tests plus 404/200 guards green. |
 | BL-068 | Frontend maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2 - re-rated P3 -> P2)** | None | Three state-lifecycle gaps: wrong-application display, invisible download errors, unbounded polling. | Customer-visible confusion; wasted polling load. | FIXED - (a) `navigate('run')` resolves the run's own application id through a `runsRef` mirror instead of a stale `selectedAppId`; (b) download failures move to a dedicated `downloadError` state rendered by an unconditional banner with retry (the `pollError` banner was gated on non-terminal runs); (c) terminal runs are pruned from the polling set each tick via `isTerminalStage`. Source-parity tests pin all three; tsc exit 0; vitest 122 passed. |
@@ -6146,7 +6256,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-089 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P1)** | BL-088 | `plain_java` unreachable: `JavaGenerator` emits sources+main only (no pom), no assembly adapter, no API selection surface. | Missing capability (not silent loss today); plain-java build/runtime evidence deferred to Phase 9. | FIXED: `PlainJavaRuntimeAdapter` + registry + store/API `target_runtime` (schema migration 4) + plan `NATIVE_JAVA` + report limitation; 5 focused engine tests + API surface checks; spring default unchanged; build/runtime deferred to Phase 9. |
 | BL-090 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P2)** | BL-088 | `jakarta_ee` target absent (§32 initial target) + Phase 8 breadth docs. | Generation profile only: offline repo has no Jakarta EE artifacts — no build/runtime evidence claimable (Rung 0–1, bounded). | FIXED: `JakartaEeRuntimeAdapter` (shared IR/sources, distinct Jakarta-marked pom profile) + registry + plan `JAKARTA_EE` + report limitation; 3 focused tests + synthetic fail-closed guard coverage; spring/plain unaffected; no build/runtime claim. |
 | BL-091 | Product/API owner | Phase 12 (blocked) | Human decision D-1 (approval-workflow scope) | Customer approval workflow required by Master README §9/§70/§71 checkbox 21 is absent everywhere (audit F-01: zero hits in api/engine/frontend at `f3d0352`); scope undefined in authoritative docs. | §71 checkbox 21 fails and §53 project completion cannot be declared until D-1 resolves; no approval state machine may be invented (§61). | Implemented end-to-end exactly as D-1 decides (API/service state, persistence, frontend, export gating, authorization, tests); until then the documented blocker is the acceptance state. |
-| BL-092 | Test infrastructure maintainer | Phase 12 batch P2 | None | Two tests skip instead of failing: `tests/test_universal_modernization.py:311` (skip on generation failure) and `tests/integration/test_phase_d_negative_integration.py:379` (conditional skip) — audit F-03. | Generation failure can silently convert a regression into a passing suite; evidence of a working path can be produced by a skip. | Both skips replaced by assertions/failures enforcing intended behavior; a genuine environmental limitation may remain only as a documented environmental skip; full suite green with no new skips. |
+| BL-092 | Test infrastructure maintainer | Phase 12 batch P2 (FIXED 2026-10-16) | None | Two tests skip instead of failing: `tests/test_universal_modernization.py:311` (skip on generation failure) and `tests/integration/test_phase_d_negative_integration.py:379` (conditional skip) - audit F-03. | Generation failure can silently convert a regression into a passing suite; evidence of a working path can be produced by a skip. | Both skips replaced by assertions/failures enforcing intended behavior; a genuine environmental limitation may remain only as a documented environmental skip; full suite green with no new skips. |
 | BL-093 | Repository maintainer | Phase 12 batch P3 | Human decision D-4 (test-artifacts authorization) | Stale tracked junit artifacts under `test-artifacts/` contain failing runs (audit F-04); removal blocked by the never-stage-test-artifacts invariant. | Misleading stale evidence persists in-tree; a reader could mistake old failures for current results. | With D-4 authorization: dedicated removal commit (no source/test change); without D-4: explicitly carried as blocked with this entry; `test-artifacts/*` never staged/modified while D-4 is open. |
 
 ### PR disposition snapshot — 2026-10-10

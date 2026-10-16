@@ -732,12 +732,20 @@ class ModernizationPlanner:
             reasons.append(BlockingReason.MISSING_COPYBOOK)
         if "program" in reason_lower and ("missing" in reason_lower or "not found" in reason_lower):
             reasons.append(BlockingReason.MISSING_PROGRAM)
-        if "parse" in reason_lower or "failed to parse" in reason_lower:
+        # BL-066: match explicit parse-failure phrasing only. The old raw
+        # substring "parse" classified any "parsed"/"parser" wording as
+        # PARSE_FAILURE (misclassification found by Phase 12).
+        if re.search(
+            r"failed to parse|could not parse|cannot parse|"
+            r"parse failure|parse error",
+            reason_lower,
+        ):
             reasons.append(BlockingReason.PARSE_FAILURE)
-        if "unsupported" in reason_lower:
-            reasons.append(BlockingReason.UNSUPPORTED_CONSTRUCT)
-        if "go to" in reason_lower:
-            reasons.append(BlockingReason.UNSUPPORTED_CONSTRUCT)
+        # BL-066: a GO TO reason that also contains "unsupported" must not
+        # append UNSUPPORTED_CONSTRUCT twice (deduplicated reason mapping).
+        if "unsupported" in reason_lower or "go to" in reason_lower:
+            if BlockingReason.UNSUPPORTED_CONSTRUCT not in reasons:
+                reasons.append(BlockingReason.UNSUPPORTED_CONSTRUCT)
 
         if not reasons:
             reasons.append(BlockingReason.UNKNOWN_CONSTRUCT)
