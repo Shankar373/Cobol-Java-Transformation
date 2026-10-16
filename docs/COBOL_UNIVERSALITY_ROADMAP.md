@@ -483,17 +483,20 @@ added, and `api.service._persist_integrated_proof` now passes them via
 `UNSUPPORTED`, `BLOCKED`, `required=True` and keep central status
 fail-closed.  No MQ or IMS runtime, no message-semantics claim — ledger
 visibility and fail-closed classification only.
-P3-7 DB2 dependency ledger wiring (BL-083, disclosed 2026-10-15):
-`DependencyKind.DB2` has no product producer and `sqlcode_field` has no
-consumer in `engine/`/`api/` — parsed DB2 table dependencies stay inside
-the SQL lane and never enter the integrated proof, the API, or the
-modernization ledger, so the platform dependency inventory excludes DB2
-tables. Lane-level truth is correct; `integrated_proof` claims only
-"parsed and classified" for DB2 and no documentation claims platform
-visibility. Wiring is an integration-lane decision scheduled for the
-evidence / integrated-proof phase (Master README Phase 10); until then
-the gap stays disclosed here — never half-built. Risk: low
-(disclosure only).
+P3-7 DB2 dependency ledger wiring (BL-083, disclosed 2026-10-15; **FIXED
+2026-10-16, Phase 10 batch P1 — change-log (at)**):
+`DependencyKind.DB2` had no product producer and `sqlcode_field` had no
+consumer in `engine/`/`api/` — parsed DB2 table dependencies stayed inside
+the SQL lane and never entered the integrated proof, the API, or the
+modernization ledger, so the platform dependency inventory excluded DB2
+tables.  Closed by `extract_db2_dependency_entries` (the SQL lane's own
+chain, `DB2:TABLE=<T>` UNSUPPORTED/BLOCKED/required plus a fail-closed
+`DB2:UNPARSEABLE` entry for parser-preserved statements) and the CICS
+twin `extract_cics_dependency_entries`, joined on both the persist and
+the recompute proof paths via the shared source walker;
+`run_db2_workload` now forwards the SQLCA field names.  Ledger
+visibility and fail-closed classification only — no DB2 or CICS runtime
+lane is claimed.
 
 Phase 7 (CICS / MQ / IMS / External Dependencies ladder) **§53 VERDICT
 2026-10-15: COMPLETE — VERIFIED (13/13)** — P3-4 (BL-084/085), P3-5

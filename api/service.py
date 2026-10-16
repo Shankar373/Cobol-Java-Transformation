@@ -223,13 +223,17 @@ def _jcl_status_for_source(source: str | Path | None) -> str:
 def _external_dependency_entries_for_source(
     source: str | Path | None,
 ) -> tuple:
-    """MQ/IMS dependency edges for a source tree (empty tuple when absent).
+    """MQ/IMS/DB2/CICS dependency edges for a source tree (empty when absent).
 
     Walks the same member set the discovery lane accepts (case-insensitive
     ``.cbl`` / ``.cob`` plus extensionless members whose content starts an
     IDENTIFICATION DIVISION — the BL-063 parity rule) and extracts
-    queue-name / PCB / segment ledger entries from every real
-    ``EXEC MQI`` / ``EXEC DLI`` block.  Never raises: an unreadable tree
+    queue-name / PCB / segment entries from every real ``EXEC MQI`` /
+    ``EXEC DLI`` block, DB2 tables from every ``EXEC SQL`` block (BL-083
+    P1-a) and CICS resources from every ``EXEC CICS`` block (BL-083 P1-b).
+    One walker, one ledger: both the persist path and the recompute
+    fallback (P1-f) go through here, so neither can serve a narrower
+    dependency inventory than the other.  Never raises: an unreadable tree
     fails closed to no extra entries, keeping the ledger's other lanes
     intact (BL-087).
     """
@@ -239,6 +243,8 @@ def _external_dependency_entries_for_source(
     if not root.exists() or not root.is_dir():
         return ()
     from engine.modernization.external_dependency_edges import (
+        extract_cics_dependency_entries,
+        extract_db2_dependency_entries,
         extract_external_dependency_entries,
     )
 
@@ -265,7 +271,11 @@ def _external_dependency_entries_for_source(
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
-        for entry in extract_external_dependency_entries(text):
+        for entry in (
+            *extract_external_dependency_entries(text),
+            *extract_db2_dependency_entries(text, program_id=path.stem.upper()),
+            *extract_cics_dependency_entries(text),
+        ):
             if entry.dependency_id in seen:
                 continue
             seen.add(entry.dependency_id)
@@ -287,8 +297,8 @@ def _proof_payload(
     render without re-deriving engine internals.  Fail-closed semantics
     live in the engine; this method only shapes the result.
     ``extra_dependencies`` carries lanes the modernization report does not
-    model (JCL status is joined separately; MQ/IMS dependency edges come
-    from ``_external_dependency_entries_for_source``).
+    model (JCL status is joined separately; MQ/IMS/DB2/CICS dependency
+    edges come from ``_external_dependency_entries_for_source``).
     """
     from engine.modernization.integrated_proof import (
         ProofState,
@@ -1142,6 +1152,35 @@ class Service:
                 " manifest (hash mismatch)"
             )
 
+    @staticmethod
+    def _require_valid_evidence(run: RunRecord) -> None:
+        """Fail closed when the run's evidence manifest is not integrity valid.
+
+        §38: evidence must be integrity validated before it is consumed.
+        ``GET /runs/{id}/artifacts`` serves content hashes *derived* from
+        the manifest, so the manifest first passes the trust-boundary
+        admission validator (``EvidenceIntegrityValidator`` — seal, run/
+        workload bindings, comparison-artifact bindings, required
+        evidence).  Any violation raises ``PersistenceCorruptionError``:
+        an artifact list computed from an unvalidated manifest is served
+        as neither integrity-checked nor binding-checked evidence.
+        """
+        from engine.evidence.integrity import (
+            EvidenceIntegrityValidator,
+            ValidatedEvidenceManifest,
+        )
+
+        outcome = EvidenceIntegrityValidator().validate(run.evidence_manifest)
+        if isinstance(outcome, ValidatedEvidenceManifest):
+            return
+        violations = "; ".join(
+            str(getattr(v, "description", None) or v) for v in outcome
+        )
+        raise PersistenceCorruptionError(
+            f"Evidence manifest for run {run.id!r} failed integrity"
+            f" validation: {violations or 'unknown violation'}"
+        )
+
     # -- queries ------------------------------------------------------------
 
     def get_run(self, run_id: str) -> RunRecord:
@@ -1151,10 +1190,17 @@ class Service:
         return rec
 
     def get_artifacts(self, run_id: str) -> list[dict]:
-        """Return artifact metadata from the evidence manifest."""
+        """Return artifact metadata from the evidence manifest.
+
+        P1-e: the evidence manifest is integrity validated first (§38) —
+        a manifest whose seal or bindings fail validation raises
+        ``PersistenceCorruptionError`` instead of serving content hashes
+        derived from untrusted evidence.
+        """
         run = self.get_run(run_id)
         if run.evidence_manifest is None:
             return []
+        self._require_valid_evidence(run)
         return [
             {
                 "artifact_id": ae.artifact.artifact_id,
@@ -1220,46 +1266,35 @@ class Service:
         self.get_application(app_id)  # raise NotFoundError for unknown apps
         return self._store.list_runs_for_application(app_id)
 
-    def get_run_report(self, run_id: str) -> dict:
-        """Return the full modernization report for a run.
+    def _current_integrated_proof(self, run: RunRecord) -> dict | None:
+        """The run's proof for the *current* validation generation, or None.
 
-        Contains capability report, transformation plan, limitations,
-        and recommendations. Only returned when the universal pipeline
-        produced a report — never fabricated.
-        """
-        run = self.get_run(run_id)
-        if run.modernization_report is None:
-            raise NotFoundError("No modernization report available for this run")
-        return run.modernization_report
+        Single derivation shared by both certification read surfaces (P1-d):
+        ``GET /runs/{id}/proof`` and ``GET /runs/{id}/report`` must serve
+        the same proof — one endpoint can never publish a claim the other
+        would refuse.  Gate order:
 
-    def get_integrated_proof(self, run_id: str) -> dict:
-        """Return the integrated proof payload for a run.
-
-        Primary path: the proof persisted during validation
-        (``run.modernization_report["integrated_proof"]``).  Fallback: for
-        runs that predate proof persistence — or whose persisted proof went
-        stale — recompute from the stored pipeline report + stored
-        verdict/evidence.  Raises ``NotFoundError`` when the run has no
-        modernization report at all.
-
-        Two trust gates run before anything is served (P0-b):
-
-        1. evidence<->verdict pair consistency — a proof derived from a
-           broken pair is not evidence (``PersistenceCorruptionError``);
-        2. validation-generation binding — the persisted payload only
-           describes the attempt that produced it.  Legacy payloads without
-           a stamp read as generation 0 (current only until the first
-           revalidation); a generation mismatch falls through to a
-           fail-closed recompute from the run's *current* artifacts.
+        1. no stored pipeline report → nothing provable → ``None``;
+        2. evidence<->verdict pair consistency →
+           ``PersistenceCorruptionError`` (a proof derived from a broken
+           pair is not evidence);
+        3. a persisted payload whose ``validation_generation`` stamp equals
+           the run's current generation is served as-is — no recompute on
+           the read path (legacy unstamped payloads read as generation 0);
+        4. otherwise recompute fail-closed from the run's *current*
+           artifacts, carrying platform dependency edges
+           (``_external_dependency_entries_for_source`` — P1-f, the
+           recompute path may no longer drop MQ/IMS/DB2/CICS edges the
+           persist path would have served).  When the persisted payload is
+           stale and no pipeline report remains to recompute from,
+           nothing current exists → ``None`` so the caller drops the
+           stale payload instead of serving it.
         """
         from engine.modernization.integrated_proof import runtime_evidence_from_result
 
-        run = self.get_run(run_id)
         run_report = run.modernization_report
         if run_report is None:
-            raise NotFoundError(
-                "No modernization report available for this run"
-            )
+            return None
 
         # Gate 1: never serve a proof beside an inconsistent pair.
         self._check_evidence_verdict_consistency(run)
@@ -1273,22 +1308,12 @@ class Service:
                 stamped = -1  # corrupt stamp never matches a generation
             # Gate 2: only the proof of the current generation is current.
             if stamped == int(run.validation_generation):
-                return {"run_id": run.id, "proof": proof}
+                return proof
             # Stale proof: fall through to recompute from current artifacts.
 
-        # Fallback: recompute from the stored report dict + stored verdict.
         facade = _report_facade(run_report)
         if facade is None:
-            if proof is not None:
-                raise NotFoundError(
-                    f"Run {run.id!r} has no current integrated proof: the"
-                    " persisted proof belongs to a previous validation"
-                    " generation and no pipeline report is available to"
-                    " recompute it"
-                )
-            raise NotFoundError(
-                "No modernization report available for this run"
-            )
+            return None
 
         class _ResultFacade:
             evidence_manifest = run.evidence_manifest
@@ -1308,7 +1333,75 @@ class Service:
             if "jcl_status" in run_report
             else _jcl_status_for_source(app.cobol_source_path)
         )
-        proof = _proof_payload(app.workload_id, facade, runtime, jcl_status)
+        return _proof_payload(
+            app.workload_id,
+            facade,
+            runtime,
+            jcl_status,
+            extra_dependencies=_external_dependency_entries_for_source(
+                app.cobol_source_path
+            ),
+        )
+
+    def get_run_report(self, run_id: str) -> dict:
+        """Return the full modernization report for a run.
+
+        Contains capability report, transformation plan, limitations,
+        and recommendations. Only returned when the universal pipeline
+        produced a report — never fabricated.
+
+        P1-d: the embedded ``integrated_proof`` is never served from
+        cache.  The report surface runs the same trust gates as
+        ``GET /proof`` and embeds only the run's *current* proof — the
+        persisted payload when its generation stamp matches, a fail-closed
+        recompute otherwise, and nothing when no current proof exists
+        (a stale payload is dropped, not published).  The stored report
+        itself is left untouched — this is a read path.
+        """
+        run = self.get_run(run_id)
+        stored = run.modernization_report
+        if stored is None:
+            raise NotFoundError("No modernization report available for this run")
+
+        current = self._current_integrated_proof(run)
+        report = dict(stored)
+        if current is None:
+            report.pop("integrated_proof", None)
+        else:
+            report["integrated_proof"] = current
+        return report
+
+    def get_integrated_proof(self, run_id: str) -> dict:
+        """Return the integrated proof payload for a run.
+
+        Derivation and trust gates are shared with ``GET /report``
+        (``_current_integrated_proof``, P1-d): primary path is the proof
+        persisted during validation; stale or missing payloads recompute
+        fail-closed from the stored pipeline report + stored
+        verdict/evidence, carrying platform dependency edges (P1-f).
+        Raises ``NotFoundError`` when the run has no modernization report
+        at all, and a distinct ``NotFoundError`` when the persisted proof
+        belongs to a previous validation generation with no pipeline
+        report left to recompute it from.
+        """
+        run = self.get_run(run_id)
+        if run.modernization_report is None:
+            raise NotFoundError(
+                "No modernization report available for this run"
+            )
+
+        proof = self._current_integrated_proof(run)
+        if proof is None:
+            if (run.modernization_report or {}).get("integrated_proof") is not None:
+                raise NotFoundError(
+                    f"Run {run.id!r} has no current integrated proof: the"
+                    " persisted proof belongs to a previous validation"
+                    " generation and no pipeline report is available to"
+                    " recompute it"
+                )
+            raise NotFoundError(
+                "No modernization report available for this run"
+            )
         return {"run_id": run.id, "proof": proof}
 
     def get_run_detail(self, run_id: str) -> dict:

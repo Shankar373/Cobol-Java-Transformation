@@ -3641,17 +3641,53 @@ level and evidence location.
 ### BL-083 — the SQL lane never reaches the platform ledger: `DependencyKind.DB2` is produced by no product code and `sqlcode_field` has no consumer
 
 - **Type:** gap (integration/disclosure), not silent corruption.
-- **Priority:** P2 — documented honestly today (`integrated_proof.py`
+- **Priority:** P2 at filing — **re-rated P1** at the Phase 10 audit
+  (docs claimed JCL/DB2/CICS ledger visibility while no DB2/CICS
+  producer existed; the doc-truth item P1-c is acceptance-blocking for
+  the phase gate "no documentation overstates platform visibility").
+  Documented honestly today (`integrated_proof.py`
   claims only "parsed and classified" for DB2), but §24's "database
   dependencies" surface stops at the lane boundary: table dependencies
   extracted by `extract_table_dependencies` / `Db2SqlModel` never enter
   the integrated proof, the API, or the modernization ledger, and the
   SQLCA field names stored on the model are never consumed.
 - **Severity:** medium (capability truth incomplete at platform level).
-- **Status:** **DISCLOSED — 2026-10-15 (Phase 6 audit); roadmap P3-7
-  disclosure added with the batch-P2 docs**; register row present;
-  Phase 6 verdict limitations to be written at completion; deferred to
-  Phase 10 by design decision.
+- **Status:** **FIXED — 2026-10-16 (Phase 10 batch P1; re-rated P1 at
+  the Phase 10 audit, `classification.txt` P1-a/P1-b/P1-c).**  Red-first
+  evidence captured before any fix:
+  `tests/test_phase10_p1_platform_ledger_edges.py` → ImportError on
+  unmodified code — both product producers missing
+  (`%TEMP%\opencode\phase10\p1_red_run.txt`); the SQLCA sub-defect
+  (declared `sqlcode_field`/`sqlstate_field` dropped, model fields stay
+  empty) is red in the same file.  Fix: (a) **DB2 producer**
+  `extract_db2_dependency_entries` (`engine/modernization/external_dependency_edges.py`)
+  drives the SQL lane's own chain (extract_embedded_sql_blocks →
+  SqlParser.parse_embedded_sql → extract_table_dependencies); table
+  entries are `DB2:TABLE=<T>` UNSUPPORTED/BLOCKED/required with the
+  operations aggregated per table, and statements the parser preserves
+  as unsupported (BL-080, e.g. MERGE) surface as one fail-closed
+  `DB2:UNPARSEABLE` entry instead of vanishing.  (b) **CICS producer**
+  `extract_cics_dependency_entries` drives `extract_cics_blocks` over
+  comment-masked source (a comment-only `*> EXEC CICS` line parses as a
+  live block unmasked), unquotes parser resource operands into
+  `CICS:PROGRAM/FILE/QUEUE/MAP/TERMID=<N>` and scans `TRANSID('…')`
+  from the masked block text into `CICS:TRANSID=<N>`.  (c) **SQLCA**
+  `run_db2_workload` forwards `sqlcode_field`/`sqlstate_field` to
+  `Db2SemanticAnalyzer.analyze_program` (`engine/sql/harness.py`).  (d)
+  **One walker** (`api/service.py::_external_dependency_entries_for_source`)
+  emits MQ/IMS/DB2/CICS edges for a source tree, and both proof paths —
+  persist and recompute — go through it, so neither can serve a narrower
+  ledger than the other.  Evidence: focused engine file **9 passed**
+  (wired into the dependency-free capability-truth gate; bare-venv gate
+  `739 passed` = 730 + 9 exact vs the pristine `0f4d049` worktree —
+  the 4 local `test_runtime_adapter_architecture` failures reproduce
+  identically at that verified SHA, environmental, not regressions);
+  DB2/SQL-lane regression **53 passed**.  Doc truth restored (P1-c):
+  `docs/CAPABILITY_MATRIX.md` integrated-status section and
+  `docs/SYSTEMAOPS_PRODUCT_STATUS.md` §13 now name **JCL, DB2, CICS, MQ
+  and IMS** (they previously implied JCL/DB2/CICS only) and carry the
+  non-empty-ledger gate condition — no documentation overstates or
+  understates platform visibility.
 - **Found by:** Phase 6 audit probe K + repository grep
   (`%TEMP%\opencode\phase6\audit_probes.txt`).
 - **Observed behavior (verified):** `DependencyKind.DB2` appears only in
@@ -3668,15 +3704,19 @@ level and evidence location.
   `api/service.py`, `engine/sql/model.py`.
 - **Impact:** platform-level dependency inventory silently excludes DB2
   tables (the lane-level truth is correct).
-- **Remediation (planned):** register/disclosure now; producer wiring is
-  an integration-lane decision (evidence/integrated-proof phase) — no
-  half-wiring in Phase 6.
-- **Acceptance criteria:** disclosure present in register + roadmap +
-  Phase 6 verdict limitations; no documentation overstates platform
-  visibility.
+- **Remediation:** delivered 2026-10-16 in the Phase 10 P1 batch (see
+  Status) — product producers, SQLCA forwarding, one shared source
+  walker for both proof paths, doc truth (P1-c).
+- **Acceptance criteria:** red test captured pre-fix; producers feed the
+  ledger fail-closed (UNSUPPORTED/BLOCKED/required) on both the persist
+  and recompute proof paths; focused engine file green and wired into
+  the dependency-free capability-truth gate; SQLCA fields observable on
+  the model; no documentation overstates platform visibility.
 - **Owner/role:** platform integration owner. **Target phase:**
   Phase 10 (evidence / integrated proof) — deferred by design decision,
-  disclosed. **Dependency:** none. **Residual risk:** disclosed.
+  disclosed; **FIXED 2026-10-16**. **Dependency:** none. **Residual
+  risk:** none (no DB2/CICS runtime lane is claimed — ledger visibility
+  and fail-closed classification only).
 
 ### BL-084 — IMS (`EXEC DLI`) is never detected or classified: no source pattern, no registry key (roadmap Rung 0)
 
@@ -5713,6 +5753,57 @@ level and evidence location.
   No existing test weakened, no gate bypassed; nothing from Phase 11/12
   included.
 
+- 2026-10-16 — **(at) Phase 10 batch P1: platform ledger edges +
+  certification-surface fail-closed — BL-083 (DB2/CICS producers +
+  SQLCA forwarding), proof/report/artifact surface gates, doc truth.**
+  Red-first (captured against unmodified code, before any change):
+  `tests/test_phase10_p1_platform_ledger_edges.py` **ImportError** — the
+  two product producers did not exist
+  (`p1_red_run.txt`); `tests/test_phase10_p1_proof_surfaces_api.py`
+  **4 failed / 1 passed** — the report surface served a stale embedded
+  VERIFIED proof, `/artifacts` served content hashes from an
+  invalid-binding manifest, and the recompute path dropped platform
+  edges (`p1_red_api_run.txt`).  Fixes: (a) **P1-a/BL-083 (DB2)**
+  `extract_db2_dependency_entries` drives the SQL lane's own chain
+  (extractor → `parse_embedded_sql` → `extract_table_dependencies`);
+  `DB2:TABLE=<T>` entries are UNSUPPORTED/BLOCKED/required with
+  per-table operations, and parser-preserved unsupported statements
+  (e.g. MERGE) surface as one fail-closed `DB2:UNPARSEABLE` entry.
+  (b) **P1-b/BL-083 (CICS)** `extract_cics_dependency_entries` drives
+  `extract_cics_blocks` on comment-masked source (comment-only `*>
+  EXEC CICS` lines otherwise parse as live blocks), unquotes resource
+  operands and scans `TRANSID('…')` from the masked block text.
+  (c) **BL-083 sub-defect** `run_db2_workload` forwards
+  `sqlcode_field`/`sqlstate_field` to the analyzer.  (d) **P1-d**
+  `api/service.py` derives the proof once (`_current_integrated_proof`)
+  for *both* read surfaces: `/report` runs the evidence<->verdict pair
+  gate and embeds only the current-generation proof — a stale payload is
+  recomputed fail-closed or dropped, never served.  (e) **P1-e**
+  `get_artifacts` runs `EvidenceIntegrityValidator` first (§38) — an
+  invalid manifest raises `PersistenceCorruptionError` instead of
+  serving evidence-derived hashes.  (f) **P1-f** the recompute fallback
+  now carries `extra_dependencies` from the shared source walker
+  (`_external_dependency_entries_for_source` emits MQ/IMS/DB2/CICS on
+  both persist and recompute paths — one walker, one ledger).  (g)
+  **P1-c doc truth**: `docs/CAPABILITY_MATRIX.md` and
+  `docs/SYSTEMAOPS_PRODUCT_STATUS.md` integrated-proof sections now name
+  JCL, DB2, CICS, MQ and IMS and the non-empty-ledger gate condition
+  (they previously implied JCL/DB2/CICS only).  Evidence after the
+  fixes: focused engine file **9 passed** (wired into the
+  dependency-free capability-truth gate; bare-venv gate **739 passed** =
+  730 + 9 exact vs the pristine `0f4d049` worktree — the 4 local
+  `test_runtime_adapter_architecture` failures reproduce identically at
+  that verified SHA, environmental); API surface file **5 passed**;
+  Phase-10 focused set **44 passed**; integrated-proof/Phase-D/forensic
+  batch **100 passed**; DB2/SQL-lane **53 passed**; edges + API
+  persistence/security **82 passed**; artifact-consumer surface
+  (`test_api` + `test_control_plane_persistence` + `test_e2e`)
+  **44 passed**.  BL-083 re-rated **P1** at the Phase 10 audit (was
+  filed P2): P1-c doc overstatement is acceptance-blocking for the
+  phase gate "no documentation overstates platform visibility".  No
+  existing test weakened, no gate bypassed; nothing from Phase 11/12
+  included.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -5802,7 +5893,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-080 | SQL parser + analyzer maintainer | **Phase 6 (batch P1 - fixed in-cycle 2026-10-15)** | Additive `ir.EmbeddedSqlBlock.unsupported_statements` field | Unsupported EXEC SQL statements (`BEGIN DECLARE SECTION`, `INCLUDE`, `WHENEVER`, `DECLARE … STATEMENT`) silently dropped with zero diagnostics; `EXECUTE IMMEDIATE` classified as plain EXECUTE (`execute_immediate` never set). | Statements unmodeled but preserved + diagnosed. | FIXED - red `5 failed/3 passed` (`bl080_pre_fix.txt`; one of the five was the new test's own `;`-delimiter expectation, corrected post-red with inline disclosure); else-branch + None-parse capture, analyzer validation entries, `execute_immediate` wiring, dead `cursor_declarations` list removed; focused `223 passed`, gate-wired (bare-venv `615 passed`); no existing test weakened. |
 | BL-081 | SQL parser + analyzer maintainer | **Phase 6 (batch P2 — fixed in-cycle 2026-10-15)** | Additive `ir.SqlJoin.on_predicates` field | JOIN tables/ON conditions silently lost though `SqlSelect.joins` exists (`T2` absent from dependency truth while SELECT list references `B.NAME`). | CROSS JOIN / no-ON segments parse by construction but stay outside the focused subset (documented); comma form remains in `from_tables`. | FIXED - red `bl081_pre_fix.txt` (`4 failed, 1 passed` — non-join control green) + `bl081_deps_pre_fix.txt` (`1 failed`, baseline-parser capture of the second dependency door); JOIN segments parsed into `joins` with ON conjuncts (BL-079 splitter; first conjunct also `on_condition`), analyzer table usage/`table_refs`/read columns and `extract_table_dependencies` include joined tables, FROM section bounded at the next clause keyword; focused green `6 passed` (`bl081_focused_green.txt`); SQL-lane regression `2098 passed / 4 skipped`. |
 | BL-082 | SQL parser maintainer | **Phase 6 (batch P2 — fixed in-cycle 2026-10-15)** | None | ORDER BY column names swallow trailing `FETCH FIRST n ROWS ONLY` text (`'ACCT FETCH FIRST 5 ROWS ONLY'`). | None once bounded. | FIXED - red `bl082_pre_fix.txt` (`1 failed, 2 passed` — both controls green), focused green `3 passed` (`bl082_focused_green.txt`); ORDER BY slice bounded at `FETCH FIRST` by offset search over the original text; in `tests/transformation/test_sql_clause_fidelity.py` (gate-wired); SQL-lane regression `2098 passed / 4 skipped`. |
-| BL-083 | Platform integration owner | **Phase 6 (audited 2026-10-15 - disclosed, deferred to Phase 10 by design decision)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | DISCLOSED - register + roadmap P3-7 state the gap (roadmap disclosure added with batch-P2 docs 2026-10-15); Phase 6 verdict limitations to be written at completion; no documentation overstates platform visibility; producer wiring scheduled for the integrated-proof phase. |
+| BL-083 | Platform integration owner | **Phase 10 (audited 2026-10-15, deferred by design decision; FIXED 2026-10-16 in batch P1)** | None | SQL lane never reaches the platform ledger: `DependencyKind.DB2` has no product producer; `sqlcode_field` unconsumed in `engine/`/`api/`. | Platform dependency inventory excludes DB2 tables (lane truth correct; docs claim only "parsed and classified"). | FIXED - DB2 (`extract_db2_dependency_entries`) and CICS (`extract_cics_dependency_entries`) product producers feed `build_dependency_ledger(extra_dependencies=...)` through the shared source walker on both proof paths; `run_db2_workload` forwards the SQLCA field names; CAPABILITY_MATRIX/PRODUCT_STATUS name JCL, DB2, CICS, MQ and IMS with the non-empty-ledger gate; red-first evidence + focused grees (engine 9, DB2 lane 53, bare-venv gate 730+9) recorded in change-log (at). |
 | BL-084 | Capability/registry maintainer | **Phase 7 (filed OPEN 2026-10-15 by the audit-first probe; FIXED 2026-10-15 — batch 1: pattern + registry key + matrix/roadmap rows + 14 focused gate tests, bare-venv gate 649 passed pre/post wiring)** | None | IMS (`EXEC DLI`) never detected or classified: no `_SOURCE_PATTERNS` entry, no `CONSTRUCT_REGISTRY` key (roadmap Rung 0). | IMS applications rejected with generic reasons; no IMS classification anywhere (verdict already fails closed — no false SUPPORTED). | Detection fires only on real `EXEC DLI` statements (comment/literal masked); registry `level`/`effective_source_level` = `UNSUPPORTED`; analyzer PROGRAM reason names `EXEC DLI`, never `SUPPORTED`; deterministic re-scan; existing fail-closed diagnostics kept; focused gate tests green. |
 | BL-085 | Capability/registry maintainer | **Phase 7 (filed OPEN 2026-10-15 by the audit-first probe; FIXED 2026-10-15 — batch 1: pattern + registry key + matrix/roadmap rows + 14 focused gate tests, bare-venv gate 649 passed pre/post wiring)** | None | IBM MQ (`EXEC MQI`) never detected or classified: no `_SOURCE_PATTERNS` entry, no `CONSTRUCT_REGISTRY` key (roadmap Rung 0); queue names never extracted as dependencies. | MQ applications invisible to classification and to the dependency graph (verdict already fails closed — no false SUPPORTED). | Detection fires only on real `EXEC MQI` statements (comment/literal masked); registry `level`/`effective_source_level` = `UNSUPPORTED`; analyzer PROGRAM reason names `EXEC MQI`, never `SUPPORTED`; deterministic re-scan; existing fail-closed diagnostics kept; focused gate tests green. |
 | BL-086 | Capability/registry maintainer | **FIXED 2026-10-15 (Phase 7 batch 3; roadmap P3-5 / Master README §29)** | None | Was: external utilities / system services / VSAM specifics were Rung 0 — no `_SOURCE_PATTERNS`, no `CONSTRUCT_REGISTRY` keys (RELEASE, IDCAMS, ORGANIZATION INDEXED/RELATIVE, ACCESS DYNAMIC, RECORD KEY). | Phrase coverage stays a documented detection-first subset (covered phrases only). | Shipped: 6 patterns + UNSUPPORTED registry keys, analyzer pre-PROCEDURE data door extended, SEMANTIC_PROOF_MATRIX rows, 15 focused gate tests; no IR, no mapper, no runtime, no equivalence claim. |

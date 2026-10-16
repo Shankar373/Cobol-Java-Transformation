@@ -128,17 +128,20 @@ skipped checks, or missing artifacts.
 ## 13. Integrated proof
 
 `engine/modernization/integrated_proof.py` joins the modernization report,
-runtime lane evidence, and non-runtime lanes (JCL/DB2/CICS) into one ledger and
-applies a gate that can only downgrade:
+runtime lane evidence, and non-runtime lanes (JCL, DB2, CICS, MQ and IMS) into one
+ledger and applies a gate that can only downgrade:
 
     central VERIFIED <= runtime verdict VERIFIED
                      AND evidence manifest complete
                      AND evidence integrity validated
+                     AND the dependency ledger is non-empty
                      AND every required dependency PROVEN
 
-JCL, DB2, and CICS have no runtime lane here, so they resolve to
+JCL, DB2, CICS, MQ, and IMS have no runtime lane here, so they resolve to
 PARTIAL/BLOCKED and force `CentralStatus.NOT_VERIFIED` even when the runtime
-lane itself is VERIFIED. The negative demo proves this fail-closed behavior.
+lane itself is VERIFIED. An empty ledger fails closed as well — no declared
+dependency means nothing has been proven, never a vacuous pass. The negative
+demo proves this fail-closed behavior.
 
 ## 14. Security model
 

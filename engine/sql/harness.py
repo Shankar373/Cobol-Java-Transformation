@@ -51,6 +51,11 @@ def run_db2_workload(
             SqlParser().parse_embedded_sql(sql)
             for sql in extract_embedded_sql_blocks(cobol_text)
         ),
+        # Forward the program's SQLCA field names (BL-083): without them the
+        # model's sqlcode_field/sqlstate_field stayed empty regardless of
+        # what the caller declared.
+        sqlcode_field=sqlcode_field,
+        sqlstate_field=sqlstate_field,
     )
     db = controlled_class()
     db.create_schema(ddl_text)

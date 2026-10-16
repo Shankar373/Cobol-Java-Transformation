@@ -48,18 +48,24 @@ Current proof is strong for a subset, not every row.
 ## Integrated application status (Phase D)
 
 `engine/modernization/integrated_proof.py` joins the modernization report, the runtime
-lane evidence and the non-runtime lanes (JCL/DB2/CICS) into one ledger, then applies a gate
-that can only downgrade:
+lane evidence and the non-runtime lanes (JCL, DB2, CICS, MQ and IMS) into one ledger, then
+applies a gate that can only downgrade:
 
     central VERIFIED <= runtime verdict VERIFIED
                      AND evidence manifest complete
                      AND evidence integrity validated
+                     AND the dependency ledger is non-empty
                      AND every required dependency PROVEN
 
 A dependency is PROVEN only when its capability is SUPPORTED *and* the COBOL/Java runtime
-lane executed it under validated evidence. JCL, DB2 and CICS have no runtime lane here, so
-they resolve to PARTIAL/BLOCKED and therefore force `CentralStatus.NOT_VERIFIED` even when
-the runtime lane itself is VERIFIED. Proven by `tests/integration/test_phase_d_integrated_proof.py`
+lane executed it under validated evidence. JCL, DB2, CICS, MQ and IMS have no runtime lane
+here, so they resolve to PARTIAL/BLOCKED and therefore force `CentralStatus.NOT_VERIFIED`
+even when the runtime lane itself is VERIFIED. Every lane is fed by a product producer:
+JCL by the JCL consumer, and DB2 (`extract_db2_dependency_entries`), CICS
+(`extract_cics_dependency_entries`), MQ and IMS (`extract_external_dependency_entries`) by
+`engine/modernization/external_dependency_edges.py`, all joined via
+`extra_dependencies` on both the persist and recompute proof paths. Proven by
+`tests/integration/test_phase_d_integrated_proof.py`
 (positive workload) and `tests/integration/test_phase_d_negative_integration.py` (8 negative
 scenarios plus gate invariants).
 
