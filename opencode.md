@@ -5,7 +5,8 @@
 ### ⚑ VERDICT (read this first)
 
 - **Project-level status: `INCOMPLETE — BLOCKED ON HUMAN DECISION D-1`** —
-  per the §53/§71 completion rule the project-level status is `INCOMPLETE — BLOCKED ON HUMAN DECISION D-1`. **§71 Final Release Gate: 18 ✅ / 2 ⚠️ / 1 ❌** (the FAIL is checkbox 21, Customer Approval Workflow → **BL-091**, blocked on D-1; no approval state machine invented per §61). **§53: 12/13 PASS** (point 12 PARTIAL, same reason).
+  per the §53/§71 completion rule (a single §71 FAIL forbids a complete
+  declaration). **§71 Final Release Gate: 18 ✅ / 2 ⚠️ / 1 ❌** (the FAIL is checkbox 21, Customer Approval Workflow → **BL-091**, blocked on D-1; no approval state machine invented per §61). **§53: 12/13 PASS** (point 12 PARTIAL, same reason).
 - **Phase 12's own execution is verified complete:** P0 explicitly empty;
   every audited finding FIXED red-first (BL-045, BL-046, BL-065, BL-066,
   BL-092/F-03, F-02 doc sync, F-05) or explicitly carried with a named
@@ -16,9 +17,11 @@
 
 ### Final tree, CI and counts (all from actual runs)
 
-- **Final work SHA:** `d928253` (docs close commits follow; their CI is
-  verified in-session — see the close note at the bottom of this block
-  once pushed).
+- **Final work SHA:** `d928253` (all code/test/CI evidence above).
+  Documentation close commits: `f7e9137` (final audit report + this
+  checkpoint verdict + BACKLOG (bb) + BL-045/046 status sync) and
+  `a4392de` (close-review consistency fixes) — **both exact-SHA CI
+  4/4 green** (runs in the close note below).
 - **Phase 12 CI: 12/12 runs green** — P1 `accc81a` (38920133049 /
   38920133001 / 38920141540 / 38920141655), P2 `162520b` (38928312923 /
   38928312930 / 38928316773 / 38928316724), P3 `d928253` (38933671536 /
@@ -28,7 +31,7 @@
   (= Phase-11 baseline 3857 + exactly the 26 new Phase 12 tests).
 - **Local (Windows, supplementary):** frontend vitest **122/122**,
   `tsc --noEmit` clean, production build clean. Focused P1 15 passed /
-  P2 82 passed / P3+planner 146 passed; frozen 54-file gate 748/790 at
+  P2 82 passed / P3+planner 146 passed; frozen 54-file gate 748 passed at
   every batch (only the 4 known Windows-only
   `test_runtime_adapter_architecture` failures; CI-Linux green).
 - **Local final full suite: 3873 passed / 6 failed / 4 skipped** — the
@@ -80,6 +83,22 @@ D-4) · 5 register-only governance rows (BL-013…BL-017). None P0.
 
 **Next action: human decision D-1.** Then implement BL-091 end-to-end,
 re-run the §71/§53 gates, and update this checkpoint from actual results.
+
+**Close note — documentation commits (Phase 11 precedent: a document
+records the previous verified commit, never its own SHA):**
+- `f7e9137` — final audit report (§4/§6/§7/§11/§12/§13), this checkpoint
+  block, BACKLOG change-log (bb) + BL-045/BL-046 section+row status sync
+  and the (ba) duplicate-line fix: exact-SHA CI **4/4 green** (SystemaOps
+  CI push 38948704444 / PR 38948716059; Supply chain push 38948704864 /
+  PR 38948715972; all jobs success).
+- `a4392de` — close-review consistency fixes in the audit report
+  ((ax)–(bb) range, Phase-12-executed note in §3, final-SHA counts in
+  the §49–§50 row): exact-SHA CI **4/4 green** (SystemaOps CI push
+  38950395461 / PR 38950401318; Supply chain push 38950395542 / PR
+  38950401348; all jobs success).
+- The final tiny checkpoint commit carrying this note verifies green in
+  CI in-session immediately after push; its run IDs are reported in the
+  session close.
 
 ---
 
