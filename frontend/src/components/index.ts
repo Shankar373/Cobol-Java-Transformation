@@ -3,6 +3,7 @@ export type { BreadcrumbItem } from './Header';
 export { PageContainer } from './PageContainer';
 export { StatCard } from './StatCard';
 export { SectionCard } from './SectionCard';
+export { ApprovalPanel } from './ApprovalPanel';
 export { Badge } from './Badge';
 export { Button } from './Button';
 export { FileUpload } from './FileUpload';

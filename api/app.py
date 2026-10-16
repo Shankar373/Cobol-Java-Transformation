@@ -52,6 +52,8 @@ from api.limits import env_int_limit
 from api.models import (
     ApplicationCreate,
     ApplicationResponse,
+    ApprovalRequest,
+    ApprovalResponse,
     ArtifactsResponse,
     ArtifactMetadata,
     ComparisonDetail,
@@ -574,6 +576,49 @@ def get_run_artifacts(run_id: str) -> ArtifactsResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# Customer approval (BL-091; D-1 resolved 2026-10-17)
+# ---------------------------------------------------------------------------
+
+def _approval_response(run) -> ApprovalResponse:
+    return ApprovalResponse(
+        run_id=run.id,
+        state=run.approval_state,
+        approver=run.approval_approver,
+        reason=run.approval_reason,
+        decided_at=run.approval_decided_at,
+    )
+
+
+@app.get("/runs/{run_id}/approval", response_model=ApprovalResponse)
+def get_run_approval(run_id: str) -> ApprovalResponse:
+    """Current approval record for a run (PENDING until a decision)."""
+    return _approval_response(_svc().get_run(run_id))
+
+
+@app.post("/runs/{run_id}/approval", response_model=ApprovalResponse)
+def decide_run_approval(run_id: str, body: ApprovalRequest) -> ApprovalResponse:
+    """Record an explicit customer decision for a run (BL-091, D-1 scope).
+
+    ``APPROVED`` and ``REJECTED`` are the only decisions; PENDING is the
+    implicit state of every new run and never a decision.  Rejection
+    REQUIRES a reason; approval may carry an optional reason.  The
+    approver string is recorded input, not a verified identity (existing
+    bearer-token auth only; no RBAC per the approved scope).  A later
+    decision supersedes the earlier one.
+    """
+    approver = body.approver.strip()
+    if not approver:
+        raise _error(422, "approver must be a non-empty string")
+    reason = body.reason.strip() if body.reason else None
+    if body.decision.value == "REJECTED" and not reason:
+        raise _error(422, "rejection requires a reason")
+    run = _svc().set_run_approval(
+        run_id, decision=body.decision.value, approver=approver, reason=reason
+    )
+    return _approval_response(run)
+
+
 @app.post("/runs/{run_id}/validate", response_model=ValidateResponse, status_code=202)
 def validate_run(run_id: str) -> ValidateResponse:
     """Re-run validation on an existing run (asynchronous).
@@ -705,8 +750,21 @@ def download_generated(run_id: str) -> StreamingResponse:
     produced by ApplicationGenerator during modernization. An uploaded
     candidate is never served here; runs without a generated artifact
     return 404.
+
+    BL-091 (D-1 resolved 2026-10-17): export is blocked with 409 until the
+    customer APPROVES the run. The gate runs immediately after the run
+    lookup and BEFORE artifact lookup/size caps so no archive detail
+    (existence, size, file count) leaks to an unapproved export; an
+    unknown run is still 404.
     """
     run = _svc().get_run(run_id)
+    if run.approval_state != "APPROVED":
+        raise _error(
+            409,
+            f"Export blocked: run approval is {run.approval_state} — the"
+            " customer must approve this run before download"
+            f" (POST /runs/{run_id}/approval)",
+        )
     app = _svc().get_application(run.application_id)
 
     java_dir = app.generated_app_path

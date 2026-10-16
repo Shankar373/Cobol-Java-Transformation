@@ -3,6 +3,7 @@ import { tokens } from '../theme/tokens';
 import {
   PageContainer,
   SectionCard,
+  ApprovalPanel,
   Badge,
   Button,
   VerdictDisplay,
@@ -822,6 +823,11 @@ export function ModernizationRun({
               )}
             </SectionCard>
           )}
+
+          {/* BL-091 (D-1 resolved): customer approval gates export. Rendered
+              on COMPLETED runs alongside the download path — download
+              answers 409 until this run's approval state is APPROVED. */}
+          {run.stage === 'COMPLETED' && <ApprovalPanel runId={runId} />}
 
           {/* BL-068b: download failures surface unconditionally. The previous
               pollError banner is gated on non-terminal runs, so a failed

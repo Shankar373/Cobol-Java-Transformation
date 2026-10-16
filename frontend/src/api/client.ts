@@ -19,7 +19,9 @@
  *   GET    /runs/{id}/artifacts
  *   POST   /runs/{id}/validate
  *   GET    /runs/{id}/verdict
- *   GET    /runs/{id}/download         (generated artifact only)
+ *   GET    /runs/{id}/approval      (BL-091 customer approval record)
+ *   POST   /runs/{id}/approval      (record APPROVED/REJECTED decision)
+ *   GET    /runs/{id}/download         (generated artifact only; 409 until APPROVED)
  *   GET    /health
  */
 
@@ -165,6 +167,30 @@ export interface ArtifactsResponse {
 export interface ValidateResponse {
   run_id: string;
   stage: RunStage;
+}
+
+// ---------------------------------------------------------------------------
+// Customer approval (BL-091; D-1 resolved 2026-10-17)
+// ---------------------------------------------------------------------------
+
+/** Current per-run approval state. PENDING until an explicit decision. */
+export type ApprovalState = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** Decisions accepted by the approval endpoint (PENDING is never one). */
+export type ApprovalDecisionValue = 'APPROVED' | 'REJECTED';
+
+export interface RunApprovalResponse {
+  run_id: string;
+  state: ApprovalState;
+  approver: string | null;
+  reason: string | null;
+  decided_at: string | null;
+}
+
+export interface ApprovalDecisionInput {
+  decision: ApprovalDecisionValue;
+  approver: string;
+  reason?: string;
 }
 
 export interface ComparisonDetail {
@@ -315,6 +341,29 @@ export async function getArtifacts(
 export async function validateRun(runId: string): Promise<ValidateResponse> {
   return request<ValidateResponse>(`/runs/${runId}/validate`, {
     method: 'POST',
+  });
+}
+
+/** Current approval record for a run (PENDING until a decision). */
+export async function getRunApproval(runId: string): Promise<RunApprovalResponse> {
+  return request<RunApprovalResponse>(`/runs/${runId}/approval`);
+}
+
+/**
+ * Record an explicit customer decision (BL-091).
+ *
+ * The backend enforces the scope: rejection requires a reason, approval
+ * reason is optional, a later decision supersedes the earlier one, and
+ * export/download answers 409 until the run is APPROVED.
+ */
+export async function setRunApproval(
+  runId: string,
+  input: ApprovalDecisionInput,
+): Promise<RunApprovalResponse> {
+  return request<RunApprovalResponse>(`/runs/${runId}/approval`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   });
 }
 

@@ -442,6 +442,7 @@ class TestUnknownResourcesAre404:
             ("GET", "/runs/run-ghost/verdict"),
             ("GET", "/runs/run-ghost/report"),
             ("GET", "/runs/run-ghost/download"),
+            ("GET", "/runs/run-ghost/approval"),
             ("POST", "/runs/run-ghost/validate"),
         ]
         for method, path in checks:
@@ -468,6 +469,14 @@ class TestUnknownResourcesAre404:
         _upload(app_id, [("A.cob", b"A")])
         with patch.object(Service, "_modernize_background", lambda *a, **k: None):
             run_id = client.post(f"/applications/{app_id}/modernize").json()["run_id"]
+
+        # BL-091 (D-1): export requires customer approval; the 404 below is
+        # the artifact contract, observed after approval.
+        approve = client.post(
+            f"/runs/{run_id}/approval",
+            json={"decision": "APPROVED", "approver": "qa"},
+        )
+        assert approve.status_code == 200, approve.text
 
         resp = client.get(f"/runs/{run_id}/download")
 

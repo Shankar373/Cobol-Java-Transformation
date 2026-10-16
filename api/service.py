@@ -1219,6 +1219,24 @@ class Service:
             raise NotFoundError(f"Run {run_id!r} not found")
         return rec
 
+    def set_run_approval(
+        self,
+        run_id: str,
+        *,
+        decision: str,
+        approver: str,
+        reason: str | None,
+    ) -> RunRecord:
+        """Record a customer approval decision for a run (BL-091, D-1).
+
+        Raises ``NotFoundError`` for unknown runs.  Decision-value and
+        field validation happen at the API boundary; the store re-checks
+        the decision value (fail closed at every layer).
+        """
+        return self._store.set_run_approval(
+            run_id, state=decision, approver=approver, reason=reason
+        )
+
     def get_artifacts(self, run_id: str) -> list[dict]:
         """Return artifact metadata from the evidence manifest.
 

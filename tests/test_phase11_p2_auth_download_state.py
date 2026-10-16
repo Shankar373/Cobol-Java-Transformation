@@ -198,6 +198,13 @@ def _seed_run_with_generated_files(
     rec = svc.get_application(app_id)
     rec.generated_app_path = str(gen_dir)
     svc._store.update_application(rec)
+    # BL-091 (D-1): export requires customer approval; these cap tests
+    # exercise the 413/200 artifact contracts, which sit behind the gate.
+    approve = client.post(
+        f"/runs/{run_id}/approval",
+        json={"decision": "APPROVED", "approver": "qa"},
+    )
+    assert approve.status_code == 200, approve.text
     return run_id
 
 
@@ -251,6 +258,14 @@ class TestDownloadIsCapped:
             run_id = client.post(f"/applications/{app_id}/modernize").json()[
                 "run_id"
             ]
+
+        # BL-091 (D-1): approval first — the 404 below is the artifact
+        # contract observed after approval, not the approval gate.
+        approve = client.post(
+            f"/runs/{run_id}/approval",
+            json={"decision": "APPROVED", "approver": "qa"},
+        )
+        assert approve.status_code == 200, approve.text
 
         resp = client.get(f"/runs/{run_id}/download")
 

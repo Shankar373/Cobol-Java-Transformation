@@ -23,8 +23,9 @@ Lifecycle integrity is enforced here:
 * run stage transitions must respect the declared state machine
   (forward-only, any stage to ``FAILED``, terminal states are final);
 * the only sanctioned terminal → ``CREATED`` path is
-  :meth:`Store.begin_revalidation`, which atomically clears evidence and
-  verdict and increments ``validation_generation``;
+  :meth:`Store.begin_revalidation`, which atomically clears evidence,
+  verdict and the BL-091 approval record and increments
+  ``validation_generation``;
 * writes carrying a stale ``validation_generation`` (a background worker
   from before a revalidation reset) are rejected with ``ConflictError``.
 """
@@ -181,11 +182,22 @@ class RunRecord:
     # Which certification contract the (re)validation used: the workload's
     # declared contract id or the explicit default fallback.
     certification_contract: str | None = None
+    # BL-091 (D-1 resolved 2026-10-17): per-run customer approval.  Every
+    # run starts PENDING; only an explicit decision writes the remaining
+    # fields; re-validation resets the whole record atomically.  These
+    # columns are written ONLY by add_run (defaults), set_run_approval
+    # (decisions) and begin_revalidation (reset) — update_run never touches
+    # them, so an in-flight worker holding a stale record cannot clobber a
+    # decision.
+    approval_state: str = "PENDING"
+    approval_approver: str | None = None
+    approval_reason: str | None = None
+    approval_decided_at: str | None = None
 
 
 #: Database schema version written by this code. Payload schema versions are
 #: tracked separately in :mod:`api.serialization`.
-DB_SCHEMA_VERSION = 4
+DB_SCHEMA_VERSION = 5
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS applications (
@@ -288,6 +300,22 @@ class Store:
                 "ALTER TABLE applications ADD COLUMN target_runtime"
                 " TEXT NOT NULL DEFAULT 'spring_boot'"
             )
+        if "approval_state" not in columns:  # migration 5 (Phase 12 P4, BL-091)
+            # Existing runs predate the approval workflow and read back as
+            # PENDING — the fail-closed default (export stays blocked).
+            self._conn.execute(
+                "ALTER TABLE runs ADD COLUMN approval_state"
+                " TEXT NOT NULL DEFAULT 'PENDING'"
+            )
+            self._conn.execute(
+                "ALTER TABLE runs ADD COLUMN approval_approver TEXT"
+            )
+            self._conn.execute(
+                "ALTER TABLE runs ADD COLUMN approval_reason TEXT"
+            )
+            self._conn.execute(
+                "ALTER TABLE runs ADD COLUMN approval_decided_at TEXT"
+            )
 
     # -- applications -------------------------------------------------------
 
@@ -388,9 +416,16 @@ class Store:
                     "INSERT INTO runs (id, application_id, workload_id,"
                     " stage, created_at, completed_at, error, evidence_blob,"
                     " verdict_blob, report_blob, validation_generation,"
-                    " certification_contract)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    self._run_params(record, stage),
+                    " certification_contract, approval_state,"
+                    " approval_approver, approval_reason, approval_decided_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    self._run_params(record, stage)
+                    + (
+                        record.approval_state,
+                        record.approval_approver,
+                        record.approval_reason,
+                        record.approval_decided_at,
+                    ),
                 )
             except sqlite3.IntegrityError as exc:
                 raise ConflictError(f"Run {record.id!r} already exists") from exc
@@ -463,6 +498,41 @@ class Store:
                 raise NotFoundError(f"Run {record.id!r} not found")
             self._conn.commit()
 
+    def set_run_approval(
+        self,
+        run_id: str,
+        *,
+        state: str,
+        approver: str,
+        reason: str | None,
+    ) -> RunRecord:
+        """Record an explicit customer decision for a run (BL-091).
+
+        ``state`` must be a decision (``APPROVED`` / ``REJECTED``); PENDING
+        is the implicit default and never a decision.  A new decision
+        supersedes the previous one — the latest approver/reason/timestamp
+        is the record of truth.  Raises :class:`NotFoundError` for unknown
+        runs and :class:`ValueError` for a non-decision state (fail
+        closed).
+        """
+        if state not in ("APPROVED", "REJECTED"):
+            raise ValueError(f"invalid approval decision {state!r}")
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE runs SET approval_state = ?, approval_approver = ?,"
+                " approval_reason = ?, approval_decided_at = ?"
+                " WHERE id = ?",
+                (state, approver, reason, _utc_now(), run_id),
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Run {run_id!r} not found")
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
+            assert row is not None  # updated above under the lock
+            return self._run_from_row(row)
+
     def begin_revalidation(
         self,
         run_id: str,
@@ -498,7 +568,12 @@ class Store:
             self._conn.execute(
                 "UPDATE runs SET stage = ?, completed_at = NULL,"
                 " error = NULL, evidence_blob = NULL, verdict_blob = NULL,"
-                " validation_generation = ?, certification_contract = ?"
+                " validation_generation = ?, certification_contract = ?,"
+                # BL-091: approval never carries forward across attempts —
+                # the reset clears the whole approval record atomically
+                # with the stage change (consistent snapshot).
+                " approval_state = 'PENDING', approval_approver = NULL,"
+                " approval_reason = NULL, approval_decided_at = NULL"
                 " WHERE id = ?",
                 (
                     RunStage.CREATED.value,
@@ -624,4 +699,8 @@ class Store:
                 int(generation) if generation is not None else 0
             ),
             certification_contract=row["certification_contract"],
+            approval_state=row["approval_state"] or "PENDING",
+            approval_approver=row["approval_approver"],
+            approval_reason=row["approval_reason"],
+            approval_decided_at=row["approval_decided_at"],
         )

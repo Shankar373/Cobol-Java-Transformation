@@ -101,6 +101,40 @@ class RunResponse(BaseModel):
     error: str | None = None
 
 
+# ---------------------------------------------------------------------------
+# Customer approval (BL-091; D-1 resolved 2026-10-17)
+# ---------------------------------------------------------------------------
+
+class ApprovalDecision(str, Enum):
+    """Explicit customer decisions.
+
+    PENDING is the implicit state of every new run and is deliberately
+    NOT a decision value — the approval endpoint accepts a decision only.
+    """
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class ApprovalRequest(BaseModel):
+    """Decision payload for POST /runs/{run_id}/approval.
+
+    The approver string is recorded input, not a verified identity (the
+    approved D-1 scope keeps the single bearer token and adds no RBAC).
+    """
+    decision: ApprovalDecision
+    approver: str
+    reason: str | None = None
+
+
+class ApprovalResponse(BaseModel):
+    """Current approval record for a run (BL-091)."""
+    run_id: str
+    state: str  # PENDING | APPROVED | REJECTED
+    approver: str | None = None
+    reason: str | None = None
+    decided_at: str | None = None
+
+
 class ArtifactMetadata(BaseModel):
     """Metadata for a single captured artifact."""
     artifact_id: str

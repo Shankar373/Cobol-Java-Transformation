@@ -226,6 +226,13 @@ class TestGeneratedProvenance:
         run_id = client.post(f"/applications/{app_id}/modernize").json()["run_id"]
         assert _wait_terminal(run_id)["stage"] == "COMPLETED"
 
+        # BL-091 (D-1): export requires customer approval.
+        approve = client.post(
+            f"/runs/{run_id}/approval",
+            json={"decision": "APPROVED", "approver": "qa"},
+        )
+        assert approve.status_code == 200, approve.text
+
         resp = client.get(f"/runs/{run_id}/download")
         assert resp.status_code == 200
         assert "provenance-app-generated.zip" in resp.headers["content-disposition"]
