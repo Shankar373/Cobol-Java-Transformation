@@ -2184,10 +2184,10 @@ def map_cobol_statement(
         condition = map_cobol_condition_to_java(stmt.condition)
         then_body = []
         for s in stmt.then_body:
-            then_body.extend(map_cobol_statement(s, program))
+            then_body.extend(map_cobol_statement(s, program, called_programs))
         else_body = []
         for s in stmt.else_body:
-            else_body.extend(map_cobol_statement(s, program))
+            else_body.extend(map_cobol_statement(s, program, called_programs))
         result.append(JavaIf(
             condition=condition,
             then_body=tuple(then_body),
@@ -2581,7 +2581,7 @@ def map_cobol_statement(
                 body_stmts: list[JavaStatement] = []
                 if stmt.body:
                     for s in stmt.body:
-                        body_stmts.extend(map_cobol_statement(s, program))
+                        body_stmts.extend(map_cobol_statement(s, program, called_programs))
                 elif stmt.paragraph_name:
                     body_stmts.append(JavaMethodCallStatement(
                         call=JavaMethodCall(
@@ -2611,7 +2611,7 @@ def map_cobol_statement(
                 if stmt.body:
                     body_stmts = []
                     for s in stmt.body:
-                        body_stmts.extend(map_cobol_statement(s, program))
+                        body_stmts.extend(map_cobol_statement(s, program, called_programs))
                     result.append(JavaBlock(statements=tuple(body_stmts)))
                 elif stmt.paragraph_name:
                     result.append(JavaMethodCallStatement(
@@ -2635,7 +2635,7 @@ def map_cobol_statement(
             body_stmts: list[JavaStatement] = []
             if stmt.body:
                 for s in stmt.body:
-                    body_stmts.extend(map_cobol_statement(s, program))
+                    body_stmts.extend(map_cobol_statement(s, program, called_programs))
             elif stmt.paragraph_name:
                 body_stmts.append(JavaMethodCallStatement(
                     call=JavaMethodCall(
@@ -2674,7 +2674,7 @@ def map_cobol_statement(
             loop_body: list[JavaStatement] = []
             if stmt.body:
                 for s in stmt.body:
-                    loop_body.extend(map_cobol_statement(s, program))
+                    loop_body.extend(map_cobol_statement(s, program, called_programs))
             elif stmt.paragraph_name:
                 loop_body.append(JavaMethodCallStatement(
                     call=JavaMethodCall(

@@ -18,6 +18,8 @@ Generator has ZERO imports from:
 
 Imports only:
 - engine.transformation.spring_boot_ir
+- engine.transformation.java_ir (expression rendering)
+- engine.transformation.java_generator (canonical ``_escape_java_string``, BL-046)
 """
 
 from __future__ import annotations
@@ -665,16 +667,24 @@ public class {class_name} {{
                 return "null"
             if expr.value in ("true", "false") and not expr.java_type:
                 return expr.value
+            # BL-046: reuse the canonical Java string-escaping helper from the
+            # native lane so both lanes render identical, compilable literals
+            # for quotes, backslashes, and control characters (BL-030 bytes).
+            from engine.transformation.java_generator import JavaGenerator
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
-                return f'"{expr.value}"'
+                return f'"{JavaGenerator._escape_java_string(expr.value)}"'
+            # A single-quoted value is a COBOL string literal spelling, not a
+            # Java char: normalize to a double-quoted Java string literal.
+            if len(expr.value) >= 2 and expr.value.startswith("'") and expr.value.endswith("'"):
+                return f'"{JavaGenerator._escape_java_string(expr.value[1:-1])}"'
             if not expr.value.replace(".", "").replace("-", "").isdigit() and not (
                 _JAVA_LITERAL_SUFFIX_RE.match(expr.value)
             ):
                 if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
                     return expr.value
-                if not (expr.value.startswith('"') or expr.value.startswith("'")):
-                    return f'"{expr.value}"'
+                if not expr.value.startswith('"'):
+                    return f'"{JavaGenerator._escape_java_string(expr.value)}"'
             return expr.value
         if isinstance(expr, JavaVariableRef):
             return expr.name
