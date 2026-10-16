@@ -5601,9 +5601,34 @@ level and evidence location.
   no Docker required) all green; broader focused regression 63 passed / 4
   skipped (docker-gated); the 6 `test_e2e.py` failures are the known
   cold-daemon oracle-identity family (re-confirmed present at base commit
-  `fbb4cbd` with the fixes stashed).  No test weakened; all three fixes
-  are strictly fail-closed / hygiene (error handling, cleanup,
-  determinism).
+   `fbb4cbd` with the fixes stashed).  No test weakened; all three fixes
+   are strictly fail-closed / hygiene (error handling, cleanup,
+   determinism).
+
+- 2026-10-15 — **(aq) Phase 9 batch P2b: build + execute + differential
+  evidence for the §32 non-Spring targets (Phase 9 main scope).**  The
+  `DockerSpringBootCandidateAdapter`'s build (`mvn -o package` in Docker)
+  and execution (`java -jar`) are Spring-independent in behavior, so
+  `engine/candidate/maven_adapter.py` adds an honestly-named
+  `MavenProjectCandidateAdapter` (target-neutral validation wording, no
+  Spring required) and `engine/candidate/factory.py` provides
+  `candidate_adapter_for_target(target_runtime)` (fail-closed on unknown
+  targets).  `api/service.py` both call sites now resolve the build+execute
+  lane from the application's configured `target_runtime` instead of a
+  hardcoded Spring adapter; the uploaded/test path is unchanged.  Fresh
+  reference-vs-candidate evidence: `tests/test_phase9_build_execute.py`
+  docker-gated E2E (run in CI) generates each target via the §32 adapter on
+  the shared `fresh_workload` IR, builds it offline, executes the jar in
+  Docker, runs the independent GnuCOBOL oracle, and asserts VERIFIED via
+  stdout comparison — `plain_java` and `jakarta_ee` both reach
+  VERIFIED.  Limitation wording in
+  `engine/modernization/pipeline.py::_derive_limitations` updated to state
+  that build+execute evidence is produced per workload by the verification
+  pipeline (never a universal equivalence claim; no Jakarta EE server
+  runtime claimed).  Matrix §32 row promoted from STRUCTURAL-GENERATION
+  ONLY to BUILD+EXECUTE VERIFIED (per-workload).  Claims separation:
+  defects fixed (P2a) vs build/execute evidence (P2b) vs still-unclaimed
+  universal runtime equivalence.
 
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 

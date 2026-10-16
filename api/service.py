@@ -687,11 +687,9 @@ class Service:
 
             adapter = None
             if not use_uploaded_candidate:
-                from engine.candidate.docker_spring_boot_adapter import (
-                    DockerSpringBootCandidateAdapter,
-                )
+                from engine.candidate.factory import candidate_adapter_for_target
 
-                adapter = DockerSpringBootCandidateAdapter()
+                adapter = candidate_adapter_for_target(app.target_runtime)
             self._run_validation(app, run, java_dir, entrypoint, adapter)
 
             # Terminal state is set here; VALIDATING_EVIDENCE itself is
@@ -798,11 +796,9 @@ class Service:
             candidate_dir = Path(candidate_path)
             adapter = None
             if (candidate_dir / "pom.xml").exists():
-                from engine.candidate.docker_spring_boot_adapter import (
-                    DockerSpringBootCandidateAdapter,
-                )
+                from engine.candidate.factory import candidate_adapter_for_target
 
-                adapter = DockerSpringBootCandidateAdapter()
+                adapter = candidate_adapter_for_target(app.target_runtime)
             self._run_validation(
                 app, run, candidate_dir, entrypoint, adapter
             )
@@ -1001,13 +997,15 @@ class Service:
     ) -> None:
         """Run the validation pipeline and persist evidence + verdict.
 
-        Canonical selection: DockerSpringBootCandidateAdapter for the
-        generated Spring Boot project (injected by the caller). The
-        internal/test-only uploaded path uses DockerJavaCandidateAdapter
-        via use_docker_java=True. RealJavaCandidateAdapter (host
-        javac/java) is never selected here. If Docker is unavailable the
-        pipeline returns UNAVAILABLE semantics instead of executing on
-        the host.
+        Canonical selection: the build + execute lane is chosen from the
+        application's ``target_runtime`` via
+        :func:`engine.candidate.factory.candidate_adapter_for_target`
+        (spring_boot → the Spring Boot lane; plain_java / jakarta_ee → the
+        generic Maven lane). The internal/test-only uploaded path uses
+        DockerJavaCandidateAdapter via use_docker_java=True.
+        RealJavaCandidateAdapter (host javac/java) is never selected here. If
+        Docker is unavailable the pipeline returns UNAVAILABLE semantics
+        instead of executing on the host.
 
         Comparison/evidence/verdict stay inside the pipeline trust boundary;
         this method only orchestrates and persists the pipeline result.

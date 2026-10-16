@@ -449,20 +449,25 @@ class UniversalModernizationPipeline:
             recommendations.append("Review COBOL source for parser limitations")
 
         # §32 target-scope disclosure (fail-loud, never silent):
-        # non-Spring targets are generation-only in Phase 8 — build
-        # execution and runtime evidence are Phase 9 scope, and no
-        # equivalence claim is made (BL-089/BL-090).
+        # Phase 9 landed the build + execute lane for the non-Spring
+        # targets.  The modernization pipeline itself still only generates;
+        # build (offline Maven) + execution (Docker jar) + fresh
+        # oracle-comparison evidence is produced per workload by the
+        # verification pipeline.  No universal equivalence claim (BL-089/
+        # BL-090; Phase 9).
         if self._config.target_runtime == "plain_java":
             limitations.append(
-                "target_runtime=plain_java: generation only — Maven build "
-                "execution and runtime equivalence evidence are Phase 9 "
-                "scope (no equivalence claim)"
+                "target_runtime=plain_java: generation here; Maven build + "
+                "jar execution + fresh oracle comparison are produced per "
+                "workload by the verification pipeline (no universal "
+                "equivalence claim)"
             )
         elif self._config.target_runtime == "jakarta_ee":
             limitations.append(
-                "target_runtime=jakarta_ee: generation profile only — no "
-                "offline build (Jakarta EE artifacts absent from the "
-                "offline repository), no runtime evidence, not certified"
+                "target_runtime=jakarta_ee: generation profile here; the "
+                "dependency-free jar builds/executes offline via the Maven "
+                "lane with fresh per-workload oracle comparison — no Jakarta "
+                "EE server runtime and no universal equivalence claim"
             )
 
         if not limitations:

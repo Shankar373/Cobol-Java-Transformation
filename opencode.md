@@ -1,5 +1,29 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 9 started — Build + Execution + Differential Verification (2026-10-15)
+
+### ⚑ PHASE 9 STATUS — read this first (2026-10-15, **IN PROGRESS — batches P2a (defects) shipped `00a0218`, P2b (build/execute) prepared; audit-first §76 DONE; NO LLM; no merge to main**)
+
+- **Authorization honored:** audit exact HEAD/worktree first, then clear the
+  carry-forward defects (BL-050/051/054 — all P2, one batch), then
+  implement + verify build/execution/differential evidence for
+  `plain_java` and `jakarta_ee`.  No runtime-equivalence claim without
+  fresh reference-vs-candidate evidence.
+- **Audit finding (honest):** the `DockerSpringBootCandidateAdapter`'s build
+  (`mvn -o package`) + execution (`java -jar`) are Spring-independent in
+  behavior; the §32 `plain_java`/`jakarta_ee` targets already emit
+  dependency-free Maven projects, and the plain generator handles inter-
+  program `CALL`.  Feasibility confirmed by structure, not assumed.
+- **Batches:** P2a `00a0218` (BL-050 compile timeout `proc=None`; BL-051
+  oracle `--name` + timeout cleanup; BL-054 identity skips top-level
+  `target/`) → P2b (`engine/candidate/maven_adapter.py` + factory +
+  `api/service.py` target-aware lane selection + docker-gated fresh E2E
+  for both targets + limitation/matrix wording).  Claims separation:
+  defects fixed (P2a) vs build/execute evidence (P2b) vs still-unclaimed
+  universal runtime equivalence.
+- **Verdict pending:** Phase 9 §53 13-point verdict only after both batches
+  reach exact-SHA CI green.
+
 ## Phase 8 started — Runtime Adapter Architecture (2026-10-15)
 
 ### ⚑ PHASE 8 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 8 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE; batches P0/P1/P2 = BL-088/089/090 ALL FIXED, change-log (an)(ao); gate 50 files / 43 focused tests; CI primary: 12/12 runs green across the three batch SHAs `2917a4f` + `216064d` + `5f82889`, each exact-SHA verified via the GitHub API; §32 three-target scope closed: spring_boot + plain_java + jakarta_ee all implemented through the single adapter registry over the ONE shared parser/transformer; NO LLM; no merge to main; Phase 9 NOT started**)
