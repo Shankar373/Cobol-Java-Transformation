@@ -147,8 +147,13 @@ demo proves this fail-closed behavior.
 
 - Secure archive extraction (traversal/size/file-count limits).
 - Isolated Docker execution with network restrictions and hard timeouts.
-- API: opt-in bearer token (`CONTROL_PLANE_API_TOKEN`), bounded uploads,
-  sanitized paths, typed errors without leaking tracebacks/paths.
+- API: opt-in bearer token (`CONTROL_PLANE_API_TOKEN`; constant-time
+  byte-wise compare that answers 401 for any input, including non-ASCII),
+  bounded uploads (request/file/count bytes + duplicate-filename
+  rejection), write-then-cleanup re-upload ordering (a rejected re-upload
+  preserves the previous source), bounded generated-app download
+  (file-count/byte caps, 413 fail-closed), sanitized paths, typed errors
+  without leaking tracebacks/paths.
 - Persistence: versioned JSON envelopes (no pickle), seal checks, forward-only
   lifecycle state machine, startup reconciliation.
 - Bounded in-process job threads; HTTP 429 when saturated.
@@ -214,10 +219,17 @@ Supported subset, with runtime evidence where noted (see
 
 ## 19. Current CI status
 
-Push CI #417 — GREEN. PR CI #418 — GREEN.
-Baseline commit: `fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4` on
-`codex/universal-core`. CI gates: ingestion, backend + COBOL/Java Docker,
-frontend typecheck/build. Run #306 remains in historical documents only.
+Phase 11 verified SHAs on `codex/universal-core` (run-level `head_sha`
+asserted): `1c37503b9c8dad9701d7e7ce7be7fcc23fd046f9` (P1) and
+`b2fb1a2718062a601d5e81ad3ca1156fbfce1947` (P2, current HEAD) — push and
+PR runs GREEN for both (4/4 runs each), every job success: Python/Frontend
+audit + SBOM, Release dependency manifest, Phase 1 ingestion diagnostics,
+Backend + COBOL/Java Docker tests, Frontend tests/TypeScript/production
+build, Capability truth gate (54 files), Supply chain (SBOM +
+vulnerability scanning).  Phase 10's three work SHAs and its docs verdict
+commit `c039de3` were likewise verified green (12/12 + 4/4 runs).
+Run #306 and CI #417/#418 (`fedb7dd` baseline) remain in historical
+documents only.
 
 ## 20. Demo workflow
 

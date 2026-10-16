@@ -1,8 +1,180 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 11 started — Enterprise Security & Operations (2026-10-16)
+
+### ⚑ PHASE 11 STATUS — read this first (2026-10-16, **§53 VERDICT — PHASE 11 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 + Master README §42 requirement audit DONE before any change; P0 batch explicitly empty; batches P1 = BL-047/BL-048 at `1c37503` + P2 = BL-049/BL-067/BL-068 at `b2fb1a2`, change-log (av)(aw); exact-SHA CI 8/8 runs green across both work SHAs; NO LLM; no merge to main; Phase 12 NOT started**)
+
+- **Authorization honored:** continue from Phase 10's verified verdict;
+  re-synchronize (HEAD == remote at `c039de3`), re-audit the five
+  carry-forward items against current code, classify P0/P1/P2, then
+  priority-batched P0 → P1 → P2 with red-first evidence, focused +
+  regression tests, commit/push, and exact-SHA GitHub Actions
+  verification before the next batch began.
+- **Phase-start HEAD:** `c039de3` (Phase 10 verdict docs).  Batch chain:
+  `c039de3` → `1c37503` (P1) → `b2fb1a2` (P2, final candidate).  Working
+  tree preserved throughout: only the pre-existing uncommitted
+  `test-artifacts/*` changes exist and were never staged.
+- **Audit (before any change):** all five Phase-11 register items
+  (BL-047/048/049/067/068) verified still open at current code; the
+  Master README §42 twelve-point security requirement list checked item
+  by item — ZIP ingestion (zip-slip/symlink/archive/entry/size limits),
+  path containment, request/file/count upload limits, `--network none`
+  sandboxing, replay/evidence-integrity/stale-evidence (Phase 10) are
+  covered; no additional confirmed defect found; register sweep found
+  exactly five Phase-11-targeted items.  **P0 batch explicitly empty**
+  (no false-VERIFIED, trust-boundary or critical-exposure defect — Phase
+  10 closed those).
+- **P1 (`1c37503`, BL-047 + BL-048 — upload integrity):** duplicate
+  multipart filenames now fail closed with a 400 naming the file before
+  the ingestion dict is built (an accepted upload can no longer silently
+  lose a source file; `files_received` can no longer undercount); both
+  upload endpoints reordered to validate + write the new tree, persist,
+  then delete the previous directory only after success — a re-upload
+  rejected for traversal/collision/disk error preserves the previous
+  good source (orphan temp dir at worst, never data loss).  Red-first
+  5F/2P; exact-SHA CI 4/4 green.
+- **P2 (`b2fb1a2`, BL-049 + BL-067 + BL-068):** `_token_matches` runs
+  `hmac.compare_digest` on latin-1 bytes (exact round-trip for HTTP
+  headers) so a non-ASCII bearer token / X-API-Key yields the 401
+  challenge, never a 500, still constant-time and fail-closed;
+  generated-app download enforces
+  `CONTROL_PLANE_MAX_DOWNLOAD_FILES`/`_BYTES` (5000/50MB defaults)
+  before any bytes are buffered → 413 fail-closed, never an unbounded
+  in-memory archive; frontend trio — `navigate('run')` resolves the
+  run's own application id via a `runsRef` mirror (no stale
+  `selectedAppId`), download failures render in an unconditional
+  `downloadError` banner with retry (was gated behind non-terminal runs
+  and silently discarded on COMPLETED runs), terminal runs are pruned
+  from the 2s polling set each tick via `isTerminalStage`.  Red-first
+  7F/5P; exact-SHA CI 4/4 green.
+
+## ⚑ §53 VERDICT — Phase 11 (scored 2026-10-16; work SHAs `1c37503` + `b2fb1a2`; HEAD `b2fb1a2718062a601d5e81ad3ca1156fbfce1947` — exact-SHA CI 8/8 runs success across both verified SHAs)
+
+**PHASE 11 COMPLETE — VERIFIED — 13/13 PASS.**  Master README §53 is
+the authoritative rule; every criterion below is scored against
+repository state and preserved evidence, not against CI-green alone.
+NO LLM anywhere (fresh scan at final tree: 0 model imports in
+`engine`/`api`, 0 model-SDK references anywhere).  No merge to main;
+Phase 12 NOT started — awaiting direction.
+
+### CI evidence (independently re-verified via the GitHub API, not from the checkpoint)
+- `1c37503b9c8dad9701d7e7ce7be7fcc23fd046f9` (P1/BL-047+BL-048) — 4/4
+  runs success (SystemaOps CI 38898083563 + 38898091808; Supply chain
+  38898083875 + 38898091679); job-level: Backend and COBOL/Java Docker
+  tests success, Capability truth gate success (54 files), Frontend
+  tests/TypeScript/production build success, Phase 1 ingestion success,
+  Python/Frontend audit + SBOM success, Release dependency manifest
+  success.
+- `b2fb1a2718062a601d5e81ad3ca1156fbfce1947` (P2/BL-049+BL-067+BL-068,
+  final candidate) — 4/4 runs success (SystemaOps CI 38903245824 +
+  38903252954; Supply chain 38903246091 + 38903252887); job-level on
+  both runs: Backend Docker success, Capability truth gate success,
+  Frontend build success, Phase 1 ingestion success, audits/SBOM +
+  dependency manifest success.
+- Run-level `head_sha` asserted equal to the exact SHAs for all 8 runs.
+- Phase 10's verdict commit `c039de3` (docs-only) also verified green
+  (4/4 runs) after its poll shell failed once — re-run authenticated.
+
+### Red-first evidence (each defect: failing test captured before the fix)
+- P1: `p1_red_run.txt` — **5 failed / 2 passed** (3 reds = duplicate
+  filenames collapsed to 201 with a file lost + undercount; 2 reds =
+  rejected re-upload deleted the previous source).
+- P2: `p2_red_run.txt` — **7 failed / 5 passed** (non-ASCII token → 500,
+  uncapped download byte/file paths, three frontend pins).
+- All under `%TEMP%\opencode\phase11\`.
+
+### Final regression at the exact final tree (`b2fb1a2`)
+- Capability-truth gate list (54 files, dependency-free bare-venv):
+  **748 passed** + the 4 known local-environmental
+  `test_runtime_adapter_architecture` failures (identical count as at
+  Phase 10's verified tree; they run green in CI on Linux).
+- Full `tests/adversarial` (trust boundary, tamper/replay, phase-A
+  hardening, persistence verdict trust, canonical-dump attacks):
+  **254 passed**.
+- API/security/persistence/integrity/e2e consumers: **98 passed**;
+  Phase-10 focused set + external edges + P1 files: **64 passed**.
+- P1 batch: API/security 58, consumers (e2e, persistence, ingestion,
+  modernization suites) 59.  P2 batch: focused 12.
+- Frontend: `tsc --noEmit` exit 0; vitest **122 passed** (7 files).
+- Fresh local E2E included in both consumer runs; docker-gated runtime
+  E2E proven by the green backend Docker CI job at both SHAs.
+- Evidence files: `%TEMP%\opencode\phase11\` (`p*_red_run.txt`,
+  `p*_green_run.txt`, `p*_regress_*.txt`, `final_gate_list.txt`,
+  `final_adversarial.txt`, `p*_ci_check.txt`).
+
+### 13-point scoring (Master README §53)
+1. **Implementation matches architecture — PASS.**  Fixes live at the
+   established seams: auth middleware (`_require_api_token` /
+   `_token_matches`), `_read_files_bounded`, the two service upload
+   methods, the download route's pre-buffer boundary, and the existing
+   App/ModernizationRun state (canonical `isTerminalStage`); no
+   parallel subsystems, no new dependencies.
+2. **Contracts satisfied — PASS.**  `UploadResponse` shape unchanged
+   (`files_received` now honest); 401 challenge + `WWW-Authenticate`
+   contract unchanged; download provenance 404 and `application/zip`
+   unchanged; new env limits are additive with defaults that preserve
+   normal behavior; frontend props unchanged (tsc exit 0).
+3. **Focused tests pass — PASS.**  P1 file 8/8, P2 file 12/12 — 20
+   tests across two new files, each mapped to a specific defect or
+   guard.
+4. **Regression tests pass — PASS.**  Final-tree runs: gate 748 (+4
+   documented environmental), adversarial 254, consumers 98, Phase-10
+   focused 64, P1 sets 58/59, vitest 122 — no test weakened, deleted,
+   skipped or bypassed.
+5. **Integration behavior verified — PASS.**  Uploads exercised through
+   the full HTTP layer (multipart → bounded ingestion dict → service
+   validation/write → record persist → disk assertion); auth middleware
+   driven through the real ASGI transport with raw latin-1 header
+   bytes; download driven through service store → zip boundary;
+   frontend state changes type-checked and covered by vitest +
+   source-parity pins.
+6. **Fresh E2E where applicable — PASS.**  Fresh local E2E in both
+   consumer regression runs (59 and 98 include `test_e2e.py`); the
+   docker-gated fresh runtime E2E ran green in CI's backend Docker job
+   at both exact SHAs (Phase 11 did not change runtime lanes).
+7. **Evidence reproducible and integrity-validated — PASS.**  Red-first
+   captures preserved per defect before any change; every green/CI
+   result stored with its exact SHA; run-level `head_sha` asserted on
+   all 8 runs; evidence files enumerated above.
+8. **Known limitations documented — PASS.**  Single-token auth with no
+   RBAC and no structured audit log remain §43 enterprise targets
+   (honestly scoped, not claimed); download caps are configured limits
+   (not streaming); BL-068 pins are source-parity assertions (not
+   rendered-DOM tests); all recorded in change-log (av)(aw) + register
+   rows.
+9. **No silent semantic loss — PASS.**  Every previously silent path
+   now surfaces: duplicate upload → named 400; rejected re-upload →
+   previous source preserved; non-ASCII token → 401 not 500; oversized
+   download → 413 before buffering; download failure → visible banner
+   with retry; terminal runs → leave the polling set.  Nothing in this
+   phase's scope fails silently anymore.
+10. **Every discovered defect fixed or explicitly carried forward —
+    PASS.**  The Phase-11 audit's five items are all fixed (BL-047/
+    BL-048 P1; BL-049, BL-067 re-rated P3→P2, BL-068 re-rated P3→P2);
+    P0 batch was empty by audit result, stated explicitly; Phase-12
+    items (BL-045/046/065/066 + BL-011/012) and the disclosed residuals
+    (RBAC/audit-logging, MQ/IMS/JCL/DB2/CICS structural-only lanes,
+    walker F6 scope, unkeyed-seal residual, full STALE/FRESH model)
+    remain in the register with owner/dependency/risk/acceptance.
+11. **Applicable gaps audited — PASS.**  §42's twelve security
+    requirements checked one by one against current code; §76.4
+    trust/security/operational paths audited; register swept for
+    Phase-11 targets (exactly five, all verified open before the fix);
+    failing-CI/skipped-test sweep: none open (4 environmental local
+    failures documented, green in CI).
+12. **Acceptance criteria satisfied — PASS.**  Each register row's
+    acceptance condition has a dedicated test (duplicate-400 +
+    nothing-written; rejected-reupload-preserves; raw-bytes 401;
+    oversized-413 + guards; three frontend pins), all green at the
+    exact final tree.
+13. **Live checkpoint updated from actual results — PASS.**  This
+    block, BACKLOG change-log (av)(aw) and the five FIXED register rows
+    were written from the captured evidence above, not from memory or
+    CI alone.
+
 ## Phase 10 started — Evidence, Certification & Integrated Proof (2026-10-16)
 
-### ⚑ PHASE 10 STATUS — read this first (2026-10-16, **§53 VERDICT — PHASE 10 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE before any change; batches P0 = BL-053 at `0f4d049` + P1 = BL-083 + proof/artifact surfaces at `72679a6` + P2 = fail-open leftovers at `cb6dc55`, change-log (as)(at)(au); exact-SHA CI 12/12 runs green across the three verified SHAs; NO LLM; no merge to main; Phase 11 NOT started**)
+### ⚑ PHASE 10 STATUS — CLOSED (historical record; the Phase 11 verdict above is current) (2026-10-16, **§53 VERDICT — PHASE 10 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE before any change; batches P0 = BL-053 at `0f4d049` + P1 = BL-083 + proof/artifact surfaces at `72679a6` + P2 = fail-open leftovers at `cb6dc55`, change-log (as)(at)(au); exact-SHA CI 12/12 runs green across the three verified SHAs; NO LLM; no merge to main; Phase 11 was NOT started at that score)**)
 
 - **Authorization honored:** audit exact HEAD/worktree first, then
   priority-batched P0 → P1 → P2, each with red-first evidence, focused +
