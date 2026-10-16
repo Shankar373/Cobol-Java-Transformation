@@ -7,8 +7,12 @@ modernization flow (phases 1-5):
     2. CAPABILITY    — analyze graph and produce CapabilityReport
     3. PLAN          — generate TransformationPlan from capabilities
     4. TRANSFORM     — transform each program independently (never concatenate)
-    5. ASSEMBLE      — assemble all artifacts into ONE Spring Boot application
-                      using map_java_application_to_spring_boot + SpringBootGenerator
+    5. ASSEMBLE      — assemble all artifacts into ONE Java runtime target
+                      via the §32 runtime adapter registry
+                      (engine/transformation/runtime_adapters.py; the
+                      default target_runtime is Spring Boot and reproduces
+                      the original map_java_application_to_spring_boot +
+                      SpringBootGenerator path exactly)
 
 Phases 6-11 (Docker build, Docker execute, GnuCOBOL oracle, comparison,
 evidence, verdict) are handled by VerticalSlicePipeline in the service layer.
@@ -23,7 +27,6 @@ This module reuses ALL existing components:
 
 from __future__ import annotations
 
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,16 +38,48 @@ from engine.modernization.transformation_plan import (
 from engine.transformation.application_discovery import ApplicationDiscovery
 from engine.transformation.application_generator import ApplicationGenerator
 from engine.transformation.ir import CobolApplication
+from engine.transformation.runtime_adapters import (
+    RuntimeTargetConfig,
+    get_runtime_adapter,
+    plan_output_type_for,
+)
 
 
 @dataclass(frozen=True)
 class ModernizationConfig:
-    """Configuration for the universal modernization pipeline."""
+    """Configuration for the universal modernization pipeline.
+
+    The five ``target_*``/runtime keys are Master README §32's example
+    configuration.  They are validated fail-closed in ``__post_init__``
+    (through :class:`RuntimeTargetConfig`), so an unsupported value
+    raises at construction naming the field, value, and supported set —
+    never silently defaulting to another runtime target (BL-088).
+    """
     source_dir: str
     output_dir: str
     application_id: str = ""
     entrypoint: str = ""
     docker_available: bool = True
+    target_runtime: str = "spring_boot"
+    java_version: str = "21"
+    build_tool: str = "maven"
+    packaging: str = "jar"
+    execution_mode: str = "batch"
+
+    def __post_init__(self) -> None:
+        # Fail-closed validation (raises ValueError naming field+value+set).
+        self.runtime_config
+
+    @property
+    def runtime_config(self) -> RuntimeTargetConfig:
+        """The validated §32 runtime-target configuration for this run."""
+        return RuntimeTargetConfig(
+            target_runtime=self.target_runtime,
+            java_version=self.java_version,
+            build_tool=self.build_tool,
+            packaging=self.packaging,
+            execution_mode=self.execution_mode,
+        )
 
 
 @dataclass
@@ -79,9 +114,11 @@ class ModernizationReport:
     generation_errors: tuple[str, ...] = ()
     generated_program_ids: tuple[str, ...] = ()
 
-    # Assembly: the Spring Boot project directory and entry point
+    # Assembly: the runtime-target project directory and entry point
     generated_project_dir: str = ""
     generated_entrypoint: str = ""
+    # §32 target this report was produced for (evidence identity).
+    target_runtime: str = "spring_boot"
 
     # Limitations
     limitations: tuple[str, ...] = ()
@@ -107,6 +144,7 @@ class ModernizationReport:
                 "errors": list(self.generation_errors),
             },
             "assembly": {
+                "target_runtime": self.target_runtime,
                 "project_dir": self.generated_project_dir,
                 "entrypoint": self.generated_entrypoint,
             },
@@ -198,7 +236,17 @@ class UniversalModernizationPipeline:
             application_id=self._config.application_id or source_path.name,
             source_dir=str(source_path),
             output_dir=str(output_path),
+            target_runtime=self._config.target_runtime,
         )
+
+        # Resolve the §32 assembly adapter BEFORE any phase work so an
+        # unknown or not-yet-implemented target fails closed with the
+        # explicit reason instead of producing another runtime's output.
+        try:
+            adapter = get_runtime_adapter(self._config.target_runtime)
+        except Exception as e:
+            report.limitations = (f"Runtime adapter unavailable: {e}",)
+            return report
 
         # Phase 1: DISCOVERY
         if progress:
@@ -212,13 +260,25 @@ class UniversalModernizationPipeline:
         except Exception as e:
             report.limitations = (f"Discovery failed: {e}",)
             return report
+
+        if application.discovery_errors:
+            report.limitations = (
+                "Discovery incomplete; transformation is fail-closed.",
+                *application.discovery_errors,
+            )
+            return report
+
         if progress:
             progress("DISCOVERY_COMPLETED")
 
         # Phase 2: CAPABILITY ANALYSIS
         if progress:
             progress("ANALYZING")
-        capability_report = self._capability_analyzer.analyze(application)
+        # source_root keeps the copybook scan transitive over the same
+        # search directories generation uses (BL-039).
+        capability_report = self._capability_analyzer.analyze(
+            application, source_root=source_path
+        )
         report.capability_report = capability_report
         report.overall_capability = capability_report.overall_level.value
         if progress:
@@ -228,7 +288,10 @@ class UniversalModernizationPipeline:
         if progress:
             progress("PLANNING")
         plan = self._plan_generator.generate(
-            application, capability_report, self._config.entrypoint,
+            application,
+            capability_report,
+            self._config.entrypoint,
+            assembly_output_type=plan_output_type_for(self._config.target_runtime),
         )
         report.transformation_plan = plan
         report.transformable_count = plan.transformable_programs
@@ -237,6 +300,37 @@ class UniversalModernizationPipeline:
             progress("PLAN_COMPLETED")
 
         # Phase 4: TRANSFORM (per-program, never concatenate)
+        # The transformation plan is authoritative for what may be emitted.
+        # Do not generate candidates for components explicitly classified as
+        # UNSUPPORTED or UNAVAILABLE; doing so would silently contradict the
+        # capability analysis and could produce a misleading candidate.
+        skipped_programs = tuple(
+            c.component_id
+            for c in plan.components
+            if c.component_type == "PROGRAM"
+            and c.action.name == "SKIP"
+        )
+        if skipped_programs:
+            report.generation_errors = (
+                "Transformation plan contains non-transformable programs: "
+                + ", ".join(skipped_programs),
+            )
+            report.limitations = (
+                "Transformation blocked by capability plan",
+                *tuple(
+                    c.reason
+                    for c in plan.components
+                    if c.component_type == "PROGRAM"
+                    and c.component_id in skipped_programs
+                    and c.reason
+                ),
+            )
+            report.recommendations = (
+                "Add a producer/transformer for the blocked constructs or "
+                "provide an explicit manual transformation path",
+            )
+            return report
+
         if progress:
             progress("TRANSFORMING")
         try:
@@ -261,19 +355,29 @@ class UniversalModernizationPipeline:
         report.generation_success = True
         report.generated_program_ids = gen_result.program_ids
 
-        # Phase 5: ASSEMBLY via Spring Boot mapping (same path as the service)
+        # Phase 5: ASSEMBLY via the §32 runtime adapter registry
+        # (spring_boot default = the original Spring Boot mapping path)
         if progress:
             progress("ASSEMBLING")
         try:
-            project_dir, spring_entry = self._assemble_spring_boot(
+            outcome = adapter.assemble(
                 gen_result.java_application,
                 entry_program=self._config.entrypoint or "",
                 copybook_models=gen_result.copybook_models,
                 output_prefix="pipeline-",
+                runtime=self._config.runtime_config,
             )
-            report.generated_project_dir = str(project_dir)
-            report.generated_entrypoint = spring_entry
+            report.generated_project_dir = str(outcome.project_dir)
+            report.generated_entrypoint = outcome.entrypoint
         except Exception as e:
+            # P2-f: assembly produced no candidate project — the report must
+            # not keep claiming generation success.  Reset the flag and
+            # record the failure in generation_errors so every consumer
+            # (API, integrated proof facade) sees the truth.
+            report.generation_success = False
+            report.generation_errors = tuple(report.generation_errors) + (
+                f"Assembly failed: {e}",
+            )
             report.limitations = (f"Assembly failed: {e}",)
             return report
         if progress:
@@ -293,54 +397,17 @@ class UniversalModernizationPipeline:
     ) -> tuple[Path, str]:
         """Map JavaApplication to Spring Boot and write the project.
 
-        Single-mapping-pass: reuses the exact same code path as the service.
+        Back-compat delegation to :class:`SpringBootRuntimeAdapter` — the
+        exact same code path the §32 adapter registry dispatches to.
         """
-        from engine.transformation.java_to_spring_mapping import (
-            map_java_application_to_spring_boot,
-        )
-        from engine.transformation.spring_boot_generator import SpringBootGenerator
-
-        spring_app = map_java_application_to_spring_boot(
+        outcome = get_runtime_adapter("spring_boot").assemble(
             java_application,
             entry_program=entry_program,
             copybook_models=copybook_models,
+            output_prefix=output_prefix,
+            runtime=RuntimeTargetConfig(target_runtime="spring_boot"),
         )
-        violations = spring_app.validate()
-        if violations:
-            raise RuntimeError(
-                "Spring Boot mapping failed: " + "; ".join(violations)
-            )
-
-        files = SpringBootGenerator().generate_project(spring_app)
-        if not files:
-            raise RuntimeError("Spring Boot generation produced no files")
-
-        project_dir = Path(tempfile.mkdtemp(prefix=output_prefix))
-        project_dir.mkdir(parents=True, exist_ok=True)
-        resolved_root = project_dir.resolve()
-        for gen_file in files:
-            rel = getattr(gen_file, "path", "") or gen_file.filename
-            parts = [
-                p for p in Path(rel).parts
-                if p not in ("", ".", "..") and ":" not in p
-            ]
-            if not parts:
-                continue
-            target = (resolved_root / Path(*parts)).resolve()
-            if target != resolved_root and resolved_root not in target.parents:
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(gen_file.source_code, encoding="utf-8")
-
-        entry = spring_app.entry_point
-        entry_fqn = (
-            f"{entry.package}.{entry.class_name}"
-            if entry and entry.package
-            else (entry.class_name if entry else "")
-        )
-        if not entry_fqn:
-            raise RuntimeError("Spring Boot mapping produced no entry point")
-        return project_dir, entry_fqn
+        return outcome.project_dir, outcome.entrypoint
 
     def _fill_discovery(self, report: ModernizationReport, app: CobolApplication) -> ModernizationReport:
         """Fill discovery results into the report."""
@@ -348,6 +415,7 @@ class UniversalModernizationPipeline:
             application_id=report.application_id,
             source_dir=report.source_dir,
             output_dir=report.output_dir,
+            target_runtime=report.target_runtime,
             discovered_programs=tuple(u.program_id for u in app.programs),
             discovered_copybooks=app.copybooks,
             discovered_calls=tuple(
@@ -387,6 +455,28 @@ class UniversalModernizationPipeline:
         if not report.generation_success:
             limitations.append("Java generation did not complete successfully")
             recommendations.append("Review COBOL source for parser limitations")
+
+        # §32 target-scope disclosure (fail-loud, never silent):
+        # Phase 9 landed the build + execute lane for the non-Spring
+        # targets.  The modernization pipeline itself still only generates;
+        # build (offline Maven) + execution (Docker jar) + fresh
+        # oracle-comparison evidence is produced per workload by the
+        # verification pipeline.  No universal equivalence claim (BL-089/
+        # BL-090; Phase 9).
+        if self._config.target_runtime == "plain_java":
+            limitations.append(
+                "target_runtime=plain_java: generation here; Maven build + "
+                "jar execution + fresh oracle comparison are produced per "
+                "workload by the verification pipeline (no universal "
+                "equivalence claim)"
+            )
+        elif self._config.target_runtime == "jakarta_ee":
+            limitations.append(
+                "target_runtime=jakarta_ee: generation profile here; the "
+                "dependency-free jar builds/executes offline via the Maven "
+                "lane with fresh per-workload oracle comparison — no Jakarta "
+                "EE server runtime and no universal equivalence claim"
+            )
 
         if not limitations:
             limitations = ("No limitations identified",)

@@ -12,7 +12,7 @@ from engine.domain.identities import AdapterStatus, ExecutionId, RunId
 # ---------------------------------------------------------------------------
 
 class TestCandidateManifest:
-    def test_valid_manifest(self):
+    def test_complete_manifest_validates_without_violations(self):
         manifest = CandidateManifest(
             candidate_id="cand-001",
             workload_id="wl-001",
@@ -44,7 +44,7 @@ class TestCandidateManifest:
 # ---------------------------------------------------------------------------
 
 class TestPlainJavaCandidateAdapter:
-    def test_valid_creation(self):
+    def test_fresh_adapter_reports_unavailable_before_probe(self):
         adapter = PlainJavaCandidateAdapter()
         assert adapter.status == AdapterStatus.UNAVAILABLE
 
@@ -85,7 +85,7 @@ class TestPlainJavaCandidateAdapter:
         violations = adapter.validate_candidate("/workspace/candidate", manifest)
         assert any("external dependencies" in v for v in violations)
 
-    def test_compile(self):
+    def test_compile_of_staged_candidate_reports_success(self):
         adapter = PlainJavaCandidateAdapter()
         manifest = CandidateManifest(
             candidate_id="cand-001",
@@ -97,7 +97,7 @@ class TestPlainJavaCandidateAdapter:
         result = adapter.compile("/workspace/candidate", manifest)
         assert result.success
 
-    def test_execute(self):
+    def test_execute_returns_succeeded_status_with_zero_exit(self):
         adapter = PlainJavaCandidateAdapter()
         manifest = CandidateManifest(
             candidate_id="cand-001",

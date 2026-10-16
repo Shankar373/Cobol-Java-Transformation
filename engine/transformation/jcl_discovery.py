@@ -32,6 +32,7 @@ Architecture:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from engine.transformation.jcl_parser import JclParser
@@ -41,6 +42,61 @@ from engine.transformation.ir import (
     JclDependency,
     JclJob,
 )
+from engine.transformation.jcl_dependencies import build_all_dependencies
+
+
+def _dataset_matches_file(dataset: str, file_key: str) -> bool:
+    """Precise dataset↔COBOL-file match (BL-074).
+
+    ``file_key`` is the upper-cased COBOL file name.  A dataset matches
+    only when it equals the file name or ends with ``.<file name>``
+    (qualified tail, e.g. ``PAY.INPUT`` ↔ ``INPUT``).  Substring
+    fragments never match.
+    """
+    if not file_key:
+        return False
+    dsn = dataset.upper()
+    return dsn == file_key or dsn.endswith("." + file_key)
+
+
+_JCL_MEMBER_SUFFIXES = (".jcl", ".jcllib")
+
+
+def is_jcl_member(path: Path) -> bool:
+    """One shared JCL member rule (BL-063).
+
+    True for case-insensitive ``.jcl`` / ``.jcllib`` suffixes and for
+    extensionless members whose content looks like JCL (starts with
+    ``//``).  The content sniff is lenient (``errors="replace"``) so a
+    non-UTF8 member is still recognized here; strict decoding happens at
+    read time, where failures are diagnosed instead of silently dropped.
+    """
+    name = path.name
+    if not name:
+        return False
+    if name.lower().endswith(_JCL_MEMBER_SUFFIXES):
+        return True
+    if name.startswith(".") or "." in name:
+        return False
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return head.lstrip().startswith("//")
+
+
+def find_jcl_members(source_path: str | Path) -> list[Path]:
+    """Every JCL member under ``source_path``, sorted for determinism.
+
+    Walks the whole tree (not a suffix glob) so uppercase suffixes are
+    found on case-sensitive filesystems too.  Discovery, the consumer's
+    unsupported scan, and the API presence gate all use this one
+    function, so they can no longer disagree about what counts as JCL.
+    """
+    root = Path(source_path)
+    return sorted(
+        {p for p in root.rglob("*") if p.is_file() and is_jcl_member(p)}
+    )
 
 
 class JclDiscovery:
@@ -82,19 +138,22 @@ class JclDiscovery:
         for jcl_file in jcl_files:
             try:
                 source = jcl_file.read_text(encoding="utf-8")
-                job = self._parser.parse(source)
-                jobs.append(JclJob(
-                    name=job.name,
-                    parameters=job.parameters,
-                    steps=job.steps,
-                    comments=job.comments,
-                    source_path=str(jcl_file.relative_to(source_path)),
-                ))
-            except Exception:
+                # One job per JOB statement (multi-job members are split,
+                # never merged — BL-072); replace() preserves every field.
+                for job in self._parser.parse_jobs(source):
+                    jobs.append(replace(
+                        job,
+                        source_path=str(jcl_file.relative_to(source_path)),
+                    ))
+            except (OSError, UnicodeDecodeError):
+                # No diagnostics channel here; the consumer's own scan
+                # uses the same member set (find_jcl_members) and turns
+                # read/decode failures into diagnostics, so a member is
+                # never silently lost from the reporting surface (BL-063).
                 continue
 
         # Build dependencies
-        dependencies = self._build_dependencies(jobs)
+        dependencies = build_all_dependencies(jobs)
 
         return JclApplication(
             jobs=tuple(jobs),
@@ -125,44 +184,54 @@ class JclDiscovery:
         # Build program ID lookup
         known_programs = {p.program_id for p in cobol_app.programs}
 
-        # Build file dependency lookup: dataset_name → (program_id, file_name)
-        file_lookup: dict[str, tuple[str, str]] = {}
+        # Index every COBOL file dependency by file name (case-insensitive),
+        # keeping ALL programs that declare the same file: a shared file must
+        # not silently overwrite its other readers (BL-074).  Empty file
+        # names are skipped — they would match every dataset.
+        file_lookup: dict[str, list[tuple[str, str]]] = {}
         for program in cobol_app.programs:
             for fd in program.file_dependencies:
-                file_lookup[fd.file_name] = (program.program_id, fd.file_name)
+                if not fd.file_name:
+                    continue
+                file_lookup.setdefault(fd.file_name.upper(), []).append(
+                    (program.program_id, fd.file_name)
+                )
 
         # Link JCL steps to COBOL programs
         for job in jcl_app.jobs:
             for step in job.steps:
                 if step.exec_ and step.exec_.program:
                     program_id = step.exec_.program
-                    if program_id in known_programs:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}",
-                            target=program_id,
-                            dependency_type="COBOL_PROGRAM",
-                            metadata="resolution=RESOLVED",
-                        ))
-                    else:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}",
-                            target=program_id,
-                            dependency_type="COBOL_PROGRAM",
-                            metadata="resolution=UNRESOLVED",
-                        ))
+                    resolution = (
+                        "RESOLVED" if program_id in known_programs else "UNRESOLVED"
+                    )
+                    dependencies.append(JclDependency(
+                        source=f"{job.name}.{step.name}",
+                        target=program_id,
+                        dependency_type="COBOL_PROGRAM",
+                        metadata=f"resolution={resolution}",
+                    ))
 
-                # Link DD datasets to COBOL files
+                # Link DD datasets to COBOL files.  Matching is precise:
+                # DSN equals the file name, or DSN ends with ".<file name>"
+                # (qualified tail).  Loose bidirectional substring matching
+                # produced phantom and wrong-target edges (BL-074).
                 for dd in step.dd_statements:
-                    if dd.dataset:
-                        # Try to match dataset to COBOL file
-                        for file_key, (prog_id, file_name) in file_lookup.items():
-                            if dd.dataset.upper() in file_name.upper() or file_name.upper() in dd.dataset.upper():
-                                dependencies.append(JclDependency(
-                                    source=f"{job.name}.{step.name}.{dd.name}",
-                                    target=f"{prog_id}.{file_name}",
-                                    dependency_type="COBOL_FILE",
-                                    metadata=f"dsn={dd.dataset}",
-                                ))
+                    if not dd.dataset:
+                        continue
+                    for file_key, decls in file_lookup.items():
+                        if not _dataset_matches_file(dd.dataset, file_key):
+                            continue
+                        resolution = "AMBIGUOUS" if len(decls) > 1 else "RESOLVED"
+                        for prog_id, file_name in decls:
+                            dependencies.append(JclDependency(
+                                source=f"{job.name}.{step.name}.{dd.name}",
+                                target=f"{prog_id}.{file_name}",
+                                dependency_type="COBOL_FILE",
+                                metadata=(
+                                    f"dsn={dd.dataset};resolution={resolution}"
+                                ),
+                            ))
 
         return JclApplication(
             jobs=jcl_app.jobs,
@@ -173,66 +242,9 @@ class JclDiscovery:
         )
 
     def _find_jcl_files(self, source_path: Path) -> list[Path]:
-        """Find all JCL source files in the directory tree."""
-        jcl_extensions = {".jcl", ".JCL", ".jcllib"}
-        jcl_files: list[Path] = []
+        """Find all JCL source files in the directory tree.
 
-        for ext in jcl_extensions:
-            jcl_files.extend(source_path.rglob(f"*{ext}"))
-
-        # Also check for files with no extension that look like JCL
-        for f in source_path.rglob("*"):
-            if f.is_file() and f.suffix == "":
-                try:
-                    content = f.read_text(encoding="utf-8", errors="ignore")
-                    # JCL typically starts with //
-                    if content.lstrip().startswith("//"):
-                        jcl_files.append(f)
-                except Exception:
-                    continue
-
-        return sorted(set(jcl_files))
-
-    def _build_dependencies(
-        self,
-        jobs: list[JclJob],
-    ) -> list[JclDependency]:
-        """Build all dependencies from parsed jobs."""
-        dependencies: list[JclDependency] = []
-
-        for job in jobs:
-            # Step order dependencies
-            for i in range(len(job.steps) - 1):
-                current = job.steps[i]
-                next_step = job.steps[i + 1]
-
-                if current.condition is None:
-                    dependencies.append(JclDependency(
-                        source=current.name,
-                        target=next_step.name,
-                        dependency_type="JCL_STEP_ORDER",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # EXEC program references
-            for step in job.steps:
-                if step.exec_ and step.exec_.program:
-                    dependencies.append(JclDependency(
-                        source=f"{job.name}.{step.name}",
-                        target=step.exec_.program,
-                        dependency_type="JCL_EXEC",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # DD dataset references
-            for step in job.steps:
-                for dd in step.dd_statements:
-                    if dd.dataset:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}.{dd.name}",
-                            target=dd.dataset,
-                            dependency_type="JCL_DD",
-                            metadata=f"disp={dd.disposition}" if dd.disposition else "",
-                        ))
-
-        return dependencies
+        Delegates to the shared BL-063 member rule so discovery, the
+        consumer scan, and the API presence gate select the same files.
+        """
+        return find_jcl_members(source_path)

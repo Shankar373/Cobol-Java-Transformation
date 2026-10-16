@@ -42,6 +42,8 @@ from engine.transformation.ir import (
 
 _HOST_VAR_RE = re.compile(r":([A-Z][A-Z0-9-]*)", re.IGNORECASE)
 _INDICATOR_PAIR_RE = re.compile(r":([A-Z][A-Z0-9-]*):([A-Z][A-Z0-9-]*)", re.IGNORECASE)
+_INTO_CLAUSE_RE = re.compile(r"\bINTO\b")
+_FROM_AFTER_RE = re.compile(r"\bFROM\b")
 
 
 class Db2SemanticAnalyzer:
@@ -64,15 +66,27 @@ class Db2SemanticAnalyzer:
         sqlcode_field: str = "",
         sqlstate_field: str = "",
     ) -> Db2SqlModel:
-        """Analyze all SQL blocks of a program into a DB2 semantic model."""
+        """Analyze all SQL blocks of a program into a DB2 semantic model.
+
+        Statement texts the parser could not model reach ``validation``
+        as deterministic diagnostics (BL-080) — the model never silently
+        understates what the program contains.
+        """
         stmt_semantics: list[Db2StmtSemantic] = []
         table_usages: list[Db2TableUsage] = []
+        unsupported_diagnostics: list[str] = []
 
         for block in blocks:
             for stmt in block.statements:
                 sem = self.analyze_statement(stmt)
                 stmt_semantics.append(sem)
                 table_usages.extend(self.statement_table_usages(stmt, sem))
+            for unsupported_text in block.unsupported_statements:
+                stripped = unsupported_text.strip()
+                first_line = stripped.splitlines()[0] if stripped else ""
+                unsupported_diagnostics.append(
+                    f"unsupported SQL text preserved: {first_line}"
+                )
 
         return Db2SqlModel(
             program_id=program_id,
@@ -81,7 +95,10 @@ class Db2SemanticAnalyzer:
             tables=merge_table_usages(table_usages),
             sqlcode_field=sqlcode_field,
             sqlstate_field=sqlstate_field,
-            validation=tuple(self.program_diagnostics(stmt_semantics)),
+            validation=(
+                tuple(self.program_diagnostics(stmt_semantics))
+                + tuple(unsupported_diagnostics)
+            ),
         )
 
     def analyze_statement(self, stmt) -> Db2StmtSemantic:
@@ -147,10 +164,19 @@ class Db2SemanticAnalyzer:
     # Per-statement analyzers
     # ------------------------------------------------------------------
 
-    def _analyze_select(self, select: SqlSelect, raw: str) -> Db2StmtSemantic:
+    @staticmethod
+    def _collect_select_read_columns(select: SqlSelect) -> list[SqlColumnReference]:
         read_cols: list[SqlColumnReference] = []
         read_cols.extend(select.columns)
         read_cols.extend(collect_predicate_columns(select.where_predicate))
+        for pred in select.where_predicates:
+            read_cols.extend(collect_predicate_columns(pred))
+        # ON-condition columns of joined tables (BL-081)
+        for join in select.joins:
+            for pred in join.on_predicates or (
+                (join.on_condition,) if join.on_condition else ()
+            ):
+                read_cols.extend(collect_predicate_columns(pred))
         read_cols.extend(collect_predicate_columns(select.having))
         for group in select.group_by:
             if group.column is not None:
@@ -158,13 +184,20 @@ class Db2SemanticAnalyzer:
         for order in select.order_by:
             if order.column is not None:
                 read_cols.append(order.column)
+        return read_cols
+
+    def _analyze_select(self, select: SqlSelect, raw: str) -> Db2StmtSemantic:
+        read_cols = self._collect_select_read_columns(select)
 
         is_singleton = bool(select.into_variables)
+        table_refs = tuple(select.from_tables) + tuple(
+            join.table for join in select.joins if join.table
+        )
         return Db2StmtSemantic(
             raw_sql=raw,
             statement_type=SqlStatementType.SELECT.value,
             host_variables=self._host_variables(raw, into_span=is_singleton),
-            table_refs=tuple(select.from_tables),
+            table_refs=table_refs,
             read_columns=tuple(column_full_names(read_cols)),
             possible_statuses=SINGLETON_SELECT_STATUSES if is_singleton else (),
         )
@@ -193,6 +226,8 @@ class Db2SemanticAnalyzer:
             write_cols.append(column)
             read_cols.extend(collect_expression_columns(value))
         read_cols.extend(collect_predicate_columns(update.where_predicate))
+        for pred in update.where_predicates:
+            read_cols.extend(collect_predicate_columns(pred))
 
         return Db2StmtSemantic(
             raw_sql=raw,
@@ -207,6 +242,8 @@ class Db2SemanticAnalyzer:
     def _analyze_delete(self, stmt, raw: str) -> Db2StmtSemantic:
         delete = stmt.delete
         read_cols = collect_predicate_columns(delete.where_predicate)
+        for pred in delete.where_predicates:
+            read_cols.extend(collect_predicate_columns(pred))
         return Db2StmtSemantic(
             raw_sql=raw,
             statement_type=SqlStatementType.DELETE.value,
@@ -222,16 +259,10 @@ class Db2SemanticAnalyzer:
         read_cols: list[SqlColumnReference] = []
         tables: tuple = ()
         if query is not None:
-            read_cols.extend(query.columns)
-            read_cols.extend(collect_predicate_columns(query.where_predicate))
-            read_cols.extend(collect_predicate_columns(query.having))
-            for group in query.group_by:
-                if group.column is not None:
-                    read_cols.append(group.column)
-            for order in query.order_by:
-                if order.column is not None:
-                    read_cols.append(order.column)
-            tables = tuple(query.from_tables)
+            read_cols.extend(self._collect_select_read_columns(query))
+            tables = tuple(query.from_tables) + tuple(
+                join.table for join in query.joins if join.table
+            )
 
         return Db2StmtSemantic(
             raw_sql=raw,
@@ -260,11 +291,11 @@ class Db2SemanticAnalyzer:
     def _into_span(self, raw: str) -> tuple[int, int] | None:
         """Index span of the INTO clause (``[start, end)``), if present."""
         upper = raw.upper()
-        into_match = re.search(r"\bINTO\b", upper)
+        into_match = _INTO_CLAUSE_RE.search(upper)
         if not into_match:
             return None
         start = into_match.start()
-        from_match = re.search(r"\bFROM\b", upper[start + 4:])
+        from_match = _FROM_AFTER_RE.search(upper[start + 4:])
         if from_match:
             end = start + 4 + from_match.start()
         else:
@@ -342,6 +373,11 @@ class Db2SemanticAnalyzer:
 
         if stype == SqlStatementType.SELECT:
             targets = list(stmt.select.from_tables) if stmt.select is not None else []
+            if stmt.select is not None:
+                # Joined tables are usage targets as well (BL-081)
+                targets.extend(
+                    join.table for join in stmt.select.joins if join.table
+                )
             for t in targets:
                 usages.append(Db2TableUsage(
                     table_name=t.table_name, schema=t.schema,
@@ -381,7 +417,10 @@ class Db2SemanticAnalyzer:
         if stype == SqlStatementType.DECLARE_CURSOR and stmt.cursor is not None:
             query = stmt.cursor.query
             if query is not None:
-                for t in query.from_tables:
+                query_targets = list(query.from_tables) + [
+                    join.table for join in query.joins if join.table
+                ]
+                for t in query_targets:
                     usages.append(Db2TableUsage(
                         table_name=t.table_name, schema=t.schema,
                         operations=("SELECT",), read_columns=sem.read_columns,

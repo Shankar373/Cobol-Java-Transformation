@@ -21,21 +21,17 @@ JCL parsing is discovery and modeling only — no execution semantics.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from engine.transformation.ir import (
     JclApplication,
     JclCondition,
     JclDD,
-    JclDependency,
     JclExec,
     JclJob,
     JclStep,
-    JclSymbol,
 )
-
-
-class JclParseError(Exception):
-    """Raised when JCL parsing encounters unrecoverable syntax."""
+from engine.transformation.jcl_dependencies import build_all_dependencies
 
 
 class JclParser:
@@ -49,14 +45,36 @@ class JclParser:
     def parse(self, source: str) -> JclJob:
         """Parse JCL source text into a JclJob IR.
 
+        Multi-job sources (several ``JOB`` statements in one file) are
+        split by :meth:`parse_jobs`; this single-job convenience returns
+        the **first** job of the source.
+
         Args:
             source: JCL source text
 
         Returns:
             JclJob with parsed steps, DDs, and conditions
         """
-        lines = source.splitlines()
-        return self._parse_lines(lines)
+        jobs = self.parse_jobs(source)
+        if jobs:
+            return jobs[0]
+        return JclJob(name="")
+
+    def parse_jobs(self, source: str) -> tuple[JclJob, ...]:
+        """Parse JCL source text into every JOB it declares, in source order.
+
+        Each ``JOB`` statement starts a new :class:`JclJob`; statements
+        stay attributed to the job they follow (no merging, no silent
+        loss — BL-072).
+
+        Args:
+            source: JCL source text
+
+        Returns:
+            One ``JclJob`` per JOB statement; empty tuple only when the
+            source carries no statements at all.
+        """
+        return tuple(self._parse_lines(source.splitlines()))
 
     def parse_application(self, sources: dict[str, str]) -> JclApplication:
         """Parse multiple JCL sources into a JclApplication.
@@ -69,29 +87,43 @@ class JclParser:
         """
         jobs: list[JclJob] = []
         for filename, source in sources.items():
-            job = self.parse(source)
-            jobs.append(JclJob(
-                name=job.name,
-                parameters=job.parameters,
-                steps=job.steps,
-                comments=job.comments,
-                source_path=filename,
-            ))
+            for job in self.parse_jobs(source):
+                # replace() keeps every job field (including fields added
+                # later) without a hand-maintained copy list.
+                jobs.append(replace(job, source_path=filename))
 
-        dependencies = self._build_all_dependencies(jobs)
+        dependencies = build_all_dependencies(jobs)
 
         return JclApplication(
             jobs=tuple(jobs),
             dependencies=tuple(dependencies),
         )
 
-    def _parse_lines(self, lines: list[str]) -> JclJob:
-        """Parse JCL lines into a JclJob."""
+    def _parse_lines(self, lines: list[str]) -> list[JclJob]:
+        """Parse JCL lines into one JclJob per JOB statement."""
+        jobs: list[JclJob] = []
         job_name = ""
         job_params: dict[str, str] = {}
         steps: list[JclStep] = []
         comments: list[str] = []
-        symbols: list[JclSymbol] = []
+        job_level_dds: list[JclDD] = []
+        job_seen = False
+
+        def flush() -> None:
+            """Append the job accumulated so far and reset the buffers."""
+            nonlocal job_name, job_params, steps, comments, job_level_dds
+            jobs.append(JclJob(
+                name=job_name,
+                parameters=job_params if job_params else None,
+                steps=tuple(steps),
+                comments=tuple(comments),
+                job_dd_statements=tuple(job_level_dds),
+            ))
+            job_name = ""
+            job_params = {}
+            steps = []
+            comments = []
+            job_level_dds = []
 
         i = 0
         while i < len(lines):
@@ -118,6 +150,11 @@ class JclParser:
 
             # Check for JOB
             if " JOB " in rest or rest.upper().startswith("JOB "):
+                # A second JOB statement closes the job accumulated so far
+                # instead of absorbing its steps (BL-072).
+                if job_seen:
+                    flush()
+                job_seen = True
                 job_name, job_params, i = self._parse_job(rest, i)
                 continue
 
@@ -129,9 +166,9 @@ class JclParser:
 
             # Check for DD
             if " DD " in rest or rest.upper().startswith("DD "):
-                # This DD belongs to the current step
+                dd, i = self._parse_dd(rest, i)
                 if steps:
-                    dd, i = self._parse_dd(rest, i, lines)
+                    # This DD belongs to the current step
                     steps[-1] = JclStep(
                         name=steps[-1].name,
                         exec_=steps[-1].exec_,
@@ -140,14 +177,13 @@ class JclParser:
                         comments=steps[-1].comments,
                     )
                 else:
-                    i += 1
+                    # DD before the first EXEC of this job: job-level
+                    # (JOBLIB & co.) — preserved, never dropped (BL-073)
+                    job_level_dds.append(dd)
                 continue
 
             # Check for SET
             if rest.upper().startswith("SET ") or " SET " in rest:
-                symbol = self._parse_set(rest)
-                if symbol:
-                    symbols.append(symbol)
                 i += 1
                 continue
 
@@ -165,12 +201,10 @@ class JclParser:
             # Skip unrecognized lines
             i += 1
 
-        return JclJob(
-            name=job_name,
-            parameters=job_params if job_params else None,
-            steps=tuple(steps),
-            comments=tuple(comments),
-        )
+        if job_seen or steps or comments or job_params or job_name or job_level_dds:
+            flush()
+
+        return jobs
 
     def _parse_job(self, line: str, start_idx: int) -> tuple[str, dict[str, str], int]:
         """Parse a JOB statement.
@@ -234,7 +268,7 @@ class JclParser:
                 content = next_line[2:].strip()
                 # Check if this is a DD statement
                 if " DD " in content.upper() or content.upper().startswith("DD "):
-                    dd, i = self._parse_dd(content, i, lines)
+                    dd, i = self._parse_dd(content, i)
                     dds.append(dd)
                     continue
                 else:
@@ -280,7 +314,7 @@ class JclParser:
             parameters=params if params else None,
         )
 
-    def _parse_dd(self, line: str, start_idx: int, lines: list[str]) -> tuple[JclDD, int]:
+    def _parse_dd(self, line: str, start_idx: int) -> tuple[JclDD, int]:
         """Parse a DD statement.
 
         Returns:
@@ -306,11 +340,10 @@ class JclParser:
         dcb = ""
         vol = ""
         sysout = ""
-        sysin = False
         is_temporary = False
         is_inline = False
 
-        if dd_str == "*" or dd_str.upper() == "DATA":
+        if dd_str.upper() == "DATA":
             is_inline = True
         elif dd_str.upper().startswith("*"):
             is_inline = True
@@ -320,8 +353,10 @@ class JclParser:
                 sysout = sysout_match.group(1).rstrip(",")
         else:
             # Parse DSN, DISP, etc.
-            # Split by comma first, then parse each part
-            parts = re.split(r",(?=(?:[^']*\'[^']*\')*[^']*$)", dd_str)
+            # Split by comma, respecting parenthesis depth and quotes so
+            # compound values like DISP=(NEW,CATLG,DELETE) or
+            # SPACE=(TRK,(10,5)) stay single parameters (BL-075).
+            parts = self._split_parameters(dd_str)
 
             for part in parts:
                 part = part.strip()
@@ -356,47 +391,29 @@ class JclParser:
                 dcb=dcb,
                 vol=vol,
                 sysout=sysout,
-                sysin=sysin,
                 is_temporary=is_temporary,
                 is_inline=is_inline,
             ),
             start_idx + 1,
         )
 
-    def _parse_set(self, line: str) -> JclSymbol | None:
-        """Parse a SET statement for symbolic parameters."""
-        match = re.search(
-            r"SET\s+(\S+)=([^,\s]+)",
-            line, re.IGNORECASE,
-        )
-        if not match:
-            return None
 
-        name = match.group(1)
-        value = match.group(2)
+    @staticmethod
+    def _split_parameters(text: str) -> list[str]:
+        """Split comma-separated JCL parameters.
 
-        return JclSymbol(
-            name=name,
-            value=value,
-            is_resolved=True,
-        )
-
-    def _parse_parameters(self, param_str: str) -> dict[str, str]:
-        """Parse comma-separated parameters.
-
-        Handles parentheses in values like COND=(0,NE).
+        Commas inside parentheses (``DISP=(NEW,CATLG,DELETE)``,
+        ``SPACE=(TRK,(10,5))``) and inside quoted strings
+        (``DSN='A,B'``) do not separate parameters; only top-level
+        commas do (BL-075).
         """
-        params: dict[str, str] = {}
-
-        # Split by comma, but handle parentheses and quoted strings
-        # This regex respects parentheses depth and quoted strings
         parts: list[str] = []
-        depth = 0
         current: list[str] = []
+        depth = 0
         in_quote = False
         quote_char = ""
 
-        for ch in param_str:
+        for ch in text:
             if in_quote:
                 current.append(ch)
                 if ch == quote_char:
@@ -413,7 +430,7 @@ class JclParser:
                 depth += 1
                 current.append(ch)
             elif ch == ")":
-                depth -= 1
+                depth = max(0, depth - 1)
                 current.append(ch)
             elif ch == "," and depth == 0:
                 parts.append("".join(current))
@@ -423,6 +440,16 @@ class JclParser:
 
         if current:
             parts.append("".join(current))
+        return parts
+
+    def _parse_parameters(self, param_str: str) -> dict[str, str]:
+        """Parse comma-separated parameters.
+
+        Handles parentheses in values like COND=(0,NE).
+        """
+        params: dict[str, str] = {}
+
+        parts = self._split_parameters(param_str)
 
         for part in parts:
             part = part.strip()
@@ -437,73 +464,3 @@ class JclParser:
                 params[key] = value
 
         return params
-
-    def _build_step_dependencies(
-        self,
-        jobs: list[JclJob],
-    ) -> list[JclDependency]:
-        """Build step execution order dependencies.
-
-        Steps within a job execute in source order unless conditioned.
-        """
-        dependencies: list[JclDependency] = []
-
-        for job in jobs:
-            for i in range(len(job.steps) - 1):
-                current = job.steps[i]
-                next_step = job.steps[i + 1]
-
-                # Unconditional step order
-                if current.condition is None:
-                    dependencies.append(JclDependency(
-                        source=current.name,
-                        target=next_step.name,
-                        dependency_type="JCL_STEP_ORDER",
-                        metadata=f"job={job.name}",
-                    ))
-
-        return dependencies
-
-    def _build_all_dependencies(
-        self,
-        jobs: list[JclJob],
-    ) -> list[JclDependency]:
-        """Build all dependencies from parsed jobs."""
-        dependencies: list[JclDependency] = []
-
-        for job in jobs:
-            # Step order dependencies
-            for i in range(len(job.steps) - 1):
-                current = job.steps[i]
-                next_step = job.steps[i + 1]
-
-                if current.condition is None:
-                    dependencies.append(JclDependency(
-                        source=current.name,
-                        target=next_step.name,
-                        dependency_type="JCL_STEP_ORDER",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # EXEC program references
-            for step in job.steps:
-                if step.exec_ and step.exec_.program:
-                    dependencies.append(JclDependency(
-                        source=f"{job.name}.{step.name}",
-                        target=step.exec_.program,
-                        dependency_type="JCL_EXEC",
-                        metadata=f"job={job.name}",
-                    ))
-
-            # DD dataset references
-            for step in job.steps:
-                for dd in step.dd_statements:
-                    if dd.dataset:
-                        dependencies.append(JclDependency(
-                            source=f"{job.name}.{step.name}.{dd.name}",
-                            target=dd.dataset,
-                            dependency_type="JCL_DD",
-                            metadata=f"disp={dd.disposition}" if dd.disposition else "",
-                        ))
-
-        return dependencies

@@ -19,7 +19,9 @@
  *   GET    /runs/{id}/artifacts
  *   POST   /runs/{id}/validate
  *   GET    /runs/{id}/verdict
- *   GET    /runs/{id}/download         (generated artifact only)
+ *   GET    /runs/{id}/approval      (BL-091 customer approval record)
+ *   POST   /runs/{id}/approval      (record APPROVED/REJECTED decision)
+ *   GET    /runs/{id}/download         (generated artifact only; 409 until APPROVED)
  *   GET    /health
  */
 
@@ -165,6 +167,30 @@ export interface ArtifactsResponse {
 export interface ValidateResponse {
   run_id: string;
   stage: RunStage;
+}
+
+// ---------------------------------------------------------------------------
+// Customer approval (BL-091; D-1 resolved 2026-10-17)
+// ---------------------------------------------------------------------------
+
+/** Current per-run approval state. PENDING until an explicit decision. */
+export type ApprovalState = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** Decisions accepted by the approval endpoint (PENDING is never one). */
+export type ApprovalDecisionValue = 'APPROVED' | 'REJECTED';
+
+export interface RunApprovalResponse {
+  run_id: string;
+  state: ApprovalState;
+  approver: string | null;
+  reason: string | null;
+  decided_at: string | null;
+}
+
+export interface ApprovalDecisionInput {
+  decision: ApprovalDecisionValue;
+  approver: string;
+  reason?: string;
 }
 
 export interface ComparisonDetail {
@@ -318,6 +344,29 @@ export async function validateRun(runId: string): Promise<ValidateResponse> {
   });
 }
 
+/** Current approval record for a run (PENDING until a decision). */
+export async function getRunApproval(runId: string): Promise<RunApprovalResponse> {
+  return request<RunApprovalResponse>(`/runs/${runId}/approval`);
+}
+
+/**
+ * Record an explicit customer decision (BL-091).
+ *
+ * The backend enforces the scope: rejection requires a reason, approval
+ * reason is optional, a later decision supersedes the earlier one, and
+ * export/download answers 409 until the run is APPROVED.
+ */
+export async function setRunApproval(
+  runId: string,
+  input: ApprovalDecisionInput,
+): Promise<RunApprovalResponse> {
+  return request<RunApprovalResponse>(`/runs/${runId}/approval`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 export async function getVerdict(runId: string): Promise<VerdictResponse> {
   return request<VerdictResponse>(`/runs/${runId}/verdict`);
 }
@@ -389,6 +438,59 @@ export async function getReport(
   runId: string,
 ): Promise<ModernizationReportResponse> {
   return request<ModernizationReportResponse>(`/runs/${runId}/report`);
+}
+
+export interface DependencyLedgerEntry {
+  dependency_id: string;
+  kind: string;
+  visible: boolean;
+  capability_level: string;
+  proof_state: string;
+  required: boolean;
+  reason: string;
+}
+
+export interface IntegratedProofResult {
+  workload_id: string;
+  application_id: string;
+  central_status: string;
+  blocking_reasons: string[];
+  generation_success: boolean;
+  overall_capability: string;
+  jcl_status: string;
+  runtime: Record<string, unknown>;
+  dependency_ledger: DependencyLedgerEntry[];
+  required_dependencies: DependencyLedgerEntry[];
+  unproven_dependencies: DependencyLedgerEntry[];
+  runtime_verdict_is_verified: boolean;
+}
+
+export interface IntegratedProofResponse {
+  run_id: string;
+  application_id: string;
+  proof: IntegratedProofResult;
+  verdict_state: string;
+  evidence_status: string;
+  runtime_proof_status: string;
+  reasons_for_not_verified: string[];
+  proven_dependencies: DependencyLedgerEntry[];
+  unproven_dependencies: DependencyLedgerEntry[];
+  blocked_dependencies: DependencyLedgerEntry[];
+  unsupported_dependencies: DependencyLedgerEntry[];
+  evidence_complete: boolean;
+  evidence_integrity_valid: boolean;
+  required_dependencies_proven: boolean;
+  overall_verification: string;
+}
+
+// ---------------------------------------------------------------------------
+// Integrated Proof
+// ---------------------------------------------------------------------------
+
+export async function getIntegratedProof(
+  runId: string,
+): Promise<IntegratedProofResponse> {
+  return request<IntegratedProofResponse>(`/runs/${runId}/integrated-proof`);
 }
 
 // ---------------------------------------------------------------------------

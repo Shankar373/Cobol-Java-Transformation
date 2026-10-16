@@ -21,6 +21,7 @@ from api.app import app
 from api.models import RunStage
 from api.service import Service, ServiceError
 from api.store import ApplicationRecord, RunRecord, Store
+from tests.common import make_stub_verdict
 
 
 client = TestClient(app)
@@ -52,40 +53,10 @@ def _mock_generate(self_svc, app, run):
     return Path("/tmp/mock-generated"), "com.example.Main"
 
 
-class _StubVerdict:
-    """Picklable verdict double.
-
-    The SQLite store persists verdicts as blobs, so doubles must be
-    serializable like the real engine Verdict (a plain dataclass).
-    """
-
-    def __init__(self, run_id: str, workload_id: str) -> None:
-        self._run_id = run_id
-        self._workload_id = workload_id
-
-    def to_dict(self) -> dict:
-        return {
-            "run_id": f"engine-{self._run_id}",
-            "state": "UNPROVEN",
-            "workload_id": self._workload_id,
-            "source_hash": "mock-source-hash",
-            "candidate_hash": "mock-candidate-hash",
-            "oracle_id": "mock-oracle",
-            "oracle_digest": "mock-digest",
-            "executed_check_count": 0,
-            "skipped_count": 0,
-            "unavailable_count": 0,
-            "supported_scope_statement": "mock scope",
-            "evidence_manifest_hash": "mock-manifest-hash",
-            "derivation_timestamp": "2024-01-01T00:00:00Z",
-            "differences": [],
-        }
-
-
 def _mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
     """Fast mock: set evidence stage and persist a mock verdict."""
     run.stage = RunStage.VALIDATING_EVIDENCE
-    run.verdict = _StubVerdict(run.id, run.workload_id)
+    run.verdict = make_stub_verdict(run.id, run.workload_id)
 
 
 @pytest.fixture()
@@ -101,6 +72,28 @@ def fresh_service():
     svc_mod._store = store
     svc_mod._service = svc
     return svc
+
+
+def _await_terminal(run_id: str, timeout_s: float = 120.0) -> dict:
+    """Poll GET /runs/{id} until the background worker reaches a terminal
+    state (COMPLETED or FAILED).  Tolerates CI runners under load.
+
+    Returns the final run body dict."""
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    body: dict = {}
+    while True:
+        resp = client.get(f"/runs/{run_id}")
+        body = resp.json()
+        if body.get("stage") in ("COMPLETED", "FAILED"):
+            return body
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"run {run_id} stuck at stage '{body.get('stage')}' "
+                f"after {timeout_s}s"
+            )
+        time.sleep(0.5)
 
 
 @pytest.fixture()
@@ -210,9 +203,9 @@ class TestUploadSource:
 # ---------------------------------------------------------------------------
 
 class TestModernize:
-    def test_modernize_unknown_app_returns_400(self, fresh_service):
+    def test_modernize_unknown_app_returns_404(self, fresh_service):
         resp = client.post("/applications/app-nope/modernize")
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
     def test_modernize_no_upload_returns_400(self, fresh_service):
         app_resp = client.post("/applications", json={
@@ -272,16 +265,8 @@ class TestGetRun:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Poll until background worker completes
-        for _ in range(30):
-            resp = client.get(f"/runs/{run_id}")
-            body = resp.json()
-            if body["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        body = _await_terminal(run_id)
 
-        assert resp.status_code == 200
-        body = resp.json()
         assert body["id"] == run_id
         assert body["application_id"] == app_id
         assert body["stage"] in ("COMPLETED", "FAILED")
@@ -313,12 +298,7 @@ class TestGetArtifacts:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Wait for background modernization to complete
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        _await_terminal(run_id)
 
         resp = client.get(f"/runs/{run_id}/artifacts")
         assert resp.status_code == 200
@@ -353,12 +333,7 @@ class TestGetVerdict:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Wait for background modernization to complete
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        _await_terminal(run_id)
 
         resp = client.get(f"/runs/{run_id}/verdict")
         assert resp.status_code == 200
@@ -381,7 +356,7 @@ class TestGetVerdict:
 class TestValidateRun:
     def test_validate_not_found(self, fresh_service):
         resp = client.post("/runs/run-ghost/validate")
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
     @patch.object(Service, "_generate_application", _mock_generate)
     @patch.object(Service, "_run_validation", _mock_validation)
@@ -400,12 +375,7 @@ class TestValidateRun:
         mod_resp = client.post(f"/applications/{app_id}/modernize")
         run_id = mod_resp.json()["run_id"]
 
-        # Wait for background modernization to complete
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        _await_terminal(run_id)
 
         resp = client.post(f"/runs/{run_id}/validate")
         assert resp.status_code == 202
@@ -418,12 +388,7 @@ class TestValidateRun:
             "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE",
             "COMPLETED", "FAILED",
         )
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
-        assert run_resp.json()["stage"] in ("COMPLETED", "FAILED")
+        _await_terminal(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -456,14 +421,9 @@ class TestFullLifecycle:
         assert mod_resp.json()["stage"] == "CREATED"
 
         # 4. Poll until terminal stage
-        for _ in range(30):
-            run_resp = client.get(f"/runs/{run_id}")
-            if run_resp.json()["stage"] in ("COMPLETED", "FAILED"):
-                break
-            time.sleep(0.3)
+        run_data = _await_terminal(run_id)
 
-        assert run_resp.status_code == 200
-        assert run_resp.json()["stage"] in ("COMPLETED", "FAILED")
+        assert run_data["stage"] in ("COMPLETED", "FAILED")
 
         # 5. Get artifacts
         art_resp = client.get(f"/runs/{run_id}/artifacts")

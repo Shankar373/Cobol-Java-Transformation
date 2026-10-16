@@ -71,14 +71,14 @@ pytestmark = pytest.mark.skipif(
 class TestDockerJavaAdapterUnit:
     """Unit tests for Docker Java adapter."""
 
-    def test_adapter_initializes(self):
+    def test_fresh_adapter_reports_a_known_status(self):
         """Adapter initializes and probes Docker availability."""
         config = DockerJavaConfig()
         adapter = DockerJavaCandidateAdapter(config)
         # Status is either AVAILABLE or UNAVAILABLE depending on Docker/image
         assert adapter.status in (AdapterStatus.AVAILABLE, AdapterStatus.UNAVAILABLE)
 
-    def test_adapter_has_resolved_digest(self):
+    def test_available_adapter_resolves_image_digest(self):
         """Adapter resolves image digest if Docker available."""
         config = DockerJavaConfig()
         adapter = DockerJavaCandidateAdapter(config)
@@ -86,7 +86,7 @@ class TestDockerJavaAdapterUnit:
             assert adapter.resolved_digest != ""
             assert "sha256:" in adapter.resolved_digest or len(adapter.resolved_digest) > 0
 
-    def test_adapter_has_java_version(self):
+    def test_available_adapter_detects_java_version(self):
         """Adapter detects Java version inside container."""
         config = DockerJavaConfig()
         adapter = DockerJavaCandidateAdapter(config)

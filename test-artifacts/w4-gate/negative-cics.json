@@ -1,0 +1,127 @@
+{
+  "mode": "negative-cics",
+  "workload": "cics",
+  "db": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\negative-cics\\control-plane.db",
+  "zip": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\negative-cics\\cics.zip",
+  "application_id": "app-b6907fc44d0f",
+  "ingest": {
+    "application_id": "app-b6907fc44d0f",
+    "workspace_path": "C:\\Users\\bandi\\AppData\\Local\\Temp\\ingest-app-b6907fc44d0f-j51w4k77\\cobol",
+    "source_file_count": 2,
+    "total_size_bytes": 2631,
+    "discovery": {
+      "application_id": "app-b6907fc44d0f",
+      "cobol_programs": [
+        {
+          "program_id": "CUSTINQ",
+          "source_path": "CUSTINQ.cob",
+          "file_dependencies": [
+            {
+              "name": "DATASET",
+              "operation": "READ",
+              "mode": ""
+            }
+          ],
+          "calls": [],
+          "copybooks": [],
+          "entry_points": []
+        },
+        {
+          "program_id": "ORDPROC",
+          "source_path": "ORDPROC.cob",
+          "file_dependencies": [
+            {
+              "name": "DATASET",
+              "operation": "READ",
+              "mode": ""
+            },
+            {
+              "name": "DATASET",
+              "operation": "WRITE",
+              "mode": ""
+            }
+          ],
+          "calls": [],
+          "copybooks": [],
+          "entry_points": []
+        }
+      ],
+      "copybooks": [],
+      "jcl_jobs": [],
+      "file_dependencies": [
+        {
+          "program_id": "CUSTINQ",
+          "file_name": "DATASET",
+          "operation": "READ"
+        },
+        {
+          "program_id": "ORDPROC",
+          "file_name": "DATASET",
+          "operation": "READ"
+        },
+        {
+          "program_id": "ORDPROC",
+          "file_name": "DATASET",
+          "operation": "WRITE"
+        }
+      ],
+      "call_dependencies": [],
+      "dependency_edges": [
+        {
+          "source": "CUSTINQ",
+          "target": "DATASET",
+          "edge_type": "FILE_READ"
+        },
+        {
+          "source": "ORDPROC",
+          "target": "DATASET",
+          "edge_type": "FILE_READ"
+        },
+        {
+          "source": "ORDPROC",
+          "target": "DATASET",
+          "edge_type": "FILE_WRITE"
+        }
+      ],
+      "source_file_count": 2,
+      "total_size_bytes": 2631,
+      "discovery_success": true,
+      "discovery_errors": [],
+      "detected_name": "cobol",
+      "top_level_entries": [
+        "cobol"
+      ]
+    },
+    "detected_name": "cobol",
+    "top_level_entries": [
+      "cobol"
+    ]
+  },
+  "modernize_status": 202,
+  "run_id": "run-5087cc121c0c",
+  "terminal": {
+    "run": {
+      "id": "run-5087cc121c0c",
+      "application_id": "app-b6907fc44d0f",
+      "workload_id": "cics",
+      "stage": "FAILED",
+      "created_at": "2026-10-08T07:57:51.832870+00:00",
+      "completed_at": "2026-10-08T07:57:52.110618+00:00",
+      "error": "Pipeline generation failed: Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC"
+    },
+    "stages_seen": [
+      "FAILED"
+    ]
+  },
+  "run_stage": "FAILED",
+  "run_error": "Pipeline generation failed: Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC",
+  "verdict_http": 404,
+  "proof_http_process1": 404,
+  "proof_process1": "{\"detail\":\"No modernization report available for this run\"}",
+  "reload_run_http": 200,
+  "reload_run_stage": "FAILED",
+  "reload_verdict_http": 404,
+  "proof_http_process2": 404,
+  "proof_process2": "{\"detail\":\"No modernization report available for this run\"}",
+  "proof_identical_across_restart": null
+}

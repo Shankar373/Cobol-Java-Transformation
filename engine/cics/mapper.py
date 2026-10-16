@@ -148,7 +148,7 @@ class CicsSpringMapper:
 
             for operand in command.operands:
                 if operand.is_host_variable:
-                    name = operand.value.lstrip(":")
+                    name = self._value_name(operand.value)
                     if name and name not in host_variables:
                         host_variables.append(name)
 
@@ -397,25 +397,15 @@ class CicsSpringMapper:
     @staticmethod
     def _resp_policy(command):
         if command.resp_handling == CicsRespHandling.RESP_VARIABLE:
-            return (
-                CicsRespPolicy.RESP_VARIABLE,
-                CicsSpringMapper._value_name(command.resp_field),
-                CicsSpringMapper._value_name(command.resp2_field),
-            )
-        if command.resp_handling == CicsRespHandling.RESP2_VARIABLE:
-            return (
-                CicsRespPolicy.RESP2_VARIABLE,
-                CicsSpringMapper._value_name(command.resp_field),
-                CicsSpringMapper._value_name(command.resp2_field),
-            )
-        if command.resp_handling == CicsRespHandling.HANDLE_CONDITION:
-            return (
-                CicsRespPolicy.HANDLE_CONDITION,
-                CicsSpringMapper._value_name(command.resp_field),
-                CicsSpringMapper._value_name(command.resp2_field),
-            )
+            policy = CicsRespPolicy.RESP_VARIABLE
+        elif command.resp_handling == CicsRespHandling.RESP2_VARIABLE:
+            policy = CicsRespPolicy.RESP2_VARIABLE
+        elif command.resp_handling == CicsRespHandling.HANDLE_CONDITION:
+            policy = CicsRespPolicy.HANDLE_CONDITION
+        else:
+            policy = CicsRespPolicy.NO_HANDLE
         return (
-            CicsRespPolicy.NO_HANDLE,
+            policy,
             CicsSpringMapper._value_name(command.resp_field),
             CicsSpringMapper._value_name(command.resp2_field),
         )

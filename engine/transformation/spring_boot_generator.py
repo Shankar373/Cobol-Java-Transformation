@@ -18,12 +18,19 @@ Generator has ZERO imports from:
 
 Imports only:
 - engine.transformation.spring_boot_ir
+- engine.transformation.java_ir (expression rendering)
+- engine.transformation.java_generator (canonical ``_escape_java_string``, BL-046)
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
+
+# Integral Java literals may carry a type suffix (``123L``); those are
+# still numeric literals and must never be quoted as Strings.
+_JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
 
 from engine.transformation.spring_boot_ir import (
     DataAccessStrategy,
@@ -35,6 +42,7 @@ from engine.transformation.spring_boot_ir import (
     SpringBootDependency,
     SpringBootDependencyType,
     SpringBootEntryPoint,
+    SpringBootModel,
     SpringBootRepository,
     SpringBootRepositoryImplementation,
     SpringBootService,
@@ -76,8 +84,33 @@ class SpringBootGenerator:
             files.append(self._generate_entry_point(application.entry_point, application.services))
 
         # Services
+        service_files: list[GeneratedFile] = []
         for service in application.services:
-            files.append(self._generate_service(service))
+            service_files.append(self._generate_service(service))
+        files.extend(service_files)
+
+        # File I/O support class: emitted when a generated service performs
+        # COBOL file operations (detected by "CobolFileIo." references).
+        emitted_cobol_file_io = False
+        for service, service_file in zip(application.services, service_files):
+            if emitted_cobol_file_io:
+                break
+            if "CobolFileIo." in service_file.source_code:
+                from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolFileIo.java"
+                files.append(GeneratedFile(
+                    filename="CobolFileIo.java",
+                    source_code=f"package {package};\n\n{COBOL_FILE_IO_JAVA}\n",
+                    class_name="CobolFileIo",
+                    path=path,
+                ))
+                emitted_cobol_file_io = True
+
+        # Shared copybook models are emitted by the single M7 loop below
+        # (after the adapter implementations) — BL-064: a second loop here
+        # appended every model class file twice, producing duplicate
+        # same-package classes (javac failure) for every copybook workload.
 
         # Repositories (interfaces)
         for repo in application.repositories:
@@ -94,6 +127,12 @@ class SpringBootGenerator:
         # Adapter implementations
         for impl in application.adapter_implementations:
             files.append(self._generate_adapter_implementation(impl))
+
+        # Shared copybook data models (M7): data holders only.  This is
+        # the single model-emission site (BL-064) — exactly one file per
+        # model, never appended twice.
+        for model in application.models:
+            files.append(self._generate_model(model))
 
         # Configuration
         if application.configuration:
@@ -199,6 +238,12 @@ class SpringBootGenerator:
             lines.append("# Database configuration — strategy UNSPECIFIED")
             lines.append("# Configure datasource when persistence strategy is selected")
 
+        if application.autoconfigure_excludes:
+            lines.append(
+                "spring.autoconfigure.exclude="
+                + ",".join(application.autoconfigure_excludes)
+            )
+
         if config and config.has_web:
             lines.append("server.port=8080")
 
@@ -230,8 +275,19 @@ class SpringBootGenerator:
         package = entry.package
         path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
 
+        # Selected-service execution: the runner invokes ONLY the requested
+        # entry service; callees run through service calls. Unknown/empty
+        # selection keeps the legacy invoke-every-service behaviour.
+        selected = (entry.selected_service or "").strip()
+        known = {svc.name for svc in services}
+        active = (
+            tuple(svc for svc in services if svc.name == selected)
+            if selected and selected in known
+            else tuple(services)
+        )
+
         # Check if this is a batch program (has business logic services)
-        has_services = bool(services)
+        has_services = bool(active)
 
         if has_services:
             # Batch execution: inject services and execute business logic
@@ -240,12 +296,12 @@ class SpringBootGenerator:
             service_assignments = []
             service_calls = []
 
-            for i, svc in enumerate(services):
+            for i, svc in enumerate(active):
                 field_name = svc.name[0].lower() + svc.name[1:] if svc.name else f"service{i}"
                 service_fields.append(f"    private final {svc.name} {field_name};")
                 service_params.append(f"{svc.name} {field_name}")
                 service_assignments.append(f"        this.{field_name} = {field_name};")
-                # Call the first method of each service
+                # Call the first method of each active service
                 if svc.methods:
                     method = svc.methods[0]
                     params = ", ".join(f"new {ptype.to_source()}()" if hasattr(ptype, 'to_source') else str(ptype) for ptype, pname in method.parameters)
@@ -262,7 +318,7 @@ class SpringBootGenerator:
                 "import org.springframework.boot.autoconfigure.SpringBootApplication;",
                 "import org.springframework.context.annotation.Bean;",
             ]
-            for svc in services:
+            for svc in active:
                 svc_package = svc.package if hasattr(svc, 'package') and svc.package else package
                 imports.append(f"import {svc_package}.{svc.name};")
 
@@ -369,7 +425,10 @@ public class {class_name} {{
                 init_expr = self._expr_to_string(field.initializer)
                 init_val = f" = {init_expr}"
             field_type = field.java_type.to_source() if field.java_type else "Object"
-            lines.append(f"    private {field_type} {field.name}{init_val};")
+            if "public" in (field.modifiers or ()):  # linkage fields
+                lines.append(f"    public static {field_type} {field.name}{init_val};")
+            else:
+                lines.append(f"    private {field_type} {field.name}{init_val};")
 
         if service.fields:
             lines.append("")
@@ -424,6 +483,70 @@ public class {class_name} {{
             path=path,
         )
 
+    # ================================================================
+    # COPYBOOK MODELS
+    # ================================================================
+
+    def _generate_model(self, model) -> GeneratedFile:
+        """Generate a shared copybook model class (M7 data holder).
+
+        Consumes only the model's ``JavaClass`` IR via the existing
+        statement/expression renderers. Emits fields, a default
+        constructor, and accessors — never business logic, never ``main``.
+        A model without class IR renders its shell so the canonical path
+        still exists.
+        """
+        from engine.transformation.spring_boot_ir import SpringBootModel
+
+        assert isinstance(model, SpringBootModel)
+        cls = model.java_class
+        package = model.package
+        class_name = model.name
+        fields = tuple(cls.fields) if cls is not None else ()
+        methods = tuple(cls.methods) if cls is not None else ()
+        lines = [
+            f"package {package};",
+            "",
+            "/**",
+            f" * Shared data model materialized from COPYBOOK {model.source_copybook}.",
+            " * Auto-generated: data definition only, no business logic.",
+            " */",
+            f"public class {class_name} {{",
+        ]
+        for field in fields:
+            init_val = ""
+            if field.initializer:
+                init_val = f" = {self._expr_to_string(field.initializer)}"
+            field_type = field.java_type.to_source() if field.java_type else "Object"
+            lines.append(f"    private {field_type} {field.name}{init_val};")
+        lines.append("")
+        lines.append(f"    public {class_name}() {{}}")
+
+        for method in methods:
+            lines.append("")
+            lines.extend(self._generate_method_body(SpringBootServiceMethod(
+                name=method.name,
+                return_type=method.return_type,
+                parameters=tuple(
+                    (p.java_type, p.name) for p in method.parameters
+                ),
+                body_statements=method.body_statements,
+                is_static=False,
+                exceptions=method.exceptions,
+            )))
+
+        lines.extend([
+            "",
+            "}",
+        ])
+        path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
+        return GeneratedFile(
+            filename=f"{class_name}.java",
+            source_code="\n".join(lines),
+            class_name=class_name,
+            path=path,
+        )
+
     def _generate_method_body(self, method: SpringBootServiceMethod) -> list[str]:
         """Generate a method implementation from structured IR."""
         # Build method signature
@@ -454,8 +577,8 @@ public class {class_name} {{
         """Convert a Java IR statement to a Java source string."""
         from engine.transformation.java_ir import (
             JavaAssignment, JavaMethodCallStatement, JavaReturn,
-            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaFor,
-            JavaThrow, JavaLocalVarDecl,
+            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaDoWhile,
+            JavaFor, JavaThrow, JavaLocalVarDecl,
         )
         if isinstance(stmt, JavaAssignment):
             expr_str = self._expr_to_string(stmt.expression)
@@ -506,11 +629,21 @@ public class {class_name} {{
                         lines.append(f"    {inner_line}")
             lines.append("}")
             return "\n".join(lines)
+        if isinstance(stmt, JavaDoWhile):
+            cond = self._expr_to_string(stmt.condition)
+            lines = ["do {"]
+            for s in stmt.body:
+                inner = self._stmt_to_string(s)
+                if inner:
+                    for inner_line in inner.split("\n"):
+                        lines.append(f"    {inner_line}")
+            lines.append(f"}} while ({cond});")
+            return "\n".join(lines)
         if isinstance(stmt, JavaFor):
-            init_str = self._stmt_to_string(stmt.init) if stmt.init else ""
+            init_str = self._stmt_to_string(stmt.init).rstrip(";") if stmt.init else ""
             cond_str = self._expr_to_string(stmt.condition) if stmt.condition else ""
-            update_str = self._stmt_to_string(stmt.update) if stmt.update else ""
-            lines = [f"for ({init_str} {cond_str}; {update_str}) {{"]
+            update_str = self._stmt_to_string(stmt.update).rstrip(";") if stmt.update else ""
+            lines = [f"for ({init_str}; {cond_str}; {update_str}) {{"]
             for s in stmt.body:
                 inner = self._stmt_to_string(s)
                 if inner:
@@ -530,14 +663,28 @@ public class {class_name} {{
             JavaTernary,
         )
         if isinstance(expr, JavaLiteral):
+            if expr.value == "null" and not expr.java_type:
+                return "null"
+            if expr.value in ("true", "false") and not expr.java_type:
+                return expr.value
+            # BL-046: reuse the canonical Java string-escaping helper from the
+            # native lane so both lanes render identical, compilable literals
+            # for quotes, backslashes, and control characters (BL-030 bytes).
+            from engine.transformation.java_generator import JavaGenerator
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
-                return f'"{expr.value}"'
-            if not expr.value.replace(".", "").replace("-", "").isdigit():
+                return f'"{JavaGenerator._escape_java_string(expr.value)}"'
+            # A single-quoted value is a COBOL string literal spelling, not a
+            # Java char: normalize to a double-quoted Java string literal.
+            if len(expr.value) >= 2 and expr.value.startswith("'") and expr.value.endswith("'"):
+                return f'"{JavaGenerator._escape_java_string(expr.value[1:-1])}"'
+            if not expr.value.replace(".", "").replace("-", "").isdigit() and not (
+                _JAVA_LITERAL_SUFFIX_RE.match(expr.value)
+            ):
                 if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
                     return expr.value
-                if not (expr.value.startswith('"') or expr.value.startswith("'")):
-                    return f'"{expr.value}"'
+                if not expr.value.startswith('"'):
+                    return f'"{JavaGenerator._escape_java_string(expr.value)}"'
             return expr.value
         if isinstance(expr, JavaVariableRef):
             return expr.name
@@ -547,6 +694,19 @@ public class {class_name} {{
             return f"({left} {expr.operator} {right})"
         if isinstance(expr, JavaUnaryOp):
             operand = self._expr_to_string(expr.operand)
+            if any(op in operand for op in ("==", "!=", "&&", "||", ">=", "<=", "<", ">")):
+                depth = 0
+                grouped = False
+                for i, ch in enumerate(operand):
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                        if depth == 0:
+                            grouped = i == len(operand) - 1
+                            break
+                if not grouped:
+                    operand = f"({operand})"
             return f"({expr.operator}{operand})"
         if isinstance(expr, JavaMethodCall):
             return self._method_call_to_string(expr)
@@ -574,11 +734,18 @@ public class {class_name} {{
 
     def _method_call_to_string(self, call) -> str:
         """Convert a Java IR method call to a Java source string."""
+        from engine.transformation.java_ir import JavaStringConcat
+
         args = ", ".join(self._expr_to_string(a) for a in call.arguments)
         if call.is_static:
             return f"{call.class_name}.{call.method_name}({args})"
         if call.object_ref:
-            return f"{self._expr_to_string(call.object_ref)}.{call.method_name}({args})"
+            obj = self._expr_to_string(call.object_ref)
+            if isinstance(call.object_ref, JavaStringConcat):
+                # Keep ``(a + b).length()`` grouped; ``a + b.length()`` would
+                # bind the method to the last operand only (BL-027).
+                obj = f"({obj})"
+            return f"{obj}.{call.method_name}({args})"
         return f"{call.method_name}({args})"
 
     # ================================================================

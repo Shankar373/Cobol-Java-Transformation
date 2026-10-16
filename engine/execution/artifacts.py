@@ -29,7 +29,7 @@ from engine.evidence.models import ArtifactEvidence
 class CapturedArtifact:
     """A captured artifact with its content."""
     artifact: ArtifactIdentity
-    content: bytes
+    content: bytes | None
     content_hash: ContentHash
     size_bytes: int
     execution_id: ExecutionId
@@ -207,6 +207,35 @@ class ArtifactCapturer:
             content=content,
             content_hash=content_hash,
             size_bytes=len(content),
+            execution_id=execution_id,
+            capture_time=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def capture_missing(
+        self,
+        execution_id: ExecutionId,
+        artifact_type: str,
+        logical_name: str,
+        producer_role: str,
+        status: str = "MISSING",
+        record_length: int | None = None,
+    ) -> CapturedArtifact:
+        """Capture a sentinel for a declared artifact that was not produced."""
+        content_hash = ContentHash.from_bytes(b"")
+        artifact = ArtifactIdentity(
+            artifact_id=f"missing-{logical_name}-{execution_id.value}",
+            artifact_type=artifact_type,
+            logical_name=logical_name,
+            producer_role=producer_role,
+            content_hash=content_hash,
+            size_bytes=0,
+            record_count=0 if artifact_type == "FIXED_RECORD" else None,
+        )
+        return CapturedArtifact(
+            artifact=artifact,
+            content=None,
+            content_hash=content_hash,
+            size_bytes=0,
             execution_id=execution_id,
             capture_time=datetime.now(timezone.utc).isoformat(),
         )

@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** This contract remains the external untrusted-producer boundary. The repository also owns a deterministic internal transformation path; the two concerns must remain distinct.
+
 # TRANSFORMATION PRODUCER CONTRACT — V1 (external interface only)
 
 > **Status:** AUTHORITATIVE on the platform side; **producer-binding force gated on

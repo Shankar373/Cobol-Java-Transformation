@@ -32,6 +32,7 @@ from engine.jcl.diagnostics import (
     JclDiagnostic,
     JclDiagnosticCode,
     JclDiagnosticCollector,
+    JclDiagnosticLevel,
 )
 from engine.jcl.model import (
     JclControlKind,
@@ -78,6 +79,18 @@ _UNSUPPORTED_CONSTRUCT_TEXT = {
     JclDiagnosticCode.UNSUPPORTED_CONTINUATION: "DD continuations",
     JclDiagnosticCode.STEP_NO_EXEC: "steps without an EXEC program",
     JclDiagnosticCode.JOB_UNNAMED: "unnamed jobs",
+    JclDiagnosticCode.JOB_LEVEL_DD: "job-level DD statements",
+    JclDiagnosticCode.SOURCE_DECODE_FAILED: "undecodable JCL source files",
+}
+
+
+#: Control kind -> Spring Batch step exit status (the mapper-side table).
+_ACTIVATION_BY_CONTROL_KIND: dict[JclControlKind, str] = {
+    JclControlKind.SEQUENTIAL: EXIT_STATUS_SUCCESS,
+    JclControlKind.EVEN: EXIT_STATUS_ANY,
+    JclControlKind.ONLY: EXIT_STATUS_FAILED,
+    JclControlKind.RETURN_CODE: EXIT_STATUS_CONDITIONAL,
+    JclControlKind.UNSUPPORTED: EXIT_STATUS_UNKNOWN,
 }
 
 
@@ -110,11 +123,11 @@ class JclModernizationProfile:
 
     @property
     def has_errors(self) -> bool:
-        return any(d.level.value == "ERROR" for d in self.diagnostics)
+        return any(d.level == JclDiagnosticLevel.ERROR for d in self.diagnostics)
 
     @property
     def has_warnings(self) -> bool:
-        return any(d.level.value == "WARNING" for d in self.diagnostics)
+        return any(d.level == JclDiagnosticLevel.WARNING for d in self.diagnostics)
 
     @property
     def supported_constructs(self) -> tuple[str, ...]:
@@ -183,8 +196,6 @@ class JclSpringBatchMapper:
         program = ""
         if step.exec_ is not None:
             program = step.exec_.program
-        if not program:
-            program = ""
 
         activation, raw_condition = self._activation(step)
         step_name = _camel_bean(step.name) if step.name else "Step"
@@ -233,14 +244,7 @@ class JclSpringBatchMapper:
     def _activation(self, step: JclSemanticStep) -> tuple[str, str]:
         if step.control is None:
             return EXIT_STATUS_SUCCESS, ""
-        mapping = {
-            JclControlKind.SEQUENTIAL: EXIT_STATUS_SUCCESS,
-            JclControlKind.EVEN: EXIT_STATUS_ANY,
-            JclControlKind.ONLY: EXIT_STATUS_FAILED,
-            JclControlKind.RETURN_CODE: EXIT_STATUS_CONDITIONAL,
-            JclControlKind.UNSUPPORTED: EXIT_STATUS_UNKNOWN,
-        }
-        return mapping[step.control.kind], step.control.expression
+        return _ACTIVATION_BY_CONTROL_KIND[step.control.kind], step.control.expression
 
     def _build_flow_edges(self, steps) -> list[SpringBatchFlowEdge]:
         edges: list[SpringBatchFlowEdge] = []
@@ -315,6 +319,7 @@ def modernize_jcl(
     raw_sources: dict[str, str] | None = None,
     application_id: str = "jcl-modernization",
     base_package: str = "com.generated.batch",
+    pre_diagnostics: tuple[JclDiagnostic, ...] = (),
 ) -> JclModernizationProfile:
     """Profile a parsed JCL application into a Java/Spring Batch representation.
 
@@ -332,12 +337,18 @@ def modernize_jcl(
             to detect (and explicitly diagnose) unsupported constructs.
         application_id: identifier for the resulting Spring Batch application.
         base_package: target Java package namespace for the batch layer.
+        pre_diagnostics: diagnostics raised while sourcing the raw sources
+            (e.g. BL-063 decode failures).  They enter the same collector,
+            so an unreadable member counts as an ERROR and the derived
+            status can never overstate coverage as FULL.
 
     Returns:
         A ``JclModernizationProfile`` containing the generated Spring Batch
         representation and the full diagnostic trail.
     """
     builder = JclSemanticBuilder()
+    for diagnostic in pre_diagnostics:
+        builder.diagnostics.add(diagnostic)
     model = builder.build(app, raw_sources)
 
     mapper = JclSpringBatchMapper(diagnostics=builder.diagnostics)

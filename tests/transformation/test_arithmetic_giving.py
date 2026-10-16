@@ -28,6 +28,28 @@ def parser() -> CobolParser:
     return CobolParser()
 
 
+def _magnitude_wrapper(expr):
+    """Unwrap the ``Math.abs(...)`` applied to an unsigned COBOL receiver.
+
+    An unsigned receiving PIC stores the magnitude of a negative result
+    (GnuCOBOL oracle: ``COMPUTE UN = 0 - 5`` on ``PIC 9(3)`` stores
+    ``005``), so the generator wraps a subtraction whose operands are not
+    provably non-negative.  The operator assertions below still inspect the
+    arithmetic underneath that wrapper.
+    """
+    from engine.transformation.java_ir import JavaMethodCall
+
+    if (
+        isinstance(expr, JavaMethodCall)
+        and expr.is_static
+        and expr.class_name == "Math"
+        and expr.method_name == "abs"
+        and len(expr.arguments) == 1
+    ):
+        return expr.arguments[0]
+    return expr
+
+
 # ============================================================
 # Parser Tests
 # ============================================================
@@ -289,7 +311,7 @@ MAIN.
         stmts = [s for s in java.java_class.methods[0].body_statements
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
-        expr = stmts[0].expression
+        expr = _magnitude_wrapper(stmts[0].expression)
         assert expr.operator == "-"
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_B'
         assert hasattr(expr.right, 'name') and expr.right.name == 'WS_A'
@@ -312,7 +334,7 @@ MAIN.
         stmts = [s for s in java.java_class.methods[0].body_statements
                  if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(stmts) == 1
-        expr = stmts[0].expression
+        expr = _magnitude_wrapper(stmts[0].expression)
         assert expr.operator == "-"
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_B'
         assert hasattr(expr.right, 'name') and expr.right.name == 'WS_A'
@@ -369,9 +391,11 @@ MAIN.
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
         expr = stmts[0].expression
-        assert expr.operator == "*"
-        assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
-        assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
+        assert expr.class_name == "Math"
+        assert expr.method_name == "multiplyExact"
+        assert len(expr.arguments) == 2
+        assert hasattr(expr.arguments[0], 'name') and expr.arguments[0].name == 'WS_A'
+        assert hasattr(expr.arguments[1], 'name') and expr.arguments[1].name == 'WS_B'
 
     def test_inplace_target_is_multiplicand(self):
         cobol = """\
@@ -392,7 +416,9 @@ MAIN.
                  if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(stmts) == 1
         expr = stmts[0].expression
-        assert expr.operator == "*"
+        assert expr.class_name == "Math"
+        assert expr.method_name == "multiplyExact"
+        assert len(expr.arguments) == 2
 
     def test_both_operands_unchanged_after_giving(self):
         """GIVING must not mutate A or B."""
@@ -660,7 +686,7 @@ MAIN.
         java = self._parse_and_map(cobol)
         assignment = self._get_assignment(java, "WS_C")
         assert assignment is not None
-        expr = assignment.expression
+        expr = _magnitude_wrapper(assignment.expression)
         # C = B - A: left=B, right=A
         assert expr.operator == "-"
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_B'
@@ -686,9 +712,11 @@ MAIN.
         assignment = self._get_assignment(java, "WS_C")
         assert assignment is not None
         expr = assignment.expression
-        assert expr.operator == "*"
-        assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
-        assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
+        assert expr.class_name == "Math"
+        assert expr.method_name == "multiplyExact"
+        assert len(expr.arguments) == 2
+        assert hasattr(expr.arguments[0], 'name') and expr.arguments[0].name == 'WS_A'
+        assert hasattr(expr.arguments[1], 'name') and expr.arguments[1].name == 'WS_B'
 
     def test_divide_giving_c_equals_a_div_b(self):
         """DIVIDE A BY B GIVING C means C = A / B (integer)."""

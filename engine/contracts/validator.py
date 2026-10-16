@@ -123,12 +123,17 @@ class ContractValidator:
 # Contract loaders (from dict/JSON)
 # ---------------------------------------------------------------------------
 
+def _load_contract_version(data: dict[str, Any], contract_type: str) -> ContractVersion:
+    """Parse the shared ``version`` field, failing closed with its contract type."""
+    try:
+        return ContractVersion(data.get("version", "1.0"))
+    except ValueError:
+        raise ContractValidationError(contract_type, f"Unsupported version: {data.get('version')}")
+
+
 def load_artifact_contract(data: dict[str, Any]) -> ArtifactContract:
     """Load artifact contract from dictionary."""
-    try:
-        version = ContractVersion(data.get("version", "1.0"))
-    except ValueError:
-        raise ContractValidationError("ARTIFACT", f"Unsupported version: {data.get('version')}")
+    version = _load_contract_version(data, "ARTIFACT")
 
     artifact_types = []
     for at_data in data.get("artifact_types", []):
@@ -170,10 +175,7 @@ def load_artifact_contract(data: dict[str, Any]) -> ArtifactContract:
 
 def load_oracle_contract(data: dict[str, Any]) -> OracleContract:
     """Load oracle contract from dictionary."""
-    try:
-        version = ContractVersion(data.get("version", "1.0"))
-    except ValueError:
-        raise ContractValidationError("ORACLE", f"Unsupported version: {data.get('version')}")
+    version = _load_contract_version(data, "ORACLE")
 
     oracle_id = data.get("oracle_id", "")
     if not oracle_id:
@@ -195,10 +197,7 @@ def load_oracle_contract(data: dict[str, Any]) -> OracleContract:
 
 def load_candidate_contract(data: dict[str, Any]) -> CandidateContract:
     """Load candidate contract from dictionary."""
-    try:
-        version = ContractVersion(data.get("version", "1.0"))
-    except ValueError:
-        raise ContractValidationError("JAVA_CANDIDATE", f"Unsupported version: {data.get('version')}")
+    version = _load_contract_version(data, "JAVA_CANDIDATE")
 
     return CandidateContract(
         contract_id=data.get("contract_id", "candidate-v1"),
@@ -211,10 +210,7 @@ def load_candidate_contract(data: dict[str, Any]) -> CandidateContract:
 
 def load_verdict_contract(data: dict[str, Any]) -> VerdictContract:
     """Load verdict contract from dictionary."""
-    try:
-        version = ContractVersion(data.get("version", "1.0"))
-    except ValueError:
-        raise ContractValidationError("VERDICT", f"Unsupported version: {data.get('version')}")
+    version = _load_contract_version(data, "VERDICT")
 
     allowed_states = tuple(data.get("allowed_states", [
         "VERIFIED", "PARTIAL", "FAILED", "UNPROVEN",
@@ -230,10 +226,7 @@ def load_verdict_contract(data: dict[str, Any]) -> VerdictContract:
 
 def load_producer_contract(data: dict[str, Any]) -> ProducerContract:
     """Load producer contract from dictionary."""
-    try:
-        version = ContractVersion(data.get("version", "1.0"))
-    except ValueError:
-        raise ContractValidationError("PRODUCER", f"Unsupported version: {data.get('version')}")
+    version = _load_contract_version(data, "PRODUCER")
 
     return ProducerContract(
         contract_id=data.get("contract_id", "producer-v1"),

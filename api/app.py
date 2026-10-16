@@ -15,41 +15,65 @@ Endpoints:
   GET    /runs/{id}/artifacts                    — artifact metadata
   POST   /runs/{id}/validate                     — re-run validation (async)
   GET    /runs/{id}/verdict                      — verdict
+  GET    /runs/{id}/report                       — modernization report
   GET    /runs/{id}/download                     — download generated ZIP
+  GET    /health                                 — liveness probe
+
+Security / abuse controls (Phase B):
+  * optional bearer-token auth — set ``CONTROL_PLANE_API_TOKEN`` and every
+    route except ``/health`` requires ``Authorization: Bearer <token>``
+    (constant-time comparison; no token configured means auth is off, which
+    is the documented development default);
+  * bounded upload reads — ``CONTROL_PLANE_MAX_REQUEST_BYTES``,
+    ``CONTROL_PLANE_MAX_FILE_BYTES`` and ``CONTROL_PLANE_MAX_UPLOAD_FILES``
+    reject oversized payloads before they are buffered;
+  * typed service errors map to explicit HTTP statuses
+    (404/409/413/429/400/500) instead of a generic 400/500.
 """
 
 from __future__ import annotations
 
+import hmac
 import io
+import logging
 import os
 import re
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from api.errors import ApiError, PayloadTooLargeError, ServiceError
+from api.ingestion import IngestionError
+from api.limits import env_int_limit
 from api.models import (
     ApplicationCreate,
     ApplicationResponse,
+    ApprovalRequest,
+    ApprovalResponse,
     ArtifactsResponse,
     ArtifactMetadata,
+    ComparisonDetail,
+    DiscoveryResponse,
+    IngestResponse,
+    IntegratedProofResult,
+    IntegratedProofResponse,
     ModernizeOptions,
     ModernizeResponse,
     ModernizationReportResponse,
     RunDetailResponse,
     RunResponse,
-    RunStage,
     UploadResponse,
     ValidateResponse,
     VerdictResponse,
-    ComparisonDetail,
-    IngestResponse,
-    DiscoveryResponse,
 )
-from api.service import Service, ServiceError
-from api.ingestion import IngestionError
+from api.service import Service
 from api.store import ApplicationRecord, Store
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Singletons (MVP — module-level, no DI framework)
@@ -57,6 +81,13 @@ from api.store import ApplicationRecord, Store
 
 _DEF_DB_DIR = Path(__file__).resolve().parent.parent / "data"
 _DEF_DB_PATH = str(_DEF_DB_DIR / "control-plane.db")
+
+_DEFAULT_MAX_REQUEST_BYTES = 50 * 1024 * 1024
+_DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024
+_DEFAULT_MAX_UPLOAD_FILES = 1000
+# BL-067: caps for the generated-app download archive (built in memory).
+_DEFAULT_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+_DEFAULT_MAX_DOWNLOAD_FILES = 5000
 
 
 def _store_path() -> str:
@@ -68,14 +99,144 @@ def _store_path() -> str:
     return os.environ.get("CONTROL_PLANE_DB", _DEF_DB_PATH)
 
 
+def _env_limit(name: str, default: int) -> int:
+    return env_int_limit(name, default, logger)
+
+
 _store = Store(_store_path())
 _service = Service(_store)
+
+# A daemon worker dies with its process, so any run left non-terminal in the
+# persisted store has no worker left to finish it: fail those runs at startup
+# instead of letting clients poll them forever.
+try:
+    _interrupted = _store.mark_interrupted_runs()
+    if _interrupted:
+        logger.warning(
+            "Marked %d interrupted run(s) as FAILED at startup", _interrupted
+        )
+except Exception:
+    logger.exception("Startup reconciliation of interrupted runs failed")
 
 app = FastAPI(
     title="COBOL-Java Transformation Control Plane",
     version="0.1.0",
     description="Thin orchestration API over the validation engine.",
 )
+
+
+# ---------------------------------------------------------------------------
+# Security middleware
+# ---------------------------------------------------------------------------
+
+# CORS: deny by default. Configure CONTROL_PLANE_ALLOWED_ORIGINS as a
+# comma-separated list (e.g. "https://app.example.com,https://admin.example.com")
+# to enable cross-origin requests. Empty or unset = no CORS (same-origin only).
+_allowed_origins = [
+    o.strip() for o in os.environ.get("CONTROL_PLANE_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
+if _allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "X-API-Key", "Content-Type"],
+        max_age=600,
+    )
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # HSTS (only effective over HTTPS; harmless over HTTP)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Prevent MIME sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Clickjacking protection
+        response.headers["X-Frame-Options"] = "DENY"
+        # XSS protection (legacy but harmless)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Referrer policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Permissions policy (restrict powerful features)
+        response.headers["Permissions-Policy"] = (
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+            "magnetometer=(), microphone=(), payment=(), usb=()"
+        )
+        # Content Security Policy (restrictive; adjust if frontend needs inline scripts)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data:; "
+            "font-src 'self'; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
+        # Cache control for API responses (prevent caching of sensitive data)
+        if request.url.path != "/health":
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
+
+
+def _expected_token() -> str | None:
+    """Bearer token required for every route except /health (None = off)."""
+    token = os.environ.get("CONTROL_PLANE_API_TOKEN")
+    return token if token else None
+
+
+@app.middleware("http")
+async def _require_api_token(request: Request, call_next):
+    token = _expected_token()
+    if token is None or request.url.path == "/health":
+        return await call_next(request)
+
+    header = request.headers.get("Authorization", "")
+    provided = header[7:] if header.startswith("Bearer ") else ""
+    if not provided:
+        provided = request.headers.get("X-API-Key", "")
+    if not provided or not _token_matches(provided, token):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Not authenticated"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
+
+
+def _token_matches(provided: str, expected: str) -> bool:
+    """Constant-time token compare that cannot raise on non-ASCII (BL-049).
+
+    ``hmac.compare_digest`` rejects ``str`` operands containing non-ASCII
+    characters, which turned an unauthenticated probe carrying a non-ASCII
+    bearer token into a 500 instead of a 401.  HTTP headers are latin-1
+    decodable, so encoding both sides back to bytes is an exact round-trip;
+    ``compare_digest`` on ``bytes`` never raises, keeping the comparison
+    constant-time and fail-closed (a decode that still cannot be compared
+    simply does not match).
+    """
+    provided_bytes = provided.encode("latin-1", errors="replace")
+    expected_bytes = expected.encode("latin-1", errors="replace")
+    return hmac.compare_digest(provided_bytes, expected_bytes)
+
+
+@app.exception_handler(ApiError)
+async def _api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
+    """Map typed service/store errors to their explicit HTTP status."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.public_detail},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +251,82 @@ def _error(status: int, msg: str) -> HTTPException:
     return HTTPException(status_code=status, detail=msg)
 
 
+def _guard_content_length(request: Request) -> None:
+    """Reject oversized requests from the header before reading any body."""
+    raw = request.headers.get("content-length", "")
+    if not raw.isdigit():
+        return
+    limit = _env_limit("CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES)
+    if int(raw) > limit:
+        raise PayloadTooLargeError(
+            f"Request body exceeds the {limit} byte limit"
+        )
+
+
+async def _read_upload_bounded(
+    upload: UploadFile,
+    *,
+    remaining: list[int],
+) -> bytes:
+    """Read one upload in chunks, enforcing per-file and total budgets.
+
+    ``remaining`` is a single-element list holding the bytes still allowed
+    for the whole request, so the budget is shared across files.
+    """
+    limit = _env_limit("CONTROL_PLANE_MAX_FILE_BYTES", _DEFAULT_MAX_FILE_BYTES)
+    name = upload.filename or "upload"
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = await upload.read(64 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        remaining[0] -= len(chunk)
+        if size > limit:
+            raise PayloadTooLargeError(
+                f"File {name!r} exceeds the {limit} byte limit"
+            )
+        if remaining[0] < 0:
+            raise PayloadTooLargeError(
+                "Combined upload exceeds the configured request size limit"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _read_files_bounded(request: Request, files: list[UploadFile]) -> dict[str, bytes]:
+    """Read a multipart file list with request/file/count limits enforced."""
+    _guard_content_length(request)
+    max_files = _env_limit(
+        "CONTROL_PLANE_MAX_UPLOAD_FILES", _DEFAULT_MAX_UPLOAD_FILES
+    )
+    if len(files) > max_files:
+        raise PayloadTooLargeError(
+            f"Too many files in one upload ({len(files)} > {max_files})"
+        )
+    request_limit = _env_limit(
+        "CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES
+    )
+    remaining = [request_limit]
+    contents: dict[str, bytes] = {}
+    for index, upload in enumerate(files):
+        name = upload.filename or f"file_{index}"
+        if name in contents:
+            # BL-047: two multipart parts carrying the same filename used
+            # to overwrite one dict key, silently dropping a file and
+            # undercounting ``files_received`` (the service-level
+            # collision detector never saw the duplicate).  Reject the
+            # whole upload fail-closed so an accepted request can never
+            # lose a source file.
+            raise ServiceError(
+                f"Duplicate upload filename {name!r}; each file must have a"
+                " unique name"
+            )
+        contents[name] = await _read_upload_bounded(upload, remaining=remaining)
+    return contents
+
+
 def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
     """Map an internal record to the API response (provenance preserved)."""
     return ApplicationResponse(
@@ -98,6 +335,7 @@ def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
         description=rec.description,
         workload_id=rec.workload_id,
         java_entrypoint=rec.java_entrypoint,
+        target_runtime=rec.target_runtime,
         cobol_source_path=rec.cobol_source_path,
         java_candidate_path=rec.java_candidate_path,
         generated_app_path=rec.generated_app_path,
@@ -114,6 +352,13 @@ def _safe_download_stem(name: str, fallback: str) -> str:
     return stem or fallback
 
 
+def _contract_source(contract_id: str | None) -> str | None:
+    """``declared``/``default`` prefix of a recorded certification contract."""
+    if not contract_id:
+        return None
+    return contract_id.split(":", 1)[0]
+
+
 # ---------------------------------------------------------------------------
 # Application endpoints
 # ---------------------------------------------------------------------------
@@ -126,6 +371,7 @@ def create_application(body: ApplicationCreate) -> ApplicationResponse:
         description=body.description,
         workload_id=body.workload_id,
         java_entrypoint=body.java_entrypoint,
+        target_runtime=body.target_runtime,
     )
     return _to_app_response(rec)
 
@@ -139,20 +385,13 @@ def list_applications() -> list[ApplicationResponse]:
 @app.get("/applications/{app_id}", response_model=ApplicationResponse)
 def get_application(app_id: str) -> ApplicationResponse:
     """Return application detail including generation provenance."""
-    try:
-        rec = _svc().get_application(app_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
-    return _to_app_response(rec)
+    return _to_app_response(_svc().get_application(app_id))
 
 
 @app.get("/applications/{app_id}/runs", response_model=list[RunResponse])
 def list_application_runs(app_id: str) -> list[RunResponse]:
     """List all runs for an application (persisted, ordered by creation)."""
-    try:
-        runs = _svc().list_runs(app_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    runs = _svc().list_runs(app_id)
     return [
         RunResponse(
             id=r.id,
@@ -168,18 +407,14 @@ def list_application_runs(app_id: str) -> list[RunResponse]:
 
 
 @app.post("/applications/{app_id}/upload", response_model=UploadResponse, status_code=201)
-async def upload_cobol_source(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_cobol_source(
+    app_id: str,
+    request: Request,
+    files: list[UploadFile] = File(...),
+) -> UploadResponse:
     """Upload COBOL source files for an application."""
-    try:
-        file_contents: dict[str, bytes] = {}
-        for f in files:
-            content = await f.read()
-            name = f.filename or f"file_{len(file_contents)}"
-            file_contents[name] = content
-
-        _app, count = _svc().upload_cobol_source(app_id, file_contents)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    file_contents = await _read_files_bounded(request, files)
+    _app, count = _svc().upload_cobol_source(app_id, file_contents)
 
     return UploadResponse(
         application_id=_app.id,
@@ -189,18 +424,14 @@ async def upload_cobol_source(app_id: str, files: list[UploadFile] = File(...)) 
 
 
 @app.post("/applications/{app_id}/candidate", response_model=UploadResponse, status_code=201)
-async def upload_java_candidate(app_id: str, files: list[UploadFile] = File(...)) -> UploadResponse:
+async def upload_java_candidate(
+    app_id: str,
+    request: Request,
+    files: list[UploadFile] = File(...),
+) -> UploadResponse:
     """Upload Java candidate files for an application."""
-    try:
-        file_contents: dict[str, bytes] = {}
-        for f in files:
-            content = await f.read()
-            name = f.filename or f"file_{len(file_contents)}"
-            file_contents[name] = content
-
-        _app, count = _svc().upload_java_candidate(app_id, file_contents)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    file_contents = await _read_files_bounded(request, files)
+    _app, count = _svc().upload_java_candidate(app_id, file_contents)
 
     return UploadResponse(
         application_id=_app.id,
@@ -219,15 +450,12 @@ def modernize_application(
     validates the GENERATED artifact. The optional body flag is internal/
     test-only and never sent by the UI.
     """
-    try:
-        run = _svc().modernize(
-            app_id,
-            use_uploaded_candidate=(
-                options.use_uploaded_candidate if options else False
-            ),
-        )
-    except ServiceError as exc:
-        raise _error(400, str(exc))
+    run = _svc().modernize(
+        app_id,
+        use_uploaded_candidate=(
+            options.use_uploaded_candidate if options else False
+        ),
+    )
 
     return ModernizeResponse(
         run_id=run.id,
@@ -237,17 +465,26 @@ def modernize_application(
 
 
 @app.post("/applications/{app_id}/ingest", response_model=IngestResponse, status_code=201)
-async def ingest_application(app_id: str, file: UploadFile = File(...)) -> IngestResponse:
+async def ingest_application(
+    app_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+) -> IngestResponse:
     """Ingest a ZIP archive containing legacy application source.
 
     Extracts the archive, runs application discovery, detects the project
     name, and returns structured results about the discovered source tree.
     """
-    content = await file.read()
+    _guard_content_length(request)
+    content = await _read_upload_bounded(file, remaining=[
+        _env_limit("CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES)
+    ])
     zip_filename = file.filename or "upload.zip"
     try:
         discovery = _svc().ingest_application(app_id, content, zip_filename)
-    except (ServiceError, IngestionError) as exc:
+    except IngestionError as exc:
+        # Malformed archive / unreadable source tree: explicit 400.
+        # Service-level errors (404/409/...) map through the ApiError handler.
         raise _error(400, str(exc))
 
     app = _svc().get_application(app_id)
@@ -282,6 +519,8 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
         dependency_edges=discovery.dependency_edges,
         source_file_count=discovery.source_file_count,
         total_size_bytes=discovery.total_size_bytes,
+        discovery_success=discovery.discovery_success,
+        discovery_errors=discovery.discovery_errors,
     )
 
 
@@ -292,10 +531,7 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
 @app.get("/runs/{run_id}", response_model=RunResponse)
 def get_run(run_id: str) -> RunResponse:
     """Get run status and summary."""
-    try:
-        run = _svc().get_run(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    run = _svc().get_run(run_id)
 
     return RunResponse(
         id=run.id,
@@ -311,10 +547,7 @@ def get_run(run_id: str) -> RunResponse:
 @app.get("/runs/{run_id}/detail", response_model=RunDetailResponse)
 def get_run_detail(run_id: str) -> RunDetailResponse:
     """Get coherent run detail: state, app identity, discovery, files, verdict."""
-    try:
-        detail = _svc().get_run_detail(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    detail = _svc().get_run_detail(run_id)
 
     return RunDetailResponse(
         id=detail["id"],
@@ -335,10 +568,7 @@ def get_run_detail(run_id: str) -> RunDetailResponse:
 @app.get("/runs/{run_id}/artifacts", response_model=ArtifactsResponse)
 def get_run_artifacts(run_id: str) -> ArtifactsResponse:
     """Get artifact metadata for a run."""
-    try:
-        artifacts = _svc().get_artifacts(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    artifacts = _svc().get_artifacts(run_id)
 
     return ArtifactsResponse(
         run_id=run_id,
@@ -346,18 +576,58 @@ def get_run_artifacts(run_id: str) -> ArtifactsResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# Customer approval (BL-091; D-1 resolved 2026-10-17)
+# ---------------------------------------------------------------------------
+
+def _approval_response(run) -> ApprovalResponse:
+    return ApprovalResponse(
+        run_id=run.id,
+        state=run.approval_state,
+        approver=run.approval_approver,
+        reason=run.approval_reason,
+        decided_at=run.approval_decided_at,
+    )
+
+
+@app.get("/runs/{run_id}/approval", response_model=ApprovalResponse)
+def get_run_approval(run_id: str) -> ApprovalResponse:
+    """Current approval record for a run (PENDING until a decision)."""
+    return _approval_response(_svc().get_run(run_id))
+
+
+@app.post("/runs/{run_id}/approval", response_model=ApprovalResponse)
+def decide_run_approval(run_id: str, body: ApprovalRequest) -> ApprovalResponse:
+    """Record an explicit customer decision for a run (BL-091, D-1 scope).
+
+    ``APPROVED`` and ``REJECTED`` are the only decisions; PENDING is the
+    implicit state of every new run and never a decision.  Rejection
+    REQUIRES a reason; approval may carry an optional reason.  The
+    approver string is recorded input, not a verified identity (existing
+    bearer-token auth only; no RBAC per the approved scope).  A later
+    decision supersedes the earlier one.
+    """
+    approver = body.approver.strip()
+    if not approver:
+        raise _error(422, "approver must be a non-empty string")
+    reason = body.reason.strip() if body.reason else None
+    if body.decision.value == "REJECTED" and not reason:
+        raise _error(422, "rejection requires a reason")
+    run = _svc().set_run_approval(
+        run_id, decision=body.decision.value, approver=approver, reason=reason
+    )
+    return _approval_response(run)
+
+
 @app.post("/runs/{run_id}/validate", response_model=ValidateResponse, status_code=202)
 def validate_run(run_id: str) -> ValidateResponse:
     """Re-run validation on an existing run (asynchronous).
 
-    Explicit behavior: mirrors modernize — the run resets to CREATED and a
-    background thread re-executes validation of the GENERATED artifact.
-    Poll GET /runs/{id} until a terminal stage.
+    Only terminal runs can be revalidated: an in-flight run answers 409 so
+    two workers never race on one run. The reset clears the previous verdict
+    before the new attempt starts; poll GET /runs/{id} until terminal.
     """
-    try:
-        run = _svc().revalidate(run_id)
-    except ServiceError as exc:
-        raise _error(400, str(exc))
+    run = _svc().revalidate(run_id)
 
     return ValidateResponse(run_id=run.id, stage=run.stage)
 
@@ -365,13 +635,11 @@ def validate_run(run_id: str) -> ValidateResponse:
 @app.get("/runs/{run_id}/verdict", response_model=VerdictResponse)
 def get_run_verdict(run_id: str) -> VerdictResponse:
     """Get the verdict for a run."""
-    try:
-        v = _svc().get_verdict(run_id)
-        comparisons_raw = _svc().get_comparisons(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    v = _svc().get_verdict(run_id)
+    comparisons_raw = _svc().get_comparisons(run_id)
 
     comparisons = [ComparisonDetail(**c) for c in comparisons_raw]
+    contract_id = v.get("certification_contract")
 
     return VerdictResponse(
         run_id=v["run_id"],
@@ -390,6 +658,8 @@ def get_run_verdict(run_id: str) -> VerdictResponse:
         derivation_timestamp=v["derivation_timestamp"],
         differences=v.get("differences", []),
         comparisons=comparisons,
+        certification_contract=contract_id,
+        contract_source=_contract_source(contract_id),
     )
 
 
@@ -401,16 +671,74 @@ def get_run_report(run_id: str) -> ModernizationReportResponse:
     and recommendations produced by the universal pipeline. Only
     returned when the pipeline ran — never fabricated.
     """
-    try:
-        report = _svc().get_run_report(run_id)
-    except ServiceError as exc:
-        raise _error(404, str(exc))
+    report = _svc().get_run_report(run_id)
 
     run = _svc().get_run(run_id)
     return ModernizationReportResponse(
         run_id=run_id,
         application_id=run.application_id,
         report=report,
+    )
+
+
+@app.get("/runs/{run_id}/integrated-proof", response_model=IntegratedProofResponse)
+def get_run_integrated_proof(run_id: str) -> IntegratedProofResponse:
+    """Get the integrated proof for a run.
+
+    Contains the dependency ledger and central status gate evaluating
+    proof state for each declared dependency (proven/blocked/partial/unproven).
+
+    The gate only ever downgrades:
+        central VERIFIED <= runtime verdict is VERIFIED
+                             AND evidence manifest is complete
+                             AND evidence integrity validated
+                             AND every required dependency is PROVEN
+
+    JCL, DB2 and CICS have no runtime lane in this repository, so they can
+    never reach PROVEN. A workload that declares them therefore resolves to
+    NOT VERIFIED at the application level even when the COBOL <-> Java runtime
+    lane itself is VERIFIED.
+    """
+    proof = _svc().get_integrated_proof(run_id)
+    p = proof["proof"]
+    run = _svc().get_run(run_id)
+
+    return IntegratedProofResponse(
+        run_id=run_id,
+        proof=IntegratedProofResult(
+            workload_id=p.get("workload_id", run.workload_id),
+            application_id=p.get("application_id", run.application_id),
+            central_status=p.get("central_status", "NOT_VERIFIED"),
+            blocking_reasons=p.get(
+                "blocking_reasons", p.get("reasons_for_not_verified", [])
+            ),
+            generation_success=bool(p.get("generation_success", False)),
+            overall_capability=p.get("overall_capability", "UNKNOWN"),
+            jcl_status=p.get("jcl_status", "NOT_PRESENT"),
+            runtime=p.get("runtime", {}),
+            dependency_ledger=p.get("dependency_ledger", []),
+            required_dependencies=p.get(
+                "required_dependencies",
+                [e for e in p.get("dependency_ledger", []) if e.get("required", False)],
+            ),
+            unproven_dependencies=p.get("unproven_dependencies", []),
+            runtime_verdict_is_verified=bool(p.get("runtime_verdict_is_verified", False)),
+        ),
+        application_id=run.application_id,
+        verdict_state=(p.get("runtime") or {}).get("verdict_state", "NOT_RUN"),
+        evidence_status="COMPLETE" if p.get("evidence_complete", False) else "INCOMPLETE",
+        runtime_proof_status=(
+            "VERIFIED" if p.get("runtime_verdict_is_verified", False) else "NOT_VERIFIED"
+        ),
+        reasons_for_not_verified=p.get("reasons_for_not_verified", []),
+        proven_dependencies=p.get("proven_dependencies", []),
+        unproven_dependencies=p.get("unproven_dependencies", []),
+        blocked_dependencies=p.get("blocked_dependencies", []),
+        unsupported_dependencies=p.get("unsupported_dependencies", []),
+        evidence_complete=bool(p.get("evidence_complete", False)),
+        evidence_integrity_valid=bool(p.get("evidence_integrity_valid", False)),
+        required_dependencies_proven=bool(p.get("required_dependencies_proven", False)),
+        overall_verification=p.get("overall_verification", "NOT_VERIFIED"),
     )
 
 
@@ -422,20 +750,59 @@ def download_generated(run_id: str) -> StreamingResponse:
     produced by ApplicationGenerator during modernization. An uploaded
     candidate is never served here; runs without a generated artifact
     return 404.
+
+    BL-091 (D-1 resolved 2026-10-17): export is blocked with 409 until the
+    customer APPROVES the run. The gate runs immediately after the run
+    lookup and BEFORE artifact lookup/size caps so no archive detail
+    (existence, size, file count) leaks to an unapproved export; an
+    unknown run is still 404.
     """
     run = _svc().get_run(run_id)
+    if run.approval_state != "APPROVED":
+        raise _error(
+            409,
+            f"Export blocked: run approval is {run.approval_state} — the"
+            " customer must approve this run before download"
+            f" (POST /runs/{run_id}/approval)",
+        )
     app = _svc().get_application(run.application_id)
 
     java_dir = app.generated_app_path
     if java_dir is None or not Path(java_dir).exists():
         raise _error(404, "No generated Java application available for this run")
 
+    # BL-067: the archive is built in memory per request.  A pathological
+    # or unexpectedly large generated tree could exhaust memory on an
+    # authenticated GET, so both the file count and the total byte size
+    # are capped and the request fails closed (413) BEFORE any bytes are
+    # buffered — never a partial or truncated archive.
+    max_files = _env_limit(
+        "CONTROL_PLANE_MAX_DOWNLOAD_FILES", _DEFAULT_MAX_DOWNLOAD_FILES
+    )
+    max_bytes = _env_limit(
+        "CONTROL_PLANE_MAX_DOWNLOAD_BYTES", _DEFAULT_MAX_DOWNLOAD_BYTES
+    )
+
+    files = sorted(p for p in Path(java_dir).rglob("*") if p.is_file())
+    if len(files) > max_files:
+        raise PayloadTooLargeError(
+            f"Generated application has {len(files)} files,"
+            f" exceeding the {max_files} file download limit"
+        )
+    total_bytes = 0
+    for f in files:
+        total_bytes += f.stat().st_size
+        if total_bytes > max_bytes:
+            raise PayloadTooLargeError(
+                f"Generated application exceeds the {max_bytes} byte"
+                " download limit"
+            )
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in Path(java_dir).rglob("*"):
-            if f.is_file():
-                arcname = f.relative_to(java_dir)
-                zf.write(f, arcname)
+        for f in files:
+            arcname = f.relative_to(java_dir)
+            zf.write(f, arcname)
 
     buf.seek(0)
     # Stable product filename derived from the application name (not the

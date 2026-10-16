@@ -13,9 +13,13 @@ It imports only from:
 The generated Spring Boot project is a **structural representation**:
 it compiles, starts, and prints what each JCL step would do.
 It does NOT execute real batch processing.
+The claim is executed proof by
+``tests/integration/test_jcl_spring_boot_compile.py`` (BL-071).
 """
 
 from __future__ import annotations
+
+import re
 
 from engine.transformation.java_ir import (
     JavaBasicType,
@@ -50,13 +54,13 @@ _STRING = JavaType(basic_type=JavaBasicType.STRING)
 
 def _camel(name: str) -> str:
     """Camel-case a JCL token: STEP01 -> step01, PAY-MAIN -> payMain."""
-    parts = [p for p in __import__("re").split(r"[^A-Za-z0-9]+", name) if p]
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", name) if p]
     if not parts:
         return "step"
     return parts[0].lower() + "".join(p.capitalize() for p in parts[1:])
 
 
-def _step_comment(step: SpringBatchStep, job: SpringBatchJob) -> str:
+def _step_comment(step: SpringBatchStep) -> str:
     """Build a human-readable comment for a JCL step."""
     parts = [f"JCL step {step.source_step}"]
     if step.program:
@@ -83,25 +87,16 @@ def _activation_comment(step: SpringBatchStep) -> str | None:
     return None
 
 
-def _resource_comment(resources: tuple[SpringBatchStep, ...]) -> list[str]:
-    """Describe dataset resources used by a step."""
-    comments = []
-    for res in resources:
-        if res.dsn:
-            comments.append(f"DD {res.name} → DSN={res.dsn} ({res.resource_type.value})")
-    return comments
 
 
 def _build_step_method(
     step: SpringBatchStep,
-    job: SpringBatchJob,
-    base_package: str,
 ) -> SpringBootServiceMethod:
     """Map one JCL step to a SpringBootServiceMethod."""
     body: list[JavaComment | JavaMethodCallStatement] = []
 
     # Step header comment
-    body.append(JavaComment(text=_step_comment(step, job)))
+    body.append(JavaComment(text=_step_comment(step)))
 
     # Activation gate comment
     act_comment = _activation_comment(step)
@@ -127,7 +122,7 @@ def _build_step_method(
     ))
 
     return SpringBootServiceMethod(
-        name=_camel(step.source_step) or "execute",
+        name=_camel(step.source_step),
         return_type=_VOID,
         parameters=(),
         body_statements=tuple(body),
@@ -140,7 +135,7 @@ def _build_job_service(
 ) -> SpringBootService:
     """Map one JCL job to a SpringBootService."""
     methods = tuple(
-        _build_step_method(step, job, base_package)
+        _build_step_method(step)
         for step in job.steps
     )
 
@@ -178,7 +173,8 @@ def jcl_to_spring_boot(
 
     The generated project is a **structural representation**:
     it compiles, starts, and prints what each JCL step would do.
-    It does NOT execute real batch processing.
+    It does NOT execute real batch processing.  Executed proof:
+    ``tests/integration/test_jcl_spring_boot_compile.py`` (BL-071).
 
     Args:
         app: JCL Spring Batch application (from ``modernize_jcl``).
@@ -219,4 +215,11 @@ def jcl_to_spring_boot(
         services=services,
         entry_point=entry_point,
         dependencies=dependencies,
+        # The JCL profile is structural (no JES/z/OS, no persistence), but
+        # spring-boot-starter-batch pulls in JDBC auto-configuration, which
+        # fails startup without a datasource URL.  Exclude it so the
+        # generated app starts as the adapter documents (BL-071).
+        autoconfigure_excludes=(
+            "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
+        ),
     )

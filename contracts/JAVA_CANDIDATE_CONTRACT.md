@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** A working candidate execution lane exists. The repository also contains a later Spring/Docker lane; version boundaries must remain explicit.
+
 # JAVA CANDIDATE CONTRACT — V1
 
 > **Status:** AUTHORITATIVE on the platform side; **producer-binding force gated on

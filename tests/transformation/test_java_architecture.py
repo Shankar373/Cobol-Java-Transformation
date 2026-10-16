@@ -93,29 +93,29 @@ from engine.transformation.ir import (
 # ============================================================
 
 class TestJavaType:
-    def test_basic_int(self):
+    def test_int_type_renders_as_java_int(self):
         t = JavaType(basic_type=JavaBasicType.INT)
         assert t.is_basic
         assert not t.is_void
         assert t.to_source() == "int"
 
-    def test_basic_long(self):
+    def test_long_type_renders_as_java_long(self):
         t = JavaType(basic_type=JavaBasicType.LONG)
         assert t.to_source() == "long"
 
-    def test_basic_double(self):
+    def test_double_type_renders_as_java_double(self):
         t = JavaType(basic_type=JavaBasicType.DOUBLE)
         assert t.to_source() == "double"
 
-    def test_basic_string(self):
+    def test_string_type_renders_as_java_string(self):
         t = JavaType(basic_type=JavaBasicType.STRING)
         assert t.to_source() == "String"
 
-    def test_basic_boolean(self):
+    def test_boolean_type_renders_as_java_boolean(self):
         t = JavaType(basic_type=JavaBasicType.BOOLEAN)
         assert t.to_source() == "boolean"
 
-    def test_basic_void(self):
+    def test_void_type_is_void_and_renders_as_void(self):
         t = JavaType(basic_type=JavaBasicType.VOID)
         assert t.is_void
         assert t.to_source() == "void"
@@ -194,11 +194,11 @@ class TestJavaExpressions:
         )
         assert e.object_ref is not None
 
-    def test_new_object(self):
+    def test_new_object_carries_class_name(self):
         e = JavaNewObject(class_name="ArrayList", arguments=())
         assert e.class_name == "ArrayList"
 
-    def test_ternary(self):
+    def test_ternary_keeps_condition_and_branches(self):
         e = JavaTernary(
             condition=JavaVariableRef(name="x"),
             true_expr=JavaLiteral(value="1"),
@@ -213,7 +213,7 @@ class TestJavaExpressions:
         ))
         assert len(e.parts) == 2
 
-    def test_cast(self):
+    def test_cast_renders_target_type(self):
         e = JavaCast(
             target_type=JavaType(basic_type=JavaBasicType.INT),
             expression=JavaVariableRef(name="obj"),
@@ -226,7 +226,7 @@ class TestJavaExpressions:
 # ============================================================
 
 class TestJavaStatements:
-    def test_assignment(self):
+    def test_assignment_keeps_target_and_expression(self):
         s = JavaAssignment(target="x", expression=JavaLiteral(value="5"))
         assert s.target == "x"
 
@@ -308,7 +308,7 @@ class TestJavaStatements:
         )
         assert s.catch_type == "IOException"
 
-    def test_return(self):
+    def test_return_with_expression_keeps_expression(self):
         s = JavaReturn(expression=JavaLiteral(value="42"))
         assert s.expression is not None
 
@@ -316,22 +316,22 @@ class TestJavaStatements:
         s = JavaReturn()
         assert s.expression is None
 
-    def test_throw(self):
+    def test_throw_keeps_exception_class_and_message(self):
         s = JavaThrow(exception_class="RuntimeException", message="error")
         assert s.exception_class == "RuntimeException"
 
-    def test_block(self):
+    def test_block_collects_statements(self):
         s = JavaBlock(statements=(
             JavaAssignment(target="x", expression=JavaLiteral(value="1")),
             JavaAssignment(target="y", expression=JavaLiteral(value="2")),
         ))
         assert len(s.statements) == 2
 
-    def test_comment(self):
+    def test_comment_preserves_text(self):
         s = JavaComment(text="this is a comment")
         assert s.text == "this is a comment"
 
-    def test_switch(self):
+    def test_switch_groups_cases_and_default_body(self):
         s = JavaSwitch(
             expression=JavaVariableRef(name="x"),
             cases=(
@@ -348,7 +348,7 @@ class TestJavaStatements:
 # ============================================================
 
 class TestJavaClassMembers:
-    def test_field(self):
+    def test_field_keeps_name_and_static_flag(self):
         f = JavaField(
             java_type=JavaType(basic_type=JavaBasicType.INT),
             name="count",
@@ -358,14 +358,14 @@ class TestJavaClassMembers:
         assert f.name == "count"
         assert f.is_static
 
-    def test_parameter(self):
+    def test_parameter_keeps_name_and_type(self):
         p = JavaParameter(
             java_type=JavaType(basic_type=JavaBasicType.STRING),
             name="input",
         )
         assert p.name == "input"
 
-    def test_method(self):
+    def test_method_keeps_name_and_parameters(self):
         m = JavaMethod(
             name="process",
             return_type=JavaType(basic_type=JavaBasicType.VOID),
@@ -379,7 +379,7 @@ class TestJavaClassMembers:
         assert m.name == "process"
         assert len(m.parameters) == 1
 
-    def test_constructor(self):
+    def test_constructor_keeps_class_name(self):
         c = JavaConstructor(
             class_name="MyClass",
             parameters=(),
@@ -387,7 +387,7 @@ class TestJavaClassMembers:
         )
         assert c.class_name == "MyClass"
 
-    def test_class_basic(self):
+    def test_class_aggregates_fields_and_methods(self):
         cls = JavaClass(
             name="MyClass",
             fields=(JavaField(
@@ -458,7 +458,7 @@ class TestResources:
 # ============================================================
 
 class TestJavaProgram:
-    def test_program_basic(self):
+    def test_program_keeps_id_and_java_class(self):
         p = JavaProgram(
             program_id="MYPROG",
             java_class=JavaClass(name="Myprog"),
@@ -493,7 +493,7 @@ class TestJavaProgram:
 # ============================================================
 
 class TestJavaApplication:
-    def test_application_basic(self):
+    def test_application_starts_with_id_and_no_programs(self):
         app = JavaApplication(application_id="TEST")
         assert app.application_id == "TEST"
         assert len(app.programs) == 0
@@ -668,25 +668,25 @@ class TestPicMapping:
         t = map_pic_to_java_type(item)
         assert t.basic_type == JavaBasicType.STRING
 
-    def test_default_numeric(self):
+    def test_numeric_item_without_value_defaults_to_zero(self):
         item = DataItem(name="WS-COUNT", pic_type=PicType.NUMERIC, pic_length=4)
         d = map_pic_to_java_default(item)
         assert d == "0"
 
-    def test_default_numeric_with_value(self):
+    def test_numeric_item_with_value_defaults_to_that_literal(self):
         item = DataItem(name="WS-COUNT", pic_type=PicType.NUMERIC, pic_length=4, value="'100'")
         d = map_pic_to_java_default(item)
         assert d == "100"
 
-    def test_default_alphanumeric(self):
+    def test_alphanumeric_item_without_value_defaults_to_blank_fill(self):
         item = DataItem(name="WS-NAME", pic_type=PicType.ALPHANUMERIC, pic_length=20)
         d = map_pic_to_java_default(item)
-        assert d == '""'
+        assert d == '"                    "'
 
-    def test_default_alphanumeric_with_value(self):
+    def test_alphanumeric_item_with_value_defaults_to_left_justified_fill(self):
         item = DataItem(name="WS-NAME", pic_type=PicType.ALPHANUMERIC, pic_length=20, value="'HELLO'")
         d = map_pic_to_java_default(item)
-        assert d == '"HELLO"'
+        assert d == '"HELLO               "'
 
 
 # ============================================================
@@ -781,7 +781,7 @@ class TestStatementMapping:
         assert len(java_stmts) == 1
         assert isinstance(java_stmts[0], JavaMethodCallStatement)
 
-    def test_divide(self):
+    def test_divide_statement_maps_to_java_assignment(self):
         stmt = DivideStatement(target="WS-RESULT", source="WS-A", divisor="WS-B")
         java_stmts = map_cobol_statement(stmt)
         assert len(java_stmts) == 1

@@ -42,7 +42,7 @@ def modernize(source: str, path: str = "test.jcl"):
 class TestGeneratedRepresentation:
     """The Spring Batch representation produced from JCL."""
 
-    def test_job_bean_and_steps(self) -> None:
+    def test_simpleb_maps_to_pascal_job_bean_and_start_step(self) -> None:
         profile = modernize(load_fixture("simple_batch.jcl"), "simple_batch.jcl")
         job = profile.application.get_job("SIMPLEB")
         assert job is not None
@@ -60,7 +60,7 @@ class TestGeneratedRepresentation:
         assert job.flows[0].target == "Step02"
         assert job.flows[0].on_status == EXIT_STATUS_SUCCESS
 
-    def test_resource_mapping(self) -> None:
+    def test_dd_resources_map_to_input_and_sysout_log_types(self) -> None:
         profile = modernize(load_fixture("order_flow.jcl"), "order_flow.jcl")
         job = profile.application.get_job("PAYORDER")
         input_res = job.steps[0].resources[0]
@@ -85,12 +85,12 @@ class TestGeneratedRepresentation:
         got = {(e.dataset, e.producer, e.consumer) for e in edges}
         assert expected <= got
 
-    def test_resource_inventory(self) -> None:
+    def test_application_resources_include_datasets_and_temporary_work(self) -> None:
         profile = modernize(load_fixture("order_flow.jcl"), "order_flow.jcl")
         dsn_set = {r.dsn for r in profile.application.resources}
         assert {"ORDER.INPUT", "&&WORK1", "ORDER.OUTPUT"} <= dsn_set
 
-    def test_application_validate_clean(self) -> None:
+    def test_order_flow_application_validates_without_errors(self) -> None:
         profile = modernize(load_fixture("order_flow.jcl"), "order_flow.jcl")
         assert profile.application.validate() == []
 
@@ -136,7 +136,7 @@ class TestConditionalFlowSemantics:
 class TestUnsupportedHandling:
     """Unsupported constructs must be explicit, never silent."""
 
-    def test_unsupported_profile_status(self) -> None:
+    def test_unsupported_fixture_reports_partial_with_errors(self) -> None:
         profile = modernize(load_fixture("unsupported.jcl"), "unsupported.jcl")
         assert profile.status == JclProfileStatus.PARTIAL
         assert profile.has_errors is True
@@ -173,12 +173,12 @@ class TestUnsupportedHandling:
 class TestProfileStatus:
     """Status derivation."""
 
-    def test_full_status(self) -> None:
+    def test_clean_fixture_reports_full_status_without_errors(self) -> None:
         profile = modernize(load_fixture("simple_batch.jcl"), "simple_batch.jcl")
         assert profile.status == JclProfileStatus.FULL
         assert profile.has_errors is False
 
-    def test_empty_status(self) -> None:
+    def test_empty_application_reports_empty_status(self) -> None:
         from engine.transformation.ir import JclApplication
 
         app = JclApplication()
@@ -197,7 +197,7 @@ class TestProfileStatus:
 class TestDeterminism:
     """Generated representation must be deterministic."""
 
-    def test_two_profiles_identical(self) -> None:
+    def test_two_mappings_over_same_source_yield_identical_applications(self) -> None:
         source = load_fixture("order_flow.jcl")
         left = modernize(source, "order_flow.jcl")
         right = modernize(source, "order_flow.jcl")
@@ -211,7 +211,7 @@ class TestDeterminism:
             e.dsn for e in right.application.resources
         ]
 
-    def test_bean_naming(self) -> None:
+    def test_payorder_job_and_step01_tasklet_bean_names_derive(self) -> None:
         profile = modernize(load_fixture("order_flow.jcl"), "order_flow.jcl")
         job = profile.application.get_job("PAYORDER")
         assert job.job_bean == "PayorderJob"

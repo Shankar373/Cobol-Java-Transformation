@@ -12,7 +12,7 @@ from engine.cics import (
 from engine.cics.naming import camel, pascal
 
 
-def test_package_imports_successfully():
+def test_engine_cics_package_declares_name_and_docstring():
     assert cics_package.__name__ == "engine.cics"
     assert cics_package.__doc__ is not None
 

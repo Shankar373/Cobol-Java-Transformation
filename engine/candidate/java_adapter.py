@@ -28,6 +28,10 @@ from engine.domain.identities import (
     RunId,
 )
 
+#: Timeout for a candidate Java *execution* (seconds).  Single source so the
+#: subprocess timeout and the evidence ``timeout_duration`` cannot desync.
+_EXEC_TIMEOUT_SECONDS = 30
+
 
 class RealJavaCandidateAdapter(CandidateAdapter):
     """Real Java candidate adapter using host javac/java."""
@@ -194,7 +198,7 @@ class RealJavaCandidateAdapter(CandidateAdapter):
                 java_cmd,
                 capture_output=True,
                 input=input_data,
-                timeout=30,
+                timeout=_EXEC_TIMEOUT_SECONDS,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
 
@@ -229,5 +233,5 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             end_time=end_time.isoformat(),
             termination_status=termination,
             timeout_applied=termination == "timeout",
-            timeout_duration=30,
+            timeout_duration=_EXEC_TIMEOUT_SECONDS,
         )

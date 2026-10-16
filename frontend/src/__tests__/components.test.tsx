@@ -14,7 +14,7 @@ import { FileUpload } from '../components/FileUpload';
 describe('Header', () => {
   it('renders brand name', () => {
     render(<Header />);
-    expect(screen.getByText('COBOL \u2192 Java')).toBeInTheDocument();
+    expect(screen.getByText('SystemaOps')).toBeInTheDocument();
   });
 
   it('renders navigation links', () => {

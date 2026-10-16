@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from engine.transformation.contracts import Diagnostic as ContractDiagnostic
+
 
 class DiagnosticLevel(Enum):
     """Severity level for diagnostics."""
@@ -62,6 +64,24 @@ class Diagnostic:
     @classmethod
     def error(cls, code: DiagnosticCode, message: str, location: str = "") -> Diagnostic:
         return cls(level=DiagnosticLevel.ERROR, code=code, message=message, location=location)
+
+
+def to_contract_diagnostic(d: Diagnostic) -> ContractDiagnostic:
+    """Convert an engine diagnostic to the producer-boundary contract type (BL-042).
+
+    ``TransformationResult.diagnostics`` is declared as
+    ``tuple[contracts.Diagnostic, ...]`` whose level/code are **strings**;
+    engine diagnostics carry enums.  Every producer converts at the
+    boundary through this single helper so consumers see one shape and
+    ``has_errors``/``has_warnings`` (string comparisons) work identically
+    for all producers.
+    """
+    return ContractDiagnostic(
+        level=d.level.value,
+        code=d.code.value,
+        message=d.message,
+        location=d.location,
+    )
 
 
 class DiagnosticCollector:
