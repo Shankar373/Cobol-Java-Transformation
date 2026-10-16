@@ -1,6 +1,110 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
-## Phase 12 CLOSED — verdict: `INCOMPLETE — BLOCKED ON D-1` (2026-10-17)
+## Phase 12 CLOSED — verdict: `PHASE 12 COMPLETE — VERIFIED` (2026-10-17, after D-1 resolution + batch P4)
+
+### ⚑ VERDICT (read this first)
+
+- **Project-level status: `PHASE 12 COMPLETE — VERIFIED`** — declared
+  per the §53/§71 completion rule after batch P4 closed the last FAIL.
+  **§71 Final Release Gate: 19 ✅ / 2 ⚠️ / 0 ❌** (no FAIL; the two ⚠️
+  are the accepted disclosed-limitation items: checkbox 4 universal
+  COBOL coverage explicitly not claimed; checkbox 14 single-token /
+  no-RBAC / no-audit-log security limits, D-5 carried). **§53: 13/13
+  PASS** (point 12 PARTIAL → PASS with checkbox 21).
+- **What changed since the previous checkpoint:** human decision
+  **D-1 was resolved on 2026-10-17** (explicit approval-workflow scope,
+  see batch P4 below) and **BL-091 was implemented end-to-end
+  red-first at `0ae8c0f`** — per-run PENDING/APPROVED/REJECTED in the
+  SQLite run store (schema v5), approver/timestamp/reason recorded,
+  rejection requires a reason, export blocked 409 until APPROVED,
+  re-validation resets to PENDING, bearer-token auth only (approver
+  string = recorded input, not verified identity; no RBAC added; no
+  evidence-seal claimed). Every other audited finding remains FIXED
+  red-first; carries are unchanged and non-blocking (BL-093→D-4,
+  BL-012→D-3, BL-013…BL-017 governance; D-2/D-5/D-6).
+
+### Final tree, CI and counts (all from actual runs)
+
+- **Final work SHA:** `0ae8c0f` (batch P4, all code/test/CI evidence).
+  Documentation close commits are verified separately (run IDs in the
+  close note at the bottom of this block).
+- **Phase 12 CI: 16/16 batch runs green** — P1 `accc81a` (38920133049 /
+  38920133001 / 38920141540 / 38920141655), P2 `162520b` (38928312923 /
+  38928312930 / 38928316773 / 38928316724), P3 `d928253` (38933671536 /
+  38933671595 / 38933681281 / 38933680935), P4 `0ae8c0f` (38964732463
+  SystemaOps CI push / 38964732539 Supply chain push / 38964737580
+  SystemaOps CI PR / 38964737498 Supply chain PR); all jobs success
+  each, 0 `continue-on-error`.
+- **Backend junit at `0ae8c0f`: 3905 passed / 0 failed / 0 skipped**
+  (= 3883 at `d928253` + exactly the 22 new P4/BL-091 tests; artifact
+  `backend-oracle-results` of run 38964732463).
+- **Local (Windows, supplementary):** frontend vitest **133/133**,
+  `tsc --noEmit` clean, production build clean. Focused P1 15 / P2 82
+  / P3+planner 146 / **P4 22 passed**; 5 download-contract suites 80
+  passed with the approval setup step; frozen 54-file gate 748 passed
+  at every batch including P4 (only the 4 known Windows-only
+  `test_runtime_adapter_architecture` failures; CI-Linux green).
+- **Local final full suite (serial, CI-equivalent `pytest tests`):
+  3896 passed / 5 failed / 4 skipped** — the 5 = the 4 known
+  Windows-only tests + 1 documented flake
+  (`test_payroll_artifacts::test_wrong_name_detected`, ERROR-vs-FAILED
+  inside the 45-minute sustained run; solo sequential re-run **28/28
+  passed**; CI green at the same SHA). Zero genuine local regressions.
+- **Fresh local integration (§50):** **364 passed / 0 failed** (clean
+  re-run; the first attempt was contaminated by the disclosed
+  working-tree provenance incident — see the incident note below).
+  **NO-LLM re-scan at the final tree: PASS** (0 model-provider
+  packages/keys/endpoints/imports on every scanned surface).
+
+### Batches (red-first, exact-SHA CI green before each next step)
+
+- **P0:** explicitly empty — no open P0 exists; none invented.
+- **P1 `accc81a`:** BL-045 `called_programs` threaded through all 6
+  nested recursion sites + BL-046 canonical spring escaping (combined
+  red 14 failed → 15 passed).
+- **P2 `162520b`:** BL-065 name-based IR-type checks (4 NameError reds
+  → 5 passed; fail-closed guard pinned), BL-092/F-03 masking skips →
+  enforcement asserts (2 reds → 2 passed), F-02 all 22 documentation
+  contradictions reconciled (8 historical reports labeled per §78,
+  never rewritten).
+- **P3 `d928253`:** BL-066 structured blocking-reason mapping (2 reds →
+  4 passed; 146 planner/consumer tests green), F-05 19 priority/severity
+  assessments.
+- **P4 `0ae8c0f` (after D-1 resolution):** BL-091 customer approval
+  workflow end-to-end (backend red 20 failed / 2 passed → 22 passed;
+  frontend red module-absent → 11 passed; schema v5 additive
+  migration; download gate 409 after run lookup before artifact/cap
+  checks; ghost-run 404s unchanged; the 5 download suites gained an
+  approval setup step with **assertions unchanged**).
+
+### Decisions and carries at close
+
+- **D-1: RESOLVED 2026-10-17** (explicit scope) and **closed** via
+  BL-091 at `0ae8c0f` with red-first + CI evidence.
+- **D-3** (coverage/mutation targets) → BL-012 remainder: documented
+  deferred, no completion claimed. **D-4** (`test-artifacts/*`
+  authorization) → BL-093: OPEN, never staged. **D-2/D-5/D-6:**
+  carried governance (PR #1/#2/#3/#6; RBAC/audit log; COMP/COMP-3
+  certification).
+- **Invariants held:** no LLM anywhere (re-scan PASS); no weakened or
+  deleted tests; frozen 54-file gate never changed; no
+  `test-artifacts/*` staged; nothing merged to `main`. One working-tree
+  incident fully disclosed in BACKLOG (bc): a careless local
+  `Remove-Item test-artifacts/*.xml` deleted 6 tracked stale junit
+  files during close-out; the recovery `git checkout --
+  test-artifacts` also reverted the locally-recorded
+  `docker-image-provenance.json`, which contaminated the first local
+  integration run (Docker adapter identity checks failed — environment
+  fault, CI green at the same SHA). Regenerated with the official
+  `scripts/record_docker_image_provenance.py` (as `ci.yml` does) and
+  re-ran the integration suite fresh; nothing staged or committed at
+  any point.
+
+### Close note (docs commits — CI verified after this block was written)
+
+- (filled in after the docs-commit CI runs settle)
+
+## Phase 12 CLOSED — verdict: `INCOMPLETE — BLOCKED ON D-1` (2026-10-17) [SUPERSEDED by the block above — D-1 was resolved the same day and batch P4 closed the FAIL; kept for the historical record per §78]
 
 ### ⚑ VERDICT (read this first)
 

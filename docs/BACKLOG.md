@@ -4204,27 +4204,64 @@ criteria/tests, verification level and evidence location.
   required by the Master README approval stage.
 - **Severity:** high for release gating (absent control, not wrong
   output — exports are not gated behind a human approval decision).
-- **Status:** **OPEN — blocked on human decision D-1 (2026-10-16).**
+- **Status:** **FIXED — 2026-10-17 (Phase 12 batch P4; red-first; D-1
+  resolved 2026-10-17 by the product owner with an explicit scope;
+  commit `0ae8c0f`, exact-SHA CI 4/4 green, backend junit 3905 passed /
+  0 failed / 0 skipped).**
   Filed by the Phase 12 entry-gate reconciliation from audit finding
   F-01 (zero references to an approval stage anywhere in `api/`,
-  `engine/`, or `frontend/` at `f3d0352`). D-1 (approval-workflow
-  scope) is **not resolved** in any authoritative document — the Master
-  README names the requirement but does not specify the state machine,
-  persistence model, or authorization rules. Inventing the approval
-  state machine or its approvals is forbidden (§61 no fake
-  verification), so implementation is not started and no approval
-  behavior is claimed.
-- **Expected behavior:** per D-1 once decided: agreed approval scope
-  end-to-end (API/service state, persistence, frontend, export gating,
-  authorization, tests) — scope itself undefined until D-1 resolves.
-- **Affected files:** `api/`, `engine/`, `frontend/` (all — pending).
-- **Acceptance criteria / tests:** implemented scope of D-1 with tests
-  covering state transitions, authorization, and export gating; until
-  D-1 resolves, the documented blocker above is the acceptance state.
-- **Owner/role:** product/API owner. **Target phase:** Phase 12
-  (blocked). **Dependency:** human decision D-1.
-  **Residual risk:** §71 checkbox 21 cannot pass and §53 project
-  completion cannot be declared while D-1 is unresolved.
+  `engine/`, or `frontend/` at `f3d0352`), carried OPEN through batches
+  P1–P3 because inventing an approval state machine is forbidden (§61).
+  D-1 was resolved on 2026-10-17 with an explicit approved scope:
+  per-run states PENDING/APPROVED/REJECTED; approver string + timestamp
+  + reason recorded (rejection requires a reason, approval reason
+  optional); export/download blocked with HTTP 409 until APPROVED;
+  every new run and re-validation starts PENDING (approval never
+  carried forward); existing bearer-token auth only (no RBAC; the
+  approver string is recorded input, not a verified identity);
+  persistence in the existing SQLite run store (no evidence-manifest
+  seal integration; no cryptographic tamper-evidence claimed).
+- **Expected behavior:** implemented exactly as approved —
+  `GET/POST /runs/{run_id}/approval` (state + decision record;
+  decision must be APPROVED/REJECTED — PENDING or unknown → 422;
+  blank approver → 422; REJECTED without a non-blank reason → 422;
+  unknown run → 404; a later decision supersedes the earlier one);
+  `GET /runs/{run_id}/download` answers 409 for any non-APPROVED run,
+  gated immediately after run lookup and before artifact lookup/size
+  caps so no archive detail leaks pre-approval (unknown run still 404);
+  store schema v5 additive migration (legacy runs read back PENDING =
+  fail closed); `begin_revalidation` clears the approval record
+  atomically with the stage reset; `update_run` never touches approval
+  columns so a stale in-flight worker cannot clobber a decision;
+  frontend `ApprovalPanel` on COMPLETED runs (badge, approver input,
+  reason textarea, Reject disabled until both approver and real reason
+  exist, decision errors surfaced).
+- **Affected files:** `api/store.py` (schema v5, `set_run_approval`,
+  revalidation reset), `api/models.py` (approval models),
+  `api/service.py` (`set_run_approval`), `api/app.py` (approval
+  endpoints + download 409 gate), `frontend/src/api/client.ts`
+  (approval client), `frontend/src/components/ApprovalPanel.tsx` (new),
+  `frontend/src/pages/ModernizationRun.tsx` (panel wiring),
+  `tests/test_phase12_p4_bl091_approval_workflow.py` (new; 22 tests),
+  `frontend/src/__tests__/approval-client.test.ts` +
+  `approval-workflow.test.tsx` (new; 11 tests), plus an approval setup
+  step in the 5 existing download-contract suites (assertions
+  unchanged — the contract changed per the approved D-1 scope).
+- **Acceptance criteria / tests:** met with red-first evidence —
+  backend 20 failed / 2 passed pre-fix → 22 passed; frontend red
+  (component/client absent) → 11 passed; full backend suite at `0ae8c0f`
+  = 3905 passed / 0 failed / 0 skipped on CI; local full suite 3896
+  passed / 5 failed (4 known Windows-only + 1 documented flake,
+  sequentially re-run 28/28 green) / 4 skipped; frozen 54-file gate 748
+  passed + the 4 known Windows-only failures; frontend 133/133 + tsc +
+  build clean; NO-LLM re-scan 0 hits. §71 checkbox 21 re-scored ✅
+  against this evidence.
+- **Owner/role:** product/API owner. **Target phase:** Phase 12 batch
+  P4. **Dependency:** none (D-1 resolved 2026-10-17).
+  **Residual risk:** the approver string remains recorded input, not
+  verified identity, and there is no RBAC/audit-log layer (D-5 carried)
+  and no evidence-seal integration on the approval record — all three
+  are explicitly outside the approved D-1 scope and disclosed here.
 
 ### BL-092 — Two tests mask regressions by skipping instead of failing (Phase 12 P2; audit finding F-03)
 
@@ -6218,6 +6255,87 @@ criteria/tests, verification level and evidence location.
   no approval state machine, coverage number, or artifact cleanup
   invented.
 
+- 2026-10-17 — **(bc) Phase 12 batch P4: D-1 resolved → BL-091 customer
+  approval workflow implemented end-to-end; §71/§53 re-scored;
+  `PHASE 12 COMPLETE — VERIFIED` declared.**
+  - **D-1 resolved 2026-10-17 (product owner, explicit scope):**
+    per-run approval states PENDING/APPROVED/REJECTED; approver string +
+    timestamp + reason recorded (rejection REQUIRES a reason, approval
+    reason optional); export/download blocked with HTTP 409 unless
+    APPROVED; every new run and re-validation starts PENDING (approval
+    never carried forward); existing bearer-token auth only (no RBAC;
+    the approver string is recorded input, not a verified identity);
+    persistence in the existing SQLite run store (no evidence-manifest
+    seal integration; no cryptographic tamper-evidence claimed).
+  - **Implemented at `0ae8c0f` (red-first):** `GET/POST
+    /runs/{id}/approval` (decision must be APPROVED/REJECTED — PENDING
+    or unknown → 422; blank approver → 422; REJECTED without non-blank
+    reason → 422; unknown run → 404; later decision supersedes);
+    download gate 409 immediately after run lookup and before
+    artifact/cap checks (unknown run still 404); store schema v5
+    additive migration (legacy runs read back PENDING = fail closed);
+    `update_run` never touches approval columns (stale in-flight workers
+    cannot clobber a decision); `begin_revalidation` clears the approval
+    record atomically with the stage reset; frontend `ApprovalPanel`
+    on COMPLETED runs. Red-first evidence: backend **20 failed / 2
+    passed pre-fix → 22 passed**; frontend red (component/client
+    absent) → **11 passed**.
+  - **Existing-test accommodations (contract change, honest):** the 5
+    suites exercising `/download` (security, persistence, e2e,
+    modernization-integration, phase11-P2) gained an approval setup
+    step before download; **every existing assertion is unchanged** —
+    the gate moved the preconditions, not the contracts. Ghost-run 404
+    contracts unchanged.
+  - **Verification:** focused P4 22 passed; 5 affected suites 80
+    passed; frozen 54-file gate **748 passed + the 4 known
+    Windows-only failures**; frontend **133/133** + `tsc` + build
+    clean; local full suite (serial, CI-equivalent `pytest tests`)
+    **3896 passed / 5 failed / 4 skipped** (4 known Windows-only + 1
+    documented flake — `test_payroll_artifacts::test_wrong_name_detected`,
+    solo sequential re-run **28/28 passed**); exact-SHA CI at `0ae8c0f`
+    **4/4 green** (38964732463 / 38964732539 / 38964737580 /
+    38964737498) with backend junit **3905 passed / 0 failed / 0
+    skipped**; fresh local integration run **364 passed / 0 failed** on
+    the clean re-run after the disclosed working-tree incident (first
+    attempt contaminated by the provenance revert — see incident
+    bullet); **NO-LLM re-scan: 0 hits** on every surface.
+  - **Disposition:** BL-091 **FIXED** (section + register row synced).
+    Register: 84 FIXED, 1 RESOLVED BY DESIGN, 1 documented-deferred
+    PARTIAL (BL-012 → D-3), 1 environment-blocked (BL-010), 1 OPEN
+    (BL-093 → D-4), 5 register-only; none P0. **§71 re-score: 19 ✅ /
+    2 ⚠️ / 0 ❌** (checkbox 21 → ✅ with the D-1-scoped evidence; the
+    two ⚠️ remain the accepted disclosed-limitation items 4 and 14).
+    **§53: 13/13 PASS** (point 12 PARTIAL → PASS). Per the §53/§71
+    completion rule, **`PHASE 12 COMPLETE — VERIFIED` is declared**.
+    Remaining human decisions are non-blocking carries: D-3 → BL-012,
+    D-4 → BL-093, D-2/D-5/D-6 governance.
+  - **Incident disclosed (working tree only; nothing committed):**
+    while starting the local fresh-integration run I ran a careless
+    `Remove-Item test-artifacts/*.xml`; it deleted 6 tracked stale
+    junit files. The immediate recovery `git checkout --
+    test-artifacts` restored them — but it also reverted the
+    **locally-modified** `test-artifacts/docker-image-provenance.json`
+    (which recorded the identities of the locally built Docker images)
+    to the committed version. That contaminated the first integration
+    run of the close: image-identity verification failed for every
+    Docker-backed adapter (`Docker or Maven image not available` →
+    317 passed / 26 failed / 21 errors) — a working-tree environment
+    fault caused by my recovery action, **not** a code regression (CI
+    regenerates its own provenance per run and is green at the same
+    SHA). Recovery: re-pulled the digest-pinned runtime image and
+    regenerated the provenance with the official
+    `scripts/record_docker_image_provenance.py` (same invocation as
+    `ci.yml`), restoring the pre-incident `M` working-tree state, then
+    re-ran `tests/integration/` fresh (counts in the verification
+    bullet above / audit §11). Nothing was staged or committed at any
+    point; `git status` confirms `test-artifacts/*` matches HEAD
+    except the expected local provenance record and pre-existing
+    untracked local files.
+  No test weakened; no gate bypassed; no `test-artifacts/*` staged; no
+  approval state machine, coverage number, or artifact cleanup
+  invented (the approval workflow was implemented only after D-1's
+  explicit scope decision).
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -6315,7 +6433,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-088 | Runtime-adapter architecture maintainer | **FIXED 2026-10-15 (Phase 8 batch P0; `2917a4f`, exact-SHA CI 4/4 green)** | None | §32 absent: no `target_runtime` config keys (red probe `bl088_red_probe.txt` TypeError), hardcoded `_assemble_spring_boot`, plan `output_type` hardcoded `SPRING_BOOT`. | Without fail-closed validation + truthful plan output_type, a future non-spring target would report Spring artifacts (capability-truth/config-loss shape). | FIXED: `runtime_adapters.py` seam + fail-closed §32 keys + registry dispatch + truthful plan output_type + pre-phase lookup; 36 focused gate tests; default spring output byte-identical; `_fill_discovery` report-rebuild bug found+fixed by the new tests. |
 | BL-089 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P1)** | BL-088 | `plain_java` unreachable: `JavaGenerator` emits sources+main only (no pom), no assembly adapter, no API selection surface. | Missing capability (not silent loss today); plain-java build/runtime evidence deferred to Phase 9. | FIXED: `PlainJavaRuntimeAdapter` + registry + store/API `target_runtime` (schema migration 4) + plan `NATIVE_JAVA` + report limitation; 5 focused engine tests + API surface checks; spring default unchanged; build/runtime deferred to Phase 9. |
 | BL-090 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P2)** | BL-088 | `jakarta_ee` target absent (§32 initial target) + Phase 8 breadth docs. | Generation profile only: offline repo has no Jakarta EE artifacts — no build/runtime evidence claimable (Rung 0–1, bounded). | FIXED: `JakartaEeRuntimeAdapter` (shared IR/sources, distinct Jakarta-marked pom profile) + registry + plan `JAKARTA_EE` + report limitation; 3 focused tests + synthetic fail-closed guard coverage; spring/plain unaffected; no build/runtime claim. |
-| BL-091 | Product/API owner | Phase 12 (blocked) | Human decision D-1 (approval-workflow scope) | Customer approval workflow required by Master README §9/§70/§71 checkbox 21 is absent everywhere (audit F-01: zero hits in api/engine/frontend at `f3d0352`); scope undefined in authoritative docs. | §71 checkbox 21 fails and §53 project completion cannot be declared until D-1 resolves; no approval state machine may be invented (§61). | Implemented end-to-end exactly as D-1 decides (API/service state, persistence, frontend, export gating, authorization, tests); until then the documented blocker is the acceptance state. |
+| BL-091 | Product/API owner | Phase 12 batch P4 (D-1 resolved 2026-10-17) | Human decision D-1 (approval-workflow scope) — **resolved 2026-10-17** | Customer approval workflow required by Master README §9/§70/§71 checkbox 21 was absent everywhere (audit F-01: zero hits in api/engine/frontend at `f3d0352`); scope undefined in authoritative docs until the product owner decided D-1 on 2026-10-17. | Residual risk is limited to the explicitly excluded scope: approver string is recorded input (not verified identity), no RBAC/audit-log (D-5), no evidence-seal on the approval record. | **FIXED 2026-10-17 (`0ae8c0f`, red-first: backend 20 red → 22 passed, frontend 11 red → 11 passed; CI 4/4 green, backend junit 3905/0/0; export 409 until APPROVED; re-validation resets to PENDING; frozen gate 748 passed + 4 known Windows-only).** |
 | BL-092 | Test infrastructure maintainer | Phase 12 batch P2 (FIXED 2026-10-16) | None | Two tests skip instead of failing: `tests/test_universal_modernization.py:311` (skip on generation failure) and `tests/integration/test_phase_d_negative_integration.py:379` (conditional skip) - audit F-03. | Generation failure can silently convert a regression into a passing suite; evidence of a working path can be produced by a skip. | Both skips replaced by assertions/failures enforcing intended behavior; a genuine environmental limitation may remain only as a documented environmental skip; full suite green with no new skips. |
 | BL-093 | Repository maintainer | Phase 12 batch P3 | Human decision D-4 (test-artifacts authorization) | Stale tracked junit artifacts under `test-artifacts/` contain failing runs (audit F-04); removal blocked by the never-stage-test-artifacts invariant. | Misleading stale evidence persists in-tree; a reader could mistake old failures for current results. | With D-4 authorization: dedicated removal commit (no source/test change); without D-4: explicitly carried as blocked with this entry; `test-artifacts/*` never staged/modified while D-4 is open. |
 
