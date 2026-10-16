@@ -8,9 +8,10 @@
 
 **SystemaOps deterministic COBOL to Java modernization and verification platform.**
 
-> CURRENT BASELINE: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 on codex/universal-core.
->
-> Current CI: Push CI #417 GREEN, PR CI #418 GREEN.
+> HISTORICAL SNAPSHOT (dated 2026-10-10, BL-009): baseline at that time
+> fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 on codex/universal-core; CI at that
+> time: Push CI #417 GREEN, PR CI #418 GREEN — NOT current. The live verified
+> SHA and its CI runs are recorded in `opencode.md` and `docs/BACKLOG.md`.
 > Older CI run IDs (e.g. #306) and SHAs (e.g. 90efdca) are historical provenance only.
 >
 > This repository contains a working deterministic modernization pipeline, execution and

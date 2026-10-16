@@ -6,7 +6,7 @@
 > recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
 > Do not treat the SHAs/CI numbers below as current without checking those two files.
 
-Known-issues baseline: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 (Phase A), Push CI #417 / PR CI #418 GREEN.
+Known-issues baseline (dated snapshot of 2026-10-10; corrected 2026-10-16, Phase 12 F-02): fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 (Phase A), Push CI #417 / PR CI #418 GREEN — live baseline/CI: `opencode.md`.
 Lifecycle/persistence/API security hardening has since been applied on top of this baseline.
 
 ## Open material issues
@@ -51,8 +51,8 @@ dependency scanning, contract/schema checks and mutation testing.
 ## Resolved / historical
 
 ### TypeScript JSX build blocker — RESOLVED
-The old TypeScript JSX fragment/build issue is no longer an active CI blocker. Push CI #417 / PR CI #418 passes
-the frontend production build.
+The old TypeScript JSX fragment/build issue is no longer an active CI blocker. Push CI #417 / PR CI #418 (2026-10-10 snapshot) passed
+the frontend production build; current CI runs are tracked in `opencode.md`.
 
 ### Docker-unavailable local verification — HISTORICAL
 Earlier reports described Docker as unavailable locally. Current CI successfully exercises the

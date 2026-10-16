@@ -1,5 +1,12 @@
 # Phase 5G — Transformation Generalization
 
+> **HISTORICAL (label added 2026-10-16, Phase 12 F-02 documentation reconciliation):**
+> dated phase record (2026-09-16), not a current status claim (Master README §78).
+> Correction against canonical truth: the "Supported Constructs" table below marks
+> **GO TO** parser ✓ + generator ✓; canonical status is **GO TO = UNSUPPORTED**
+> (no generator mapping — comment + diagnostic only). Canonical authority:
+> `docs/SEMANTIC_PROOF_MATRIX.md`. Live status: `opencode.md` + `docs/BACKLOG.md` register.
+
 ## Date: 2026-09-16
 
 ## Objective

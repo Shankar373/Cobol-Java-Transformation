@@ -6,9 +6,10 @@
 > recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
 > Do not treat the SHAs/CI numbers below as current without checking those two files.
 
-**Authoritative baseline:** fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4  
+**Baseline snapshot (2026-10-10; corrected 2026-10-16, Phase 12 F-02 — no longer labeled "authoritative"):** fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4  
 **Branch:** codex/universal-core  
-**CI:** Push CI #417 / PR CI #418 — GREEN
+**CI at that snapshot:** Push CI #417 / PR CI #418 — GREEN  
+**Live verified SHA/CI:** `opencode.md` (checkpoint) + `docs/BACKLOG.md` register.
 
 This document is retained as the delivery-status entry point. Detailed current truth is now
 split into the authoritative documents below.
@@ -34,7 +35,9 @@ remain outside the proven certification boundary.
 
 ## CI
 
-Push CI #417 / PR CI #418 is green across ingestion, backend/COBOL-Java Docker validation and frontend/build.
+Push CI #417 / PR CI #418 was green across ingestion, backend/COBOL-Java
+Docker validation and frontend/build (2026-10-10 snapshot; current CI runs
+are tracked in `opencode.md`).
 The previous frontend TypeScript build blocker is historical/resolved.
 
 ## Documentation rule

@@ -1,5 +1,13 @@
 # Phase 6A: Universal COBOL Language + Semantic IR
 
+> **HISTORICAL (label added 2026-10-16, Phase 12 F-02 documentation reconciliation):**
+> dated phase record, not a current status claim (Master README §78).
+> Stale understatement corrected by label: the text below says "No
+> COMPUTE/SUBTRACT/MULTIPLY: Arithmetic operations beyond ADD/DIVIDE not
+> supported"; canonical status today is **SUPPORTED** for COMPUTE, SUBTRACT,
+> MULTIPLY (and ADD/DIVIDE) per `docs/CAPABILITY_MATRIX.md`. Live status:
+> `opencode.md` + `docs/BACKLOG.md` register.
+
 ## Objective
 Build a genuinely source-driven semantic foundation before enterprise modernization.
 

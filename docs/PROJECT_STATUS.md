@@ -8,7 +8,7 @@
 
 Baseline: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4
 Branch: codex/universal-core
-Latest CI: Push CI #417 / PR CI #418 — GREEN
+CI at this snapshot (2026-10-10): Push CI #417 / PR CI #418 — GREEN (live runs: `opencode.md`)
 
 ## Executive status
 

@@ -181,7 +181,7 @@ Columns: Parser | IR | Capability (registry) | Mapping | JavaGen | Runtime
 | PERFORM (para/section) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
 | PERFORM TIMES / VARYING | SUPPORTED (into `PerformStatement`) | SUPPORTED (`PerformTimesStatement` legacy node explicitly UNSUPPORTED) | SUPPORTED | SUPPORTED (bounded Java loop) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED (phase-4 oracle) | SUPPORTED subset |
 | PERFORM THRU / unresolved | SUPPORTED (detected) | PARTIAL | PARTIAL/UNSUPPORTED (structure finding) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |
-| GO TO | SUPPORTED (node built) | SUPPORTED (`GoToStatement`) | UNSUPPORTED (no Java control-flow mapping) | UNSUPPORTED (`STATEMENT_CAPABILITY_UNSUPPORTED`) | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |
+| GO TO | RECOGNIZED (node built; status UNSUPPORTED) | RECOGNIZED (`GoToStatement`; status UNSUPPORTED) | UNSUPPORTED (no Java control-flow mapping) | UNSUPPORTED (`STATEMENT_CAPABILITY_UNSUPPORTED`) | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |
 | STRING | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
 | UNSTRING | SUPPORTED (delimited subset) | SUPPORTED | PARTIAL (certified delimited subset) | PARTIAL | PARTIAL | PARTIAL | SUPPORTED | PARTIAL | PARTIAL (targeted) | PARTIAL |
 | INSPECT | UNKNOWN (no parse path found; scan-detected) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |

@@ -1109,8 +1109,9 @@ produced evidence, not re-run here).
   service-level collision detector can never fire because the dict has
   already merged the keys.
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-16 (Phase 11 batch P1; red-first, 3 reds for
+  this defect; commit `1c37503`, exact-SHA CI green).** Originally discovered
+  2026-10-14 by the repository-wide audit (Stage C, baseline `4deddfc`).
 - **Found by:** audit group T6; verified: `api/app.py L298-301` keys
   `contents: dict[str, bytes]` by filename, so duplicates overwrite;
   `files_received` undercounts what the client actually sent.
@@ -1138,8 +1139,9 @@ produced evidence, not re-run here).
   disk error) leaves the record pointing at a deleted directory and the
   previous good source gone.
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-16 (Phase 11 batch P1; red-first, 2 reds for
+  this defect; commit `1c37503`, exact-SHA CI green).** Originally discovered
+  2026-10-14 by the repository-wide audit (Stage C, baseline `4deddfc`).
 - **Found by:** audit group T6; verified: `api/service.py L488-490`
   (`upload_cobol_source`) and `L503-506` (`upload_java_candidate`) call
   `_cleanup_temp_dir` before `_write_upload`.
@@ -2280,8 +2282,9 @@ level and evidence location.
 - **Priority:** P2 — unauthenticated request causes a 500 (availability/
   log-noise), not an auth bypass.
 - **Severity:** low-medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-16 (Phase 11 batch P2; red-first, 1 red for
+  this defect; commit `b2fb1a2`, exact-SHA CI green).** Originally discovered
+  2026-10-14 by the repository-wide audit (Stage C, baseline `4deddfc`).
 - **Found by:** audit group T6; verified: `api/app.py L206-210` —
   `hmac.compare_digest(str, str)` raises `TypeError` when either side
   contains non-ASCII characters (HTTP headers are latin-1 decodable).
@@ -3002,8 +3005,9 @@ level and evidence location.
 - **Priority:** P3 — authenticated GET; generated trees are small in the
   validated scope; unbounded memory is a DoS-shaped gap.
 - **Severity:** low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-16 (Phase 11 batch P2; red-first, 1 red for
+  this defect; commit `b2fb1a2`, exact-SHA CI green).** Originally discovered
+  2026-10-14 by the repository-wide audit (Stage C, baseline `4deddfc`).
 - **Found by:** audit group T6; verified: `api/app.py L691-696` —
   `io.BytesIO` + full `rglob` with no cap before `StreamingResponse`.
 - **Observed behavior (verified):** the entire archive is built in RAM
@@ -3026,9 +3030,9 @@ level and evidence location.
   data or verdict impact.
 - **Severity:** medium-low (wrong-application display is the worst of the
   three).
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T8 line-by-line);
-  hand-check pending.
+- **Status:** **FIXED — 2026-10-16 (Phase 11 batch P2; red-first, 3 reds for
+  the trio; commit `b2fb1a2`, exact-SHA CI green).** Originally discovered
+  2026-10-14 by the repository-wide audit (Stage C, baseline `4deddfc`).
 - **Found by:** audit group T8:
   (a) `src/App.tsx` L14, L26-35, L141, L209-210 — `selectedAppId` is not
   reset when a run is opened from the Dashboard, so discovery/ingest

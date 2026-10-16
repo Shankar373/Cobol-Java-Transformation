@@ -45,6 +45,7 @@ from engine.transformation.numeric_semantics import (
 )
 
 
+
 # An integral Java literal may carry a type suffix (``123L``); such a value
 # is still a numeric literal and must never be quoted as a String.
 _JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
@@ -1600,7 +1601,7 @@ public class {class_name} {{
         loop_stmts = []
         for para in program.paragraphs:
             for stmt in para.statements:
-                if isinstance(stmt, PerformStatement):
+                if type(stmt).__name__ == "PerformStatement":
                     # The PERFORM target is the loop body
                     for inner_para in program.paragraphs:
                         if inner_para.name == stmt.paragraph_name:
@@ -1788,8 +1789,14 @@ public class {class_name} {{
         ReadStatement contains at_end_body and not_at_end_body which hold
         the actual processing statements. This method flattens them.
         IfStatement is kept as-is (the generator handles its internal structure).
+
+        BL-065: legacy COBOL IR classes are matched by type NAME (same
+        pattern as ``ModernizationPlanner._has_stop_run``) because the
+        generator module must not import COBOL IR types
+        (``test_no_cobol_imports_in_generator``); bare isinstance on the
+        unimported names raised NameError if reached.
         """
-        if isinstance(stmt, ReadStatement):
+        if type(stmt).__name__ == "ReadStatement":
             result = []
             for s in stmt.not_at_end_body:
                 result.extend(self._extract_statements(s))
@@ -1846,12 +1853,12 @@ public class {class_name} {{
 
     def _gen_statement(self, stmt: Statement) -> str | None:
         """Generate Java code for a single COBOL statement."""
-        if isinstance(stmt, MoveStatement):
+        if type(stmt).__name__ == "MoveStatement":
             target = stmt.target.replace("-", "_")
             source = self._cobol_expr_to_java(stmt.source)
             return f"        {target} = {source};"
 
-        if isinstance(stmt, AddStatement):
+        if type(stmt).__name__ == "AddStatement":
             # ADD A TO B GIVING C → C = A + B  (C receives result, B unchanged)
             # ADD A TO B           → B = A + B  (in-place)
             target = stmt.giving_target.replace("-", "_") if stmt.giving_target else stmt.target.replace("-", "_")
@@ -1862,13 +1869,13 @@ public class {class_name} {{
             else:
                 return f"        {target} = ({source_b} + {source_a});"
 
-        if isinstance(stmt, DivideStatement):
+        if type(stmt).__name__ == "DivideStatement":
             target = stmt.target.replace("-", "_")
             source = self._cobol_expr_to_java(stmt.source)
             divisor = self._cobol_expr_to_java(stmt.divisor)
             return f"        {target} = {source} / {divisor};"
 
-        if isinstance(stmt, DisplayStatement):
+        if type(stmt).__name__ == "DisplayStatement":
             parts = []
             for part in stmt.parts:
                 if part.startswith('"'):
@@ -1884,7 +1891,7 @@ public class {class_name} {{
             dest = "out" if stmt.destination != "STDERR" else "System.err"
             return f'        {dest}.println("{content}");'
 
-        if isinstance(stmt, IfStatement):
+        if type(stmt).__name__ == "IfStatement":
             java_cond = self._cobol_condition_to_java(stmt.condition)
             lines = [f"        if ({java_cond}) {{"]
             for s in stmt.then_body:
@@ -1900,10 +1907,10 @@ public class {class_name} {{
             lines.append("        }")
             return "\n".join(lines)
 
-        if isinstance(stmt, GoToStatement):
+        if type(stmt).__name__ == "GoToStatement":
             return f"        // GO TO {stmt.target} (not implemented)"
 
-        if isinstance(stmt, StopRunStatement):
+        if type(stmt).__name__ == "StopRunStatement":
             return None
 
         return None

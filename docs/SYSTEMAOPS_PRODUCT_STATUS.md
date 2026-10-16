@@ -8,8 +8,8 @@
 
 Canonical product status and positioning document for SystemaOps.
 Supersedes scattered status statements. Branch: `codex/universal-core`.
-Baseline: `fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4`.
-CI: Push CI #417 GREEN, PR CI #418 GREEN.
+Baseline snapshot (2026-10-10; corrected 2026-10-16, Phase 12 F-02): `fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4`.
+CI at that snapshot: Push CI #417 GREEN, PR CI #418 GREEN — live verified SHA/CI: `opencode.md`.
 
 ## 1. What SystemaOps is
 
@@ -184,7 +184,9 @@ Supported subset, with runtime evidence where noted (see
   not certified).
 - Numeric arithmetic precision beyond IEEE-754 double representable range.
 - DIVIDE/COMPUTE precision edges.
-- CALL/lifecycle proof for broader multi-program, cyclic, and GOBACK/EXIT edges.
+- CALL/lifecycle proof for broader multi-program, cyclic, and EXIT PROGRAM
+  edges (an evidence-coverage gap only; GOBACK itself is UNSUPPORTED as a
+  transform target and appears only in §17).
 - Comparator coverage for every artifact type.
 
 ## 17. Unsupported capabilities
@@ -221,7 +223,8 @@ Supported subset, with runtime evidence where noted (see
 
 Phase 11 verified SHAs on `codex/universal-core` (run-level `head_sha`
 asserted): `1c37503b9c8dad9701d7e7ce7be7fcc23fd046f9` (P1) and
-`b2fb1a2718062a601d5e81ad3ca1156fbfce1947` (P2, current HEAD) — push and
+`b2fb1a2718062a601d5e81ad3ca1156fbfce1947` (P2; then-current HEAD at Phase 11
+close, since superseded — live HEAD/SHA in `opencode.md`) — push and
 PR runs GREEN for both (4/4 runs each), every job success: Python/Frontend
 audit + SBOM, Release dependency manifest, Phase 1 ingestion diagnostics,
 Backend + COBOL/Java Docker tests, Frontend tests/TypeScript/production

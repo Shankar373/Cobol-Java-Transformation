@@ -6,11 +6,14 @@
 > recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
 > Do not treat the SHAs/CI numbers below as current without checking those two files.
 
-> **CURRENT STATUS DOCUMENT — supersedes the old snapshot in this file.**
+> **DATED SNAPSHOT (corrected 2026-10-16, Phase 12 F-02):** this block
+> previously claimed to be the "CURRENT STATUS DOCUMENT" while pinning the
+> superseded snapshot below — it is dated, not current (Master README §78).
 >
-> Baseline: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4
+> Baseline at that snapshot: fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4
 > Branch: codex/universal-core
-> Push CI #417 / PR CI #418: GREEN
+> CI at that snapshot: Push CI #417 / PR CI #418: GREEN
+> Live verified SHA/CI: `opencode.md` (checkpoint) + `docs/BACKLOG.md` register.
 
 ## Current state
 

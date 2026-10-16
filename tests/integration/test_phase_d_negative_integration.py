@@ -375,8 +375,12 @@ class TestUnsupportedJclConstruct:
     def test_unsupported_jcl_is_visible_and_classified(self):
         result = modernize_jcl_workload("fixtures/workload-jcl")
         assert result.status in ("PARTIAL", "FULL")
-        if result.status == "FULL":
-            pytest.skip("supported-subset fixture regression: no unsupported constructs")
+        # BL-092: this fixture contains unsupported IF/THEN/ELSE constructs,
+        # so FULL means detection was lost — a regression must FAIL, never skip.
+        assert result.status != "FULL", (
+            "unsupported JCL fixture lost its detection: workload "
+            "classified FULL (BL-092: masking skip removed)"
+        )
         assert len(result.unsupported_constructs) > 0
         assert "IF/THEN/ELSE/ENDIF control blocks" in result.unsupported_constructs
 

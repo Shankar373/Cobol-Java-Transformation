@@ -144,7 +144,10 @@ source and stays churn-uncommitted per policy.
 
 ## 5a. Defects and gaps (P0/P1/P2/P3)
 
-All 29 confirmed defects/gaps are OPEN in `docs/BACKLOG.md` with full §77
+As of the original 2026-10-14 audit state, all 29 confirmed defects/gaps were
+OPEN in `docs/BACKLOG.md` (2026-10-16 correction, Phase 12 F-02: **25 FIXED,
+4 OPEN** — BL-045, BL-046, BL-065, BL-066 — per the register, which is
+authoritative) with full §77
 fields (ID, type, priority/severity + rationale, observed vs expected, root
 cause, affected lines, reproduction/evidence, impact, proposed remediation,
 acceptance criteria, verification level, status, residual risk):
@@ -252,8 +255,9 @@ risk findings (`[E]` not promoted) -> in-report rationale.
 
 ### 7.5 Defects and gaps grouped by P0/P1/P2/P3
 
-Section 5a above: 29 OPEN entries BL-040..BL-068 (1xP0, 8xP1, 17xP2, 3xP3),
-each with full §77 fields in `docs/BACKLOG.md`.
+Section 5a above: 29 entries BL-040..BL-068 (1xP0, 8xP1, 17xP2, 3xP3) were
+OPEN at the 2026-10-14 audit state (2026-10-16 correction, Phase 12 F-02: 25
+FIXED, 4 OPEN per the register), each with full §77 fields in `docs/BACKLOG.md`.
 
 ### 7.6 Proposed phase assignment and dependencies
 

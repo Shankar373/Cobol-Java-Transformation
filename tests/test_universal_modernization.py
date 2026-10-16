@@ -32,8 +32,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
-
 # Ensure the project root is on sys.path
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if PROJECT_ROOT not in sys.path:
@@ -307,8 +305,9 @@ class TestApplicationAssembly:
         app = discovery.discover(FIXTURE_DIR, application_id="universal-test")
         generator = ApplicationGenerator()
         gen_result = generator.generate(app, entrypoint="MAIN", source_root=FIXTURE_DIR)
-        if not gen_result.success:
-            pytest.skip(f"Generation failed: {gen_result.errors}")
+        # BL-092: generation failure must FAIL the suite, never skip —
+        # a skip silently converted a generation regression into a pass.
+        assert gen_result.success, f"Generation failed: {gen_result.errors}"
         assembler = ApplicationAssembler()
         tmpdir = tempfile.mkdtemp()
         from engine.modernization.transformation_plan import AssemblyPlan
