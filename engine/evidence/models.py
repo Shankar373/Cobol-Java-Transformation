@@ -47,7 +47,16 @@ class EvidenceType(Enum):
 
 @dataclass(frozen=True)
 class EvidenceEnvelope:
-    """Wrapper for all evidence objects."""
+    """Wrapper for all evidence objects.
+
+    Status note (Phase 10, P2-j): this standalone envelope is NOT on the
+    production evidence path — the canonical ``EvidenceManifest`` +
+    ``EvidenceIntegrityValidator`` admission boundary is authoritative
+    (engine/pipeline.py trust-boundary admission).  The envelope is kept
+    as a self-contained integrity primitive with its own adversarial
+    coverage (tests/adversarial/test_evidence_tampering.py
+    ``TestEvidenceEnvelopeIntegrity``); no production claim rests on it.
+    """
     evidence_id: str
     evidence_type: EvidenceType
     schema_version: str

@@ -76,4 +76,8 @@ scenarios plus gate invariants).
 - `CapabilityAnalyzer._aggregate` reports `UNAVAILABLE` rather than `UNSUPPORTED` when
   `docker_available=False`; consumers must treat anything other than `SUPPORTED`/`PARTIAL`
   as not certified.
-- `integrated_proof_from_pipelines` is not yet wired into `api/service.py` (Phase E).
+- `integrated_proof_from_pipelines` is the engine-side convenience wrapper
+  (integration-test consumer); `api/service.py` is wired to the same gate
+  through the lower-level `build_dependency_ledger` + `evaluate_central_status`
+  calls in `_proof_payload`, on both the persist and the recompute proof paths
+  (Phase E wiring verified; note refreshed Phase 10 P2-g).

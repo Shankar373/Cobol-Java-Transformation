@@ -30,6 +30,10 @@ function dependencyKindIcon(kind: string): React.ReactNode {
     case 'JCL': return <IconFileText size={20} />;
     case 'DB2': return <IconDatabase size={20} />;
     case 'CICS': return <IconDatabase size={20} />;
+    case 'PARAMETER': return <IconFileText size={20} />;
+    case 'MQ': return <IconLayers size={20} />;
+    case 'IMS': return <IconDatabase size={20} />;
+    case 'UNKNOWN': return <IconFileText size={20} />;
     default: return <IconFileText size={20} />;
   }
 }
@@ -46,8 +50,11 @@ export function IntegratedProof({ proof }: IntegratedProofProps) {
     dependenciesByKind[dep.kind].push(dep);
   });
   
-  // Order of kinds to display
-  const kindOrder = ['PROGRAM', 'COPYBOOK', 'CALL', 'FILE', 'JCL', 'DB2', 'CICS'];
+  // Order of kinds to display.  Every DependencyKind the engine can emit
+  // must appear here (P2-i): PARAMETER/MQ/IMS were missing, so those
+  // ledger entries never rendered in "Dependencies".  Pinned by
+  // tests/test_phase10_p2_gate_hardening.py::TestFrontendKindOrderParity.
+  const kindOrder = ['PROGRAM', 'COPYBOOK', 'CALL', 'FILE', 'JCL', 'DB2', 'CICS', 'PARAMETER', 'MQ', 'IMS', 'UNKNOWN'];
   
   return (
     <>

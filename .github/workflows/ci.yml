@@ -59,6 +59,7 @@ jobs:
             tests/test_phase10_p0_bl053_seal_recheck.py \
             tests/test_phase10_p0_integrated_proof_gate.py \
             tests/test_phase10_p1_platform_ledger_edges.py \
+            tests/test_phase10_p2_gate_hardening.py \
             tests/test_silent_loss_registry.py \
             tests/test_nested_copybook_materialization.py \
             tests/test_copy_replacing_materialization.py \

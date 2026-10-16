@@ -5804,6 +5804,66 @@ level and evidence location.
   existing test weakened, no gate bypassed; nothing from Phase 11/12
   included.
 
+- 2026-10-16 — **(au) Phase 10 batch P2: fail-open leftovers closed —
+  central gate defaults, ledger visibility, seal/encode boundary,
+  payload buckets, UI kind parity, doc truth.**
+  Red-first (captured against unmodified code, before any change):
+  `tests/test_phase10_p2_gate_hardening.py` +
+  `tests/test_phase10_p2_cert_surfaces_api.py` **11 failed / 5 passed**
+  (`p2_red_run.txt`) — one red per defect below.  Fixes: (a) **P2-a**
+  `evaluate_central_status(generation_success=...)` default flipped
+  `True` → `False`: a bare gate call can no longer silently assume the
+  transformation produced a candidate.  (b) **P2-b** the
+  `unsupported_dependencies` payload bucket targeted a nonexistent
+  `ProofState` member (UNSUPPORTED is a *capability level*), making the
+  list structurally always empty — it now buckets on
+  `capability_level == UNSUPPORTED`.  (c) **P2-c** an unknown
+  `component_type` was silently dropped from the ledger — it now becomes
+  a visible, required `DependencyKind.UNKNOWN` entry whose proof state
+  can never leave BLOCKED, and the UI renders it.  (d) **P2-d** the gate
+  now requires `executed_check_count > 0` for VERIFIED: a VERIFIED
+  verdict claiming zero executed checks is incoherent evidence.  (e)
+  **P2-e** `runtime_evidence_from_result` normalizes a non-enum
+  `verdict.state` (plain string) instead of crashing with
+  `AttributeError`.  (f) **P2-f** an assembly failure resets
+  `generation_success = False` and records the error in
+  `generation_errors` — the report no longer claims success for a
+  candidate project that was never produced.  (g) **P2-g**
+  `docs/CAPABILITY_MATRIX.md` stale "not yet wired" note replaced with
+  the verified wiring truth (`_proof_payload` → `build_dependency_ledger`
+  + `evaluate_central_status` on both proof paths).  (h) **P2-h**
+  `encode_evidence_manifest` re-checks `sealed_hash` against the
+  canonical evidence graph at the write boundary — a mutated manifest is
+  refused as `PersistenceCorruptionError` at encode instead of only at a
+  later decode (§38).  (i) **P2-i** frontend `IntegratedProof.tsx`
+  `kindOrder`/icon map extended to `PARAMETER`/`MQ`/`IMS`/`UNKNOWN` —
+  every `DependencyKind` the engine emits now renders in "Dependencies";
+  pinned by a source-parity test.  (j) **P2-i (G-5 remainder)**
+  `get_comparisons` runs the evidence<->verdict pair check for parity
+  with `/artifacts` and `/report` (P1-e covered artifacts).  (k) **P2-j
+  doc truth**: `api/service.py` module docstring no longer claims a
+  `derive_verdict` delegate that does not exist in `api/` (verdict
+  derivation happens inside the engine pipeline via
+  `derive_verdict_validated`/`derive_verdict_untrusted`);
+  `tests/adversarial/test_evidence_trust_boundary.py` now drives the
+  pipeline's *actual* admission path (`engine/pipeline.py:649-659`) with
+  the real derivation functions instead of a stale-location replica
+  calling raw `derive_verdict`; `EvidenceEnvelope` documents its
+  off-production status; the shared walker documents its F6 scope note
+  (standalone `.sql`/`.db2`/`.cpy` members are out of the COBOL-ledger
+  scope).  Evidence after the fixes: P2 files **16 passed**; Phase-10
+  focused set **60 passed**; integrated-proof/Phase-D/forensic batch
+  **100 passed**; adversarial evidence suites **93 passed**;
+  persistence/control-plane/API/e2e consumers **68 passed**;
+  edges + IMS/MQ + vertical-slice **47 passed**; SQL/DB2 +
+  certification-contract **262 passed**; `tests/test_phase10_p2_gate_hardening.py`
+  wired into the dependency-free capability-truth gate — bare-venv gate
+  **748 passed** = 739 + 9 exact (same 4 environmental
+  `test_runtime_adapter_architecture` failures as at pristine
+  `0f4d049`).  No existing test weakened, no gate bypassed; BL-053/P0
+  and BL-083/P1 remain the only backlog IDs in this phase's batch scope;
+  nothing from Phase 11/12 included.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.

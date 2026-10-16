@@ -45,7 +45,11 @@ from engine.evidence.models import (
     EvidenceManifest,
     ExecutionEvidence,
 )
-from engine.verdict.derivation import derive_verdict
+from engine.verdict.derivation import (
+    derive_verdict,
+    derive_verdict_untrusted,
+    derive_verdict_validated,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1334,25 +1338,26 @@ class TestPipelineTrustBoundary:
     """Prove that the production pipeline cannot produce VERIFIED
     when evidence has integrity violations.
 
-    These tests replicate the pipeline's trust-boundary logic:
+    These tests drive the pipeline's ACTUAL trust-boundary admission
+    (engine/pipeline.py:649-659):
     1. validate(manifest)
-    2. If violations → derive_verdict → override VERIFIED to ERROR
-    3. If valid → derive_verdict (natural verdict)
+    2. If violations → derive_verdict_untrusted (VERIFIED clamped to ERROR)
+    3. If valid → derive_verdict_validated (natural verdict)
 
-    This is the exact code path in engine/pipeline.py:480-506.
+    P2-j truth note: this replica previously cited a stale location
+    (engine/pipeline.py:480-506) and called raw ``derive_verdict``, which
+    no longer matches the production path — it now exercises the same
+    admission + derivation functions the pipeline calls.
     """
 
     def _pipeline_trust_boundary(self, manifest: EvidenceManifest) -> VerdictState:
-        """Replicate the pipeline's trust-boundary enforcement logic."""
+        """Drive the exact admission + derivation path the pipeline uses."""
         validation_result = validator.validate(manifest)
         if isinstance(validation_result, list):
-            verdict = derive_verdict(manifest)
-            if verdict.state == VerdictState.VERIFIED:
-                return VerdictState.ERROR
-            return verdict.state
+            verdict = derive_verdict_untrusted(manifest, validation_result)
         else:
-            verdict = derive_verdict(manifest)
-            return verdict.state
+            verdict = derive_verdict_validated(validation_result)
+        return verdict.state
 
     def test_forged_all_match_structurally_valid(self):
         """Forged manifest with valid structural bindings + all MATCH

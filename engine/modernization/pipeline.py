@@ -370,6 +370,14 @@ class UniversalModernizationPipeline:
             report.generated_project_dir = str(outcome.project_dir)
             report.generated_entrypoint = outcome.entrypoint
         except Exception as e:
+            # P2-f: assembly produced no candidate project — the report must
+            # not keep claiming generation success.  Reset the flag and
+            # record the failure in generation_errors so every consumer
+            # (API, integrated proof facade) sees the truth.
+            report.generation_success = False
+            report.generation_errors = tuple(report.generation_errors) + (
+                f"Assembly failed: {e}",
+            )
             report.limitations = (f"Assembly failed: {e}",)
             return report
         if progress:

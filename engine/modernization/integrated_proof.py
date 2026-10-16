@@ -79,6 +79,11 @@ class DependencyKind(str, Enum):
     # proof-state BLOCKED — same fail-closed structural truth as JCL.
     MQ = "MQ"
     IMS = "IMS"
+    # Phase 10 (P2-c): a capability component whose component_type is not a
+    # known dependency kind is never silently dropped — it becomes a
+    # visible, required, BLOCKED entry so an unclassifiable dependency can
+    # only downgrade the central gate.
+    UNKNOWN = "UNKNOWN"
 
 
 class CentralStatus(str, Enum):
@@ -208,6 +213,11 @@ def _proof_state_for(
     Fail-closed ordering: capability first (an unsupported dependency can
     never be proven), then runtime evidence.
     """
+    if kind is DependencyKind.UNKNOWN:
+        return ProofState.BLOCKED, (
+            "component kind is UNKNOWN; an unclassifiable dependency can"
+            " never be proven"
+        )
     if capability_level in (CapabilityLevel.UNSUPPORTED, CapabilityLevel.UNAVAILABLE):
         return ProofState.BLOCKED, (
             f"{kind.value} capability is {capability_level.value}; "
@@ -293,8 +303,6 @@ def build_dependency_ledger(
     if capability_report is not None:
         for component in capability_report.components:
             kind = _kind_for(component.component_type)
-            if kind is None:
-                continue
             dependency_id = (
                 component.component_id
                 if component.component_type == "PROGRAM"
@@ -303,6 +311,25 @@ def build_dependency_ledger(
             if dependency_id in seen:
                 continue
             seen.add(dependency_id)
+            if kind is None:
+                # P2-c: an unclassifiable component_type stays visible and
+                # blocks.  The declared capability level is reported as-is,
+                # but the proof state can never be PROVEN/PARTIAL for a kind
+                # the platform cannot model — fail closed.
+                entries.append(DependencyLedgerEntry(
+                    dependency_id=dependency_id,
+                    kind=DependencyKind.UNKNOWN,
+                    visible=True,
+                    capability_level=component.level,
+                    proof_state=ProofState.BLOCKED,
+                    required=True,
+                    reason=(
+                        f"component type {component.component_type!r} is not a"
+                        " known dependency kind; the classification cannot be"
+                        " modelled, so the dependency is BLOCKED (fail-closed)"
+                    ),
+                ))
+                continue
             proof_state, reason = _proof_state_for(
                 kind, component.level, runtime,
             )
@@ -335,14 +362,18 @@ def evaluate_central_status(
     ledger: tuple[DependencyLedgerEntry, ...],
     runtime: RuntimeLaneEvidence,
     *,
-    generation_success: bool = True,
+    generation_success: bool = False,
 ) -> tuple[CentralStatus, tuple[str, ...]]:
     """Pure gate.  Returns the central status and its blocking reasons.
 
     The gate can only downgrade.  VERIFIED requires a non-empty dependency
-    ledger plus: runtime VERIFIED, complete evidence, validated integrity,
-    and every required dependency PROVEN.  An empty ledger fails closed —
-    zero enumerated dependencies is a missing input, not proof (§41).
+    ledger plus: generation success stated explicitly, runtime VERIFIED,
+    complete evidence, validated integrity, a non-zero executed-check
+    count, and every required dependency PROVEN.  An empty ledger fails
+    closed — zero enumerated dependencies is a missing input, not proof
+    (§41).  The ``generation_success`` default is ``False`` (P2-a): a bare
+    call must never silently assume the transformation produced a
+    candidate.
     """
     reasons: list[str] = []
 
@@ -356,6 +387,13 @@ def evaluate_central_status(
             reasons.append("runtime evidence manifest is incomplete")
         if not runtime.evidence_integrity_valid:
             reasons.append("runtime evidence failed integrity validation")
+        if runtime.executed_check_count <= 0:
+            # P2-d: a VERIFIED verdict that executed no checks is
+            # incoherent evidence, not proof — fail closed.
+            reasons.append(
+                "runtime verdict is VERIFIED but no checks were executed"
+                " (executed_check_count=0)"
+            )
 
     if not ledger:
         # §41 requires the central verdict to combine DEPENDENCY evidence;
@@ -440,10 +478,15 @@ def runtime_evidence_from_result(result) -> RuntimeLaneEvidence:
         valid = isinstance(outcome, ValidatedEvidenceManifest)
 
     verdict = getattr(result, "verdict", None)
+    # P2-e: normalize the verdict state — an enum member contributes its
+    # ``value``; a plain string (or any non-enum) is used as-is instead of
+    # crashing evidence assembly with ``AttributeError``.
+    raw_state = getattr(verdict, "state", None)
+    verdict_state = (
+        getattr(raw_state, "value", raw_state) if raw_state is not None else "NOT_RUN"
+    )
     return RuntimeLaneEvidence(
-        verdict_state=getattr(verdict, "state", None).value
-        if getattr(verdict, "state", None) is not None
-        else "NOT_RUN",
+        verdict_state=verdict_state,
         executed_check_count=int(getattr(verdict, "executed_check_count", 0) or 0),
         evidence_complete=complete,
         evidence_integrity_valid=valid,

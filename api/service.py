@@ -4,9 +4,15 @@ Owns orchestration state transitions.  Does NOT duplicate transformation
 or validation logic — it delegates to:
   - engine.transformation.application_discovery.ApplicationDiscovery
   - engine.transformation.application_generator.ApplicationGenerator
-  - engine.pipeline.VerticalSlicePipeline
-  - engine.verdict.derivation.derive_verdict
-  - engine.evidence.integrity.EvidenceIntegrityValidator
+  - engine.pipeline.UniversalModernizationPipeline (derivation of the
+    verdict happens inside the engine pipeline via
+    engine.verdict.derivation.derive_verdict_validated /
+    derive_verdict_untrusted — no direct derive_verdict call exists in
+    api/, P2-j truth note)
+  - engine.evidence.integrity.EvidenceIntegrityValidator (evidence
+    admission: pair consistency, artifact integrity, seal re-checks)
+  - engine.modernization.integrated_proof (dependency ledger +
+    central status gate for the certification surfaces)
 
 P0 MVP canonical path:
   COBOL ZIP/upload -> secure ingestion -> discovery -> per-program
@@ -233,9 +239,13 @@ def _external_dependency_entries_for_source(
     P1-a) and CICS resources from every ``EXEC CICS`` block (BL-083 P1-b).
     One walker, one ledger: both the persist path and the recompute
     fallback (P1-f) go through here, so neither can serve a narrower
-    dependency inventory than the other.  Never raises: an unreadable tree
-    fails closed to no extra entries, keeping the ledger's other lanes
-    intact (BL-087).
+    dependency inventory than the other.  Scope note (P2-j / F6): the
+    walker scans COBOL members only — standalone ``.sql`` / ``.db2`` /
+    ``.cpy`` members are deliberately out of the COBOL-ledger scope
+    (``EXEC SQL`` lives inside COBOL members), so a table referenced only
+    by a loose ``.sql`` DDL member never enters this ledger.  Never
+    raises: an unreadable tree fails closed to no extra entries, keeping
+    the ledger's other lanes intact (BL-087).
     """
     if source is None:
         return ()
@@ -321,6 +331,17 @@ def _proof_payload(
     def _bucket(state_value: str) -> list[dict]:
         return [e.to_dict() for e in ledger if e.proof_state.value == state_value]
 
+    def _unsupported_bucket() -> list[dict]:
+        # P2-b: UNSUPPORTED is a *capability level*, not a proof state —
+        # bucketing on a nonexistent ProofState member made this list
+        # structurally always empty.  The capability axis is the truth the
+        # field name describes.
+        return [
+            e.to_dict()
+            for e in ledger
+            if e.capability_level.value == "UNSUPPORTED"
+        ]
+
     required_entries = [e for e in ledger if e.required]
 
     runtime_dict = {
@@ -349,7 +370,7 @@ def _proof_payload(
         "proven_dependencies": _bucket("PROVEN"),
         "unproven_dependencies": _bucket("UNPROVEN"),
         "blocked_dependencies": _bucket("BLOCKED"),
-        "unsupported_dependencies": _bucket("UNSUPPORTED"),
+        "unsupported_dependencies": _unsupported_bucket(),
         "evidence_complete": runtime.evidence_complete,
         "evidence_integrity_valid": runtime.evidence_integrity_valid,
         # Non-vacuous: all(...) over an empty required set would assert
@@ -1241,10 +1262,17 @@ class Service:
         return data
 
     def get_comparisons(self, run_id: str) -> list[dict]:
-        """Return comparison details from the evidence manifest."""
+        """Return comparison details from the evidence manifest.
+
+        P2-i (G-5 remainder after P1-e): comparison evidence is
+        evidence-derived, so the evidence<->verdict pair check runs here
+        too — a stale or broken pair fails closed instead of serving
+        comparisons beside a verdict they do not belong to.
+        """
         run = self.get_run(run_id)
         if run.evidence_manifest is None:
             return []
+        self._check_evidence_verdict_consistency(run)
         return [
             {
                 "comparison_id": c.comparison_id,

@@ -262,6 +262,17 @@ def encode_evidence_manifest(manifest: EvidenceManifest) -> bytes:
         raise PersistenceCorruptionError(
             f"refusing to persist evidence of type {type(manifest).__name__}"
         )
+    # P2-h (§38): re-check the construction-time seal against the canonical
+    # evidence graph at the write boundary.  An in-place mutation after
+    # construction leaves a stale seal; decoding would fail closed later, but
+    # persisting the blob in the first place must be refused now.
+    seal = manifest.sealed_hash
+    recomputed = manifest.manifest_hash
+    if seal is None or str(seal) != str(recomputed):
+        raise PersistenceCorruptionError(
+            "refusing to persist evidence manifest with a stale seal"
+            f" (sealed_hash={str(seal)}, recomputed={str(recomputed)})"
+        )
     payload: dict[str, Any] = {
         "manifest_version": manifest.manifest_version,
         "run_id": manifest.run_id.value,
