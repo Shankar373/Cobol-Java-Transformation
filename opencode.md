@@ -1,5 +1,182 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 10 started — Evidence, Certification & Integrated Proof (2026-10-16)
+
+### ⚑ PHASE 10 STATUS — read this first (2026-10-16, **§53 VERDICT — PHASE 10 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE before any change; batches P0 = BL-053 at `0f4d049` + P1 = BL-083 + proof/artifact surfaces at `72679a6` + P2 = fail-open leftovers at `cb6dc55`, change-log (as)(at)(au); exact-SHA CI 12/12 runs green across the three verified SHAs; NO LLM; no merge to main; Phase 11 NOT started**)
+
+- **Authorization honored:** audit exact HEAD/worktree first, then
+  priority-batched P0 → P1 → P2, each with red-first evidence, focused +
+  regression tests, commit/push, and exact-SHA GitHub Actions
+  verification before the next batch began.
+- **Phase-start HEAD:** `b9270ce` (Phase 9 verdict docs).  Batch chain:
+  `b9270ce` → `0f4d049` (P0) → `72679a6` (P1) → `cb6dc55` (P2, final
+  candidate).  Working tree preserved throughout: only the pre-existing
+  uncommitted `test-artifacts/*` changes exist and were never staged.
+- **P0 (`0f4d049`, BL-053 re-rated P0 — trust-boundary TOCTOU):**
+  evidence revalidated at verdict derivation; post-validation mutation
+  can no longer produce a false VERIFIED; empty ledger + stale embedded
+  proof fail closed.  Red-first + focused tests; bare-venv gate wired.
+- **P1 (`72679a6`, BL-083 re-rated P1):** DB2 (`DB2:TABLE=<T>` +
+  fail-closed `DB2:UNPARSEABLE`) and CICS producers feed the canonical
+  dependency ledger through the shared source walker on both proof
+  paths; `run_db2_workload` forwards `sqlcode_field`/`sqlstate_field`;
+  `/report` embeds only the current-generation proof after the
+  evidence<->verdict pair gate; `/artifacts` runs the
+  `EvidenceIntegrityValidator` first; recompute fallback carries
+  `extra_dependencies`; doc truth (CAPABILITY_MATRIX/PRODUCT_STATUS name
+  JCL+DB2+CICS+MQ+IMS + the non-empty-ledger condition).
+- **P2 (`cb6dc55`, change-log (au), 10 audit findings):** gate default
+  `generation_success` True→False; `unsupported_dependencies` buckets by
+  capability level (the old bucket targeted a nonexistent ProofState);
+  unknown `component_type` → visible BLOCKED `DependencyKind.UNKNOWN`
+  entry (no more silent drops); `executed_check_count > 0` required for
+  VERIFIED; non-enum `verdict.state` normalized; assembly failure resets
+  `generation_success` + records errors; stale CAPABILITY_MATRIX note
+  fixed; encode-time seal re-check (`sealed_hash` == canonical graph
+  else `PersistenceCorruptionError`); frontend `kindOrder`/icons cover
+  PARAMETER/MQ/IMS/UNKNOWN (source-parity test pins every
+  `DependencyKind`); `get_comparisons` runs the pair check (G-5
+  remainder); P2-j doc truth (service docstring delegates, trust-boundary
+  replica now drives the real `derive_verdict_untrusted`/
+  `derive_verdict_validated` admission path at engine/pipeline.py:649-659,
+  EvidenceEnvelope off-production status note, walker F6 scope note).
+
+## ⚑ §53 VERDICT — Phase 10 (scored 2026-10-16; work SHAs `0f4d049` + `72679a6` + `cb6dc55`; HEAD `cb6dc55305447242d8b119f7c84b2a2ebfa163db` — exact-SHA CI 12/12 runs success across the three verified SHAs)
+
+**PHASE 10 COMPLETE — VERIFIED — 13/13 PASS.**  Master README §53 is
+the authoritative rule; every criterion below is scored against
+repository state and preserved evidence, not against CI-green alone.
+NO LLM anywhere (fresh scan at final tree: 0 model imports in
+`engine`/`api` — the 4 textual matches are COBOL "transformers" prose, a
+"no LLM" assertion and one historical comment; 0 model packages in
+requirements/Dockerfiles).  No merge to main; Phase 11 NOT started.
+
+### CI evidence (independently re-verified via the GitHub API, not from the checkpoint)
+- `0f4d0498e9403725429c734557ba0c42e8fd6a86` (P0/BL-053) — 4/4 runs
+  success (SystemaOps CI 38870193054 + 38870200117; Supply chain
+  38870192925 + 38870200325).
+- `72679a691048f2c53417cdf35daa37fa20a00a34` (P1/BL-083 + surfaces) —
+  4/4 runs success (SystemaOps CI 38880720386 + 38880726114; Supply
+  chain 38880720372 + 38880726007); job-level: Backend and COBOL/Java
+  Docker tests success, Capability truth gate success (with the new P1
+  engine file wired), Frontend success.
+- `cb6dc55305447242d8b119f7c84b2a2ebfa163db` (P2, final candidate) —
+  4/4 runs success (SystemaOps CI 38891474780 + 38891479103; Supply
+  chain 38891474927 + 38891479183); job-level on both CI runs: Backend
+  and COBOL/Java Docker tests success, Capability truth gate success
+  (54 files incl. `test_phase10_p2_gate_hardening.py`), Frontend tests/
+  TypeScript/production build success, Phase 1 ingestion success,
+  Python/Frontend audit + SBOM success, Release dependency manifest
+  success.
+- Run-level `head_sha` asserted equal to the exact SHAs for all 12 runs.
+- The P2 poll initially hit an unauthenticated GitHub API rate limit
+  (403, 60/hr exhausted by 90s polling); verification was completed
+  with the stored git credential (5000/hr) — no result was inferred
+  from the interrupted polls.
+
+### Red-first evidence (each defect: failing test captured before the fix)
+- P0: `p0_red_run.txt` (TOCTOU seal bypass + stale-proof service
+  served), engine file 6 → final 6; `p1_gate_bare.txt`/`p2_gate_bare.txt`
+  bare-venv gate lists.
+- P1: `p1_red_run.txt` (ImportError — producers absent),
+  `p1_red_api_run.txt` (4F/1P — stale embedded proof served, invalid
+  manifest artifacts served, recompute dropped platform edges).
+- P2: `p2_red_run.txt` (11F/5P — one red per defect P2-a…P2-i/k).
+- All under `%TEMP%\opencode\phase10\`.
+
+### Final regression at the exact final tree (`cb6dc55`, fresh run)
+- Capability-truth gate list (54 files, dependency-free bare-venv):
+  **748 passed** (+9 exact vs the P1 gate 739 = the 9 engine-file P2
+  tests) + the 4 known local-environmental
+  `test_runtime_adapter_architecture` failures that reproduce
+  identically at the pristine verified `0f4d049` worktree and run green
+  in CI on Linux.
+- Integrated proof / Phase-D / forensic: **100 passed**.
+- Adversarial evidence suites (trust boundary, tampering, phase-A
+  hardening, persistence verdict trust): **93 passed**.
+- Consumers (persistence integrity, control plane, API, e2e): **68
+  passed** — includes the fresh local E2E (real generation + assembly +
+  evidence/verdict/artifact/comparison surfaces through the service
+  layer); docker-gated runtime E2E remains proven by the green backend
+  Docker job at all three Phase-10 SHAs.
+- Additional per-batch sets: Phase-10 focused **60**, DB2/SQL-lane
+  (13 files) **262**, edges + IMS/MQ + vertical-slice **47**.
+
+### 13-point scoring (Master README §53)
+1. **Implementation matches architecture — PASS.**  All fixes live at
+   their established seams (engine/modernization gate, engine pipeline,
+   api/service proof surfaces, api/serialization write boundary, one
+   shared dependency walker); no parallel subsystems.
+2. **Contracts satisfied — PASS.**  `DependencyLedgerEntry`/
+   `RuntimeLaneEvidence`/verdict contracts unchanged in shape; new
+   `DependencyKind.UNKNOWN` extends the enum additively; API payload
+   fields keep their names with the `unsupported_dependencies` bucket
+   now honest.
+3. **Focused tests pass — PASS.**  Phase-10 files 21/21 (6 P0 + 9 P1 +
+   16 P2 — the API-surface files run in the backend job; engine files
+   gate-wired).
+4. **Regression tests pass — PASS.**  Final-tree runs: 748 (+4
+   documented environmental), 100, 93, 68, 47, 262 — no test weakened,
+   deleted, skipped or bypassed.
+5. **Integration behavior verified — PASS.**  Ledger producers (DB2/
+   CICS/MQ/IMS/JCL) → `build_dependency_ledger` → `evaluate_central_status`
+   → service proof surfaces → persisted + recomputed payloads, all
+   exercised through the API layer (test_integrated_proof_api +
+   phase10 API files + consumers).
+6. **Fresh E2E where applicable — PASS.**  Fresh local E2E through the
+   service (test_e2e + vertical_slice) at the final tree; docker-gated
+   fresh runtime E2E proven by the green backend Docker CI job at all
+   three SHAs (Phase 10 did not change runtime lanes).
+7. **Evidence reproducible and integrity-validated — PASS.**  BL-053
+   seal re-check at derivation + P2-h encode-time seal re-check +
+   validator admission on `/artifacts` and the pair gate on `/report`/
+   `/comparisons`; red-first mutation evidence in `p0_red_run.txt` +
+   adversarial suites 93.
+8. **Known limitations documented — PASS.**  Walker F6 scope note
+   (standalone .sql/.db2/.cpy members), EvidenceEnvelope off-production
+   status, MQ/IMS/JCL/DB2/CICS structural-only classification (no
+   runtime lanes), change-log (as)(at)(au).
+9. **No silent semantic loss — PASS.**  Unknown component types, assembly
+   failures, stale seals, stale proofs, zero-check verdicts and
+   non-enum states now all surface (blocked entry, generation_errors,
+   PersistenceCorruptionError, recomputed/dropped proof, NOT_VERIFIED,
+   normalized state) — none can pass silently anymore.
+10. **Every discovered defect fixed or explicitly carried forward —
+    PASS.**  Phase-10 audit classified 13 in-scope defects (BL-053 P0,
+    BL-083 P1, 10 P2 findings + F-3/F-6/F-7 absorbed); all fixed.
+    Out-of-scope items (BL-047/048/049/067/068 → Phase 11;
+    BL-045/046/065/066 + BL-011/012 → Phase 12; full STALE/FRESH
+    verdict-state model; unkeyed-seal residual; report_blob sealing
+    F-6) remain in the register with owner/dependency/risk/acceptance
+    criteria.
+11. **All gap classes audited — PASS.**  Audit-first §76 pass covered
+    code, tests, security (TOCTOU/replay/stale-payload), architecture
+    (single walker/ledger), API/UI (payload buckets + frontend kind
+    parity), operations (CI gate wiring) and documentation (matrix/
+    product-status truth).
+12. **Acceptance criteria satisfied — PASS.**  BL-053: post-validation
+    mutation cannot yield VERIFIED (adversarial red-first + 93-suite).
+    BL-083: DB2/CICS reach the canonical ledger with sqlcode forwarding
+    (focused 9 + DB2 lane 262).  P2: every listed defect has a failing
+    test pinned to its fix.
+13. **Live checkpoint updated from actual results — PASS.**  This
+    section, BACKLOG change-log (as)(at)(au) + register rows
+    (BL-053/BL-083 FIXED), CAPABILITY_MATRIX/SYSTEMAOPS_PRODUCT_STATUS
+    truth refresh — all written from the runs recorded above.
+
+### Disclosed limitations (unchanged unless noted)
+- MQ/IMS/JCL/DB2/CICS entries are structural (source-derived),
+  UNSUPPORTED/BLOCKED — no runtime lanes exist (by design, Phase 12+).
+- Standalone `.sql`/`.db2`/`.cpy` members are out of the COBOL-ledger
+  scope (documented at the walker).
+- `EvidenceEnvelope` is not on the production evidence path
+  (documented; canonical manifest + validator is authoritative).
+- The 4 local `test_runtime_adapter_architecture` failures are
+  environmental (javac/OS path), proven identical at the pristine
+  verified SHA, green in CI on Linux.
+- Unkeyed-seal residual + full STALE/FRESH verdict-state model remain
+  carried-forward (Phase 11/12 register).
+
 ## Phase 9 started — Build + Execution + Differential Verification (2026-10-15)
 
 ### ⚑ PHASE 9 STATUS — read this first (2026-10-15, **§53 VERDICT — PHASE 9 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 DONE; batches P2a = BL-050/051/054 ALL FIXED at `00a0218` + P2b build/execute/differential at `2a5e4fd` after root-causing the intermediate `1d537b8` red, change-log (ap)(aq)(ar); exact-SHA CI 8/8 runs green across the two verified SHAs, backend Docker job success proves the docker-gated fresh VERIFIED E2E for plain_java AND jakarta_ee; NO LLM; no merge to main; Phase 10 NOT started**)
