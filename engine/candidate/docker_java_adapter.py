@@ -290,6 +290,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "sh", "-c", compile_cmd,
                 ]
 
+                # Initialize so the TimeoutExpired handler never raises
+                # UnboundLocalError (BL-050) and cleanup always runs.
+                proc = None
                 try:
                     proc = subprocess.run(
                         docker_cmd,

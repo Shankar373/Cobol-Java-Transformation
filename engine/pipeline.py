@@ -195,7 +195,15 @@ class VerticalSlicePipeline:
         elif candidate_path.is_dir():
             for f in sorted(candidate_path.rglob("*")):
                 if f.is_file():
-                    hasher.update(str(f.relative_to(candidate_path)).encode())
+                    rel = f.relative_to(candidate_path)
+                    # Candidate identity is derived only from the source
+                    # tree, never from build outputs (BL-054).  Maven writes
+                    # its build output under the top-level target/ directory;
+                    # excluding it keeps candidate_hash deterministic across
+                    # repeated builds of identical sources.
+                    if rel.parts and rel.parts[0] == "target":
+                        continue
+                    hasher.update(str(rel).encode())
                     hasher.update(f.read_bytes())
                     file_count += 1
                     total_size += f.stat().st_size

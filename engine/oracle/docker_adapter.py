@@ -16,6 +16,7 @@ import os
 import re
 import shlex
 import subprocess
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from engine.candidate.image_provenance import (
     digest_of_identity,
     resolve_docker_image_identity,
 )
-from engine.docker_cli import check_docker_available
+from engine.docker_cli import check_docker_available, cleanup_container
 from engine.domain.identities import (
     AdapterStatus,
     ContentHash,
@@ -452,8 +453,13 @@ class DockerOracleAdapter(OracleAdapter):
                     f"/tmp/oracle_prog"
                 )
 
+                # Deterministic container name so the timeout path can
+                # stop/remove it (BL-051 parity with the candidate adapters).
+                container_name = f"oracle-{uuid.uuid4().hex[:12]}"
+
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    "--name", container_name,
                     "--network", "none",
                     "--memory", "512m",
                     "--cpus", "1.0",
@@ -467,6 +473,10 @@ class DockerOracleAdapter(OracleAdapter):
                     "sh", "-c", compile_cmd,
                 ]
 
+                # Initialize so the TimeoutExpired handler can act on the
+                # process without raising UnboundLocalError (parity with the
+                # candidate adapters' execute() path).
+                proc = None
                 try:
                     proc = subprocess.run(
                         docker_cmd,
@@ -480,8 +490,22 @@ class DockerOracleAdapter(OracleAdapter):
                     termination = "normal" if exit_code == 0 else "nonzero_exit"
 
                 except subprocess.TimeoutExpired:
+                    # Kill the docker client, then explicitly stop/remove the
+                    # container (do not rely on --rm alone — killing the client
+                    # leaves the container running on the daemon, BL-051).
+                    if proc is not None:
+                        try:
+                            proc.kill()
+                            proc.wait(timeout=5)
+                        except Exception:
+                            pass
+                    _removed, cleanup_detail = cleanup_container(container_name)
+
                     stdout = b""
-                    stderr = b"Oracle execution timeout"
+                    stderr = (
+                        b"Oracle execution timeout; "
+                        + f"cleanup={cleanup_detail}".encode()
+                    )
                     exit_code = None
                     termination = "timeout"
 

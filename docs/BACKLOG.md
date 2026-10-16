@@ -2304,8 +2304,14 @@ level and evidence location.
 - **Priority:** P2 — timeout is a normal path for slow builds; the real
   error is masked and the container is never cleaned.
 - **Severity:** medium (leak accumulates on the daemon).
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-15 (Phase 9 batch P2a).** Filed OPEN by
+  the repository-wide audit (Stage C, baseline `4deddfc`).  The compile
+  timeout path now initializes `proc = None` before the try (mirroring
+  `execute()`), so the `TimeoutExpired` handler reports the real
+  "Compilation timed out" message and always runs the explicit container
+  cleanup — no more `UnboundLocalError` masking or container leak.
+  Focused test `test_bl050_java_compile_timeout_reports_and_cleans_
+  container` (subprocess mocked) pins both behaviors.
 - **Found by:** audit group T5; verified: `docker_java_adapter.py
   L341-402` — `proc` is assigned only inside `try`; the `TimeoutExpired`
   handler's `if proc is not None:` (L385) raises `UnboundLocalError`,
@@ -2332,8 +2338,14 @@ level and evidence location.
 - **Priority:** P2 — a timed-out oracle container persists on the daemon;
   no correctness impact (oracle failure is fail-closed).
 - **Severity:** medium (leak on the hot verification path).
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-15 (Phase 9 batch P2a).** Filed OPEN by
+  the repository-wide audit (Stage C, baseline `4deddfc`).  The oracle
+  `docker run` now carries a deterministic `--name` (oracle- prefix) and
+  the `TimeoutExpired` path kills the client and calls the shared
+  `cleanup_container` helper (parity with the candidate adapters) —
+  timed-out oracle containers no longer persist on the daemon.  Focused
+  test `test_bl051_oracle_timeout_names_and_cleans_container` (subprocess
+  mocked) pins the naming + cleanup.
 - **Found by:** audit group T5; verified: `oracle/docker_adapter.py
   L473-504` — `docker run` without `--name`; timeout handler only sets
   stderr/exit/termination, unlike the candidate adapters' stop/rm/verify
@@ -2435,8 +2447,14 @@ level and evidence location.
   Spring Boot lane is used, repeated runs over the same tree re-hash a
   growing `target/` directory.
 - **Severity:** medium-low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-15 (Phase 9 batch P2a).** Filed OPEN by
+  the repository-wide audit (Stage C, baseline `4deddfc`).  The candidate
+  identity walk in `VerticalSlicePipeline._compute_candidate_identity`
+  now skips the top-level `target/` build-output directory, so
+  `candidate_hash` is derived only from the source tree and stays
+  deterministic across repeated builds of identical sources.  Focused test
+  `test_bl054_candidate_identity_ignores_build_output_target_dir` pins
+  hash stability across differing JAR bytes.
 - **Found by:** audit group T5; verified: `docker_spring_boot_adapter.py
   L457-460` writes `candidate_path/target/<jar>`; `pipeline.py L191-206`
   hashes every file under the candidate path with no exclusions.
@@ -5565,6 +5583,28 @@ level and evidence location.
   claimed.  Matrix row (added in P1) already records the
   structural-generation-only bound for both non-spring targets.
 
+- 2026-10-15 — **(ap) Phase 9 batch P2a: carry-forward defects BL-050,
+  BL-051, BL-054 FIXED (all P2, one batch).**  BL-050
+  (`docker_java_adapter.py` compile): `proc = None` initialized before
+  the try (mirrors `execute()`), so the `TimeoutExpired` handler reports
+  "Compilation timed out" and always runs the explicit container cleanup
+  — no more `UnboundLocalError` masking or leak.  BL-051
+  (`oracle/docker_adapter.py` execute): `docker run` gains a
+  deterministic `--name` (oracle- prefix) and the timeout path kills the
+  client + calls the shared `cleanup_container` helper (parity with the
+  candidate adapters) — timed-out oracle containers no longer persist.
+  BL-054 (`pipeline.py` `_compute_candidate_identity`): the identity walk
+  skips the top-level `target/` build-output directory, so
+  `candidate_hash` is derived only from the source tree and stays
+  deterministic across repeated builds.  Tests:
+  `tests/test_phase9_defect_fixes.py` (3 focused, subprocess-mocked —
+  no Docker required) all green; broader focused regression 63 passed / 4
+  skipped (docker-gated); the 6 `test_e2e.py` failures are the known
+  cold-daemon oracle-identity family (re-confirmed present at base commit
+  `fbb4cbd` with the fixes stashed).  No test weakened; all three fixes
+  are strictly fail-closed / hygiene (error handling, cleanup,
+  determinism).
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -5621,11 +5661,11 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-047 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Silent file loss on accepted uploads; documented collision contract unreachable. | Downstream transformation runs on incomplete sources. | Duplicate-name upload fails closed named; security suite green. |
 | BL-048 | API/service maintainer | Phase 11 (carry-forward 2026-10-14) | None | Failed re-upload destroys the previous source (data-loss on error path). | Record points at a deleted directory after a rejected upload. | Failed re-upload preserves the previous directory; service tests green. |
 | BL-049 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Error-path correctness: 500 instead of 401 on non-ASCII tokens. | Availability/log noise only; no bypass. | Non-ASCII token yields 401; security tests green. |
-| BL-050 | Candidate adapter maintainer | Phase 9 (carry-forward 2026-10-14) | Shared cleanup helper | Timeout path masks the real error and leaks a container. | Leaks accumulate on the daemon; diagnostics mislead. | Timeout returns the timeout message; container removed; adapter tests green. |
-| BL-051 | Oracle adapter maintainer | Phase 9 (carry-forward 2026-10-14) | Shared cleanup helper (Stage D) | Timed-out oracle containers persist; no parity with candidate cleanup. | Daemon resource leak on the hot verification path. | Timed-out oracle containers are removed; oracle adapter tests green. |
+| BL-050 | Candidate adapter maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | Shared cleanup helper | Timeout path masks the real error and leaks a container. | Leaks accumulate on the daemon; diagnostics mislead. | FIXED: compile() initializes `proc = None` (parity with execute()); timeout returns the real message and always cleans the container; focused test green. |
+| BL-051 | Oracle adapter maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | Shared cleanup helper (Stage D) | Timed-out oracle containers persist; no parity with candidate cleanup. | Daemon resource leak on the hot verification path. | FIXED: oracle `docker run` gains a deterministic `--name`; timeout path kills client + calls shared `cleanup_container`; focused test green. |
 | BL-052 | Comparator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Byte-exactness must cover every byte; floor division ignores tails. | Latent false MATCH via metadata mismatch (V1 pipeline unaffected today). | Partial trailing records mismatch; comparator tests green. **FIXED**: explicit tail comparison after the record loop reports `trailing_partial_record`; test_fixed_record_trailing_partial.py (9) red 5/1 → green; regressions 282 + 172 passed; gate-wired. |
 | BL-053 | Verdict maintainer | Phase 10 (carry-forward 2026-10-14) | None | Trust-boundary TOCTOU: post-validation mutation is trusted verbatim. | Future callers can accidentally bypass the seal. | Mutated manifest fails derivation closed; verdict tests green. |
-| BL-054 | Candidate adapter / pipeline maintainer | Phase 9 (carry-forward 2026-10-14) | None | Build output written into the identity tree ⇒ non-reproducible hashes. | Non-reproducible evidence identity on the Spring Boot lane. | Repeated builds ⇒ identical candidate_hash; adapter tests green. |
+| BL-054 | Candidate adapter / pipeline maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | None | Build output written into the identity tree ⇒ non-reproducible hashes. | Non-reproducible evidence identity on the Spring Boot lane. | FIXED: candidate identity walk skips top-level `target/`; repeated builds ⇒ identical candidate_hash; focused test green. |
 | BL-055 | Parser / IR maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Lowercase valid COBOL crashes instead of diagnosing. | Unhandled IndexError on lowercase PERFORM UNTIL/VARYING. | Lowercase forms parse identically to uppercase; parser tests green. **FIXED**: shared case-insensitive UNTIL split in both inline branches (guard/split can no longer disagree; also fixes multi-space spellings); test_perform_lowercase.py (6) red 5/1 → green; regression 81+37 passed; gate-wired. |
 | BL-056 | Copybook materialization maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Decode errors escape OSError handlers; lanes can disagree on one file. | Crash instead of COPYBOOK_UNREADABLE; analyzer/materializer divergence. | Binary copybook ⇒ COPYBOOK_UNREADABLE in all lanes; copybook tests green. **FIXED**: all three copybook read sites (`_expand_copybook_text`, `collect_copybook_texts`, `prepare_application_copybooks`) catch `(OSError, UnicodeError)`; analyzer copybook reader is strict UTF-8 taking the read-failure path; `tests/test_copybook_decode_fail_closed.py` (8) red 8/0 (all raw UnicodeDecodeError, `%TEMP%\opencode\phase4\bl056_pre_fix.txt`) → green; regressions 239 + 441 passed; gate-wired. |
 | BL-057 | CICS lane maintainer | **Phase 7 (carry-forward 2026-10-14; FIXED 2026-10-15, committed `8f107d2`, status reconciled + re-verified this session: 55 passed)** | Shared escaping helper (BL-046) | Python repr() quoting emits invalid Java. | Uncompilable CICS-lane output (fail-closed at javac). | FIXED — CICS generation emits valid Java string literals (double-quoted with escaping in `_java_arg`); focused `test_cics_java_literal_quoting.py` + CICS regression green (55 passed, `bl057_verify_green.txt`); no cics test weakened. |
