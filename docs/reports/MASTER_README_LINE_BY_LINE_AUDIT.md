@@ -118,7 +118,7 @@ Status legend: **PASS** = implemented + tested + CI-verified at audited SHA · *
 | 9 Build/Execute/Verify | COMPLETE — VERIFIED | `2a5e4fd` | CI exact SHA GREEN | COMPLETE — VERIFIED |
 | 10 Evidence/Certification | COMPLETE — VERIFIED 13/13 | `0f4d049`→`72679a6`→`cb6dc55` (+docs `c039de3`) | verified in-session with 12/12 exact-SHA runs | COMPLETE — VERIFIED |
 | 11 Enterprise security | COMPLETE — VERIFIED 13/13 | `1c37503`→`b2fb1a2` (+docs `f3d0352`) | verified in-session with 8/8 runs; docs commit CI re-verified **GREEN today** (4/4) | COMPLETE — VERIFIED |
-| 12 Regression/E2E/Release gate | **NOT STARTED** | — | gate precondition (Phases 10+11 independently verified) **satisfied** | OPEN — ready to start |
+| 12 Regression/E2E/Release gate | executed (P0 empty → P1 → P2 → P3) | `accc81a` (P1) → `162520b` (P2) → `d928253` (P3) | exact-SHA CI **4/4 green at each work SHA**; backend junit at `d928253` **3883 passed / 0 failed / 0 skipped**; fresh E2E = CI Docker-backed pipeline per push + local fresh integration run | WORK VERIFIED — §71/§53 project verdict below (blocked on D-1) |
 
 ---
 
@@ -134,7 +134,7 @@ Declared levels reconciled across `CAPABILITY_MATRIX.md`, `SEMANTIC_PROOF_MATRIX
 
 **UNVERIFIED / UNKNOWN:** REDEFINES, OCCURS (generated Java does not compile — never SUPPORTED), 88-level lowering, nested programs/ENTRY, standalone REPLACE, fixed/free format + dialects breadth, conditional compilation.
 
-**Documentation contradictions flagged (§76.6):** 16 cross-document status contradictions (C1–C16) — e.g., GO TO "Supported" in `PHASE5E/5F1/5G` reports vs UNSUPPORTED in canonical SPM; Phase-5C "VERIFIED COMPLETE" for indexed vs CM "not certified"; `CODE_AUDIT_REPORT` "29 OPEN" vs register (25 now FIXED); SPS §16/§17 GOBACK wording. Per §78 these historical reports are **history**, not live claims — but they require an explicit reconciliation pass (F-04).
+**Documentation contradictions flagged (§76.6):** the original audit counted 16 cross-document status contradictions (C1–C16); the Phase 12 re-derivation expanded this to **22 items (C1–C22)** — GO TO/OCCURS overclaims in 8 historical phase reports, indexed "VERIFIED COMPLETE" without the not-certified bound, stale arithmetic understatements, 3 stale backlog-count/OPEN-vs-FIXED items, 6 stale SHA/CI claims, 2 stale "current" status docs, 1 live-matrix wording fix, 1 SPS §16/§17 GOBACK split. **All reconciled 2026-10-16 in Phase 12 batch P2 (F-02, commit `162520b`, CI green):** 8 historical reports carry dated HISTORICAL labels per §78 (content never rewritten) and every live doc was corrected in place — see BACKLOG change-log (az) for the full disposition.
 
 ---
 
@@ -150,6 +150,15 @@ Declared levels reconciled across `CAPABILITY_MATRIX.md`, `SEMANTIC_PROOF_MATRIX
 | BL-046 | Spring Boot lane emits **unescaped** string literals — diverges from native lane (BL-030 fix not applied here) | `spring_boot_generator.py:670` `return f'"{expr.value}"'`, `:677` same; native helper `_escape_java_string` exists at `java_generator.py:852` but is not used | BL-030 remediation applied only to the native generator | Literals containing `"`/`\`/control chars produce invalid Java or behavior divergence between lanes |
 | F-01 (new; to be filed as backlog ID at Phase 12 start) | **Customer Approval stage (§9 pipeline L316, §70 Product "approval workflow" L2026, §71 checkbox 21 L2057) has no implementation** — no API endpoint, no service logic, no frontend surface anywhere (`api/*.py`, `engine/**`, `frontend/src` all searched: 0 approval-workflow hits) | §9 L316; §70 L2026; §71 L2057; search results above | Stage never implemented in any phase | §71 Final Release Gate cannot pass; §70 DoD Product incomplete. Export exists (`api/app.py:700`) but nothing gates it on approval |
 
+**Phase 12 disposition (2026-10-16):** BL-045 **FIXED** at `accc81a`
+(red-first: 7 parity reds in a 14-failed red run → 15 passed; all 6
+recursion sites thread `called_programs`; CI 4/4 green). BL-046 **FIXED**
+at `accc81a` (canonical `_escape_java_string` reused in both spring
+quote sites + native-lane single-quote normalization parity; 7 reds →
+green). F-01 registered as **BL-091**, status **BLOCKED on human
+decision D-1** — deliberately not implemented (no invented approval
+state machine per §61); §71 checkbox 21 remains FAIL.
+
 ### P2
 
 | ID | Finding | Evidence | Root cause | Impact |
@@ -159,6 +168,20 @@ Declared levels reconciled across `CAPABILITY_MATRIX.md`, `SEMANTIC_PROOF_MATRIX
 | F-03 | Test-integrity skips that can mask regressions: (a) `tests/test_universal_modernization.py:311` **skips on generation failure** (`pytest.skip(f"Generation failed…")` instead of failing); (b) `tests/integration/test_phase_d_negative_integration.py:379` assertion-shaped conditional skip | exact lines cited | Skip used where failure/expected-diagnostic assertion belongs | §53 rule ("must not pass because of a skip") violated in spirit: a broken generator could turn these green-by-skip |
 | BL-012 (remainder) | CI depth: **no coverage thresholds, no mutation testing, no Python lint/type gate** (KNOWN_ISSUES P2 "CI depth"; `PHASE5F`/`KNOWN_ISSUES.md:47-49`) | no `pytest.ini`/`pyproject` coverage config; `ci.yml` runs pytest without coverage/mutation | deliberately deferred 2026-10-10, re-scoped for Phase 12 | §54 P2 "deeper CI coverage / mutation testing" unmet; fail-closed paths lack mutation proof |
 
+**Phase 12 disposition (2026-10-16):** BL-065 **FIXED** at `162520b`
+(red-first: 4 NameError reds proving reachability → 5 passed; fix =
+name-based type checks after the full suite caught a genuine
+architecture red against a module-level `ir` import; the zero-caller
+file-io lane keeps its pinned `MISSING_REQUIRED_SEMANTIC` fail-closed
+guard). F-02 **FIXED** at `162520b` (22 contradictions reconciled, see
+§5; README/CODE_AUDIT/backlog/live-docs corrected; historical reports
+labeled, never rewritten). F-03 registered as **BL-092**, **FIXED** at
+`162520b` (both masking skips replaced with enforcement asserts;
+behavioral red tests convert `Skipped` into explicit red failures: 2
+reds → 2 passed; no new skips). BL-012 remainder **documented
+deferred** — D-3 unresolved in the authoritative documents, no
+completion claimed.
+
 ### P3
 
 | ID | Finding | Evidence | Impact |
@@ -167,11 +190,22 @@ Declared levels reconciled across `CAPABILITY_MATRIX.md`, `SEMANTIC_PROOF_MATRIX
 | F-04 (new) | **Stale checked-in evidence artifacts**: `git ls-files test-artifacts` shows committed junit XMLs containing failures — `phaseD-final2-junit.xml` (10 failures), `phaseD-baseline` (7), `phaseD-final` (4), `ci/backend-junit.xml` (29 errors) | artifact zip of run `38907021483` + `git ls-files` output | Could be mistaken for current results; §76.5 explicitly requires reporting this. **Removal is blocked by the "never commit test-artifacts/* changes" invariant → needs human authorization (D-4)** |
 | F-05 (new) | Backlog metadata gap: BL-001…BL-024 lack explicit priority/severity fields | `docs/BACKLOG.md:2203-2212` (self-documented, targets a documentation pass) | §77 contract completeness |
 
+**Phase 12 disposition (2026-10-16):** BL-066 **FIXED** at `d928253`
+(red-first: 2 reds → 4 passed; precise parse-failure phrasing + dedup
+guard; 146 planner/consumer tests green; CI 4/4 green). F-04 registered
+as **BL-093**, **BLOCKED on human decision D-4** — `test-artifacts/*`
+never staged or modified while D-4 is open. F-05 **DONE** at `d928253`
+(all 19 existing BL-001…BL-024 sections carry a labelled Phase 12
+Priority/Severity assessment derived from their own documented
+type/impact; BL-013…BL-017 remain register-only rows; no fabricated
+precision).
+
 ### BLOCKED / CARRIED (not defects of code)
 
 - **BL-010** BLOCKED (environment): no host JDK / Docker-in-Docker on the audit workstation; covered by CI Linux — carried.
-- **BL-012** partial scope (above) — Phase 12 decision.
+- **BL-012** partial scope (above) — D-3 unresolved; documented deferred, no completion claimed.
 - **BL-013/014/015/016** — human PR-governance decisions (re-diff-or-close PR #1; do-not-merge PR #6; keep PR #2/#3 open) — carried.
+- **BL-091** (F-01 approval workflow) — BLOCKED on **D-1**; **BL-093** (F-04 stale artifacts) — BLOCKED on **D-4** — both registered Phase 12.
 
 ---
 
@@ -184,18 +218,18 @@ Declared levels reconciled across `CAPABILITY_MATRIX.md`, `SEMANTIC_PROOF_MATRIX
 | 1 | implementation matches architecture | PASS | §2 map; ARCHITECTURE.md subsystems all present |
 | 2 | contracts satisfied | PASS | `contracts/` specs + contract tests in gate/backend |
 | 3 | focused tests pass | PASS | gate 54 files green in CI at exact SHA |
-| 4 | regression tests pass | PASS | backend **3857 passed / 0 failed / 0 skipped** at exact SHA |
+| 4 | regression tests pass | PASS | backend **3883 passed / 0 failed / 0 skipped** at Phase 12 final work SHA `d928253` (Phase-11 baseline 3857 + the 26 new Phase 12 tests); local full-suite run recorded in §11 |
 | 5 | integration behavior verified | PASS | adversarial + integration suites in CI |
-| 6 | fresh E2E verified where applicable | PASS (CI) / PENDING (Phase-12 local fresh run) | CI backend runs full fresh pipeline per push; Phase 12 will re-run fresh E2E as its own gate |
+| 6 | fresh E2E verified where applicable | PASS | CI Docker-backed pipeline is fresh per push at `d928253` (backend job executes the runtime/oracle path) + local fresh `tests/integration/` run at the final tree (§11); no artifact reuse |
 | 7 | evidence reproducible + integrity-validated | PASS | Phase-10 seal re-check/validator suites in gate |
 | 8 | limitations documented | PASS | KNOWN_ISSUES + SPS §15–19 + disclosed limitations list |
-| 9 | no silent semantic loss | PARTIAL | silent-loss registry active, but BL-045 (F-02 above) is an open silent-divergence path until fixed |
-| 10 | defects fixed or explicitly carried | PASS | 90-row register: every item has ID/status/owner/target; 4 open items assigned Phase 12; F-01/F-04 to be filed at Phase 12 start |
+| 9 | no silent semantic loss | PASS | Phase 12 closed the audited silent-loss paths red-first: BL-045 nested-CALL divergence (`accc81a`), BL-046 unescaped spring literals (`accc81a`), BL-065 latent crash path (`162520b`), BL-066 reason misclassification (`d928253`), BL-092 masking skips (`162520b`); remaining limitations are explicit fail-closed UNSUPPORTED/NOT-CERTIFIED disclosures, not silent loss |
+| 10 | defects fixed or explicitly carried | PASS | 93-row register after Phase 12: every finding FIXED with red-first evidence (BL-045/046/065/066/092, F-02, F-05) or explicitly carried with a named blocker (BL-091→D-1, BL-093→D-4, BL-012→D-3); change-log (ax)–(ba) |
 | 11 | all gap classes audited | PASS | this report |
-| 12 | acceptance criteria satisfied | PARTIAL | per-phase yes; project-level waits on Phase 12 |
-| 13 | checkpoint updated from actual results | PASS (Phases ≤11) / PENDING (this audit appended) | `opencode.md` verdicts match git + CI re-verification |
+| 12 | acceptance criteria satisfied | PARTIAL | Phase 12's own acceptance criteria are met (P0 empty documented; every finding fixed or explicitly blocked; regression + fresh E2E verified; gates re-scored; docs synchronized); **project-level acceptance is not** — §71 checkbox 21 (customer approval workflow) is unmet pending D-1 |
+| 13 | checkpoint updated from actual results | PASS | `opencode.md` Phase 12 block records the final SHA, all CI run IDs, counts, the re-scored gates and the decisions — written from actual results |
 
-**Project §53 verdict: NOT YET COMPLETE — Phase 12 outstanding (this audit is its entry gate).**
+**Project §53 verdict: NOT COMPLETE — 12/13 PASS; point 12 remains PARTIAL because §71 checkbox 21 (customer approval workflow, BL-091) is unmet pending human decision D-1. Phase 12's own execution is verified; project completion is blocked on D-1 (with D-3/D-4 carried).**
 
 ### §71 Final Release Gate (21 checkboxes)
 
@@ -215,15 +249,15 @@ Declared levels reconciled across `CAPABILITY_MATRIX.md`, `SEMANTIC_PROOF_MATRIX
 | 12 | Evidence integrity validated | ✅ | validator + Phase-10 seal re-check |
 | 13 | Verdict validated | ✅ | 7 states, fail-closed, tamper/replay suites |
 | 14 | Security validation passed | ⚠️ PASS with disclosed limits | adversarial 254 green; single-token/no-RBAC/no-audit-log disclosed (§43 carried) |
-| 15 | Regression suite passed | ✅ | 3857 passed at exact SHA |
-| 16 | Fresh E2E passed | ⚠️ PASS in CI / local fresh re-run = Phase 12 task | CI backend is fresh per push |
-| 17 | CI green | ✅ | 4/4 runs at audited SHA |
-| 18 | Documentation synchronized | ❌ FAIL | F-02 (README "current" baseline, 5 stale OPEN sections, stale CODE_AUDIT counts, C1–C16) |
+| 15 | Regression suite passed | ✅ | backend 3883 passed / 0 failed / 0 skipped at final work SHA `d928253` |
+| 16 | Fresh E2E passed | ✅ | CI Docker-backed pipeline fresh per push at `d928253` + local fresh integration run; no stale artifacts |
+| 17 | CI green | ✅ | 4/4 runs green at every Phase 12 SHA (`accc81a`, `162520b`, `d928253`) — 12/12 runs |
+| 18 | Documentation synchronized | ✅ | F-02 done at `162520b`: README/CODE_AUDIT/backlog/live docs corrected, 8 historical reports labeled per §78, C1–C22 reconciled |
 | 19 | Known limitations documented | ✅ | KNOWN_ISSUES + SPS + this report |
 | 20 | Export validated | ✅ | download endpoint + caps + frontend tests |
 | 21 | Customer approval workflow validated | ❌ FAIL | F-01 — not implemented anywhere |
 
-**§71 score: 16 ✅ / 3 ⚠️ / 2 ❌ — NOT enterprise-ready-declarable.**
+**§71 score after Phase 12: 18 ✅ / 2 ⚠️ / 1 ❌ — the single FAIL is checkbox 21 (customer approval workflow, BL-091, blocked on human decision D-1). Universal-modernization/enterprise-readiness is NOT claimed.**
 
 ---
 
@@ -265,35 +299,43 @@ Declared levels reconciled across `CAPABILITY_MATRIX.md`, `SEMANTIC_PROOF_MATRIX
 
 ## 11. Test and CI Audit Summary (§76.5)
 
-- **Inventory:** 200 pytest files / 3600 test functions (`tests/`), + 7 vitest files / 122 tests (frontend). Skips: 14 `skipif` definitions + 41 runtime `pytest.skip` calls, **all** Docker/Java/`RUN_DOCKER_TESTS`-environmental **except** the two masking skips in F-03. 0 `xfail`, 0 bare `@pytest.mark.skip`.
+- **Inventory:** 200 pytest files / 3600+ test functions (`tests/`), + 7 vitest files / 122 tests (frontend). Skips: 14 `skipif` definitions + 41 runtime `pytest.skip` calls, **all** Docker/Java/`RUN_DOCKER_TESTS`-environmental (the two non-environmental masking skips found as F-03 were removed in Phase 12 batch P2 and replaced with enforcement asserts). 0 `xfail`, 0 bare `@pytest.mark.skip`.
 - **CI at audited SHA (`f3d0352`):** backend job **3857 passed, 0 failed, 0 skipped, 1 warning (1018.77s)**; capability-truth gate 54 files green; `phase1-ingestion` green; frontend green; supply-chain 3 jobs green (pip-audit/npm-audit **gating**, 0 `continue-on-error` anywhere). 4/4 runs `conclusion=success`, all head_sha = audited SHA.
 - **Historical phase CI (re-verified today, authenticated):** Phases 0–9 exact SHAs — **all 10 GREEN (4 successful runs each, 0 failures)**. Phase 10/11 runs verified in their sessions (12/12, 8/8); Phase-11 docs commit `f3d0352` CI re-verified green today.
-- **CI checks that are advisory/absent:** none found blocking-wise (no `continue-on-error`); absent = coverage/mutation/lint (F-05→BL-012/D-3).
-- **Tested commit == audited commit:** yes (backend + gate jobs ran on `f3d0352`).
-- **Stale/checked-in artifacts:** yes — F-04.
-- **Local full-suite run:** executed this audit (counts appended below).
+- **CI at the Phase 12 final work SHA (`d928253`):** 4/4 runs `conclusion=success` (38933671536 / 38933671595 / 38933681281 / 38933680935), all 14 jobs success; backend job **3883 passed, 0 failed, 0 skipped** (21:20) — the Phase-11 baseline 3857 plus exactly the 26 new Phase 12 tests (15 P1 + 7 P2 + 4 P3). Batch SHAs also verified 4/4 each: `accc81a` (38920133049 / 38920133001 / 38920141540 / 38920141655) and `162520b` (38928312923 / 38928312930 / 38928316773 / 38928316724) — **12/12 Phase 12 CI runs green.** 0 `continue-on-error` anywhere.
+- **Tested commit == pushed commit:** yes for every batch (backend + gate + frontend jobs ran on each batch SHA).
+- **NO-LLM invariant re-checked at the final tree:** PASS — zero model-provider imports/endpoints in `engine/`/`api/`.
+- **Local verification (Windows workstation, supplementary to CI):** frontend vitest **122/122 passed**, `tsc --noEmit` clean, production build clean (one benign jsdom navigation stderr flake reproduced exit-code noise on a first run; second run exit 0 with the same 122/122). Focused P1 15 passed, P2 82 passed, P3+planner 146 passed; frozen 54-file gate 748/790 passed at each batch with only the 4 known Windows-only `test_runtime_adapter_architecture` failures (path-separator assertions; green in CI Linux).
+- **Local final full-suite run (§76.5 close evidence):** **3873 passed / 6 failed / 4 skipped (3883 total, 59:31)** at the final tree. The 6 failures were individually identified: the 4 known Windows-only `test_runtime_adapter_architecture` tests, plus 2 `test_forensic_evidence` timeout/cleanup tests. **Root cause of the 2 forensic failures = resource contention, proven three ways, not assumed:** (a) this run and the fresh-integration run were launched concurrently and both execute `tests/integration/` on one machine — the two runs failed *different* integration tests (union of 6 distinct), the signature of contention; (b) the earlier **solo** full-suite run (v4, `162520b`) had all forensic/claims tests passing, as parsed from its junit XML; (c) a **sequential re-run of the entire forensic file + the claims test (35 tests) after both runs completed: 35 passed in 3:20** (`concurrency_rerun.xml`). The authoritative CI run at the same SHA passed all of these tests (3883/0/0). Net: **zero genuine local regressions**; every failure has a documented environmental or contention cause with green CI/re-run counterparts.
+- **Fresh integration E2E (local, §50):** `tests/integration/` fresh run (no artifact reuse): **360 passed / 4 failed** (same contention window as above; all 4 re-ran green sequentially). **NO-LLM invariant re-scan at the final tree: PASS** — zero model-provider imports/endpoints in `engine/`/`api/`.
 
 ---
 
 ## 12. Final Project Verdict
 
-> **PROJECT NOT COMPLETE.** All mandatory requirements are **not yet** verified: §71 has two FAIL items (Customer Approval Workflow not implemented — F-01; Documentation not synchronized — F-02), four backlog defects remain open with empirical evidence (BL-045 P1 reproduced, BL-046 P1 confirmed, BL-065 P2 confirmed, BL-066 P3 confirmed), and Phase 12 (full regression + fresh E2E + release gate) has not run.
+> **PROJECT INCOMPLETE — BLOCKED ON HUMAN DECISION D-1.** Phase 12 itself is executed and verified: every audited finding is FIXED with red-first evidence (BL-045, BL-046, BL-065, BL-066, BL-092/F-03, F-02, F-05) or explicitly carried with a named blocker (BL-091→D-1, BL-093→D-4, BL-012→D-3); regression is green at the final work SHA (`d928253`: CI backend 3883 passed / 0 failed / 0 skipped, 12/12 Phase 12 CI runs green across all three batch SHAs); fresh E2E ran via the CI Docker-backed pipeline plus a local fresh integration run; documentation is synchronized (F-02, 22 contradictions reconciled). **§71 re-score: 18 ✅ / 2 ⚠️ / 1 ❌** — the remaining FAIL is checkbox 21, the customer approval workflow (BL-091), which cannot be implemented without D-1 and must not be invented (§61). **§53: 12/13 PASS** — point 12 stays PARTIAL for the same reason. Per the completion rule, `PHASE 12 COMPLETE — VERIFIED` **cannot be declared at project level**; the correct status is **INCOMPLETE — blocked on D-1** (secondary carries: D-3 → BL-012, D-4 → BL-093).
 >
-> **What is solid:** Phases 0–11 are independently verified COMPLETE — every phase SHA re-checked against GitHub Actions today (Phases 0–9 all GREEN; 10/11 verified with exact-SHA CI), the audited SHA is fully GREEN (4/4 runs, 3857 backend tests / 122 frontend tests passing), the NO-LLM invariant holds everywhere (dependencies, workflows, scripts, code), the fail-closed evidence/verdict/proof architecture is real and gate-enforced, and the backlog contract (§77) holds — 78/90 FIXED, 4 open, none P0.
+> **What is solid:** Phases 0–12 work are independently verified — every phase SHA re-checked against GitHub Actions (Phases 0–9 all GREEN; 10/11/12 verified with exact-SHA CI), the final tree is fully GREEN (12/12 Phase 12 runs; backend 3883/0/0; frontend 122/122 + tsc + build), the NO-LLM invariant holds everywhere, the fail-closed evidence/verdict/proof architecture is real and gate-enforced, the frozen 54-file capability gate never weakened, and the backlog contract (§77) holds — of the 93 register rows: **83 sections FIXED** (each with dated red-first or empirical evidence), 1 RESOLVED BY DESIGN (BL-004), 1 documented-deferred PARTIAL (BL-012 → D-3), 1 environment-blocked (BL-010), 2 OPEN blocked on human decisions (BL-091 → D-1, BL-093 → D-4), and 5 register-only governance rows (BL-013…BL-017); none P0.
 >
-> **Gate check (user condition):** Phases 10 and 11 are independently verified complete → **Phase 12 implementation is unblocked.**
+> **Unresolved items are exactly the human decisions:** D-1 (approval-workflow scope → BL-091 → §71-21), D-3 (coverage/mutation scope → BL-012 remainder), D-4 (test-artifacts authorization → BL-093), plus carried D-2/D-5/D-6. No approval state machine, coverage numbers, or artifact cleanup was invented.
 
 ---
 
-## 13. Next-Step Recommendation (§76.7.10)
+## 13. Executed Disposition and Next Steps (§76.7.10)
 
-1. File F-01/F-03/F-04 as backlog IDs (BL-091/BL-092/BL-093) and record Phase-12 assignments; ask for D-1 (approval-workflow scope) decision.
-2. **Batch P0:** explicitly empty — state it, verify no new P0 (done in this audit).
-3. **Batch P1:** BL-045 (red-first parity test → thread `called_programs` through the six recursion sites) + BL-046 (reuse canonical escape helper, lane-parity test) + F-01 if D-1 provided (else carry with explicit acceptance).
-4. **Batch P2:** BL-065 (reachability red test → fail-closed), F-02 docs sync (README wording, 5 stale OPEN sections, CODE_AUDIT counts, capability reconciliation), F-03 (convert masking skips to failures), BL-012 remainder per D-3.
-5. **Batch P3:** BL-066 (structured reason mapping), F-04 per D-4, F-05 metadata pass.
-6. Phase-level close: full regression + fresh E2E (§50), §71 re-score, §53 13-point verdict, `opencode.md` + `BACKLOG.md` change-log updates → `PHASE 12 COMPLETE — VERIFIED` only if all 13 criteria pass.
+**Executed in Phase 12 (this audit drove it):**
+1. Entry gate: F-01/F-03/F-04 registered as BL-091/BL-092/BL-093 without duplicate IDs; P0 batch explicitly empty; D-1/D-3/D-4 recorded unresolved; baseline `f3d0352` CI 4/4 green verified.
+2. **Batch P1 `accc81a`** — BL-045 (7 nested-parity reds → 15 passed) + BL-046 (7 escaping reds, same red run); BL-091 carried (no D-1); CI 4/4 green.
+3. **Batch P2 `162520b`** — BL-065 (4 NameError reds → 5 passed), BL-092/F-03 (2 masking skips → enforcement asserts), F-02 (22 contradictions reconciled); BL-012 carried (no D-3); CI 4/4 green.
+4. **Batch P3 `d928253`** — BL-066 (2 reds → 4 passed), F-05 (19 priority/severity assessments); BL-093 carried (no D-4); CI 4/4 green, backend 3883/0/0.
+5. **Close** — regression + fresh E2E + NO-LLM re-scan + §71/§53 re-score + this report/backlog/checkpoint synchronization (counts in §11; verdict in §12).
+
+**Next (all require human input — nothing else is outstanding in code):**
+1. **D-1** (approval-workflow scope) → implement BL-091 end-to-end → re-score §71 checkbox 21 and §53 point 12 → then `PHASE 12 COMPLETE — VERIFIED` becomes declarable if everything else still passes.
+2. **D-3** (coverage/mutation target definition) → close the BL-012 remainder.
+3. **D-4** (`test-artifacts/*` authorization) → close BL-093 with a dedicated removal commit.
+4. Carried human governance: D-2 (PR #1/#2/#3/#6), D-5 (RBAC/audit log), D-6 (COMP/COMP-3 certification).
 
 ---
 
-*Prepared strictly from repository evidence at `f3d0352812eaa6314f39384a78189d6a20151c8a`. All line numbers verified by direct read/grep in this session. No test output, commit, or CI claim is fabricated; environment-limited conclusions are labeled as such (§76.7).*
+*Prepared strictly from repository evidence. Entry baseline `f3d0352812eaa6314f39384a78189d6a20151c8a` (entry audit, this document's first state); Phase 12 final work SHA `d928253` (all code/test/CI evidence cited above; the three batch SHAs are in §4). This report's own documentation commits are verified green in CI in the same session and recorded in `opencode.md`. No test output, commit, or CI claim is fabricated; environment-limited conclusions are labeled as such (§76.7).*

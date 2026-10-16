@@ -1074,9 +1074,11 @@ produced evidence, not re-run here).
 - **Priority:** P1 — nested CALLs (standard COBOL) lose value-result/
   entry-point resolution metadata in the mapping lane.
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; line-read verified (T3), hand-verified at
-  `L2183-2195`.
+- **Status:** **FIXED — 2026-10-16 (Phase 12 batch P1; red-first, 7 nested-
+  parity reds in the combined P1 red run of 14 failed → 15 passed; commit
+  `accc81a`, exact-SHA CI 4/4 green).** Originally discovered 2026-10-14 by
+  the repository-wide audit (Stage C, baseline `4deddfc`); line-read verified
+  (T3), hand-verified at `L2183-2195`.
 - **Found by:** audit group T3 (`cobol_to_java_mapping.py` L2183-2195,
   L2584-2677): recursive `map_cobol_statement` calls for IF/PERFORM bodies
   return Java statements only; the caller-side `called_programs`
@@ -1105,8 +1107,11 @@ produced evidence, not re-run here).
   the Spring Boot lane does not, so the same COBOL literal can produce
   invalid Java (`"A"B"`) or divergent values.
 - **Severity:** medium.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified by hand.
+- **Status:** **FIXED — 2026-10-16 (Phase 12 batch P1; red-first, 7 spring-
+  escaping/parity reds in the combined P1 red run of 14 failed → 15 passed;
+  commit `accc81a`, exact-SHA CI 4/4 green).** Originally discovered
+  2026-10-14 by the repository-wide audit (Stage C, baseline `4deddfc`);
+  statically verified by hand.
 - **Found by:** audit group T3; verified: `spring_boot_generator.py
   L654-669` renders `f'"{expr.value}"'` with no escaping at either site.
 - **Observed behavior (verified):** a literal containing `"` or `\` emits
@@ -3022,9 +3027,12 @@ criteria/tests, verification level and evidence location.
 - **Priority:** P3 — current prose is stable and pinned by tests; the
   coupling breaks silently on future wording changes.
 - **Severity:** low.
-- **Status:** **OPEN — discovered 2026-10-14 by the repository-wide audit
-  (Stage C, baseline `4deddfc`)**; statically verified (T2); hand-check
-  pending.
+- **Status:** **FIXED — 2026-10-16 (Phase 12 batch P3; red-first, 2 reds →
+  4 passed; commit `d928253`, exact-SHA CI 4/4 green).** Originally
+  discovered 2026-10-14 by the repository-wide audit (Stage C, baseline
+  `4deddfc`). Precise parse-failure phrasing replaces the "parse"
+  substring and the GO TO append is deduplicated; 146 planner/consumer
+  tests green.
 - **Found by:** audit group T2: `modernization_planner.py` L686-738 —
   GO TO reasons already carry `UNSUPPORTED_CONSTRUCT` and get it appended
   a second time; the `"parse"` substring matches "parsed …" prose.
@@ -6156,7 +6164,59 @@ criteria/tests, verification level and evidence location.
   - **BL-012:** D-3 (coverage/mutation scope) re-confirmed unresolved in
     the authoritative documents → documented deferred, no completion
     claimed. BL-091 (D-1) and BL-093 (D-4) remain blocked as registered.
+
+- 2026-10-16 — **(ba) Phase 12 batch P3: BL-066 structured blocking-reason
+  mapping + F-05 backlog metadata (committed `d928253`, pushed; exact-SHA
+  CI 4/4 green — runs 38933671536 / 38933671595 / 38933681281 /
+  38933680935; backend junit 3883 passed / 0 failed / 0 skipped, which is
+  the Phase-11 baseline 3857 + the 26 new Phase 12 tests).**
+  - **BL-066:** `_map_blocking_reasons` raw-substring defects fixed:
+    precise parse-failure phrasing (`failed/could not/cannot parse`,
+    `parse failure`, `parse error`) replaces the bare "parse" substring —
+    any "parsed"/"parser" wording no longer classifies as PARSE_FAILURE;
+    a GO TO reason no longer double-appends UNSUPPORTED_CONSTRUCT (dedup
+    guard). Red-first: 2 reds → 4 passed; 146 planner/consumer tests
+    green (whole planner-importing set).
+  - **F-05:** all 19 existing BL-001…BL-024 sections now carry an
+    explicit Priority/Severity assessment derived from their own
+    documented type/impact text and labelled as a Phase 12 historical
+    assessment (no fabricated precision); BL-013…BL-017 remain
+    register-only rows; the metadata-gap note is resolved with the
+    BL-006/BL-007 sub-gap documented and bounded.
+  - **F-04/BL-093:** remains blocked on D-4; `test-artifacts/*` never
+    staged or modified. **BL-012:** D-3 unresolved — documented
+    deferred, no completion claimed.
   No test weakened; no gate bypassed; no `test-artifacts/*` staged.
+
+- 2026-10-17 — **(bb) Phase 12 close: final regression/E2E evidence,
+  documentation synchronization, verdict declaration.**
+  - **Final verification at the final tree (work SHA `d928253`):** local
+    full suite **3873 passed / 6 failed / 4 skipped** (3883 total) — the
+    6 = the 4 known Windows-only `test_runtime_adapter_architecture`
+    failures + 2 `test_forensic_evidence` timeout tests caused by my
+    own concurrent launch of two pytest runs over `tests/integration/`
+    (proven: differing failure sets per process; solo v4 run all-pass;
+    **sequential re-run 35 passed**). Fresh integration run 360 passed /
+    4 failed in the same contention window, all green sequentially.
+    **NO-LLM re-scan at final tree: PASS.** Authoritative CI at
+    `d928253`: 4/4 green, backend **3883 passed / 0 failed / 0 skipped**
+    (12/12 Phase-12 CI runs green across all three batch SHAs).
+  - **Doc-sync gap found and fixed in this close:** BL-045 and BL-046
+    section Status lines still read OPEN although both were FIXED at
+    `accc81a` (batch P1) — both sections and their register rows now
+    carry the FIXED disposition; the (ba) entry's duplicated closing
+    line was removed.
+  - **Verdict:** per the §53/§71 completion rule the project-level
+    status is **`INCOMPLETE — BLOCKED ON D-1`** (§71 = 18✅/2⚠️/1❌,
+    the FAIL is checkbox 21 via BL-091; §53 = 12/13, point 12 PARTIAL
+    for the same reason). Register disposition: 83 sections FIXED,
+    1 RESOLVED BY DESIGN (BL-004), 1 documented-deferred PARTIAL
+    (BL-012 → D-3), 1 environment-blocked (BL-010), 2 OPEN blocked on
+    human decisions (BL-091 → D-1, BL-093 → D-4), 5 register-only
+    governance rows (BL-013…BL-017); none P0.
+  No test weakened; no gate bypassed; no `test-artifacts/*` staged;
+  no approval state machine, coverage number, or artifact cleanup
+  invented.
 
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
@@ -6209,8 +6269,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-042 | Transformation producer maintainer | **Phase 4 (cycle C — fixed in-cycle 2026-10-14)** | `to_contract_diagnostic` helper in `diagnostics.py` (enum→string boundary conversion) | Producer contract violated at the source; consumers crashed (dict) or mis-reported (enum level vs string compare). | Residual: legacy `producer.py` result (`errors: tuple[str,…]`, no diagnostics field) is a separate contract, out of scope by design. | FIXED — every producer diagnostic is a `contracts.Diagnostic` (internal-native converts `diagnostics.all` + real `Diagnostic` on the exception path; adapter wraps all five sites); 6 focused tests in `tests/transformation/test_producer_diagnostics_contract.py` wired into the `ci.yml` gate; pre-fix red 5/1 proven (`%TEMP%\opencode/phase4/bl042_pre_fix.txt`); old dict-shape assertions in `test_producer_contract.py` aligned to attribute access (strengthening, documented); transformation+integration regression 2257 passed / 0 failed. |
 | BL-043 | Modernization planner maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_build_program_plan` fail-closed default (UNKNOWN + `UNKNOWN_CONSTRUCT`) | Fail-open default contradicts the fail-closed program default (capability truth). | None — the fail-closed default cannot green-light missing analysis. | FIXED — `_build_copybook_plan`/`_build_file_plan` mirror the program path (`cap=None` ⇒ `UNKNOWN`, "No copybook/file capability analysis available", `UNKNOWN_CONSTRUCT`, `SKIP`/`SKIP` strategies); 7 focused tests in `tests/transformation/test_planner_missing_component_fail_closed.py` wired into the `ci.yml` gate; pre-fix red 5/2 proven (`%TEMP%\opencode\phase4\bl043_pre_fix.txt`); planner-dependent regression batch 189 passed; no existing test weakened. |
 | BL-044 | Application discovery maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | Shared `normalize_cobol_name` in `engine/transformation/ir.py` | One CALL fact could contradict itself across lanes (BL-038 class). | None for program-id joins; other name spaces (copybook stems, file names) still compare as-spelled pending a demonstrated contradiction. | FIXED — shared uppercase normalization applied to every program-id join (discovery known_programs/target check; analyzer arity by_id/target, `program_levels` keys/callee lookup; self-CALL checks in `_analyze_call` and planner fallback); spelling of `target`/edge preserved, only comparisons normalize; 7 focused tests in `tests/transformation/test_call_name_case_normalization.py` wired into the `ci.yml` gate; pre-fix red 4/3 proven (`%TEMP%\opencode\phase4\bl044_pre_fix.txt`); CALL/discovery/analyzer/planner regression batch 249 passed; no existing test weakened. |
-| BL-045 | Mapping maintainer | Phase 12 (carry-forward 2026-10-14 — Phase 3 lane item, not scheduled in Phase 4) | `called_programs` collector threading | Nested CALLs lose resolution metadata (coverage/provenance). | Incomplete program references in mapping output. | Nested CALL contributes to called_programs; focused + regression tests green. |
-| BL-046 | Spring Boot generator maintainer | Phase 12 (carry-forward 2026-10-14) | Native escaping helper (BL-030) | Lane divergence: invalid Java or wrong values for quotes/backslashes. | Emitted literals can diverge from the oracle-verified native lane. | Both lanes emit identical escaped literals; focused test green. |
+| BL-045 | Mapping maintainer | Phase 12 (carry-forward 2026-10-14 — Phase 3 lane item, not scheduled in Phase 4; FIXED 2026-10-16 in batch P1) | `called_programs` collector threading | Nested CALLs lose resolution metadata (coverage/provenance). | Incomplete program references in mapping output. | Nested CALL contributes to called_programs; focused + regression tests green. |
+| BL-046 | Spring Boot generator maintainer | Phase 12 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P1) | Native escaping helper (BL-030) | Lane divergence: invalid Java or wrong values for quotes/backslashes. | Emitted literals can diverge from the oracle-verified native lane. | Both lanes emit identical escaped literals; focused test green. |
 | BL-047 | API maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P1)** | None | Silent file loss on accepted uploads; documented collision contract unreachable. | Downstream transformation runs on incomplete sources. | FIXED - `_read_files_bounded` rejects a repeated filename with a 400 naming the file before the dict is built, so the ingest dict can no longer silently collapse; red-first + security suite green (`1c37503`). |
 | BL-048 | API/service maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P1)** | None | Failed re-upload destroys the previous source (data-loss on error path). | Record points at a deleted directory after a rejected upload. | FIXED - upload handlers reordered to validate+write the new tree first and delete the previous directory only after a successful write (write-then-cleanup); red-first + service tests green (`1c37503`). |
 | BL-049 | API maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2)** | None | Error-path correctness: 500 instead of 401 on non-ASCII tokens. | Availability/log noise only; no bypass. | FIXED - `_token_matches` encodes both sides to latin-1 bytes (exact for HTTP headers) and calls `hmac.compare_digest` on bytes, which never raises `TypeError`; comparison stays constant-time and fail-closed; raw-bytes ASGI test proves a non-ASCII bearer/X-API-Key returns 401, never 500. |
@@ -6230,7 +6290,7 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-063 | JCL lane maintainer | **Phase 5 (batch P2 - fixed in-cycle 2026-10-15)** | Shared discovery matcher (`is_jcl_member` / `find_jcl_members`) | Consumer's file selection diverges from discovery; decode errors escape; basename keys silently overwrite colliding members; API presence gate blind to non-`*.jcl` members. | Path-keyed sources (strictly stronger than collision reporting: collisions cannot occur); `JCL_SOURCE_DECODE_FAILED` ERROR fail-closed. | FIXED - red in `bl063_pre_fix_import.txt` (matcher absent) + `bl063_pre_fix.txt` (`6 failed/8 passed` behavioral); shared rule used by discovery + consumer + API gate; decode diagnostics via `pre_diagnostics`; focused green `14 passed`, JCL regression `255 passed`, Docker-gated `5 passed`; gate-wired (12 matcher/decode tests; the 2 API-parity tests split to `tests/test_jcl_api_discovery_parity.py` post-push — the gate is dependency-free, `api.service` needs the runtime stack; change-log (ab)). |
 | BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. **FIXED**: blame-proven duplicate loop removed (accidental re-add `fa0fa62a` over original M7 loop), single emission site pinned; `test_spring_model_emission_unique.py` (4) red 3/1 → green; regressions 1923 + 100 passed; gate-wired. |
 | BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
-| BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
+| BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P3) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
 | BL-067 | API maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2 - re-rated P3 -> P2)** | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | FIXED - download route enforces `CONTROL_PLANE_MAX_DOWNLOAD_FILES`/`_BYTES` caps over the sorted file list before any bytes are buffered, failing closed with 413; oversized byte and file-count tests plus 404/200 guards green. |
 | BL-068 | Frontend maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2 - re-rated P3 -> P2)** | None | Three state-lifecycle gaps: wrong-application display, invisible download errors, unbounded polling. | Customer-visible confusion; wasted polling load. | FIXED - (a) `navigate('run')` resolves the run's own application id through a `runsRef` mirror instead of a stale `selectedAppId`; (b) download failures move to a dedicated `downloadError` state rendered by an unconditional banner with retry (the `pollError` banner was gated on non-terminal runs); (c) terminal runs are pruned from the polling set each tick via `isTerminalStage`. Source-parity tests pin all three; tsc exit 0; vitest 122 passed. |
 | BL-069 | Parser / IR maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_emit_unparsed` diagnostic channel (exists; ADD/SUBTRACT/DIVIDE already use it) | Standard `MULTIPLY a BY b BY c` and `ON SIZE ERROR` forms returned an empty IR node with zero diagnostics — silent statement loss (§53.9). | Residual: double-`BY`/`ON SIZE ERROR` forms remain UNSUPPORTED *with* a diagnostic until the regex is extended (coverage gap, not silent loss). | FIXED — `_parse_multiply` no-match branch mirrors ADD exactly (`_emit_unparsed("MULTIPLY", …)`; empty node after diagnostic is the shared contract); 10 focused tests in `tests/transformation/test_multiply_diagnostic.py` wired into the `ci.yml` gate; pre-fix red 5/5 proven (`%TEMP%\opencode\phase4\bl069_pre_fix.txt`); parser arithmetic regression green; no existing test weakened. |

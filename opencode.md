@@ -1,5 +1,88 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 12 CLOSED — verdict: `INCOMPLETE — BLOCKED ON D-1` (2026-10-17)
+
+### ⚑ VERDICT (read this first)
+
+- **Project-level status: `INCOMPLETE — BLOCKED ON HUMAN DECISION D-1`** —
+  per the §53/§71 completion rule the project-level status is `INCOMPLETE — BLOCKED ON HUMAN DECISION D-1`. **§71 Final Release Gate: 18 ✅ / 2 ⚠️ / 1 ❌** (the FAIL is checkbox 21, Customer Approval Workflow → **BL-091**, blocked on D-1; no approval state machine invented per §61). **§53: 12/13 PASS** (point 12 PARTIAL, same reason).
+- **Phase 12's own execution is verified complete:** P0 explicitly empty;
+  every audited finding FIXED red-first (BL-045, BL-046, BL-065, BL-066,
+  BL-092/F-03, F-02 doc sync, F-05) or explicitly carried with a named
+  blocker (BL-091→D-1, BL-093→D-4, BL-012→D-3); regression + fresh E2E +
+  NO-LLM re-scan verified; §71/§53 re-scored; all documents synchronized
+  (`docs/reports/MASTER_README_LINE_BY_LINE_AUDIT.md`, `docs/BACKLOG.md`
+  change-log (ax)–(bb), this checkpoint).
+
+### Final tree, CI and counts (all from actual runs)
+
+- **Final work SHA:** `d928253` (docs close commits follow; their CI is
+  verified in-session — see the close note at the bottom of this block
+  once pushed).
+- **Phase 12 CI: 12/12 runs green** — P1 `accc81a` (38920133049 /
+  38920133001 / 38920141540 / 38920141655), P2 `162520b` (38928312923 /
+  38928312930 / 38928316773 / 38928316724), P3 `d928253` (38933671536 /
+  38933671595 / 38933681281 / 38933680935); all 14 jobs success each,
+  0 `continue-on-error`.
+- **Backend junit at `d928253`: 3883 passed / 0 failed / 0 skipped**
+  (= Phase-11 baseline 3857 + exactly the 26 new Phase 12 tests).
+- **Local (Windows, supplementary):** frontend vitest **122/122**,
+  `tsc --noEmit` clean, production build clean. Focused P1 15 passed /
+  P2 82 passed / P3+planner 146 passed; frozen 54-file gate 748/790 at
+  every batch (only the 4 known Windows-only
+  `test_runtime_adapter_architecture` failures; CI-Linux green).
+- **Local final full suite: 3873 passed / 6 failed / 4 skipped** — the
+  6 = the 4 known Windows-only tests + 2 `test_forensic_evidence`
+  timeout tests that failed only because I ran the full suite and the
+  fresh-integration suite **concurrently** (proven: differing failure
+  sets per process, solo v4 junit all-pass, **sequential re-run 35
+  passed**, CI green at the same SHA). Zero genuine local regressions.
+- **Fresh local integration (§50):** 360 passed / 4 failed in the same
+  contention window, all green on the sequential re-run. **NO-LLM
+  re-scan at the final tree: PASS** (zero model-provider imports/endpoints
+  in `engine/`/`api/`).
+
+### Batches (red-first, exact-SHA CI green before each next step)
+
+- **P0:** explicitly empty — no open P0 exists; none invented.
+- **P1 `accc81a`:** BL-045 `called_programs` threaded through all 6
+  nested recursion sites + BL-046 canonical spring escaping (combined
+  red 14 failed → 15 passed).
+- **P2 `162520b`:** BL-065 name-based IR-type checks (4 NameError reds
+  → 5 passed; fail-closed guard pinned), BL-092/F-03 masking skips →
+  enforcement asserts (2 reds → 2 passed), F-02 all 22 documentation
+  contradictions reconciled (8 historical reports labeled per §78,
+  never rewritten).
+- **P3 `d928253`:** BL-066 structured blocking-reason mapping (2 reds →
+  4 passed; 146 planner/consumer tests green), F-05 19 priority/severity
+  assessments added.
+- **Close:** final regression/E2E/NO-LLM verification + full document
+  synchronization + this verdict (BACKLOG change-log (bb); audit report
+  §4/§6/§7/§11/§12/§13 finalized; BL-045/BL-046 section+row status
+  sync gap found and fixed during the close).
+
+### Register disposition (93 rows, §77 contract holds)
+
+83 sections FIXED (dated evidence each) · 1 RESOLVED BY DESIGN (BL-004)
+· 1 documented-deferred PARTIAL (BL-012 → D-3) · 1 environment-blocked
+(BL-010) · 2 OPEN blocked on human decisions (BL-091 → D-1, BL-093 →
+D-4) · 5 register-only governance rows (BL-013…BL-017). None P0.
+
+### Decisions still open (human — nothing else outstanding in code)
+
+- **D-1** approval-workflow scope → implement BL-091 → §71 checkbox 21
+  re-scored → `PHASE 12 COMPLETE — VERIFIED` becomes declarable if
+  everything else still passes. **This is the single blocker.**
+- **D-3** coverage/mutation targets → BL-012 remainder.
+- **D-4** `test-artifacts/*` authorization → BL-093 (never staged while
+  D-4 is open). **D-2** (PR #1/#2/#3/#6), **D-5** (§43 RBAC/audit log),
+  **D-6** (COMP/COMP-3 certification) carried.
+
+**Next action: human decision D-1.** Then implement BL-091 end-to-end,
+re-run the §71/§53 gates, and update this checkpoint from actual results.
+
+---
+
 ## Phase 12 pre-implementation audit — READ-ONLY §76/§80 pass (2026-10-16)
 
 ### ⚑ AUDIT STATUS — read this first (2026-10-16, **audit-only; NO implementation changes made; Phase 12 batches NOT started; full deliverable = `docs/reports/MASTER_README_LINE_BY_LINE_AUDIT.md`**)
