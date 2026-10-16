@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components';
 import { Dashboard, NewModernization, ModernizationRun } from './pages';
 import type { ApplicationResponse, RunResponse } from './api/client';
 import type { IngestSummary } from './api/stages';
+import { isTerminalStage } from './api/stages';
 import * as api from './api/client';
 import { tokens } from './theme/tokens';
 
@@ -23,9 +24,24 @@ export default function App() {
 
   const [runIds, setRunIds] = useState<Set<string>>(new Set());
 
+  // BL-068a: navigate() stays identity-stable (it is a dependency of the
+  // layout effects below) yet must read the latest runs to resolve a run's
+  // application id, so mirror runs through a ref.
+  const runsRef = useRef<RunResponse[]>(runs);
+  useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+
   const navigate = useCallback((p: string, id?: string) => {
     if (p === 'run' && id) {
       setSelectedRunId(id);
+      // BL-068a: opening a run must select THAT run's application, not keep
+      // a stale selectedAppId from a previously created/opened app (which
+      // rendered the wrong application's discovery/ingest summary).
+      const run = runsRef.current.find((r) => r.id === id);
+      if (run) {
+        setSelectedAppId(run.application_id);
+      }
       setPage('run');
     } else if (p === 'new') {
       setPage('new');
@@ -97,6 +113,17 @@ export default function App() {
           for (const r of updated) map.set(r.id, r);
           return Array.from(map.values());
         });
+        // BL-068c: drop terminal runs from the polling set so each finished
+        // run stops being polled every 2s for the rest of the session (it
+        // was previously only ever appended, growing the poll load forever).
+        const finished = updated.filter((r) => isTerminalStage(r.stage));
+        if (finished.length > 0) {
+          setRunIds((prev) => {
+            const next = new Set(prev);
+            for (const r of finished) next.delete(r.id);
+            return next;
+          });
+        }
       }
     }, 2000);
 

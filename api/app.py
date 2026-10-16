@@ -83,6 +83,9 @@ _DEF_DB_PATH = str(_DEF_DB_DIR / "control-plane.db")
 _DEFAULT_MAX_REQUEST_BYTES = 50 * 1024 * 1024
 _DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024
 _DEFAULT_MAX_UPLOAD_FILES = 1000
+# BL-067: caps for the generated-app download archive (built in memory).
+_DEFAULT_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+_DEFAULT_MAX_DOWNLOAD_FILES = 5000
 
 
 def _store_path() -> str:
@@ -200,13 +203,29 @@ async def _require_api_token(request: Request, call_next):
     provided = header[7:] if header.startswith("Bearer ") else ""
     if not provided:
         provided = request.headers.get("X-API-Key", "")
-    if not provided or not hmac.compare_digest(provided, token):
+    if not provided or not _token_matches(provided, token):
         return JSONResponse(
             status_code=401,
             content={"detail": "Not authenticated"},
             headers={"WWW-Authenticate": "Bearer"},
         )
     return await call_next(request)
+
+
+def _token_matches(provided: str, expected: str) -> bool:
+    """Constant-time token compare that cannot raise on non-ASCII (BL-049).
+
+    ``hmac.compare_digest`` rejects ``str`` operands containing non-ASCII
+    characters, which turned an unauthenticated probe carrying a non-ASCII
+    bearer token into a 500 instead of a 401.  HTTP headers are latin-1
+    decodable, so encoding both sides back to bytes is an exact round-trip;
+    ``compare_digest`` on ``bytes`` never raises, keeping the comparison
+    constant-time and fail-closed (a decode that still cannot be compared
+    simply does not match).
+    """
+    provided_bytes = provided.encode("latin-1", errors="replace")
+    expected_bytes = expected.encode("latin-1", errors="replace")
+    return hmac.compare_digest(provided_bytes, expected_bytes)
 
 
 @app.exception_handler(ApiError)
@@ -694,12 +713,38 @@ def download_generated(run_id: str) -> StreamingResponse:
     if java_dir is None or not Path(java_dir).exists():
         raise _error(404, "No generated Java application available for this run")
 
+    # BL-067: the archive is built in memory per request.  A pathological
+    # or unexpectedly large generated tree could exhaust memory on an
+    # authenticated GET, so both the file count and the total byte size
+    # are capped and the request fails closed (413) BEFORE any bytes are
+    # buffered — never a partial or truncated archive.
+    max_files = _env_limit(
+        "CONTROL_PLANE_MAX_DOWNLOAD_FILES", _DEFAULT_MAX_DOWNLOAD_FILES
+    )
+    max_bytes = _env_limit(
+        "CONTROL_PLANE_MAX_DOWNLOAD_BYTES", _DEFAULT_MAX_DOWNLOAD_BYTES
+    )
+
+    files = sorted(p for p in Path(java_dir).rglob("*") if p.is_file())
+    if len(files) > max_files:
+        raise PayloadTooLargeError(
+            f"Generated application has {len(files)} files,"
+            f" exceeding the {max_files} file download limit"
+        )
+    total_bytes = 0
+    for f in files:
+        total_bytes += f.stat().st_size
+        if total_bytes > max_bytes:
+            raise PayloadTooLargeError(
+                f"Generated application exceeds the {max_bytes} byte"
+                " download limit"
+            )
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in Path(java_dir).rglob("*"):
-            if f.is_file():
-                arcname = f.relative_to(java_dir)
-                zf.write(f, arcname)
+        for f in files:
+            arcname = f.relative_to(java_dir)
+            zf.write(f, arcname)
 
     buf.seek(0)
     # Stable product filename derived from the application name (not the

@@ -5864,6 +5864,80 @@ level and evidence location.
   and BL-083/P1 remain the only backlog IDs in this phase's batch scope;
   nothing from Phase 11/12 included.
 
+- 2026-10-16 — **(av) Phase 11 audit + batch P1: upload integrity —
+  BL-047 duplicate-filename silent collapse, BL-048
+  delete-before-write data loss.**
+  Audit-first: the §42 requirement list (archive extraction, path
+  sanitization, upload limits, execution isolation, network controls,
+  resource limits, authentication, authorization, evidence integrity,
+  stale-evidence, replay, auditability) was checked against current
+  code — ZIP ingestion (zip-slip/symlink/entry/size limits), path
+  containment, request/file/count limits, `--network none` sandboxing,
+  and Phase 10's evidence/stale/replay hardening are all covered; the
+  only confirmed gaps were the five Phase-11 carry-forwards.  P0 batch
+  explicitly empty (no false-VERIFIED, trust-boundary, or
+  critical-exposure defect found — Phase 10 closed those).  Classification:
+  BL-047 P1, BL-048 P1, BL-049 P2, BL-067 re-rated P3 → P2, BL-068
+  re-rated P3 → P2 (3-tier scheme).  Red-first (captured against
+  unmodified code): `tests/test_phase11_p1_upload_integrity.py` **5
+  failed / 2 passed** (`p1_red_run.txt`) — 3 reds for BL-047 (duplicate
+  names returned 201 with one file lost and `files_received`
+  undercounted, service collision detector unreachable) and 2 reds for
+  BL-048 (a rejected re-upload deleted the previous good source and
+  stranded the record).  Fixes: (a) **BL-047** `_read_files_bounded`
+  rejects a repeated multipart filename with a 400 naming the file
+  before the ingestion dict is built — an accepted upload can no longer
+  silently lose a source file, and `files_received` is honest because
+  the dict can no longer collapse.  (b) **BL-048** both
+  `upload_cobol_source` and `upload_java_candidate` reordered to
+  validate + write the NEW tree first, persist the record, then delete
+  the previous directory only after the write succeeds — a re-upload
+  rejected for traversal/collision/disk error preserves the previous
+  good source (failure mode is an orphan temp dir, never data loss).
+  Evidence after the fix: P1 files **8 passed** (`p1_green_run.txt`);
+  `test_api_security.py` + `test_api.py` + P1 files **58 passed**;
+  consumer regression (e2e, control-plane persistence, ingestion
+  diagnostics, modernization/single-mapping/spring-boot suites) **59
+  passed**.  Committed `1c37503`, exact-SHA CI verified **4/4 runs
+  green** (runs 38898083563/38898083875/38898091679/38898091808; every
+  job success incl. Backend Docker, Capability truth gate, Frontend
+  build).  No existing test weakened, no gate bypassed; nothing from
+  Phase 10/12 included.
+
+- 2026-10-16 — **(aw) Phase 11 batch P2: auth error-path (BL-049),
+  download resource cap (BL-067), frontend state trio (BL-068).**
+  Red-first (captured against unmodified code):
+  `tests/test_phase11_p2_auth_download_state.py` **7 failed / 5
+  passed** (`p2_red_run.txt`) — one red per defect.  Fixes: (a)
+  **BL-049** new `_token_matches` encodes both sides to latin-1 bytes
+  (an exact round-trip for HTTP headers) and calls `hmac.compare_digest`
+  on `bytes`, which never raises `TypeError` — a non-ASCII bearer token
+  or `X-API-Key` now yields the 401 challenge instead of a 500,
+  comparison stays constant-time and fail-closed; proven by a raw-bytes
+  ASGI test (the httpx TestClient ascii-encodes header values and
+  cannot express the offending request).  (b) **BL-067** the
+  generated-app download enforces
+  `CONTROL_PLANE_MAX_DOWNLOAD_FILES`/`CONTROL_PLANE_MAX_DOWNLOAD_BYTES`
+  (defaults 5000/50MB) over the sorted file list BEFORE any bytes are
+  buffered, failing closed with 413 — never a partial archive.  (c)
+  **BL-068a** `navigate('run', id)` resolves the run's own
+  `application_id` through a `runsRef` mirror so an opened run renders
+  its own application's summary instead of a stale `selectedAppId`.
+  (d) **BL-068b** download failures move to a dedicated `downloadError`
+  state rendered by an unconditional "Download failed" banner with a
+  retry button — previously the error reused `pollError`, whose only
+  banner is gated on non-terminal runs, so a failed download on a
+  COMPLETED run was silently discarded.  (e) **BL-068c** terminal runs
+  are pruned from the `runIds` polling set each tick via the canonical
+  `isTerminalStage`, so finished runs stop being polled every 2s for
+  the rest of the session.  Evidence after the fixes: P2 files **12
+  passed** (`p2_green_run.txt`); API/security/persistence/integrity/e2e
+  **98 passed** (`p2_regress_api.txt`); Phase-10 focused set + edges +
+  P1 files **64 passed** (`p2_regress_phase10.txt`); `tsc --noEmit`
+  exit 0; frontend vitest **122 passed** (7 files).  No existing test
+  weakened, no gate bypassed; BL-049/BL-067/BL-068 are the only
+  backlog IDs in this batch; nothing from Phase 10/12 included.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -5917,9 +5991,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-044 | Application discovery maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | Shared `normalize_cobol_name` in `engine/transformation/ir.py` | One CALL fact could contradict itself across lanes (BL-038 class). | None for program-id joins; other name spaces (copybook stems, file names) still compare as-spelled pending a demonstrated contradiction. | FIXED — shared uppercase normalization applied to every program-id join (discovery known_programs/target check; analyzer arity by_id/target, `program_levels` keys/callee lookup; self-CALL checks in `_analyze_call` and planner fallback); spelling of `target`/edge preserved, only comparisons normalize; 7 focused tests in `tests/transformation/test_call_name_case_normalization.py` wired into the `ci.yml` gate; pre-fix red 4/3 proven (`%TEMP%\opencode\phase4\bl044_pre_fix.txt`); CALL/discovery/analyzer/planner regression batch 249 passed; no existing test weakened. |
 | BL-045 | Mapping maintainer | Phase 12 (carry-forward 2026-10-14 — Phase 3 lane item, not scheduled in Phase 4) | `called_programs` collector threading | Nested CALLs lose resolution metadata (coverage/provenance). | Incomplete program references in mapping output. | Nested CALL contributes to called_programs; focused + regression tests green. |
 | BL-046 | Spring Boot generator maintainer | Phase 12 (carry-forward 2026-10-14) | Native escaping helper (BL-030) | Lane divergence: invalid Java or wrong values for quotes/backslashes. | Emitted literals can diverge from the oracle-verified native lane. | Both lanes emit identical escaped literals; focused test green. |
-| BL-047 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Silent file loss on accepted uploads; documented collision contract unreachable. | Downstream transformation runs on incomplete sources. | Duplicate-name upload fails closed named; security suite green. |
-| BL-048 | API/service maintainer | Phase 11 (carry-forward 2026-10-14) | None | Failed re-upload destroys the previous source (data-loss on error path). | Record points at a deleted directory after a rejected upload. | Failed re-upload preserves the previous directory; service tests green. |
-| BL-049 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Error-path correctness: 500 instead of 401 on non-ASCII tokens. | Availability/log noise only; no bypass. | Non-ASCII token yields 401; security tests green. |
+| BL-047 | API maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P1)** | None | Silent file loss on accepted uploads; documented collision contract unreachable. | Downstream transformation runs on incomplete sources. | FIXED - `_read_files_bounded` rejects a repeated filename with a 400 naming the file before the dict is built, so the ingest dict can no longer silently collapse; red-first + security suite green (`1c37503`). |
+| BL-048 | API/service maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P1)** | None | Failed re-upload destroys the previous source (data-loss on error path). | Record points at a deleted directory after a rejected upload. | FIXED - upload handlers reordered to validate+write the new tree first and delete the previous directory only after a successful write (write-then-cleanup); red-first + service tests green (`1c37503`). |
+| BL-049 | API maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2)** | None | Error-path correctness: 500 instead of 401 on non-ASCII tokens. | Availability/log noise only; no bypass. | FIXED - `_token_matches` encodes both sides to latin-1 bytes (exact for HTTP headers) and calls `hmac.compare_digest` on bytes, which never raises `TypeError`; comparison stays constant-time and fail-closed; raw-bytes ASGI test proves a non-ASCII bearer/X-API-Key returns 401, never 500. |
 | BL-050 | Candidate adapter maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | Shared cleanup helper | Timeout path masks the real error and leaks a container. | Leaks accumulate on the daemon; diagnostics mislead. | FIXED: compile() initializes `proc = None` (parity with execute()); timeout returns the real message and always cleans the container; focused test green. |
 | BL-051 | Oracle adapter maintainer | **FIXED 2026-10-15 (Phase 9 batch P2a)** | Shared cleanup helper (Stage D) | Timed-out oracle containers persist; no parity with candidate cleanup. | Daemon resource leak on the hot verification path. | FIXED: oracle `docker run` gains a deterministic `--name`; timeout path kills client + calls shared `cleanup_container`; focused test green. |
 | BL-052 | Comparator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Byte-exactness must cover every byte; floor division ignores tails. | Latent false MATCH via metadata mismatch (V1 pipeline unaffected today). | Partial trailing records mismatch; comparator tests green. **FIXED**: explicit tail comparison after the record loop reports `trailing_partial_record`; test_fixed_record_trailing_partial.py (9) red 5/1 → green; regressions 282 + 172 passed; gate-wired. |
@@ -5937,8 +6011,8 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-064 | Spring Boot generator maintainer | **Phase 4 (cycle C — FIXED 2026-10-14)** | None | Duplicate model emission produces duplicate classes. | Uncompilable output for copybook workloads on that lane. | Each model emitted once; generator tests green. **FIXED**: blame-proven duplicate loop removed (accidental re-add `fa0fa62a` over original M7 loop), single emission site pinned; `test_spring_model_emission_unique.py` (4) red 3/1 → green; regressions 1923 + 100 passed; gate-wired. |
 | BL-065 | Java generator maintainer | Phase 12 (carry-forward 2026-10-14) | Legacy-region inventory decision | Unimported IR classes in legacy branches ⇒ NameError. | Crash path; confusing diagnostics. | No NameError path remains; generator tests green. |
 | BL-066 | Modernization planner maintainer | Phase 12 (carry-forward 2026-10-14) | Diagnostic-code plumbing | Prose substring mapping duplicates codes and breaks on wording changes. | Silent mis-mapping risk on future wording changes. | No prose substring mapping remains; planner + contracts tests green. |
-| BL-067 | API maintainer | Phase 11 (carry-forward 2026-10-14) | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | Cap enforced with a 4xx/413; API tests green. |
-| BL-068 | Frontend maintainer | Phase 11 (carry-forward 2026-10-14) | None | Three state-lifecycle gaps: wrong-application display, invisible download errors, unbounded polling. | Customer-visible confusion; wasted polling load. | Each of the three has a focused test; type-check + tests + build green. |
+| BL-067 | API maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2 - re-rated P3 -> P2)** | None | Unbounded in-memory archive on an authenticated GET. | Memory exhaustion on pathological trees. | FIXED - download route enforces `CONTROL_PLANE_MAX_DOWNLOAD_FILES`/`_BYTES` caps over the sorted file list before any bytes are buffered, failing closed with 413; oversized byte and file-count tests plus 404/200 guards green. |
+| BL-068 | Frontend maintainer | **Phase 11 (carry-forward 2026-10-14; FIXED 2026-10-16 in batch P2 - re-rated P3 -> P2)** | None | Three state-lifecycle gaps: wrong-application display, invisible download errors, unbounded polling. | Customer-visible confusion; wasted polling load. | FIXED - (a) `navigate('run')` resolves the run's own application id through a `runsRef` mirror instead of a stale `selectedAppId`; (b) download failures move to a dedicated `downloadError` state rendered by an unconditional banner with retry (the `pollError` banner was gated on non-terminal runs); (c) terminal runs are pruned from the polling set each tick via `isTerminalStage`. Source-parity tests pin all three; tsc exit 0; vitest 122 passed. |
 | BL-069 | Parser / IR maintainer | **Phase 4 (cycle B — fixed in-cycle 2026-10-14)** | `_emit_unparsed` diagnostic channel (exists; ADD/SUBTRACT/DIVIDE already use it) | Standard `MULTIPLY a BY b BY c` and `ON SIZE ERROR` forms returned an empty IR node with zero diagnostics — silent statement loss (§53.9). | Residual: double-`BY`/`ON SIZE ERROR` forms remain UNSUPPORTED *with* a diagnostic until the regex is extended (coverage gap, not silent loss). | FIXED — `_parse_multiply` no-match branch mirrors ADD exactly (`_emit_unparsed("MULTIPLY", …)`; empty node after diagnostic is the shared contract); 10 focused tests in `tests/transformation/test_multiply_diagnostic.py` wired into the `ci.yml` gate; pre-fix red 5/5 proven (`%TEMP%\opencode\phase4\bl069_pre_fix.txt`); parser arithmetic regression green; no existing test weakened. |
 | BL-070 | Parser / mapping maintainer | **Phase 4 (cycle B - fixed in-cycle 2026-10-14)** | Existing `_record_owner` map (built in `cobol_parser.py`) | REWRITE bound its file by string heuristic only (WRITE consults the FD owner map first); unbound REWRITE silently degraded to a comment with no diagnostic. | Residual: FD declaration now wins over the `-REC` convention for REWRITE (matches WRITE; FD is authoritative). | FIXED - `_parse_rewrite` consults `_record_owner` first, heuristic fallback (exact mirror of `_parse_write`); 5 focused tests in `tests/transformation/test_rewrite_binding.py` wired into the `ci.yml` gate; pre-fix red 2/3 regenerated by temporary hunk revert (`%TEMP%\opencode\phase4\bl070_pre_fix.txt`, mislabeled first capture noted in the entry); file-lane regression 104 + parser batch 27 green; no existing test weakened. |
 | BL-071 | JCL lane maintainer + build/CI owner | **Phase 5 (batch P1 - fixed in-cycle 2026-10-15)** | `maven-offline-springboot` image rebuild (offline precache pom) | Generated JCL Spring Boot project cannot compile in the canonical offline build environment (`spring-boot-starter-batch` never precached) while the adapter docstring claims "it compiles, starts"; no test ever attempted the build. | Image digest changes cause `test-artifacts` provenance churn (regenerated, stays uncommitted by policy). | FIXED - red in `bl071_pre_fix.txt` (static + Docker compile) + `bl071_startup_pre_fix.txt` (startup exit 1, DataSource); precache pom + image rebuilt + `autoconfigure_excludes` (DataSource) in generated JCL properties; focused green `5 passed` (`bl071_focused_green.txt`): static gate-wired tests + Docker E2E compile `success=True` and execute `exit_code=0` printing `[STEP01]` markers; docstring cites `tests/integration/test_jcl_spring_boot_compile.py`; no existing test weakened. |

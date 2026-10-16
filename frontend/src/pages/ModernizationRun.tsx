@@ -158,6 +158,7 @@ export function ModernizationRun({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pollFailures, setPollFailures] = useState(0);
   const [pollError, setPollError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const pollFailuresRef = useRef(0);
 
   // Opening a run straight from the dashboard passes no application id —
@@ -286,6 +287,7 @@ export function ModernizationRun({
 
   const handleDownload = async () => {
     setDownloading(true);
+    setDownloadError(null);
     try {
       const blob = await downloadGenerated(runId);
       const url = URL.createObjectURL(blob);
@@ -297,7 +299,11 @@ export function ModernizationRun({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      setPollError(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
+      // BL-068b: a download failure is stored in its own state, rendered by
+      // an unconditional banner. It previously reused pollError, whose only
+      // banner is gated on non-terminal runs — so a failed download on a
+      // COMPLETED run was silently discarded and never shown.
+      setDownloadError(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setDownloading(false);
     }
@@ -814,6 +820,22 @@ export function ModernizationRun({
                   </div>
                 </div>
               )}
+            </SectionCard>
+          )}
+
+          {/* BL-068b: download failures surface unconditionally. The previous
+              pollError banner is gated on non-terminal runs, so a failed
+              download on a COMPLETED/FAILED run was never displayed. */}
+          {downloadError && (
+            <SectionCard title="Download failed">
+              <div style={{ fontSize: tokens.font.sizes.sm, color: tokens.colors.textSecondary }}>
+                {downloadError}
+              </div>
+              <div style={{ marginTop: tokens.spacing.sm }}>
+                <Button variant="secondary" size="sm" onClick={handleDownload} disabled={downloading}>
+                  {downloading ? 'Retrying...' : 'Retry download'}
+                </Button>
+              </div>
             </SectionCard>
           )}
 
