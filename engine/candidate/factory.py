@@ -7,8 +7,6 @@ the supported set instead of silently falling back to another lane.
 from __future__ import annotations
 
 from engine.candidate.adapter import CandidateAdapter
-from engine.candidate.docker_spring_boot_adapter import DockerSpringBootCandidateAdapter
-from engine.candidate.maven_adapter import MavenProjectCandidateAdapter
 
 # Targets whose generated project is a Spring Boot application (built by the
 # Spring Boot lane).  plain_java / jakarta_ee are dependency-free Maven
@@ -24,9 +22,17 @@ def candidate_adapter_for_target(target_runtime: str) -> CandidateAdapter:
     - unknown target → ``ValueError`` naming the supported set (never a
       silent fallback to another lane).
     """
+    # Imported inside the function so the resolution stays monkeypatchable
+    # (tests patch the adapter classes at their defining modules).
     if target_runtime == "spring_boot":
+        from engine.candidate.docker_spring_boot_adapter import (
+            DockerSpringBootCandidateAdapter,
+        )
+
         return DockerSpringBootCandidateAdapter()
     if target_runtime in ("plain_java", "jakarta_ee"):
+        from engine.candidate.maven_adapter import MavenProjectCandidateAdapter
+
         return MavenProjectCandidateAdapter()
     raise ValueError(
         f"invalid target_runtime: {target_runtime!r} — supported "

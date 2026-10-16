@@ -5630,6 +5630,23 @@ level and evidence location.
   defects fixed (P2a) vs build/execute evidence (P2b) vs still-unclaimed
   universal runtime equivalence.
 
+- 2026-10-15 — **(ar) Phase 9 batch P2b follow-up: CI red root-cause
+  fix (no test weakened).**  SystemaOps CI `backend-oracle` job failed on
+  P2b `1d537b8` (other jobs green).  Root causes addressed at source:
+  (1) `engine/candidate/factory.py` now imports the adapter classes
+  *inside* `candidate_adapter_for_target` (late binding), so existing
+  tests that monkeypatch the adapter classes at their defining modules
+  keep working — the previous module-level import bypassed such patches;
+  (2) the `plain_java`/`jakarta_ee` generated poms left the Maven
+  lifecycle plugins (`compiler`/`resources`/`surefire`/`jar`) unversioned,
+  which in the offline image resolves against super-POM metadata not
+  guaranteed to be cached — all four are now pinned to the versions the
+  Boot 3.2.x parent caches (compiler 3.11.0, resources 3.3.1, surefire
+  3.1.2, jar 3.3.0), so the offline build resolves deterministically.
+  Stale Phase 8 "generation only" docstrings/pom descriptions updated to
+  the Phase 9 per-workload build+execute wording.  No test weakened;
+  focused local regression 129 passed / 2 skipped (docker-gated).
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.

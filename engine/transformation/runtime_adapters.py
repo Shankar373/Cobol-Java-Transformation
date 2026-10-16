@@ -212,10 +212,11 @@ class PlainJavaRuntimeAdapter(RuntimeAdapter):
     emitted by the single semantic-transform lane, wrapped in a
     dependency-free Maven jar project.
 
-    Scope bound (documented, no equivalence claim): generation only —
-    Maven build execution and runtime evidence are Phase 9 scope.  No
-    Spring dependency, wiring, or annotation is emitted anywhere in the
-    project.
+    Scope bound (documented, no universal equivalence claim): this lane
+    generates; Phase 9's build+execute lane (offline Maven build in Docker,
+    ``java -jar`` execution) produces fresh per-workload oracle-comparison
+    evidence for the generated project.  No Spring dependency, wiring, or
+    annotation is emitted anywhere in the project.
     """
 
     target_runtime: ClassVar[str] = "plain_java"
@@ -308,10 +309,10 @@ class JakartaEeRuntimeAdapter(PlainJavaRuntimeAdapter):
     ``JavaApplication`` IR and source shape as ``plain_java``, assembled
     under a distinct Jakarta-EE-marked Maven pom profile.
 
-    Scope bound (documented, no equivalence claim): generation profile
-    only — the offline repository carries no Jakarta EE artifacts, so no
-    build execution or runtime evidence is claimable (Rung 0–1, never
-    certified); that limitation is disclosed in the report.
+    Scope bound (documented, no universal equivalence claim): the generated
+    dependency-free jar builds/executes offline via the Maven lane with
+    fresh per-workload oracle comparison (Phase 9) — no Jakarta EE server
+    runtime is claimed and the target is never certified (Rung 0–1).
     """
 
     target_runtime: ClassVar[str] = "jakarta_ee"
@@ -355,7 +356,23 @@ def _plain_pom_xml(*, application_id: str, entry_class: str, java_version: str) 
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
                 <configuration>
                     <archive>
                         <manifest>
@@ -375,9 +392,11 @@ def _jakarta_pom_xml(*, application_id: str, entry_class: str, java_version: str
 
     Structurally distinct from the plain_java pom: Jakarta-EE groupId,
     a default-active ``jakarta-ee`` Maven profile carrying the Jakarta
-    API-version marker, and an explicit generation-only scope note.
-    Zero ``<dependency>`` elements are emitted (no offline Jakarta
-    artifacts exist; build execution is Phase 9 scope — BL-090).
+    API-version marker, and an explicit scope note.  Zero ``<dependency>``
+    elements are emitted (no offline Jakarta EE artifacts exist; the
+    dependency-free jar builds/executes via the Maven lane — BL-090).
+    Lifecycle plugin versions are pinned to those the offline Maven image
+    caches, so the offline build resolves deterministically.
     """
     artifact = (application_id or "generated-app").lower().replace(" ", "-").replace("_", "-")
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -390,7 +409,7 @@ def _jakarta_pom_xml(*, application_id: str, entry_class: str, java_version: str
     <artifactId>{artifact}-jakarta</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>{application_id}-jakarta</name>
-    <description>Auto-generated Jakarta EE application profile (target_runtime=jakarta_ee) — generation profile only; no offline build or runtime evidence (Phase 9 scope)</description>
+    <description>Auto-generated Jakarta EE application profile (target_runtime=jakarta_ee) — dependency-free jar built via the Maven lane with per-workload fresh oracle comparison; no Jakarta EE server runtime claimed</description>
 
     <properties>
         <maven.compiler.release>{java_version}</maven.compiler.release>
@@ -414,7 +433,23 @@ def _jakarta_pom_xml(*, application_id: str, entry_class: str, java_version: str
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
                 <configuration>
                     <archive>
                         <manifest>

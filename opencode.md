@@ -21,6 +21,11 @@
   for both targets + limitation/matrix wording).  Claims separation:
   defects fixed (P2a) vs build/execute evidence (P2b) vs still-unclaimed
   universal runtime equivalence.
+- **P2a verified:** exact-SHA CI 4/4 green on `00a0218`.
+- **P2b CI red → root-caused (change-log (ar)):** `backend-oracle` failed
+  on `1d537b8`; fix = factory late-binding imports (monkeypatch-safe) +
+  pinning the four Maven lifecycle plugins in the plain/jakarta poms to
+  the offline-cached versions.  Follow-up commit pending CI green.
 - **Verdict pending:** Phase 9 §53 13-point verdict only after both batches
   reach exact-SHA CI green.
 
