@@ -102,7 +102,19 @@
 
 ### Close note (docs commits — CI verified after this block was written)
 
-- (filled in after the docs-commit CI runs settle)
+- **Docs close commit `690980c` (this block + BACKLOG (bc) + audit §53/§71
+  re-score): exact-SHA CI 4/4 green** — 38978028537 (SystemaOps CI push) /
+  38978028581 (Supply chain push) / 38978033962 (SystemaOps CI PR) /
+  38978033914 (Supply chain PR); every job success, including backend
+  (Docker/oracle/integration) and frontend (tests/TypeScript/build) at the
+  identical tree as the local evidence above.
+- **Declaration basis, final:** work SHA `0ae8c0f` (4/4 green, backend
+  **3905 passed / 0 failed / 0 skipped**) + docs SHA `690980c` (4/4 green).
+  §71 **19 ✅ / 2 ⚠️ / 0 ❌**, §53 **13/13 PASS** → **`PHASE 12 COMPLETE —
+  VERIFIED`**. Carried, non-blocking human decisions: **D-3** → BL-012
+  remainder (documented deferred), **D-4** → BL-093 (stale `test-artifacts/*`,
+  never staged), **D-2/D-5/D-6** governance. D-1: resolved and closed with
+  evidence.
 
 ## Phase 12 CLOSED — verdict: `INCOMPLETE — BLOCKED ON D-1` (2026-10-17) [SUPERSEDED by the block above — D-1 was resolved the same day and batch P4 closed the FAIL; kept for the historical record per §78]
 
