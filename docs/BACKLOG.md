@@ -4139,6 +4139,85 @@ level and evidence location.
   claimed; profile may need redesign when a real Jakarta build lane
   arrives (Phase 9/12).
 
+### BL-091 — Customer approval workflow (human approval stage) is absent: no approval state machine in API/service/persistence/frontend/export gating (Master README §9, §70, §71 checkbox 21; Phase 12 P1)
+
+- **Type:** gap (missing mandatory release-gate stage).
+- **Priority:** P1 — §71 checkbox 21 (Customer Approval Workflow) FAILs;
+  required by the Master README approval stage.
+- **Severity:** high for release gating (absent control, not wrong
+  output — exports are not gated behind a human approval decision).
+- **Status:** **OPEN — blocked on human decision D-1 (2026-10-16).**
+  Filed by the Phase 12 entry-gate reconciliation from audit finding
+  F-01 (zero references to an approval stage anywhere in `api/`,
+  `engine/`, or `frontend/` at `f3d0352`). D-1 (approval-workflow
+  scope) is **not resolved** in any authoritative document — the Master
+  README names the requirement but does not specify the state machine,
+  persistence model, or authorization rules. Inventing the approval
+  state machine or its approvals is forbidden (§61 no fake
+  verification), so implementation is not started and no approval
+  behavior is claimed.
+- **Expected behavior:** per D-1 once decided: agreed approval scope
+  end-to-end (API/service state, persistence, frontend, export gating,
+  authorization, tests) — scope itself undefined until D-1 resolves.
+- **Affected files:** `api/`, `engine/`, `frontend/` (all — pending).
+- **Acceptance criteria / tests:** implemented scope of D-1 with tests
+  covering state transitions, authorization, and export gating; until
+  D-1 resolves, the documented blocker above is the acceptance state.
+- **Owner/role:** product/API owner. **Target phase:** Phase 12
+  (blocked). **Dependency:** human decision D-1.
+  **Residual risk:** §71 checkbox 21 cannot pass and §53 project
+  completion cannot be declared while D-1 is unresolved.
+
+### BL-092 — Two tests mask regressions by skipping instead of failing (Phase 12 P2; audit finding F-03)
+
+- **Type:** test-integrity defect (silent skip).
+- **Priority:** P2 — a generation failure must never convert a
+  regression into a passing suite.
+- **Severity:** medium-high (capability-truth integrity: evidence that
+  a path works can be produced by a skip).
+- **Status:** **OPEN (2026-10-16).** Filed from audit finding F-03 at
+  `f3d0352`: `tests/test_universal_modernization.py:311` skips when
+  generation fails; `tests/integration/test_phase_d_negative_integration.py:379`
+  conditionally skips. Both were confirmed by static review of the
+  exact lines during the audit.
+- **Expected behavior:** generation failure raises/fails the test (or
+  asserts the intended fail-closed behavior); a genuine environmental
+  limitation may remain a skip only when documented as such.
+- **Affected files:** `tests/test_universal_modernization.py`,
+  `tests/integration/test_phase_d_negative_integration.py`.
+- **Acceptance criteria / tests:** both skips replaced with assertions
+  or failures enforcing the intended behavior; full suite green with
+  no new skips; any remaining skip explicitly environmental.
+- **Owner/role:** test infrastructure maintainer. **Target phase:**
+  Phase 12 batch P2. **Dependency:** none.
+  **Residual risk:** other runtime `pytest.skip` calls are
+  environmental (audit inventory: 14 skipif + 41 runtime skips); if
+  masking-shaped skips are added later they need review.
+
+### BL-093 — Stale tracked `test-artifacts/*` junit files contain failing runs (Phase 12 P3; audit finding F-04)
+
+- **Type:** repository hygiene / evidence-integrity hygiene.
+- **Priority:** P3 — stale failing evidence in-tree can mislead
+  readers, but artifacts are never used as fresh evidence by any gate.
+- **Severity:** low-medium (misleading evidence, no test impact).
+- **Status:** **OPEN — blocked on human decision D-4 (2026-10-16).**
+  Filed from audit finding F-04 at `f3d0352`: tracked junit artifacts
+  under `test-artifacts/` contain historical failures. Removal is
+  blocked by the standing invariant that `test-artifacts/*` is never
+  staged or modified without explicit authorization (D-4 unresolved).
+- **Expected behavior:** with D-4 authorization, stale artifacts are
+  removed in a dedicated commit; until then they stay untouched and
+  the issue is carried as documented.
+- **Affected files:** `test-artifacts/*` (tracked subset only).
+- **Acceptance criteria / tests:** either D-4 authorization resolves
+  it with a dedicated removal commit (no source/test change), or the
+  item remains documented as carried-and-blocked; no `test-artifacts/*`
+  change is ever staged without D-4.
+- **Owner/role:** repository maintainer. **Target phase:** Phase 12
+  batch P3. **Dependency:** human decision D-4.
+  **Residual risk:** misleading stale evidence persists in-tree until
+  D-4 resolves.
+
 ## Backlog change log
 
 - 2026-10-11 — **Phase 1 closure audit at `bdb4c9a` (documentation only).**
@@ -5938,6 +6017,33 @@ level and evidence location.
   weakened, no gate bypassed; BL-049/BL-067/BL-068 are the only
   backlog IDs in this batch; nothing from Phase 10/12 included.
 
+- 2026-10-16 — **(ax) Phase 12 entry gate: read-only baseline audit
+  reconciliation, finding registration, P0 batch explicitly empty.**
+  Baseline: HEAD == origin == `f3d0352` (fetched, verified);
+  exact-SHA CI at the baseline **4/4 runs green** (38907021370 /
+  38907021483 / 38907028432 / 38907028746; 14 jobs all success;
+  backend junit artifact 3857 passed / 0 failed / 0 skipped).
+  Phases 0–11 independently verified complete (Phase 10 13/13 and
+  Phase 11 13/13, each with exact-SHA CI green; Phases 0–9 historical
+  exact-SHA runs batch-verified green).  Entry-gate deliverable
+  `docs/reports/MASTER_README_LINE_BY_LINE_AUDIT.md` completed with
+  all §76.7 items (§71 score 16✅ / 3⚠️ / 2❌; §53 project-level
+  NOT YET COMPLETE — Phase 12 open).  **P0 batch explicitly empty:**
+  no open P0 exists in the register and the line-by-line audit found
+  none — none invented.  New findings registered without duplicate
+  IDs: **F-01 → BL-091** (approval workflow, P1, blocked on D-1),
+  **F-03 → BL-092** (masking skips, P2), **F-04 → BL-093** (stale
+  tracked test-artifacts junit, P3, blocked on D-4); existing IDs
+  BL-045 / BL-046 / BL-065 / BL-066 / BL-012 preserved with their
+  priorities and history unchanged.  Human decisions recorded
+  **unresolved** after searching the authoritative documents: D-1
+  (approval-workflow scope — blocks BL-091 implementation), D-3
+  (coverage/mutation scope — BL-012 stays deferred, not claimed),
+  D-4 (test-artifacts authorization — blocks BL-093), with D-2
+  (PR #1/#2/#3/#6), D-5 (§43 RBAC/audit-log), D-6 (COMP/COMP-3
+  certification) carried.  No product code changed by this entry, no
+  test weakened, no `test-artifacts/*` staged or modified.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
@@ -6035,6 +6141,9 @@ This register supplies the explicit owner/role, target phase, dependency, residu
 | BL-088 | Runtime-adapter architecture maintainer | **FIXED 2026-10-15 (Phase 8 batch P0; `2917a4f`, exact-SHA CI 4/4 green)** | None | §32 absent: no `target_runtime` config keys (red probe `bl088_red_probe.txt` TypeError), hardcoded `_assemble_spring_boot`, plan `output_type` hardcoded `SPRING_BOOT`. | Without fail-closed validation + truthful plan output_type, a future non-spring target would report Spring artifacts (capability-truth/config-loss shape). | FIXED: `runtime_adapters.py` seam + fail-closed §32 keys + registry dispatch + truthful plan output_type + pre-phase lookup; 36 focused gate tests; default spring output byte-identical; `_fill_discovery` report-rebuild bug found+fixed by the new tests. |
 | BL-089 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P1)** | BL-088 | `plain_java` unreachable: `JavaGenerator` emits sources+main only (no pom), no assembly adapter, no API selection surface. | Missing capability (not silent loss today); plain-java build/runtime evidence deferred to Phase 9. | FIXED: `PlainJavaRuntimeAdapter` + registry + store/API `target_runtime` (schema migration 4) + plan `NATIVE_JAVA` + report limitation; 5 focused engine tests + API surface checks; spring default unchanged; build/runtime deferred to Phase 9. |
 | BL-090 | Runtime-adapter maintainer | **FIXED 2026-10-15 (Phase 8 batch P2)** | BL-088 | `jakarta_ee` target absent (§32 initial target) + Phase 8 breadth docs. | Generation profile only: offline repo has no Jakarta EE artifacts — no build/runtime evidence claimable (Rung 0–1, bounded). | FIXED: `JakartaEeRuntimeAdapter` (shared IR/sources, distinct Jakarta-marked pom profile) + registry + plan `JAKARTA_EE` + report limitation; 3 focused tests + synthetic fail-closed guard coverage; spring/plain unaffected; no build/runtime claim. |
+| BL-091 | Product/API owner | Phase 12 (blocked) | Human decision D-1 (approval-workflow scope) | Customer approval workflow required by Master README §9/§70/§71 checkbox 21 is absent everywhere (audit F-01: zero hits in api/engine/frontend at `f3d0352`); scope undefined in authoritative docs. | §71 checkbox 21 fails and §53 project completion cannot be declared until D-1 resolves; no approval state machine may be invented (§61). | Implemented end-to-end exactly as D-1 decides (API/service state, persistence, frontend, export gating, authorization, tests); until then the documented blocker is the acceptance state. |
+| BL-092 | Test infrastructure maintainer | Phase 12 batch P2 | None | Two tests skip instead of failing: `tests/test_universal_modernization.py:311` (skip on generation failure) and `tests/integration/test_phase_d_negative_integration.py:379` (conditional skip) — audit F-03. | Generation failure can silently convert a regression into a passing suite; evidence of a working path can be produced by a skip. | Both skips replaced by assertions/failures enforcing intended behavior; a genuine environmental limitation may remain only as a documented environmental skip; full suite green with no new skips. |
+| BL-093 | Repository maintainer | Phase 12 batch P3 | Human decision D-4 (test-artifacts authorization) | Stale tracked junit artifacts under `test-artifacts/` contain failing runs (audit F-04); removal blocked by the never-stage-test-artifacts invariant. | Misleading stale evidence persists in-tree; a reader could mistake old failures for current results. | With D-4 authorization: dedicated removal commit (no source/test change); without D-4: explicitly carried as blocked with this entry; `test-artifacts/*` never staged/modified while D-4 is open. |
 
 ### PR disposition snapshot — 2026-10-10
 

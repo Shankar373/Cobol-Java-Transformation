@@ -1,5 +1,71 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Phase 12 pre-implementation audit — READ-ONLY §76/§80 pass (2026-10-16)
+
+### ⚑ AUDIT STATUS — read this first (2026-10-16, **audit-only; NO implementation changes made; Phase 12 batches NOT started; full deliverable = `docs/reports/MASTER_README_LINE_BY_LINE_AUDIT.md`**)
+
+- **Baseline:** HEAD == origin == `f3d0352812eaa6314f39384a78189d6a20151c8a`
+  (Phase 11 verdict docs), clean except preserved `test-artifacts/*`
+  (never staged).  Master README read completely (2346 lines, §1–§80);
+  `opencode.md`, `docs/BACKLOG.md` (all 90 register rows + change-log
+  through (aw)), capability matrices, all phase reports, source, tests,
+  and both workflows audited.
+- **Gate check (user condition):** Phases 10 and 11 independently
+  verified COMPLETE (13/13 each, exact-SHA CI green) → **Phase 12
+  implementation is unblocked.**  Historical phase SHAs re-verified
+  against the GitHub API today: Phases 0–9 exact SHAs — all 10 GREEN
+  (4 successful runs each, 0 failures).
+- **CI at the audited SHA:** 4/4 runs `conclusion=success`
+  (runs 38907021370 / 38907021483 / 38907028432 / 38907028746), all
+  14 jobs success, head_sha = `f3d0352…`; backend junit artifact:
+  **3857 passed / 0 failed / 0 skipped** (1018.77s); frontend
+  **122/122** passed (re-run locally this audit).
+- **NO-LLM invariant: PASS everywhere** — 0 model-provider packages in
+  any dependency manifest (Python + frontend), 0 model API keys/endpoints
+  in workflows/scripts/Dockerfiles, 0 model imports in `engine`/`api`.
+- **Full-suite local run:** executed for §76.5 counts (environmental
+  Docker/Java skips documented; 4 known local-only
+  `test_runtime_adapter_architecture` javac/OS failures unchanged and
+  green in CI Linux).
+- **Open defects at audited SHA (no P0):** P1 = **BL-045 REPRODUCED
+  empirically** (nested CALL inside IF/PERFORM loses `called_programs`
+  threading at `cobol_to_java_mapping.py` L2187/L2190/L2584/L2614/
+  L2638/L2677 — probe shows top-level call emits value-result sync +
+  correct entry method `p100_INIT` while the identical nested call emits
+  a bare `MAIN_LOGIC` call) + **BL-046 confirmed**
+  (`spring_boot_generator.py:670/677` unescaped literals vs native
+  `_escape_java_string` at `java_generator.py:852`); P2 = **BL-065
+  confirmed** (`java_generator.py:1792/1849/1887` isinstance on
+  never-imported IR classes) + documentation-sync debt + two
+  test-integrity masking skips + BL-012 remainder; P3 = **BL-066
+  confirmed** (`modernization_planner.py:735/738/740` substring reason
+  mapping + double append).
+- **New findings to file at Phase 12 start:** F-01 Customer Approval
+  stage (§9 L316 / §70 L2026 / §71 checkbox 21 L2057) has **no
+  implementation anywhere** — §71 FAIL; F-02 documentation not
+  synchronized (root README still says "CURRENT BASELINE fedb7dd /
+  CI #417/#418"; five backlog sections say OPEN where the register says
+  FIXED 2026-10-16 — BL-047/048/049/067/068; `CODE_AUDIT_REPORT`
+  "29 OPEN" stale; 16 cross-doc capability contradictions C1–C16) — §71
+  FAIL; F-03 masking skips (`test_universal_modernization.py:311`
+  skips on generation failure; `test_phase_d_negative_integration.py:379`
+  conditional skip); F-04 stale checked-in junit artifacts with failures
+  in `test-artifacts/` (removal blocked by the never-commit-test-artifacts
+  invariant → human decision D-4); F-05 backlog metadata gap (BL-001…024).
+- **§71 Final Release Gate score: 16 ✅ / 3 ⚠️ / 2 ❌** — the two FAILs
+  are Customer Approval Workflow (not built) and Documentation
+  synchronized.  **§53 project verdict: NOT COMPLETE — Phase 12 open.**
+- **Human decisions queued (D-1…D-6):** approval-workflow scope, PR
+  #1/#2/#3/#6 governance (BL-013…016), coverage/mutation targets
+  (BL-012), test-artifacts cleanup authorization, §43 RBAC/audit-log
+  scheduling, COMP/COMP-3 certification approach.
+- **Next action:** with user authorization — file F-01/F-03/F-04 as
+  backlog IDs, then Phase 12 batches P0 (explicitly empty) → P1
+  (BL-045, BL-046) → P2 (BL-065, docs sync, masking skips, BL-012) →
+  P3 (BL-066, F-04, F-05), each red-first with exact-SHA CI green
+  before the next batch, then full regression + fresh E2E + §71 re-score
+  + §53 13-point verdict.
+
 ## Phase 11 started — Enterprise Security & Operations (2026-10-16)
 
 ### ⚑ PHASE 11 STATUS — read this first (2026-10-16, **§53 VERDICT — PHASE 11 COMPLETE — VERIFIED — 13/13 scoring in the verdict block below (audit-first §76 + Master README §42 requirement audit DONE before any change; P0 batch explicitly empty; batches P1 = BL-047/BL-048 at `1c37503` + P2 = BL-049/BL-067/BL-068 at `b2fb1a2`, change-log (av)(aw); exact-SHA CI 8/8 runs green across both work SHAs; NO LLM; no merge to main; Phase 12 NOT started**)
