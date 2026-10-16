@@ -46,7 +46,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from api.errors import ApiError, PayloadTooLargeError
+from api.errors import ApiError, PayloadTooLargeError, ServiceError
 from api.ingestion import IngestionError
 from api.limits import env_int_limit
 from api.models import (
@@ -291,6 +291,17 @@ async def _read_files_bounded(request: Request, files: list[UploadFile]) -> dict
     contents: dict[str, bytes] = {}
     for index, upload in enumerate(files):
         name = upload.filename or f"file_{index}"
+        if name in contents:
+            # BL-047: two multipart parts carrying the same filename used
+            # to overwrite one dict key, silently dropping a file and
+            # undercounting ``files_received`` (the service-level
+            # collision detector never saw the duplicate).  Reject the
+            # whole upload fail-closed so an accepted request can never
+            # lose a source file.
+            raise ServiceError(
+                f"Duplicate upload filename {name!r}; each file must have a"
+                " unique name"
+            )
         contents[name] = await _read_upload_bounded(upload, remaining=remaining)
     return contents
 

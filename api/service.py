@@ -593,12 +593,19 @@ class Service:
         explicit error instead of a silent overwrite.
         """
         app = self.get_application(app_id)
-        # Clean up previous COBOL source temp directory if it was a temp dir
-        if app.cobol_source_path:
-            _cleanup_temp_dir(app.cobol_source_path)
+        # BL-048: validate + write the NEW source BEFORE touching the
+        # previous directory.  A rejected re-upload (traversal, collision,
+        # disk error) used to run cleanup first, destroying the previous
+        # good source and leaving the record pointing at a deleted dir.
+        # The old path is only cleaned once the record points at the new
+        # one; if the store update itself fails, the previous source is
+        # preserved (fail-safe: an orphan temp dir, never data loss).
         base = self._write_upload(files, "cobol", app_id)
+        previous = app.cobol_source_path
         app.cobol_source_path = str(base)
         self._store.update_application(app)
+        if previous:
+            _cleanup_temp_dir(previous)
         return app, len(files)
 
     def upload_java_candidate(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
@@ -609,12 +616,14 @@ class Service:
         modernize endpoint is explicitly called with use_uploaded_candidate.
         """
         app = self.get_application(app_id)
-        # Clean up previous Java candidate temp directory if it was a temp dir
-        if app.java_candidate_path:
-            _cleanup_temp_dir(app.java_candidate_path)
+        # BL-048: same write-then-cleanup ordering as the COBOL upload —
+        # a rejected re-upload must never destroy the previous candidate.
         base = self._write_upload(files, "java", app_id)
+        previous = app.java_candidate_path
         app.java_candidate_path = str(base)
         self._store.update_application(app)
+        if previous:
+            _cleanup_temp_dir(previous)
         return app, len(files)
 
     # -- modernize (transform + validate) -----------------------------------
