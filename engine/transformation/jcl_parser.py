@@ -65,7 +65,7 @@ class JclParser:
 
         Each ``JOB`` statement starts a new :class:`JclJob`; statements
         stay attributed to the job they follow (no merging, no silent
-        loss — BL-072).
+        loss).
 
         Args:
             source: JCL source text
@@ -151,7 +151,7 @@ class JclParser:
             # Check for JOB
             if " JOB " in rest or rest.upper().startswith("JOB "):
                 # A second JOB statement closes the job accumulated so far
-                # instead of absorbing its steps (BL-072).
+                # instead of absorbing its steps.
                 if job_seen:
                     flush()
                 job_seen = True
@@ -178,7 +178,7 @@ class JclParser:
                     )
                 else:
                     # DD before the first EXEC of this job: job-level
-                    # (JOBLIB & co.) — preserved, never dropped (BL-073)
+                    # (JOBLIB & co.) — preserved, never dropped
                     job_level_dds.append(dd)
                 continue
 
@@ -355,7 +355,7 @@ class JclParser:
             # Parse DSN, DISP, etc.
             # Split by comma, respecting parenthesis depth and quotes so
             # compound values like DISP=(NEW,CATLG,DELETE) or
-            # SPACE=(TRK,(10,5)) stay single parameters (BL-075).
+            # SPACE=(TRK,(10,5)) stay single parameters.
             parts = self._split_parameters(dd_str)
 
             for part in parts:
@@ -405,7 +405,7 @@ class JclParser:
         Commas inside parentheses (``DISP=(NEW,CATLG,DELETE)``,
         ``SPACE=(TRK,(10,5))``) and inside quoted strings
         (``DSN='A,B'``) do not separate parameters; only top-level
-        commas do (BL-075).
+        commas do.
         """
         parts: list[str] = []
         current: list[str] = []

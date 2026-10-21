@@ -32,6 +32,13 @@ client = TestClient(app)
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "workload-arithmetic"
 COBOL_SOURCE = FIXTURES / "cobol" / "ARITH.cob"
 JAVA_CANDIDATE = FIXTURES / "java-candidate" / "Arithmetic.java"
+FILE_WRITE_READ_SOURCE = (
+    Path(__file__).parent.parent
+    / "fixtures"
+    / "workload-file-write-read"
+    / "cobol"
+    / "MAIN.cob"
+)
 
 
 def _await_run(run_id: str, timeout_s: float = 240.0) -> dict:
@@ -223,6 +230,81 @@ class TestTransformRealE2E:
             "VERIFIED", "PARTIAL", "FAILED", "UNPROVEN",
             "UNAVAILABLE", "UNSUPPORTED", "ERROR",
         )
+
+
+# ---------------------------------------------------------------------------
+# Real E2E: file workload (declared contract) through the certification API
+# ---------------------------------------------------------------------------
+
+
+class TestFileWorkloadThroughApi:
+    """A file-based workload certified end-to-end through the API.
+
+    Audit question: are file-based workloads correctly staged, executed and
+    compared through the certification API?  This runs the whole path with
+    *generated* Java (no candidate upload): declared four-artifact contract,
+    real GnuCOBOL oracle, Docker Maven build, real execution, and the
+    integrated proof gate — asserting the FILE dependencies are only proven
+    because their file artifact was actually compared.
+    """
+
+    def test_file_workload_generates_compares_and_certifies(self):
+        resp = client.post("/applications", json={
+            "name": "file-write-read-transform",
+            "workload_id": "file-write-read",
+            "java_entrypoint": "FILE-WRITE-READ",
+        })
+        assert resp.status_code == 201
+        app_id = resp.json()["id"]
+
+        cobol_bytes = FILE_WRITE_READ_SOURCE.read_bytes()
+        resp = client.post(
+            f"/applications/{app_id}/upload",
+            files=[("files", ("MAIN.cob", io.BytesIO(cobol_bytes), "text/plain"))],
+        )
+        assert resp.status_code == 201
+        assert resp.json()["files_received"] == 1
+
+        # No candidate upload -> the engine must transform COBOL to Java.
+        resp = client.post(f"/applications/{app_id}/modernize")
+        assert resp.status_code == 202
+        run_id = resp.json()["run_id"]
+
+        run = _await_run(run_id, timeout_s=360.0)
+        assert run["stage"] == "COMPLETED", f"Run failed: {run.get('error')}"
+
+        resp = client.get(f"/runs/{run_id}/verdict")
+        assert resp.status_code == 200
+        verdict = resp.json()
+        assert verdict["state"] == "VERIFIED", (
+            f"Expected VERIFIED, got {verdict['state']}. "
+            f"Differences: {verdict.get('differences', [])}"
+        )
+
+        # The declared contract (not the stdout-only default) drove the run.
+        assert verdict.get("certification_contract") == (
+            "declared:workload-file-write-read"
+        ), verdict.get("certification_contract")
+
+        comparisons = verdict.get("comparisons", [])
+        by_type = {c["artifact_type"]: c["result"] for c in comparisons}
+        assert set(by_type) == {
+            "STDOUT", "STDERR", "EXIT_STATUS", "FIXED_RECORD"
+        }, by_type
+        assert set(by_type.values()) == {"MATCH"}, by_type
+
+        # Integrated proof: FILE dependencies proven *because* the fixed
+        # record artifact was compared and matched, application certified.
+        resp = client.get(f"/runs/{run_id}/integrated-proof")
+        assert resp.status_code == 200
+        proof = resp.json()["proof"]
+        file_entries = [
+            e for e in proof["dependency_ledger"] if e["kind"] == "FILE"
+        ]
+        assert file_entries, proof["dependency_ledger"]
+        for entry in file_entries:
+            assert entry["proof_state"] == "PROVEN", entry
+        assert proof["central_status"] == "VERIFIED", proof
 
 
 # ---------------------------------------------------------------------------

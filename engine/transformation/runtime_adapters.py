@@ -1,11 +1,11 @@
-"""§32 Runtime Adapter Architecture.
+"""Runtime Adapter Architecture.
 
 The same semantic transformation (single COBOL parser + single Java
 IR/mapper — never duplicated) is assembled into different Java runtime
 targets through small runtime-specific adapters.  Runtime-specific
 behavior lives here; configuration is validated fail-closed so an
 unknown value names itself instead of silently falling back to another
-target (Master README §32; backlog BL-088/BL-089/BL-090).
+target.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
-# Master README §32 "Example configuration" — the five keys and their
-# supported value sets.  Deliberately narrow: a future build tool,
-# packaging, execution mode, or Java version must be added here
-# explicitly, never accepted silently.
+# Example configuration: the five keys and their supported value
+# sets.  Deliberately narrow: a future build tool, packaging,
+# execution mode, or Java version must be added here explicitly,
+# never accepted silently.
 SUPPORTED_TARGET_RUNTIMES: tuple[str, ...] = (
     "spring_boot",
     "plain_java",
@@ -42,7 +42,7 @@ VALID_PLAN_OUTPUT_TYPES: tuple[str, ...] = tuple(
 
 
 class RuntimeAdapterNotImplementedError(ValueError):
-    """A well-formed §32 target whose adapter is not implemented yet.
+    """A well-formed declared target whose adapter is not implemented yet.
 
     Subclasses ``ValueError`` so callers can catch configuration and
     implementation gaps uniformly — but the message always distinguishes
@@ -60,7 +60,7 @@ def _require_one_of(field: str, value: str, supported: tuple[str, ...]) -> None:
 
 @dataclass(frozen=True)
 class RuntimeTargetConfig:
-    """§32 runtime-target configuration (example-configuration shape).
+    """Runtime-target configuration (documented example shape).
 
     Validation is fail-closed at construction: an unsupported value in
     any field raises ``ValueError`` naming the field, the offending
@@ -208,15 +208,16 @@ _PLAIN_MODEL_PACKAGE = "com.modernized.app.model"
 
 
 class PlainJavaRuntimeAdapter(RuntimeAdapter):
-    """Plain-Java assembly (BL-089): the SAME shared ``JavaApplication`` IR
-    emitted by the single semantic-transform lane, wrapped in a
+    """Plain-Java assembly: the SAME shared ``JavaApplication`` IR
+    emitted by the single semantic-transform path, wrapped in a
     dependency-free Maven jar project.
 
-    Scope bound (documented, no universal equivalence claim): this lane
-    generates; Phase 9's build+execute lane (offline Maven build in Docker,
-    ``java -jar`` execution) produces fresh per-workload oracle-comparison
-    evidence for the generated project.  No Spring dependency, wiring, or
-    annotation is emitted anywhere in the project.
+    Scope bound (documented, no universal equivalence claim): this
+    adapter only generates; a separate build-and-execute step (offline
+    Maven build in Docker, ``java -jar`` execution) produces fresh
+    per-workload oracle-comparison evidence for the generated project.
+    No Spring dependency, wiring, or annotation is emitted anywhere in
+    the project.
     """
 
     target_runtime: ClassVar[str] = "plain_java"
@@ -305,14 +306,15 @@ class PlainJavaRuntimeAdapter(RuntimeAdapter):
 
 
 class JakartaEeRuntimeAdapter(PlainJavaRuntimeAdapter):
-    """Jakarta-EE generation profile (BL-090): the SAME shared
+    """Jakarta-EE generation profile: the SAME shared
     ``JavaApplication`` IR and source shape as ``plain_java``, assembled
     under a distinct Jakarta-EE-marked Maven pom profile.
 
     Scope bound (documented, no universal equivalence claim): the generated
-    dependency-free jar builds/executes offline via the Maven lane with
-    fresh per-workload oracle comparison (Phase 9) — no Jakarta EE server
-    runtime is claimed and the target is never certified (Rung 0–1).
+    dependency-free jar builds/executes offline via the Maven tooling with
+    fresh per-workload oracle comparison in the build-and-execute step —
+    no Jakarta EE server runtime is claimed and the target is never
+    certified.
     """
 
     target_runtime: ClassVar[str] = "jakarta_ee"
@@ -332,7 +334,8 @@ def _plain_pom_xml(*, application_id: str, entry_class: str, java_version: str) 
     """Dependency-free Maven jar pom for the plain_java target.
 
     Zero external dependencies ⇒ no hidden Spring/runtime coupling and a
-    buildable shape under §33 (actual build execution is Phase 9 scope).
+    buildable shape (actually building it is the scope of the separate
+    build-and-execute step).
     """
     artifact = (application_id or "generated-app").lower().replace(" ", "-").replace("_", "-")
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -394,7 +397,7 @@ def _jakarta_pom_xml(*, application_id: str, entry_class: str, java_version: str
     a default-active ``jakarta-ee`` Maven profile carrying the Jakarta
     API-version marker, and an explicit scope note.  Zero ``<dependency>``
     elements are emitted (no offline Jakarta EE artifacts exist; the
-    dependency-free jar builds/executes via the Maven lane — BL-090).
+    dependency-free jar builds/executes via the Maven tooling).
     Lifecycle plugin versions are pinned to those the offline Maven image
     caches, so the offline build resolves deterministically.
     """
@@ -480,9 +483,9 @@ def get_runtime_adapter(target_runtime: str) -> RuntimeAdapter:
     """Resolve the assembly adapter for a configured target, fail-closed.
 
     - unknown value → ``ValueError`` naming the field, value, supported set;
-    - known §32 target not yet implemented → ``RuntimeAdapterNotImplementedError``
+    - known target not yet implemented → ``RuntimeAdapterNotImplementedError``
       naming the target and the implemented set (never a silent spring
-      fallback — Master README §32 / BL-088).
+      fallback).
     """
     factory = _ADAPTER_FACTORIES.get(target_runtime)
     if factory is not None:

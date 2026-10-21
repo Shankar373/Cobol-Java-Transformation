@@ -1,13 +1,13 @@
 """Canonical COBOL figurative-constant semantics.
 
-Master README Section 16 lists "figurative constants" as required parser
-coverage.  Before this module the parser represented them as a
+The project's required parser-coverage list includes "figurative
+constants".  Before this module the parser represented them as a
 :class:`~engine.transformation.ir.FieldReference` named ``ZERO`` / ``SPACES``
 / ``ALL '*'`` — i.e. it treated a reserved *word* as an undeclared Java
 variable.  The mapper then emitted ``A = ZERO;`` which does not compile,
 no diagnostic was produced, and the capability analyzer certified the
 program ``SUPPORTED``.  That is exactly the silent semantic loss the
-Master README forbids (Sections 14, 60, 61).
+project forbids: presenting unproven behaviour as proven.
 
 This module is the single source of truth for figurative constants.  The
 parser, the IR, the mapper and the capability registry all read it, so a
@@ -186,7 +186,8 @@ def figurative_to_width(kind: str, fill: str | None, width: int) -> str | None:
     spaces — and ``ALL <literal>`` repeats its pattern across the width,
     truncating whatever does not fit in the final copy
     (``MOVE ALL "ABC" TO PIC X(10)`` stores ``ABCABCABC``).  Both rules are
-    pinned against the GnuCOBOL 3.1.2 oracle (BL-030).
+    pinned against the GnuCOBOL 3.1.2 oracle (the project's independent
+    reference implementation).
 
     Returns ``None`` when the constant supplies no character string (an
     unknown kind, or ``ALL`` with no pattern), so a caller can never invent

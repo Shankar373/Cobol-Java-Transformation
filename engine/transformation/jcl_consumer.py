@@ -1,6 +1,6 @@
 """JCL consumer integration module.
 
-Consumer-side boundary for the JCL modernization lane.  This module calls
+Consumer-side boundary for the JCL modernization path.  This module calls
 the lane's public API (``JclDiscovery``, ``modernize_jcl``) and returns a
 structured result that the control-plane layer can surface.
 
@@ -101,7 +101,7 @@ def modernize_jcl_workload(
        can surface through the API without modifying any shared files.
 
     Args:
-        source_path: directory of JCL members (shared BL-063 rule:
+        source_path: directory of JCL members (shared member rule:
             case-insensitive ``.jcl`` / ``.jcllib`` suffixes, plus
             extensionless members whose content starts with ``//``).
         application_id: identifier for the originating application.
@@ -121,13 +121,13 @@ def modernize_jcl_workload(
     if not source.is_dir():
         raise ValueError(f"Source path is not a directory: {source}")
 
-    # 1. Discover JCL jobs (shared BL-063 member rule).
+    # 1. Discover JCL jobs (shared JCL member rule).
     discovery = JclDiscovery()
     jcl_app = discovery.discover(source)
 
     # 2. Read every member for the unsupported-construct scan.  Keys are
     #    member-relative paths (not basenames), so colliding basenames
-    #    can never overwrite each other (BL-063).  Undecodable members
+    #    can never overwrite each other.  Undecodable members
     #    are diagnosed fail-closed instead of crashing the run or being
     #    silently dropped.
     raw_sources: dict[str, str] = {}

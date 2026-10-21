@@ -565,7 +565,7 @@ public class {class_name} {{
             return "null"
         if quoted:
             # Escape for a Java string literal: double-quote + escapes for
-            # \ " and control chars (BL-057). Python repr() uses single quotes
+            # \ " and control chars.  Python repr() uses single quotes
             # and is invalid Java.
             escaped = (
                 value.replace("\\", "\\\\")

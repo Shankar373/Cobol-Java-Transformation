@@ -1,5 +1,15 @@
 # Current Capability Matrix
 
+> **Baseline note (Master README §78, added 2026-10-21):** this is a live status
+> document verified against commit `6145e892e95282a0ca85eb678057a0ea9890389c`
+> (audit date 2026-10-21, `docs/reports/UNIVERSAL_REQUIREMENTS_AUDIT_2026-10-21.md`).
+> Rows below are claims about the current implementation; where this matrix,
+> `docs/cobol_coverage_registry.json` and the code disagree, the divergence is a
+> filed defect — see **BL-108** (registry rows vs shipped code) and **BL-109**
+> (indexed/relative, `REWRITE`, `START` three-way contradiction) in
+> `docs/BACKLOG.md`; neither row may be quoted as resolved until its acceptance
+> criteria are met. Historical phase reports are evidence of their own commit only.
+
 This is an implementation and evidence matrix, not a language-completeness claim.
 
 | Capability | Parsed/Modeled | Transform path | Execution proof | Current claim |
@@ -58,7 +68,19 @@ applies a gate that can only downgrade:
                      AND every required dependency PROVEN
 
 A dependency is PROVEN only when its capability is SUPPORTED *and* the COBOL/Java runtime
-lane executed it under validated evidence. JCL, DB2, CICS, MQ and IMS have no runtime lane
+lane executed it under validated evidence. A `FILE` dependency carries one extra,
+dependency-specific requirement: at least one `TEXT_FILE`/`FIXED_RECORD` artifact was
+compared in this run and every compared file artifact MATCHed
+(`FILE_ARTIFACT_TYPES` in `integrated_proof.py`). A run certified on stdout/exit status
+alone therefore leaves its file dependencies PARTIAL and the application
+NOT_VERIFIED — a workload-level verdict never cohort-promotes a file dependency
+(audit EV-006/R9; regression: `tests/test_file_dependency_proof_binding.py`,
+`tests/integration/test_file_write_read_runtime_proof.py::TestDefaultContractRun`).
+`PROGRAM`/`CALL`/`COPYBOOK`/`PARAMETER` remain workload-scope: their only behavioural
+channel in this evidence model is the workload's stdout/exit-status comparison, which
+the VERIFIED verdict already gates (pinned by
+`test_program_dependency_proof_scope_is_workload_level`). JCL, DB2, CICS, MQ and IMS
+have no runtime lane
 here, so they resolve to PARTIAL/BLOCKED and therefore force `CentralStatus.NOT_VERIFIED`
 even when the runtime lane itself is VERIFIED. Every lane is fed by a product producer:
 JCL by the JCL consumer, and DB2 (`extract_db2_dependency_entries`), CICS
@@ -67,7 +89,8 @@ JCL by the JCL consumer, and DB2 (`extract_db2_dependency_entries`), CICS
 `extra_dependencies` on both the persist and recompute proof paths. Proven by
 `tests/integration/test_phase_d_integrated_proof.py`
 (positive workload) and `tests/integration/test_phase_d_negative_integration.py` (8 negative
-scenarios plus gate invariants).
+scenarios plus gate invariants). Per-workload runtime-proof status lives in
+`docs/verification/RUNTIME_PROOF_MATRIX.md`.
 
 ## Known gaps
 

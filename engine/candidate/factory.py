@@ -1,6 +1,6 @@
-"""Target-runtime-aware candidate adapter selection (Phase 9).
+"""Target-runtime-aware candidate adapter selection.
 
-The §32 runtime target configured for an application determines which build +
+The runtime target configured for an application determines which build +
 execute lane validates it.  Selection is fail-closed: an unknown target names
 the supported set instead of silently falling back to another lane.
 """

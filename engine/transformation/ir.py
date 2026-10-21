@@ -39,7 +39,7 @@ from engine.transformation.figurative import ZERO
 
 
 def normalize_cobol_name(name: str) -> str:
-    """Uppercase form of a COBOL name for cross-lane identity joins (BL-044).
+    """Uppercase form of a COBOL name for cross-lane identity joins.
 
     COBOL is case-insensitive: a CALL literal ``'subprog'`` names the same
     program as ``PROGRAM-ID SUBPROG``.  Every lane that joins names
@@ -97,7 +97,7 @@ class FieldReference(Expression):
 
 @dataclass(frozen=True)
 class FigurativeConstant(Expression):
-    """A COBOL figurative constant (Master README Section 16).
+    """A COBOL figurative constant.
 
     These are reserved words with fixed, colon-independent meaning:
 
@@ -592,7 +592,7 @@ class StringStatement:
 
     Supports both raw string mode (backward compatible) and structured mode.
 
-    BL-027: the ``DELIMITED BY`` phrase of each sending item is part of the
+    The ``DELIMITED BY`` phrase of each sending item is part of the
     statement's semantics and must be represented, never discarded.  The old
     parser dropped it (a literal delimiter was even appended to ``parts`` as
     if it were sending data, and ``WITH POINTER`` vanished), so the mapper
@@ -612,7 +612,7 @@ class StringStatement:
       present (no certified overflow flow yet; the parser raises
       UNSUPPORTED_CONSTRUCT and the mapper fails closed).
     * ``varying_pointer`` — the ``VARYING IN`` receiving-position variable
-      (COBOL name); empty when the clause is absent.  BL-029: the re-audit
+      (COBOL name); empty when the clause is absent.  A re-audit
       found the phrase silently dropped under a SUPPORTED verdict, so it is
       now captured and fails closed exactly like ON OVERFLOW.
     """
@@ -623,7 +623,7 @@ class StringStatement:
     delimiter_exprs: tuple[Expression | None, ...] = ()  # per-phrase delimiter
     pointer: str = ""  # WITH POINTER variable (COBOL name)
     has_overflow: bool = False  # ON OVERFLOW clause present
-    varying_pointer: str = ""  # VARYING IN variable (COBOL name), BL-029
+    varying_pointer: str = ""  # VARYING IN variable (COBOL name)
 
 
 @dataclass(frozen=True)
@@ -839,7 +839,7 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
             all_stmts.extend(_flatten_statements(stmt))
 
     has_move = any(isinstance(s, MoveStatement) for s in all_stmts)
-    # BL-059: every arithmetic statement type counts (the class docstring's
+    # Every arithmetic statement type counts (the class docstring's
     # ADD, SUBTRACT, MULTIPLY, DIVIDE, COMPUTE) — not just ADD/DIVIDE.
     has_arithmetic = any(
         isinstance(
@@ -935,7 +935,7 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
 def _flatten_statements(stmt: Statement) -> list[Statement]:
     """Recursively flatten compound statements into a list.
 
-    BL-059: every statement node contributes its capability at any
+    Every statement node contributes its capability at any
     nesting depth — IF/ELSE, READ AT END/NOT AT END (already walked),
     the INVALID KEY / NOT INVALID KEY bodies of READ/START/WRITE/
     REWRITE/DELETE, and inline PERFORM bodies are all recursed, so a
@@ -1205,7 +1205,7 @@ class JclJob:
     source_path: str = ""  # filesystem path to the JCL source
     # DD statements written before the job's first EXEC (JOBLIB, job
     # message datasets, ...). Preserved so job-level datasets are never
-    # silently dropped (BL-073); they are diagnosed as outside the
+    # silently dropped; they are diagnosed as outside the
     # semantic profile's supported subset.
     job_dd_statements: tuple[JclDD, ...] = ()
 
@@ -1556,7 +1556,7 @@ class SqlJoin:
 
     Represents table join with condition.
 
-    ``on_predicates`` holds every honest ON conjunct (BL-081, same
+    ``on_predicates`` holds every honest ON conjunct (same
     additive pattern as ``SqlSelect.where_predicates``); ``on_condition``
     remains the first conjunct for single-predicate consumers.
     """
@@ -1597,7 +1597,7 @@ class SqlSelect:
     from_tables: tuple[SqlTableReference, ...] = ()
     joins: tuple[SqlJoin, ...] = ()
     where_predicate: SqlPredicate | None = None
-    #: Every top-level WHERE conjunct (BL-079). ``where_predicate`` is
+    #: Every top-level WHERE conjunct. ``where_predicate`` is
     #: kept as the first conjunct for compatibility; a flat list is the
     #: documented subset (no AND/OR boolean tree invented).
     where_predicates: tuple[SqlPredicate, ...] = ()
@@ -1628,7 +1628,7 @@ class SqlUpdate:
     table: SqlTableReference | None = None
     assignments: tuple[tuple[SqlColumnReference, SqlExpression], ...] = ()
     where_predicate: SqlPredicate | None = None
-    #: Every top-level WHERE conjunct (BL-079); first == where_predicate.
+    #: Every top-level WHERE conjunct; first == where_predicate.
     where_predicates: tuple[SqlPredicate, ...] = ()
 
 
@@ -1640,7 +1640,7 @@ class SqlDelete:
     """
     table: SqlTableReference | None = None
     where_predicate: SqlPredicate | None = None
-    #: Every top-level WHERE conjunct (BL-079); first == where_predicate.
+    #: Every top-level WHERE conjunct; first == where_predicate.
     where_predicates: tuple[SqlPredicate, ...] = ()
 
 
@@ -1689,7 +1689,7 @@ class EmbeddedSqlBlock:
     """
     statements: tuple[SqlStatement, ...] = ()
     raw_text: str = ""  # original embedded SQL text
-    #: Statement texts this parser cannot model (BL-080) — preserved,
+    #: Statement texts this parser cannot model — preserved,
     #: never silently dropped; the analyzer surfaces them as validation
     #: diagnostics. Empty for fully-supported blocks.
     unsupported_statements: tuple[str, ...] = ()

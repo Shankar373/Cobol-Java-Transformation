@@ -1,3 +1,5 @@
+> > **HISTORICAL REPORT (Master README §78, labeled 2026-10-21):** this document is evidence of the repository state at its own recorded commit/date only. It is not a current status claim — current status lives in `opencode.md`, `docs/BACKLOG.md` and the current capability/verification documents. Content is unchanged; only this label was added.
+
 FINAL REPORT — Phase 6 COMPLETE — Phase 7 COMPLETE — Phase 8 COMPLETE — Phase 9 COMPLETE — VERIFIED (no LLM; repo reality wins; no merge to main)
 
 === PHASE 6 COMPLETE (§53 13/13 VERIFIED) ===

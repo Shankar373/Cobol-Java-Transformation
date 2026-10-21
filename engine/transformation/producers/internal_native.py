@@ -66,8 +66,8 @@ _UNSUPPORTED_SCOPE: tuple[str, ...] = (
 def _registry_constructs(level: CapabilityLevel) -> tuple[str, ...]:
     """Return the sorted registry construct names for one capability level.
 
-    The registry is the single source of capability truth (see Master README
-    Section 14 and docs/COBOL_UNIVERSALITY_ROADMAP.md P0-1).  Deriving the
+    The registry is the single source of capability truth (see
+    engine/transformation/semantic_capability.py).  Deriving the
     producer's declared lists from it makes a producer claim that contradicts
     the registry impossible by construction.
     """
@@ -149,7 +149,7 @@ class InternalNativeJavaProducer(TransformationProducer):
                 producer_version=self.PRODUCER_VERSION,
                 supported_constructs=_PRODUCER_SUPPORTED_CONSTRUCTS,
                 unsupported_constructs=_PRODUCER_UNSUPPORTED_CONSTRUCTS,
-                # BL-042: the declared contract is tuple[contracts.Diagnostic,
+                # The declared contract is tuple[contracts.Diagnostic,
                 # ...] — convert engine diagnostics (enum level/code) at the
                 # producer boundary so consumers always see one shape.
                 diagnostics=tuple(

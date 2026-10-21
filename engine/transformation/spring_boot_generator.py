@@ -19,7 +19,7 @@ Generator has ZERO imports from:
 Imports only:
 - engine.transformation.spring_boot_ir
 - engine.transformation.java_ir (expression rendering)
-- engine.transformation.java_generator (canonical ``_escape_java_string``, BL-046)
+- engine.transformation.java_generator (canonical ``_escape_java_string``)
 """
 
 from __future__ import annotations
@@ -107,10 +107,10 @@ class SpringBootGenerator:
                 ))
                 emitted_cobol_file_io = True
 
-        # Shared copybook models are emitted by the single M7 loop below
-        # (after the adapter implementations) — BL-064: a second loop here
-        # appended every model class file twice, producing duplicate
-        # same-package classes (javac failure) for every copybook workload.
+        # Shared copybook models are emitted by the single model loop below
+        # (after the adapter implementations): a second loop here appended
+        # every model class file twice, producing duplicate same-package
+        # classes (javac failure) for every copybook workload.
 
         # Repositories (interfaces)
         for repo in application.repositories:
@@ -128,8 +128,8 @@ class SpringBootGenerator:
         for impl in application.adapter_implementations:
             files.append(self._generate_adapter_implementation(impl))
 
-        # Shared copybook data models (M7): data holders only.  This is
-        # the single model-emission site (BL-064) — exactly one file per
+        # Shared copybook data models: data holders only.  This is
+        # the single model-emission site — exactly one file per
         # model, never appended twice.
         for model in application.models:
             files.append(self._generate_model(model))
@@ -488,7 +488,7 @@ public class {class_name} {{
     # ================================================================
 
     def _generate_model(self, model) -> GeneratedFile:
-        """Generate a shared copybook model class (M7 data holder).
+        """Generate a shared copybook model class (data holder).
 
         Consumes only the model's ``JavaClass`` IR via the existing
         statement/expression renderers. Emits fields, a default
@@ -667,9 +667,10 @@ public class {class_name} {{
                 return "null"
             if expr.value in ("true", "false") and not expr.java_type:
                 return expr.value
-            # BL-046: reuse the canonical Java string-escaping helper from the
-            # native lane so both lanes render identical, compilable literals
-            # for quotes, backslashes, and control characters (BL-030 bytes).
+            # Reuse the canonical Java string-escaping helper from the
+            # native Java generator so both generators render identical,
+            # compilable literals for quotes, backslashes, and control
+            # bytes.
             from engine.transformation.java_generator import JavaGenerator
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
@@ -743,7 +744,7 @@ public class {class_name} {{
             obj = self._expr_to_string(call.object_ref)
             if isinstance(call.object_ref, JavaStringConcat):
                 # Keep ``(a + b).length()`` grouped; ``a + b.length()`` would
-                # bind the method to the last operand only (BL-027).
+                # bind the method to the last operand only.
                 obj = f"({obj})"
             return f"{obj}.{call.method_name}({args})"
         return f"{call.method_name}({args})"

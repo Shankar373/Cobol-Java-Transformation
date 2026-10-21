@@ -12,7 +12,7 @@ import {
 } from '../api/client';
 
 /**
- * Customer approval workflow (BL-091; D-1 resolved 2026-10-17).
+ * Customer approval workflow.
  *
  * Scope notes honoured here:
  * - the approver string is recorded INPUT, not a verified identity (the

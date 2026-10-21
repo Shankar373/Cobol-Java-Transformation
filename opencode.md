@@ -1,5 +1,254 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+## Session: Universal requirements audit (Master README §§1–80) + R1/R2/R3/R4 remediation + repo-wide comment rewrite (2026-10-21) — OPEN at BL-109…BL-122
+
+### What this session did (audit-first §76/§80, then authorized implementation)
+
+- Evidence-backed read-only audit of Master README §§1–80 +
+  `docs/REQUIREMENTS.md` + `contracts/*.md` against the tree at
+  `6145e892…` (branch `codex/universal-core`). Deliverable:
+  `docs/reports/UNIVERSAL_REQUIREMENTS_AUDIT_2026-10-21.md`. Filed 25
+  findings (**BL-098…BL-122**); no P0 opened — the verdict path was
+  re-verified fail-closed (single `VERIFIED` site
+  `engine/verdict/derivation.py`; integrity clamp at `engine/pipeline.py`;
+  zero `SKIPPED->PASS` / hard-coded `VERIFIED` hits). §79 no-LLM re-scan
+  PASS on every executable surface.
+- **R1/R3 remediation — 8 findings closed red-first** (register rows +
+  change-log (bf) in `docs/BACKLOG.md`):
+  - **BL-098** producer container isolation — `transform()` now runs
+    `docker run` with `--network none`, `--memory 512m`, `--cpus 1.0`,
+    `--pids-limit 256`, `--security-opt no-new-privileges=true`, and a
+    `--name` so the timeout path can `docker rm` the container
+    (`_cleanup_timed_out_container`, best-effort, never masks the FAILED
+    result).
+  - **BL-099** production compose fail-closed —
+    `docker-compose.production.yml` `CONTROL_PLANE_API_TOKEN:
+    ${CONTROL_PLANE_API_TOKEN:?…}` aborts before any container is
+    created when the token is unset/empty (verified rc=0 with token,
+    rc=1 without); dev/test auth-off default unchanged.
+  - **BL-101** frontend 401 honesty — `App.tsx` distinguishes a 401
+    (`ApiError.status === 401`) and sets `historySource='auth-required'`;
+    `Dashboard` renders a labelled token form; `handleTokenSubmit` →
+    `api.setApiToken()` + `loadHistory()` (a `useCallback` guarded by a
+    `historyMounted` ref).
+  - **BL-102** multipart case-fold collision — `api/service.py`
+    `_validate_upload` keys collisions by `relative.as_posix().casefold()`
+    (parity with the ZIP door, BL-097).
+  - **BL-103** ZIP zip-bomb guard — `ingest_zip` rejects entries whose
+    `file_size/compress_size` exceeds
+    `CONTROL_PLANE_MAX_ZIP_COMPRESSION_RATIO` (default 100:1) before any
+    byte is written; empty entries exempt.
+  - **BL-104** bounded request bodies — `api/app.py` `BodyLimitMiddleware`
+    bounds every body with or without `Content-Length`; registered
+    innermost; bodyless methods pass through; post-replay reads delegate
+    to the real channel so `StreamingResponse` is not cut off.
+  - **BL-105** 422 `detail` rendering — `client.ts` `detailToMessage()`
+    normalises string/array/object `detail`, used at both `request()` and
+    `downloadGenerated()`.
+  - **BL-106** discovery honesty — `DiscoveryResult` types
+    `discovery_success`/`discovery_errors` as required; new
+    `discoveryIssuesMessage()` rendered as a `role="alert"` banner above
+    the Discovery counts.
+  - **BL-100** evidence `network_policy` honesty — `CandidateAdapter`
+    base declares `network_policy` (`unisolated`), Docker lanes override to
+    `none`, pipeline reads it via `getattr` so duck-typed doubles fall back
+    to `unisolated`; Docker-lane evidence stays byte-stable
+    (`test_forensic_evidence` 34/34).
+  - **Still open (not this batch):** BL-109…BL-122 (contract-vs-code gaps,
+    staleness, rate limiting, cancellation, JCL/CICS/DB2 artifact
+    materialization, RBAC/tenant/audit-log scope — D-9).
+- **Full-test sweep (run of record):** every test file run individually
+  and sequentially, `RUN_DOCKER_TESTS=1`, workers=1 → **212 files |
+  3943 tests | 0 failed / 0 errors / 0 skipped**
+  (`test-artifacts/one-by-one/summary.md`, `results.json`, 212 junit
+  XMLs; 2026-10-21 07:44–08:24 UTC). Docker-gated files ran with zero
+  skips (`test_copybook_runtime` 556s, `test_forensic_evidence` 221s);
+  runtime provenance confirmed via `docker events`
+  (`gnucobol-ocesql@sha256:68900cc0…`, `eclipse-temurin@sha256:4d060388…`,
+  `maven-offline-springboot@sha256:32139c85…`).
+- **Repo-wide comment/docstring rewrite:** ~356 sites across ~69 files
+  (engine/, api/, frontend/, tests) rewritten from ticket-ID style
+  (`BL-xxx`, `§NN`, "Master README §NN", "Phase N/P1-a" roadmap jargon)
+  into plain-language rationale a newcomer can follow. **Zero code
+  changed** (AST/token-verified per file against git HEAD); every
+  rewritten file `py_compile` clean; full frontend suite 153/153 +
+  `tsc --noEmit` rc=0 and a backend subset (74 passed) re-run green
+  after the pass. Traceability lives in `docs/BACKLOG.md`, which maps
+  every row to its `file:line`. Only 6 ticket references remain, all
+  inside frozen string literals tests assert on verbatim
+  (`engine/sql/execution.py:158,163`;
+  `engine/transformation/semantic_capability.py:155,158,269`;
+  `engine/transformation/runtime_adapters.py:495`).
+- **Names improved (no behaviour change):** `api/app.py`
+  `_reject_oversized`→`_send_oversized_body_error`,
+  `_reject_incomplete`→`_send_truncated_body_error`,
+  `_send_json_error`→`_send_json_error_response` (private, internal
+  call sites only).
+
+### §71/§53 status for THIS audit (truthful, mid-remediation)
+
+- R-4 is now **closed**: **BL-107** (LOCAL-STORAGE/REPLACE fail-closed
+  diagnostics + registry/matrix rows, red-first 8 red → 15/15 green) and
+  **BL-108** (five `docs/cobol_coverage_registry.json` rows corrected to
+  cite the implementing function + an existing green test; unproven rungs
+  stay UNKNOWN). Every affected file re-run green individually:
+  `test_local_storage_replace_detection` 15, `test_silent_loss_registry` 15,
+  `test_ims_mq_detection` 14, `test_utilities_vsam_detection` 15,
+  `test_silent_loss_remediation` 20, `test_capability_walker_depth` +
+  `test_application_discovery` 68, `transformation/test_parser` 18,
+  copybook suites 33+56, `test_capability_registry_reconciliation` 12,
+  `test_copy_replacing_materialization` 23, usage/rounded 39 — all 0 failed.
+- This 2026-10-21 universal requirements audit is **NOT complete**:
+  11 of 25 findings closed (R1/R2/R3/R4); **BL-109…BL-122 (contract/docs/RBAC-scope)**
+  remain open. The
+  earlier `PHASE 12 COMPLETE — VERIFIED` score (§71 19✅/2⚠️/0❌,
+  §53 13/13, at `0ae8c0f`) is preserved below as the Phase-12 record and
+  is not overwritten by this audit. §71/§53 are re-scored only after the
+  contract/docs/RBAC-scope rows close (several are blocked on human
+  decisions D-7…D-11); no capability label was made more favourable and no
+  verdict was upgraded by this session's work.
+
+### Current state
+
+- Branch `codex/universal-core` @ `6145e89`; working tree = the
+  preserved in-flight changeset (BL-094…097) + this session's R1/R3
+  changes + audit docs + comment rewrite; **nothing staged or committed**
+  (needs explicit owner authorization). `test-artifacts/*` never staged.
+- Open human decisions carried: D-4 (test-artifacts), D-7 (TTL/rate-limit
+  values), D-8 (cancellation), D-9 (RBAC/tenant/audit-log scope),
+  D-10 (JAVA_CANDIDATE contract V2), D-11 (mutation gate / producer cap).
+
+### Next exact action
+
+1. **BL-109…BL-122 (contract/docs/RBAC-scope):** the remaining audit rows.
+   Several are blocked on explicit human decisions — D-7 (TTL/rate-limit
+   values), D-8 (cancellation), D-9 (RBAC/tenant/audit-log scope),
+   D-10 (JAVA_CANDIDATE contract V2), D-11 (mutation gate / producer cap).
+   Do not invent scope per the no-invention rule; where a row needs a
+   decision, record it and leave the row open.
+2. After each fix, re-run the affected files individually (not as one
+   suite), then re-score §71/§53 for this audit and update this checkpoint
+   from actual results.
+3. On owner authorization: single non-force commit, push, verify
+   exact-SHA CI, update this checkpoint.
+
+### Do-not-redo (this session's scope)
+
+- Do not redo BL-098/099/100/101/102/103/104/105/106 (R1/R2/R3, closed
+  red-first here) or BL-107/108 (R4, closed here), the ~356-site comment
+  rewrite, the 3 renames, or the 212-file sweep.
+- Do not touch the 6 frozen string literals (tests assert them verbatim).
+- Keep the no-LLM invariant, never stage `test-artifacts/*`, and never
+  commit/push without explicit owner authorization.
+
+## Session: Universal runtime-proof audit + implementation (2026-10-19) — OPEN at R-1
+
+### What this session did (audit-first, then authorized implementation)
+
+- Read the full Master README (2346 lines), this checkpoint, the
+  2026-10-16 line-by-line audit, and the runtime-proof gap-closure
+  audit; independently re-verified the CI baseline live via the GitHub
+  Actions REST API (runs 38980053986/38980054137 at `6145e89` =
+  success; 4/4 green at `690980c`).
+- Verified the pre-existing in-flight working tree (uncommitted
+  changeset, preserved intact, never staged):
+  - `tests/test_file_dependency_proof_binding.py` (6) +
+    `tests/test_runtime_adapter_architecture.py` (45) → **51/51
+    green**;
+  - full suite `RUN_DOCKER_TESTS=1 pytest tests` on that tree →
+    **3930 passed / 0 failed / 0 skipped (40:19)**, including the
+    Windows-only path-separator fix (`_project_file_set` POSIX logical
+    paths + `TestProjectFileSetPlatformContract`) now GREEN locally —
+    the 4 previously disclosed Windows-only failures are resolved in
+    this tree.
+- Found and fixed 4 verified defects red-first (backlog BL-094/095/096
+  batch 1, BL-097 batch 2; register rows + change-log (bd)/(be) in
+  `docs/BACKLOG.md`):
+  - **BL-094** frontend Authorization integration (`client.ts`
+    `withAuth`: localStorage `systemaops.apiToken` →
+    `VITE_CONTROL_PLANE_API_TOKEN` build env → none = auth-off parity
+    with byte-identical request shapes; documented in
+    `docs/deployment/ENVIRONMENT.md`).
+  - **BL-095** `api/service.py` `docker_available=True` hardcode → real
+    `engine.docker_cli.check_docker_available()` probe (§14/§15
+    planning honesty).
+  - **BL-096** dashboard "Verified" overclaim (counted COMPLETED runs)
+    → additive `RunResponse.verdict_state` served fail-closed via
+    `Service.run_verdict_state`; Dashboard counts
+    `verdict_state === 'VERIFIED'` only.
+- New tests: `tests/test_service_docker_honesty.py` (2),
+  `tests/test_run_verdict_state_api.py` (3),
+  `tests/test_zip_duplicate_entry_rejection.py` (5),
+  `tests/test_source_hash_canonical.py` (3),
+  `frontend/src/__tests__/auth-client.test.ts` (8),
+  `frontend/src/__tests__/dashboard-verified-stat.test.tsx` (2) — all
+  red-first, no existing test touched.
+- Batch 2 (**BL-097**, change-log (be) in `docs/BACKLOG.md`): the
+  audit's Phase-6 risk sweep found two cross-platform determinism
+  defects in evidence-bound paths, both fixed red-first (4 red → 8/8
+  green + 45 regression passed):
+  - `api/ingestion.py::ingest_zip` silently extracted duplicate /
+    separator-alias (`dir\a.cbl` vs `dir/a.cbl`) / case-collision
+    entry names last-wins → now rejects them fail-closed (repeated
+    *directory* entries stay allowed).
+  - `engine/source_hash.py::compute_source_tree_hash` baked OS
+    separators into the digest (`str(relative)`) → now `.as_posix()`
+    (behavior-identical on Linux/CI; only same-run identity checks
+    exist, no stored evidence invalidated).
+- Verification this session: backend focused **5/5**; API regression
+  **70 passed** (test_api/security/persistence/progress) + **54
+  passed** (phase11/12 upload-integrity/auth-download/approval +
+  async-modernize); BL-097 **8/8 new + 45 regression passed**;
+  frontend **143/143** (was 133), `tsc --noEmit`
+  clean, `npm run build` clean.
+- Deliverable: `UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md`
+  (requirement matrix, runtime-lane maps, equivalence strategy, roadmap
+  R-1..R-8, truthful scorecard); linked from `README.md`.
+
+### Current state
+
+- Branch `codex/universal-core` @ `6145e89`; working tree = in-flight
+  changeset + this session's changes + docs; **nothing staged or
+  committed** (needs explicit owner authorization). `test-artifacts/*`
+  never staged; the new junit files (`full-suite-audit-junit.xml`,
+  `final-tree-full-suite-junit.xml`) are untracked local evidence only.
+- Full-suite verification so far (Docker lanes enabled):
+  - run A on the in-flight changeset tree (started before batch-1
+    test files existed): **3930 passed / 0 failed / 0 skipped
+    (40:19)** — proves the in-flight FILE-binding + runtime-proof +
+    Windows-fix tree;
+  - run B on the batch-1-complete tree:
+    `test-artifacts/final-tree-full-suite-junit.xml` → **3935 passed
+    / 0 failed / 0 skipped (46:38)** — junit scope verified: contains
+    the 5 batch-1 backend tests (docker_honesty 2, run_verdict_state
+  3, all passed), no BL-097 tests (they postdate its collection).
+- Authoritative final full-suite run on the fully settled tree
+  (batch 1 + BL-097; expected 3943 = 3935 + 8 new BL-097 tests):
+  `RUN_DOCKER_TESTS=1 pytest -q -ra --junitxml=
+  test-artifacts/settled-tree-final-junit.xml tests` launched; result
+  to be recorded here and in the audit plan appendix on completion.
+
+### Next exact action
+
+1. Record the settled-tree full-suite result (run C above) in this
+   checkpoint and the appendix of the audit plan; runs A/B already
+   recorded (3930/0/0 and 3935/0/0).
+2. On owner authorization: single non-force commit (in-flight changeset
+   + BL-094/095/096 + docs), push, verify 4/4 exact-SHA CI, update this
+   checkpoint (roadmap R-1 of the audit plan).
+3. Then roadmap R-2: generated-Java runtime proof for
+   payroll/claims/indexed/relative per
+   `docs/verification/RUNTIME_PROOF_MATRIX.md`.
+
+### Do-not-redo (this session's scope)
+
+- Do not redo BL-094/095/096/097 (fixed red-first here), the EV-006/R9
+  FILE-dependency binding, or the Windows path-separator fix.
+- Do not re-verify the Phase 12 checkpoint claims absent new evidence;
+  CI was independently re-verified green at `6145e89`/`690980c`.
+- Keep the no-LLM invariant, the frozen 54-file gate, and the
+  never-stage-`test-artifacts/*` rule.
+
 ## Phase 12 CLOSED — verdict: `PHASE 12 COMPLETE — VERIFIED` (2026-10-17, after D-1 resolution + batch P4)
 
 ### ⚑ VERDICT (read this first)

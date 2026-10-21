@@ -8,8 +8,8 @@ programs.  Values are DB2-documented constants (syntax/semantic domain):
 - -811   / '21000' cardinality violation: singleton SELECT returned > 1 row
 - -803   / '23505' duplicate key on INSERT/UPDATE
 
-Plus one explicit lane sentinel for failures outside the mapped subset
-(BL-060): -1 / '56000' via ``Db2SqlStatus.unmapped_error`` — a
+Plus one explicit lane sentinel for failures outside the mapped
+subset: -1 / '56000' via ``Db2SqlStatus.unmapped_error`` — a
 well-formed ERROR, never a claim about the exact DB2 code for that
 condition.
 
@@ -36,7 +36,7 @@ SQLSTATE_TOO_MANY_ROWS = "21000"
 SQLCODE_DUPLICATE_KEY = -803
 SQLSTATE_DUPLICATE_KEY = "23505"
 
-#: Lane sentinel for a failure OUTSIDE the mapped subset (BL-060).
+#: Lane sentinel for a failure OUTSIDE the mapped subset.
 #: SQLCODE -1 is not a DB2-documented code in this modeled subset: it
 #: marks "unclassified failure on the controlled database" so error
 #: handlers always return a well-formed ERROR status instead of
@@ -137,7 +137,7 @@ class Db2SqlStatus:
 
         Used by the controlled-database error handlers so an unmapped
         ``IntegrityError``/``OperationalError`` is reported as a normal
-        ERROR result instead of crashing the handler (BL-060).
+        ERROR result instead of crashing the handler.
         """
         return cls(
             sqlcode=SQLCODE_UNMAPPED_ERROR,

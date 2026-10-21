@@ -69,7 +69,7 @@ class Db2SemanticAnalyzer:
         """Analyze all SQL blocks of a program into a DB2 semantic model.
 
         Statement texts the parser could not model reach ``validation``
-        as deterministic diagnostics (BL-080) — the model never silently
+        as deterministic diagnostics — the model never silently
         understates what the program contains.
         """
         stmt_semantics: list[Db2StmtSemantic] = []
@@ -171,7 +171,7 @@ class Db2SemanticAnalyzer:
         read_cols.extend(collect_predicate_columns(select.where_predicate))
         for pred in select.where_predicates:
             read_cols.extend(collect_predicate_columns(pred))
-        # ON-condition columns of joined tables (BL-081)
+        # ON-condition columns of joined tables
         for join in select.joins:
             for pred in join.on_predicates or (
                 (join.on_condition,) if join.on_condition else ()
@@ -374,7 +374,7 @@ class Db2SemanticAnalyzer:
         if stype == SqlStatementType.SELECT:
             targets = list(stmt.select.from_tables) if stmt.select is not None else []
             if stmt.select is not None:
-                # Joined tables are usage targets as well (BL-081)
+                # Joined tables are usage targets as well
                 targets.extend(
                     join.table for join in stmt.select.joins if join.table
                 )

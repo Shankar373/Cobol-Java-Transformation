@@ -100,6 +100,8 @@ GnuCOBOL equivalence is not a blanket claim of z/OS or mainframe equivalence.
 - docs/REQUIREMENTS.md — current requirements and non-goals
 - docs/CAPABILITY_MATRIX.md — current capability/evidence boundary
 - docs/VERIFICATION_STATUS.md — current verification evidence
+- docs/verification/RUNTIME_PROOF_MATRIX.md — live per-workload runtime-proof status (Docker lanes, images/digests, exact commands, honest labels)
+- UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md — 2026-10-19 evidence-driven audit, remediation record (BL-094/095/096) and roadmap
 - docs/KNOWN_ISSUES.md — current risks and resolved historical blockers
 - docs/REMEDIATION_MATRIX.md — remediation priorities
 - docs/CONTRACT_STATUS.md — contract/spec implementation status
@@ -110,12 +112,26 @@ Historical reports are not rewritten to make old results look current.
 
 ## CI baseline
 
-Push CI #417 / PR CI #418 is GREEN:
+Dated snapshot (verified 2026-10-17 via the GitHub Actions REST API against
+commit `6145e892e95282a0ca85eb678057a0ea9890389c` — not a live pointer; re-check
+before quoting):
 
-- Phase 1 ingestion: PASS
-- Backend + COBOL/Java Docker: PASS
-- Frontend TypeScript/build: PASS
-- Docker is exercised in CI.
+- Run 38980053986 ("SystemaOps CI", created 2026-10-16T23:11:17Z) — GREEN, all
+  4 jobs: "Phase 1 ingestion diagnostics", "Backend and COBOL/Java Docker
+  tests" (full `pytest tests` with `RUN_DOCKER_TESTS=1`), "Frontend tests,
+  TypeScript, and production build", "Capability truth gate".
+- Run 38980054137 (supply-chain provenance) — GREEN.
+- Docker is exercised in CI: the backend job builds the GnuCOBOL and Maven
+  images, records image provenance, and runs the full backend suite with the
+  Docker lanes enabled.
 - The old TypeScript JSX build blocker is resolved in the current baseline.
+- These runs cover only commit `6145e892e95282a0ca85eb678057a0ea9890389c`
+  (the snapshot SHA above). The runtime-proof gap-closure and Windows
+  path-separator test-fix changes delivered on top of it are validated only
+  by the Actions runs at their own containing commit — check CI there.
+
+Per-workload runtime-proof status (based on local runs of the named test
+modules, with per-row evidence) is tracked in
+docs/verification/RUNTIME_PROOF_MATRIX.md.
 
 > Deterministic transformation + independent evidence-driven verification + fail-closed claims.

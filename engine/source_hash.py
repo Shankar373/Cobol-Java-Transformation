@@ -17,6 +17,8 @@ def compute_source_tree_hash(source_path: str) -> ContentHash:
     elif path.is_dir():
         for f in sorted(path.rglob("*")):
             if f.is_file():
-                hasher.update(str(f.relative_to(path)).encode())
+                # POSIX separators so identical trees hash identically on
+                # every platform (str() would bake in "\" on Windows).
+                hasher.update(f.relative_to(path).as_posix().encode())
                 hasher.update(f.read_bytes())
     return ContentHash(digest=hasher.hexdigest())

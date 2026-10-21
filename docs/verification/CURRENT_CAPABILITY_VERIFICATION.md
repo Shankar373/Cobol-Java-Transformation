@@ -1,5 +1,13 @@
 # SystemaOps Current Capability Verification
 
+> **Historical snapshot note (2026-10-17):** the campaign recorded below is a
+> **dated forensic snapshot** (2026-09-21, commit `9ca0cfd`, host-`javac`
+> harness in the temp directory). It is preserved unmodified as history and
+> must not be read as current status: the runtime lanes it marks NOT_TESTED or
+> FAILED have since been executed live in Docker, and the current per-workload
+> runtime-proof status (with per-row evidence) is maintained in
+> `docs/verification/RUNTIME_PROOF_MATRIX.md`.
+
 ## 1. Verification Date
 
 - **Date (UTC):** 2026-09-21

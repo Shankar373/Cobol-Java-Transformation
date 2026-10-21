@@ -99,6 +99,16 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
     Candidate Java code NEVER executes directly on the host.
     """
 
+    @property
+    def network_policy(self) -> str:
+        """Every container this adapter runs is started with `--network none`.
+
+        Compilation and execution both happen inside those containers, so the
+        candidate genuinely has no network — the evidence manifest can record
+        `none` truthfully for this lane.
+        """
+        return "none"
+
     def __init__(self, config: DockerJavaConfig | None = None) -> None:
         super().__init__()
         self._config = config or DockerJavaConfig()
@@ -291,7 +301,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 ]
 
                 # Initialize so the TimeoutExpired handler never raises
-                # UnboundLocalError (BL-050) and cleanup always runs.
+                # UnboundLocalError and cleanup always runs.
                 proc = None
                 try:
                     proc = subprocess.run(

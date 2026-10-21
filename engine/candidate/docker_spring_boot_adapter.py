@@ -85,6 +85,18 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
     Execution phase: java -jar inside disposable Docker container.
     """
 
+    @property
+    def network_policy(self) -> str:
+        """Both the Maven build and the runtime container run with `--network none`.
+
+        Every phase this adapter drives executes inside a network-disabled
+        container, so the candidate genuinely has no network and the evidence
+        manifest can record `none` truthfully for this lane.  Subclasses
+        (e.g. the Maven project adapter) inherit this — they reuse the same
+        containers.
+        """
+        return "none"
+
     def __init__(self, config: DockerSpringBootConfig | None = None) -> None:
         super().__init__()
         self._config = config or DockerSpringBootConfig()

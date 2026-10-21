@@ -1,5 +1,11 @@
 # Current Requirements
 
+> **Baseline note (Master README §78, added 2026-10-21):** requirements below are the
+> constraint set audited against `6145e892e95282a0ca85eb678057a0ea9890389c` on
+> 2026-10-21; implemented-vs-missing status lives in `docs/BACKLOG.md`
+> (BL-098…BL-122) and `docs/reports/UNIVERSAL_REQUIREMENTS_AUDIT_2026-10-21.md`.
+> This file states requirements only — it never asserts that a requirement is met.
+
 ## Functional
 
 1. Securely ingest supported COBOL workloads.

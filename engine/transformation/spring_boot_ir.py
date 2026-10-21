@@ -378,7 +378,7 @@ class SpringBootApplication:
     services: tuple[SpringBootService, ...] = ()
     repositories: tuple[SpringBootRepository, ...] = ()
     adapters: tuple[SpringBootAdapter, ...] = ()
-    # Shared copybook data models (M7). Data holders only — never services,
+    # Shared copybook data models. Data holders only — never services,
     # never entrypoints. Defaults to empty: existing callers are unaffected.
     models: tuple[SpringBootModel, ...] = ()
     transaction_boundaries: tuple[SpringBootTransactionBoundary, ...] = ()
@@ -396,9 +396,9 @@ class SpringBootApplication:
     source_application_id: str = ""  # JavaApplication.application_id
     # Spring auto-configuration classes this application explicitly turns
     # off (emitted as spring.autoconfigure.exclude in application.properties).
-    # The structural JCL lane sets DataSource auto-configuration: the batch
-    # starter pulls in JDBC auto-config but a JCL profile configures no
-    # datasource (BL-071). Empty default: existing lanes are unaffected.
+    # The structural JCL path turns DataSource auto-configuration off: the
+    # batch starter pulls in JDBC auto-config but a JCL profile configures
+    # no datasource. Empty default: existing generators are unaffected.
     autoconfigure_excludes: tuple[str, ...] = ()
 
     def get_service(self, name: str) -> SpringBootService | None:

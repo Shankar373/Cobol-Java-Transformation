@@ -1,4 +1,5 @@
 # Repository-Wide Code Audit Report — Cobol-Java-Transformation
+> > **HISTORICAL REPORT (Master README §78, labeled 2026-10-21):** this document is evidence of the repository state at its own recorded commit/date only. It is not a current status claim — current status lives in `opencode.md`, `docs/BACKLOG.md` and the current capability/verification documents. Content is unchanged; only this label was added.
 
 Status: **audit in progress** (Stage C of the post-Phase-3 review; findings
 sections are filled from the completed per-group review reports).

@@ -95,8 +95,8 @@ class VerdictDeriver:
         validation-time ``integrity_hash`` is compared against the manifest
         hash *as recomputed now*.  A manifest mutated after validation no
         longer matches it, so derivation fails closed with an ERROR verdict
-        instead of certifying whatever the mutated graph claims (TOCTOU,
-        BL-053 / Master README §39).
+        instead of certifying whatever the mutated graph claims (TOCTOU
+        guard).
         """
         manifest = validated.manifest
         live_hash = manifest.manifest_hash

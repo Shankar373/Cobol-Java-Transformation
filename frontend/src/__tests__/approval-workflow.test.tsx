@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// ApprovalPanel behaviour (BL-091)
+// ApprovalPanel behaviour
 //
 // HTTP contract (paths/methods/payloads) is pinned separately in
 // approval-client.test.ts against the real client module.

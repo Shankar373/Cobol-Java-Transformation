@@ -41,6 +41,7 @@ import {
   getReport,
   downloadGenerated,
   getIntegratedProof,
+  discoveryIssuesMessage,
 } from '../api/client';
 import {
   RUN_STAGES,
@@ -300,10 +301,10 @@ export function ModernizationRun({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      // BL-068b: a download failure is stored in its own state, rendered by
-      // an unconditional banner. It previously reused pollError, whose only
-      // banner is gated on non-terminal runs — so a failed download on a
-      // COMPLETED run was silently discarded and never shown.
+      // A download failure is stored in its own state and rendered by a banner
+      // that is always shown.  It previously reused `pollError`, whose banner
+      // only appears while runs are still in progress — so a failed download
+      // on a COMPLETED run was silently discarded and never surfaced.
       setDownloadError(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setDownloading(false);
@@ -392,6 +393,10 @@ export function ModernizationRun({
     sourceFileCount: discovery.source_file_count,
     detectedName: '',
   } : null);
+
+  // Resolve once per render whether discovery left anything unfinished.  Null
+  // means it completed cleanly, so no warning is shown.
+  const discoveryIssue = discovery ? discoveryIssuesMessage(discovery) : null;
 
   // Metrics row — every value comes from a real API response.
   const metrics: { icon: React.ReactNode; value: number | string; label: string }[] = [];
@@ -535,6 +540,29 @@ export function ModernizationRun({
           {discovery && (
             <SectionCard title="Discovery Results">
               <div style={{ display: 'grid', gap: tokens.spacing.lg }}>
+                {/* A discovery that did not finish cleanly must not read as a
+                    clean success. The counts below are still accurate for what
+                    WAS found, so we warn above them instead of replacing them. */}
+                {discoveryIssue && (
+                  <div
+                    role="alert"
+                    style={{
+                      padding: '9px 14px',
+                      borderRadius: tokens.radii.sm,
+                      background: tokens.colors.warningBg,
+                      border: '1px solid #fde68a',
+                      color: tokens.colors.warning,
+                      fontSize: tokens.font.sizes.sm,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                    }}
+                  >
+                    <span style={{ fontSize: 14 }}>⚠</span>
+                    <span>{discoveryIssue}</span>
+                  </div>
+                )}
+
                 {/* Edge counts — computed from backend dependency edges */}
                 <div style={{ display: 'flex', gap: tokens.spacing.md, flexWrap: 'wrap' }}>
                   <EdgeStat
@@ -824,14 +852,14 @@ export function ModernizationRun({
             </SectionCard>
           )}
 
-          {/* BL-091 (D-1 resolved): customer approval gates export. Rendered
-              on COMPLETED runs alongside the download path — download
-              answers 409 until this run's approval state is APPROVED. */}
+          {/* The customer's approval gates export. Shown on COMPLETED runs
+              next to the download path — download answers 409 until this
+              run's approval state is APPROVED. */}
           {run.stage === 'COMPLETED' && <ApprovalPanel runId={runId} />}
 
-          {/* BL-068b: download failures surface unconditionally. The previous
-              pollError banner is gated on non-terminal runs, so a failed
-              download on a COMPLETED/FAILED run was never displayed. */}
+          {/* Download failures are always shown. The earlier pollError banner
+              only appears while runs are in progress, so a failed download on
+              a COMPLETED or FAILED run would never be displayed. */}
           {downloadError && (
             <SectionCard title="Download failed">
               <div style={{ fontSize: tokens.font.sizes.sm, color: tokens.colors.textSecondary }}>

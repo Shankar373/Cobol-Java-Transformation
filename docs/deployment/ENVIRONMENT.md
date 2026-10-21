@@ -18,6 +18,29 @@ not be overridden.
 | `IMAGE_TAG` | No | `production` | release pin for rollback |
 | `ENV_FILE` | No | `.env.production` | alternate env file path |
 
+## Frontend bearer-token integration
+
+The SPA attaches `Authorization: Bearer <token>` to every API call
+(`frontend/src/api/client.ts`) so it works against a backend with
+`CONTROL_PLANE_API_TOKEN` set. The token is resolved in priority order:
+
+1. **Runtime override** — `localStorage.systemaops.apiToken` (set via the
+   browser devtools console or `setApiToken()`); no rebuild needed, and
+   the token never appears in the shipped bundle. Recommended when the
+   frontend dist is built by a pipeline that must not handle the token.
+2. **Build-time env** — `VITE_CONTROL_PLANE_API_TOKEN` passed to
+   `npm run build` (Vite inlines `VITE_*` vars). Note this bakes the
+   shared token into the static JS bundle: acceptable only because the
+   token is a deployment-level secret shared by all operators and the
+   bundle is served same-origin over TLS, but the runtime override
+   avoids even that.
+3. **Unset** — auth is off (dev default) and the client sends no
+   Authorization header, byte-identical to the pre-auth client.
+
+There is no login UI and no per-user identity: the token is the same
+deployment-level control documented for the backend (no RBAC — carried
+limitation D-5).
+
 CORS methods are restricted to `GET,POST` and only when the allowlist is
 non-empty (`api/app.py`). Security headers (HSTS, `nosniff`, `DENY`
 framing, restrictive CSP, `no-store` on API responses) are set by the app

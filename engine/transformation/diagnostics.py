@@ -67,7 +67,7 @@ class Diagnostic:
 
 
 def to_contract_diagnostic(d: Diagnostic) -> ContractDiagnostic:
-    """Convert an engine diagnostic to the producer-boundary contract type (BL-042).
+    """Convert an engine diagnostic to the producer-boundary contract type.
 
     ``TransformationResult.diagnostics`` is declared as
     ``tuple[contracts.Diagnostic, ...]`` whose level/code are **strings**;

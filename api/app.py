@@ -19,7 +19,7 @@ Endpoints:
   GET    /runs/{id}/download                     — download generated ZIP
   GET    /health                                 — liveness probe
 
-Security / abuse controls (Phase B):
+Security / abuse controls:
   * optional bearer-token auth — set ``CONTROL_PLANE_API_TOKEN`` and every
     route except ``/health`` requires ``Authorization: Bearer <token>``
     (constant-time comparison; no token configured means auth is off, which
@@ -85,7 +85,7 @@ _DEF_DB_PATH = str(_DEF_DB_DIR / "control-plane.db")
 _DEFAULT_MAX_REQUEST_BYTES = 50 * 1024 * 1024
 _DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024
 _DEFAULT_MAX_UPLOAD_FILES = 1000
-# BL-067: caps for the generated-app download archive (built in memory).
+# Caps for the generated-app download archive (built in memory).
 _DEFAULT_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 _DEFAULT_MAX_DOWNLOAD_FILES = 5000
 
@@ -128,6 +128,147 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # Security middleware
 # ---------------------------------------------------------------------------
+
+class BodyLimitMiddleware:
+    """Cap the size of every request body, whether or not the client declares one.
+
+    Uploads already go through a size check, but that check only runs when the
+    request carries a ``Content-Length`` header.  A chunked request declares no
+    length, so it could previously be buffered in memory without any bound at
+    all.  This middleware closes that hole for every route:
+
+    * the client declares a length over the limit -> rejected with 413 before
+      we read anything, so an oversized upload costs us nothing;
+    * the client declares a length within the limit -> passed straight through,
+      so large legitimate uploads still stream instead of being buffered;
+    * the client declares no length (chunked) -> the body is read and counted
+      first, then handed to the application, so an over-limit body never
+      reaches a handler.
+
+    It is registered as the innermost middleware so that responses produced
+    here still pass back out through the CORS and security layers, and it sits
+    behind the auth check so an unauthenticated request is refused before we
+    spend any effort reading its body.
+    """
+
+    def __init__(self, app, max_bytes: int | None = None) -> None:
+        self.app = app
+        self._max_bytes = max_bytes
+
+    def _limit(self) -> int:
+        # A value passed in by the caller wins; otherwise read the environment
+        # on every request so a config change (or a test) takes effect without
+        # restarting the service.
+        if self._max_bytes is not None:
+            return self._max_bytes
+        return _env_limit(
+            "CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES
+        )
+
+    async def __call__(self, scope, receive, send):  # noqa: ANN001
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # These methods have no body to measure.  Reading the channel here
+        # would also take over the connection the application uses to notice
+        # client disconnects, which cancels a streaming response before it has
+        # sent anything — so we leave them alone.
+        if scope.get("method", "").upper() in _BODYLESS_METHODS:
+            await self.app(scope, receive, send)
+            return
+
+        limit = self._limit()
+        declared: str | None = None
+        for key, value in scope.get("headers", []):
+            if key == b"content-length":
+                declared = value.decode("latin-1")
+                break
+
+        if declared is not None and declared.isdigit():
+            if int(declared) > limit:
+                await _send_oversized_body_error(send)
+                return
+            # A declared length we can trust is already bounded, so stream it
+            # straight through instead of buffering a second copy in memory.
+            await self.app(scope, receive, send)
+            return
+
+        # The client never told us how big the body is (chunked or absent), so
+        # we count it ourselves before letting the application see any of it.
+        buffered = b""
+        while True:
+            message = await receive()
+            if message.get("type") != "http.request":
+                # The client vanished part-way through sending the body.  We
+                # never got a complete, bounded payload, so refuse it rather
+                # than hand a truncated body to a handler that would try to
+                # parse it.
+                await _send_truncated_body_error(send)
+                return
+            buffered += message.get("body", b"")
+            if len(buffered) > limit:
+                await _send_oversized_body_error(send)
+                return
+            if not message.get("more_body"):
+                break
+
+        # The first read hands back the body we already collected; every read
+        # after that goes to the real channel.  The application may be waiting
+        # on a genuine disconnect signal (streaming responses do exactly that),
+        # so we must not invent one here or the stream would be cut short.
+        sent_body = False
+
+        async def replay_receive():  # noqa: ANN202
+            nonlocal sent_body
+            if not sent_body:
+                sent_body = True
+                return {
+                    "type": "http.request",
+                    "body": buffered,
+                    "more_body": False,
+                }
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
+
+
+# These three methods cannot carry a request body worth measuring, so we hand
+# them to the application untouched.  DELETE is intentionally not in this set:
+# it is allowed to carry a body, and nothing streams a response on it, so
+# bounding it costs us nothing and we keep the check.
+_BODYLESS_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def _send_oversized_body_error(send) -> None:  # noqa: ANN001
+    """Refuse a body larger than the configured limit, with a readable message."""
+    payload = b'{"detail":"Request body exceeds the configured byte limit"}'
+    await _send_json_error_response(send, 413, payload)
+
+
+async def _send_truncated_body_error(send) -> None:  # noqa: ANN001
+    """Refuse a body the client stopped sending before it was complete."""
+    payload = b'{"detail":"Request body was not received completely"}'
+    await _send_json_error_response(send, 400, payload)
+
+
+async def _send_json_error_response(send, status: int, payload: bytes) -> None:  # noqa: ANN001
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(payload)).encode("ascii")),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": payload})
+
+
+# Registered first, so it sits innermost in the stack: every later
+# `add_middleware` wraps it, keeping auth / security headers / CORS outside.
+app.add_middleware(BodyLimitMiddleware)
 
 # CORS: deny by default. Configure CONTROL_PLANE_ALLOWED_ORIGINS as a
 # comma-separated list (e.g. "https://app.example.com,https://admin.example.com")
@@ -215,7 +356,7 @@ async def _require_api_token(request: Request, call_next):
 
 
 def _token_matches(provided: str, expected: str) -> bool:
-    """Constant-time token compare that cannot raise on non-ASCII (BL-049).
+    """Constant-time token compare that cannot raise on non-ASCII.
 
     ``hmac.compare_digest`` rejects ``str`` operands containing non-ASCII
     characters, which turned an unauthenticated probe carrying a non-ASCII
@@ -313,7 +454,7 @@ async def _read_files_bounded(request: Request, files: list[UploadFile]) -> dict
     for index, upload in enumerate(files):
         name = upload.filename or f"file_{index}"
         if name in contents:
-            # BL-047: two multipart parts carrying the same filename used
+            # Two multipart parts carrying the same filename used
             # to overwrite one dict key, silently dropping a file and
             # undercounting ``files_received`` (the service-level
             # collision detector never saw the duplicate).  Reject the
@@ -343,6 +484,27 @@ def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
         discovered_program_ids=list(rec.discovered_program_ids),
         generated_program_ids=list(rec.generated_program_ids),
         created_at=rec.created_at,
+    )
+
+
+def _to_run_response(rec) -> RunResponse:
+    """Map an internal run record to the API run summary.
+
+    ``verdict_state`` is served fail-closed
+    (``Service.run_verdict_state``): it is present only when the run's
+    verdict hash-matches its persisted evidence manifest, so summary
+    consumers (e.g. the dashboard "Verified" stat) can never count an
+    uncertified run as verified.
+    """
+    return RunResponse(
+        id=rec.id,
+        application_id=rec.application_id,
+        workload_id=rec.workload_id,
+        stage=rec.stage,
+        created_at=rec.created_at,
+        completed_at=rec.completed_at,
+        error=rec.error,
+        verdict_state=_svc().run_verdict_state(rec),
     )
 
 
@@ -392,18 +554,7 @@ def get_application(app_id: str) -> ApplicationResponse:
 def list_application_runs(app_id: str) -> list[RunResponse]:
     """List all runs for an application (persisted, ordered by creation)."""
     runs = _svc().list_runs(app_id)
-    return [
-        RunResponse(
-            id=r.id,
-            application_id=r.application_id,
-            workload_id=r.workload_id,
-            stage=r.stage,
-            created_at=r.created_at,
-            completed_at=r.completed_at,
-            error=r.error,
-        )
-        for r in runs
-    ]
+    return [_to_run_response(r) for r in runs]
 
 
 @app.post("/applications/{app_id}/upload", response_model=UploadResponse, status_code=201)
@@ -533,15 +684,7 @@ def get_run(run_id: str) -> RunResponse:
     """Get run status and summary."""
     run = _svc().get_run(run_id)
 
-    return RunResponse(
-        id=run.id,
-        application_id=run.application_id,
-        workload_id=run.workload_id,
-        stage=run.stage,
-        created_at=run.created_at,
-        completed_at=run.completed_at,
-        error=run.error,
-    )
+    return _to_run_response(run)
 
 
 @app.get("/runs/{run_id}/detail", response_model=RunDetailResponse)
@@ -577,7 +720,7 @@ def get_run_artifacts(run_id: str) -> ArtifactsResponse:
 
 
 # ---------------------------------------------------------------------------
-# Customer approval (BL-091; D-1 resolved 2026-10-17)
+# Customer approval
 # ---------------------------------------------------------------------------
 
 def _approval_response(run) -> ApprovalResponse:
@@ -598,13 +741,13 @@ def get_run_approval(run_id: str) -> ApprovalResponse:
 
 @app.post("/runs/{run_id}/approval", response_model=ApprovalResponse)
 def decide_run_approval(run_id: str, body: ApprovalRequest) -> ApprovalResponse:
-    """Record an explicit customer decision for a run (BL-091, D-1 scope).
+    """Record an explicit customer decision for a run.
 
     ``APPROVED`` and ``REJECTED`` are the only decisions; PENDING is the
     implicit state of every new run and never a decision.  Rejection
     REQUIRES a reason; approval may carry an optional reason.  The
     approver string is recorded input, not a verified identity (existing
-    bearer-token auth only; no RBAC per the approved scope).  A later
+    bearer-token auth only; no role-based access control).  A later
     decision supersedes the earlier one.
     """
     approver = body.approver.strip()
@@ -751,11 +894,10 @@ def download_generated(run_id: str) -> StreamingResponse:
     candidate is never served here; runs without a generated artifact
     return 404.
 
-    BL-091 (D-1 resolved 2026-10-17): export is blocked with 409 until the
-    customer APPROVES the run. The gate runs immediately after the run
-    lookup and BEFORE artifact lookup/size caps so no archive detail
-    (existence, size, file count) leaks to an unapproved export; an
-    unknown run is still 404.
+    Export is blocked with 409 until the customer APPROVES the run. The
+    gate runs immediately after the run lookup and BEFORE artifact
+    lookup/size caps so no archive detail (existence, size, file count)
+    leaks to an unapproved export; an unknown run is still 404.
     """
     run = _svc().get_run(run_id)
     if run.approval_state != "APPROVED":
@@ -771,7 +913,7 @@ def download_generated(run_id: str) -> StreamingResponse:
     if java_dir is None or not Path(java_dir).exists():
         raise _error(404, "No generated Java application available for this run")
 
-    # BL-067: the archive is built in memory per request.  A pathological
+    # The archive is built in memory per request.  A pathological
     # or unexpectedly large generated tree could exhaust memory on an
     # authenticated GET, so both the file count and the total byte size
     # are capped and the request fails closed (413) BEFORE any bytes are

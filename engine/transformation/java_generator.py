@@ -433,7 +433,7 @@ public class {class_name} {{
             if method.name == "main":
                 # Split into loop and non-loop parts: comments annotate the
                 # record loop; every executable statement is rendered into
-                # the main body in source order (BL-041: never silently drop
+                # the main body in source order (never silently drop
                 # statements). A statement type with no renderable mapping
                 # fails closed naming the unmapped type.
                 for stmt in method.body_statements:
@@ -853,7 +853,7 @@ public class {class_name} {{
     def _escape_java_string(value: str) -> str:
         """Escape a raw string value for embedding in a Java string literal.
 
-        Control bytes are escaped too (BL-030): ``MOVE LOW-VALUE`` fills the
+        Control bytes are escaped too: ``MOVE LOW-VALUE`` fills the
         receiver with NUL and ``MOVE HIGH-VALUE`` with 0xFF, and a raw
         control byte in generated source is rejected by ``javac`` (or
         corrupted by a non-UTF-8 reader) instead of being a legal character
@@ -1044,7 +1044,7 @@ public class {class_name} {{
         if isinstance(expr, JavaTernary):
             # Same rendering as the Spring Boot generator: always grouped so
             # the ternary can nest inside concatenations and method calls
-            # (STRING delimiter truncation relies on this, BL-027).
+            # (STRING delimiter truncation relies on this).
             cond = self._expr_to_string(expr.condition)
             true_str = self._expr_to_string(expr.true_expr)
             false_str = self._expr_to_string(expr.false_expr)
@@ -1063,7 +1063,7 @@ public class {class_name} {{
             if isinstance(call.object_ref, JavaStringConcat):
                 # ``a + b.length()`` would bind the method to the last
                 # operand only; group the receiver so ``(a + b).length()``
-                # keeps its meaning (BL-027 pointer/tail arithmetic).
+                # keeps its meaning (STRING pointer/tail arithmetic).
                 obj = f"({obj})"
             return f"{obj}.{call.method_name}({args})"
         return f"{call.method_name}({args})"
@@ -1680,7 +1680,7 @@ public class {class_name} {{
         """Choose the Java string initializer for an alphanumeric VALUE.
 
         A figurative VALUE (``VALUE SPACES`` / ``VALUE ALL "*"`` / ...) is
-        materialized into the receiving item's declared PIC width (BL-030):
+        materialized into the receiving item's declared PIC width:
         the storage image is a constant known at generation time, so the
         literal is built deterministically and matched against the GnuCOBOL
         oracle.  Before this, ``VALUE ALL "*"`` emitted the *broken* literal
@@ -1790,11 +1790,11 @@ public class {class_name} {{
         the actual processing statements. This method flattens them.
         IfStatement is kept as-is (the generator handles its internal structure).
 
-        BL-065: legacy COBOL IR classes are matched by type NAME (same
+        Legacy COBOL IR classes are matched by type NAME (same
         pattern as ``ModernizationPlanner._has_stop_run``) because the
         generator module must not import COBOL IR types
-        (``test_no_cobol_imports_in_generator``); bare isinstance on the
-        unimported names raised NameError if reached.
+        (``test_no_cobol_imports_in_generator``); bare isinstance against
+        the unimported names would raise NameError if reached.
         """
         if type(stmt).__name__ == "ReadStatement":
             result = []

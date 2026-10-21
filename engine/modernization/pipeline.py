@@ -8,14 +8,15 @@ modernization flow (phases 1-5):
     3. PLAN          — generate TransformationPlan from capabilities
     4. TRANSFORM     — transform each program independently (never concatenate)
     5. ASSEMBLE      — assemble all artifacts into ONE Java runtime target
-                      via the §32 runtime adapter registry
+                      via the runtime adapter registry
                       (engine/transformation/runtime_adapters.py; the
                       default target_runtime is Spring Boot and reproduces
                       the original map_java_application_to_spring_boot +
                       SpringBootGenerator path exactly)
 
-Phases 6-11 (Docker build, Docker execute, GnuCOBOL oracle, comparison,
-evidence, verdict) are handled by VerticalSlicePipeline in the service layer.
+The later validation stages (Docker build, Docker execute, GnuCOBOL
+oracle, comparison, evidence, verdict) are handled by
+VerticalSlicePipeline in the service layer.
 
 This module reuses ALL existing components:
     - ApplicationDiscovery (engine/transformation/application_discovery.py)
@@ -49,11 +50,11 @@ from engine.transformation.runtime_adapters import (
 class ModernizationConfig:
     """Configuration for the universal modernization pipeline.
 
-    The five ``target_*``/runtime keys are Master README §32's example
+    The five ``target_*``/runtime keys are the example runtime-target
     configuration.  They are validated fail-closed in ``__post_init__``
     (through :class:`RuntimeTargetConfig`), so an unsupported value
     raises at construction naming the field, value, and supported set —
-    never silently defaulting to another runtime target (BL-088).
+    never silently defaulting to another runtime target.
     """
     source_dir: str
     output_dir: str
@@ -72,7 +73,7 @@ class ModernizationConfig:
 
     @property
     def runtime_config(self) -> RuntimeTargetConfig:
-        """The validated §32 runtime-target configuration for this run."""
+        """The validated runtime-target configuration for this run."""
         return RuntimeTargetConfig(
             target_runtime=self.target_runtime,
             java_version=self.java_version,
@@ -87,7 +88,8 @@ class ModernizationReport:
     """Complete modernization report for an application.
 
     Carries all outputs from phases 1-5 so the service layer can use them
-    for phases 6-11 (Docker validation, comparison, evidence, verdict).
+    for the later validation stages (Docker validation, comparison,
+    evidence, verdict).
     """
     application_id: str
     source_dir: str
@@ -117,7 +119,7 @@ class ModernizationReport:
     # Assembly: the runtime-target project directory and entry point
     generated_project_dir: str = ""
     generated_entrypoint: str = ""
-    # §32 target this report was produced for (evidence identity).
+    # Runtime target this report was produced for (evidence identity).
     target_runtime: str = "spring_boot"
 
     # Limitations
@@ -208,8 +210,9 @@ class UniversalModernizationPipeline:
     Executes phases 1-5 of the universal modernization flow:
       Discovery → Capability → Plan → Transform → Spring Boot Assembly
 
-    Phases 6-11 (Docker build/execute, oracle, comparison, evidence,
-    verdict) are handled by VerticalSlicePipeline in the service layer.
+    The later validation stages (Docker build/execute, oracle,
+    comparison, evidence, verdict) are handled by VerticalSlicePipeline
+    in the service layer.
 
     Usage:
         pipeline = UniversalModernizationPipeline(config)
@@ -239,7 +242,7 @@ class UniversalModernizationPipeline:
             target_runtime=self._config.target_runtime,
         )
 
-        # Resolve the §32 assembly adapter BEFORE any phase work so an
+        # Resolve the assembly adapter BEFORE any phase work so an
         # unknown or not-yet-implemented target fails closed with the
         # explicit reason instead of producing another runtime's output.
         try:
@@ -275,7 +278,7 @@ class UniversalModernizationPipeline:
         if progress:
             progress("ANALYZING")
         # source_root keeps the copybook scan transitive over the same
-        # search directories generation uses (BL-039).
+        # search directories generation uses.
         capability_report = self._capability_analyzer.analyze(
             application, source_root=source_path
         )
@@ -355,7 +358,7 @@ class UniversalModernizationPipeline:
         report.generation_success = True
         report.generated_program_ids = gen_result.program_ids
 
-        # Phase 5: ASSEMBLY via the §32 runtime adapter registry
+        # Phase 5: ASSEMBLY via the runtime adapter registry
         # (spring_boot default = the original Spring Boot mapping path)
         if progress:
             progress("ASSEMBLING")
@@ -370,7 +373,7 @@ class UniversalModernizationPipeline:
             report.generated_project_dir = str(outcome.project_dir)
             report.generated_entrypoint = outcome.entrypoint
         except Exception as e:
-            # P2-f: assembly produced no candidate project — the report must
+            # Assembly produced no candidate project — the report must
             # not keep claiming generation success.  Reset the flag and
             # record the failure in generation_errors so every consumer
             # (API, integrated proof facade) sees the truth.
@@ -383,7 +386,7 @@ class UniversalModernizationPipeline:
         if progress:
             progress("ASSEMBLY_COMPLETED")
 
-        # Phase 6: LIMITATIONS AND RECOMMENDATIONS
+        # Final step: LIMITATIONS AND RECOMMENDATIONS
         report.limitations, report.recommendations = self._derive_limitations(report)
 
         return report
@@ -398,7 +401,7 @@ class UniversalModernizationPipeline:
         """Map JavaApplication to Spring Boot and write the project.
 
         Back-compat delegation to :class:`SpringBootRuntimeAdapter` — the
-        exact same code path the §32 adapter registry dispatches to.
+        exact same code path the runtime adapter registry dispatches to.
         """
         outcome = get_runtime_adapter("spring_boot").assemble(
             java_application,
@@ -456,13 +459,12 @@ class UniversalModernizationPipeline:
             limitations.append("Java generation did not complete successfully")
             recommendations.append("Review COBOL source for parser limitations")
 
-        # §32 target-scope disclosure (fail-loud, never silent):
-        # Phase 9 landed the build + execute lane for the non-Spring
-        # targets.  The modernization pipeline itself still only generates;
+        # Runtime-target scope disclosure (fail-loud, never silent):
+        # the build + execute lane for the non-Spring targets exists, but
+        # the modernization pipeline itself still only generates;
         # build (offline Maven) + execution (Docker jar) + fresh
         # oracle-comparison evidence is produced per workload by the
-        # verification pipeline.  No universal equivalence claim (BL-089/
-        # BL-090; Phase 9).
+        # verification pipeline.  No universal equivalence claim.
         if self._config.target_runtime == "plain_java":
             limitations.append(
                 "target_runtime=plain_java: generation here; Maven build + "

@@ -1,12 +1,13 @@
 """Integrated application proof: dependency ledger + central status gate.
 
-Phase D TASK 4 joins the two production pipelines into one auditable object:
+This module joins the two production pipelines into one auditable object:
 
     UniversalModernizationPipeline   (phases 1-5: discovery, capability,
                                       plan, transform, assemble)
             +
-    VerticalSlicePipeline            (phases 6-11: oracle, build, execute,
-                                      compare, evidence, verdict)
+    VerticalSlicePipeline            (the later validation stages: oracle,
+                                      build, execute, compare, evidence,
+                                      verdict)
             +
     JCL / DB2 / CICS lanes           (parsed and classified, no runtime)
 
@@ -22,6 +23,12 @@ The gate only ever downgrades:
                       AND evidence integrity validated
                       AND the dependency ledger is non-empty
                       AND every required dependency is PROVEN
+
+A ``FILE`` dependency carries one extra, dependency-specific requirement: at
+least one ``TEXT_FILE``/``FIXED_RECORD`` artifact was compared in this run
+and every compared file artifact MATCHed (``FILE_ARTIFACT_TYPES``).  A run
+certified on stdout/exit status alone can therefore never claim a file
+dependency proven.
 
 JCL, DB2 and CICS have no runtime lane in this repository (see
 ``docs/CAPABILITY_MATRIX.md``), so they can never reach PROVEN.  A workload
@@ -73,13 +80,13 @@ class DependencyKind(str, Enum):
     DB2 = "DB2"
     CICS = "CICS"
     PARAMETER = "PARAMETER"
-    # Phase 7 (roadmap P3-6, BL-087): MQ queue names and IMS PCB/segment
+    # MQ queue names and IMS PCB/segment
     # references extracted from real EXEC MQI / EXEC DLI blocks.  No MQ or
     # IMS runtime lane exists, so these entries classify UNSUPPORTED and
     # proof-state BLOCKED — same fail-closed structural truth as JCL.
     MQ = "MQ"
     IMS = "IMS"
-    # Phase 10 (P2-c): a capability component whose component_type is not a
+    # A capability component whose component_type is not a
     # known dependency kind is never silently dropped — it becomes a
     # visible, required, BLOCKED entry so an unclassifiable dependency can
     # only downgrade the central gate.
@@ -101,6 +108,10 @@ RUNTIME_PROVEN_KINDS = frozenset({
     DependencyKind.FILE,
     DependencyKind.PARAMETER,
 })
+
+#: Artifact types that constitute dependency-specific evidence for a FILE
+#: dependency.  A workload-level verdict alone must never prove a file.
+FILE_ARTIFACT_TYPES = frozenset({"TEXT_FILE", "FIXED_RECORD"})
 
 #: Dependency kinds with no runtime lane in this repository.  They can be
 #: parsed and classified, never proven by execution.
@@ -253,6 +264,34 @@ def _proof_state_for(
             "manifest is incomplete or failed integrity validation"
         )
 
+    if kind is DependencyKind.FILE:
+        # Dependency-specific binding: a workload-level
+        # VERIFIED verdict must not cohort-promote a file dependency.  FILE
+        # proof requires file comparison evidence in *this* run: at least
+        # one TEXT_FILE/FIXED_RECORD artifact actually compared, every
+        # compared file artifact MATCHing.  A run certified on stdout and
+        # exit status alone leaves the file dependency PARTIAL — never
+        # PROVEN — and the central gate refuses to certify.
+        file_results = [
+            result
+            for (artifact_type, result) in runtime.artifact_results
+            if artifact_type in FILE_ARTIFACT_TYPES
+        ]
+        if not file_results:
+            return ProofState.PARTIAL, (
+                "FILE capability is SUPPORTED and the runtime verdict is "
+                "VERIFIED, but no file artifact (TEXT_FILE/FIXED_RECORD) "
+                "was compared in this run; a workload-level verdict is not "
+                "dependency-specific evidence for a file dependency"
+            )
+        mismatched = sorted({r for r in file_results if r != "MATCH"})
+        if mismatched:
+            return ProofState.PARTIAL, (
+                "FILE capability is SUPPORTED but a compared file artifact "
+                f"did not MATCH ({', '.join(mismatched)}); the file "
+                "dependency cannot be claimed proven"
+            )
+
     return ProofState.PROVEN, (
         f"{kind.value} capability is SUPPORTED and behaviour was proven by "
         "the COBOL/Java runtime lane"
@@ -312,7 +351,7 @@ def build_dependency_ledger(
                 continue
             seen.add(dependency_id)
             if kind is None:
-                # P2-c: an unclassifiable component_type stays visible and
+                # An unclassifiable component_type stays visible and
                 # blocks.  The declared capability level is reported as-is,
                 # but the proof state can never be PROVEN/PARTIAL for a kind
                 # the platform cannot model — fail closed.
@@ -370,8 +409,8 @@ def evaluate_central_status(
     ledger plus: generation success stated explicitly, runtime VERIFIED,
     complete evidence, validated integrity, a non-zero executed-check
     count, and every required dependency PROVEN.  An empty ledger fails
-    closed — zero enumerated dependencies is a missing input, not proof
-    (§41).  The ``generation_success`` default is ``False`` (P2-a): a bare
+    closed — zero enumerated dependencies is a missing input, not proof.
+    The ``generation_success`` default is ``False``: a bare
     call must never silently assume the transformation produced a
     candidate.
     """
@@ -388,7 +427,7 @@ def evaluate_central_status(
         if not runtime.evidence_integrity_valid:
             reasons.append("runtime evidence failed integrity validation")
         if runtime.executed_check_count <= 0:
-            # P2-d: a VERIFIED verdict that executed no checks is
+            # A VERIFIED verdict that executed no checks is
             # incoherent evidence, not proof — fail closed.
             reasons.append(
                 "runtime verdict is VERIFIED but no checks were executed"
@@ -396,7 +435,7 @@ def evaluate_central_status(
             )
 
     if not ledger:
-        # §41 requires the central verdict to combine DEPENDENCY evidence;
+        # The central verdict must combine DEPENDENCY evidence;
         # zero enumerated dependencies is a missing input, not proof.  An
         # empty ledger must never resolve to VERIFIED (vacuous truth).
         reasons.append(
@@ -478,7 +517,7 @@ def runtime_evidence_from_result(result) -> RuntimeLaneEvidence:
         valid = isinstance(outcome, ValidatedEvidenceManifest)
 
     verdict = getattr(result, "verdict", None)
-    # P2-e: normalize the verdict state — an enum member contributes its
+    # Normalize the verdict state — an enum member contributes its
     # ``value``; a plain string (or any non-enum) is used as-is instead of
     # crashing evidence assembly with ``AttributeError``.
     raw_state = getattr(verdict, "state", None)

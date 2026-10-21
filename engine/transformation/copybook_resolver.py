@@ -1,12 +1,12 @@
-"""Deterministic COPYBOOK file resolution — M7 (Lane C).
+"""Deterministic COPYBOOK file resolution.
 
 Maps a ``COPY <name>`` reference (as discovered by ``ApplicationDiscovery``)
 to the actual ``.cpy`` source file on disk.
 
-Conflict note: this module is intentionally isolated. It creates no new
+Integration note: this module is intentionally isolated. It creates no new
 program semantics and modifies no existing file. Integration into
 discovery/generation is documented in ``copybook_model.INTEGRATION`` and
-must be applied by the owning lane.
+must be applied by whoever wires those stages together.
 
 Resolution rules (deterministic, no first-match guessing):
   1. The copybook stem is matched case-insensitively
@@ -76,15 +76,15 @@ _EXTENSION_PRECEDENCE: tuple[str, ...] = (".cpy", ".cbl", ".cob")
 
 
 def copybook_search_dirs(source_root: "Path | str") -> tuple["Path", ...]:
-    """Single deterministic search-directory authority (BL-035).
+    """Single deterministic search-directory authority.
 
     Both discovery and generation build their copybook search set from this
     function so a reference discovered as ``RESOLVED`` is found by the
-    generation lane for the same tree — in every layout either lane accepts.
-    The root comes first; every other directory that holds a file in the
-    tree follows in sorted order.  The per-directory scan stays
-    non-recursive (``iterdir``), ambiguity stays an explicit error, and
-    precedence is decided only by the resolver — never first-match.
+    generation step for the same tree — in every layout either side
+    accepts.  The root comes first; every other directory that holds a
+    file in the tree follows in sorted order.  The per-directory scan
+    stays non-recursive (``iterdir``), ambiguity stays an explicit error,
+    and precedence is decided only by the resolver — never first-match.
     """
     root = Path(source_root)
     dirs: list[Path] = [root]

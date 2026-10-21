@@ -76,11 +76,11 @@ _FILE_VERB_WRITE = re.compile(
 _COBOL_STRING_LITERAL = re.compile(r'"[^"\n]*"|' r"'[^'\n]*'")
 _COBOL_COMMENT_LINE = re.compile(r"(?m)^[ \t]*\*")
 _COBOL_INLINE_COMMENT = re.compile(r"\*>.*$", re.MULTILINE)
-# Full-line comment blanking for the CALL/COPY scanner (BL-034): the
+# Full-line comment blanking for the CALL/COPY scanner: the
 # comment-indicator regex above only strips the leading "*", so the CALL/COPY
 # scanner blanks whole comment lines offset-preservingly instead.
 _COBOL_COMMENT_LINE_FULL = re.compile(r"(?m)^[ \t]*\*.*$")
-# Single-pass CALL/COPY scanner (BL-034).  Alternation priority is the
+# Single-pass CALL/COPY scanner.  Alternation priority is the
 # contract: at the leftmost match a real CALL/COPY verb captures its own
 # operand (quoted literals included), while any other string literal or
 # ``*>`` inline comment is consumed whole — so comment/literal text such as
@@ -185,7 +185,7 @@ class ApplicationDiscovery:
     def _copybook_search_dirs(self, source_path: Path) -> tuple[Path, ...]:
         """Directories searched for COPY targets.
 
-        BL-035: the set is built by the single shared authority
+        The set is built by the single shared authority
         (``copybook_resolver.copybook_search_dirs``) so discovery and
         generation always agree for the same tree.  The resolver is
         deliberately non-recursive per directory, so every directory that
@@ -400,7 +400,7 @@ class ApplicationDiscovery:
     def _extract_calls(self, source: str, caller_id: str) -> list[ProgramCall]:
         """Extract CALL statements from COBOL source.
 
-        BL-034: only real statements count — comment lines, ``*>`` inline
+        Only real statements count — comment lines, ``*>`` inline
         comments and string-literal text (``DISPLAY "CALL 'Y'"``) are
         masked/consumed by :func:`_scan_call_copy` and can never produce a
         phantom edge.  USING-argument handling is unchanged.
@@ -449,7 +449,7 @@ class ApplicationDiscovery:
         Resolution is recorded, never guessed: a reference is RESOLVED only
         when exactly one candidate matches the resolver's precedence rules.
 
-        BL-034: only real COPY statements count — comment lines, ``*>``
+        Only real COPY statements count — comment lines, ``*>``
         inline comments and string-literal text are masked/consumed by
         :func:`_scan_call_copy` and can never produce a phantom reference
         (which previously made valid programs fail generation).
@@ -585,7 +585,7 @@ class ApplicationDiscovery:
         """Build dependency graph from program units."""
         edges: list[DependencyEdge] = []
 
-        # Build program ID set for resolution.  BL-044: COBOL names are
+        # Build program ID set for resolution.  COBOL names are
         # case-insensitive — join through the shared normalization so a
         # lowercase CALL literal resolves against an uppercase PROGRAM-ID
         # exactly as the capability analyzer does.
@@ -607,7 +607,7 @@ class ApplicationDiscovery:
                         if normalize_cobol_name(call.target) in known_programs
                         else "UNRESOLVED"
                     )
-                # BL-038: stamp the IR record with the same resolution
+                # Stamp the IR record with the same resolution
                 # decision that stamps the edge metadata, so the two fields
                 # of one fact can never contradict each other.  Frozen
                 # dataclass: replace, never mutate.

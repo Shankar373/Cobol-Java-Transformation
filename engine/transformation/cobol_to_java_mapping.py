@@ -154,7 +154,7 @@ def _java_quote(text: str) -> str:
     The fill for a figurative VALUE is raw data: ``VALUE QUOTES`` yields
     ``"`` characters, ``LOW-VALUE``/``HIGH-VALUE`` yield NUL and 0xFF, and an
     ordinary literal may contain a backslash.  Emitting those unescaped
-    produces a literal ``javac`` rejects (BL-030).
+    produces a literal ``javac`` rejects.
     """
     escaped = (
         text.replace("\\", "\\\\")
@@ -198,7 +198,7 @@ def map_pic_to_java_default(item: DataItem) -> str:
                 # HIGH-VALUE/LOW-VALUE and VALUE ALL <pattern>) materialize
                 # the filled pattern at the declared PIC width instead of
                 # leaking the raw COBOL spelling (e.g. ``ALL "*"``) into the
-                # Java literal (BL-030).
+                # Java literal.
                 value = figurative_to_width(
                     parsed[0], parsed[1], item.pic_length
                 )
@@ -357,7 +357,7 @@ def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
 
 
 # ---------------------------------------------------------------------------
-# STRING (BL-027): delimiter-aware sending phrases and write position
+# STRING: delimiter-aware sending phrases and write position
 # ---------------------------------------------------------------------------
 
 def _string_fail_closed_symbol(*reasons: str) -> str:
@@ -365,14 +365,13 @@ def _string_fail_closed_symbol(*reasons: str) -> str:
 
     ``$`` can never appear in a COBOL-derived identifier, so the symbol is
     unresolvable by construction: ``javac`` reports the construct by name
-    instead of a wrong value ever being produced silently (the BL-018 /
-    BL-023 pattern).
+    instead of a wrong value ever being produced silently.
     """
     return "UNSUPPORTED_STRING$" + "$".join(reasons)
 
 
 def _string_phrase_java(src: JavaExpression, delim) -> JavaExpression:
-    """One sending phrase truncated at its delimiter (BL-027).
+    """One sending phrase truncated at its delimiter.
 
     ``None`` (``DELIMITED BY SIZE``) copies the whole item; SPACE and a
     quoted literal truncate at the first occurrence of the delimiter, and
@@ -411,7 +410,7 @@ def _string_phrase_java(src: JavaExpression, delim) -> JavaExpression:
 
 
 def _string_receiver_width(program: CobolProgram | None, target: str) -> int | None:
-    """Declared character width of the STRING receiving item (BL-028).
+    """Declared character width of the STRING receiving item.
 
     Only a leaf item with a PIC-derived ``pic_length`` yields a width.  A
     group item or an undeclared receiver has no width here — and such a
@@ -428,7 +427,7 @@ def _string_receiver_width(program: CobolProgram | None, target: str) -> int | N
 def _string_receiver_truncate_statements(
     target: str, width: int | None
 ) -> list[JavaStatement]:
-    """BL-028: clip the STRING result to the receiving item's PIC width.
+    """Clip the STRING result to the receiving item's PIC width.
 
     A COBOL receiving field is fixed width: characters that would extend
     beyond its rightmost position are discarded (and the pointer stops at
@@ -474,7 +473,7 @@ def _string_receiver_statements(
     delims: list,
     program: CobolProgram | None,
 ) -> list[JavaStatement]:
-    """Emit the STRING write with COBOL write-position semantics (BL-027/BL-028).
+    """Emit the STRING write with COBOL write-position semantics.
 
     The concatenated sending text is written over the receiving field from
     position 1 (or the ``WITH POINTER`` position) and the unwritten tail
@@ -484,13 +483,13 @@ def _string_receiver_statements(
 
     Certified here: delimiter truncation (SIZE / literal / SPACE), delimiter
     excluded from the result, tail preservation, **fixed-width receiver
-    overflow truncation** (BL-028: the written value is clipped to the
+    overflow truncation** (the written value is clipped to the
     receiver's PIC width, discarding the characters that do not fit), and
     the pointer boundary rule: a pointer inside ``1 .. width + 1`` writes at
     that position and is advanced past the last character written (never
     beyond ``width + 1``); a pointer outside that range transfers nothing
-    and is left unchanged.  Both rules were pinned against the GnuCOBOL
-    3.1.2 oracle (BL-028 evidence in ``docs/BACKLOG.md``).
+    and is left unchanged.  Both rules were verified against real GnuCOBOL
+    3.1.2 behaviour as the reference oracle.
 
     Not certified (fail-closed above): identifier delimiters, ON OVERFLOW,
     VARYING IN, non-integer pointers.  A receiver with no declared width
@@ -507,7 +506,7 @@ def _string_receiver_statements(
     if stmt.has_overflow:
         reasons.append("OVERFLOW")
     if stmt.varying_pointer:
-        # BL-029: VARYING IN has no certified mapping; name the construct
+        # VARYING IN has no certified mapping; name the construct
         # so the fail-closed symbol identifies the phrase and its pointer.
         reasons.append(
             "VARYING_IN_" + stmt.varying_pointer.upper().replace("-", "_")
@@ -560,7 +559,7 @@ def _string_receiver_statements(
                 target=target,
                 expression=JavaStringConcat(parts=(built, tail)),
             ),
-            # BL-028: characters beyond the receiving field's rightmost
+            # Characters beyond the receiving field's rightmost
             # position are discarded, so the result is clipped to the PIC
             # width (the old tail already accounts for the shorter result).
             *_string_receiver_truncate_statements(target, width),
@@ -575,8 +574,9 @@ def _string_receiver_statements(
     if width is None:
         # No declared width on the receiver (group item / undeclared name).
         # Such a receiver is not declared in the generated Java at all, so
-        # the program fails closed at ``javac``; the pre-BL-028 emission is
-        # kept here and is not certified for any width-dependent behaviour.
+        # the program fails closed at ``javac``; the emission used before
+        # fixed-width clipping was added is kept here and is not certified
+        # for any width-dependent behaviour.
         padded = JavaMethodCall(
             class_name="String",
             method_name="format",
@@ -623,12 +623,13 @@ def _string_receiver_statements(
             ),
         ]
 
-    # BL-028 pointer boundary rule (GnuCOBOL 3.1.2 oracle-pinned): a pointer
-    # in ``1 .. width + 1`` writes at that position and is advanced past the
-    # last character written, never beyond ``width + 1``; a pointer outside
-    # that range (0 or beyond ``width + 1``) transfers nothing and is left
-    # unchanged.  The receiver itself always keeps its declared width, so
-    # the characters that do not fit are discarded exactly as COBOL does.
+    # Pointer boundary rule, verified against GnuCOBOL 3.1.2 behaviour:
+    # a pointer in ``1 .. width + 1`` writes at that position and is
+    # advanced past the last character written, never beyond
+    # ``width + 1``; a pointer outside that range (0 or beyond
+    # ``width + 1``) transfers nothing and is left unchanged.  The
+    # receiver itself always keeps its declared width, so the characters
+    # that do not fit are discarded exactly as COBOL does.
     in_range = JavaBinaryOp(
         left=JavaBinaryOp(left=pointer_ref, operator=">=", right=_int_lit(1)),
         operator="&&",
@@ -1373,7 +1374,7 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
             java_type=JavaType(basic_type=JavaBasicType.STRING),
         )
     if isinstance(expr, _cobol_ir.FigurativeConstant):
-        # BL-030: recover the repeated pattern from the preserved spelling —
+        # Recover the repeated pattern from the preserved spelling —
         # ``ALL "ab"`` must compare/map as ``ab``, not as a space.
         parsed_text = (
             parse_figurative_constant(expr.text) if expr.text else None
@@ -1395,7 +1396,7 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
             operand=_map_cobol_expression_to_java(expr.operand),
         )
     if isinstance(expr, _cobol_ir.IntrinsicCall):
-        # BL-023 (`**`) / BL-024 (`FUNCTION MIN(...)`) have no certified Java
+        # `**` and `FUNCTION MIN(...)` have no certified Java
         # mapping, so the parser raises UNSUPPORTED_CONSTRUCT and the program
         # is classified UNSUPPORTED.  Code generation must still not lie: the
         # old fallthrough did ``str(expr)``, which printed the Python dataclass
@@ -1409,8 +1410,8 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
         return JavaVariableRef(name=_intrinsic_fail_closed_symbol(expr.name))
     if isinstance(expr, _cobol_ir.Expression):
         # Any other Expression node has no branch above.  Stringifying it would
-        # silently put a Python repr into generated Java (the exact BL-018 /
-        # BL-023 defect class), so fail closed with a name that cannot resolve.
+        # silently put a Python repr into generated Java, so fail closed with
+        # a name that cannot resolve.
         # ``$`` again: a COBOL-derived identifier can never contain it, so no
         # data item can accidentally declare this symbol.
         return JavaVariableRef(
@@ -1429,7 +1430,7 @@ def _intrinsic_fail_closed_symbol(name: str) -> str:
     word maps to Java by replacing hyphens with underscores, so a field named
     ``UNSUPPORTED-INTRINSIC-POWER`` would have *declared* a plain-underscore
     marker and made it resolve — silently converting fail-closed back into
-    fail-open (verified by adversarial probe during the Phase 1 audit).
+    fail-open (confirmed by an adversarial probe).
     ``$`` is a legal Java identifier character but can never occur in a COBOL
     data name, so a collision is structurally impossible.  This follows the
     existing ``_FIGURATIVE_SENTINEL`` precedent: a marker COBOL source cannot
@@ -1578,9 +1579,9 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
     # Figurative constants are substituted FIRST, before any operator
     # rewriting and before the DASH_UNDERSCORE rewrite below.  Rewriting first
     # turned `HIGH-VALUE` into `HIGH_VALUE`, which no longer matched the
-    # reserved word and fell through to a bare Java identifier (BL-018).
+    # reserved word and fell through to a bare Java identifier.
     # Doing it first also lets `NOT = SPACES` be folded as one comparison
-    # rather than leaving the fill literal outside the operator (BL-019).
+    # rather than leaving the fill literal outside the operator.
     condition = _substitute_figurative_constants(condition)
     # Fold `NOT <relational>` while the operators are still COBOL-spelled:
     # `A NOT > 3` is `A <= 3`.  Emitting a separate `!` prefix cannot work in
@@ -1627,7 +1628,7 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
     condition = condition.replace(" AND ", " && ")
     condition = condition.replace(" OR ", " || ")
 
-    # Handle NOT as an *operator token* (BL-019).  The previous unconditional
+    # Handle NOT as an *operator token*.  The previous unconditional
     # `replace("NOT ", "!")` ran after `NOT =` had already become `!=`, so
     # `C NOT = SPACES` produced `C ! == SPACES` and `A NOT > 3` produced
     # `A !> 3` — non-compiling Java with no diagnostic.  Here `NOT` is only
@@ -1962,12 +1963,12 @@ def map_cobol_statement(
                     program,
                 )
             if item is not None and item.is_alphanumeric and item.pic_length > 0:
-                # BL-030: a figurative constant is a character string the
+                # A figurative constant is a character string the
                 # size of the receiving item — every position carries the
                 # constant's character (``MOVE ZEROS TO PIC X(5)`` stores
                 # ``00000``) and ``ALL <literal>`` repeats its pattern across
                 # the width, truncated at the last copy.  Both rules are
-                # pinned against the GnuCOBOL 3.1.2 oracle, so the value is
+                # verified against real GnuCOBOL 3.1.2 behaviour, so the value is
                 # materialized at parse/emission time instead of being
                 # space-padded (which was only ever right for SPACES).
                 parsed_move_figurative = (
@@ -2515,7 +2516,7 @@ def map_cobol_statement(
 
     elif isinstance(stmt, StringStatement):
         # STRING → delimiter-aware concatenation written into the
-        # receiving field (BL-027).  Structured expressions preserve
+        # receiving field.  Structured expressions preserve
         # literal quoting (Literal → quoted Java string, never a bare
         # identifier); raw parts carry COBOL quoting (e.g. '"SUBTRACT"')
         # and are parsed the same way.  Delimiters, WITH POINTER and the

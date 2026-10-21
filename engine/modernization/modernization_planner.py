@@ -1,4 +1,4 @@
-"""Modernization Planner — Single entry point for Phase 1 modernization planning.
+"""Modernization Planner — Single entry point for modernization planning.
 
 Architecture:
     Universal Ingestion
@@ -331,7 +331,7 @@ class ModernizationPlan:
 
 
 class ModernizationPlanner:
-    """Single entry point for Phase 1 modernization planning.
+    """Single entry point for modernization planning.
 
     Usage:
         planner = ModernizationPlanner(docker_available=False)
@@ -371,26 +371,26 @@ class ModernizationPlanner:
             entrypoint: Requested entrypoint program ID.
 
         Returns:
-            ModernizationPlan with all Phase 1 information.
+            ModernizationPlan with all planning information.
         """
         source_path = Path(source_dir)
         if not source_path.exists():
             raise ValueError(f"Source directory does not exist: {source_dir}")
 
-        # Phase 1: Universal Ingestion + Application Discovery
+        # Step 1: Universal Ingestion + Application Discovery
         application = self._discovery.discover(
             source_path,
             application_id=application_id or source_path.name,
         )
 
-        # Phase 2: Capability Graph — source_root keeps the copybook scan
-        # transitive over the same search directories generation uses
-        # (BL-039), so the verdict covers everything materialization merges.
+        # Step 2: Capability Graph — source_root keeps the copybook scan
+        # transitive over the same search directories generation uses,
+        # so the verdict covers everything materialization merges.
         capability_report = self._capability_analyzer.analyze(
             application, source_root=source_path
         )
 
-        # Phase 3: Modernization Plan (deterministic)
+        # Step 3: Modernization Plan (deterministic)
         transformation_plan = self._plan_generator.generate(
             application, capability_report, entrypoint
         )
@@ -608,7 +608,7 @@ class ModernizationPlanner:
             reason = cap.reason
             blocking = self._map_blocking_reasons(cap.level, cap.reason)
         else:
-            # BL-043: missing analyzer output must fail closed like the
+            # Missing analyzer output must fail closed like the
             # program path (`_build_program_plan`) — never default to
             # SUPPORTED with an optimistic reason.
             level = CapabilityLevel.UNKNOWN
@@ -643,7 +643,7 @@ class ModernizationPlanner:
             reason = cap.reason
             blocking = self._map_blocking_reasons(cap.level, cap.reason)
         else:
-            # BL-043: missing analyzer output must fail closed like the
+            # Missing analyzer output must fail closed like the
             # program path (`_build_program_plan`) — never default to
             # SUPPORTED with an optimistic reason.
             level = CapabilityLevel.UNKNOWN
@@ -707,21 +707,21 @@ class ModernizationPlanner:
 
         if "dynamic call" in reason_lower:
             reasons.append(BlockingReason.DYNAMIC_CALL)
-        # BL-037: a caller/callee LINKAGE arity mismatch gets its own reason
-        # instead of dead-ending at UNKNOWN_CONSTRUCT (the old mis-mapping).
+        # A caller/callee LINKAGE arity mismatch gets its own reason
+        # instead of dead-ending at UNKNOWN_CONSTRUCT (it used to be
+        # mis-mapped).
         if "linkage arity mismatch" in reason_lower:
             reasons.append(BlockingReason.ARITY_MISMATCH)
         if "recursive" in reason_lower or "self call" in reason_lower:
             reasons.append(BlockingReason.RECURSIVE_CALL)
         # Word-boundary match: the analyzer's copybook reasons contain words
         # like "deterministically" (substring "call"), which must never be
-        # read as a CALL statement (BL-033 residual hardening, found by the
-        # BL-034 pre-fix probe).
+        # read as a CALL statement.
         if "unresolved" in reason_lower and re.search(r"\bcall\b", reason_lower):
             reasons.append(BlockingReason.UNRESOLVED_CALL)
         if "cyclic" in reason_lower or "cycle" in reason_lower:
             reasons.append(BlockingReason.CALL_CYCLE)
-        # BL-033: an unresolvable copybook reason (missing, unresolved, or
+        # An unresolvable copybook reason (missing, unresolved, or
         # ambiguous target) maps to MISSING_COPYBOOK so the planner surfaces
         # the dependency instead of dead-ending at UNKNOWN_CONSTRUCT.
         if "copybook" in reason_lower and (
@@ -732,16 +732,16 @@ class ModernizationPlanner:
             reasons.append(BlockingReason.MISSING_COPYBOOK)
         if "program" in reason_lower and ("missing" in reason_lower or "not found" in reason_lower):
             reasons.append(BlockingReason.MISSING_PROGRAM)
-        # BL-066: match explicit parse-failure phrasing only. The old raw
-        # substring "parse" classified any "parsed"/"parser" wording as
-        # PARSE_FAILURE (misclassification found by Phase 12).
+        # Match explicit parse-failure phrasing only. A raw substring
+        # "parse" classified any "parsed"/"parser" wording as
+        # PARSE_FAILURE, which was a misclassification.
         if re.search(
             r"failed to parse|could not parse|cannot parse|"
             r"parse failure|parse error",
             reason_lower,
         ):
             reasons.append(BlockingReason.PARSE_FAILURE)
-        # BL-066: a GO TO reason that also contains "unsupported" must not
+        # A GO TO reason that also contains "unsupported" must not
         # append UNSUPPORTED_CONSTRUCT twice (deduplicated reason mapping).
         if "unsupported" in reason_lower or "go to" in reason_lower:
             if BlockingReason.UNSUPPORTED_CONSTRUCT not in reasons:

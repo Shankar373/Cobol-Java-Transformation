@@ -602,7 +602,7 @@ class FixedRecordComparator(TypedComparator):
                     description=f"Record {i} differs",
                 ))
 
-        # BL-052: floor division above leaves any bytes beyond the last whole
+        # Floor division above leaves any bytes beyond the last whole
         # record uncovered by the loop, so a trailing partial record could hide
         # behind record counting. Compare those tails explicitly: every byte
         # not covered by a compared record must still be accounted for.

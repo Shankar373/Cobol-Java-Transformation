@@ -1,4 +1,4 @@
-"""COPYBOOK semantic materialization — M7 (Lane C).
+"""COPYBOOK semantic materialization.
 
 Upgrades COPYBOOK handling from dependency-only metadata to semantic
 content, reusing existing IR structures:
@@ -15,12 +15,12 @@ no model class ever carries business-logic methods or a ``main`` method,
 and ``.cpy`` files are never fed to program discovery (established
 behaviour, locked in by tests).
 
-Conflict note: this module only ADDS isolated pieces. It imports from —
-but never modifies — the FRNC-owned files (parser, IR, mappings, Spring
-IR/generator). Pipeline wiring is specified in ``INTEGRATION`` below for
-the owning lane.
+Integration note: this module only ADDS isolated pieces. It imports
+from — but never modifies — the shared parser, IR, mapping, and Spring
+IR/generator modules. Pipeline wiring is specified in ``INTEGRATION``
+below (``INTEGRATION = __doc__``) for whoever wires this in.
 
-REQUIRED INTERFACE (for the owning lane — signatures to add there):
+REQUIRED INTERFACE (signatures the wiring code has to provide):
 
   1. ``CobolParser.parse_data_description_lines(lines: list[str])
        -> list[DataItem]``
@@ -36,22 +36,23 @@ REQUIRED INTERFACE (for the owning lane — signatures to add there):
 
      ``materialize_application_copybooks`` is specified here (pure,
      ``dataclasses.replace``-based) but intentionally NOT implemented
-     here: constructing a new ``CobolApplication`` touches discovery-owned
-     assembly semantics. The per-program primitive it needs,
+     here: constructing a new ``CobolApplication`` touches assembly
+     semantics owned by application discovery. The per-program
+     primitive it needs,
      ``materialize_copybooks_into_program``, IS implemented here.
 
   3. ``map_copybook_model_to_java_class(model, package) -> JavaClass``:
      specified here as ``build_copybook_model_class`` (implemented, reuses
-     ``map_cobol_data_items_to_fields``). The owning lane calls it once
+     ``map_cobol_data_items_to_fields``). The wiring code calls it once
      per ``plan_shared_models`` entry and appends the class to the
      ``JavaApplication`` model set — never to the executable program set,
      and entrypoint resolution must exclude ``*Record`` model classes.
 
   4. Spring Boot: carry each model ``JavaClass`` into
-     ``SpringBootApplication`` (new ``models`` field, Spring-IR lane) and
-     emit under ``model/`` via the Spring generator (Spring-generator
-     lane). ``rendered_model_path`` below fixes the canonical path so all
-     lanes agree without further coordination.
+     ``SpringBootApplication`` (new ``models`` field in the Spring IR)
+     and emit it under ``model/`` in the generated project.
+     ``rendered_model_path`` below fixes the canonical path so every
+     side agrees without further coordination.
 """
 
 from __future__ import annotations
@@ -123,7 +124,7 @@ def parse_copybook(path: str | Path) -> CopybookModel:
 
 
 # ---------------------------------------------------------------------------
-# Nested COPY expansion (statements inside copybook content — BL-031)
+# Nested COPY expansion (COPY statements inside copybook content)
 # ---------------------------------------------------------------------------
 #
 # A COPY statement written *inside* a copybook is a real dependency.
@@ -283,7 +284,7 @@ def _expand_copybook_text(
         text = _strip_sequence_numbers(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError) as exc:
         # UnicodeDecodeError (a ValueError, not an OSError) must take the
-        # exact same fail-closed path as a filesystem error — BL-056.
+        # exact same fail-closed path as a filesystem error.
         if not chain:
             raise
         diagnostics.append(
@@ -371,7 +372,10 @@ def collect_copybook_texts(
     path: Path,
     search_dirs: tuple[Path, ...],
 ) -> tuple[tuple[tuple[Path, str], ...], tuple[CopybookDiagnostic, ...]]:
-    """Per-file texts of a copybook and every nested COPY target (BL-039).
+    """Per-file texts of a copybook and every nested COPY target.
+
+    Collected for the capability scan: analysis must see the same files
+    generation merges.
 
     Returns ``(files, diagnostics)`` where ``files`` holds ``(path, text)``
     for the top-level copybook first, then each reachable nested target in
@@ -473,12 +477,12 @@ def _strip_sequence_numbers(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# COPY ... REPLACING clause (BL-032)
+# COPY ... REPLACING clause
 # ---------------------------------------------------------------------------
 #
 # ``COPY x REPLACING ==&TAG== BY ==WS-NAME== …`` is the standard mechanism
-# for parameterized copybooks.  Before BL-032 the expansion consumed the
-# clause span (BL-031) but never applied it: pseudo-text names are not
+# for parameterized copybooks.  Initially the expansion consumed the
+# clause span but never applied it: pseudo-text names are not
 # valid data-names, so the copybook's entries parsed to nothing and the
 # program silently lost every declaration while generation reported
 # ``success=True`` (plan READY, capability SUPPORTED).  The clause grammar
@@ -491,7 +495,7 @@ def _strip_sequence_numbers(text: str) -> str:
 _REPLACING_KEYWORD = re.compile(r"\bREPLACING\b", re.IGNORECASE)
 _BY_KEYWORD = re.compile(r"\bBY\b", re.IGNORECASE)
 _COBOL_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
-# Phrase forms of the clause the lane does not implement (IBM/enterprise
+# Phrase forms of the clause we do not implement (IBM/enterprise
 # extensions).  They are recognised only to fail closed with a diagnostic
 # naming them — never applied partially, never silently dropped.
 _UNSUPPORTED_REPLACING_PHRASES = ("LEADING", "TRAILING", "PARTIAL")
@@ -505,7 +509,7 @@ def _parse_replacing_clause(
     Returns ``(pairs, error)``.  ``pairs`` is empty when the statement has
     no REPLACING clause; ``error`` is ``None`` on success and otherwise a
     ``(code, message)`` pair whose code is ``COPYBOOK_REPLACING_UNSUPPORTED``
-    (recognised phrase/operand form the lane does not apply) or
+    (recognised phrase/operand form we do not apply) or
     ``COPYBOOK_REPLACING_MALFORMED`` (clause does not parse), with the
     message naming ``REPLACING``.
 
@@ -702,7 +706,7 @@ def materialize_copybooks_into_program(
     ``models``), the copybook's level-01 records are appended to the
     program's ``working_storage``.  ``program_models`` (optional, keyed by
     ``(program_id, copybook_name)``) carries the clause-parameterized
-    parses (BL-032) and takes precedence over ``models`` for the owning
+    parses and takes precedence over ``models`` for the owning
     program. The COBOL source is never rewritten and
     files are never concatenated; the ``copybooks`` tuple (provenance:
     program -> copybook dependency) is preserved unchanged.
@@ -769,7 +773,7 @@ def materialize_copybooks_into_program(
         return replace(item, children=tuple(kept_children))
 
     for ref_name in program.copybooks:
-        # A clause-parameterized parse (BL-032, keyed by
+        # A clause-parameterized parse (keyed by
         # (program, copybook)) takes precedence over the shared cache,
         # so a program that copied with REPLACING never merges the
         # unsubstituted shared model.
@@ -870,11 +874,11 @@ def prepare_application_copybooks(
 ) -> CopybookPreparation:
     """Resolve + parse + merge copybooks for a discovered application.
 
-    Search directories: BL-035 — when ``source_root`` (the ingested source
+    Search directories: when ``source_root`` (the ingested source
     tree) is given, the search set is exactly the shared deterministic
     authority ``copybook_resolver.copybook_search_dirs`` that discovery
     uses, so a reference discovered as RESOLVED is found here too, in every
-    layout either lane accepts.  Only in the legacy no-``source_root`` path
+    layout either side accepts.  Only in the legacy no-``source_root`` path
     is each unit's source-path parent used (resolved against the current
     working directory). COBOL sources are only read, never written.
 
@@ -920,13 +924,13 @@ def prepare_application_copybooks(
         for m in missing
     ]
 
-    # Per-program REPLACING pairs (BL-032): the clause lives in the
+    # Per-program REPLACING pairs: the clause lives in the
     # program's COPY statement, so a clause-parameterized copybook parses
     # per (program, target).  Its merged IR is per-program correct, and no
     # shared model plan is registered for it — substituted content is
     # program-specific, so the shared-class dedup contract stays untouched.
     # Clause diagnostics bind only to refs discovery actually recorded
-    # (a clause on a COPY the lane never recorded materializes nothing).
+    # (a clause on a COPY we never recorded materializes nothing).
     recorded = {(p.upper(), n.upper()) for p, n in refs}
     unit_pairs: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {}
     for unit in application.programs:
@@ -962,9 +966,9 @@ def prepare_application_copybooks(
             # are resolved against the same search directories and their
             # declarations merged at the COPY statement's position
             # (missing/cyclic/ambiguous nested targets fail closed with
-            # an explicit diagnostic — BL-031); the caller's validated
+            # an explicit diagnostic); the caller's validated
             # REPLACING pairs are applied to the fully-expanded text
-            # before data parsing (BL-032).
+            # before data parsing.
             cache[cache_key] = _parse_copybook_expanded(
                 ref.path,
                 tuple(search_dirs),
@@ -1124,12 +1128,14 @@ def plan_shared_models(
 # ---------------------------------------------------------------------------
 
 def build_copybook_model_class(plan: CopybookModelPlan):
-    """Build the shared model ``JavaClass`` for a plan (REQUIRED-INTERFACE 3).
+    """Build the shared model ``JavaClass`` for a plan.
 
-    Reuses ``map_cobol_data_items_to_fields`` so copybook fields get the
-    identical Java types/defaults as program WORKING-STORAGE fields, then
-    converts them to private instance state with public accessors. The
-    class carries data only: no business-logic methods, no ``main``.
+    Implements interface 3 of the REQUIRED INTERFACE list in the module
+    docstring.  Reuses ``map_cobol_data_items_to_fields`` so copybook
+    fields get the identical Java types/defaults as program
+    WORKING-STORAGE fields, then converts them to private instance
+    state with public accessors.  The class carries data only: no
+    business-logic methods, no ``main``.
     """
     from engine.transformation.cobol_to_java_mapping import (
         map_cobol_data_items_to_fields,

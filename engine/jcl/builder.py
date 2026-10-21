@@ -78,8 +78,7 @@ class JclSemanticBuilder:
 
         # Scan every raw source exactly once, attributing each line to the
         # JOB statement in effect.  Scanning per job would duplicate and
-        # misattribute diagnostics across the jobs of a multi-job member
-        # (BL-072).
+        # misattribute diagnostics across the jobs of a multi-job member.
         for raw_text in raw_sources.values():
             self._scan_unsupported(raw_text)
 
@@ -127,7 +126,7 @@ class JclSemanticBuilder:
 
         # Job-level DDs (JOBLIB & co.) are preserved on the IR but are
         # outside the semantic profile's supported subset — diagnose them
-        # explicitly instead of letting them vanish (BL-073).
+        # explicitly instead of letting them vanish.
         for dd in job.job_dd_statements:
             self.diagnostics.error(
                 JclDiagnosticCode.JOB_LEVEL_DD,
@@ -214,7 +213,7 @@ class JclSemanticBuilder:
         elif dd.is_inline:
             # Inline data (DD * / DD DATA).  The old
             # `dd.name.upper() == "SYSIN" and dd.sysin` extra clause was
-            # dead: the parser never set `sysin` (BL-077).
+            # dead: the parser never set `sysin`.
             kind = JclResourceKind.SYSIN_INLINE
             norm_disp = JclDisposition.UNSPECIFIED
             dataset_use = JclDatasetUse.INPUT

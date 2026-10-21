@@ -8,7 +8,7 @@ import * as api from './api/client';
 import { tokens } from './theme/tokens';
 
 type Page = 'dashboard' | 'new' | 'run';
-type HistorySource = 'server' | 'session';
+type HistorySource = 'server' | 'session' | 'auth-required';
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -24,9 +24,9 @@ export default function App() {
 
   const [runIds, setRunIds] = useState<Set<string>>(new Set());
 
-  // BL-068a: navigate() stays identity-stable (it is a dependency of the
-  // layout effects below) yet must read the latest runs to resolve a run's
-  // application id, so mirror runs through a ref.
+  // `navigate()` must keep a stable identity (the layout effects below depend
+  // on it) while still reading the newest runs to look up which application a
+  // run belongs to, so we mirror runs through a ref.
   const runsRef = useRef<RunResponse[]>(runs);
   useEffect(() => {
     runsRef.current = runs;
@@ -35,9 +35,9 @@ export default function App() {
   const navigate = useCallback((p: string, id?: string) => {
     if (p === 'run' && id) {
       setSelectedRunId(id);
-      // BL-068a: opening a run must select THAT run's application, not keep
-      // a stale selectedAppId from a previously created/opened app (which
-      // rendered the wrong application's discovery/ingest summary).
+      // Opening a run must select THAT run's own application, not keep a
+      // stale selectedAppId left over from a previously created or opened
+      // app — that rendered the wrong application's discovery/ingest summary.
       const run = runsRef.current.find((r) => r.id === id);
       if (run) {
         setSelectedAppId(run.application_id);
@@ -53,44 +53,75 @@ export default function App() {
   // Application history: the backend is authoritative. When the persistent
   // endpoints exist, consume them directly (no local persistence). While
   // they are absent the calls reject and session state remains in use.
+  //
+  // This is a named callback rather than a mount-only effect so that entering
+  // an API token can simply re-run the same load and restore persistent
+  // history, instead of telling the operator to reload the page.  The mounted
+  // ref keeps the safety property the original effect had: neither the first
+  // load nor a later token retry may set state after the component has gone
+  // away.
+  const historyMounted = useRef(true);
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const serverApps = await api.listApplications();
-        if (!mounted) return;
-        setApplications((prev) => {
-          const seen = new Set(serverApps.map((a) => a.id));
-          return [...serverApps, ...prev.filter((a) => !seen.has(a.id))];
-        });
-        setHistorySource('server');
-        try {
-          const runsByApp = await Promise.all(
-            serverApps.map((a) =>
-              api.listApplicationRuns(a.id).catch(() => [] as RunResponse[]),
-            ),
-          );
-          if (!mounted) return;
-          const serverRuns = runsByApp.flat();
-          if (serverRuns.length > 0) {
-            setRuns((prev) => {
-              const seen = new Set(serverRuns.map((r) => r.id));
-              return [...serverRuns, ...prev.filter((r) => !seen.has(r.id))];
-            });
-          }
-        } catch {
-          // Per-app run history is best-effort; applications already loaded.
-        }
-      } catch {
-        // Persistent endpoints unavailable — session state stays authoritative.
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
+    historyMounted.current = true;
     return () => {
-      mounted = false;
+      historyMounted.current = false;
     };
   }, []);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const serverApps = await api.listApplications();
+      if (!historyMounted.current) return;
+      setApplications((prev) => {
+        const seen = new Set(serverApps.map((a) => a.id));
+        return [...serverApps, ...prev.filter((a) => !seen.has(a.id))];
+      });
+      setHistorySource('server');
+      try {
+        const runsByApp = await Promise.all(
+          serverApps.map((a) =>
+            api.listApplicationRuns(a.id).catch(() => [] as RunResponse[]),
+          ),
+        );
+        if (!historyMounted.current) return;
+        const serverRuns = runsByApp.flat();
+        if (serverRuns.length > 0) {
+          setRuns((prev) => {
+            const seen = new Set(serverRuns.map((r) => r.id));
+            return [...serverRuns, ...prev.filter((r) => !seen.has(r.id))];
+          });
+        }
+      } catch {
+        // Per-app run history is best-effort; applications already loaded.
+      }
+    } catch (err) {
+      // A 401 means the backend answered but would not let us in — that is
+      // something the operator can fix by supplying a token, so we surface it
+      // as its own state.  Every other failure means the persistent endpoints
+      // are simply unavailable, which keeps session state authoritative.  If
+      // we merged the two, the one case a customer could resolve themselves
+      // would be indistinguishable from "the server is not deployed".
+      if (err instanceof api.ApiError && err.status === 401) {
+        if (historyMounted.current) setHistorySource('auth-required');
+      }
+    } finally {
+      if (historyMounted.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
+  // Save the entered token and immediately retry the load, so the operator
+  // sees their history appear without reloading the page.
+  const handleTokenSubmit = useCallback(
+    (token: string) => {
+      api.setApiToken(token);
+      void loadHistory();
+    },
+    [loadHistory],
+  );
 
   // Poll runs that are in-progress
   useEffect(() => {
@@ -113,9 +144,10 @@ export default function App() {
           for (const r of updated) map.set(r.id, r);
           return Array.from(map.values());
         });
-        // BL-068c: drop terminal runs from the polling set so each finished
-        // run stops being polled every 2s for the rest of the session (it
-        // was previously only ever appended, growing the poll load forever).
+        // Stop polling runs that have reached a terminal stage, so each
+        // finished run is not re-polled every 2 seconds for the rest of the
+        // session.  Previously runs were only ever added to the set, so the
+        // poll load grew without bound.
         const finished = updated.filter((r) => isTerminalStage(r.stage));
         if (finished.length > 0) {
           setRunIds((prev) => {
@@ -225,6 +257,7 @@ export default function App() {
             onNavigate={navigate}
             loading={loading}
             historySource={historySource}
+            onSubmitToken={handleTokenSubmit}
           />
         )}
         {page === 'new' && (

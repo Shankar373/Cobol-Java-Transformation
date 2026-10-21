@@ -46,7 +46,7 @@ from engine.transformation.jcl_dependencies import build_all_dependencies
 
 
 def _dataset_matches_file(dataset: str, file_key: str) -> bool:
-    """Precise dataset↔COBOL-file match (BL-074).
+    """Precise dataset↔COBOL-file match.
 
     ``file_key`` is the upper-cased COBOL file name.  A dataset matches
     only when it equals the file name or ends with ``.<file name>``
@@ -63,7 +63,7 @@ _JCL_MEMBER_SUFFIXES = (".jcl", ".jcllib")
 
 
 def is_jcl_member(path: Path) -> bool:
-    """One shared JCL member rule (BL-063).
+    """One shared JCL member rule.
 
     True for case-insensitive ``.jcl`` / ``.jcllib`` suffixes and for
     extensionless members whose content looks like JCL (starts with
@@ -139,7 +139,7 @@ class JclDiscovery:
             try:
                 source = jcl_file.read_text(encoding="utf-8")
                 # One job per JOB statement (multi-job members are split,
-                # never merged — BL-072); replace() preserves every field.
+                # never merged); replace() preserves every field.
                 for job in self._parser.parse_jobs(source):
                     jobs.append(replace(
                         job,
@@ -149,7 +149,7 @@ class JclDiscovery:
                 # No diagnostics channel here; the consumer's own scan
                 # uses the same member set (find_jcl_members) and turns
                 # read/decode failures into diagnostics, so a member is
-                # never silently lost from the reporting surface (BL-063).
+                # never silently lost from the reporting surface.
                 continue
 
         # Build dependencies
@@ -186,7 +186,7 @@ class JclDiscovery:
 
         # Index every COBOL file dependency by file name (case-insensitive),
         # keeping ALL programs that declare the same file: a shared file must
-        # not silently overwrite its other readers (BL-074).  Empty file
+        # not silently overwrite its other readers.  Empty file
         # names are skipped — they would match every dataset.
         file_lookup: dict[str, list[tuple[str, str]]] = {}
         for program in cobol_app.programs:
@@ -215,7 +215,7 @@ class JclDiscovery:
                 # Link DD datasets to COBOL files.  Matching is precise:
                 # DSN equals the file name, or DSN ends with ".<file name>"
                 # (qualified tail).  Loose bidirectional substring matching
-                # produced phantom and wrong-target edges (BL-074).
+                # produced phantom and wrong-target edges.
                 for dd in step.dd_statements:
                     if not dd.dataset:
                         continue
@@ -244,7 +244,7 @@ class JclDiscovery:
     def _find_jcl_files(self, source_path: Path) -> list[Path]:
         """Find all JCL source files in the directory tree.
 
-        Delegates to the shared BL-063 member rule so discovery, the
+        Delegates to the shared JCL member rule so discovery, the
         consumer scan, and the API presence gate select the same files.
         """
         return find_jcl_members(source_path)

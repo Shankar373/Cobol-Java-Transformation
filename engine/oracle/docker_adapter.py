@@ -454,7 +454,7 @@ class DockerOracleAdapter(OracleAdapter):
                 )
 
                 # Deterministic container name so the timeout path can
-                # stop/remove it (BL-051 parity with the candidate adapters).
+                # stop/remove it (parity with the candidate adapters).
                 container_name = f"oracle-{uuid.uuid4().hex[:12]}"
 
                 docker_cmd = [
@@ -492,7 +492,7 @@ class DockerOracleAdapter(OracleAdapter):
                 except subprocess.TimeoutExpired:
                     # Kill the docker client, then explicitly stop/remove the
                     # container (do not rely on --rm alone — killing the client
-                    # leaves the container running on the daemon, BL-051).
+                    # leaves the container running on the daemon).
                     if proc is not None:
                         try:
                             proc.kill()

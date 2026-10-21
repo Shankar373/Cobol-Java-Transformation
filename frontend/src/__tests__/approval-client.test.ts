@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getRunApproval, setRunApproval, ApiError } from '../api/client';
 
 // ---------------------------------------------------------------------------
-// BL-091 client contract — real module, stubbed fetch.
+// Approval client contract — real module, stubbed fetch.
 // (The panel-behaviour tests mock this module; here we pin the actual HTTP
 // paths, methods and payloads the backend contract expects.)
 // ---------------------------------------------------------------------------

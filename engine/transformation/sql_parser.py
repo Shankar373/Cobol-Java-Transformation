@@ -76,7 +76,7 @@ class SqlParser:
         Returns:
             EmbeddedSqlBlock with parsed statements; statement texts this
             parser cannot model are preserved in ``unsupported_statements``
-            (BL-080) instead of being silently dropped.
+            instead of being silently dropped.
         """
         statements: list[SqlStatement] = []
         unsupported: list[str] = []
@@ -223,7 +223,7 @@ class SqlParser:
                     prepare_statement=stmt_text,
                 ))
 
-            # EXECUTE (IMMEDIATE carries its IR flag, BL-080)
+            # EXECUTE (IMMEDIATE carries its IR flag)
             elif upper.startswith("EXECUTE"):
                 statements.append(SqlStatement(
                     statement_type=SqlStatementType.EXECUTE,
@@ -233,7 +233,7 @@ class SqlParser:
                     ),
                 ))
 
-            # Anything else is preserved, never silently dropped (BL-080).
+            # Anything else is preserved, never silently dropped.
             else:
                 unsupported.append(stmt_text)
 
@@ -276,7 +276,7 @@ class SqlParser:
         for stmt in block.statements:
             if stmt.select:
                 select_targets = list(stmt.select.from_tables)
-                # Joined tables are dependency targets too (BL-081)
+                # Joined tables are dependency targets too
                 select_targets.extend(
                     join.table for join in stmt.select.joins if join.table
                 )
@@ -357,7 +357,7 @@ class SqlParser:
 
         columns = self._parse_column_list(cols_text)
 
-        # Extract tables from the FROM section (BL-081: JOIN segments and
+        # Extract tables from the FROM section (JOIN segments and
         # their ON conditions are preserved in SqlSelect.joins instead of
         # being dropped; the section ends at the next clause keyword so no
         # trailing clause text can leak into a table name)
@@ -386,7 +386,7 @@ class SqlParser:
         else:
             from_tables = self._parse_table_list(from_section.strip())
 
-        # Extract WHERE clause (all honest conjuncts, BL-079)
+        # Extract WHERE clause (all honest conjuncts)
         where_predicate = None
         where_predicates: tuple[SqlPredicate, ...] = ()
         if where_match:
@@ -405,7 +405,7 @@ class SqlParser:
                 where_predicate = parsed_preds[0]
                 where_predicates = tuple(parsed_preds)
 
-        # Extract ORDER BY (BL-082: bounded at FETCH FIRST so the column
+        # Extract ORDER BY (bounded at FETCH FIRST so the column
         # names never absorb the trailing FETCH clause)
         order_by: tuple[SqlOrderBy, ...] = ()
         order_match = re.search(r"\bORDER\s+BY\b", upper)
@@ -470,8 +470,8 @@ class SqlParser:
 
         table = SqlTableReference(table_name=table_name, schema=schema)
 
-        # Column list: parentheses between the table name and VALUES
-        # (BL-062). A column-less INSERT (`INSERT INTO T VALUES (...)`)
+        # Column list: parentheses between the table name and VALUES.
+        # A column-less INSERT (`INSERT INTO T VALUES (...)`)
         # has no column list — the column set is undetermined from the
         # text alone, so it stays empty instead of inventing columns
         # from the VALUES list. Execution uses raw_sql and is unaffected.
@@ -536,7 +536,7 @@ class SqlParser:
         # Parse assignments
         assignments = self._parse_assignments(set_text)
 
-        # Parse WHERE (all honest conjuncts, BL-079)
+        # Parse WHERE (all honest conjuncts)
         where_predicate = None
         where_predicates: tuple[SqlPredicate, ...] = ()
         if where_match:
@@ -572,7 +572,7 @@ class SqlParser:
 
         table = SqlTableReference(table_name=table_name, schema=schema)
 
-        # Find WHERE clause (all honest conjuncts, BL-079)
+        # Find WHERE clause (all honest conjuncts)
         where_predicate = None
         where_predicates: tuple[SqlPredicate, ...] = ()
         where_match = re.search(r"\bWHERE\b", upper[from_match.end():])
@@ -712,10 +712,10 @@ class SqlParser:
     )
 
     def _parse_join_segments(self, text: str) -> tuple[SqlJoin, ...]:
-        """Parse ``<type> JOIN <table> [ON <pred>] …`` segments (BL-081).
+        """Parse ``<type> JOIN <table> [ON <pred>] …`` segments.
 
         Each segment runs from its JOIN keyword to the next JOIN keyword.
-        The ON condition is parsed with the conjunct splitter (BL-079);
+        The ON condition is parsed with the conjunct splitter;
         all conjuncts are retained in ``on_predicates`` and the first one
         also populates ``on_condition``. A join without ON (e.g. CROSS
         JOIN) keeps ``on_condition=None``.
@@ -820,7 +820,7 @@ class SqlParser:
         """Split WHERE text on top-level ``AND``/``OR`` tokens.
 
         Quote- and paren-aware; the ``AND`` belonging to a
-        ``BETWEEN low AND high`` range is not a split point (BL-079).
+        ``BETWEEN low AND high`` range is not a split point.
         Returns the non-empty stripped segments.
         """
         depth = 0
@@ -935,7 +935,7 @@ class SqlParser:
 
         Anything else (compound text, parenthesized sub-expressions,
         function calls) is NOT representable by this parser's operand
-        fields and must never be fabricated into a column name (BL-079).
+        fields and must never be fabricated into a column name.
         """
         t = text.strip()
         if not t:
@@ -953,9 +953,9 @@ class SqlParser:
 
         Operator/keyword positions are located on the literal-masked
         uppercase copy; operands are sliced from the ORIGINAL text so
-        string literals and host-variable names survive verbatim
-        (BL-078). An unparseable conjunct yields ``None`` — never a
-        fabricated column name (BL-079).
+        string literals and host-variable names survive verbatim.
+        An unparseable conjunct yields ``None`` — never a
+        fabricated column name.
         """
         if not text or not text.strip():
             return None
@@ -1034,7 +1034,7 @@ class SqlParser:
                 right=self._parse_expression(right_text),
             )
 
-        # NULL checks (operands sliced from the original text, BL-078)
+        # NULL checks (operands sliced from the original text)
         not_null_match = re.search(r"\bIS\s+NOT\s+NULL\b", upper)
         if not_null_match:
             col_text = text[:not_null_match.start()].strip()
@@ -1057,7 +1057,7 @@ class SqlParser:
         return None
 
     def _parse_predicates(self, text: str) -> list[SqlPredicate]:
-        """Parse WHERE text into its honest conjunct list (BL-079).
+        """Parse WHERE text into its honest conjunct list.
 
         Top-level AND/OR segments are parsed individually; conjuncts this
         parser cannot represent are skipped rather than fabricated.

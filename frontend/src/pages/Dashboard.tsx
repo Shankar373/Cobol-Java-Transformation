@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { tokens } from '../theme/tokens';
 import { PageContainer, StatCard, SectionCard, Badge, Button, EmptyState, Header } from '../components';
 import {
@@ -16,7 +17,19 @@ interface DashboardProps {
   runs: RunResponse[];
   onNavigate: (page: string, id?: string) => void;
   loading?: boolean;
-  historySource?: 'server' | 'session';
+  /**
+   * Where the visible history came from.
+   *
+   * `auth-required` is deliberately kept separate from `session`.  A 401 means
+   * the backend answered but would not let us in — that is something the
+   * operator can actually fix by supplying a token.  `session` means those
+   * endpoints simply are not available at all.  Merging the two into one state
+   * hid the only case the customer could resolve themselves, so we keep them
+   * apart and show a different message for each.
+   */
+  historySource?: 'server' | 'session' | 'auth-required';
+  /** Called with the entered token; App persists it and reloads history. */
+  onSubmitToken?: (token: string) => void;
 }
 
 function stageBadgeVariant(stage: string): 'success' | 'error' | 'info' | 'warning' | 'default' {
@@ -61,10 +74,17 @@ export function Dashboard({
   onNavigate,
   loading,
   historySource = 'session',
+  onSubmitToken,
 }: DashboardProps) {
+  const [tokenValue, setTokenValue] = useState('');
   const completedRuns = runs.filter((r) => r.stage === 'COMPLETED');
   const failedRuns = runs.filter((r) => r.stage === 'FAILED');
   const activeRuns = runs.filter((r) => r.stage !== 'COMPLETED' && r.stage !== 'FAILED');
+  // "Verified" must count VERIFIED *verdicts*, not completed runs: a run can
+  // complete with a FAILED or UNPROVEN verdict, and presenting it as verified
+  // would overclaim certification.  `verdict_state` is served fail-closed by
+  // the backend (only hash-matched evidence counts).
+  const verifiedRuns = runs.filter((r) => r.verdict_state === 'VERIFIED');
 
   const headerActions = (
     <Button variant="gradient" onClick={() => onNavigate('new')}>
@@ -113,13 +133,68 @@ export function Dashboard({
           <span style={{ fontSize: 12, color: tokens.colors.textMuted }}>
             {historySource === 'server'
               ? `${runs.length} run${runs.length !== 1 ? 's' : ''} loaded from API`
-              : 'Session history only'}
+              : historySource === 'auth-required'
+                ? 'Authentication required'
+                : 'Session history only'}
           </span>
         }
         right={headerActions}
       />
 
       <PageContainer>
+        {historySource === 'auth-required' && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: tokens.spacing.md,
+              padding: '12px 14px',
+              borderRadius: tokens.radii.sm,
+              background: tokens.colors.errorBg,
+              border: '1px solid #fecaca',
+              color: tokens.colors.error,
+              fontSize: tokens.font.sizes.sm,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14 }}>🔒</span>
+              <strong>Authentication required</strong>
+            </div>
+            <p style={{ margin: '6px 0 10px 24px', lineHeight: 1.5 }}>
+              The control plane refused the request. Supply the deployment
+              token to load persistent history instead of this session only.
+            </p>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSubmitToken?.(tokenValue);
+              }}
+              style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginLeft: 24 }}
+            >
+              <label
+                htmlFor="dashboard-api-token"
+                style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+              >
+                API token
+                <input
+                  id="dashboard-api-token"
+                  type="password"
+                  value={tokenValue}
+                  onChange={(event) => setTokenValue(event.target.value)}
+                  autoComplete="off"
+                  style={{
+                    padding: '6px 8px',
+                    borderRadius: tokens.radii.sm,
+                    border: '1px solid #d1d5db',
+                    minWidth: 240,
+                    fontSize: tokens.font.sizes.sm,
+                  }}
+                />
+              </label>
+              <Button type="submit">Connect</Button>
+            </form>
+          </div>
+        )}
+
         {historySource === 'session' && (applications.length > 0 || runs.length > 0) && (
           <div
             style={{
@@ -173,7 +248,7 @@ export function Dashboard({
           />
           <StatCard
             icon={<IconShieldCheck size={22} />}
-            value={completedRuns.length}
+            value={verifiedRuns.length}
             label="Verified"
             iconColor="#7c3aed"
           />

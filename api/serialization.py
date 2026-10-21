@@ -17,7 +17,7 @@ Properties of this codec:
 * explicit        — field-by-field mapping, no object graph walking
 * inspectable     — the database stores readable JSON
 * versioned       — ``schema`` + ``schema_version`` on every payload
-* tamper evident  — evidence manifests carry their Phase A seal and the seal
+* tamper evident  — evidence manifests carry their evidence seal and the seal
                     is re-verified on load
 * forward guarded — unknown schema versions are rejected, never guessed
 """
@@ -59,7 +59,7 @@ SCHEMA_VERDICT = "verdict"
 SCHEMA_REPORT = "modernization-report"
 SCHEMA_STR_LIST = "string-list"
 
-#: Version 1 is the first JSON payload format (Phase B).  There are no
+#: Version 1 is the first and only JSON payload format so far.  There are no
 #: earlier supported versions: any other value is unsupported, not "old".
 CURRENT_SCHEMA_VERSION = 1
 
@@ -262,7 +262,7 @@ def encode_evidence_manifest(manifest: EvidenceManifest) -> bytes:
         raise PersistenceCorruptionError(
             f"refusing to persist evidence of type {type(manifest).__name__}"
         )
-    # P2-h (§38): re-check the construction-time seal against the canonical
+    # Re-check the construction-time seal against the canonical
     # evidence graph at the write boundary.  An in-place mutation after
     # construction leaves a stale seal; decoding would fail closed later, but
     # persisting the blob in the first place must be refused now.
@@ -649,7 +649,7 @@ def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
         _fail(f"persisted evidence manifest is malformed: {exc}")
 
-    # Phase A seal re-verification: any in-place modification of the
+    # Seal re-verification: any in-place modification of the
     # persisted evidence graph is detected here (fail closed).
     if manifest.sealed_hash is None or str(manifest.sealed_hash) != seal:
         _fail("persisted evidence seal mismatch (evidence was modified)")

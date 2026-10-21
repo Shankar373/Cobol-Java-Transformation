@@ -20,9 +20,12 @@ Architecture:
 from __future__ import annotations
 
 import hashlib
+import logging
 import subprocess
+import uuid
 from pathlib import Path
 
+from engine.docker_cli import cleanup_container
 from engine.execution.sandbox_paths import sandbox_staging_dir, to_host_path
 from engine.transformation.contracts import (
     GeneratedFile,
@@ -72,6 +75,45 @@ _PRODUCER_SUPPORTED_CONSTRUCTS: tuple[str, ...] = (
 )
 _PRODUCER_UNSUPPORTED_CONSTRUCTS: tuple[str, ...] = ()
 
+# Hard resource ceilings for the container that runs the external COBOL
+# compiler.  We cap it because the source we compile is user-supplied: without
+# a ceiling a runaway or malicious compile could consume the whole host.
+# These live here as named constants (rather than inline strings) so the limits
+# are visible and adjustable in one place, and they deliberately match the
+# defaults used by the execution runner so every container we spawn obeys one
+# single resource policy.
+_PRODUCER_MEMORY_LIMIT = "512m"
+_PRODUCER_CPU_LIMIT = "1.0"
+_PRODUCER_PIDS_LIMIT = 256
+
+logger = logging.getLogger(__name__)
+
+
+def _cleanup_timed_out_container(container_name: str | None) -> None:
+    """Remove a producer container whose run did not finish normally.
+
+    When our timeout kills the Docker CLI process, the container it started is
+    left running behind our back, so we have to go and stop it explicitly.
+    This is best-effort: the caller is already reporting a FAILED compile, so a
+    cleanup problem is logged rather than raised — it must never replace or
+    hide the real error.
+    """
+    if not container_name:
+        return
+    try:
+        removed, detail = cleanup_container(container_name)
+    except Exception as exc:  # cleanup must never mask the producer failure
+        logger.warning(
+            "Producer container cleanup for %s raised: %s", container_name, exc
+        )
+        return
+    if not removed:
+        logger.warning(
+            "Producer container %s not confirmed removed (%s)",
+            container_name,
+            detail,
+        )
+
 
 class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
     """Adapter for OpenSourceCOBOL4J as an external producer.
@@ -113,21 +155,52 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 ),
             )
 
+        # Declared before the try block so the cleanup in `finally` always has
+        # a defined value to work with, even if the compile never gets far
+        # enough to name a container.
+        container_name: str | None = None
+
         try:
-            # Write COBOL source to temp file (host-visible staging so the
-            # host daemon can bind-mount it in production).
+            # Write the COBOL source to a temporary directory on the host.  The
+            # compiler container mounts this directory, which is why it has to
+            # be a host-visible path rather than a location inside the service
+            # container.
             with sandbox_staging_dir(prefix="cobj-") as tmpdir:
                 cobol_path = Path(tmpdir) / f"{program_id}.cob"
                 cobol_path.write_text(cobol_source, encoding="utf-8")
 
-                # Run cobj via Docker
+                # Compile the source in Docker.  Each flag is a deliberate
+                # safety boundary, because the source being compiled is
+                # user-supplied:
+                #   --name        gives the container a known name so our
+                #                 timeout handler can find and stop it;
+                #                 `--rm` alone is not enough, because when the
+                #                 CLI client is killed the container it started
+                #                 is left running with no one to clean it up
+                #   --network none the compiler never needs the network, and
+                #                 untrusted source must not be able to reach it
+                #   --memory / --cpus / --pids-limit
+                #                 bound CPU, memory and process count so a
+                #                 pathological program cannot exhaust the host
+                #   no-new-privileges
+                #                 prevents the process inside the container
+                #                 from gaining more privilege than it started with
+                container_name = f"cobj-{uuid.uuid4().hex[:12]}"
+                docker_cmd = [
+                    "docker", "run", "--rm",
+                    "--name", container_name,
+                    "--network", "none",
+                    "--memory", _PRODUCER_MEMORY_LIMIT,
+                    "--cpus", _PRODUCER_CPU_LIMIT,
+                    "--pids-limit", str(_PRODUCER_PIDS_LIMIT),
+                    "--security-opt", "no-new-privileges=true",
+                    "-v", f"{to_host_path(tmpdir)}:/cobol",
+                    self.DOCKER_IMAGE,
+                    "cobj", f"/cobol/{program_id}.cob",
+                ]
+
                 result = subprocess.run(
-                    [
-                        "docker", "run", "--rm",
-                        "-v", f"{to_host_path(tmpdir)}:/cobol",
-                        self.DOCKER_IMAGE,
-                        "cobj", f"/cobol/{program_id}.cob",
-                    ],
+                    docker_cmd,
                     capture_output=True,
                     text=True,
                     timeout=120,
@@ -189,6 +262,9 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 )
 
         except subprocess.TimeoutExpired:
+            # Timeout-clean: the CLI client was killed, so the container
+            # it started may still exist — remove it explicitly.
+            _cleanup_timed_out_container(container_name)
             return TransformationResult(
                 status=TransformationStatus.FAILED,
                 producer_identity=self.PRODUCER_IDENTITY,
@@ -201,6 +277,7 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 ),
             )
         except Exception as e:
+            _cleanup_timed_out_container(container_name)
             return TransformationResult(
                 status=TransformationStatus.FAILED,
                 producer_identity=self.PRODUCER_IDENTITY,

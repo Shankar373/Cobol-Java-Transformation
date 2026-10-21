@@ -35,7 +35,7 @@ from engine.transformation.ir import SqlStatementType
 _HOST_RE = re.compile(r":[A-Z][A-Z0-9-]*", re.IGNORECASE)
 _PAIR_RE = re.compile(r":[A-Z][A-Z0-9-]*:[A-Z][A-Z0-9-]*", re.IGNORECASE)
 
-# Statement types the analyzer can produce (BL-061): anything else is
+# Statement types the analyzer can produce: anything else is
 # misuse of execute() and fails closed with a named diagnostic.
 _ANALYZED_STATEMENT_TYPES = frozenset(st.value for st in SqlStatementType)
 
@@ -69,7 +69,7 @@ class _CursorState:
     columns: tuple[str, ...] = ()
     fetch_index: int = 0
     # Host-variable bind plan captured when the query was masked at
-    # DECLARE (BL-061): OPEN binds values against this plan instead of
+    # DECLARE: OPEN binds values against this plan instead of
     # re-masking the already-masked SQL (which loses every bind entry).
     bind_info: tuple[tuple[str, str], ...] = ()
 
@@ -143,7 +143,7 @@ class Db2ControlledDatabase:
 
         ``semantic_stmt`` is a ``Db2StmtSemantic`` produced by the analyzer.
         ``bindings`` supplies input host variable values by COBOL name.
-        Misuse fails closed (BL-061): an unanalyzed IR statement or an
+        Misuse fails closed: an unanalyzed IR statement or an
         unknown statement type is rejected with a named diagnostic instead
         of being misrouted into the DML path.
         """
@@ -213,8 +213,8 @@ class Db2ControlledDatabase:
         if state is None:
             raise KeyError(f"cursor not declared: {name}")
         masked_sql = state.masked_sql
-        # Bind the query's host variables from the DECLARE-time bind plan
-        # (BL-061): values are supplied by the workload at OPEN.
+        # Bind the query's host variables from the DECLARE-time bind plan;
+        # values are supplied by the workload at OPEN.
         values = self._bind_values(list(state.bind_info), bindings)
         try:
             cur = self._connection.execute(masked_sql, values)

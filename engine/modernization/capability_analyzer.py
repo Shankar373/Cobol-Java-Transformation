@@ -74,7 +74,7 @@ class ComponentCapability:
     # Emitted values: "PROGRAM", "COPYBOOK", "CALL", "FILE".
     # JCL is deliberately absent: it is tracked by the JCL ledger
     # (integrated_proof.jcl_ledger_entry), never as a capability
-    # component (Phase 5 audit, BL-077).
+    # component.
     component_type: str
     level: CapabilityLevel
     reason: str = ""
@@ -203,8 +203,8 @@ def _iter_program_data_items(program) -> list:
 def _scan_copy_replacing(source_text: str) -> "list[tuple[str, CapabilityLevel, str]]":
     """Classify COPY ... REPLACING clauses the materialization lane cannot apply.
 
-    BL-032: a clause whose operand form the lane does not implement (or
-    that does not parse) fails generation with an explicit diagnostic, so
+    A clause whose operand form the lane does not implement (or that
+    does not parse) fails generation with an explicit diagnostic, so
     the program cannot be transformed as-is — the verdict must say so
     instead of reporting SUPPORTED over a clause that is never applied.
     The grammar check reuses the materialization lane's parser
@@ -254,7 +254,7 @@ def _analyze_call_linkage_arity(
     by_id = {}
     for unit in application.programs:
         if unit.program is not None:
-            # BL-044: one shared uppercase normalization for every
+            # One shared uppercase normalization for every
             # program-id join (discovery stamps resolution the same way).
             by_id[normalize_cobol_name(unit.program.program_id)] = unit.program
 
@@ -320,8 +320,8 @@ class CapabilityAnalyzer:
         """Analyze a discovered application and produce a capability report.
 
         ``source_root`` (the ingested source tree) lets the copybook scan be
-        transitive over the exact search directories generation uses
-        (BL-039); when omitted the copybook's own directory keeps the legacy
+        transitive over the exact search directories generation uses;
+        when omitted the copybook's own directory keeps the legacy
         flat behavior.
         """
         components: list[ComponentCapability] = []
@@ -336,7 +336,7 @@ class CapabilityAnalyzer:
             components.extend(unit_components)
             for comp in unit_components:
                 if comp.component_type == "PROGRAM":
-                    # BL-044: normalized keys so a resolved edge whose
+                    # Normalized keys so a resolved edge whose
                     # target spelling differs only in case still finds
                     # its callee's level.
                     program_levels[normalize_cobol_name(comp.component_id)] = comp.level
@@ -521,7 +521,7 @@ class CapabilityAnalyzer:
             _note_figurative(getattr(stmt, "parts", None))
             _note_figurative(getattr(stmt, "condition", None))
             # STRING DELIMITED BY SPACE carries its figurative constant in
-            # the IR (BL-027); without this the source scan would re-report
+            # the IR; without this the source scan would re-report
             # the bare SPACE word as source-only evidence.
             _note_figurative(getattr(stmt, "delimiter_exprs", None))
 
@@ -644,7 +644,7 @@ class CapabilityAnalyzer:
                     continue
                 findings.append((key, entry.effective_source_level, entry.evidence))
 
-        # USAGE clause evidence (BL-002).  The parser records a declared
+        # USAGE clause evidence.  The parser records a declared
         # USAGE on DataItem; a non-DISPLAY usage means the numeric *value*
         # path is mapped but the record-area *byte encoding* is not certified.
         # Before this the clause was silently ignored, which the capability
@@ -672,8 +672,8 @@ class CapabilityAnalyzer:
                     "no certified value or encoding mapping; items: " + items_text,
                 ))
 
-        # REDEFINES / OCCURS / 88-level (BL-003) and the VSAM FILE-CONTROL
-        # phrases (BL-086, roadmap P3-5).  These are pre-PROCEDURE-DIVISION
+        # REDEFINES / OCCURS / 88-level and the VSAM FILE-CONTROL
+        # phrases.  These are pre-PROCEDURE-DIVISION
         # constructs the procedure-restricted source scan above cannot see,
         # so scan the source-before-PROCEDURE slice explicitly.  Classified
         # UNSUPPORTED (fail-closed) until a full-ladder runtime proof exists.
@@ -691,12 +691,14 @@ class CapabilityAnalyzer:
                 "ORGANIZATION RELATIVE",
                 "ACCESS DYNAMIC",
                 "RECORD KEY",
+                "LOCAL-STORAGE",
+                "REPLACE",
             ):
                 if key in data_detected:
                     entry = CONSTRUCT_REGISTRY[key]
                     findings.append((key, entry.level, entry.evidence))
 
-        # COPY ... REPLACING clauses the lane cannot apply (BL-032).  The
+        # COPY ... REPLACING clauses the lane cannot apply.  The
         # clause sits in the program source, so it is visible here even
         # though the copybook file itself contains no REPLACING text.  A
         # clause the materialization lane fails closed on must never leave
@@ -865,7 +867,7 @@ class CapabilityAnalyzer:
             if cb.resolution == "RESOLVED" and cb.resolved_path
         ]
 
-        # BL-033 (capability truth): generation deterministically fails for an
+        # Capability truth: generation deterministically fails for an
         # unresolvable COPY reference ("Missing COPY target: <name>"), so the
         # dependency must not classify SUPPORTED — the capability graph and the
         # plan would assert the opposite of the same run's generation.
@@ -908,7 +910,7 @@ class CapabilityAnalyzer:
         read_error = ""
         for path in resolved_paths:
             try:
-                # Strict UTF-8 (BL-056): a decode failure must take this
+                # Strict UTF-8: a decode failure must take this
                 # exact read-failure path — the lenient errors="replace"
                 # reader let the analyzer classify bytes generation rejects
                 # as (falsely) clean.  Valid UTF-8 reads are unchanged.
@@ -929,7 +931,7 @@ class CapabilityAnalyzer:
                 details={"resolution": "RESOLVED", "path": resolved_paths[0]},
             )
 
-        # BL-039 (capability truth is transitive): scan every file the
+        # Capability truth is transitive: scan every file the
         # generation lane merges — the top-level copybook plus each nested
         # COPY target — so constructs inside nested copybooks cannot escape
         # the verdict.  Search directories are the shared deterministic
@@ -1061,7 +1063,7 @@ class CapabilityAnalyzer:
         metadata = edge.metadata or ""
         is_resolved = "resolution=RESOLVED" in metadata
         is_dynamic = "call_type=DYNAMIC" in metadata
-        # BL-044: names join case-insensitively — a case-variant self CALL
+        # Names join case-insensitively — a case-variant self CALL
         # must stay classified as recursive, not "resolved".
         is_self_call = (
             normalize_cobol_name(edge.source) == normalize_cobol_name(edge.target)

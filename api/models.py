@@ -56,9 +56,9 @@ class ApplicationCreate(BaseModel):
     description: str = ""
     workload_id: str = Field(..., min_length=1, max_length=256)
     java_entrypoint: str = Field(default="Main", min_length=1)
-    # §32 runtime target (BL-089). Validated fail-closed by the service
-    # against SUPPORTED_TARGET_RUNTIMES — unknown values are rejected,
-    # never silently defaulted to another target.
+    # Runtime target for this application.  Validated fail-closed by the
+    # service against SUPPORTED_TARGET_RUNTIMES — unknown values are
+    # rejected, never silently defaulted to another target.
     target_runtime: str = Field(default="spring_boot", min_length=1, max_length=64)
 
 
@@ -99,10 +99,15 @@ class RunResponse(BaseModel):
     created_at: str
     completed_at: str | None = None
     error: str | None = None
+    # Persisted verdict state (VERIFIED/FAILED/UNPROVEN/...), or None when
+    # no verdict was produced.  Served fail-closed: only when the verdict
+    # hash-matches its evidence manifest pair (Service.run_verdict_state).
+    # The dashboard's "Verified" stat counts this field — never the stage.
+    verdict_state: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# Customer approval (BL-091; D-1 resolved 2026-10-17)
+# Customer approval
 # ---------------------------------------------------------------------------
 
 class ApprovalDecision(str, Enum):
@@ -118,8 +123,9 @@ class ApprovalDecision(str, Enum):
 class ApprovalRequest(BaseModel):
     """Decision payload for POST /runs/{run_id}/approval.
 
-    The approver string is recorded input, not a verified identity (the
-    approved D-1 scope keeps the single bearer token and adds no RBAC).
+    The approver string is recorded input, not a verified identity (this
+    feature keeps the single bearer token and adds no role-based access
+    control).
     """
     decision: ApprovalDecision
     approver: str
@@ -127,7 +133,7 @@ class ApprovalRequest(BaseModel):
 
 
 class ApprovalResponse(BaseModel):
-    """Current approval record for a run (BL-091)."""
+    """Current approval record for a run."""
     run_id: str
     state: str  # PENDING | APPROVED | REJECTED
     approver: str | None = None

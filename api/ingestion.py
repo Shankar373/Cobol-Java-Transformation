@@ -34,6 +34,16 @@ class IngestionError(Exception):
 _MAX_ZIP_ARCHIVE_BYTES_DEFAULT = 50 * 1024 * 1024
 _MAX_ZIP_ENTRIES_DEFAULT = 1000
 _MAX_TOTAL_EXTRACTED_BYTES_DEFAULT = 200 * 1024 * 1024
+# How much a single ZIP entry is allowed to expand, as a ratio of uncompressed
+# to compressed size.  This is our guard against a "zip bomb" — a tiny archive
+# that blows up into gigabytes when extracted.  Real COBOL and JCL source
+# compresses only a few times over (typically 2:1 to 6:1, and even highly
+# repetitive fixed-format listings stay under about 30:1), while an entry made
+# of one repeated byte can easily exceed 1000:1.  Allowing 100:1 therefore
+# leaves two orders of magnitude of headroom for legitimate archives while
+# still rejecting anything that looks like a bomb.  Operators can retune it
+# through the environment without a code change.
+_MAX_ZIP_COMPRESSION_RATIO_DEFAULT = 100
 
 
 def _zip_limit(name: str, default: int) -> int:
@@ -50,6 +60,10 @@ def _get_max_zip_entries() -> int:
 
 def _get_max_total_extracted_bytes() -> int:
     return _zip_limit("CONTROL_PLANE_MAX_TOTAL_EXTRACTED_BYTES", _MAX_TOTAL_EXTRACTED_BYTES_DEFAULT)
+
+
+def _get_max_zip_compression_ratio() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_ZIP_COMPRESSION_RATIO", _MAX_ZIP_COMPRESSION_RATIO_DEFAULT)
 
 
 def _is_traversal(name: str) -> bool:
@@ -109,7 +123,9 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
     Preserves the original directory structure from the ZIP.
 
     Security: extraction is path-traversal safe (Zip Slip protected), rejects
-    absolute paths and symlink entries, and enforces archive entry/size limits.
+    absolute paths, symlink entries, and duplicate/ambiguous entry names
+    (unique after separator normalization and case folding, so the extracted
+    tree is platform-independent), and enforces archive entry/size limits.
     """
     max_archive = _get_max_zip_archive_bytes()
     if len(data) > max_archive:
@@ -130,6 +146,8 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
 
             total_size = 0
             max_extracted = _get_max_total_extracted_bytes()
+            max_ratio = _get_max_zip_compression_ratio()
+            seen_names: dict[str, str] = {}
             for info in members:
                 if _is_traversal(info.filename):
                     raise IngestionError(
@@ -139,6 +157,43 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
                     raise IngestionError(
                         f"Symlink ZIP entries are not allowed: {info.filename!r}"
                     )
+                if not info.is_dir():
+                    # Reject any two entries whose names collide once we normalise
+                    # separators and letter case.  Without this, exact duplicates
+                    # would silently overwrite each other (last one wins), and
+                    # names differing only by separator or case would extract
+                    # cleanly on Windows or Linux but not both — leaving an
+                    # extracted tree that depends on which machine ran the job.
+                    collision_key = info.filename.replace("\\", "/").casefold()
+                    prior = seen_names.get(collision_key)
+                    if prior is not None:
+                        raise IngestionError(
+                            f"Duplicate ZIP entry: {info.filename!r} collides "
+                            f"with {prior!r} (names must be unique after "
+                            "separator normalization and case folding)"
+                        )
+                    seen_names[collision_key] = info.filename
+                    # Reject entries whose declared size would explode on
+                    # extraction.  Our other limits only bound the final size;
+                    # by then a bomb has already been expanded on disk.  Checking
+                    # the declared ratio lets us refuse it before writing a
+                    # single byte.  Empty entries are skipped, both because
+                    # there is no ratio to judge and to avoid dividing by zero.
+                    if info.file_size > 0:
+                        if info.compress_size <= 0:
+                            raise IngestionError(
+                                f"ZIP entry {info.filename!r} declares "
+                                f"{info.file_size} uncompressed bytes over "
+                                f"{info.compress_size} compressed bytes"
+                                " (invalid compression ratio)"
+                            )
+                        ratio = info.file_size / info.compress_size
+                        if ratio > max_ratio:
+                            raise IngestionError(
+                                f"ZIP entry {info.filename!r} compression "
+                                f"ratio {ratio:.0f}:1 exceeds the "
+                                f"{max_ratio}:1 limit (possible zip bomb)"
+                            )
                 total_size += info.file_size
                 if total_size > max_extracted:
                     raise IngestionError(

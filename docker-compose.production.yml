@@ -29,13 +29,22 @@ services:
     env_file:
       - ${ENV_FILE:-.env.production}
     environment:
+      # Refuse to start if the API token is missing or empty.  Without this,
+      # a production stack could come up serving an unauthenticated API.
+      # The `:?` form makes compose abort before it creates a single container.
+      # The application's own default (no token configured = auth disabled) is
+      # deliberately unchanged, so local development stays simple; this
+      # requirement is attached only to the production deployment file.
+      CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:?CONTROL_PLANE_API_TOKEN must be set - see .env.production.example}
       CONTROL_PLANE_DB: /app/data/control-plane.db
       TMPDIR: /app/tmp
-      # Host-visible sandbox staging (R1 production execution topology).
-      # The engine stages every Docker bind-mount source under
-      # SANDBOX_STAGING_DIR (container view) and translates it to
-      # SANDBOX_HOST_STAGING_DIR (host view) before building `docker run`
-      # -v arguments, because bind sources are resolved by the HOST daemon.
+      # Where the engine stages files that Docker containers bind-mount.
+      # Docker resolves a bind-mount source against the HOST filesystem, not
+      # the service container's, so the engine stages under a path the service
+      # can see (SANDBOX_STAGING_DIR) and rewrites it to the host's view
+      # (SANDBOX_HOST_STAGING_DIR) before it builds the `docker run` -v
+      # argument.  Without this translation the mount silently resolves to a
+      # non-existent host path in production.
       # Staging under the /app/tmp tmpfs or a named volume is invisible to
       # the host daemon, so oracle/candidate execution fails closed there.
       # The bind below makes both names the same directory. No new Docker

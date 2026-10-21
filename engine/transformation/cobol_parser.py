@@ -112,7 +112,7 @@ _NON_PARAGRAPH_WORDS = frozenset({
 # opens the scope, e.g. `WHEN 1 DISPLAY "X"` or `IF A > 1 THEN MOVE ...`.
 # The parser previously treated every token after `WHEN `/`IF ` as part of the
 # condition, so those statements were absorbed into the condition string and
-# silently dropped (BL-020).  Detecting the boundary needs the same verb
+# silently dropped.  Detecting the boundary needs the same verb
 # vocabulary `_parse_statement` dispatches on, so the two stay in step.
 _STATEMENT_LEADING_VERBS: tuple[str, ...] = (
     "OPEN", "READ", "WRITE", "CLOSE", "START", "REWRITE", "DELETE",
@@ -122,7 +122,7 @@ _STATEMENT_LEADING_VERBS: tuple[str, ...] = (
     "GOBACK", "GO", "GOTO", "ACCEPT", "SORT", "MERGE", "ALTER",
 )
 
-# A line that can never be STRING continuation text (BL-040): it begins a
+# A line that can never be STRING continuation text: it begins a
 # new statement, closes a scope, or opens a file clause.  Derived from
 # ``_STATEMENT_LEADING_VERBS`` so the two vocabularies cannot drift, with
 # **word-boundary** matching — ``MOVE-DATE`` is a legal data-name and must
@@ -164,7 +164,7 @@ def split_condition_from_inline_statements(text: str) -> tuple[str, str]:
 
 # COBOL intrinsic function call: ``FUNCTION NAME(args)``.  Matched on the whole
 # text so a *field* named e.g. ``FUNCTION-CODE`` (no parentheses) never matches
-# and still parses as a normal field reference (BL-024).
+# and still parses as a normal field reference.
 _re_intrinsic = re.compile(
     r"^FUNCTION\s+([A-Z][A-Z0-9-]*)\s*\(.*\)$",
     re.IGNORECASE | re.DOTALL,
@@ -398,6 +398,11 @@ class CobolParser:
             else:
                 logical_lines.append(line)
         code_lines = logical_lines
+        # Recognised-but-unimplemented constructs must never vanish silently:
+        # LOCAL-STORAGE SECTION and the REPLACE compiler directive change what
+        # the program does, so the parser names them explicitly the moment it
+        # sees them instead of dropping them without a trace.
+        self._emit_unsupported_section_and_directive_diagnostics(code_lines)
         program_id = self._parse_program_id(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
@@ -483,6 +488,47 @@ class CobolParser:
         self._validate_program_structure(program, source)
 
         return program
+
+    def _emit_unsupported_section_and_directive_diagnostics(
+        self, lines: list[str]
+    ) -> None:
+        """Name recognised COBOL constructs this lane does not implement.
+
+        ``LOCAL-STORAGE SECTION`` gives a program re-entrant per-invocation
+        storage, and the ``REPLACE`` directive rewrites source text before
+        compilation.  Neither is parsed into IR here, so a program that uses
+        them would otherwise be reported as fully transformable while the
+        section and the substitution are silently dropped.  Emitting an
+        explicit ``UNSUPPORTED_CONSTRUCT`` warning the moment either is seen
+        keeps the loss visible to capability analysis and to any reviewer.
+
+        Only the bare reserved words count: lookarounds refuse adjacent
+        hyphens/word characters so data names such as ``WS-LOCAL-STORAGE-FLAG``
+        or ``WS-REPLACE-COUNT`` are never mistaken for the constructs, and
+        ``COPY ... REPLACING`` (a different construct) does not match.
+        """
+        for number, line in enumerate(lines, start=1):
+            # Strip a trailing period so a bare reserved word still matches
+            # while "LOCAL-STORAGE-FIELD." or "REPLACE-COUNT." cannot.
+            candidate = line.rstrip().rstrip(".")
+            upper = candidate.upper()
+            if re.search(r"(?<![\w-])LOCAL-STORAGE(?![\w-])", upper):
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    "LOCAL-STORAGE SECTION is recognised but not transformed: "
+                    "per-invocation storage has no Java mapping in this lane",
+                    location=f"line {number}",
+                )
+            if re.search(r"(?<![\w-])REPLACE(?![\w-])", upper):
+                # Guard against the COPY ... REPLACING clause, which is a
+                # different construct handled by the copybook lane.
+                if not re.search(r"(?<![\w-])REPLACING(?![\w-])", upper):
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        "REPLACE directive is recognised but not transformed: "
+                        "compiler text substitution is not applied in this lane",
+                        location=f"line {number}",
+                    )
 
     def _validate_program_structure(self, program: CobolProgram, source: str) -> None:
         """Emit PARSE_ERROR if input contains no valid COBOL program structure.
@@ -815,7 +861,7 @@ class CobolParser:
         return []
 
     def _parse_working_storage(self, lines: list[str]) -> list[DataItem]:
-        """Parse WORKING-STORAGE SECTION into hierarchical data items (BL-058).
+        """Parse WORKING-STORAGE SECTION into hierarchical data items.
 
         Delegates to the shared data-description parser — the same shape as
         LINKAGE/COPYBOOK parsing: the returned roots keep true COBOL level
@@ -1022,7 +1068,7 @@ class CobolParser:
             return self._parse_multiply(lines, start)
 
         # CALL — a bare "CALL" line is the first line of a multi-line CALL
-        # statement (target/USING on following lines); BL-036: it must reach
+        # statement (target/USING on following lines); it must reach
         # _parse_call, whose continuation loop joins the rest, instead of
         # falling through as three separate unparsed statements.
         if upper.startswith("CALL ") or upper == "CALL":
@@ -1459,12 +1505,12 @@ class CobolParser:
         from_match = re.search(r"\bFROM\s+(\S+)", header_text, re.IGNORECASE)
         from_field = from_match.group(1).rstrip(".") if from_match else ""
 
-        # BL-070: bind the file through the FILE SECTION record-owner map
+        # Bind the file through the FILE SECTION record-owner map
         # first, exactly like WRITE — the "-REC" -> "-FILE" convention is
-        # only a fallback for records no FD declares.  Before this the
-        # heuristic ran alone, so a convention-breaking record bound to a
-        # wrong file name and the mapper silently degraded the REWRITE to
-        # a comment.
+        # only a fallback for records no FD declares.  Before that map
+        # was consulted, the heuristic ran alone, so a convention-breaking
+        # record bound to a wrong file name and the mapper silently
+        # degraded the REWRITE to a comment.
         file_name = (
             self._record_owner.get(record_name)
             or record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
@@ -1575,7 +1621,8 @@ class CobolParser:
     def _parse_multiply(self, lines: list[str], start: int) -> tuple[MultiplyStatement, int]:
         """Parse MULTIPLY source BY field [GIVING target].
 
-        BL-069: the no-match branch must raise the same
+        When the statement does not match the simple certified form, the
+        no-match branch must raise the same
         ``UNSUPPORTED_CONSTRUCT`` diagnostic ADD/SUBTRACT/DIVIDE raise in
         this position — before it returned an **empty** node with zero
         diagnostics, so the standard multi-recipient / ``ON SIZE ERROR``
@@ -1636,7 +1683,7 @@ class CobolParser:
             return CallStatement(program_name="", is_dynamic=True), i + 1
         program_name = next((g for g in match.groups()[:3] if g), "")
         using = match.group(4) or ""
-        # BL-037: the ON EXCEPTION / ON OVERFLOW phrase ends the argument
+        # The ON EXCEPTION / ON OVERFLOW phrase ends the argument
         # list.  It is recognised but not transformed, so it is named in an
         # explicit diagnostic (never silently absorbed into the USING
         # capture, which produced a false arity claim) and excluded from the
@@ -1759,7 +1806,7 @@ class CobolParser:
 
         Returns ``(statements, unparsed)``.  Anything that cannot be turned
         into IR is returned in ``unparsed`` so the caller can emit an explicit
-        diagnostic — the construct is never silently discarded (BL-020).
+        diagnostic — the construct is never silently discarded.
         """
         parsed: list[Any] = []
         unparsed: list[str] = []
@@ -1814,7 +1861,7 @@ class CobolParser:
             spec = lines[i].strip()[len("WHEN "):].rstrip(".").strip()
             i += 1
             body = []
-            # BL-020: a statement may sit on the same line as WHEN, e.g.
+            # A statement may sit on the same line as WHEN, e.g.
             # `WHEN 1 DISPLAY "ONE"`.  Without this split the statement text
             # was absorbed into `spec`, turning it into a bogus comparison
             # operand and silently dropping an executable statement.
@@ -1837,7 +1884,7 @@ class CobolParser:
         def cond(spec):
             if spec.upper() == "OTHER":
                 return "OTHER"
-            # BL-021: `WHEN a ALSO b ALSO c` lists alternative values.  ALSO
+            # `WHEN a ALSO b ALSO c` lists alternative values.  ALSO
             # is a keyword, not a value, so treating it as an operand produced
             # `A = 1 OR A = ALSO OR A = 2`.  Split on ALSO and OR the real
             # alternatives.  The condition mapper renders a top-level
@@ -1892,7 +1939,7 @@ class CobolParser:
         # (`IF A > 1 THEN DISPLAY "YES" END-IF`, or without THEN), so the
         # condition is split at the first statement verb and the remainder is
         # parsed into the THEN body instead of being swallowed as comparison
-        # operands (BL-020).
+        # operands.
         match = re.search(r"IF\s+(.+)", line, re.IGNORECASE)
         condition = match.group(1).strip() if match else ""
         condition, inline_then = split_condition_from_inline_statements(condition)
@@ -1941,7 +1988,7 @@ class CobolParser:
             if u.startswith("ELSE"):
                 # `ELSE` may carry its statement inline
                 # (`ELSE MOVE 9 TO WS-B`).  Skipping the whole line dropped
-                # that statement with no diagnostic (BL-020 class).
+                # that statement with no diagnostic.
                 after_else = u[len("ELSE"):].strip()
                 inline_else = after_else if after_else not in ("", "END-IF") else ""
                 current_section = "else"
@@ -2016,7 +2063,7 @@ class CobolParser:
                 or bool(re.match(r"\d+\s+TIMES", rest))
             )
         if inline:
-            # BL-055: the UNTIL boundary is detected on the uppercased line
+            # The UNTIL boundary is detected on the uppercased line
             # but must split the original-case line case-insensitively — a
             # lowercase `perform … until …` previously raised IndexError
             # (guard matched `upper`, split missed the lowercase spelling).
@@ -2128,8 +2175,9 @@ class CobolParser:
 
     #: Classify a ``DELIMITED BY`` operand.  Returns ``(expression,
     #: unimplemented_reason)``; ``None`` means ``SIZE`` (also the documented
-    #: lenient default when the clause is absent, matching the pre-BL-027
-    #: parse of simplified sources such as ``STRING "A" "B" INTO X``).
+    #: lenient default when the clause is absent, matching how simplified
+    #: sources such as ``STRING "A" "B" INTO X`` parsed before delimiter
+    #: handling was added).
     def _string_delimiter(self, raw: str) -> tuple[Expression | None, str]:
         word = raw.strip().rstrip(".")
         upper = word.upper()
@@ -2140,11 +2188,11 @@ class CobolParser:
         if len(word) >= 2 and word[0] == word[-1] and word[0] in ("\"", "'"):
             return Literal(value=word[1:-1], is_numeric=False), ""
         # Identifier delimiter: truncation at a data-dependent position has
-        # no certified Java mapping yet (BL-027 acceptance criterion 3).
+        # no certified Java mapping yet.
         return FieldReference(name=word), f"DELIMITED BY identifier {word}"
 
     def _parse_string_text(self, full_text: str) -> StringStatement:
-        """Parse one joined STRING statement into IR (BL-027).
+        """Parse one joined STRING statement into IR.
 
         Every sending phrase keeps its delimiter: the delimiter describes how
         much of the sending item is copied — it is never sending data of its
@@ -2206,7 +2254,7 @@ class CobolParser:
         )
         if pointer_match:
             pointer = pointer_match.group(1)
-        # BL-029: the VARYING IN phrase is an alternative receiving-position
+        # The VARYING IN phrase is an alternative receiving-position
         # form (pointer starts at FROM, advances BY after the statement).
         # No certified mapping exists, so it must fail closed — before the
         # fix it was silently dropped while the verdict stayed SUPPORTED.
@@ -2246,10 +2294,10 @@ class CobolParser:
     def _parse_string(self, lines: list[str], start: int) -> tuple[StringStatement, int]:
         """Parse STRING parts INTO target [WITH POINTER ...] [ON OVERFLOW ...].
 
-        Continuation lines are only consumed while the statement is open
-        (BL-040): the join stops at ``END-STRING``, at the statement's
-        terminating period (``END-STRING`` is optional in COBOL — before
-        BL-040 the join stopped only at ``END-STRING``/EOF and swallowed
+        Continuation lines are only consumed while the statement is open:
+        the join stops at ``END-STRING``, at the statement's terminating
+        period (``END-STRING`` is optional in COBOL — before this boundary
+        check the join stopped only at ``END-STRING``/EOF and swallowed
         **every following statement** with zero diagnostics), and at a line
         that begins a new statement (scope terminator, verb-led with word
         boundary, or file-clause header).  A complete-but-unterminated
@@ -2273,7 +2321,7 @@ class CobolParser:
             if u.startswith("END-STRING"):
                 i += 1
                 break
-            # BL-040: a scope terminator or a new statement's header is
+            # A scope terminator or a new statement's header is
             # never STRING continuation — stop before it so the following
             # statement reaches the IR instead of being swallowed.
             if _SCOPE_TERMINATOR.match(l) or _STRING_CONTINUATION_STOP.match(u):
@@ -2365,12 +2413,12 @@ class CobolParser:
         match = re.search(r"GO\s+TO\s+(\S+)", line, re.IGNORECASE)
         target = match.group(1).rstrip(".") if match else ""
 
-        # BL-026 (diagnostic completeness): the executable jump is lowered to
-        # a comment by the mapper, so §16 requires an explicit diagnostic
-        # naming the construct — the same UNSUPPORTED_CONSTRUCT channel SORT
-        # and INSPECT use.  The verdict is unchanged (the registry already
-        # classifies GO TO UNSUPPORTED) and the mapper comment stays for
-        # traceability.
+        # Diagnostic completeness: the executable jump is lowered to
+        # a comment by the mapper, so it must still carry an explicit
+        # diagnostic naming the construct — the same UNSUPPORTED_CONSTRUCT
+        # channel SORT and INSPECT use.  The verdict is unchanged (the
+        # registry already classifies GO TO UNSUPPORTED) and the mapper
+        # comment stays for traceability.
         self._diagnostics.warning(
             DiagnosticCode.UNSUPPORTED_CONSTRUCT,
             f"GO TO is not transformed: control flow is lowered to a comment "
@@ -2875,12 +2923,12 @@ class CobolParser:
             kind, _fill = figurative
             return FigurativeConstant(kind=kind, text=text)
 
-        # BL-024: an intrinsic call (`FUNCTION MIN(1, 2)`) is not a variable.
+        # An intrinsic call (`FUNCTION MIN(1, 2)`) is not a variable.
         # Falling through to FieldReference produced the impossible identifier
         # `FUNCTION MIN(1, 2)`, which maps to an undeclared Java variable.  No
         # intrinsic is mapped by the deterministic lane, so fail closed with an
-        # explicit diagnostic instead of modelling it as a field (BL-018's
-        # defect class).
+        # explicit diagnostic instead of modelling it as a field (which would
+        # silently emit uncompilable Java).
         intrinsic = _re_intrinsic.match(text)
         if intrinsic is not None:
             name = intrinsic.group(1).upper()
@@ -2892,10 +2940,10 @@ class CobolParser:
             )
             return IntrinsicCall(name=name, arguments=text)
 
-        # BL-023: `**` is exponentiation, not two multiplications.  Treating it
+        # `**` is exponentiation, not two multiplications.  Treating it
         # as two `*` operators produced `2 * <empty field> * 3` - a wrong
-        # numeric result with no diagnostic (Master README Section 18).  No
-        # exponentiation mapping is certified, so fail closed explicitly.
+        # numeric result with no diagnostic.  No exponentiation mapping is
+        # certified, so fail closed explicitly.
         if "**" in self._mask_quoted(text):
             self._diagnostics.warning(
                 DiagnosticCode.UNSUPPORTED_CONSTRUCT,

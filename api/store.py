@@ -14,7 +14,7 @@ filesystem; the database keeps their stable paths (``generated_app_path``
 etc.). Evidence manifests, verdicts and modernization reports are persisted
 as **versioned JSON documents** produced by :mod:`api.serialization` — never
 pickle. Every decode validates the envelope, schema version, field types and
-the Phase A evidence seal; malformed, truncated, legacy-pickle or
+the evidence seal; malformed, truncated, legacy-pickle or
 unsupported-version payloads raise :class:`PersistenceCorruptionError`
 (fail closed instead of fabricating ``CREATED``/``None``/``()``).
 
@@ -24,7 +24,7 @@ Lifecycle integrity is enforced here:
   (forward-only, any stage to ``FAILED``, terminal states are final);
 * the only sanctioned terminal → ``CREATED`` path is
   :meth:`Store.begin_revalidation`, which atomically clears evidence,
-  verdict and the BL-091 approval record and increments
+  verdict and the approval record and increments
   ``validation_generation``;
 * writes carrying a stale ``validation_generation`` (a background worker
   from before a revalidation reset) are rejected with ``ConflictError``.
@@ -143,7 +143,7 @@ class ApplicationRecord:
     description: str
     workload_id: str
     java_entrypoint: str
-    # §32 runtime target this application is modernized for (BL-089).
+    # The runtime target this application is modernized for.
     target_runtime: str = "spring_boot"
     cobol_source_path: str | None = None
     java_candidate_path: str | None = None
@@ -182,13 +182,12 @@ class RunRecord:
     # Which certification contract the (re)validation used: the workload's
     # declared contract id or the explicit default fallback.
     certification_contract: str | None = None
-    # BL-091 (D-1 resolved 2026-10-17): per-run customer approval.  Every
-    # run starts PENDING; only an explicit decision writes the remaining
-    # fields; re-validation resets the whole record atomically.  These
-    # columns are written ONLY by add_run (defaults), set_run_approval
-    # (decisions) and begin_revalidation (reset) — update_run never touches
-    # them, so an in-flight worker holding a stale record cannot clobber a
-    # decision.
+    # Per-run customer approval.  Every run starts PENDING; only an
+    # explicit decision writes the remaining fields; re-validation resets
+    # the whole record atomically.  These columns are written ONLY by
+    # add_run (defaults), set_run_approval (decisions) and
+    # begin_revalidation (reset) — update_run never touches them, so an
+    # in-flight worker holding a stale record cannot clobber a decision.
     approval_state: str = "PENDING"
     approval_approver: str | None = None
     approval_reason: str | None = None
@@ -295,12 +294,12 @@ class Store:
             )
         app_cursor = self._conn.execute("PRAGMA table_info(applications)")
         app_columns = {row[1] for row in app_cursor.fetchall()}
-        if "target_runtime" not in app_columns:     # migration 4 (Phase 8, BL-089)
+        if "target_runtime" not in app_columns:     # migration 4 (target runtime)
             self._conn.execute(
                 "ALTER TABLE applications ADD COLUMN target_runtime"
                 " TEXT NOT NULL DEFAULT 'spring_boot'"
             )
-        if "approval_state" not in columns:  # migration 5 (Phase 12 P4, BL-091)
+        if "approval_state" not in columns:  # migration 5 (approval columns)
             # Existing runs predate the approval workflow and read back as
             # PENDING — the fail-closed default (export stays blocked).
             self._conn.execute(
@@ -506,7 +505,7 @@ class Store:
         approver: str,
         reason: str | None,
     ) -> RunRecord:
-        """Record an explicit customer decision for a run (BL-091).
+        """Record an explicit customer decision for a run.
 
         ``state`` must be a decision (``APPROVED`` / ``REJECTED``); PENDING
         is the implicit default and never a decision.  A new decision
@@ -569,7 +568,7 @@ class Store:
                 "UPDATE runs SET stage = ?, completed_at = NULL,"
                 " error = NULL, evidence_blob = NULL, verdict_blob = NULL,"
                 " validation_generation = ?, certification_contract = ?,"
-                # BL-091: approval never carries forward across attempts —
+                # Approval never carries forward across attempts —
                 # the reset clears the whole approval record atomically
                 # with the stage change (consistent snapshot).
                 " approval_state = 'PENDING', approval_approver = NULL,"

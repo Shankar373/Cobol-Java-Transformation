@@ -131,10 +131,10 @@ class TransformationPlanGenerator:
     ) -> TransformationPlan:
         """Generate a transformation plan from a capability report.
 
-        ``assembly_output_type`` records which §32 runtime target this
+        ``assembly_output_type`` records which runtime target this
         plan assembles for; it is validated fail-closed against the plan
         vocabulary so the plan can never claim a target the pipeline is
-        not configured to emit (BL-088).
+        not configured to emit.
         """
         _require_valid_plan_output_type(assembly_output_type)
         components: list[ComponentPlan] = []

@@ -338,7 +338,7 @@ def modernize_jcl(
         application_id: identifier for the resulting Spring Batch application.
         base_package: target Java package namespace for the batch layer.
         pre_diagnostics: diagnostics raised while sourcing the raw sources
-            (e.g. BL-063 decode failures).  They enter the same collector,
+            (e.g. member decode failures).  They enter the same collector,
             so an unreadable member counts as an ERROR and the derived
             status can never overstate coverage as FULL.
 

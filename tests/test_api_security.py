@@ -284,10 +284,31 @@ class TestUploadLimits:
         assert "byte limit" in resp.json()["detail"]
 
     def test_request_size_limit_returns_413(self, monkeypatch):
-        monkeypatch.setenv("CONTROL_PLANE_MAX_REQUEST_BYTES", "8")
+        # The limit applies to EVERY request body, including the JSON body that
+        # creates the app.  Creating the app first (before the limit is set) is
+        # what lets this test reach the upload route at all — the assertion
+        # below (an over-limit upload -> 413) is unchanged; what changed is
+        # that app creation is no longer exempt from the limit.
         app_id = _create_app("request-too-big")
+        monkeypatch.setenv("CONTROL_PLANE_MAX_REQUEST_BYTES", "8")
 
         resp = _upload(app_id, [("A.cob", b"x" * 32)])
+
+        assert resp.status_code == 413
+
+    def test_non_multipart_json_body_is_bounded(self, monkeypatch):
+        """A JSON route must be size-checked whether or not Content-Length is sent.
+
+        This is the route-level proof of the hole that was closed: creating an
+        application never went through the upload-only size check, so a large
+        JSON body was buffered without any bound at all.
+        """
+        monkeypatch.setenv("CONTROL_PLANE_MAX_REQUEST_BYTES", "8")
+
+        resp = client.post(
+            "/applications",
+            json={"name": "json-too-big", "workload_id": "wl-upload-safety"},
+        )
 
         assert resp.status_code == 413
 

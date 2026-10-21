@@ -190,11 +190,10 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     ),
     "EXEC CICS": _unsupported("EXEC CICS is outside the certified deterministic Java lane"),
     "EXEC SQL": _unsupported("EXEC SQL requires the separate DB2/SQL semantic lane"),
-    # Phase 7 (Master README §27/§28, roadmap P3-4): IMS and IBM MQ are
-    # detected and classified explicitly — no IR, no mapper, no runtime
-    # lane, so absence of IR proves the mapper can never see them.  The
-    # evidence text names the subsystem so capability verdicts say *why*
-    # a program is blocked instead of only listing generic skipped
+    # IMS and IBM MQ support was added detection-first: no IR, no mapper, no
+    # runtime integration, so absence of IR proves the mapper can never see
+    # them.  The evidence text names the subsystem so capability verdicts say
+    # *why* a program is blocked instead of only listing generic skipped
     # statements.  No equivalence claim: classification only.
     "EXEC DLI": _unsupported(
         "EXEC DLI (IMS) has no deterministic Java lane: no IR, no mapper "
@@ -217,13 +216,13 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "NEXT SENTENCE": _unsupported("NEXT SENTENCE is not represented by the procedure IR"),
     "GOBACK": _unsupported("GOBACK is not represented by the procedure IR"),
     "SIZE ERROR": _unsupported("SIZE ERROR handling is not yet represented in the arithmetic IR"),
-    # Phase 7 (Master README §29, roadmap P3-5): external utilities, system
-    # services and VSAM specifics are detection-first classified — Rung 0
-    # -> 1.  No IR, no mapper, no VSAM runtime, no utility runner, no
-    # equivalence claim: the evidence text names the construct so capability
-    # verdicts say *why* a program is blocked (§29 ladder step 1: Detected
-    # -> Classified; the verification rungs stay empty and the plan stays
-    # BLOCKED).
+    # External utilities, system services and VSAM specifics are
+    # detection-first classified — the first step of the verification
+    # ladder (Detected -> Classified) only.  No IR, no mapper, no VSAM
+    # runtime, no utility runner, no equivalence claim: the evidence text
+    # names the construct so capability verdicts say *why* a program is
+    # blocked (the runtime-verification rungs stay empty and the plan
+    # stays BLOCKED).
     "RELEASE": _unsupported(
         "RELEASE (SORT output step) has no deterministic Java lane: no IR, "
         "no mapper and no SORT utility runtime; classified UNSUPPORTED by "
@@ -256,6 +255,23 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "ROUNDED": _supported(
         "ROUNDED reaches the generated Java as a HALF_UP rounding mode on the "
         "receiving item (default stays DOWN truncation)"
+    ),
+    # LOCAL-STORAGE SECTION and the REPLACE compiler directive are recognised
+    # by the universality requirements but are not implemented by this lane:
+    # there is no IR node, no mapper, and no runtime semantics for either.  A
+    # program that uses them would otherwise be reported as fully transformable
+    # while its per-invocation storage or its text-substitution never happens.
+    # Classified UNSUPPORTED by detection so the capability verdict names the
+    # construct and the plan stays blocked instead of silently dropping it.
+    "LOCAL-STORAGE": _unsupported(
+        "LOCAL-STORAGE SECTION (per-invocation storage) has no deterministic "
+        "Java lane: no IR node, no mapper and no re-entrant runtime semantics; "
+        "classified UNSUPPORTED by detection, never transformed"
+    ),
+    "REPLACE": _unsupported(
+        "REPLACE ... END-REPLACE (compiler text-substitution directive) has no "
+        "deterministic Java lane: no IR node and no source-rewrite step before "
+        "generation; classified UNSUPPORTED by detection, never transformed"
     ),
     # Figurative constants (ZERO / SPACES / QUOTES / LOW-VALUE / HIGH-VALUE /
     # ALL "x").  These are reserved *words* with a fixed value.  They used to
@@ -322,7 +338,7 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
 
 # NOTE — BY CONTENT / BY VALUE are deliberately NOT registry keys.
 #
-# Roadmap P0-4 permitted either adding PARTIAL keys or keeping the modes blocked;
+# The roadmap allowed either adding PARTIAL keys or keeping the modes blocked;
 # this repository chose "keep blocked", and that choice is locked in by
 # tests/integration/test_phase_d_negative_integration.py::
 # TestUnsupportedParameterContract::test_by_value_and_by_content_are_never_claimed_supported
@@ -434,17 +450,18 @@ UNSUPPORTED_CONSTRUCTS = frozenset(
 _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("EXEC CICS", re.compile(r"(?<![\w-])EXEC\s+CICS(?![\w-])", re.IGNORECASE)),
     ("EXEC SQL", re.compile(r"(?<![\w-])EXEC\s+SQL(?![\w-])", re.IGNORECASE)),
-    # Phase 7 (roadmap P3-4): IMS and IBM MQ detection — Rung 0 -> 1.
-    # Same word-boundary discipline as EXEC CICS/EXEC SQL so identifiers
-    # such as ``WS-EXEC-MQI`` or verbs like ``EXECUTE`` can never match.
+    # IMS and IBM MQ detection — classified by detection only, never
+    # transformed.  Same word-boundary discipline as EXEC CICS/EXEC SQL so
+    # identifiers such as ``WS-EXEC-MQI`` or verbs like ``EXECUTE`` can
+    # never match.
     ("EXEC DLI", re.compile(r"(?<![\w-])EXEC\s+DLI(?![\w-])", re.IGNORECASE)),
     ("EXEC MQI", re.compile(r"(?<![\w-])EXEC\s+MQI(?![\w-])", re.IGNORECASE)),
     ("EVALUATE", re.compile(r"(?<![\w-])EVALUATE(?![\w-])", re.IGNORECASE)),
     ("GO TO", re.compile(r"(?<![\w-])GO\s+TO(?![\w-])|(?<![\w-])GOTO(?![\w-])", re.IGNORECASE)),
     ("SORT", re.compile(r"(?<![\w-])SORT(?![\w-])", re.IGNORECASE)),
     ("MERGE", re.compile(r"(?<![\w-])MERGE(?![\w-])", re.IGNORECASE)),
-    # Phase 7 (roadmap P3-5): external utilities / system services —
-    # detection-first, same word-boundary discipline so identifiers such as
+    # External utilities / system services — detection-first, same
+    # word-boundary discipline so identifiers such as
     # WS-RELEASE-CODE or WS-IDCAMS-COUNT can never match.
     ("RELEASE", re.compile(r"(?<![\w-])RELEASE(?![\w-])", re.IGNORECASE)),
     ("IDCAMS", re.compile(r"(?<![\w-])IDCAMS(?![\w-])", re.IGNORECASE)),
@@ -464,7 +481,7 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("REWRITE", re.compile(r"(?<![\w-])REWRITE(?![\w-])", re.IGNORECASE)),
     ("DELETE", re.compile(r"(?<![\w-])DELETE(?![\w-])", re.IGNORECASE)),
     ("INVALID KEY", re.compile(r"(?<![\w-])INVALID\s+KEY(?![\w-])", re.IGNORECASE)),
-    # Phase 7 (roadmap P3-5): VSAM specifics in FILE-CONTROL.  These sit in
+    # VSAM specifics in FILE-CONTROL.  These sit in
     # the ENVIRONMENT DIVISION, so the analyzer's pre-procedure data door
     # (restrict_to_procedure=False on the source-before-PROCEDURE slice)
     # reaches them; the word-boundary and optional-IS forms mirror COBOL
@@ -506,6 +523,16 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("REDEFINES", re.compile(r"(?<![\w-])REDEFINES(?![\w-])", re.IGNORECASE)),
     ("OCCURS", re.compile(r"(?<![\w-])OCCURS(?![\w-])", re.IGNORECASE)),
     ("88-LEVEL", re.compile(r"(?<![\w-])88\s+[A-Z0-9][\w-]*\s+(?:VALUE|THRU|THROUGH)(?![\w-])", re.IGNORECASE)),
+    # LOCAL-STORAGE SECTION and the REPLACE compiler directive are recognised
+    # COBOL constructs the lane does not implement.  The lookarounds refuse
+    # adjacent hyphens/word characters so data names such as
+    # WS-LOCAL-STORAGE-FLAG or WS-REPLACE-COUNT are never mistaken for the
+    # constructs, and the REPLACE pattern cannot match COPY ... REPLACING
+    # (that is a different construct handled by the copybook lane).  Both sit
+    # before the PROCEDURE DIVISION, so they surface via the
+    # restrict_to_procedure=False pre-procedure scan.
+    ("LOCAL-STORAGE", re.compile(r"(?<![\w-])LOCAL-STORAGE(?![\w-])", re.IGNORECASE)),
+    ("REPLACE", re.compile(r"(?<![\w-])REPLACE(?![\w-])", re.IGNORECASE)),
 )
 
 

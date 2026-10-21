@@ -197,7 +197,7 @@ class VerticalSlicePipeline:
                 if f.is_file():
                     rel = f.relative_to(candidate_path)
                     # Candidate identity is derived only from the source
-                    # tree, never from build outputs (BL-054).  Maven writes
+                    # tree, never from build outputs.  Maven writes
                     # its build output under the top-level target/ directory;
                     # excluding it keeps candidate_hash deterministic across
                     # repeated builds of identical sources.
@@ -622,7 +622,16 @@ class VerticalSlicePipeline:
             EnvironmentIdentity(
                 runtime_id="candidate-java",
                 java_version=getattr(self._candidate_adapter, "java_version", "") or None,
-                network_policy="none",
+                # Recorded from the adapter that actually executed, never a
+                # blanket "none": a Docker lane ran inside `--network none`
+                # and honestly claims it, while the host lane shares the
+                # host's network and must not assert an isolation it never
+                # had.  `getattr` mirrors the java_version lookup above so a
+                # duck-typed test double without the property falls back to
+                # the same honest "unisolated" default instead of crashing.
+                network_policy=getattr(
+                    self._candidate_adapter, "network_policy", "unisolated"
+                ),
                 resource_limits=self._candidate_resource_limits(),
             ),
         )

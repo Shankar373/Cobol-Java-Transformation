@@ -7,14 +7,14 @@ or validation logic — it delegates to:
   - engine.pipeline.UniversalModernizationPipeline (derivation of the
     verdict happens inside the engine pipeline via
     engine.verdict.derivation.derive_verdict_validated /
-    derive_verdict_untrusted — no direct derive_verdict call exists in
-    api/, P2-j truth note)
+    derive_verdict_untrusted — nothing in api/ calls derive_verdict
+    directly, so the verdict wording always comes from the engine)
   - engine.evidence.integrity.EvidenceIntegrityValidator (evidence
     admission: pair consistency, artifact integrity, seal re-checks)
   - engine.modernization.integrated_proof (dependency ledger +
     central status gate for the certification surfaces)
 
-P0 MVP canonical path:
+Canonical end-to-end path (the MVP flow):
   COBOL ZIP/upload -> secure ingestion -> discovery -> per-program
   transformation -> JavaApplication -> Spring Boot mapping ->
   SpringBootGenerator -> generated Spring Boot project ->
@@ -29,7 +29,7 @@ Production validation constraint: candidates are always executed inside
 Docker (use_docker_java=True). Host javac/java is never used for validation.
 Java candidate upload remains internal/test-only and out of the UI workflow.
 
-Phase B controls implemented here:
+Safety controls implemented here:
   * certification contract resolved from the trusted fixture registry (or an
     explicit default) instead of a hard-coded artifact set;
   * revalidation is single-flight: only terminal runs can be reset, the reset
@@ -64,6 +64,7 @@ from api.errors import (
 from api.models import RunStage
 from api.store import ApplicationRecord, RunRecord, Store
 from api.workload_contract import resolve_certification_contract
+from engine import docker_cli
 from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
 from engine.transformation.runtime_adapters import RuntimeTargetConfig
@@ -73,7 +74,7 @@ __all__ = ["Service", "ServiceError"]
 logger = logging.getLogger(__name__)
 
 # Legacy source tree root markers — first match wins (case-insensitive,
-# see _detect_source_root; E-C/R11).
+# see _detect_source_root).
 SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl"}
 
 #: Default cap on background jobs running per Service instance.
@@ -202,7 +203,7 @@ def _jcl_status_for_source(source: str | Path | None) -> str:
     """Best-effort JCL lane status for a source tree ("" when absent).
 
     Returns ``NOT_PRESENT`` when no JCL member exists under the shared
-    BL-063 member rule (case-insensitive ``.jcl`` / ``.jcllib`` or
+    member rule (case-insensitive ``.jcl`` / ``.jcllib`` or
     extensionless JCL-looking members — the exact set the consumer
     scans, so the two can no longer disagree), otherwise the JCL
     consumer status.  Never raises: an unusable JCL tree fails closed
@@ -233,19 +234,19 @@ def _external_dependency_entries_for_source(
 
     Walks the same member set the discovery lane accepts (case-insensitive
     ``.cbl`` / ``.cob`` plus extensionless members whose content starts an
-    IDENTIFICATION DIVISION — the BL-063 parity rule) and extracts
+    IDENTIFICATION DIVISION — the shared member rule) and extracts
     queue-name / PCB / segment entries from every real ``EXEC MQI`` /
-    ``EXEC DLI`` block, DB2 tables from every ``EXEC SQL`` block (BL-083
-    P1-a) and CICS resources from every ``EXEC CICS`` block (BL-083 P1-b).
+    ``EXEC DLI`` block, DB2 tables from every ``EXEC SQL`` block and CICS
+    resources from every ``EXEC CICS`` block.
     One walker, one ledger: both the persist path and the recompute
-    fallback (P1-f) go through here, so neither can serve a narrower
-    dependency inventory than the other.  Scope note (P2-j / F6): the
-    walker scans COBOL members only — standalone ``.sql`` / ``.db2`` /
+    fallback go through here, so neither can serve a narrower
+    dependency inventory than the other.  Scope note: the walker scans
+    COBOL members only — standalone ``.sql`` / ``.db2`` /
     ``.cpy`` members are deliberately out of the COBOL-ledger scope
     (``EXEC SQL`` lives inside COBOL members), so a table referenced only
     by a loose ``.sql`` DDL member never enters this ledger.  Never
     raises: an unreadable tree fails closed to no extra entries, keeping
-    the ledger's other lanes intact (BL-087).
+    the ledger's other lanes intact.
     """
     if source is None:
         return ()
@@ -302,8 +303,8 @@ def _proof_payload(
 ) -> dict:
     """Assemble the auditable integrated-proof payload.
 
-    Wallpaper: every ledger entry is flattened to its ``to_dict()`` and
-    bucketed (proven/unproven/blocked/unsupported) so the API and UI can
+    Presentation shaping: every ledger entry is flattened to its ``to_dict()``
+    and bucketed (proven/unproven/blocked/unsupported) so the API and UI can
     render without re-deriving engine internals.  Fail-closed semantics
     live in the engine; this method only shapes the result.
     ``extra_dependencies`` carries lanes the modernization report does not
@@ -332,7 +333,7 @@ def _proof_payload(
         return [e.to_dict() for e in ledger if e.proof_state.value == state_value]
 
     def _unsupported_bucket() -> list[dict]:
-        # P2-b: UNSUPPORTED is a *capability level*, not a proof state —
+        # UNSUPPORTED is a *capability level*, not a proof state —
         # bucketing on a nonexistent ProofState member made this list
         # structurally always empty.  The capability axis is the truth the
         # field name describes.
@@ -374,7 +375,7 @@ def _proof_payload(
         "evidence_complete": runtime.evidence_complete,
         "evidence_integrity_valid": runtime.evidence_integrity_valid,
         # Non-vacuous: all(...) over an empty required set would assert
-        # proof that does not exist (empty ledger => nothing proven, P0-c).
+        # proof that does not exist (empty ledger => nothing proven).
         "required_dependencies_proven": bool(required_entries)
         and all(e.proof_state is ProofState.PROVEN for e in required_entries),
         "overall_verification": central_status.value,
@@ -477,7 +478,7 @@ class Service:
 
             # 3. Run application discovery from the workspace root so that
             # sibling trees (jcl/, copybooks/, nested cobol/) are visible
-            # to COBOL discovery, JCL discovery and COPY resolution (R11).
+            # to COBOL discovery, JCL discovery and COPY resolution.
             discovery = discover_application(workspace, app_id)
 
             # 4. Persist paths on the application record
@@ -556,17 +557,28 @@ class Service:
             )
 
         resolved: list[tuple[str, Path]] = []
-        seen: dict[Path, str] = {}
+        seen: dict[str, tuple[str, str]] = {}
         for name, content in files.items():
             if not isinstance(content, (bytes, bytearray)):
                 raise ServiceError(f"Upload entry {name!r} is not binary content")
             relative = _safe_relative_path(name)
-            if relative in seen:
+            # Decide duplicate names on a normalised, case-folded string rather
+            # than on `Path` objects.  Comparing `Path`s is case-insensitive on
+            # Windows but case-sensitive on Linux, so uploading `A.cob` and
+            # `a.cob` quietly let both through on Linux while one overwrote the
+            # other on Windows — the stored tree changed with the platform.  We
+            # fold separators and case ourselves so the same upload is either
+            # accepted or rejected identically everywhere.  ZIP uploads already
+            # apply the same rule (see api/ingestion.py).
+            collision_key = relative.as_posix().casefold()
+            prior = seen.get(collision_key)
+            if prior is not None:
                 raise ServiceError(
-                    f"Upload entries {seen[relative]!r} and {name!r} resolve to"
-                    f" the same path {relative.as_posix()!r}"
+                    f"Upload entries {prior[0]!r} and {name!r} resolve to"
+                    f" the same path {relative.as_posix()!r} (names must be"
+                    " unique after separator normalization and case folding)"
                 )
-            seen[relative] = name
+            seen[collision_key] = (name, relative.as_posix())
             resolved.append((name, relative))
         return resolved
 
@@ -593,7 +605,7 @@ class Service:
         explicit error instead of a silent overwrite.
         """
         app = self.get_application(app_id)
-        # BL-048: validate + write the NEW source BEFORE touching the
+        # Validate + write the NEW source BEFORE touching the
         # previous directory.  A rejected re-upload (traversal, collision,
         # disk error) used to run cleanup first, destroying the previous
         # good source and leaving the record pointing at a deleted dir.
@@ -616,7 +628,7 @@ class Service:
         modernize endpoint is explicitly called with use_uploaded_candidate.
         """
         app = self.get_application(app_id)
-        # BL-048: same write-then-cleanup ordering as the COBOL upload —
+        # Same write-then-cleanup ordering as the COBOL upload —
         # a rejected re-upload must never destroy the previous candidate.
         base = self._write_upload(files, "java", app_id)
         previous = app.java_candidate_path
@@ -650,9 +662,9 @@ class Service:
         if app.cobol_source_path is None:
             raise ServiceError("No COBOL source uploaded for this application")
 
-        # §32 fail-closed pre-flight: reject an unusable stored target
-        # BEFORE a run is created (BL-089 — never silently modernize for
-        # a different runtime than the application declares).
+        # Fail-closed pre-flight: reject an unusable stored runtime target
+        # BEFORE a run is created (never silently modernize for a
+        # different runtime than the application declares).
         try:
             RuntimeTargetConfig(target_runtime=app.target_runtime)
         except ValueError as exc:
@@ -945,12 +957,19 @@ class Service:
 
         output_dir = str(Path(tempfile.mkdtemp(prefix=f"pipeline-output-{run.id}-")))
 
+        # Capability analysis must be derived from actual
+        # implementation capability.  The Docker infrastructure component
+        # reflects the real probe (engine.docker_cli) — never a hardcoded
+        # True, which would claim runtime availability on Docker-less
+        # hosts (reporting capability we do not have).
+        docker_available = docker_cli.check_docker_available()
+
         pipeline_config = ModernizationConfig(
             source_dir=app.cobol_source_path,
             output_dir=output_dir,
             application_id=app.id,
             entrypoint=self._resolve_entry_program(app),
-            docker_available=True,
+            docker_available=docker_available,
             target_runtime=app.target_runtime,
         )
 
@@ -1145,10 +1164,25 @@ class Service:
         # Bind the proof to the validation generation it was computed under:
         # ``begin_revalidation`` bumps the generation, so a later read treats
         # this payload as stale and recomputes fail-closed instead of serving
-        # the previous attempt's claims (P0-b / F-7 generation binding).
+        # the previous attempt's claims.
         proof["validation_generation"] = int(run.validation_generation)
         run_report["jcl_status"] = jcl_status
         run.modernization_report = run_report
+
+    @classmethod
+    def run_verdict_state(cls, run: RunRecord) -> str | None:
+        """Verdict state for a run summary, served fail-closed.
+
+        Returns ``None`` when no verdict was produced.  When a verdict
+        exists it is only served after the evidence<->verdict consistency
+        check passes (hash-matched manifest pair; VERIFIED without a
+        persisted manifest raises ``PersistenceCorruptionError``), so a
+        summary endpoint can never display an uncertified "VERIFIED".
+        """
+        if run.verdict is None:
+            return None
+        cls._check_evidence_verdict_consistency(run)
+        return str(run.verdict.to_dict().get("state"))
 
     @staticmethod
     def _check_evidence_verdict_consistency(run: RunRecord) -> None:
@@ -1186,7 +1220,7 @@ class Service:
     def _require_valid_evidence(run: RunRecord) -> None:
         """Fail closed when the run's evidence manifest is not integrity valid.
 
-        §38: evidence must be integrity validated before it is consumed.
+        Evidence must be integrity validated before it is consumed.
         ``GET /runs/{id}/artifacts`` serves content hashes *derived* from
         the manifest, so the manifest first passes the trust-boundary
         admission validator (``EvidenceIntegrityValidator`` — seal, run/
@@ -1227,7 +1261,7 @@ class Service:
         approver: str,
         reason: str | None,
     ) -> RunRecord:
-        """Record a customer approval decision for a run (BL-091, D-1).
+        """Record a customer approval decision for a run.
 
         Raises ``NotFoundError`` for unknown runs.  Decision-value and
         field validation happen at the API boundary; the store re-checks
@@ -1240,7 +1274,7 @@ class Service:
     def get_artifacts(self, run_id: str) -> list[dict]:
         """Return artifact metadata from the evidence manifest.
 
-        P1-e: the evidence manifest is integrity validated first (§38) —
+        The evidence manifest is integrity validated first —
         a manifest whose seal or bindings fail validation raises
         ``PersistenceCorruptionError`` instead of serving content hashes
         derived from untrusted evidence.
@@ -1291,10 +1325,10 @@ class Service:
     def get_comparisons(self, run_id: str) -> list[dict]:
         """Return comparison details from the evidence manifest.
 
-        P2-i (G-5 remainder after P1-e): comparison evidence is
-        evidence-derived, so the evidence<->verdict pair check runs here
-        too — a stale or broken pair fails closed instead of serving
-        comparisons beside a verdict they do not belong to.
+        Comparison evidence is derived from the same stored evidence, so
+        the evidence<->verdict pair check runs here too — a stale or
+        broken pair fails closed instead of serving comparisons beside a
+        verdict they do not belong to.
         """
         run = self.get_run(run_id)
         if run.evidence_manifest is None:
@@ -1324,7 +1358,7 @@ class Service:
     def _current_integrated_proof(self, run: RunRecord) -> dict | None:
         """The run's proof for the *current* validation generation, or None.
 
-        Single derivation shared by both certification read surfaces (P1-d):
+        Single derivation shared by both certification read surfaces:
         ``GET /runs/{id}/proof`` and ``GET /runs/{id}/report`` must serve
         the same proof — one endpoint can never publish a claim the other
         would refuse.  Gate order:
@@ -1338,8 +1372,8 @@ class Service:
            the read path (legacy unstamped payloads read as generation 0);
         4. otherwise recompute fail-closed from the run's *current*
            artifacts, carrying platform dependency edges
-           (``_external_dependency_entries_for_source`` — P1-f, the
-           recompute path may no longer drop MQ/IMS/DB2/CICS edges the
+           (``_external_dependency_entries_for_source`` — the recompute
+           path may no longer drop MQ/IMS/DB2/CICS edges the
            persist path would have served).  When the persisted payload is
            stale and no pipeline report remains to recompute from,
            nothing current exists → ``None`` so the caller drops the
@@ -1405,7 +1439,7 @@ class Service:
         and recommendations. Only returned when the universal pipeline
         produced a report — never fabricated.
 
-        P1-d: the embedded ``integrated_proof`` is never served from
+        The embedded ``integrated_proof`` is never served from
         cache.  The report surface runs the same trust gates as
         ``GET /proof`` and embeds only the run's *current* proof — the
         persisted payload when its generation stamp matches, a fail-closed
@@ -1430,10 +1464,10 @@ class Service:
         """Return the integrated proof payload for a run.
 
         Derivation and trust gates are shared with ``GET /report``
-        (``_current_integrated_proof``, P1-d): primary path is the proof
+        (``_current_integrated_proof``): primary path is the proof
         persisted during validation; stale or missing payloads recompute
         fail-closed from the stored pipeline report + stored
-        verdict/evidence, carrying platform dependency edges (P1-f).
+        verdict/evidence, carrying platform dependency edges.
         Raises ``NotFoundError`` when the run has no modernization report
         at all, and a distinct ``NotFoundError`` when the persisted proof
         belongs to a previous validation generation with no pipeline
@@ -1494,12 +1528,7 @@ class Service:
             except Exception:
                 generated_files = []
 
-        verdict_state: str | None = None
-        if run.verdict is not None:
-            # Serve verdict state only when the evidence<->verdict pair is
-            # consistent; otherwise fail closed like get_verdict does.
-            self._check_evidence_verdict_consistency(run)
-            verdict_state = str(run.verdict.to_dict().get("state"))
+        verdict_state: str | None = self.run_verdict_state(run)
 
         stage_messages = [run.stage.value]
         if run.error:

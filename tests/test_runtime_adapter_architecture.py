@@ -262,13 +262,82 @@ def _write_hello(root: Path) -> Path:
 
 
 def _project_file_set(project_dir: Path) -> dict[str, str]:
+    """Map the logical project layout to file contents.
+
+    Keys are POSIX-style logical paths (``PurePath.as_posix``) and insertion
+    order follows that logical order, so the returned mapping is identical on
+    Windows and POSIX — ``str(Path)`` would otherwise leak ``\\`` separators
+    on Windows while every consumer asserts the logical layout
+    (``src/main/java/Hello.java``).
+    """
+    entries = [
+        (path.relative_to(project_dir).as_posix(), path)
+        for path in project_dir.rglob("*")
+        if path.is_file()
+    ]
     files: dict[str, str] = {}
-    for path in sorted(project_dir.rglob("*")):
-        if path.is_file():
-            files[str(path.relative_to(project_dir))] = path.read_text(
-                encoding="utf-8"
-            )
+    for rel, path in sorted(entries):
+        files[rel] = path.read_text(encoding="utf-8")
     return files
+
+
+class TestProjectFileSetPlatformContract:
+    """Regression: logical project paths must be OS-independent.
+
+    ``str(Path)`` renders native separators, so on Windows the dict keys came
+    out as ``src\\main\\java\\Hello.java`` while every consumer asserts the
+    logical POSIX-style layout (``src/main/java/Hello.java``) — the four
+    Windows-only failures in ``TestPlainJavaTarget``/``TestJakartaEe2``.
+    The contract is pinned here: keys are logical forward-slash paths, in a
+    platform-independent order, with contents round-tripping per key.  No
+    assertion may branch on the OS.
+    """
+
+    def test_keys_are_posix_paths_in_deterministic_order(self, tmp_path):
+        (tmp_path / "src" / "main" / "java" / "model").mkdir(parents=True)
+        (tmp_path / "pom.xml").write_text("<project/>", encoding="utf-8")
+        (tmp_path / "src" / "main" / "java" / "Hello.java").write_text(
+            "class Hello {}", encoding="utf-8"
+        )
+        (tmp_path / "src" / "main" / "java" / "model" / "BookxRecord.java").write_text(
+            "class BookxRecord {}", encoding="utf-8"
+        )
+
+        files = _project_file_set(tmp_path)
+
+        assert set(files) == {
+            "pom.xml",
+            "src/main/java/Hello.java",
+            "src/main/java/model/BookxRecord.java",
+        }, sorted(files)
+        # No native separator may leak into logical keys, on any OS.
+        assert all("\\" not in rel for rel in files), sorted(files)
+        # Insertion order equals logical-path order (platform-independent
+        # selection for list comprehensions over the keys).
+        assert list(files) == sorted(files)
+        # Contents round-trip under the logical key.
+        assert files["pom.xml"] == "<project/>"
+        assert files["src/main/java/Hello.java"] == "class Hello {}"
+
+    def test_logical_path_satisfies_posix_prefix_and_suffix_checks(self, tmp_path):
+        """Mirrors the selection logic of the previously failing tests.
+
+        ``test_plain_target_materializes_copybook_models`` filters keys by
+        substring and then asserts ``startswith("src/main/java/")`` /
+        ``endswith("/model/BookxRecord.java")`` — those logical-path
+        assertions must hold on Windows exactly as they do on POSIX.
+        """
+        (tmp_path / "src" / "main" / "java" / "model").mkdir(parents=True)
+        (tmp_path / "src" / "main" / "java" / "model" / "BookxRecord.java").write_text(
+            "class BookxRecord {}", encoding="utf-8"
+        )
+
+        files = _project_file_set(tmp_path)
+        model_files = [rel for rel in files if "BookxRecord" in rel]
+        assert model_files, sorted(files)
+        model_rel = model_files[0]
+        assert model_rel.startswith("src/main/java/"), model_rel
+        assert model_rel.endswith("/model/BookxRecord.java"), model_rel
 
 
 class TestPipelineAssemblyDispatch:

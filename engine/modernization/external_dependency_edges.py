@@ -1,18 +1,19 @@
 """MQ queue-name, IMS PCB/segment, DB2 table and CICS resource dependency edges.
 
-Phase 7 P3-4 (BL-084/BL-085) detects ``EXEC DLI`` / ``EXEC MQI`` as
-*constructs*; P3-6 lifts the queue-name and PCB/segment references out of
-those blocks and into the platform dependency ledger via
-``build_dependency_ledger(extra_dependencies=...)`` — the mechanism
-``integrated_proof`` already reserves for lanes the modernization report
-does not model (JCL/DB2/CICS), now with its first real producer.
+``EXEC DLI`` / ``EXEC MQI`` blocks are detected as
+*constructs* elsewhere; this module additionally lifts the queue-name and
+PCB/segment references out of those blocks and into the platform
+dependency ledger via ``build_dependency_ledger(extra_dependencies=...)``
+— the mechanism ``integrated_proof`` already reserves for lanes the
+modernization report does not model (JCL/DB2/CICS), now with its first
+real producer.
 
-Phase 10 (BL-083 / P1-a and P1-b) adds the DB2 and CICS producers to the
-same surface: ``extract_db2_dependency_entries`` drives the SQL lane's own
-chain (extractor → parser → ``extract_table_dependencies``) and
+The DB2 and CICS producers extend the same surface:
+``extract_db2_dependency_entries`` drives the SQL lane's own chain
+(extractor → parser → ``extract_table_dependencies``) and
 ``extract_cics_dependency_entries`` drives the CICS lane facade
 (``extract_cics_blocks`` → ``CicsParser``), so ``DependencyKind.DB2`` and
-``DependencyKind.CICS`` finally have product producers.
+``DependencyKind.CICS`` have real product producers.
 
 Every entry this module returns is fail-closed, exactly like the JCL
 lane: ``visible=True`` (the dependency is on the record), classified
@@ -36,7 +37,7 @@ TRANSID resource operands for CICS.
 
 No equivalence claim, no message-semantics claim, no runtime, no IR and
 no mapper touch these entries: classification and ledger visibility
-only (§29 ladder, Rung 0 -> 1 -> 2 stays open).
+only (proof-ladder rungs 0 -> 1 -> 2 stay open).
 """
 
 from __future__ import annotations
@@ -215,7 +216,7 @@ def extract_external_dependency_entries(
     return tuple(by_id[key] for key in sorted(by_id))
 
 
-# Phase 10 (BL-083): DB2 / CICS prechecks, same fast-path contract as
+# DB2 / CICS prechecks, same fast-path contract as
 # ``_EXEC_ANY`` above — a false hit only costs a real pass that then finds
 # no block; a miss is impossible because masking only removes text.
 _EXEC_SQL_ANY = re.compile(r"\bEXEC\s+SQL\b", re.IGNORECASE)
@@ -294,11 +295,11 @@ def extract_db2_dependency_entries(
 ) -> tuple[DependencyLedgerEntry, ...]:
     """Extract DB2 table ledger entries from embedded SQL in one source.
 
-    Phase 10 (BL-083): drives the SQL lane's own chain —
+    Drives the SQL lane's own chain —
     ``extract_embedded_sql_blocks`` → ``SqlParser.parse_embedded_sql`` →
     ``SqlParser.extract_table_dependencies`` — so declared tables finally
     reach ``build_dependency_ledger(extra_dependencies=...)``.  Statements
-    the parser preserves as unsupported (BL-080) never yield a table
+    the parser preserves as unsupported never yield a table
     dependency, so they surface as one fail-closed ``DB2:UNPARSEABLE``
     entry instead of silently vanishing from the inventory.
 
@@ -374,7 +375,7 @@ def extract_cics_dependency_entries(
 ) -> tuple[DependencyLedgerEntry, ...]:
     """Extract CICS resource ledger entries from one source.
 
-    Phase 10 (BL-083): drives the CICS lane facade
+    Drives the CICS lane facade
     (``extract_cics_blocks`` → ``CicsParser``) over comment-masked source —
     a comment-only ``*> EXEC CICS … END-EXEC`` line parses as a live block
     if fed unmasked and would invent phantom resources.  Resource operands

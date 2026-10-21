@@ -68,6 +68,19 @@ class CandidateAdapter(ABC):
     def status(self) -> AdapterStatus:
         return self._status
 
+    @property
+    def network_policy(self) -> str:
+        """Network isolation actually in force while this adapter runs.
+
+        The evidence manifest records this verbatim, so it must describe what
+        really happened rather than an assumed default.  An adapter that does
+        not deliberately disable networking is reported as `unisolated`; only
+        adapters that run their candidate inside a `--network none` container
+        claim `none`.  This keeps recorded evidence honest: the host lane can
+        never assert an isolation that was never applied.
+        """
+        return "unisolated"
+
     @abstractmethod
     def validate_candidate(self, candidate_path: str, manifest: CandidateManifest) -> list[str]:
         """Validate candidate package. Returns list of violations."""

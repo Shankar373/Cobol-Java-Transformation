@@ -2,8 +2,9 @@
 
 This module is the single authority for turning a COBOL *numeric literal*
 into the deterministic Java literal text the generator may emit.  It is a
-pure, deterministic, side-effect-free contract so the transformation lane
-can be tested against GnuCOBOL (oracle) and the Java candidate separately.
+pure, deterministic, side-effect-free contract so the transformation
+can be tested against GnuCOBOL (the project's independent oracle) and
+the Java candidate separately.
 
 Contract
 --------
@@ -21,12 +22,12 @@ Contract
     exact sign of the source;
   - an explicitly signed literal is rejected on an unsigned PIC
     (GnuCOBOL rejects it too: ``error: data item not signed``), so the
-    lane fails closed instead of silently storing a magnitude the oracle
-    would not accept.
+    transformation fails closed instead of silently storing a magnitude
+    the oracle would not accept.
 * ZERO / ZEROS / ZEROES are ``0``.
 * A non-numeric VALUE on a numeric item (SPACE, LOW-VALUE, ...) raises
-  :class:`NumericValueError` so the lane fails closed instead of emitting
-  a bare Java identifier that only fails at compile time.
+  :class:`NumericValueError` so the transformation fails closed instead
+  of emitting a bare Java identifier that only fails at compile time.
 * :func:`display_format_spec` is the deterministic ``String.format``
   specifier that reproduces the *text* GnuCOBOL writes for a numeric
   ``DISPLAY`` item: the whole digit field, zero-filled, with a leading
@@ -54,8 +55,8 @@ _NUMERIC_LITERAL_RE = re.compile(r"^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))$")
 
 _ZERO_FIGURATIVE = frozenset({
     "ZERO", "ZEROS", "ZEROES",
-    # ``ALL <zero word>`` collapses onto the plain figurative constant
-    # (BL-030): ``VALUE ALL ZEROS`` is ``VALUE ZEROS``, which the oracle
+    # ``ALL <zero word>`` collapses onto the plain figurative constant:
+    # ``VALUE ALL ZEROS`` is ``VALUE ZEROS``, which the oracle
     # stores as all-zero digits.
     "ALL ZERO", "ALL ZEROS", "ALL ZEROES",
 })
@@ -73,9 +74,9 @@ _INVALID_NUMERIC_FIGURATIVE = frozenset({
 class NumericValueError(ValueError):
     """Raised when a numeric literal cannot be represented deterministically.
 
-    Treating this as a hard error keeps the lane fail-closed: an invalid
-    numeric VALUE becomes a diagnosed error instead of a Java program that
-    only fails (or, worse, miscompiles) later.
+    Treating this as a hard error keeps the transformation fail-closed: an
+    invalid numeric VALUE becomes a diagnosed error instead of a Java
+    program that only fails (or, worse, miscompiles) later.
     """
 
 

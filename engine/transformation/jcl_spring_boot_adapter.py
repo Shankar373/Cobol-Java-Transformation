@@ -6,7 +6,7 @@ lane) into a ``SpringBootApplication`` that the existing
 
 This adapter is JCL-owned.  It has ZERO imports from COBOL modules.
 It imports only from:
-  - engine.transformation.jcl_spring_batch_ir  (JCL lane output)
+  - engine.transformation.jcl_spring_batch_ir  (JCL modernization output)
   - engine.transformation.spring_boot_ir       (shared IR — read-only)
   - engine.transformation.java_ir              (shared IR — read-only)
 
@@ -14,7 +14,7 @@ The generated Spring Boot project is a **structural representation**:
 it compiles, starts, and prints what each JCL step would do.
 It does NOT execute real batch processing.
 The claim is executed proof by
-``tests/integration/test_jcl_spring_boot_compile.py`` (BL-071).
+``tests/integration/test_jcl_spring_boot_compile.py``.
 """
 
 from __future__ import annotations
@@ -174,7 +174,7 @@ def jcl_to_spring_boot(
     The generated project is a **structural representation**:
     it compiles, starts, and prints what each JCL step would do.
     It does NOT execute real batch processing.  Executed proof:
-    ``tests/integration/test_jcl_spring_boot_compile.py`` (BL-071).
+    ``tests/integration/test_jcl_spring_boot_compile.py``.
 
     Args:
         app: JCL Spring Batch application (from ``modernize_jcl``).
@@ -218,7 +218,7 @@ def jcl_to_spring_boot(
         # The JCL profile is structural (no JES/z/OS, no persistence), but
         # spring-boot-starter-batch pulls in JDBC auto-configuration, which
         # fails startup without a datasource URL.  Exclude it so the
-        # generated app starts as the adapter documents (BL-071).
+        # generated app starts as the adapter documents.
         autoconfigure_excludes=(
             "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
         ),
