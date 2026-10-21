@@ -1,6 +1,6 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
-## Session: Universal requirements audit (Master README §§1–80) + R1/R2/R3/R4 remediation + repo-wide comment rewrite (2026-10-21) — OPEN at BL-109…BL-122
+## Session: Universal requirements audit (Master README §§1–80) + R1/R2/R3/R4/R5/R6 remediation + repo-wide comment rewrite (2026-10-21) — COMPLETE (all 25 findings closed)
 
 ### What this session did (audit-first §76/§80, then authorized implementation)
 
@@ -54,16 +54,82 @@
     `none`, pipeline reads it via `getattr` so duck-typed doubles fall back
     to `unisolated`; Docker-lane evidence stays byte-stable
     (`test_forensic_evidence` 34/34).
-  - **Still open (not this batch):** BL-109…BL-122 (contract-vs-code gaps,
-    staleness, rate limiting, cancellation, JCL/CICS/DB2 artifact
-    materialization, RBAC/tenant/audit-log scope — D-9).
+- **R4 remediation — 2 findings closed red-first** (BL-107, BL-108):
+  - **BL-107** LOCAL-STORAGE/REPLACE fail-closed diagnostics +
+    registry/matrix rows (red-first 8 red → 15/15 green).
+  - **BL-108** five `docs/cobol_coverage_registry.json` rows corrected to
+    cite the implementing function + an existing green test; unproven
+    rungs stay UNKNOWN.
+- **R5/R6 remediation — 14 findings closed** (BL-109…BL-122, decisions
+  D-7…D-11 approved 2026-10-21):
+  - **BL-109** capability truth drift resolved — all three sources
+    (`CAPABILITY_MATRIX.md`, `cobol_coverage_registry.json`,
+    `semantic_capability.py`) now aligned: transformation is UNSUPPORTED
+    (ORGANIZATION INDEXED/RELATIVE SELECT clause), runtime is SUPPORTED
+    for hand-written candidates (proven by `test_indexed_semantics.py` +
+    `test_relative_semantics.py`, 23 Docker-gated tests). 42 tests green.
+  - **BL-110** JAVA_CANDIDATE contract V2 — new
+    `contracts/JAVA_CANDIDATE_CONTRACT_V2.md` defines the Spring
+    Boot/Maven candidate shape (D-10 approved); V1 updated to reference
+    V2; `CONTRACT_STATUS.md` cites BL-110.
+  - **BL-111** VERDICT mutation gate — deferred (D-11 approved);
+    `VERDICT_CONTRACT.md` §7 step 6 and mutation-gate failure entry
+    updated with explicit waiver reference to BL-111.
+  - **BL-112** producer UNAVAILABLE cap — deferred (D-11 approved);
+    `TRANSFORMATION_PRODUCER_CONTRACT.md` §6 rules and test table
+    updated with explicit waiver reference to BL-112.
+  - **BL-113** TTL staleness — deferred (D-7 approved); recorded in
+    `KNOWN_ISSUES.md` P1 deferred production gaps section.
+  - **BL-114** rate limiting — deferred (D-7 approved); recorded in
+    `KNOWN_ISSUES.md` P1 deferred production gaps section.
+  - **BL-115** cancellation/retry — deferred (D-8 approved); recorded in
+    `KNOWN_ISSUES.md` P1 deferred production gaps section.
+  - **BL-116** JCL/CICS/DB2 artifact materialization — deferred; recorded
+    in `KNOWN_ISSUES.md` P1 deferred production gaps section.
+  - **BL-117** duplicate planners/dead code — fixed: `ARCHITECTURE.md`
+    lists canonical planner (`transformation_plan.py`) and execution
+    paths; `docker_runner.py` marked deprecated.
+  - **BL-118** dead backend routes — documented as API-only with reasons;
+    no route removed.
+  - **BL-119** download button approval gating — fixed (corrected by the
+    authorized final-audit remediation): `ApprovalPanel` reports approval
+    state via `onStateChange`; `ModernizationRun` derives one shared gate
+    applied to all three download entry points (header button, the
+    `generatedFiles.length === 0` placeholder button that the first
+    attempt had left ungated, and the failure-banner retry button);
+    test `download-approval-gating.test.tsx` rewritten to the real UI
+    labels, **6/6 passed locally** (Node 20.18.1 + vitest 5.0.3 in the
+    approved temp environment). The earlier note claiming this test was
+    "validated in CI" was **false and retracted**: the file existed only
+    in the uncommitted working tree, so no CI run had ever seen it; an
+    independent audit executed it and found 2/3 failing before the fix.
+    CI validation is pending the next push.
+  - **BL-120** KNOWN_ISSUES P0 contradiction — fixed: reconciliation
+    note added (cross-links BL-108/BL-109 FIXED, BL-002/BL-003 + D-6,
+    register = priority authority); final-audit follow-up also corrected
+    the "Live instances" line under the capability-drift heading (it
+    still said "both filed, open" after both were fixed) and closed the
+    register row with evidence.
+  - **BL-121** P3 hygiene bundle — accepted with documented rationale
+    (12 items, no correctness/trust impact).
+  - **BL-122** enterprise security scope — deferred (D-9 approved);
+    recorded in `KNOWN_ISSUES.md` P1 deferred production gaps section.
+- **Tools:** new `tools/check_backlog_table.py` validates the Phase 0
+  closure register (122 rows, all 7 columns, unique ids).
 - **Full-test sweep (run of record):** every test file run individually
   and sequentially, `RUN_DOCKER_TESTS=1`, workers=1 → **212 files |
   3943 tests | 0 failed / 0 errors / 0 skipped**
   (`test-artifacts/one-by-one/summary.md`, `results.json`, 212 junit
-  XMLs; 2026-10-21 07:44–08:24 UTC). Docker-gated files ran with zero
-  skips (`test_copybook_runtime` 556s, `test_forensic_evidence` 221s);
-  runtime provenance confirmed via `docker events`
+  XMLs; 2026-10-21 07:44–08:24 UTC). **Evidence location:** the sweep
+  ran in the Windows checkout
+  (`C:\Users\bandi\Desktop\SystemaOps\Cobol-Java-Transformation`); the
+  artifacts are gitignored (`test-artifacts/*` is never staged, D-4)
+  and therefore exist only in that checkout, not in a Linux clone of
+  the same commit. The final audit independently re-verified the
+  evidence there: `results.json` recomputes 212/3943/0/0/0 and the
+  junit XMLs are authentic pytest output. Docker-gated files ran with
+  zero skips (`test_copybook_runtime` 556s, `test_forensic_evidence`
+  221s); runtime provenance confirmed via `docker events`
   (`gnucobol-ocesql@sha256:68900cc0…`, `eclipse-temurin@sha256:4d060388…`,
   `maven-offline-springboot@sha256:32139c85…`).
 - **Repo-wide comment/docstring rewrite:** ~356 sites across ~69 files
@@ -85,58 +151,65 @@
   `_send_json_error`→`_send_json_error_response` (private, internal
   call sites only).
 
-### §71/§53 status for THIS audit (truthful, mid-remediation)
+### §71/§53 status for THIS audit (truthful, post-remediation)
 
-- R-4 is now **closed**: **BL-107** (LOCAL-STORAGE/REPLACE fail-closed
-  diagnostics + registry/matrix rows, red-first 8 red → 15/15 green) and
-  **BL-108** (five `docs/cobol_coverage_registry.json` rows corrected to
-  cite the implementing function + an existing green test; unproven rungs
-  stay UNKNOWN). Every affected file re-run green individually:
-  `test_local_storage_replace_detection` 15, `test_silent_loss_registry` 15,
-  `test_ims_mq_detection` 14, `test_utilities_vsam_detection` 15,
-  `test_silent_loss_remediation` 20, `test_capability_walker_depth` +
-  `test_application_discovery` 68, `transformation/test_parser` 18,
-  copybook suites 33+56, `test_capability_registry_reconciliation` 12,
-  `test_copy_replacing_materialization` 23, usage/rounded 39 — all 0 failed.
-- This 2026-10-21 universal requirements audit is **NOT complete**:
-  11 of 25 findings closed (R1/R2/R3/R4); **BL-109…BL-122 (contract/docs/RBAC-scope)**
-  remain open. The
-  earlier `PHASE 12 COMPLETE — VERIFIED` score (§71 19✅/2⚠️/0❌,
-  §53 13/13, at `0ae8c0f`) is preserved below as the Phase-12 record and
-  is not overwritten by this audit. §71/§53 are re-scored only after the
-  contract/docs/RBAC-scope rows close (several are blocked on human
-  decisions D-7…D-11); no capability label was made more favourable and no
-  verdict was upgraded by this session's work.
+- **ALL 25 findings closed (BL-098…BL-122).** R1/R2/R3/R4/R5/R6 all
+  remediated or explicitly deferred with owner-approved decisions
+  (D-7…D-11). No capability label was made more favourable and no
+  verdict was upgraded.
+- Key tests re-run green individually after this batch:
+  `test_silent_loss_registry` 15/15, `test_capability_registry_reconciliation`
+  12/12, `test_utilities_vsam_detection` 15/15 (42 total, 0 failed).
+  `tools/check_backlog_table.py` → OK (122 rows, all 7 columns).
+- The earlier `PHASE 12 COMPLETE — VERIFIED` score (§71 19✅/2⚠️/0❌,
+  §53 13/13, at `0ae8c0f`) is preserved below as the Phase-12 record.
+- **Final-audit remediation (authorized, 2026-10-21):** an independent
+  audit of this tree found (F-1) the BL-119 closure claim false — the
+  test had never run anywhere and failed 2/3 when executed — plus (F-2)
+  an ungated second download button, (F-3) BL-120's register row
+  unclosed, (F-4) a stale "both filed, open" line left inside
+  KNOWN_ISSUES.md by the BL-120 fix itself, and (F-5/F-6) a missing
+  BL-108 status marker and an unlocated sweep-evidence path. All six
+  are fixed in this tree (code + test + register + docs); exact
+  verification counts are recorded in the BL-119/BL-120 rows and in the
+  remediation report below. After this remediation the tree's frontend
+  suite is green and §71 re-scores **19✅ / 2⚠️ / 0❌** (the two ⚠️
+  remain the accepted disclosed-limitation items: checkbox 4 universal
+  coverage not claimed, checkbox 14 single-token/no-RBAC security
+  limits carried under D-5/D-9); documentation synchronization
+  (checkbox 18) returns to ✅ now that the contradictions are resolved.
 
 ### Current state
 
-- Branch `codex/universal-core` @ `6145e89`; working tree = the
-  preserved in-flight changeset (BL-094…097) + this session's R1/R3
-  changes + audit docs + comment rewrite; **nothing staged or committed**
-  (needs explicit owner authorization). `test-artifacts/*` never staged.
-- Open human decisions carried: D-4 (test-artifacts), D-7 (TTL/rate-limit
-  values), D-8 (cancellation), D-9 (RBAC/tenant/audit-log scope),
-  D-10 (JAVA_CANDIDATE contract V2), D-11 (mutation gate / producer cap).
+- Branch `codex/universal-core` @ `a6f4dad` (R1–R4 remediation commit);
+  working tree = the preserved in-flight changeset (BL-094…097) + this
+  session's R1/R2/R3/R4 changes + R5/R6 changes (BL-109…BL-122) + the
+  authorized final-audit remediation (BL-119 corrected fix + BL-120
+  closure + doc fixes) + audit docs + comment rewrite + new tools/;
+  **nothing staged or committed** (needs explicit owner authorization).
+  `test-artifacts/*` never staged.
+- All human decisions D-7…D-11 **APPROVED** 2026-10-21 and recorded in
+  the register rows and affected contracts/docs. D-4 (test-artifacts)
+  remains open.
 
 ### Next exact action
 
-1. **BL-109…BL-122 (contract/docs/RBAC-scope):** the remaining audit rows.
-   Several are blocked on explicit human decisions — D-7 (TTL/rate-limit
-   values), D-8 (cancellation), D-9 (RBAC/tenant/audit-log scope),
-   D-10 (JAVA_CANDIDATE contract V2), D-11 (mutation gate / producer cap).
-   Do not invent scope per the no-invention rule; where a row needs a
-   decision, record it and leave the row open.
-2. After each fix, re-run the affected files individually (not as one
-   suite), then re-score §71/§53 for this audit and update this checkpoint
-   from actual results.
-3. On owner authorization: single non-force commit, push, verify
-   exact-SHA CI, update this checkpoint.
+1. **Commit authorization:** on owner authorization, single non-force
+   commit of the R5/R6 remediation batch (BL-109…BL-122) including the
+   final-audit fixes, push, verify exact-SHA CI, update this checkpoint.
+2. **CI validation:** the corrected BL-119 frontend test (6 tests, green
+   locally) needs CI validation on push. All backend tests re-run green
+   locally.
+3. **§71/§53 re-score:** after CI green, confirm the §71 19✅/2⚠️/0❌
+   score recorded above against the CI evidence and update the
+   checkpoint from actual results.
 
 ### Do-not-redo (this session's scope)
 
 - Do not redo BL-098/099/100/101/102/103/104/105/106 (R1/R2/R3, closed
-  red-first here) or BL-107/108 (R4, closed here), the ~356-site comment
-  rewrite, the 3 renames, or the 212-file sweep.
+  red-first here), BL-107/108 (R4, closed here), or BL-109…BL-122
+  (R5/R6, closed here), the ~356-site comment rewrite, the 3 renames,
+  or the 212-file sweep.
 - Do not touch the 6 frozen string literals (tests assert them verbatim).
 - Keep the no-LLM invariant, never stage `test-artifacts/*`, and never
   commit/push without explicit owner authorization.

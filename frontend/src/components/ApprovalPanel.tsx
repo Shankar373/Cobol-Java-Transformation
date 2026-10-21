@@ -27,6 +27,8 @@ import {
 
 interface ApprovalPanelProps {
   runId: string;
+  /** Optional callback invoked whenever the approval state changes. */
+  onStateChange?: (state: ApprovalState | null) => void;
 }
 
 const stateLabel: Record<ApprovalState, string> = {
@@ -60,7 +62,7 @@ const inputStyle: React.CSSProperties = {
   background: '#ffffff',
 };
 
-export function ApprovalPanel({ runId }: ApprovalPanelProps) {
+export function ApprovalPanel({ runId, onStateChange }: ApprovalPanelProps) {
   const [approval, setApproval] = useState<RunApprovalResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [approver, setApprover] = useState('');
@@ -73,10 +75,12 @@ export function ApprovalPanel({ runId }: ApprovalPanelProps) {
       const record = await getRunApproval(runId);
       setApproval(record);
       setLoadError(null);
+      onStateChange?.(record.state);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
+      onStateChange?.(null);
     }
-  }, [runId]);
+  }, [runId, onStateChange]);
 
   useEffect(() => {
     void refresh();

@@ -235,12 +235,17 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     ),
     "ORGANIZATION INDEXED": _unsupported(
         "ORGANIZATION INDEXED (VSAM-style key access) has no certified "
-        "file-semantics mapping: classified UNSUPPORTED by detection, "
-        "never transformed"
+        "transformation mapping: classified UNSUPPORTED by detection, "
+        "never transformed. The Java runtime lane CAN execute indexed "
+        "file operations (proven by tests/integration/test_indexed_semantics.py), "
+        "but COBOL-to-Java transformation for this SELECT clause is not supported."
     ),
     "ORGANIZATION RELATIVE": _unsupported(
-        "ORGANIZATION RELATIVE has no certified file-semantics mapping: "
-        "classified UNSUPPORTED by detection, never transformed"
+        "ORGANIZATION RELATIVE has no certified transformation mapping: "
+        "classified UNSUPPORTED by detection, never transformed. The Java "
+        "runtime lane CAN execute relative file operations (proven by "
+        "tests/integration/test_relative_semantics.py), but COBOL-to-Java "
+        "transformation for this SELECT clause is not supported."
     ),
     "ACCESS DYNAMIC": _unsupported(
         "ACCESS DYNAMIC file access is outside the certified sequential "

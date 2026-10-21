@@ -1,5 +1,12 @@
 """Real Docker execution engine for the validation engine.
 
+.. deprecated:: BL-117 (2026-10-21)
+    This module has zero importers outside itself and is NOT the canonical
+    execution path. The canonical Docker execution is in
+    ``engine/candidate/docker_spring_boot_adapter.py`` and
+    ``engine/oracle/docker_adapter.py``. This module is retained for
+    historical reference and test-only contracts; do not wire new code to it.
+
 Implements container-per-execution with:
 - read-only staged source
 - no network

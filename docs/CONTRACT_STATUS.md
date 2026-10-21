@@ -17,7 +17,7 @@ no longer current.
 | ORACLE_CONTRACT.md | Normative; implementation exists; continue requirement-by-requirement runtime audit |
 | ARTIFACT_CONTRACT_SPEC.md | Normative; artifact/comparison implementation exists; continue coverage audit |
 | VERDICT_CONTRACT.md | Normative; deterministic verdict implementation exists; continue route/mutation audit |
-| JAVA_CANDIDATE_CONTRACT.md | Normative V1 shape; repository also has a later Spring/Docker lane; version boundary needs reconciliation |
+| JAVA_CANDIDATE_CONTRACT.md | Normative V1 shape; V2 Spring Boot/Maven lane now defined in `JAVA_CANDIDATE_CONTRACT_V2.md` (D-10 approved 2026-10-21, BL-110 FIXED); version boundary reconciled |
 | TRANSFORMATION_PRODUCER_CONTRACT.md | Boundary contract; external-producer model must be reconciled with current internal deterministic transformer |
 | docs/specs/EVIDENCE_SPEC.md | Normative design; evidence implementation exists; implementation-status audit required |
 | docs/specs/COMPARATOR_SPEC.md | Normative design; comparator implementation exists; implementation-status audit required |

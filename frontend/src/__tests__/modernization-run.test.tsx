@@ -11,6 +11,8 @@ vi.mock('../api/client', async (importOriginal) => {
     getVerdict: vi.fn(),
     getDiscovery: vi.fn(),
     getArtifacts: vi.fn(),
+    getRunApproval: vi.fn(),
+    setRunApproval: vi.fn(),
     downloadGenerated: vi.fn(),
   };
 });
@@ -23,6 +25,7 @@ import {
   getVerdict,
   getDiscovery,
   getArtifacts,
+  getRunApproval,
   downloadGenerated,
 } from '../api/client';
 
@@ -31,6 +34,7 @@ const mockGetRunDetail = vi.mocked(getRunDetail);
 const mockGetVerdict = vi.mocked(getVerdict);
 const mockGetDiscovery = vi.mocked(getDiscovery);
 const mockGetArtifacts = vi.mocked(getArtifacts);
+const mockGetRunApproval = vi.mocked(getRunApproval);
 const mockDownload = vi.mocked(downloadGenerated);
 
 function runResponse(stage: string, error: string | null = null) {
@@ -116,10 +120,21 @@ beforeEach(() => {
   mockGetVerdict.mockReset();
   mockGetDiscovery.mockReset();
   mockGetArtifacts.mockReset();
+  mockGetRunApproval.mockReset();
   mockDownload.mockReset();
   mockGetRunDetail.mockRejectedValue(new Error('detail unavailable'));
   mockGetVerdict.mockResolvedValue(verdictResponse('VERIFIED') as never);
   mockGetArtifacts.mockResolvedValue({ run_id: 'run-1', artifacts: [] } as never);
+  // Downloads are only offered once approval is APPROVED (BL-119). Default
+  // fixtures to APPROVED so existing download assertions still exercise the
+  // enabled button; gating itself is covered in download-approval-gating.test.tsx.
+  mockGetRunApproval.mockResolvedValue({
+    run_id: 'run-1',
+    state: 'APPROVED',
+    approver: 'alice',
+    reason: null,
+    decided_at: '2024-01-01T00:02:00Z',
+  } as never);
 });
 
 afterEach(() => {
@@ -338,6 +353,23 @@ describe('ModernizationRun download', () => {
 
     await waitFor(() => expect(mockDownload).toHaveBeenCalledWith('run-1'));
     expect(createObjectURL).toHaveBeenCalledWith(blob);
+  });
+
+  it('disables the download until approval is APPROVED', async () => {
+    mockGetRun.mockResolvedValue(runResponse('COMPLETED') as never);
+    mockGetDiscovery.mockResolvedValue(discoveryResponse() as never);
+    mockGetRunApproval.mockResolvedValue({
+      run_id: 'run-1',
+      state: 'PENDING',
+      approver: null,
+      reason: null,
+      decided_at: null,
+    } as never);
+
+    render(<ModernizationRun runId="run-1" applicationId="app-1" />);
+
+    const btn = await screen.findByText(/Download \(awaiting approval\)/);
+    expect(btn).toBeDisabled();
   });
 });
 

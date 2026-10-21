@@ -101,7 +101,7 @@ A verdict answers "equivalent **under which conditions**" — never an unscoped 
 - stale evidence (per ADR-0008/DR-17: V1 re-executes the oracle fresh every run — no
   baseline reuse — so staleness is structurally excluded, and any detected staleness is
   an invalidating anomaly)
-- mutation-gate failure
+- mutation-gate failure **(DEFERRED: no mutation gate implemented; D-11 approved 2026-10-21, BL-111)**
 - evidence-manifest incompleteness
 - unsupported artifact silently ignored
 
@@ -117,6 +117,12 @@ records, not assumed):
 5. All required comparisons executed and passed — `executed_check_count > 0` and equals
    the contract-declared check set.
 6. Required mutation validation passed (production-path, same comparator stack).
+   **DEFERRED (D-11 approved 2026-10-21, BL-111):** this precondition is not
+   implemented in the derivation layer. The waiver is recorded in
+   `docs/BACKLOG.md` BL-111. Evidence-integrity gates (steps 1-5, 7-9) remain
+   enforced and are the primary protection against false VERIFIED. A future
+   version may add a mutation gate; until then, no verdict may claim mutation
+   validation was performed.
 7. Evidence manifest complete and reconstructable.
 8. No unsupported artifact silently ignored — every exclusion states `UNSUPPORTED`
    explicitly in the verdict.

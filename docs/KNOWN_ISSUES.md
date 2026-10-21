@@ -15,21 +15,21 @@ Lifecycle/persistence/API security hardening has since been applied on top of th
 > `P0` headings below are Master README §54 **high-risk areas**, not filed P0 defects.
 > Under the §77 priority contract a P0 is an *item* with incorrect business semantics,
 > a false VERIFIED/certification, a trust-boundary bypass, critical security exposure
-> or data-loss risk. As of `6145e89` the register (`docs/BACKLOG.md`) contains **no open
+> or data-loss risk. As of `a6f4dad` the register (`docs/BACKLOG.md`) contains **no open
 > P0 row**: the verdict path is fail-closed (single `VERIFIED` site
 > `engine/verdict/derivation.py:265`, integrity clamp `engine/pipeline.py:653-657`),
 > so capability drift cannot reach a false VERIFIED today. The concrete drift found by
-> the 2026-10-21 audit is filed as **BL-108** (registry rows contradicting shipped code)
-> and **BL-109** (three-way indexed/relative contradiction) at P2 with the §54 risk
-> rationale recorded; numeric risk stays covered by **BL-002/BL-003** plus carried
-> decision **D-6** (COMP/COMP-3 certification). This section and `opencode.md` must
+> the 2026-10-21 audit is filed as **BL-108** (registry rows contradicting shipped code,
+> FIXED) and **BL-109** (three-way indexed/relative contradiction, FIXED) at P2 with
+> the §54 risk rationale recorded; numeric risk stays covered by **BL-002/BL-003** plus
+> carried decision **D-6** (COMP/COMP-3 certification). This section and `opencode.md` must
 > quote the same set — the register is the priority authority.
 
 ### P0 area — Capability truth can drift
 Capability classifications are manually maintained and can become inconsistent with parser,
 IR, mapper, generator and runtime evidence. Contradictory classifications must be eliminated.
-*Live instances as of 2026-10-21: BL-108, BL-109 (both filed, open, P2 — no false VERIFIED
-produced because planning fails closed).*
+*Live instances as of 2026-10-21: BL-108, BL-109 (both FIXED 2026-10-21 — no false VERIFIED
+was produced because planning fails closed). See the reconciliation note above.*
 
 ### P0 area — Numeric semantic risk
 PIC/sign/V, COMP/COMP-3, precision/scale, truncation, rounding, overflow and formatting
@@ -58,6 +58,33 @@ per-client rate limiting, retention/TTL, audit logging, external secret manageme
 `CONTROL_PLANE_API_TOKEN` (the token is an env-var deployment control, not a user/role
 model), TLS and egress policy at the deployment boundary, and multi-node coordination
 (SQLite is single-node).
+
+### P1 — Deferred production gaps (owner-approved 2026-10-21)
+The following production requirements are **explicitly deferred** by owner decision;
+they are not claimed to exist and no document may claim them before enforcement:
+
+- **Time-based evidence staleness (BL-113, D-7 approved):** evidence timestamps are
+  recorded but no wall-clock TTL is enforced. Staleness is enforced generation-wise
+  only. A TTL policy interacts with clock skew and re-validation flows; the value is
+  a policy decision deferred.
+- **Rate limiting (BL-114, D-7 approved):** no request rate limiting exists. The only
+  429 is the concurrency-slot limit. Adding throttling can break legitimate
+  batch/polling clients (the SPA polls every 1.5-2 s); the policy is deferred.
+- **Cancellation/retry/deadline (BL-115, D-8 approved):** runs execute in daemon
+  threads with no cancellation, retry, or whole-run deadline; only per-step Docker
+  timeouts exist. Cancellation interacts with evidence integrity (a half-finished
+  run must not produce a verdict); the design is deferred.
+- **JCL/CICS/DB2 artifact materialization (BL-116):** transform results for these
+  lanes are computed in memory but never written to `java_candidate_path`, so no
+  artifact from those lanes is ever built or compared. Fail-closed today (plan
+  SKIP → FAILED); it is a missing deliverable, not a trust breach. The decision
+  to materialize or document as analysis-only is deferred.
+- **Enterprise security scope (BL-122, D-9 approved):** RBAC, tenant isolation,
+  tamper-evident audit logging, external secret management, TLS/egress control,
+  multi-node coordination, SBOM and vulnerability scanning are documented as
+  future requirements but have no enforcement. The single shared token grants
+  global read/write. Scope is deferred; no document may claim these controls
+  exist before enforcement.
 
 ### P1 — Enterprise runtime boundaries
 JCL, CICS, DB2 and indexed/relative file semantics remain outside broad behavioral certification

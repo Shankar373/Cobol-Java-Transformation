@@ -33,6 +33,7 @@ import {
   RunDetailResponse,
   ModernizationReportResponse,
   IntegratedProofResponse,
+  ApprovalState,
   getRun,
   getRunDetail,
   getVerdict,
@@ -161,6 +162,7 @@ export function ModernizationRun({
   const [pollFailures, setPollFailures] = useState(0);
   const [pollError, setPollError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [approvalState, setApprovalState] = useState<ApprovalState | null>(null);
   const pollFailuresRef = useRef(0);
 
   // Opening a run straight from the dashboard passes no application id —
@@ -385,6 +387,17 @@ export function ModernizationRun({
   const showGeneratedCard = run.stage === 'COMPLETED' || generatedFiles.length > 0;
   const generationComplete =
     run.stage !== 'FAILED' && RUN_STAGES.indexOf(run.stage) >= RUN_STAGES.indexOf('ASSEMBLY_COMPLETED');
+
+  // Both download entry points (header button when files exist, placeholder
+  // button when the list is empty) share the same approval gate: the backend
+  // blocks export until approval is APPROVED, so both controls disable and
+  // annotate the label instead of guaranteeing a first-attempt 409.
+  const downloadDisabled = downloading || approvalState !== 'APPROVED';
+  const downloadLabel = downloading
+    ? 'Downloading...'
+    : approvalState === 'APPROVED'
+      ? 'Download Generated Spring Boot Application'
+      : `Download (awaiting approval${approvalState === 'REJECTED' ? ' — rejected' : ''})`;
 
   // Evidence-based ingestion display: a stored summary or a discovery
   // payload both prove ingestion happened — never shown otherwise.
@@ -794,8 +807,13 @@ export function ModernizationRun({
               subtitle={generationComplete ? 'Generation Complete' : undefined}
               headerRight={
                 run.stage === 'COMPLETED' && generatedFiles.length > 0 ? (
-                  <Button variant="gradient" size="md" onClick={handleDownload} disabled={downloading}>
-                    {downloading ? 'Downloading...' : 'Download Generated Spring Boot Application'}
+                  <Button
+                    variant="gradient"
+                    size="md"
+                    onClick={handleDownload}
+                    disabled={downloadDisabled}
+                  >
+                    {downloadLabel}
                   </Button>
                 ) : undefined
               }
@@ -839,8 +857,8 @@ export function ModernizationRun({
                   <p>Generated application files are reported by the assembly stage once available.</p>
                   {run.stage === 'COMPLETED' && (
                     <div style={{ marginTop: tokens.spacing.md }}>
-                      <Button variant="gradient" size="lg" onClick={handleDownload} disabled={downloading}>
-                        {downloading ? 'Downloading...' : 'Download Generated Spring Boot Application'}
+                      <Button variant="gradient" size="lg" onClick={handleDownload} disabled={downloadDisabled}>
+                        {downloadLabel}
                       </Button>
                     </div>
                   )}
@@ -854,8 +872,13 @@ export function ModernizationRun({
 
           {/* The customer's approval gates export. Shown on COMPLETED runs
               next to the download path — download answers 409 until this
-              run's approval state is APPROVED. */}
-          {run.stage === 'COMPLETED' && <ApprovalPanel runId={runId} />}
+              run's approval state is APPROVED. The onStateChange callback
+              lifts the approval state so every download entry point (header
+              button, placeholder button, retry button) can be disabled until
+              APPROVED (BL-119). */}
+          {run.stage === 'COMPLETED' && (
+            <ApprovalPanel runId={runId} onStateChange={setApprovalState} />
+          )}
 
           {/* Download failures are always shown. The earlier pollError banner
               only appears while runs are in progress, so a failed download on
@@ -866,8 +889,12 @@ export function ModernizationRun({
                 {downloadError}
               </div>
               <div style={{ marginTop: tokens.spacing.sm }}>
-                <Button variant="secondary" size="sm" onClick={handleDownload} disabled={downloading}>
-                  {downloading ? 'Retrying...' : 'Retry download'}
+                <Button variant="secondary" size="sm" onClick={handleDownload} disabled={downloadDisabled}>
+                  {downloading
+                    ? 'Retrying...'
+                    : approvalState === 'APPROVED'
+                      ? 'Retry download'
+                      : `Retry download (awaiting approval${approvalState === 'REJECTED' ? ' — rejected' : ''})`}
                 </Button>
               </div>
             </SectionCard>

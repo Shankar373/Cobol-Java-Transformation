@@ -36,6 +36,17 @@ and generation are deterministic code paths.
 A capability claim must be supported by:
 parser -> IR -> capability -> plan -> mapping -> generation -> compile -> execute.
 
+**Canonical planner:** `engine/modernization/transformation_plan.py` is the single
+authoritative planner. `engine/modernization/modernization_planner.py` wraps it and is
+exported from `engine/modernization/__init__.py`; it is used by tests and the API layer.
+`engine/modernization/application_assembler.py` is a test-only helper.
+
+**Canonical execution paths:** Docker execution is in
+`engine/candidate/docker_spring_boot_adapter.py` (candidate) and
+`engine/oracle/docker_adapter.py` (oracle).
+`engine/execution/docker_runner.py` is **deprecated** (BL-117, zero importers);
+it is retained for historical reference and must not be wired to new code.
+
 ## Execution boundary
 
 Docker is the authoritative execution path used by the CI backend/oracle job. Host-only
