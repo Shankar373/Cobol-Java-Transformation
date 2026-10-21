@@ -269,9 +269,13 @@ toolchain (temurin), Maven, Node/npm for the frontend, Python for the API/engine
 - Frontend: `frontend/` React (Vite) UI; `npm run dev` / `npm run build`.
 - CI: `.github/workflows` covers ingestion, backend/oracle/Docker, and
   frontend/build.
-- Run instructions and environment variables (`CONTROL_PLANE_API_TOKEN`,
-  `CONTROL_PLANE_MAX_CONCURRENT_JOBS`) are documented in
-  `docs/ARCHITECTURE.md` and deployment notes.
+- Run instructions (backend/frontend startup, Docker lanes, provenance,
+  E2E command, troubleshooting) are documented in `README.md`
+  ("Quick Start (verified)"); environment variables
+  (`CONTROL_PLANE_API_TOKEN`, `CONTROL_PLANE_MAX_CONCURRENT_JOBS`) are
+  documented in `docs/ARCHITECTURE.md` and `docs/deployment/ENVIRONMENT.md`.
+  (Corrected 2026-10-21: the previous wording claimed run instructions were
+  in `docs/ARCHITECTURE.md`; they were not — §78 doc-vs-reality fix.)
 
 ## 22. Production-readiness status
 

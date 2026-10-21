@@ -36,6 +36,105 @@ capability analysis -> transformation plan -> deterministic COBOL to Java mappin
 Java generation -> Docker Java execution and GnuCOBOL oracle execution -> artifact capture ->
 comparison -> evidence integrity -> deterministic verdict -> FastAPI control plane -> React UI.
 
+## Quick Start (verified 2026-10-21)
+
+All commands below were executed and confirmed against commit `49821ad`
+(Linux/WSL2 host, Python 3.12, Node 20, Docker 29). CI is the authoritative
+environment for the full Docker suite; see "Local results vs CI evidence"
+after the commands.
+
+**Prerequisites:** Python 3.11+ (`python`), Node 20 + npm, Docker.
+
+```bash
+# 1. Backend (FastAPI control plane, port 8000; auth OFF by default —
+#    set CONTROL_PLANE_API_TOKEN to require a bearer token on every route
+#    except /health)
+python -m pip install -r requirements.lock
+python -m uvicorn api.app:app --port 8000
+
+# 2. Verify it is up
+curl http://localhost:8000/health
+# expected: {"status":"ok"}
+
+# 3. Frontend (second terminal; Vite dev server on 5173, proxies
+#    /applications, /runs and /health to localhost:8000)
+cd frontend
+npm ci
+npm run dev
+# open http://localhost:5173/app/
+```
+
+**Docker execution lanes (needed for real end-to-end runs, same commands CI
+uses):**
+
+```bash
+# build the two locally-pinned images (repo root)
+docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
+docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:latest .
+
+# pull/tag the digest-pinned Java runtime image (identity checked every run)
+docker pull eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026
+docker tag eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026 eclipse-temurin:21-jdk
+
+# REQUIRED whenever the Maven image is rebuilt: record image provenance so
+# the candidate adapter can verify image identity (fail-closed otherwise)
+python scripts/record_docker_image_provenance.py
+# expected: prints build + runtime identity (repo-digest) and writes
+# test-artifacts/docker-image-provenance.json — the regenerated working-tree
+# update is never staged/committed without explicit D-4 authorization
+
+# end-to-end proof: upload -> pipeline -> Docker oracle + candidate ->
+# compare -> verdict (arithmetic VERIFIED path, Mode-A file workload, ZIP
+# ingestion, approval-gated download)
+RUN_DOCKER_TESTS=1 python -m pytest -q tests/test_e2e.py
+```
+
+**Tests (fast, no Docker):**
+
+```bash
+python -m pytest -q tests/test_silent_loss_registry.py tests/test_ingestion_diagnostics.py   # 18 passed
+python tools/check_backlog_table.py           # OK: 122 register rows
+cd frontend && npm test                       # vitest suite
+cd frontend && npm run lint                   # tsc --noEmit
+cd frontend && npm run build                  # tsc -b && vite build
+```
+
+**Troubleshooting (observed behavior, not hypothetical):**
+
+- *Candidate adapter reports `UNAVAILABLE`, verdict `FAILED` with "build
+  failure is not execution evidence", or `/runs/{id}/artifacts` returns
+  500 "failed integrity validation":* the recorded image provenance does not
+  match your local images (typically after rebuilding
+  `maven-offline-springboot`). Fix: re-run
+  `python scripts/record_docker_image_provenance.py`. This is fail-closed by
+  design — a build failure can never surface as evidence.
+- *`RUN_DOCKER_TESTS=1` but Docker missing:* the runtime-proof tests **fail**
+  rather than skip (`tests/integration/test_file_write_read_runtime_proof.py`);
+  an unexecuted test is never reported as proof.
+- *Sequential full-suite Docker runs on WSL2 show intermittent failures under
+  load:* known environment limitation (BL-010); run the affected tests in
+  isolation, and treat Linux CI as the authoritative Docker result.
+- *Download button disabled / HTTP 409:* export requires customer approval
+  (BL-091); submit `APPROVED` in the approval panel first.
+- *401 from the API:* a `CONTROL_PLANE_API_TOKEN` is set; enter the token in
+  the Dashboard's token form (or call the API with
+  `Authorization: Bearer <token>`).
+
+**Local results vs CI evidence:** counts printed by local commands above are
+local evidence on this machine. The authoritative test evidence for a commit is
+the GitHub Actions run for that **exact SHA** (job conclusions are public; CI
+job logs require repo admin rights, so per-job counts inside CI are not quoted
+unless read from an uploaded artifact). Current verified SHA + CI runs:
+`opencode.md`, `docs/BACKLOG.md`.
+
+## Submission guide
+
+A submission-ready project guide — architecture, sample input with verified
+output, test/CI evidence, supported subset, security posture with deferred
+controls, demo script, evaluator Q&A, and the §71 completion matrix with
+remaining blockers — is in **[docs/SUBMISSION_GUIDE.md](docs/SUBMISSION_GUIDE.md)**
+(verified at `49821ad`, 2026-10-21).
+
 ## Implemented
 
 - Secure ZIP ingestion with traversal and extraction limits.
