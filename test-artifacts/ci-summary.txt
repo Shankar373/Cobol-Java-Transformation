@@ -1,0 +1,33 @@
+Environment:
+- Git: 2.55.0.windows.5
+- Python: 3.11.9 (installed in AppData)
+- Node.js: v20.20.2, npm 10.8.2
+- Docker: 29.8.2 (WSL2 backend)
+- WSL: 3.0.1.0 with docker-desktop running
+
+Prerequisites:
+- Git installed OK
+- Python 3.11 installed OK
+- Node 20 installed OK
+- Docker Desktop installed OK
+- Docker images present: gnucobol-ocesql:latest, maven-offline-springboot:latest, eclipse-temurin:21-jdk (all exist)
+
+Backend deps: installed (via --only-binary where needed; uvloop skipped on Windows but uvicorn[standard] variants installed)
+
+Quick validation:
+- Phase 1 ingestion tests: 3 passed
+- Parser/IR: 89 passed
+- Java generator: 14 passed
+- Application generator P0: 19 passed
+- API/P0 integration: 46 passed
+- Docker Java e2e: 16 passed (RUN_DOCKER_TESTS=1)
+- Docker image provenance: 6 passed
+- Frontend: 122 passed (vitest), build OK
+- Core Docker-dependent P0 tests: 59 passed, 6 failed in subset (vertical slice has some failures; core API/tests mostly OK)
+
+Sandbox images:
+- gnucobol-ocesql:latest (GnuCOBOL 3.1.2.0)
+- maven-offline-springboot:latest (Maven 3.9.16, Temurin 21)
+- eclipse-temurin:21-jdk: RepoDigest matches runtime_digest in config
+
+Repo: codex/universal-core @ 7ae5873, clean working tree.
