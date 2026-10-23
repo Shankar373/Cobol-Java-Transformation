@@ -147,7 +147,7 @@ class InputIdentity:
 class ArtifactIdentity:
     """Identity of a captured artifact."""
     artifact_id: str
-    artifact_type: str  # one of V1 registry
+    artifact_type: str  # one of V1 registry plus derived BUSINESS_INVARIANT
     logical_name: str
     producer_role: str  # "ORACLE" or "CANDIDATE"
     content_hash: ContentHash
@@ -155,7 +155,10 @@ class ArtifactIdentity:
     record_count: int | None = None
 
     def __post_init__(self) -> None:
-        valid_types = {"STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD"}
+        valid_types = {
+            "STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD",
+            "BUSINESS_INVARIANT",
+        }
         if self.artifact_type not in valid_types:
             raise ValueError(f"artifact_type must be one of {valid_types}, got {self.artifact_type}")
         if self.producer_role not in ("ORACLE", "CANDIDATE"):

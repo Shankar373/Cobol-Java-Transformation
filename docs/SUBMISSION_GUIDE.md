@@ -142,7 +142,9 @@ machine-readably, in `docs/cobol_coverage_registry.json`, summarized in
 - **Explicitly not claimed:** universal COBOL coverage; z/OS/mainframe
   equivalence; `COMP`/`COMP-3` byte-layout equivalence (PARTIAL); JCL, CICS,
   DB2, MQ, IMS artifact materialization (fail-closed, BL-116); indexed/relative
-  *transformation* (runtime lane only, hand-written candidates).
+  equivalence outside the certified subset (primary RECORD KEY at offset 0,
+  ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY — that subset transforms and is
+  oracle-proven, BL-134) and any VSAM file-image/on-disk equivalence.
 - Known risks and open items: `docs/KNOWN_ISSUES.md`; central defect/decision
   register: `docs/BACKLOG.md`.
 

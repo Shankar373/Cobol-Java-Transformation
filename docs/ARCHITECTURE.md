@@ -56,6 +56,10 @@ fallbacks must not silently turn unavailable execution into a successful verdict
 
 JCL, CICS, DB2, indexed/relative files and other enterprise constructs may be modeled or
 partially transformed, but broad runtime equivalence is not currently proven.
+(Indexed/relative files are the exception in part: the certified subset — primary
+RECORD KEY at offset 0, ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY — transforms
+and is oracle-proven byte-identical to GnuCOBOL 3.1.2; everything outside it,
+including any VSAM file-image equivalence, stays unproven and fails closed.)
 
 ## Evidence boundary
 

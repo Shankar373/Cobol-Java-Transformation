@@ -173,6 +173,12 @@ Supported subset, with runtime evidence where noted (see
 - Static resolved CALL chains (A→B→C proof), fail-closed negatives for
   unresolved/dynamic/cyclic/arity-mismatch.
 - Sequential files (LINE SEQUENTIAL) verified end-to-end.
+- Indexed/relative files — **certified subset** (primary RECORD KEY at offset 0,
+  ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY): generated Java byte-identical
+  to the GnuCOBOL 3.1.2 oracle for stdout, FILE STATUS and exit code
+  (BL-134); VSAM file-image/on-disk equivalence is **not** claimed.
+- CALL `BY CONTENT` — byte-identical to the GnuCOBOL oracle in single-mode and
+  mixed `BY REFERENCE`/`BY CONTENT` workloads.
 - Copybooks verified end-to-end via shared Java model.
 - String comparison via `String.equals`.
 - Numeric VALUE semantics oracle-verified byte-identical for DISPLAY output.
@@ -180,8 +186,9 @@ Supported subset, with runtime evidence where noted (see
 ## 16. Partial capabilities
 
 - STRING/UNSTRING beyond the delimited certified subset.
-- CALL parameter modes outside BY REFERENCE literal subset (BY VALUE/BY CONTENT
-  not certified).
+- CALL `BY VALUE` (PARTIAL, never claimed: the GnuCOBOL 3.1.2 oracle declares
+  its BY VALUE implementation unfinished and aborts, so no equivalence oracle
+  exists; `BY REFERENCE`/`BY CONTENT` are certified).
 - Numeric arithmetic precision beyond IEEE-754 double representable range.
 - DIVIDE/COMPUTE precision edges.
 - CALL/lifecycle proof for broader multi-program, cyclic, and EXIT PROGRAM
@@ -191,10 +198,14 @@ Supported subset, with runtime evidence where noted (see
 
 ## 17. Unsupported capabilities
 
-- GO TO Java mapping (emitted as comment), GOBACK as transform target, INVALID
-  KEY / START / REWRITE / DELETE in source (source-level UNSUPPORTED).
-- Indexed/relative file semantics (detected, rejected outside the certified
-  boundary).
+- GO TO Java mapping (emitted as comment), GOBACK as transform target.
+  `INVALID KEY` / `START` / `REWRITE` / `DELETE` are SUPPORTED at IR/mapper
+  level but have **no source-only fallback**: when no IR node is produced they
+  fail closed to source-level UNSUPPORTED.
+- Indexed/relative file semantics — **certified subset only** (see §15);
+  rejected outside it (ALTERNATE RECORD KEY, ACCESS MODE RANDOM,
+  `ACCESS MODE DYNAMIC` on a sequential-organization file, missing FILE
+  definition), and no VSAM file-image equivalence exists.
 - JCL/CICS/DB2 runtime equivalence (modeled only; no runtime lane).
 - Dynamic, unresolved, cyclic, or arity-mismatched CALL (fail closed).
 - EXEC SQL / EXEC CICS, SORT, MERGE, ACCEPT, INITIALIZE, INSPECT, SEARCH, SET,
@@ -252,7 +263,8 @@ SUCCESS demo:
 NEGATIVE demo (the important one — it proves the pipeline fails closed):
 
 1. Upload a workload with an unsupported construct or dependency
-   (e.g., EXEC SQL, EXEC CICS, dynamic CALL, indexed/relative files, or a
+   (e.g., EXEC SQL, EXEC CICS, dynamic CALL, indexed/relative files outside
+   the certified subset — ALTERNATE RECORD KEY / ACCESS MODE RANDOM — or a
    JCL/DB2/CICS job stream).
 2. Capability analysis classifies it PARTIAL/UNSUPPORTED.
 3. Modernization is blocked or proof is marked incomplete.

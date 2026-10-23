@@ -582,16 +582,52 @@ class CapabilityAnalyzer:
                     f"(mode={stmt.mode})",
                 ))
 
-            # NOTE — BY CONTENT / BY VALUE are intentionally not classified
-            # here.  They have no registry key by design (see the note in
-            # semantic_capability.py and the negative contract test
-            # test_by_value_and_by_content_are_never_claimed_supported): an
-            # unproven passing mode must never be used to derive a support
-            # verdict, matching the rule on _analyze_call_linkage_arity.
+            # CALL parameter-passing modes are IR flags, not statement
+            # classes: they live on CallStatement.passing_modes.  Classifying
+            # them from the parsed tuple means the source scan (which sees the
+            # raw BY CONTENT / BY VALUE phrase) cannot downgrade them, while a
+            # phrase the parser dropped still fails closed through the
+            # registry's source_only level.
+            if isinstance(stmt, CallStatement):
+                for mode in stmt.passing_modes:
+                    key = f"BY {(mode or '').strip().upper()}"
+                    if key not in CONSTRUCT_REGISTRY:
+                        continue
+                    ir_flag_keys.add(key)
+                    entry = CONSTRUCT_REGISTRY[key]
+                    findings.append((key, entry.level, entry.evidence))
 
         for paragraph in program.paragraphs:
             for stmt in paragraph.statements:
                 _walk(stmt)
+
+        # FILE-CONTROL evidence.  SELECT clauses live on FileDefinition IR, so
+        # the verdict is backed by what the mapper actually sees rather than a
+        # raw source guess.  ALTERNATE RECORD KEY is parsed but never lowered
+        # into an alternate index, so that specific instance stays UNSUPPORTED.
+        file_control_keys: set[str] = set()
+        for fd in program.file_definitions:
+            organization = getattr(fd.organization, "name", "")
+            if organization == "INDEXED":
+                file_control_keys.add("ORGANIZATION INDEXED")
+            elif organization == "RELATIVE":
+                file_control_keys.add("ORGANIZATION RELATIVE")
+            if getattr(fd.access_mode, "name", "") == "DYNAMIC":
+                file_control_keys.add("ACCESS DYNAMIC")
+            if fd.record_key is not None or fd.alternate_keys:
+                file_control_keys.add("RECORD KEY")
+        for key in sorted(file_control_keys):
+            entry = CONSTRUCT_REGISTRY[key]
+            ir_flag_keys.add(key)
+            findings.append((key, entry.level, entry.evidence))
+        for fd in program.file_definitions:
+            if fd.alternate_keys:
+                findings.append((
+                    "RECORD KEY",
+                    CapabilityLevel.UNSUPPORTED,
+                    f"ALTERNATE RECORD KEY on file {fd.name} is parsed but "
+                    "has no alternate-index lowering",
+                ))
 
         # Implicit fall-through reliance: the generator executes the driver
         # (first) paragraph; a multi-paragraph program whose driver does not
@@ -673,16 +709,25 @@ class CapabilityAnalyzer:
                 ))
 
         # REDEFINES / OCCURS / 88-level and the VSAM FILE-CONTROL
-        # phrases.  These are pre-PROCEDURE-DIVISION
-        # constructs the procedure-restricted source scan above cannot see,
-        # so scan the source-before-PROCEDURE slice explicitly.  Classified
-        # UNSUPPORTED (fail-closed) until a full-ladder runtime proof exists.
+        # phrases.  These are pre-PROCEDURE-DIVISION constructs the
+        # procedure-restricted source scan above cannot see, so scan the
+        # source-before-PROCEDURE slice explicitly.  FILE-CONTROL phrases that
+        # the parser already recorded on FileDefinition were classified from IR
+        # above and are not re-added from source; a phrase with no IR proves the
+        # mapper cannot see the SELECT clause, so its source-only level
+        # (UNSUPPORTED) is used.
         data_text = unit.source_text or ""
         proc_match = re.search(r"\bPROCEDURE\s+DIVISION\b", data_text, re.IGNORECASE)
         if proc_match:
             data_text = data_text[:proc_match.start()]
         if data_text:
             data_detected = scan_constructs(data_text, restrict_to_procedure=False)
+            file_control_keys = {
+                "ORGANIZATION INDEXED",
+                "ORGANIZATION RELATIVE",
+                "ACCESS DYNAMIC",
+                "RECORD KEY",
+            }
             for key in (
                 "REDEFINES",
                 "OCCURS",
@@ -694,9 +739,35 @@ class CapabilityAnalyzer:
                 "LOCAL-STORAGE",
                 "REPLACE",
             ):
-                if key in data_detected:
-                    entry = CONSTRUCT_REGISTRY[key]
+                if key not in data_detected or key in ir_flag_keys:
+                    continue
+                entry = CONSTRUCT_REGISTRY[key]
+                if key in file_control_keys:
+                    findings.append((
+                        key,
+                        entry.effective_source_level,
+                        f"{key} is used in source but the parser produced no "
+                        "FileDefinition IR for the SELECT clause; the mapper "
+                        "cannot lower it",
+                    ))
+                else:
                     findings.append((key, entry.level, entry.evidence))
+
+            # An 88-level VALUE form the mapper cannot lower must not inherit
+            # the construct's certified level: name it and fail closed.
+            if "88-LEVEL" in data_detected:
+                from engine.transformation.cobol_to_java_mapping import (
+                    condition_name_problems,
+                )
+
+                for cond_name, reason in sorted(
+                    condition_name_problems(program).items()
+                ):
+                    findings.append((
+                        f"88-LEVEL {cond_name}",
+                        CapabilityLevel.UNSUPPORTED,
+                        reason,
+                    ))
 
         # COPY ... REPLACING clauses the lane cannot apply.  The
         # clause sits in the program source, so it is visible here even
@@ -800,8 +871,13 @@ class CapabilityAnalyzer:
     ) -> tuple[CapabilityLevel, str]:
         """Classify one discovered file dependency by real file semantics.
 
-        Anything outside the certified sequential boundary fails closed as
-        UNSUPPORTED; only benign sequential operations are SUPPORTED.
+        Sequential files are certified for the benign operations.  Indexed and
+        relative files are lowered into the certified keyed subset and are
+        oracle-proven for the shipped fixtures. Behavioral equivalence
+        (stdout, FILE STATUS, exit code) is PROVEN for the certified subset:
+        primary RECORD KEY at offset 0, ACCESS MODE DYNAMIC, no ALTERNATE
+        RECORD KEY. The on-disk representation is an emulated side file, not
+        VSAM; file-image equivalence is not claimed.
         """
         program = unit.program
         file_defs = {f.name: f for f in program.file_definitions}
@@ -813,18 +889,50 @@ class CapabilityAnalyzer:
                 f"File dependency {fd.file_name} has no FILE definition",
             )
 
-        if definition.organization != FileOrganization.SEQUENTIAL:
+        if definition.organization not in (
+            FileOrganization.SEQUENTIAL,
+            FileOrganization.INDEXED,
+            FileOrganization.RELATIVE,
+        ):
             return (
                 CapabilityLevel.UNSUPPORTED,
                 f"{definition.organization.value} file {fd.file_name} is "
                 "outside the certified file boundary",
             )
 
+        if definition.alternate_keys:
+            return (
+                CapabilityLevel.UNSUPPORTED,
+                f"ALTERNATE RECORD KEY on {fd.file_name} has no alternate-"
+                "index lowering",
+            )
+
+        # Certified subset: INDEXED/RELATIVE with primary key at offset 0,
+        # ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY.
+        # Behavioral equivalence (stdout, FILE STATUS, exit code) is PROVEN.
+        if definition.organization is not FileOrganization.SEQUENTIAL:
+            if definition.access_mode != FileAccessMode.DYNAMIC:
+                return (
+                    CapabilityLevel.UNSUPPORTED,
+                    f"{definition.organization.value} file {fd.file_name} with "
+                    f"ACCESS MODE {definition.access_mode.value} is outside the "
+                    "certified subset (certified: ACCESS MODE DYNAMIC only)",
+                )
+            return (
+                CapabilityLevel.SUPPORTED,
+                f"{definition.organization.value} file {fd.operation} for "
+                f"{fd.file_name} is lowered for the certified keyed subset and "
+                "oracle-proven on the shipped fixtures; behavioral equivalence "
+                "(stdout, FILE STATUS, exit code) is PROVEN for the certified "
+                "subset. The on-disk record/index representation is an emulation, "
+                "not VSAM; file-image equivalence is not claimed.",
+            )
+
         if definition.access_mode == FileAccessMode.DYNAMIC:
             return (
                 CapabilityLevel.UNSUPPORTED,
                 f"Dynamic access mode for {fd.file_name} is outside the "
-                "certified file boundary",
+                "certified sequential file boundary",
             )
 
         if fd.operation.upper() == "REWRITE":

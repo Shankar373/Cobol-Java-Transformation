@@ -1,5 +1,292 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+> **Record policy:** session blocks are ordered **newest first**. A block below
+> the newest one is a *historical* record of what was true when it was written;
+> where an older block contradicts the newest block, the newest block (and the
+> current code/tests) is authoritative. Indexed/relative **transformation** was
+> reclassified to `SUPPORTED` for the certified subset by BL-134 (2026-10-22) —
+> every older statement that it "remains UNSUPPORTED/blocked at FILE-CONTROL"
+> is historical and is annotated in place.
+
+## Session: Universal runtime verification layer — deterministic technical + business equivalence (2026-10-22, working tree on HEAD `2e2f4ca`)
+
+Working tree only — **nothing committed, pushed, merged, stashed, cleaned or
+deleted**. Docker images, containers, volumes and caches were left untouched;
+the pre-existing 453-test Docker run was **not** re-executed.
+
+### What was added (canonical systems extended, no parallel pipeline)
+
+- **`engine/verification/runtime_catalog.py`** — machine-readable runtime
+  capability catalog. Exactly six states (`IMPLEMENTED`, `PARTIAL`, `BLOCKED`,
+  `UNAVAILABLE`, `UNSUPPORTED`, `UNKNOWN`); typed prerequisites (`EXECUTABLE`,
+  `ENVIRONMENT`, `FILE`, `CONTAINER_IMAGE`, `RUNTIME`, `ENTITLEMENT`); only
+  executable/env/file are probed locally, and images/runtimes/entitlements are
+  **never** inferred from a name. Discovery is **downgrade-only**: a missing or
+  unobserved required prerequisite can never raise a claim. Default catalog:
+  GnuCOBOL batch, GnuCOBOL indexed/relative I/O, Docker Java 21 =
+  `IMPLEMENTED`; DB2/MQ/CICS/IMS/JCL = `BLOCKED`.
+- **`engine/verification/business_invariants.py`** — declarative business
+  checks, phase-scoped (`PRECONDITION`/`POSTCONDITION`/`ERROR_BEHAVIOR`) with a
+  closed kind set (`EXIT_CODE`, `EXACT_LINES`, `LINE_COUNT`, `RECORD_COUNT`,
+  `FIXED_FIELD_EQUALS`, `FIXED_FIELD_TOTAL`, `JSON_FIELD_EQUALS`) over
+  `STDOUT`/`STDERR`/`EXIT_STATUS`/generated `FILE`/`INPUT`. Exact `Decimal`
+  semantics (float expectations rejected), fixed offsets/lengths, restricted
+  JSON paths, canonical self-checking reports with definition digest and
+  `admit_report()` re-validation.
+- **Integration** — `ArtifactIdentity`/`ArtifactCapturer` accept
+  `BUSINESS_INVARIANT`; `BusinessInvariantComparator` + registry helpers in
+  `engine/comparators/framework.py`; `WorkloadDefinition.invariants` with
+  duplicate/reserved-name validation; `VerticalSlicePipeline` evaluates both
+  sides, captures the derived artifact, compares it, and passes input files
+  through `_run_declaration_driven`; verdict whitelist/scope updated.
+- **Behavioural guarantees proven by tests** — a business-only failure is
+  invisible to a matching `EXIT_STATUS` but forces `FAILED`; identical wrong
+  behaviour on both sides is `MISMATCH`, never `VERIFIED`; a workload without
+  invariants is byte-for-byte unchanged. `create_default_registry()` still
+  contains exactly the five V1 comparators; business comparison is opt-in via
+  `create_verification_registry()`.
+
+### Test evidence (local, working tree)
+
+- New Docker-free suite: `pytest tests/verification -q` → **71 passed in 7.74 s**
+  (`test_runtime_catalog.py` 17, `test_business_invariants.py` 36,
+  `test_business_invariant_comparator.py` 12,
+  `test_business_invariant_pipeline.py` 6).
+- Regression subset (comparators, unit, verdict, evidence, contracts, pipeline
+  progress, network-policy honesty, adversarial trust/comparator attacks,
+  inventory generalization): **256 passed in 146.62 s** (includes the
+  Docker-gated inventory lane; no failures/skips).
+- Pre-existing Docker runtime proof: 453 tests, 0 failures/errors/skips, exit 0,
+  1996.45 s (2026-10-22 18:07:12 → 18:40:29 +05:30), JUnit + image-identity
+  evidence in `test-artifacts/runtime-image-audit-2026-10-22/`. It predates this
+  layer and is **not** cited as proof for it.
+- Full collection is **4183 tests**; the same 4 pre-existing `tmp/codex-*` ACL
+  `PermissionError`s block a clean full-suite run and were not touched
+  (`tmp/codex-ci-pytest`, `tmp/codex-pytest`, `tmp/codex-pytest-first`,
+  `tmp/codex-pytest-full`).
+
+### Documentation reconciled this session
+
+- `docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md` §5.2/§6 completed with
+  the verified run, byte-identical image/disk inventories and the full evidence
+  index (empty `docker-events.log` explained; post-hoc replay supersedes it).
+- `docs/verification/RUNTIME_PROOF_MATRIX.md` — stale 2026-10-17 baseline
+  replaced; indexed/relative rows corrected to **PROVEN runtime for hand-written
+  candidates** (real ISAM) with transformation **PROVEN for certified subset**
+  (byte-identical behavioral equivalence); new catalog/business-invariant
+  sections and corrected non-claims.
+- `docs/BACKLOG.md` — BL-128 (catalog), BL-129 (business invariants), BL-130
+  DB2, BL-131 MQ, BL-132 CICS/IMS, BL-133 JCL, **BL-134 indexed/relative
+  transformation FIXED**; checker reports **134 rows, 7 columns, unique ids**.
+- `docs/CAPABILITY_MATRIX.md` — baseline note corrected (BL-108/BL-109 fixed)
+  and verification-layer status updated (indexed/relative transformation now
+  implemented/tested for certified subset).
+
+### Still blocked (documented, no bypass)
+
+DB2 ESQL runtime equivalence (no `ocesql`, no DB2 client, no DB-state
+comparator), MQ runtime lane (free image exists, no execution/comparator),
+CICS/IMS (IBM entitlement `UNAUTHORIZED`), JCL behavioural execution (no
+MVS-class runtime). No runtime or business claim was upgraded without evidence.
+
+### Next exact action
+
+Choose one authorized next lane: (a) design the MQ PUT/GET lane + message-state
+comparator (BL-131 — cheapest external win), (b) advance BL-130 (DB2) by
+investigating open-source ESQL runtime options, or (c) keep the tree untouched
+and commit the verified working tree when the human authorizes it.
+
+---
+
+## Session: Indexed/relative file transformation — certified subset PROVEN (2026-10-22, working tree on HEAD `2e2f4ca`)
+
+Working tree only — **nothing committed, pushed, merged, stashed, cleaned or deleted**. All pre-existing test artifacts preserved.
+
+### BL-134 Resolution: Indexed/relative FILE-CONTROL transformation now PROVEN for certified subset
+
+**What was fixed:**
+
+- **`engine/transformation/semantic_capability.py`** — Changed capability level from `PARTIAL` to `SUPPORTED` for the certified subset of `ORGANIZATION INDEXED`, `ORGANIZATION RELATIVE`, `ACCESS DYNAMIC`, `RECORD KEY`. Evidence updated to explicitly state "Behavioral equivalence (stdout, FILE STATUS, exit code) is PROVEN for the certified subset" with file-image equivalence limitation noted.
+
+- **`engine/modernization/capability_analyzer.py`** — Updated `_file_capability` to return `SUPPORTED` for INDEXED/RELATIVE files with `ACCESS MODE DYNAMIC`, no ALTERNATE RECORD KEY, primary key at offset 0. Returns `UNSUPPORTED` for RANDOM access mode (outside certified subset).
+
+- **Planner unblocked** — Programs with certified indexed/relative file operations now receive `TRANSFORM` action instead of `SKIP`.
+
+**Certified subset scope:**
+- `ORGANIZATION INDEXED` / `ORGANIZATION RELATIVE`
+- `ACCESS MODE IS DYNAMIC`
+- Primary `RECORD KEY` starting at offset 0
+- No `ALTERNATE RECORD KEY`
+- Behavioral equivalence (stdout, FILE STATUS, exit code) byte-identical to GnuCOBOL 3.1.2
+
+**Explicit non-claim:** File-image equivalence (VSAM on-disk format) is NOT claimed. The on-disk representation is an emulated side file.
+
+**Test evidence:**
+- `tests/integration/test_indexed_relative_oracle_proof.py` — 2 tests PASSED (generated Java byte-identical to GnuCOBOL oracle)
+- `tests/integration/test_indexed_semantics.py` — 13 tests PASSED (hand-written candidate mutations all FAILED)
+- `tests/integration/test_relative_semantics.py` — 10 tests PASSED (hand-written candidate mutations all FAILED)
+- `tests/transformation/test_indexed_relative_transformation.py` — 9 tests PASSED (capability registry and verdict tests updated)
+
+**Backlog:** BL-134 updated to FIXED with evidence references. Register validation: 134 rows, 7 columns, unique IDs.
+
+---
+
+## Session: Structural feature certification + CALL passing modes (2026-10-22, working tree on HEAD `2e2f4ca`)
+
+Working tree only (no commit/push authorized). Docker runtime set verified
+(`gnucobol-ocesql:latest`, `eclipse-temurin:21-jdk`,
+`maven-offline-springboot:latest`, all `linux/amd64`); CICS/IMS remain
+entitlement-blocked and no z/OS/DB2 equivalence is claimed.
+
+### Structural features (oracle-proven)
+
+- **OCCURS**: fixed tables lower to Java arrays with 1-based → 0-based
+  subscripts; group tables lower to parallel member arrays. `OCCURS DEPENDING
+  ON` fails closed (`UNSUPPORTED_CONSTRUCT`, field not declared). Registry
+  PARTIAL.
+- **88-LEVEL / SET CONDITION TO TRUE**: condition names expand to parent
+  comparisons (numeric, THRU range, width-padded content equality, SPACES) in
+  IF/EVALUATE/PERFORM UNTIL; `SET <name> TO TRUE` assigns the first VALUE term.
+  Registry SUPPORTED for the certified subset.
+- **REDEFINES**: certified subset = elementary alphanumeric DISPLAY views over
+  an elementary alphanumeric base written by an unsubscripted MOVE; a canonical
+  `<BASE>$BYTES` string plus post-MOVE splice/refresh keeps every view in sync.
+  Numeric/group/OCCURS/chained/over-wide redefines fail closed. Registry
+  PARTIAL.
+- New modules/tests: `engine/transformation/redefines.py`,
+  `tests/transformation/test_occurs_lowering.py` (9),
+  `test_level88_lowering.py` (14), `test_redefines_lowering.py` (10), and
+  Docker-gated `tests/integration/test_structural_oracle_proof.py` (8).
+
+### CALL passing modes (this session)
+
+- **BY CONTENT is now SUPPORTED with oracle proof.** The shipped
+  `fixtures/workload-by-content` pair and `tests/fixtures/call_byref` (mixed
+  `BY REFERENCE` + `BY CONTENT`) are byte-identical to GnuCOBOL 3.1.2.
+  `tests/integration/test_call_passing_mode_oracle_proof.py` (3, Docker-gated).
+- **BY VALUE stays PARTIAL and is never SUPPORTED.** GnuCOBOL 3.1.2, the only
+  available COBOL runtime, declares its BY VALUE implementation unfinished and
+  aborts with SIGSEGV on the callee read (`-Wunfinished` in the callee-declared
+  form); the oracle test pins that abort instead of fabricating equivalence.
+- Registry keys `BY CONTENT` (SUPPORTED) / `BY VALUE` (PARTIAL), both with
+  `source_only=UNSUPPORTED`; source patterns detect the caller's USING modes
+  without matching `WS-BY-VALUE`; the analyzer classifies from
+  `CallStatement.passing_modes`.
+- Fixture correction: callee `PROCEDURE DIVISION USING BY VALUE/BY CONTENT …`
+  was invalid COBOL (GnuCOBOL rejects `BY CONTENT` there). Both callees now use
+  `PROCEDURE DIVISION USING LS-VALUE.`; modes stay on the caller's USING
+  clause.
+- Linked fidelity fix: numeric DISPLAY/name lookup now includes the LINKAGE
+  SECTION, so a callee's `DISPLAY LS-VALUE` renders at its PIC width (`0100`,
+  not `100`). This was required for byte-identical proof.
+- Unit contracts: `tests/transformation/test_call_passing_modes.py` (15).
+  Contract test renamed to `test_passing_modes_never_claim_unproven_support`.
+
+### Still open
+
+- Exact COMP/COMP-3/COMP-5 record-area byte encode/decode remains uncertified
+  (registry PARTIAL); only value semantics are mapped.
+- ~~Indexed/relative *transformation* stays UNSUPPORTED at the FILE-CONTROL
+  level even though the hand-written runtime is proven (`test_indexed_semantics.py`,
+  `test_relative_semantics.py`).~~ **HISTORICAL (2026-10-22, pre-BL-134) —
+  superseded: BL-134 reclassified the certified subset (primary RECORD KEY at
+  offset 0, ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY) to `SUPPORTED`; see
+  the newest session block.**
+- DB2 embedded SQL oracle unavailable (`gnucobol-ocesql` has no `ocesql`
+  binary); CICS/IMS blocked by IBM entitlement.
+
+## Session: Workstream A/B/D/E gap closure — clause-level fail-closed diagnostics (2026-10-22, HEAD `2e2f4ca`)
+
+Working tree only (no commit/push authorized). Red-first tests added; every
+affected suite re-run per file with `RUN_DOCKER_TESTS=1`, workers=1.
+
+### Verified gaps fixed
+
+- **Workstream B — UNSTRING clauses were silently dropped.** `_parse_unstring`
+  read only `source` / `DELIMITED BY` / `INTO`; the continuation scraper then
+  turned `WITH POINTER WS-P` and `ON OVERFLOW` words into **receiving fields**.
+  Now `_unstring_parts` tokenises the statement, captures `pointer`,
+  `has_overflow`, `varying_pointer`, `tallying_pointer` on the IR, excludes
+  clause keywords from receivers, and raises one `UNSUPPORTED_CONSTRUCT`
+  diagnostic per clause (`WITH POINTER`, `VARYING IN`, `TALLYING IN`,
+  `ON OVERFLOW`, `DELIMITER IN`, `COUNT IN`, multiple/`ALL` delimiters,
+  identifier delimiters). The generic mapper emits
+  `UNSUPPORTED_UNSTRING$<CLAUSE>`; the certified file-lane splitter is
+  unchanged and clause-bearing statements are refused a fabricated
+  `InputRecordMapping`. Tests: `tests/transformation/test_unstring_clause_diagnostics.py` (10).
+- **Workstream E — `CALL … RETURNING` fabricated arity.** `RETURNING x` was
+  captured as a USING argument. Now it is excluded from `arguments` /
+  `passing_modes`, captured as `CallStatement.returning`, named by an
+  `UNSUPPORTED_CONSTRUCT` diagnostic, and the mapper emits
+  `UNSUPPORTED_CALL$RETURNING_<ITEM>`. Test:
+  `tests/test_call_returning_clause.py` (4).
+- **Workstream A — `COMPUTE … ON SIZE ERROR` stayed inside the expression.**
+  The clause is now stripped from `ComputeStatement.expression` and named by
+  an `UNSUPPORTED_CONSTRUCT` diagnostic; the program is no longer SUPPORTED.
+  Test: `tests/transformation/test_compute_size_error_diagnostic.py` (5).
+- **Workstream D — multi-file `OPEN` silently opened only the first file.**
+  Extra file names / unsupported OPEN clauses now raise
+  `UNSUPPORTED_CONSTRUCT` (same fail-closed pattern as multi-file `CLOSE`).
+  Test: `tests/transformation/test_open_multi_file_diagnostic.py` (3).
+- **Workstream C — structural near-miss negatives added.** `REDEFINES`,
+  `OCCURS`, `88-LEVEL` stay `UNKNOWN` (never `SUPPORTED`); data names such as
+  `WS-OCCURS-COUNT` never misfire, while real clauses still detect. Tests
+  appended to `tests/transformation/test_structural_capability.py`.
+
+### Matrices corrected to match code
+
+`docs/SEMANTIC_PROOF_MATRIX.md` rows for READ/WRITE/OPEN/CLOSE/START/REWRITE/
+DELETE/INVALID KEY previously claimed "no parser construct", which contradicts
+`_parse_close`/`_parse_start`/`_parse_rewrite`/`_parse_delete` and the green
+`test_file_invalid_key_lane.py`. Rows now state the IR/mapper path, the
+sequential status-23 fail-closed rule, and (as of this session, pre-BL-134 —
+**now historical**: BL-134 later made the certified indexed/relative subset
+transformable) that real indexed/relative transformation remains blocked by the
+FILE-CONTROL classification. UNSTRING,
+CALL and arithmetic rows now name the new clause diagnostics.
+`docs/CAPABILITY_MATRIX.md` rows for DIVIDE/COMPUTE, STRING/UNSTRING, CALL and
+sequential files updated likewise.
+
+### Evidence (local, exact HEAD `2e2f4ca` + working tree; no CI run for this tree)
+
+- New tests: 10 + 4 + 5 + 3 + 2 = 24 focused tests, all green.
+- Register traceability: BL-123 (UNSTRING), BL-124 (CALL RETURNING), BL-125
+  (COMPUTE SIZE ERROR), BL-126 (multi-file OPEN), BL-127 (matrix correction +
+  structural near-miss negatives); `tools/check_backlog_table.py` reports
+  `OK: 127 register rows, all 7 columns, unique ids`.
+- Full local suite, every file run sequentially with `RUN_DOCKER_TESTS=1`,
+  workers=1:
+  - `tests/transformation` + `tests/adversarial`: **2318 passed**
+  - top-level `tests/*.py` (90 files): **1073 passed**
+  - `tests/integration` (18 files) + `tests/execution` (5 files): **453 passed**
+    (GnuCOBOL/Java Docker oracle lanes included: claims batch 42, copybook
+    runtime 29, payroll 29, phase7d 33, phase-D integrated 22, phase-D
+    negative 26, indexed 13, relative 10, vertical slice 19, file write/read
+    15, call chain 14, docker-java 16, inventory 41, numeric oracle 6,
+    multiprogram oracle 11, JCL Spring Boot compile 2, forensic 34,
+    integrated proof API 18)
+  - `tests/{candidate,comparators,contracts,deployment,evidence,unit,verdict}`:
+    **162 passed**
+  - **Total: 4006 passed, 0 failed, 0 errors, 0 skipped.**
+- Focused red-first runs failed before each fix (UNSTRING 7/8 red, CALL 4/4
+  red, COMPUTE 2 red, OPEN 2 red), then passed.
+- `git diff --check` rc=0; `py_compile` rc=0 on every changed Python module.
+- **Not committed/pushed.** `test-artifacts/*` untouched; the pre-existing
+  `docker-image-provenance.json` modification (mtime 2026-10-17) is preserved.
+- Frontend: no source changes this session (only the pre-existing
+  `frontend/tsconfig.tsbuildinfo` artifact), so the prior 153/153 + `tsc`
+  baseline was not re-run.
+
+### Still blocked by design
+
+DB2/CICS/MQ/IMS/VSAM runtime lanes ~~and indexed/relative transformation~~ remain
+`UNAVAILABLE`/`BLOCKED`/`UNSUPPORTED`; no oracle exists in-repo, so no runtime
+claim was made. (**Historical note:** the indexed/relative *transformation*
+part of this sentence was superseded by BL-134 on 2026-10-22 — the certified
+subset now transforms and is oracle-proven.)
+
+---
+
 ## Session: Universal requirements audit (Master README §§1–80) + R1/R2/R3/R4/R5/R6 remediation + repo-wide comment rewrite (2026-10-21) — COMPLETE (all 25 findings closed)
 
 ### What this session did (audit-first §76/§80, then authorized implementation)
@@ -68,6 +355,8 @@
     (ORGANIZATION INDEXED/RELATIVE SELECT clause), runtime is SUPPORTED
     for hand-written candidates (proven by `test_indexed_semantics.py` +
     `test_relative_semantics.py`, 23 Docker-gated tests). 42 tests green.
+    (**Historical (2026-10-21):** the transformation-UNSUPPORTED half was
+    superseded by BL-134 on 2026-10-22; the runtime half remains true.)
   - **BL-110** JAVA_CANDIDATE contract V2 — new
     `contracts/JAVA_CANDIDATE_CONTRACT_V2.md` defines the Spring
     Boot/Maven candidate shape (D-10 approved); V1 updated to reference

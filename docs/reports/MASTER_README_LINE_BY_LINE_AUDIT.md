@@ -6,6 +6,18 @@
 **Mode:** Read-only (audit-first). No source, test, architecture, or capability-claim changes were made. No merge to `main`.
 **Auditor:** OpenCode (§76 independent audit pass before Phase 12 implementation)
 
+> **HISTORICAL SNAPSHOT (capability lists below are as of audited commit
+> `f3d03528`, 2026-10-16):** several rows in the SUPPORTED / PARTIAL /
+> UNSUPPORTED / UNKNOWN lists have since changed with new oracle evidence —
+> notably (a) indexed/relative files are now a **SUPPORTED certified subset**
+> for transformation (BL-134, 2026-10-22; file-image/VSAM equivalence still
+> not claimed), (b) `INVALID KEY` is `SUPPORTED` (source-only fails closed),
+> (c) `CALL BY CONTENT` and `88-LEVEL` are oracle-proven SUPPORTED while
+> `BY VALUE` stays PARTIAL, and (d) REDEFINES/OCCURS have certified subsets
+> (PARTIAL). Nothing here is rewritten; authoritative current status is
+> `docs/CAPABILITY_MATRIX.md` + `docs/SEMANTIC_PROOF_MATRIX.md` +
+> `docs/verification/RUNTIME_PROOF_MATRIX.md`.
+
 ---
 
 ## 1. Exact Baseline and Audit Scope (§76.1)

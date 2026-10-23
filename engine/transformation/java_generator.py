@@ -980,6 +980,7 @@ public class {class_name} {{
         from engine.transformation.java_ir import (
             JavaCast, JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
             JavaStringConcat, JavaTernary, JavaUnaryOp,
+            JavaArrayAccess, JavaNewArray, JavaFilledArray,
         )
         if isinstance(expr, JavaLiteral):
             if expr.value == "null" and not expr.java_type:
@@ -1007,6 +1008,20 @@ public class {class_name} {{
             return expr.value
         if isinstance(expr, JavaVariableRef):
             return expr.name
+        if isinstance(expr, JavaArrayAccess):
+            return (
+                f"{self._expr_to_string(expr.array)}"
+                f"[{self._expr_to_string(expr.index)}]"
+            )
+        if isinstance(expr, JavaNewArray):
+            dims = "".join(f"[{d}]" for d in expr.dimensions)
+            return f"new {expr.element_type.to_source()}{dims}"
+        if isinstance(expr, JavaFilledArray):
+            return (
+                f"java.util.Collections.nCopies({expr.length}, "
+                f"{self._expr_to_string(expr.fill)})"
+                f".toArray(new {expr.element_type.to_source()}[0])"
+            )
         if isinstance(expr, JavaCast):
             return f"({expr.target_type.to_source()})({self._expr_to_string(expr.expression)})"
         if isinstance(expr, JavaBinaryOp):

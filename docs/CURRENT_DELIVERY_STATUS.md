@@ -30,8 +30,11 @@ Docker-backed Java and GnuCOBOL execution path, evidence/comparison/verdict infr
 FastAPI control plane, React frontend and green CI.
 
 The implementation is not universally certified. Semantic coverage remains subset-based and
-enterprise runtime areas such as broad JCL/CICS/DB2 and indexed/relative file equivalence
-remain outside the proven certification boundary.
+enterprise runtime areas such as broad JCL/CICS/DB2 equivalence remain outside the proven
+certification boundary; indexed/relative file **behavioral** equivalence is inside it only for
+the certified subset (primary RECORD KEY at offset 0, ACCESS MODE DYNAMIC, no ALTERNATE
+RECORD KEY — BL-134), while broad indexed/relative semantics and any VSAM file-image
+equivalence stay outside.
 
 ## CI
 

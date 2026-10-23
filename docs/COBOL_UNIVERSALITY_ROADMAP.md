@@ -30,6 +30,35 @@ Status vocabulary (used in every matrix cell):
 
 A cell marked UNKNOWN is a task, not a claim.
 
+> **Status addendum (2026-10-23, working tree on `2e2f4ca`):** the matrices and
+> gap lists below are an audit-time snapshot (baseline `fedb7dd`, HEAD at audit
+> time `e70ccbf`) that later sessions updated in place as evidence landed.
+> Re-verified against `engine/transformation/semantic_capability.py` on this
+> date:
+>
+> - **Indexed/relative** rows in §9 (Indexed organization / Relative
+>   organization / DYNAMIC access) now read SUPPORTED for the **certified
+>   subset** (BL-134, 2026-10-22 — primary RECORD KEY at offset 0, ACCESS MODE
+>   DYNAMIC, no ALTERNATE RECORD KEY, generated Java byte-identical to the
+>   GnuCOBOL oracle). Everything outside that subset stays fail-closed, so §10's
+>   "indexed/relative general case" gap and the VSAM row remain true for the
+>   general case and for any file-image equivalence.
+> - **BY CONTENT / BY VALUE** §9 rows were corrected in place on this date:
+>   registry keys exist — `BY CONTENT` = `SUPPORTED` with byte-identical oracle
+>   proof (`tests/integration/test_call_passing_mode_oracle_proof.py`),
+>   `BY VALUE` = `PARTIAL` (no oracle is possible: GnuCOBOL 3.1.2's BY VALUE
+>   implementation is unfinished). Consequently **§10's "no registry key
+>   (capability UNKNOWN)" bullet, §11's Rung-1 listing of BY CONTENT/BY VALUE
+>   and P0-4's "capability UNKNOWN" premise are historical**, as is §20's BY
+>   CONTENT entry.
+> - **COMP/COMP-3/ROUNDED** now carry registry keys (`PARTIAL`/`PARTIAL`/
+>   `SUPPORTED`), so §11's Rung-1 "detected, unclassified" listing for them is
+>   historical; §10's "ROUNDED: consumption unverified" is historical (BL-086/
+>   BL-108; HALF_UP consumption documented in `docs/CAPABILITY_MATRIX.md`).
+>
+> Authoritative current status: `docs/CAPABILITY_MATRIX.md`,
+> `docs/SEMANTIC_PROOF_MATRIX.md` and the registry itself.
+
 ---
 
 ## 1. Baseline
@@ -203,8 +232,8 @@ Columns: Parser | IR | Capability (registry) | Mapping | JavaGen | Runtime
 | CALL USING (positional) | SUPPORTED (`_parse_procedure_using`) | SUPPORTED (`using_parameters`) | SUPPORTED (arity-checked) | SUPPORTED (sync-in all modes) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
 | LINKAGE SECTION | SUPPORTED | SUPPORTED | SUPPORTED (arity walk) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
 | BY REFERENCE | SUPPORTED | SUPPORTED | SUPPORTED (write-back path) | SUPPORTED (sync-out) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
-| BY CONTENT | SUPPORTED (parsed) | SUPPORTED | UNKNOWN (no registry key; matrix known-gap) | SUPPORTED-subset (sync-in, no sync-out per mapper comments) | SUPPORTED-subset | UNKNOWN (dedicated runtime proof not found) | SUPPORTED | UNKNOWN | PARTIAL (fixture + linkage-mismatch tests) | UNKNOWN (must not claim) |
-| BY VALUE | SUPPORTED (parsed) | SUPPORTED | UNKNOWN (no registry key; matrix known-gap) | SUPPORTED-subset (same as BY CONTENT) | SUPPORTED-subset | UNKNOWN | SUPPORTED | UNKNOWN | PARTIAL (fixture + tests) | UNKNOWN (must not claim) |
+| BY CONTENT | SUPPORTED (parsed) | SUPPORTED | SUPPORTED (registry key `BY CONTENT`; source-only UNSUPPORTED) | SUPPORTED-subset (sync-in, no sync-out — callee writes never reach the caller) | SUPPORTED-subset | SUPPORTED (byte-identical oracle proof) | SUPPORTED (GnuCOBOL 3.1.2) | SUPPORTED (byte-identical stdout/exit) | SUPPORTED (`tests/integration/test_call_passing_mode_oracle_proof.py`: single-mode + mixed `BY REFERENCE`/`BY CONTENT` workload) | SUPPORTED subset (plain data-item arguments; write-back never claimed) |
+| BY VALUE | SUPPORTED (parsed) | SUPPORTED | PARTIAL (registry key `BY VALUE`; source-only UNSUPPORTED) | SUPPORTED-subset (same sync-in lowering as BY CONTENT) | SUPPORTED-subset | PARTIAL (lowering runs; equivalence unprovable) | UNAVAILABLE for this mode (GnuCOBOL 3.1.2 declares its BY VALUE implementation unfinished and aborts) | UNAVAILABLE (no oracle) | PARTIAL (fixture + parser tests; no runtime claim) | PARTIAL (never certified — no equivalence oracle exists) |
 | ENTRY (multi-entry) | PARTIAL (quoted-form regex only) | PARTIAL (`entry_points`) | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | SUPPORTED | UNKNOWN | PARTIAL (discovery-level) | UNKNOWN |
 | Nested programs | UNKNOWN (single PROGRAM-ID flow) | UNSUPPORTED | UNKNOWN | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | UNKNOWN (no tests found) | UNKNOWN |
 | Dynamic CALL | SUPPORTED (detected, `DYNAMIC`) | SUPPORTED | UNSUPPORTED | UNSUPPORTED (blocked) | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |
@@ -227,9 +256,9 @@ Columns: Parser | IR | Capability (registry) | Mapping | JavaGen | Runtime
 | START (symbolic ops) | SUPPORTED | SUPPORTED | SUPPORTED (source-only→UNSUPPORTED) | SUPPORTED (cursor position) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
 | START (relational words) | PARTIAL (diagnostic, fail-closed to status 23) | PARTIAL (`UNSUPPORTED` operator) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |
 | INVALID KEY / NOT INVALID KEY | SUPPORTED (clause bodies) | SUPPORTED (`invalid_key_body`) | SUPPORTED (sentinel `InvalidKeyScope`) | SUPPORTED (status branch) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED (`test_file_invalid_key_lane`) | SUPPORTED subset |
-| Indexed organization | SUPPORTED (detected: RECORD KEY, ALTERNATE KEY) | SUPPORTED (`FileKey`, alternate keys) | UNSUPPORTED outside INVALID KEY lane (rejected boundary) | PARTIAL | PARTIAL | PARTIAL (`CobolFileIo` keyed ops) | SUPPORTED | PARTIAL | PARTIAL (indexed fixtures + fail-closed negatives) | NOT certified (general case) |
-| Relative organization | SUPPORTED (RELATIVE KEY) | SUPPORTED | UNSUPPORTED outside lane | PARTIAL | PARTIAL | PARTIAL | SUPPORTED | PARTIAL | PARTIAL (relative fixtures + negatives) | NOT certified (general case) |
-| DYNAMIC access | SUPPORTED (detected) | SUPPORTED | UNSUPPORTED (explicit) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | SUPPORTED (blocked) | Blocked by design |
+| Indexed organization | SUPPORTED (detected: RECORD KEY, ALTERNATE KEY) | SUPPORTED (`FileKey`, alternate keys) | SUPPORTED certified subset (source-only stays UNSUPPORTED); UNSUPPORTED outside it (ALTERNATE KEY) | SUPPORTED (certified subset: keyed OPEN/WRITE/READ/REWRITE/DELETE/START) | SUPPORTED (certified subset; `CobolFileIo` keyed ops) | SUPPORTED (certified subset) | SUPPORTED (GnuCOBOL 3.1.2 oracle) | SUPPORTED (byte-identical stdout/FILE STATUS/exit) | SUPPORTED (`test_indexed_relative_oracle_proof.py` + indexed fixtures + fail-closed negatives) | SUPPORTED certified subset (general case NOT certified; VSAM file-image not claimed) |
+| Relative organization | SUPPORTED (RELATIVE KEY) | SUPPORTED | SUPPORTED certified subset (source-only stays UNSUPPORTED); UNSUPPORTED outside it | SUPPORTED (certified subset: RRN-addressed ops) | SUPPORTED (certified subset) | SUPPORTED (certified subset) | SUPPORTED (GnuCOBOL 3.1.2 oracle) | SUPPORTED (byte-identical stdout/FILE STATUS/exit) | SUPPORTED (`test_indexed_relative_oracle_proof.py` + relative fixtures + negatives) | SUPPORTED certified subset (general case NOT certified; VSAM file-image not claimed) |
+| DYNAMIC access | SUPPORTED (detected) | SUPPORTED | SUPPORTED (certified indexed/relative subset; UNSUPPORTED for sequential files) | SUPPORTED (certified subset) | SUPPORTED (certified subset) | SUPPORTED (keyed + sequential access in one run unit) | SUPPORTED (both shipped fixtures use ACCESS MODE DYNAMIC) | SUPPORTED (byte-identical) | SUPPORTED (oracle proof + 23 runtime tests) | SUPPORTED subset (certified indexed/relative only) |
 | FILE STATUS | SUPPORTED (field capture) | SUPPORTED | SUPPORTED (status-bound branches) | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED | SUPPORTED subset |
 | VSAM | SUPPORTED (detected: `ORGANIZATION INDEXED`/`RELATIVE`, `ACCESS DYNAMIC`, `RECORD KEY`/`ALTERNATE RECORD KEY` — roadmap P3-5, BL-086) | UNSUPPORTED | UNSUPPORTED (classified; fail-closed source-only level) | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | SUPPORTED | — | PARTIAL (`tests/test_utilities_vsam_detection.py` focused gate: detection, comment/literal masking, word boundaries, determinism; no VSAM runtime or equivalence claim) | NOT certified |
 

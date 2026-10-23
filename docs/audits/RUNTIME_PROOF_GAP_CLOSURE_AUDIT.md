@@ -207,7 +207,7 @@ machinery proofs) and are labeled as such.
 | Byte-identical determinism of the generator output | **PROVEN** (two-run byte comparison) |
 | Runtime proof requested without a runtime fails loudly | **PROVEN** (gate + unit-tested matrix) |
 | JCL behavioural equivalence | **PARTIAL** (compile+start only; no execution lane) |
-| Generator output for payroll/claims/indexed/relative | **UNKNOWN** (machinery PARTIAL, prewritten candidates only) |
+| Generator output for payroll/claims/indexed/relative | **UNKNOWN** (machinery PARTIAL, prewritten candidates only) — **status addendum 2026-10-22:** the indexed/relative half of this row was superseded by BL-134 (`tests/integration/test_indexed_relative_oracle_proof.py`, generated Java byte-identical to the GnuCOBOL oracle for the certified subset); payroll/claims generator output remains UNKNOWN |
 | Universal COBOL / mainframe equivalence | **UNSUPPORTED** as a claim — explicitly not made anywhere |
 | DB2/CICS/MQ/IMS lanes | **UNAVAILABLE** (no runtime in this repository) |
 

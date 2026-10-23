@@ -640,6 +640,136 @@ class FixedRecordComparator(TypedComparator):
         )
 
 
+class BusinessInvariantComparator(TypedComparator):
+    """Compare canonical BUSINESS_INVARIANT reports.
+
+    MATCH requires *both* sides to report ``PASS`` for the *same* declared
+    invariant set. Two identical failures are not equivalence, and an
+    unreadable or self-inconsistent report is INCONCLUSIVE rather than a
+    match.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("BUSINESS_INVARIANT_COMPARATOR", "1.0.0", "BUSINESS_INVARIANT")
+
+    def compare(
+        self,
+        oracle_artifact: ArtifactIdentity,
+        oracle_content: bytes,
+        candidate_artifact: ArtifactIdentity,
+        candidate_content: bytes | None,
+        *,
+        normalization_policy: tuple[str, ...] | None = None,
+        ordering: str = "SEQUENTIAL",
+        failure_policy: object | None = None,
+    ) -> ComparatorResult:
+        """Compare two invariant reports fail-closed."""
+        if normalization_policy not in (None, ()):
+            raise ValueError(
+                "BUSINESS_INVARIANT comparison does not accept normalization: "
+                f"{normalization_policy!r}"
+            )
+        if ordering != "SEQUENTIAL":
+            raise ValueError(
+                "BUSINESS_INVARIANT comparison only supports SEQUENTIAL "
+                f"ordering, got {ordering!r}"
+            )
+        missing = self._handle_missing(
+            oracle_artifact, candidate_artifact, oracle_content,
+            candidate_content, failure_policy,
+        )
+        if missing is not None:
+            return missing
+        assert candidate_content is not None
+
+        from engine.verification.business_invariants import admit_report
+
+        try:
+            oracle = admit_report(oracle_content)
+            candidate = admit_report(candidate_content)
+        except ValueError as exc:
+            return ComparatorResult(
+                comparator_id=self._comparator_id,
+                oracle_artifact=oracle_artifact,
+                candidate_artifact=candidate_artifact,
+                result=ComparisonResult.INCONCLUSIVE,
+                differences=(
+                    ComparisonDifference(
+                        location="business_invariant_report",
+                        expected="self-consistent canonical report",
+                        actual="malformed or inconsistent report",
+                        description=(
+                            "Business-invariant report failed admission: "
+                            f"{exc}"
+                        ),
+                    ),
+                ),
+                normalization_applied=(),
+                ordering_applied="SEQUENTIAL",
+                failure_policy=getattr(failure_policy, "on_missing", ""),
+            )
+
+        if (
+            oracle.definition_digest != candidate.definition_digest
+            or oracle.definitions != candidate.definitions
+        ):
+            return ComparatorResult(
+                comparator_id=self._comparator_id,
+                oracle_artifact=oracle_artifact,
+                candidate_artifact=candidate_artifact,
+                result=ComparisonResult.INCONCLUSIVE,
+                differences=(
+                    ComparisonDifference(
+                        location="business_invariant_definitions",
+                        expected=oracle.definition_digest,
+                        actual=candidate.definition_digest,
+                        description=(
+                            "Oracle and candidate business-invariant reports "
+                            "were evaluated against different declarations; "
+                            "equivalence is not decidable"
+                        ),
+                    ),
+                ),
+                normalization_applied=(),
+                ordering_applied="SEQUENTIAL",
+            )
+
+        if oracle.overall == "PASS" and candidate.overall == "PASS":
+            return ComparatorResult(
+                comparator_id=self._comparator_id,
+                oracle_artifact=oracle_artifact,
+                candidate_artifact=candidate_artifact,
+                result=ComparisonResult.MATCH,
+                differences=(),
+                normalization_applied=(),
+                ordering_applied="SEQUENTIAL",
+            )
+
+        differences: list[ComparisonDifference] = []
+        for side, report in (("Oracle", oracle), ("Candidate", candidate)):
+            for outcome in report.outcomes:
+                if outcome["passed"]:
+                    continue
+                differences.append(ComparisonDifference(
+                    location=f"{side.lower()}:{outcome['invariant_id']}",
+                    expected=str(outcome["expected"]),
+                    actual=str(outcome["observed"]),
+                    description=(
+                        f"{side} invariant {outcome['invariant_id']!r} "
+                        f"({outcome['phase']}) failed: {outcome['reason']}"
+                    ),
+                ))
+        return ComparatorResult(
+            comparator_id=self._comparator_id,
+            oracle_artifact=oracle_artifact,
+            candidate_artifact=candidate_artifact,
+            result=ComparisonResult.MISMATCH,
+            differences=tuple(differences),
+            normalization_applied=(),
+            ordering_applied="SEQUENTIAL",
+        )
+
+
 def create_default_registry() -> ComparatorRegistry:
     """Create a registry with all V1 comparators."""
     registry = ComparatorRegistry()
@@ -649,6 +779,26 @@ def create_default_registry() -> ComparatorRegistry:
     registry.register(TextFileComparator())
     registry.register(FixedRecordComparator())
     return registry
+
+
+def create_verification_registry() -> ComparatorRegistry:
+    """Default registry plus the derived BUSINESS_INVARIANT comparator.
+
+    ``create_default_registry`` stays exactly the five V1 observed-artifact
+    comparators; business invariants are an opt-in derived verification
+    layer, so they are added by this explicit extension.
+    """
+    registry = create_default_registry()
+    registry.register(BusinessInvariantComparator())
+    return registry
+
+
+def register_business_invariant_comparator(
+    registry: ComparatorRegistry,
+) -> None:
+    """Idempotently add the BUSINESS_INVARIANT comparator to a registry."""
+    if not registry.is_registered("BUSINESS_INVARIANT"):
+        registry.register(BusinessInvariantComparator())
 
 
 # ---------------------------------------------------------------------------
@@ -662,6 +812,7 @@ CANONICAL_COMPARATOR_IDS: dict[str, str] = {
     "EXIT_STATUS": "EXIT_STATUS_COMPARATOR",
     "TEXT_FILE": "TEXT_FILE_COMPARATOR",
     "FIXED_RECORD": "FIXED_RECORD_COMPARATOR",
+    "BUSINESS_INVARIANT": "BUSINESS_INVARIANT_COMPARATOR",
 }
 
 #: Declared legacy comparator ids -> canonical comparator id. Workload
@@ -673,6 +824,7 @@ COMPARATOR_ID_ALIASES: dict[str, str] = {
     "exit-status-exact": "EXIT_STATUS_COMPARATOR",
     "text-file-exact": "TEXT_FILE_COMPARATOR",
     "fixed-record-exact": "FIXED_RECORD_COMPARATOR",
+    "business-invariant-exact": "BUSINESS_INVARIANT_COMPARATOR",
 }
 
 

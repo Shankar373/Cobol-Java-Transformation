@@ -87,8 +87,13 @@ they are not claimed to exist and no document may claim them before enforcement:
   exist before enforcement.
 
 ### P1 — Enterprise runtime boundaries
-JCL, CICS, DB2 and indexed/relative file semantics remain outside broad behavioral certification
-until their runtime semantics are proven.
+JCL, CICS and DB2 remain outside behavioral certification until their runtime
+semantics are proven (no MVS/CICS/DB2 runtime exists — see the runtime
+capability catalog: all three BLOCKED). Indexed/relative file semantics were
+proven for a **certified subset** on 2026-10-22 (BL-134: runtime + generated
+Java byte-identical to the GnuCOBOL oracle for primary RECORD KEY at offset 0,
+ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY); everything outside that subset,
+and any VSAM file-image/on-disk equivalence, remains uncertified.
 
 ### P2 — CI depth
 CI is green but can be strengthened with coverage thresholds, lint/type checks, security and

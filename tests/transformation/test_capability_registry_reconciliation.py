@@ -163,11 +163,16 @@ class TestAllRegistryKeysAppearInSomeVerdict:
         # COMP family is PARTIAL -> claimed by neither list.
         for key in ("COMP", "COMP-3", "COMP-5"):
             assert key not in supported and key not in unsupported, key
-        # REDEFINES / OCCURS / 88-LEVEL are UNKNOWN -> also in neither list.
-        for key in ("REDEFINES", "OCCURS", "88-LEVEL"):
+        # REDEFINES / OCCURS are PARTIAL -> claimed by neither list.
+        for key in ("REDEFINES", "OCCURS"):
             assert key not in supported and key not in unsupported, key
-        # BY CONTENT / BY VALUE are PARTIAL -> neither list.
-        for key in ("BY CONTENT", "BY VALUE"):
+        # 88-LEVEL and its SET statement are oracle-proven SUPPORTED.
+        for key in ("88-LEVEL", "SET CONDITION TO TRUE"):
+            assert key in supported, key
+        # BY CONTENT is oracle-proven SUPPORTED; BY VALUE is PARTIAL -> neither
+        # list.
+        assert "BY CONTENT" in supported, "BY CONTENT was oracle-proven SUPPORTED"
+        for key in ("BY VALUE",):
             assert key not in supported and key not in unsupported, key
         # ROUNDED is SUPPORTED -> must be declared supported.
         assert "ROUNDED" in supported, "ROUNDED was added as SUPPORTED"

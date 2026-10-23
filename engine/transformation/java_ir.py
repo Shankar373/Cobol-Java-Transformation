@@ -82,6 +82,8 @@ class JavaType:
 
     def to_source(self) -> str:
         """Render type as Java source string."""
+        if self.is_array and self.array_element_type is not None:
+            return f"{self.array_element_type.to_source()}[]"
         if self.basic_type:
             return self.basic_type.value
         if self.class_name:
@@ -166,6 +168,37 @@ class JavaCast(JavaExpression):
     """Type cast."""
     target_type: JavaType
     expression: JavaExpression
+
+
+@dataclass(frozen=True)
+class JavaArrayAccess(JavaExpression):
+    """Array element access (``arr[index]``).
+
+    COBOL subscripts are 1-based, so the mapper emits ``index - 1`` inside
+    the access rather than assuming a 0-based source.
+    """
+    array: JavaExpression
+    index: JavaExpression
+
+
+@dataclass(frozen=True)
+class JavaNewArray(JavaExpression):
+    """Zero-initialised array allocation (``new int[n]`` / ``new int[n][m]``)."""
+    element_type: JavaType
+    dimensions: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class JavaFilledArray(JavaExpression):
+    """Array allocation whose elements all carry ``fill``.
+
+    COBOL initialises every table entry from its VALUE/default fill, so a
+    Java ``new String[n]`` (all nulls) is not equivalent for alphanumeric
+    tables.  Rendered as ``Collections.nCopies(n, fill).toArray(new T[0])``.
+    """
+    element_type: JavaType
+    length: int
+    fill: JavaExpression
 
 
 # ---------------------------------------------------------------------------

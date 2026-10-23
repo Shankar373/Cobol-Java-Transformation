@@ -6,19 +6,21 @@
 > that file remains a dated 2026-09-21 forensic snapshot and is preserved as
 > history.
 >
-> **Baseline for the rows below (local runs):** full backend suite with
-> `RUN_DOCKER_TESTS=1` executed on 2026-10-17 on the Windows dev host with the
-> pinned Docker images (HEAD `6145e89` + working-tree changes): **3924 passed,
-> 4 failed, 0 skipped** — a *not-green* suite whose 4 failures are the
-> pre-existing, disclosed Windows-only path-separator defects in
-> `tests/test_runtime_adapter_architecture.py` (failure set identical to the
-> untouched baseline). Every Docker lane executed; no skips. Per-row evidence
-> names the exact test module that produced the proof. The green GitHub
-> Actions runs at `6145e89` validate only that committed SHA and **do not**
-> cover these changes — every row cites the **local** run that produced it;
-> CI coverage applies only from the commit containing this matrix onward, and
-> CI status at that SHA is reported separately from local results (this
-> document claims neither).
+> **Baseline for the runtime rows below (local runs, HEAD `2e2f4ca` + working
+> tree):** the Docker-gated integration/execution suite was executed with
+> `RUN_DOCKER_TESTS=1` on 2026-10-22 on the Windows dev host with the three
+> pinned images: **453 passed, 0 failed, 0 errors, 0 skipped, exit 0**
+> (1996.45 s; JUnit XML and identity evidence in
+> `test-artifacts/runtime-image-audit-2026-10-22/`, analysed in
+> `docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md` §5.2). The earlier
+> 2026-10-22 sequential full local sweep recorded **4006 passed, 0 failed, 0
+> skipped** across every suite. Both runs predate the verification-layer
+> addition described in this document; the **71** new Docker-free
+> `tests/verification` tests were run separately (71 passed) and are *not*
+> included in either count. The green GitHub Actions runs validate only their
+> committed SHA and **do not** cover this working tree — no CI run exists for
+> it, and no CI claim is made here. Per-row evidence names the exact test
+> module that produced the proof.
 
 ## Labels (honest vocabulary)
 
@@ -94,11 +96,15 @@ output for that workload.
 | JCL Spring Boot compile/start lane | **PARTIAL** | Generated | build + start only (no behavioural JCL execution lane) | `tests/integration/test_jcl_spring_boot_compile.py` |
 | `workload-payroll` | **PARTIAL** (comparator/verdict machinery) / generator output **UNKNOWN** | Prewritten + 9 mutations | STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD | `tests/integration/test_payroll_artifacts.py` (incl. mixed MATCH+MISMATCH single run) |
 | `workload-claims` batch lanes | **PARTIAL** (machinery) / generator output **UNKNOWN** | Prewritten | declared batch artifacts | `tests/integration/test_claims_batch.py` (70 tests) |
-| Indexed file (emulated) | **PARTIAL** (emulation-level, no real VSAM) | Prewritten | emulated records | `tests/integration/test_indexed_semantics.py` |
-| Relative file (emulated) | **PARTIAL** (emulation-level) | Prewritten | emulated records | `tests/integration/test_relative_semantics.py` |
+| Indexed file (`ORGANIZATION IS INDEXED`, real Berkeley DB ISAM) | **PROVEN** (generated candidate, certified subset) | Generated (`fixtures/workload-indexed-file/cobol/MAIN.cob`) + 8 hand-written mutations | STDOUT, STDERR, EXIT_STATUS — all MATCH; mutations (missing/extra/wrong key, changed content, wrong mapping, duplicate write, incorrect delete/rewrite) each FAILED | `tests/integration/test_indexed_relative_oracle_proof.py::test_indexed_file_transformation_is_byte_identical`, `tests/integration/test_indexed_semantics.py` (13, Docker-gated) |
+| Relative file (`ORGANIZATION IS RELATIVE`, real ISAM) | **PROVEN** (generated candidate, certified subset) | Generated (`fixtures/workload-relative-file/cobol/MAIN.cob`) + 6 hand-written mutations | STDOUT, STDERR, EXIT_STATUS — all MATCH; mutations (missing/extra/wrong RRN, changed/shifted content, incorrect rewrite) each FAILED | `tests/integration/test_indexed_relative_oracle_proof.py::test_relative_file_transformation_is_byte_identical`, `tests/integration/test_relative_semantics.py` (10, Docker-gated) |
 | DB2 / CICS / MQ / IMS lanes | **UNAVAILABLE** | — | — | No runtime exists in this repository; dependencies resolve PARTIAL/BLOCKED and force central NOT_VERIFIED (`tests/test_external_dependency_edges.py`, `tests/test_phase10_p1_platform_ledger_edges.py`) |
 | `workload-comp` / `workload-comp3` | **UNSUPPORTED** (parser) → runtime **UNKNOWN** | — | — | `docs/SEMANTIC_PROOF_MATRIX.md` |
-| REDEFINES / OCCURS / 88-LEVEL lowering | **UNKNOWN** (mapped generated Java does not compile) | — | — | `docs/SEMANTIC_PROOF_MATRIX.md` |
+| REDEFINES lowering (certified subset) | **PROVEN** | Generated | stdout/exit, byte-identical to GnuCOBOL 3.1.2 | `tests/integration/test_structural_oracle_proof.py` (8 tests, Docker-gated) |
+| OCCURS lowering (fixed tables) | **PROVEN** | Generated | stdout/exit, byte-identical to GnuCOBOL 3.1.2 | `tests/integration/test_structural_oracle_proof.py` (8 tests, Docker-gated) |
+| 88-LEVEL / SET CONDITION TO TRUE | **PROVEN** | Generated | stdout/exit, byte-identical to GnuCOBOL 3.1.2 | `tests/integration/test_structural_oracle_proof.py` (8 tests, Docker-gated) |
+| `CALL ... USING BY CONTENT` | **PROVEN** | Generated | stdout/exit, byte-identical to GnuCOBOL 3.1.2 (single-mode and mixed `BY REFERENCE` + `BY CONTENT`) | `tests/integration/test_call_passing_mode_oracle_proof.py` (3 tests, Docker-gated) |
+| `CALL ... USING BY VALUE` | **PARTIAL** (lowering only; no oracle) | Generated | none — GnuCOBOL 3.1.2's unfinished BY VALUE support aborts with SIGSEGV before the callee can read the parameter | `tests/integration/test_call_passing_mode_oracle_proof.py::test_gnucobol_cannot_serve_as_a_by_value_oracle` |
 | Arith transform path via API (no candidate upload) | **PARTIAL** — run completes, verdict is asserted only to be a legal state | Generated | per default contract | `tests/test_e2e.py::test_transform_produces_real_verdict` |
 
 ## Dependency-proof semantics (the gate)
@@ -125,6 +131,66 @@ stdout/exit comparison); that boundary is pinned by
 | 9 payroll candidate mutations | Each detected; FAILED verdicts | `test_payroll_artifacts.py::TestPayrollMutations` |
 | One run holding MATCH *and* MISMATCH together (EV-002) | STDOUT/STDERR/EXIT_STATUS MATCH + TEXT_FILE/FIXED_RECORD MISMATCH in the same run → FAILED | `test_payroll_artifacts.py::test_mixed_run_stdout_matches_while_report_files_mismatch` |
 
+## Runtime capability catalog (declared, fail-closed, Docker-free)
+
+`engine/verification/runtime_catalog.py` declares what each runtime may claim
+using exactly six states: `IMPLEMENTED`, `PARTIAL`, `BLOCKED`, `UNAVAILABLE`,
+`UNSUPPORTED`, `UNKNOWN`. Only `IMPLEMENTED`/`PARTIAL` are *claimable*, and a
+claimable state requires every `required` prerequisite to be positively
+observed. Prerequisites declare a kind (`EXECUTABLE`, `ENVIRONMENT`, `FILE`,
+`CONTAINER_IMAGE`, `RUNTIME`, `ENTITLEMENT`); only the first three are probed
+locally (`which`, environment variables, file existence). An image, runtime or
+entitlement is **never** inferred from a name — it needs an authoritative
+observation, otherwise it stays `UNKNOWN`.
+
+Discovery can only **downgrade**: a missing or unobserved required prerequisite
+turns a claimable state into a non-claimable one; nothing can upgrade a
+declaration. The default catalog declares GnuCOBOL batch, GnuCOBOL
+indexed/relative I/O and the Docker Java 21 candidate as `IMPLEMENTED`, and
+DB2 ESQL / MQ / CICS / IMS / JCL as `BLOCKED` (the DB2 entry additionally
+requires the absent `ocesql` executable and a DB2 client). Report digests are
+deterministic.
+
+Evidence: `tests/verification/test_runtime_catalog.py` (17 tests, no Docker).
+
+## Business invariants (derived evidence, exact semantics)
+
+`engine/verification/business_invariants.py` lets a workload declare what must
+be **true of the observed state**, independently of technical artifact
+equality. A `BusinessInvariant` is phase-scoped (`PRECONDITION`,
+`POSTCONDITION`, `ERROR_BEHAVIOR`) and uses a closed kind set: `EXIT_CODE`,
+`EXACT_LINES`, `LINE_COUNT`, `RECORD_COUNT`, `FIXED_FIELD_EQUALS`,
+`FIXED_FIELD_TOTAL`, `JSON_FIELD_EQUALS`, reading `STDOUT`, `STDERR`,
+`EXIT_STATUS`, a generated `FILE` or an `INPUT` file.
+
+Semantics are exact and deterministic: decimal values are `Decimal` (float
+expectations are rejected), fixed-field comparisons use declared offsets and
+lengths, record counts use the declared fixed record length, and JSON access is
+a restricted path syntax with no code execution. Each side is evaluated into a
+canonical report with a self-checking definition digest. `admit_report()`
+re-validates the bytes (schema, digest, no duplicate ids) before the run may
+treat them as evidence.
+
+Pipeline integration (`engine/pipeline.py`, `engine/workload.py`,
+`engine/comparators/framework.py`, `engine/verdict/derivation.py`):
+
+- `WorkloadDefinition.invariants` validates duplicate/reserved names.
+- Both the oracle and the candidate are evaluated; each side's canonical
+  report is captured as a derived `BUSINESS_INVARIANT` artifact and compared
+  through the comparator registry (`create_verification_registry()`;
+  `create_default_registry()` deliberately stays at the five V1 artifact
+  comparators, so existing default behaviour is unchanged).
+- A business-only failure is **not** masked by matching `EXIT_STATUS`: the run
+  becomes `FAILED`.
+- The **same invariant failure on both sides** is `MISMATCH`, never
+  `VERIFIED` — identical wrong behaviour is not equivalence.
+- A workload with no invariants behaves exactly as before.
+
+Evidence: `tests/verification/test_business_invariants.py` (36),
+`test_business_invariant_comparator.py` (12),
+`test_business_invariant_pipeline.py` (6). All 71 verification tests are
+Docker-free and were run separately: **71 passed in 7.74 s**.
+
 ## Determinism
 
 Repeated transformation of identical input produces **byte-identical**
@@ -137,7 +203,15 @@ generated Java (not merely an identical input hash):
   claimed anywhere; GnuCOBOL equivalence is scoped to the workloads above.
 - Program-kind dependency proof is workload-scope (see above) — per-program
   behavioural channels do not exist in the evidence model.
-- Indexed/relative lanes are emulations, not real VSAM; labels are PARTIAL.
+- Indexed/relative **runtime** is real GnuCOBOL ISAM execution (PROVEN for the
+  hand-written candidates above), never an emulation claim. Indexed/relative
+  **transformation** is PROVEN for the certified subset (primary RECORD KEY at
+  offset 0, ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY) with byte-identical
+  behavioral equivalence (stdout, FILE STATUS, exit code). File-image
+  equivalence (VSAM on-disk format) is not claimed.
+- BUSINESS_INVARIANT reports prove only the declared invariants for the
+  declared workload. They are derived evidence, not a general business-rule
+  oracle and not a substitute for comparing the technical artifacts.
 - `tests/verification/results_*` and
   `docs/verification/CURRENT_CAPABILITY_VERIFICATION.md` are historical
   (2026-09-21, host-`javac` harness) and are preserved unmodified as history;

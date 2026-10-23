@@ -29,7 +29,8 @@ FastAPI persistence/control plane, React UI and CI.
 
 The project is not universally certified. Current proof is bounded by the tested semantic
 subset and the execution/comparison contracts. Numeric edge cases, broad CALL behavior,
-copybook completeness, indexed/relative files, JCL, CICS, DB2, production security and
+copybook completeness, indexed/relative files beyond the oracle-proven certified subset
+(and any VSAM file-image equivalence), JCL, CICS, DB2, production security and
 broader mutation/adversarial proof remain open areas.
 
 For authoritative current status, use docs/PROJECT_STATUS.md and the other current documents

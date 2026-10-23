@@ -45,6 +45,7 @@ from engine.transformation.ir import (
     StopRunStatement,
     StringStatement,
     SubtractStatement,
+    SetConditionStatement,
     UnstringStatement,
     WriteStatement,
 )
@@ -77,11 +78,15 @@ def _supported(
     )
 
 
-def _partial(evidence: str) -> ConstructCapability:
+def _partial(
+    evidence: str,
+    *,
+    source_only: CapabilityLevel = CapabilityLevel.PARTIAL,
+) -> ConstructCapability:
     return ConstructCapability(
         CapabilityLevel.PARTIAL,
         evidence,
-        CapabilityLevel.PARTIAL,
+        source_only,
     )
 
 
@@ -168,6 +173,30 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "CALL": _supported("Static CALL has an explicit application dependency mapping"),
+    # CALL parameter-passing modes are classified from the caller's USING
+    # clause (CallStatement.passing_modes), not from the callee's PROCEDURE
+    # DIVISION declaration.  BY REFERENCE keeps the CALL verdict and writes
+    # back; BY CONTENT and BY VALUE are sync-in only.
+    "BY CONTENT": _supported(
+        "CALL ... USING BY CONTENT lowers to a positional sync-in with no "
+        "write-back, so callee mutations never reach the caller. The shipped "
+        "workload-by-content fixture and a mixed BY REFERENCE/BY CONTENT "
+        "program are byte-identical to GnuCOBOL 3.1.2 "
+        "(tests/integration/test_call_passing_mode_oracle_proof.py). Only "
+        "plain data-item arguments are certified",
+        # A BY CONTENT phrase in source with no parsed CallStatement means the
+        # parser dropped the call; the mapper never sees the mode.
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "BY VALUE": _partial(
+        "CALL ... USING BY VALUE lowers to a positional sync-in with no "
+        "write-back, but the mapping is NOT runtime-certified: GnuCOBOL 3.1.2 "
+        "is the only available COBOL runtime and its BY VALUE implementation "
+        "is unfinished (-Wunfinished); it passes garbage to the callee or "
+        "aborts with SIGSEGV, so no oracle equivalence can be established "
+        "(see tests/integration/test_call_passing_mode_oracle_proof.py)",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "GO TO": _unsupported("GO TO has no semantic Java control-flow mapping"),
     "PERFORM TIMES": _supported(
         "PERFORM ... TIMES/VARYING parses into PerformStatement and is mapped "
@@ -212,17 +241,31 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "INSPECT": _unsupported("INSPECT is not implemented in the deterministic mapper"),
     "SEARCH": _unsupported("SEARCH is not implemented in the deterministic mapper"),
     "SET": _unsupported("SET semantics are not implemented in the deterministic mapper"),
+    # ``SET <condition-name> TO TRUE`` is a separate, certified statement class:
+    # the parser lowers it to SetConditionStatement and the mapper assigns the
+    # conditional variable the first VALUE term.  All other SET forms (TO
+    # FALSE, index arithmetic, pointer adjustment) stay under the generic
+    # UNSUPPORTED ``SET`` key and fail closed.
+    "SET CONDITION TO TRUE": _supported(
+        "SET <condition-name> TO TRUE assigns the 88-level parent's first "
+        "VALUE term; generated Java output is byte-identical to GnuCOBOL "
+        "3.1.2 (tests/integration/test_structural_oracle_proof.py)",
+        # A certified SET clause in source with no SetConditionStatement was
+        # dropped by the parser, so the mapper can never see it.
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "ALTER": _unsupported("ALTER is outside the certified deterministic subset"),
     "NEXT SENTENCE": _unsupported("NEXT SENTENCE is not represented by the procedure IR"),
     "GOBACK": _unsupported("GOBACK is not represented by the procedure IR"),
     "SIZE ERROR": _unsupported("SIZE ERROR handling is not yet represented in the arithmetic IR"),
-    # External utilities, system services and VSAM specifics are
-    # detection-first classified — the first step of the verification
-    # ladder (Detected -> Classified) only.  No IR, no mapper, no VSAM
-    # runtime, no utility runner, no equivalence claim: the evidence text
-    # names the construct so capability verdicts say *why* a program is
-    # blocked (the runtime-verification rungs stay empty and the plan
-    # stays BLOCKED).
+    # External utilities and system services are detection-first classified —
+    # the first step of the verification ladder (Detected -> Classified) only.
+    # No IR, no mapper, no utility runner, no equivalence claim: the evidence
+    # text names the construct so capability verdicts say *why* a program is
+    # blocked.  The four VSAM SELECT keys below are NOT in this group: the
+    # parser records them on FileDefinition and the mapper lowers them into the
+    # certified indexed/relative subset (SUPPORTED for that subset, not
+    # detection-only).
     "RELEASE": _unsupported(
         "RELEASE (SORT output step) has no deterministic Java lane: no IR, "
         "no mapper and no SORT utility runtime; classified UNSUPPORTED by "
@@ -233,29 +276,48 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "lane: no IR, no mapper and no utility runner; classified "
         "UNSUPPORTED by detection, never transformed"
     ),
-    "ORGANIZATION INDEXED": _unsupported(
-        "ORGANIZATION INDEXED (VSAM-style key access) has no certified "
-        "transformation mapping: classified UNSUPPORTED by detection, "
-        "never transformed. The Java runtime lane CAN execute indexed "
-        "file operations (proven by tests/integration/test_indexed_semantics.py), "
-        "but COBOL-to-Java transformation for this SELECT clause is not supported."
+    "ORGANIZATION INDEXED": _supported(
+        "SELECT ... ORGANIZATION IS INDEXED parses to "
+        "FileDefinition.organization and the mapper lowers keyed OPEN/WRITE/"
+        "READ/REWRITE/DELETE/START to CobolFileIo indexed access. The shipped "
+        "workload-indexed-file fixture produces byte-identical stdout and FILE "
+        "STATUS values to GnuCOBOL 3.1.2 "
+        "(tests/integration/test_indexed_relative_oracle_proof.py). Certified "
+        "subset: primary RECORD KEY starting at offset 0, ACCESS MODE DYNAMIC. "
+        "The on-disk index is an emulated side file, not VSAM; file-image "
+        "equivalence is not claimed. Behavioral equivalence (stdout, FILE "
+        "STATUS, exit code) is PROVEN for the certified subset.",
+        source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "ORGANIZATION RELATIVE": _unsupported(
-        "ORGANIZATION RELATIVE has no certified transformation mapping: "
-        "classified UNSUPPORTED by detection, never transformed. The Java "
-        "runtime lane CAN execute relative file operations (proven by "
-        "tests/integration/test_relative_semantics.py), but COBOL-to-Java "
-        "transformation for this SELECT clause is not supported."
+    "ORGANIZATION RELATIVE": _supported(
+        "SELECT ... ORGANIZATION IS RELATIVE parses to "
+        "FileDefinition.organization and the mapper lowers RRN-addressed "
+        "OPEN/WRITE/READ/REWRITE/DELETE/START to CobolFileIo relative access. "
+        "The shipped workload-relative-file fixture produces byte-identical "
+        "stdout and FILE STATUS values to GnuCOBOL 3.1.2 "
+        "(tests/integration/test_indexed_relative_oracle_proof.py). The record "
+        "store is emulated, not a VSAM ESDS; file-image equivalence is not "
+        "claimed. Behavioral equivalence (stdout, FILE STATUS, exit code) is "
+        "PROVEN for the certified subset.",
+        source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "ACCESS DYNAMIC": _unsupported(
-        "ACCESS DYNAMIC file access is outside the certified sequential "
-        "file boundary: classified UNSUPPORTED by detection, never "
-        "transformed"
+    "ACCESS DYNAMIC": _supported(
+        "ACCESS MODE IS DYNAMIC parses to FileAccessMode.DYNAMIC and is "
+        "lowered for the certified indexed/relative fixtures (keyed and "
+        "sequential access in one run unit, byte-identical to GnuCOBOL 3.1.2). "
+        "ACCESS MODE RANDOM has no registry key and no dedicated oracle proof. "
+        "Behavioral equivalence is PROVEN for the certified subset.",
+        source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "RECORD KEY": _unsupported(
-        "RECORD KEY / ALTERNATE RECORD KEY key fields are outside the "
-        "certified file boundary: classified UNSUPPORTED by detection, "
-        "never transformed"
+    "RECORD KEY": _supported(
+        "RECORD KEY IS parses to FileDefinition.record_key and supplies the "
+        "key length for keyed OPEN/WRITE/READ/REWRITE/DELETE/START. Certified "
+        "subset: a primary key beginning at offset 0 in the record area "
+        "(byte-identical to GnuCOBOL 3.1.2 in both shipped fixtures). "
+        "ALTERNATE RECORD KEY is parsed but never lowered to an alternate "
+        "index and is reported UNSUPPORTED per instance. Behavioral "
+        "equivalence is PROVEN for the certified subset.",
+        source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "ROUNDED": _supported(
         "ROUNDED reaches the generated Java as a HALF_UP rounding mode on the "
@@ -323,40 +385,48 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "not certified"
     ),
     # REDEFINES / OCCURS / 88-level: the parser produces IR (DataItem.redefines /
-    # occurs / level 88) but the mapper has no overlay, table-lowering or
-    # condition-name lowering — the generated Java for these fixtures does not
-    # compile.  Classified UNKNOWN (fail-closed) until a full-ladder runtime
-    # proof exists; they are never reported SUPPORTED.
-    "REDEFINES": _unknown(
-        "REDEFINES overlay lowering is not implemented by the deterministic "
-        "mapper; unproven"
+    # occurs / level 88).  All three now have deterministic lowering for a
+    # certified subset, proven against GnuCOBOL 3.1.2; everything outside that
+    # subset fails closed with UNSUPPORTED_CONSTRUCT.
+    "REDEFINES": _partial(
+        "Elementary alphanumeric DISPLAY views over an elementary alphanumeric "
+        "base are lowered as a shared byte string with synchronised views and "
+        "are byte-identical to GnuCOBOL 3.1.2 "
+        "(tests/integration/test_structural_oracle_proof.py). Numeric views, "
+        "groups, OCCURS, chained REDEFINES, aliases wider than the base and "
+        "non-MOVE writers are reported UNSUPPORTED because GnuCOBOL's numeric "
+        "reinterpretation of overwritten bytes is compiler-specific undefined "
+        "data, not a COBOL semantic"
     ),
-    "OCCURS": _unknown(
-        "OCCURS table lowering is not implemented by the deterministic mapper; "
-        "unproven"
+    "OCCURS": _partial(
+        "Fixed-size OCCURS n TIMES lowers to Java arrays with 1-based to "
+        "0-based subscripts; the shipped table fixture is byte-identical to "
+        "GnuCOBOL 3.1.2 (tests/integration/test_structural_oracle_proof.py). "
+        "OCCURS DEPENDING ON fails closed with UNSUPPORTED_CONSTRUCT, and "
+        "whole-record references to an occurring group are outside the "
+        "certified subset"
     ),
-    "88-LEVEL": _unknown(
-        "88-level condition-name lowering is not implemented by the "
-        "deterministic mapper; unproven"
+    "88-LEVEL": _supported(
+        "88-level condition names lower to comparisons on their parent "
+        "(numeric value, THRU range, content equality) in IF, EVALUATE and "
+        "PERFORM UNTIL; the shipped condition-name fixture is byte-identical "
+        "to GnuCOBOL 3.1.2 (tests/integration/test_structural_oracle_proof.py). "
+        "VALUE forms with no certified lowering (bare identifiers, missing "
+        "VALUE) are reported UNSUPPORTED by the analyzer",
+        source_only=CapabilityLevel.UNSUPPORTED,
     ),
 }
 
-# NOTE — BY CONTENT / BY VALUE are deliberately NOT registry keys.
+# NOTE — CALL passing modes are certified asymmetrically on purpose.
 #
-# The roadmap allowed either adding PARTIAL keys or keeping the modes blocked;
-# this repository chose "keep blocked", and that choice is locked in by
-# tests/integration/test_phase_d_negative_integration.py::
-# TestUnsupportedParameterContract::test_by_value_and_by_content_are_never_claimed_supported
-#
-# The supporting design rule is documented on
-# ``_analyze_call_linkage_arity``: a passing mode that cannot be proven
-# compatible "is never guessed - it is simply not used to derive support".
-# The mapper does implement sync-in/no-sync-out for these modes, but that is
-# mapper behaviour, not a capability *claim*: with no registry key no consumer
-# can read a supported verdict out of it, which is the conservative outcome the
-# negative contract requires.  Adding keys here would make the contract test fail
-# and would overstate what has been runtime-proven.
-#
+# BY CONTENT is SUPPORTED because the shipped fixture and a mixed-mode program
+# reproduce GnuCOBOL 3.1.2 stdout byte for byte (caller unchanged, callee copy
+# mutated locally).  BY VALUE stays PARTIAL: the mapper implements the required
+# sync-in / no-write-back behaviour, but the only available COBOL runtime
+# (GnuCOBOL 3.1.2) declares its BY VALUE handling unfinished (-Wunfinished) and
+# either passes garbage or aborts with SIGSEGV, so no oracle proof is possible.
+# A PARTIAL verdict is a bounded claim, never a SUPPORTED one; the analyzer also
+# classifies an unparsed source phrase as UNSUPPORTED through source_only.
 
 
 # Declared USAGE synonym -> canonical registry token.  Collapsing synonyms
@@ -425,6 +495,7 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     PerformTimesStatement.__name__: "PERFORM TIMES IR",
     ReadStatement.__name__: "READ",
     RewriteStatement.__name__: "REWRITE",
+    SetConditionStatement.__name__: "SET CONDITION TO TRUE",
     StartStatement.__name__: "START",
     StopRunStatement.__name__: "STOP RUN",
     ExitProgramStatement.__name__: "EXIT PROGRAM",
@@ -474,11 +545,24 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("INITIALIZE", re.compile(r"(?<![\w-])INITIALIZE(?![\w-])", re.IGNORECASE)),
     ("INSPECT", re.compile(r"(?<![\w-])INSPECT(?![\w-])", re.IGNORECASE)),
     ("SEARCH", re.compile(r"(?<![\w-])SEARCH(?:\s+ALL)?(?![\w-])", re.IGNORECASE)),
-    ("SET", re.compile(r"(?<![\w-])SET(?![\w-])", re.IGNORECASE)),
+    # ``SET <condition-name> TO TRUE`` has its own certified key; the generic
+    # SET pattern must not shadow it, or every certified level-88 assignment
+    # would also be reported UNSUPPORTED.
+    ("SET CONDITION TO TRUE", re.compile(
+        r"(?<![\w-])SET\s+[A-Z0-9][\w-]*\s+TO\s+TRUE(?![\w-])", re.IGNORECASE,
+    )),
+    ("SET", re.compile(
+        r"(?<![\w-])SET(?!\s+[A-Z0-9][\w-]*\s+TO\s+TRUE(?![\w-]))(?![\w-])",
+        re.IGNORECASE,
+    )),
     ("ALTER", re.compile(r"(?<![\w-])ALTER(?![\w-])", re.IGNORECASE)),
     ("NEXT SENTENCE", re.compile(r"(?<![\w-])NEXT\s+SENTENCE(?![\w-])", re.IGNORECASE)),
     ("GOBACK", re.compile(r"(?<![\w-])GOBACK(?![\w-])", re.IGNORECASE)),
     ("SIZE ERROR", re.compile(r"(?<![\w-])(?:ON\s+)?SIZE\s+ERROR(?![\w-])", re.IGNORECASE)),
+    # CALL parameter-passing modes.  Only the USING-clause spelling matches:
+    # data names such as WS-BY-VALUE are protected by the hyphen lookarounds.
+    ("BY CONTENT", re.compile(r"(?<![\w-])BY\s+CONTENT(?![\w-])", re.IGNORECASE)),
+    ("BY VALUE", re.compile(r"(?<![\w-])BY\s+VALUE(?![\w-])", re.IGNORECASE)),
     ("PERFORM TIMES", re.compile(r"(?<![\w-])PERFORM\b[^.\n]*(?:\bTIMES\b|\bVARYING\b)(?![\w-])", re.IGNORECASE)),
     ("CLOSE", re.compile(r"(?<![\w-])CLOSE(?![\w-])", re.IGNORECASE)),
     ("START", re.compile(r"(?<![\w-])START(?![\w-])", re.IGNORECASE)),

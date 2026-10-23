@@ -254,12 +254,23 @@ class TestUnsupportedParameterContract:
         assert relationship.capability_level.value != "SUPPORTED"
         assert relationship.may_proceed is False
 
-    def test_by_value_and_by_content_are_never_claimed_supported(self):
-        from engine.transformation.semantic_capability import CONSTRUCT_REGISTRY
+    def test_passing_modes_never_claim_unproven_support(self):
+        from engine.transformation.semantic_capability import (
+            CONSTRUCT_REGISTRY,
+            CapabilityLevel,
+        )
 
-        keys = list(CONSTRUCT_REGISTRY)
-        assert not any("BY VALUE" in key for key in keys), keys
-        assert not any("BY CONTENT" in key for key in keys), keys
+        by_content = CONSTRUCT_REGISTRY["BY CONTENT"]
+        assert by_content.level is CapabilityLevel.SUPPORTED
+        # SUPPORTED is allowed only because a byte-identical oracle exists.
+        assert "GnuCOBOL" in by_content.evidence
+
+        by_value = CONSTRUCT_REGISTRY["BY VALUE"]
+        assert by_value.level is not CapabilityLevel.SUPPORTED
+        # The only available runtime cannot execute BY VALUE, so the mapping
+        # may never be promoted to SUPPORTED without new oracle evidence.
+        assert "unfinished" in by_value.evidence
+        assert by_value.effective_source_level is CapabilityLevel.UNSUPPORTED
 
     def test_arity_mismatch_central_status_is_not_verified(self, tmp_path):
         report = _modernize(
@@ -272,28 +283,44 @@ class TestUnsupportedParameterContract:
 
 
 # ---------------------------------------------------------------------------
-# 4. Unsupported file operation
+# 4. Indexed file: capability SUPPORTED but central gate still fails closed
 # ---------------------------------------------------------------------------
 
 
-class TestUnsupportedFileOperation:
-    def test_indexed_file_is_visible_and_unsupported(self, tmp_path):
+class TestCertifiedIndexedFileStillFailsClosedWithoutFileEvidence:
+    """BL-134 made the certified indexed subset a SUPPORTED capability.
+
+    The fail-closed property this scenario proves is unchanged and is now
+    *stronger*: a SUPPORTED capability and a TRANSFORM plan still cannot open
+    the central gate — the FILE dependency stays unproven until this run
+    actually compares file artifacts (and runtime evidence exists).
+    """
+
+    def test_indexed_file_is_visible_and_certified_subset_supported(self, tmp_path):
         report = _modernize(tmp_path, {"MAIN.cob": INDEXED_FILE}, "IDXPROG")
         component = _component(report, "FILE", "IDX-FILE")
-        assert component.level.value == "UNSUPPORTED"
-        assert "outside the certified file boundary" in component.reason
+        assert component.level.value == "SUPPORTED"
+        assert "certified keyed subset" in component.reason
+        # The non-claim travels with the capability label.
+        assert "file-image equivalence is not claimed" in component.reason
 
-    def test_program_is_blocked_by_its_file_dependency(self, tmp_path):
+    def test_program_capability_is_supported_and_plan_transforms(self, tmp_path):
         report = _modernize(tmp_path, {"MAIN.cob": INDEXED_FILE}, "IDXPROG")
         program = _component(report, "PROGRAM", "IDXPROG")
-        assert program.level.value == "UNSUPPORTED"
-        assert "IDX-FILE" in program.reason
+        assert program.level.value == "SUPPORTED"
+        plans = [
+            c for c in report.transformation_plan.components
+            if c.component_type == "PROGRAM"
+        ]
+        assert plans and all(
+            c.action.value == "TRANSFORM" for c in plans
+        ), [c.action for c in plans]
 
-    def test_indexed_file_central_status_is_not_verified(self, tmp_path):
+    def test_program_capability_alone_never_verifies_the_application(self, tmp_path):
         report = _modernize(tmp_path, {"MAIN.cob": INDEXED_FILE}, "IDXPROG")
-        assert report.skipped_count >= 1 or report.generation_success is False
         proof = _assert_never_verified(report)
         assert proof.unproven_dependencies
+        assert any("IDX-FILE" in reason for reason in proof.blocking_reasons)
 
 
 # ---------------------------------------------------------------------------

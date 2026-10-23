@@ -25,10 +25,12 @@ Unsupported constructs will raise CobolParseError.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
 from engine.transformation.figurative import parse_figurative_constant
+from engine.transformation.redefines import build_redefines_plan, write_targets
 from engine.transformation.semantic_capability import canonical_usage
 from engine.transformation.ir import (
     AddStatement,
@@ -69,6 +71,7 @@ from engine.transformation.ir import (
     PicType,
     ReadStatement,
     RecordFormat,
+    SetConditionStatement,
     StartStatement,
     RewriteStatement,
     DeleteStatement,
@@ -137,6 +140,33 @@ _STRING_CONTINUATION_STOP = re.compile(
     + r")(?:\s|\.$|$)",
     re.IGNORECASE,
 )
+
+
+#: Words that introduce an UNSTRING clause after the receiving fields.  Used
+#: to stop reading INTO targets: without it the naive line scraper treated
+#: ``WITH POINTER WS-P`` as three receiving fields.
+_UNSTRING_CLAUSE_KEYWORDS = frozenset({
+    "INTO", "DELIMITED", "WITH", "POINTER", "ON", "NOT", "OVERFLOW",
+    "VARYING", "TALLYING", "DELIMITER", "COUNT", "END-UNSTRING",
+    "ALL", "OR",
+})
+
+
+@dataclass(frozen=True)
+class _UnstringParts:
+    """Result of tokenising one UNSTRING statement.
+
+    ``reasons`` names every clause the certified mapper cannot lower.  An
+    empty tuple means the statement is the plain delimited split.
+    """
+    source: str
+    delimiter: str
+    targets: tuple[str, ...]
+    pointer: str
+    has_overflow: bool
+    varying_pointer: str
+    tallying_pointer: str
+    reasons: tuple[str, ...]
 
 
 def split_condition_from_inline_statements(text: str) -> tuple[str, str]:
@@ -486,8 +516,62 @@ class CobolParser:
 
         # Validate that input contains a recognizable COBOL structure
         self._validate_program_structure(program, source)
+        self._validate_redefines(program)
 
         return program
+
+    def _validate_redefines(self, program: CobolProgram) -> None:
+        """Name every REDEFINES the deterministic lane cannot certify.
+
+        The certified subset is elementary alphanumeric DISPLAY views written
+        only by an unsubscripted MOVE (see ``engine.transformation.redefines``).
+        Anything else is reported here so the capability analyzer classifies
+        the program UNSUPPORTED instead of letting independent Java fields
+        pretend to share storage.
+        """
+        plan = build_redefines_plan(program.working_storage)
+        for name, reason in sorted(plan.problems.items()):
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"REDEFINES {name}: {reason}",
+                location=name,
+            )
+        if not plan.views:
+            return
+
+        certified = {view.name.upper() for view in plan.views.values()}
+
+        def walk(statements):
+            for stmt in statements:
+                yield stmt
+                for attr in (
+                    "body",
+                    "then_body",
+                    "else_body",
+                    "at_end_body",
+                    "not_at_end_body",
+                    "invalid_key_body",
+                    "not_invalid_key_body",
+                ):
+                    nested = getattr(stmt, attr, None)
+                    if nested:
+                        yield from walk(nested)
+
+        for para in program.paragraphs:
+            for stmt in walk(para.statements):
+                for target in write_targets(stmt):
+                    base = target.split("(", 1)[0].strip().upper()
+                    if base not in certified:
+                        continue
+                    verb = type(stmt).__name__.replace("Statement", "").upper()
+                    if verb != "MOVE" or "(" in target:
+                        self._diagnostics.warning(
+                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                            f"REDEFINES member {target} is written by {verb} "
+                            "with no certified overlay sync (only an "
+                            "unsubscripted MOVE is certified)",
+                            location=target,
+                        )
 
     def _emit_unsupported_section_and_directive_diagnostics(
         self, lines: list[str]
@@ -658,6 +742,16 @@ class CobolParser:
                             key_type=FileKeyType.ALTERNATE,
                             is_duplicated=is_dup,
                         ))
+                        # The IR keeps the key, but the mapper builds no
+                        # alternate index.  Name the gap instead of silently
+                        # dropping a declared access path.
+                        self._diagnostics.warning(
+                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                            f"ALTERNATE RECORD KEY IS {alt_name} is recognised "
+                            "but not lowered: the generated runtime builds no "
+                            "alternate index",
+                            location="FILE-CONTROL",
+                        )
 
                 # RELATIVE KEY IS
                 if "RELATIVE KEY" in upper:
@@ -787,47 +881,78 @@ class CobolParser:
                 pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
             value_m = re.search(r"(?:^|\s)VALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
             occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
+            odo_m = re.search(
+                r"\bOCCURS\s+(\d+)(?:\s+TO\s+(\d+))?\s+TIMES\s+DEPENDING\s+ON\s+([A-Z0-9][\w-]*)",
+                rest,
+                re.IGNORECASE,
+            )
             redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
             usage = _parse_usage_clause(rest)
             self._note_usage(name, usage)
+            occurs_depending_on: str | None = None
+            occurs: int | None = int(occurs_m.group(1)) if occurs_m else None
+            if odo_m:
+                occurs_depending_on = odo_m.group(3).rstrip(".")
+                occurs = int(odo_m.group(2) or odo_m.group(1))
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"OCCURS DEPENDING ON {occurs_depending_on} on {name}: "
+                    "variable-length tables have no certified deterministic "
+                    "lowering",
+                    location=name,
+                )
             parsed.append((level, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
                 signed=self._pic_is_signed(pic.group(1)) if pic else False,
                 value=value_m.group(1).strip().rstrip(".") if value_m else None,
-                occurs=int(occurs_m.group(1)) if occurs_m else None,
+                occurs=occurs,
+                occurs_depending_on=occurs_depending_on,
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
                 usage=usage,
             )))
-        roots = []
-        stack = []
-        def replace_node(root, target, replacement):
-            if root is target:
-                return replacement
-            if not root.children:
-                return root
-            children = tuple(replacement if c is target else replace_node(c, target, replacement) for c in root.children)
-            return DataItem(name=root.name, level=root.level, pic_type=root.pic_type,
-                            pic_length=root.pic_length, decimal_places=root.decimal_places,
-                            signed=root.signed, value=root.value, occurs=root.occurs, redefines=root.redefines,
-                            usage=root.usage,
-                            children=children)
+        # Build the group hierarchy with mutable child lists, then freeze it.
+        # The previous implementation rebuilt immutable parents and kept stale
+        # node identities on the stack, so a second child of an outer group
+        # (e.g. a sibling REDEFINES after a nested subgroup) was silently
+        # dropped: replace_node could not find the stale grandparent.
+        class _Pending:
+            __slots__ = ("level", "item", "children")
+
+            def __init__(self, level: int, item: DataItem) -> None:
+                self.level = level
+                self.item = item
+                self.children: list[_Pending] = []
+
+        roots: list[_Pending] = []
+        stack: list[_Pending] = []
         for level, item in parsed:
-            while stack and stack[-1][0] >= level:
+            while stack and stack[-1].level >= level:
                 stack.pop()
-            if not stack:
-                roots.append(item)
+            node = _Pending(level, item)
+            if stack:
+                stack[-1].children.append(node)
             else:
-                parent_level, parent = stack[-1]
-                updated = DataItem(name=parent.name, level=parent.level, pic_type=parent.pic_type,
-                                   pic_length=parent.pic_length, decimal_places=parent.decimal_places,
-                                   signed=parent.signed, value=parent.value, occurs=parent.occurs, redefines=parent.redefines,
-                                   usage=parent.usage,
-                                   children=parent.children + (item,))
-                roots = [replace_node(r, parent, updated) for r in roots]
-                stack[-1] = (parent_level, updated)
-            stack.append((level, item))
-        return roots
+                roots.append(node)
+            stack.append(node)
+
+        def freeze(node: _Pending) -> DataItem:
+            return DataItem(
+                name=node.item.name,
+                level=node.item.level,
+                pic_type=node.item.pic_type,
+                pic_length=node.item.pic_length,
+                decimal_places=node.item.decimal_places,
+                signed=node.item.signed,
+                value=node.item.value,
+                occurs=node.item.occurs,
+                occurs_depending_on=node.item.occurs_depending_on,
+                redefines=node.item.redefines,
+                usage=node.item.usage,
+                children=tuple(freeze(child) for child in node.children),
+            )
+
+        return [freeze(root) for root in roots]
 
     @staticmethod
     def _pic_is_signed(pic_str: str) -> bool:
@@ -1106,6 +1231,12 @@ class CobolParser:
         if upper.startswith("DISPLAY "):
             return self._parse_display(lines, start)
 
+        # SET <condition-name> TO TRUE — only the 88-level condition form is
+        # represented.  Other SET forms (SET I TO 1, SET ... TO FALSE,
+        # SET ADDRESS OF, SET ... UP BY) keep the fail-closed diagnostic below.
+        if upper.startswith("SET "):
+            return self._parse_set(lines, start)
+
         # GO TO
         if upper.startswith(("GO TO", "GOTO")):
             return self._parse_goto(lines, start)
@@ -1158,12 +1289,26 @@ class CobolParser:
                 location=f"line {start + 1}",
             )
 
-        # Extract file name
-        match = re.search(
-            r"OPEN\s+(?:INPUT|OUTPUT|I-O|I\s+O|EXTEND)\s+(\S+)",
-            line, re.IGNORECASE,
-        )
-        file_name = match.group(1).rstrip(".") if match else ""
+        # Extract file name.  The deterministic subset opens exactly one
+        # file: extra file names (and unsupported OPEN clauses such as
+        # WITH NO REWIND) must be named, never silently dropped.  CLOSE
+        # already fails closed the same way.
+        after_mode = re.sub(
+            r"^OPEN\s+(?:INPUT|OUTPUT|I-O|I\s+O|EXTEND)\s+",
+            "",
+            line,
+            flags=re.IGNORECASE,
+        ).rstrip(".")
+        tokens = [t for t in re.split(r"\s+", after_mode) if t]
+        file_name = tokens[0].rstrip(".") if tokens else ""
+        if len(tokens) > 1:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "OPEN lists multiple files or unsupported clauses; "
+                f"deterministic subset opens the first ({file_name}), "
+                f"remainder unsupported: {' '.join(tokens[1:])}",
+                location=f"line {start + 1}",
+            )
 
         return OpenStatement(mode=mode, file_name=file_name), start + 1
 
@@ -1701,6 +1846,23 @@ class CobolParser:
                 location="CALL",
             )
             using = using[:phrase.start()].rstrip(".").strip()
+        # ``RETURNING`` is a receiving item, not a USING argument.  Folding it
+        # into the argument token list fabricated an extra argument and could
+        # accidentally match a callee's linkage arity, so it is captured on
+        # the IR and named here; the mapper fails closed by name.
+        returning = ""
+        returning_match = re.search(
+            r"\bRETURNING\s+([\w-]+)", using, re.IGNORECASE
+        )
+        if returning_match is not None:
+            returning = returning_match.group(1).rstrip(".")
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"CALL RETURNING clause is recognised but not transformed: "
+                f"{using[returning_match.start():].strip()}",
+                location="CALL",
+            )
+            using = using[: returning_match.start()].rstrip(".").strip()
         tokens = using.split()
         arguments=[]
         modes=[]
@@ -1716,7 +1878,7 @@ class CobolParser:
             modes.append(current_mode)
             j += 1
         is_dynamic = not bool(match.group(1) or match.group(2))
-        return CallStatement(program_name=program_name, arguments=tuple(arguments), passing_modes=tuple(modes), is_dynamic=is_dynamic), i + 1
+        return CallStatement(program_name=program_name, arguments=tuple(arguments), passing_modes=tuple(modes), is_dynamic=is_dynamic, returning=returning), i + 1
 
     def _parse_divide(self, lines: list[str], start: int) -> tuple[DivideStatement, int]:
         """Parse DIVIDE source BY divisor GIVING target [REMAINDER rem] statement."""
@@ -1789,6 +1951,24 @@ class CobolParser:
         if match:
             target = match.group(1).strip().rstrip(".")
             expression = match.group(3).strip().rstrip(".")
+            # ``ON SIZE ERROR`` / ``NOT ON SIZE ERROR`` has no arithmetic
+            # lowering.  Before this the clause stayed inside the expression
+            # text (``WS-A + WS-B ON SIZE ERROR DISPLAY "E"``) with no
+            # diagnostic, so the statement still looked SUPPORTED.
+            size_error = re.search(
+                r"\b(?:NOT\s+)?ON\s+SIZE\s+ERROR\b",
+                expression,
+                re.IGNORECASE,
+            )
+            if size_error is not None:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    "COMPUTE SIZE ERROR clause is recognised but not "
+                    "transformed: "
+                    f"{expression[size_error.start():].strip()}",
+                    location="COMPUTE",
+                )
+                expression = expression[: size_error.start()].rstrip()
             rounded = bool(match.group(2))
             return ComputeStatement(
                 target=target,
@@ -2123,52 +2303,221 @@ class CobolParser:
         return PerformStatement(paragraph_name="", test_after=test_after), start + 1
 
     def _parse_unstring(self, lines: list[str], start: int) -> tuple[UnstringStatement, int]:
-        """Parse UNSTRING source DELIMITED BY delimiter INTO targets."""
+        """Parse UNSTRING source DELIMITED BY delimiter INTO targets.
+
+        Everything that is not the plain delimited split (``WITH POINTER``,
+        ``VARYING IN``, ``TALLYING IN``, ``ON OVERFLOW``, extra ``OR``
+        delimiters, ``DELIMITER IN`` / ``COUNT IN``) is captured in the IR and
+        named by an ``UNSUPPORTED_CONSTRUCT`` diagnostic.  Before this the
+        continuation scraper even turned clause words into receiving fields,
+        so the statement ran with silently different semantics.
+        """
         line = lines[start].strip()
 
-        source_match = re.search(r"UNSTRING\s+(\S+)", line, re.IGNORECASE)
-        source = source_match.group(1) if source_match else ""
+        # Statement already terminated on the opening line — do not continue.
+        if line.endswith("."):
+            return self._unstring_statement(line), start + 1
 
-        delim_match = re.search(r"DELIMITED BY\s+(\S+)", line, re.IGNORECASE)
-        delimiter = delim_match.group(1).strip() if delim_match else ""
-
-        # Parse INTO targets (may span multiple lines)
-        targets: list[str] = []
-        into_match = re.search(r"INTO\s+(.+)", line, re.IGNORECASE)
-        if into_match:
-            target_str = into_match.group(1).strip()
-            # Remove END-UNSTRING if present
-            target_str = re.sub(r"\s*END-UNSTRING.*", "", target_str, flags=re.IGNORECASE)
-            target_str = target_str.rstrip(".")
-            targets = [t.strip() for t in target_str.split() if t.strip() and t.strip() != "INTO"]
-
-        # Check for continuation lines with more targets.  File-clause
-        # headers and file scope terminators end the target list so an
-        # UNSTRING body inside a file clause never swallows the clause.
+        full_text = line
         i = start + 1
         while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
-            if u.startswith(("END-UNSTRING", "MOVE", "IF", "WRITE")):
+            if u.startswith("END-UNSTRING"):
+                i += 1
                 break
-            if u.startswith((
-                "END-READ", "END-WRITE", "END-START", "END-REWRITE",
-                "END-DELETE", "AT END", "NOT AT END",
-                "INVALID KEY", "NOT INVALID KEY",
-            )):
+            # A scope terminator or a new statement's header is never
+            # UNSTRING continuation — stop before it so the following
+            # statement reaches the IR instead of being swallowed.
+            if _SCOPE_TERMINATOR.match(l) or _STRING_CONTINUATION_STOP.match(u):
                 break
-            if l and not u.startswith("*"):
-                more_targets = re.findall(r"([A-Z][\w-]*)", l.upper())
-                for t in more_targets:
-                    if t not in ("INTO", "END-UNSTRING", "DELIMITED"):
-                        targets.append(t)
+            if l:
+                full_text += " " + l
             i += 1
+            if l.endswith("."):
+                break
 
+        return self._unstring_statement(full_text), i
+
+    def _unstring_statement(self, full_text: str) -> UnstringStatement:
+        """Build the IR node and emit one diagnostic per unsupported clause."""
+        parts = self._unstring_parts(full_text)
+        for reason in parts.reasons:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"UNSTRING {reason} has no certified Java mapping; the "
+                "statement fails closed instead of silently dropping the "
+                "clause (generated Java references an unresolvable symbol)",
+                location="UNSTRING",
+            )
         return UnstringStatement(
+            source=parts.source,
+            delimiter=parts.delimiter,
+            targets=parts.targets,
+            pointer=parts.pointer,
+            has_overflow=parts.has_overflow,
+            varying_pointer=parts.varying_pointer,
+            tallying_pointer=parts.tallying_pointer,
+        )
+
+    def _unstring_parts(self, full_text: str) -> _UnstringParts:
+        """Tokenise ``UNSTRING`` text into source, receivers and clauses.
+
+        Shared by the IR parser and the file-lane record-mapping extractor so
+        both agree on what a receiving field is — a clause keyword or the
+        pointer/counter item never is.
+        """
+        tokens = self._STRING_TOKEN_RE.findall(full_text)
+        if tokens and tokens[0].upper() == "UNSTRING":
+            tokens = tokens[1:]
+
+        source = tokens[0].rstrip(".") if tokens else ""
+        delimiter = ""
+        targets: list[str] = []
+        pointer = ""
+        has_overflow = False
+        varying_pointer = ""
+        tallying_pointer = ""
+        reasons: list[str] = []
+
+        idx = 1
+        while idx < len(tokens):
+            word = tokens[idx].rstrip(".")
+            upper = word.upper()
+
+            if upper == "END-UNSTRING":
+                break
+
+            if upper == "DELIMITED":
+                if idx + 1 < len(tokens) and tokens[idx + 1].upper() == "BY":
+                    idx += 2
+                    # ``ALL`` is a delimiter modifier, never the delimiter
+                    # itself.  Its semantics (collapse consecutive
+                    # occurrences) have no certified splitter.
+                    if idx < len(tokens) and tokens[idx].upper() == "ALL":
+                        reasons.append("ALL DELIMITER")
+                        idx += 1
+                    if idx < len(tokens):
+                        raw = tokens[idx]
+                        if not delimiter:
+                            delimiter = raw
+                        is_literal = (
+                            len(raw) >= 2
+                            and raw[0] == raw[-1]
+                            and raw[0] in ("'", '"')
+                        )
+                        if not is_literal:
+                            stripped = raw.strip("'\"")
+                            reasons.append(
+                                f"DELIMITED BY identifier {stripped}"
+                            )
+                        idx += 1
+                    # Additional delimiters: ``OR [ALL] d2``.  Only the
+                    # first delimiter has a certified splitter.
+                    while idx < len(tokens):
+                        marker = tokens[idx].upper()
+                        if marker in ("OR", "ALL"):
+                            reasons.append(
+                                "MULTIPLE DELIMITERS" if marker == "OR"
+                                else "ALL DELIMITER"
+                            )
+                            idx += 1
+                            if idx < len(tokens) and tokens[idx].upper() == "ALL":
+                                idx += 1
+                            idx += 1  # the delimiter operand
+                            continue
+                        break
+                else:
+                    idx += 1
+                continue
+
+            if upper == "INTO":
+                idx += 1
+                while idx < len(tokens):
+                    receiver = tokens[idx].rstrip(".")
+                    if receiver.upper() in _UNSTRING_CLAUSE_KEYWORDS:
+                        break
+                    targets.append(receiver)
+                    idx += 1
+                continue
+
+            if upper == "DELIMITER":
+                reasons.append("DELIMITER IN")
+                idx += 1
+                if idx < len(tokens) and tokens[idx].upper() == "IN":
+                    idx += 2
+                continue
+
+            if upper == "COUNT":
+                reasons.append("COUNT IN")
+                idx += 1
+                if idx < len(tokens) and tokens[idx].upper() == "IN":
+                    idx += 2
+                continue
+
+            if upper == "WITH":
+                if idx + 1 < len(tokens) and tokens[idx + 1].upper() == "POINTER":
+                    reasons.append("WITH POINTER")
+                    if idx + 2 < len(tokens):
+                        pointer = tokens[idx + 2].rstrip(".")
+                    idx += 3
+                    continue
+                idx += 1
+                continue
+
+            if upper == "TALLYING":
+                reasons.append("TALLYING IN")
+                if idx + 1 < len(tokens) and tokens[idx + 1].upper() == "IN":
+                    if idx + 2 < len(tokens):
+                        tallying_pointer = tokens[idx + 2].rstrip(".")
+                    idx += 3
+                else:
+                    idx += 1
+                continue
+
+            if upper == "VARYING":
+                reasons.append("VARYING IN")
+                if idx + 1 < len(tokens) and tokens[idx + 1].upper() == "IN":
+                    if idx + 2 < len(tokens):
+                        varying_pointer = tokens[idx + 2].rstrip(".")
+                    idx += 3
+                else:
+                    idx += 1
+                continue
+
+            if upper in ("ON", "NOT"):
+                # ``ON OVERFLOW`` / ``NOT ON OVERFLOW``.
+                first = idx if upper == "ON" else idx + 1
+                if upper == "NOT" and (
+                    first >= len(tokens) or tokens[first].upper() != "ON"
+                ):
+                    idx += 1
+                    continue
+                if (
+                    first + 1 < len(tokens)
+                    and tokens[first + 1].upper() == "OVERFLOW"
+                ):
+                    has_overflow = True
+                    reasons.append(
+                        "NOT ON OVERFLOW" if upper == "NOT" else "ON OVERFLOW"
+                    )
+                    idx = first + 2
+                    continue
+                idx += 1
+                continue
+
+            idx += 1
+
+        return _UnstringParts(
             source=source,
             delimiter=delimiter,
             targets=tuple(targets),
-        ), i
+            pointer=pointer,
+            has_overflow=has_overflow,
+            varying_pointer=varying_pointer,
+            tallying_pointer=tallying_pointer,
+            reasons=tuple(dict.fromkeys(reasons)),
+        )
 
     #: One COBOL token: a quoted literal, or a run of non-space characters.
     _STRING_TOKEN_RE = re.compile(r'"[^"]*"|\'[^\']*\'|\S+')
@@ -2353,7 +2702,7 @@ class CobolParser:
         parts: list[str] = []
         if parts_match:
             parts_str = parts_match.group(1).strip()
-            for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*)', parts_str, re.IGNORECASE):
+            for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*(?:\s*\([^()]*\))?)', parts_str, re.IGNORECASE):
                 if token[0]:
                     parts.append(f'"{token[0]}"')
                 elif token[1]:
@@ -2392,7 +2741,7 @@ class CobolParser:
             if u.startswith(break_prefixes):
                 break
             if l and not u.startswith("*") and not u.startswith("END-"):
-                for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*)', l, re.IGNORECASE):
+                for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*(?:\s*\([^()]*\))?)', l, re.IGNORECASE):
                     if token[0]:
                         parts.append(f'"{token[0]}"')
                     elif token[1]:
@@ -2405,6 +2754,27 @@ class CobolParser:
             i += 1
 
         return DisplayStatement(parts=tuple(parts), destination=destination), i
+
+    def _parse_set(self, lines: list[str], start: int) -> tuple[Statement | None, int]:
+        """Parse ``SET <condition-name> TO TRUE`` into IR.
+
+        The condition name is resolved to its parent item by the mapper (the
+        parser has no data-division symbol table at this point).  Every other
+        SET form is still named by an UNSUPPORTED_CONSTRUCT diagnostic instead
+        of being silently dropped.
+        """
+        line = lines[start].strip()
+        match = re.match(
+            r"^SET\s+([A-Z0-9][\w-]*)\s+TO\s+TRUE\s*\.?$", line, re.IGNORECASE
+        )
+        if match:
+            return SetConditionStatement(target=match.group(1).upper()), start + 1
+        self._diagnostics.warning(
+            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+            f"Skipped unsupported statement: {line[:60]}",
+            location=f"line {start + 1}",
+        )
+        return None, start + 1
 
     def _parse_goto(self, lines: list[str], start: int) -> tuple[GoToStatement, int]:
         """Parse GO TO paragraph-name."""
@@ -2842,51 +3212,47 @@ class CobolParser:
             if not upper.startswith("UNSTRING "):
                 continue
 
-            # Extract source record name
-            source_match = re.search(r"UNSTRING\s+(\S+)", stripped, re.IGNORECASE)
-            if not source_match:
+            # Join continuation lines exactly like the IR parser.  Clause text
+            # must be seen (and rejected) here too: the old scraper treated
+            # ``WITH POINTER WS-P`` / ``ON OVERFLOW`` words as record fields,
+            # fabricating a field layout the program never reads.
+            full_text = stripped
+            if not stripped.endswith("."):
+                j = i + 1
+                while j < len(lines):
+                    nxt = lines[j].strip()
+                    nxt_upper = nxt.upper()
+                    if nxt_upper.startswith("END-UNSTRING"):
+                        break
+                    if (
+                        _SCOPE_TERMINATOR.match(nxt)
+                        or _STRING_CONTINUATION_STOP.match(nxt_upper)
+                    ):
+                        break
+                    if nxt:
+                        full_text += " " + nxt
+                    j += 1
+                    if nxt.endswith("."):
+                        break
+
+            parts = self._unstring_parts(full_text)
+            if not parts.source or not parts.delimiter or not parts.targets:
                 continue
-            source_record = source_match.group(1)
-
-            # Extract delimiter
-            delim_match = re.search(r"DELIMITED BY\s+(\S+)", stripped, re.IGNORECASE)
-            if not delim_match:
+            if parts.reasons:
+                # No certified split for this form.  Leave the statement to the
+                # fail-closed IR/mapper path instead of inventing a record
+                # layout from clause keywords.
                 continue
-            delimiter = delim_match.group(1).strip().strip("'\"")
-
-            # Extract INTO targets (may span multiple lines)
-            targets: list[str] = []
-            into_match = re.search(r"INTO\s+(.+)", stripped, re.IGNORECASE)
-            if into_match:
-                target_str = into_match.group(1).strip()
-                target_str = re.sub(r"\s*END-UNSTRING.*", "", target_str, flags=re.IGNORECASE)
-                target_str = target_str.rstrip(".")
-                targets = [t.strip() for t in target_str.split() if t.strip() and t.strip() != "INTO"]
-
-            # Check continuation lines
-            j = i + 1
-            while j < len(lines):
-                next_line = lines[j].strip()
-                next_upper = next_line.upper()
-                if next_upper.startswith(("END-UNSTRING", "MOVE", "IF", "WRITE", "ADD", "CLOSE")):
-                    break
-                if next_line and not next_upper.startswith("*"):
-                    more_targets = re.findall(r"([A-Z][\w-]*)", next_line.upper())
-                    for t in more_targets:
-                        if t not in ("INTO", "END-UNSTRING", "DELIMITED", "BY"):
-                            targets.append(t)
-                j += 1
 
             # Look up file name from record name
-            file_name = record_to_file.get(source_record, "")
+            file_name = record_to_file.get(parts.source, "")
 
-            if targets:
-                mappings.append(InputRecordMapping(
-                    record_name=source_record,
-                    file_name=file_name,
-                    delimiter=delimiter,
-                    fields=tuple(targets),
-                ))
+            mappings.append(InputRecordMapping(
+                record_name=parts.source,
+                file_name=file_name,
+                delimiter=parts.delimiter.strip("'\""),
+                fields=parts.targets,
+            ))
 
         return mappings
 

@@ -211,6 +211,32 @@ class ArtifactCapturer:
             capture_time=datetime.now(timezone.utc).isoformat(),
         )
 
+    def capture_business_invariant(
+        self,
+        execution_id: ExecutionId,
+        content: bytes,
+        logical_name: str = "business_invariants",
+        producer_role: str = "ORACLE",
+    ) -> CapturedArtifact:
+        """Capture one side's canonical business-invariant report."""
+        content_hash = ContentHash.from_bytes(content)
+        artifact = ArtifactIdentity(
+            artifact_id=f"invariant-{logical_name}-{execution_id.value}",
+            artifact_type="BUSINESS_INVARIANT",
+            logical_name=logical_name,
+            producer_role=producer_role,
+            content_hash=content_hash,
+            size_bytes=len(content),
+        )
+        return CapturedArtifact(
+            artifact=artifact,
+            content=content,
+            content_hash=content_hash,
+            size_bytes=len(content),
+            execution_id=execution_id,
+            capture_time=datetime.now(timezone.utc).isoformat(),
+        )
+
     def capture_missing(
         self,
         execution_id: ExecutionId,

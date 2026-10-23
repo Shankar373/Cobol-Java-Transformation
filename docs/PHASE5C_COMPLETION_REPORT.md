@@ -4,10 +4,12 @@
 > dated phase record, not a current status claim (Master README §78).
 > Bound against canonical truth: "VERIFIED COMPLETE" and the "Supported
 > INDEXED/RELATIVE Operations" tables below describe this phase's workload
-> proofs only; canonical status for indexed/relative files is **PARTIAL /
-> certification NOT claimed** (structural lane + workload proofs, no
-> byte-level certification). Canonical authority: `docs/CAPABILITY_MATRIX.md`
-> ("not certified"). Live status: `opencode.md` + `docs/BACKLOG.md` register.
+> proofs only; canonical status for indexed/relative files **was** PARTIAL /
+> certification NOT claimed at the time of this report and **is now
+> SUPPORTED-certified-subset** since BL-134 (2026-10-22: generated Java
+> byte-identical to the GnuCOBOL oracle; VSAM file-image equivalence still not
+> claimed). Canonical authority: `docs/CAPABILITY_MATRIX.md`
+> (certified-subset row). Live status: `opencode.md` + `docs/BACKLOG.md` register.
 
 ## Status: VERIFIED COMPLETE
 

@@ -174,7 +174,8 @@ Current proof is subset-based.
 ## Current boundaries
 
 High-risk or incomplete proof areas include numeric precision/sign/COMP/COMP-3/rounding,
-broad CALL and multi-program behavior, copybook completeness, indexed/relative files,
+broad CALL and multi-program behavior, copybook completeness, indexed/relative files
+beyond the oracle-proven certified subset (and any VSAM file-image equivalence),
 JCL, CICS, DB2, production security hardening, persistent serialization, and broad
 mutation/adversarial proof.
 

@@ -268,6 +268,11 @@ class DataItem:
     signed: bool = False  # explicit S sign in PIC
     value: str | None = None
     occurs: int | None = None
+    # OCCURS DEPENDING ON: the item's actual length is data-dependent.  The
+    # deterministic lane cannot certify variable-length tables, so the parser
+    # records the controlling item and raises UNSUPPORTED_CONSTRUCT instead of
+    # silently lowering the table to a fixed size.
+    occurs_depending_on: str | None = None
     redefines: str | None = None  # REDEFINES clause
     # Canonical USAGE token when a USAGE clause was declared (e.g. "COMP",
     # "COMP-3", "COMP-5").  ``None`` means DISPLAY (the COBOL default) or no
@@ -508,6 +513,10 @@ class CallStatement:
     arguments: tuple[str, ...] = ()
     passing_modes: tuple[str, ...] = ()
     is_dynamic: bool = False
+    #: ``RETURNING`` receiving item (COBOL name).  The clause has no certified
+    #: Java lowering yet, so it is captured here to fail closed by name rather
+    #: than being folded into the USING argument list.
+    returning: str = ""
 
 
 @dataclass(frozen=True)
@@ -578,12 +587,28 @@ class UnstringStatement:
     """UNSTRING source DELIMITED BY delimiter INTO targets.
 
     Supports both raw string mode (backward compatible) and structured mode.
+
+    The certified mapping is the plain delimited split.  Every other clause
+    changes what the statement does — the position where the next split
+    starts, how many receivers were filled, or what happens on overflow — and
+    has no certified Java lowering yet.  Those clauses are captured here so
+    the mapper can fail closed by name instead of running with silently
+    different semantics.  An empty value / ``False`` means the clause was not
+    present in the source.
     """
     source: str
     delimiter: str
     targets: tuple[str, ...] = ()
     source_ref: FieldReference | None = None
     target_refs: tuple[FieldReference, ...] = ()
+    #: ``WITH POINTER`` receiving-position item (COBOL name).
+    pointer: str = ""
+    #: ``ON OVERFLOW`` / ``NOT ON OVERFLOW`` was present.
+    has_overflow: bool = False
+    #: ``VARYING IN`` receiving-position item (COBOL name).
+    varying_pointer: str = ""
+    #: ``TALLYING IN`` counter item (COBOL name).
+    tallying_pointer: str = ""
 
 
 @dataclass(frozen=True)
@@ -638,6 +663,19 @@ class DisplayStatement:
 
 
 @dataclass(frozen=True)
+class SetConditionStatement:
+    """``SET <condition-name> TO TRUE``.
+
+    Only the condition-name form is represented: it names an 88-level
+    condition whose parent data item is assigned a value satisfying the
+    condition.  Other SET forms (index arithmetic, ``SET ... TO FALSE``,
+    ``SET ADDRESS OF``) stay unsupported and are never represented, so a
+    consumer cannot mistake them for implemented semantics.
+    """
+    target: str = ""  # condition name (COBOL spelling)
+
+
+@dataclass(frozen=True)
 class GoToStatement:
     """GO TO paragraph-name."""
     target: str = ""
@@ -675,6 +713,7 @@ Statement = (
     | UnstringStatement
     | StringStatement
     | DisplayStatement
+    | SetConditionStatement
     | GoToStatement
     | StopRunStatement
     | ExitProgramStatement

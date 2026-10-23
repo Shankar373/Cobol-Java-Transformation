@@ -141,7 +141,11 @@ class TestJavaType:
             array_element_type=JavaType(basic_type=JavaBasicType.STRING),
         )
         assert t.is_array
-        assert t.to_source() == "String"
+        # Arrays render their component type plus brackets so generated
+        # field and parameter declarations compile.
+        assert t.to_source() == "String[]"
+        nested = JavaType(is_array=True, array_element_type=t)
+        assert nested.to_source() == "String[][]"
 
 
 # ============================================================

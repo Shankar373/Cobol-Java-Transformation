@@ -213,9 +213,18 @@ class TestRegistryItself:
             assert entry.evidence.strip(), f"{key} has no evidence text"
 
     def test_no_key_is_partial_and_supported(self) -> None:
+        """A PARTIAL key may never be source-claimed as SUPPORTED.
+
+        Source-only instances can be stricter than PARTIAL (UNSUPPORTED when
+        absence of IR proves the mapper never sees the construct); the
+        forbidden combination is a partial mapping presented as fully
+        supported.
+        """
         for key, entry in CONSTRUCT_REGISTRY.items():
             if entry.level is CapabilityLevel.PARTIAL:
-                assert entry.effective_source_level is CapabilityLevel.PARTIAL, key
+                assert (
+                    entry.effective_source_level is not CapabilityLevel.SUPPORTED
+                ), key
 
     def test_partial_constructs_are_not_in_supported(self) -> None:
         """A PARTIAL verdict must never be flattened into SUPPORTED."""

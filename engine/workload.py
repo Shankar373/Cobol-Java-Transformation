@@ -20,6 +20,7 @@ from engine.contracts.models import (
     NormalizationPolicy,
     OrderingPolicy,
 )
+from engine.verification.business_invariants import BusinessInvariant
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,11 @@ class WorkloadDefinition:
     description: str
     artifacts: tuple[WorkloadArtifact, ...]
     inputs: tuple[WorkloadInput, ...] = ()
+    #: Declarative business rules evaluated independently against the oracle
+    #: and candidate observations. They are surfaced as derived
+    #: BUSINESS_INVARIANT artifacts so the existing evidence/comparator/
+    #: verdict gates apply; they never weaken artifact comparison.
+    invariants: tuple[BusinessInvariant, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.artifacts:
@@ -132,6 +138,27 @@ class WorkloadDefinition:
             raise ValueError(
                 f"Duplicate input file name(s) {duplicate_basenames}: staged "
                 f"inputs are keyed by file name"
+            )
+
+        invariant_ids = []
+        for invariant in self.invariants:
+            if not isinstance(invariant, BusinessInvariant):
+                raise ValueError(
+                    f"invariants must be BusinessInvariant, got "
+                    f"{type(invariant).__name__}"
+                )
+            invariant_ids.append(invariant.invariant_id)
+        duplicate_invariants = sorted(
+            {name for name in invariant_ids if invariant_ids.count(name) > 1}
+        )
+        if duplicate_invariants:
+            raise ValueError(
+                f"Duplicate invariant_id(s): {duplicate_invariants}"
+            )
+        if self.invariants and "business-invariants" in artifact_names:
+            raise ValueError(
+                "artifact logical_name 'business-invariants' is reserved for "
+                "derived business-invariant reports"
             )
 
     def get_artifact(self, logical_name: str) -> WorkloadArtifact:

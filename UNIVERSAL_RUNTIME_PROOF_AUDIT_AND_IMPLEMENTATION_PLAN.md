@@ -7,6 +7,19 @@
 **Audit/implementation date:** 2026-10-19
 **Auditor/implementer:** OpenCode (MiMo agent session), NO-LLM invariant respected — no LLM, model API, or nondeterministic AI dependency exists or was introduced anywhere in the repository (re-verified by repository search this session: 0 model-provider packages/keys/endpoints in `requirements.*`, `frontend/package*.json`, workflows, scripts, Dockerfiles, `engine/`, `api/`).
 
+> **Status addendum (2026-10-22, working tree on `2e2f4ca`):** rows below are a
+> dated snapshot of HEAD `6145e892`. Since then **BL-134** changed one label:
+> indexed/relative **transformation** is now a **SUPPORTED certified subset**
+> (primary RECORD KEY at offset 0, ACCESS MODE DYNAMIC, no ALTERNATE RECORD
+> KEY) with a generated-Java differential proof against the GnuCOBOL oracle
+> (`tests/integration/test_indexed_relative_oracle_proof.py`), so
+> "indexed/relative PARTIAL / generator output UNKNOWN" is historical for that
+> subset. Unchanged and still true: **no VSAM file-image equivalence is
+> claimed** (the on-disk record/index store is an emulation), payroll/claims
+> generator output stays UNKNOWN, and DB2/CICS/MQ/IMS/JCL remain
+> UNAVAILABLE/BLOCKED. Authoritative current status:
+> `docs/verification/RUNTIME_PROOF_MATRIX.md` + `docs/CAPABILITY_MATRIX.md`.
+
 ---
 
 ## 1. Executive Summary and Verified Repository State

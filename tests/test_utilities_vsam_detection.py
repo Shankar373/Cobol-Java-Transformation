@@ -11,10 +11,14 @@ Acceptance (docs/BACKLOG.md BL-086):
 1. detection fires for real `RELEASE`, `IDCAMS`, `ORGANIZATION INDEXED`,
    `ORGANIZATION RELATIVE`, `ACCESS DYNAMIC` and `RECORD KEY` phrases and
    never for a control program, comment text or string-literal text;
-2. the registry classifies every new key `UNSUPPORTED` at IR level and at
-   source-only level (fail closed);
-3. the analyzer's PROGRAM reason names the construct and the verdict is
-   never `SUPPORTED` / `PARTIAL` — the plan still blocks;
+2. the registry classifies utilities `UNSUPPORTED` and the indexed/relative
+   FILE-CONTROL keys `SUPPORTED` for the certified subset (BL-134), with
+   source-only `UNSUPPORTED` (fail closed when no FileDefinition IR exists);
+3. the analyzer's PROGRAM reason names the construct; a VSAM program that
+   relies on an ALTERNATE RECORD KEY stays `UNSUPPORTED`, a relative program
+   without `ACCESS MODE IS DYNAMIC` stays `UNSUPPORTED` (outside the
+   certified subset), while the certified indexed/relative subset is
+   `SUPPORTED` with a `TRANSFORM` plan;
 4. repeated scans are deterministic;
 5. no existing test is weakened.
 """
@@ -201,14 +205,38 @@ class TestSourceScanDetection:
 
 
 class TestRegistryClassification:
-    def test_every_new_key_fails_closed(self) -> None:
-        for key in NEW_KEYS:
+    def test_utilities_fail_closed(self) -> None:
+        for key in ("RELEASE", "IDCAMS"):
             entry = CONSTRUCT_REGISTRY[key]
             assert entry.level is CapabilityLevel.UNSUPPORTED, (key, entry)
             assert entry.effective_source_level is CapabilityLevel.UNSUPPORTED, (
                 key,
                 entry,
             )
+
+    def test_file_control_keys_are_supported_but_fail_closed_without_ir(self) -> None:
+        # 2026-10-22 (BL-134): the indexed/relative SELECT clauses are SUPPORTED
+        # for the certified subset (byte-identical to GnuCOBOL 3.1.2 on the
+        # shipped fixtures), and the evidence text must carry the non-claim.
+        # A source phrase with no FileDefinition IR still fails closed.
+        for key in (
+            "ORGANIZATION INDEXED",
+            "ORGANIZATION RELATIVE",
+            "ACCESS DYNAMIC",
+            "RECORD KEY",
+        ):
+            entry = CONSTRUCT_REGISTRY[key]
+            assert entry.level is CapabilityLevel.SUPPORTED, (key, entry)
+            assert entry.effective_source_level is CapabilityLevel.UNSUPPORTED, (
+                key,
+                entry,
+            )
+            assert "PROVEN" in entry.evidence, (key, entry)
+            if key.startswith("ORGANIZATION"):
+                assert "file-image equivalence is not claimed" in entry.evidence, (
+                    key,
+                    entry,
+                )
 
 
 class TestCapabilityVerdicts:
@@ -221,14 +249,43 @@ class TestCapabilityVerdicts:
     def test_vsam_program_verdict_names_the_constructs(self, tmp_path) -> None:
         program = _program_component(tmp_path, VSAM_PROGRAM, "VSAMDEMO")
         assert program.level is CapabilityLevel.UNSUPPORTED, program
-        assert "ORGANIZATION INDEXED" in program.reason, program.reason
-        assert "ACCESS DYNAMIC" in program.reason, program.reason
+        # ALTERNATE RECORD KEY is the real blocker: it has no lowering, so the
+        # program must not inherit the certified indexed subset's SUPPORTED.
         assert "RECORD KEY" in program.reason, program.reason
+        assert "ALTERNATE RECORD KEY" in program.reason, program.reason
+        assert "no alternate-index lowering" in program.reason, program.reason
 
-    def test_relative_program_verdict_names_the_construct(self, tmp_path) -> None:
+    def test_relative_program_without_certified_access_mode_fails_closed(
+        self, tmp_path
+    ) -> None:
+        # RELATIVE_PROGRAM declares no ACCESS MODE (COBOL default SEQUENTIAL),
+        # which is outside the certified subset (DYNAMIC only), so the verdict
+        # must fail closed — strictly stronger than the pre-BL-134 PARTIAL —
+        # and the reason must name the file and why it is outside the subset.
         program = _program_component(tmp_path, RELATIVE_PROGRAM, "RELDEMO")
         assert program.level is CapabilityLevel.UNSUPPORTED, program
-        assert "ORGANIZATION RELATIVE" in program.reason, program.reason
+        assert "file REL-FILE" in program.reason, program.reason
+        assert "outside the certified subset" in program.reason, program.reason
+        assert "ACCESS MODE DYNAMIC" in program.reason, program.reason
+
+    def test_relative_program_in_certified_subset_is_supported_and_plans(
+        self, tmp_path
+    ) -> None:
+        # Positive control for BL-134: same program with ACCESS MODE IS DYNAMIC
+        # is inside the certified subset → SUPPORTED program, READY plan.
+        src = RELATIVE_PROGRAM.replace(
+            "               ORGANIZATION IS RELATIVE\n",
+            "               ORGANIZATION IS RELATIVE\n"
+            "               ACCESS MODE IS DYNAMIC\n",
+        )
+        program = _program_component(tmp_path, src, "RELDEMO")
+        assert program.level is CapabilityLevel.SUPPORTED, program
+
+        plan_src = _write(tmp_path, {"RELDEMO.cob": src})
+        plan = ModernizationPlanner(docker_available=True).plan(
+            plan_src, application_id="phase7-p35", entrypoint="RELDEMO"
+        )
+        assert plan.overall_status is ModernizationStatus.READY, plan
 
     def test_control_program_never_names_the_new_keys(self, tmp_path) -> None:
         program = _program_component(tmp_path, CONTROL_PROGRAM, "PLAINUTIL")

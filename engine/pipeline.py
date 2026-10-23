@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from engine.candidate.adapter import (
     CandidateAdapter,
@@ -42,6 +43,8 @@ from engine.candidate.java_adapter import RealJavaCandidateAdapter
 from engine.comparators.framework import (
     ComparatorRegistry,
     create_default_registry,
+    create_verification_registry,
+    register_business_invariant_comparator,
     resolve_comparator_id,
 )
 from engine.domain.identities import (
@@ -70,6 +73,10 @@ from engine.verdict.derivation import (
     Verdict,
     derive_verdict_validated,
     derive_verdict_untrusted,
+)
+from engine.verification.business_invariants import (
+    InvariantObservation,
+    build_report,
 )
 from engine.workload import WorkloadDefinition
 
@@ -134,7 +141,17 @@ class VerticalSlicePipeline:
     ) -> None:
         self._config = config
         self._capturer = ArtifactCapturer()
-        self._registry = registry or create_default_registry()
+        has_invariants = bool(
+            config.workload is not None and config.workload.invariants
+        )
+        if registry is not None:
+            self._registry = registry
+        elif has_invariants:
+            self._registry = create_verification_registry()
+        else:
+            self._registry = create_default_registry()
+        if has_invariants:
+            register_business_invariant_comparator(self._registry)
         self._integrity_validator = EvidenceIntegrityValidator()
 
         oracle_config = OracleAdapterConfig(
@@ -337,6 +354,7 @@ class VerticalSlicePipeline:
         candidate_result: object,
         source_identity: SourceIdentity,
         candidate_identity: CandidateIdentity,
+        input_files: dict[str, bytes] | None = None,
     ) -> tuple[
         tuple[ArtifactEvidence, ...],
         tuple[ComparisonEvidence, ...],
@@ -416,6 +434,65 @@ class VerticalSlicePipeline:
             )
             comparison_evidence.append(self._make_comparison_evidence(
                 run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
+            ))
+
+        # Business invariants are derived artifacts, evaluated independently
+        # against each execution. They run through the same registry, capture,
+        # comparison, integrity and verdict gates as observed artifacts: a
+        # rule that fails on either side can never produce a MATCH.
+        if workload.invariants:
+            invariant_comparator = self._registry.get("BUSINESS_INVARIANT")
+            if invariant_comparator is None:
+                raise ValueError(
+                    "No comparator registered for artifact_type="
+                    "'BUSINESS_INVARIANT': business invariants are declared "
+                    "but the verification comparator is unavailable"
+                )
+            oracle_ca = self._capturer.capture_business_invariant(
+                oracle_result.execution_id,
+                build_report(
+                    workload.invariants,
+                    InvariantObservation(
+                        exit_code=oracle_result.exit_code,
+                        stdout=oracle_result.stdout or b"",
+                        stderr=oracle_result.stderr or b"",
+                        files=getattr(oracle_result, "generated_files", None) or {},
+                        inputs=input_files or {},
+                    ),
+                ).to_bytes(),
+                "business-invariants",
+                "ORACLE",
+            )
+            candidate_ca = self._capturer.capture_business_invariant(
+                candidate_result.execution_id,
+                build_report(
+                    workload.invariants,
+                    InvariantObservation(
+                        exit_code=candidate_result.exit_code,
+                        stdout=candidate_result.stdout or b"",
+                        stderr=candidate_result.stderr or b"",
+                        files=getattr(candidate_result, "generated_files", None) or {},
+                        inputs=input_files or {},
+                    ),
+                ).to_bytes(),
+                "business-invariants",
+                "CANDIDATE",
+            )
+            oracle_artifacts_list.append(oracle_ca)
+            candidate_artifacts_list.append(candidate_ca)
+            comp_result = invariant_comparator.compare(
+                oracle_ca.artifact, oracle_ca.content,
+                candidate_ca.artifact, candidate_ca.content,
+            )
+            comparison_evidence.append(self._make_comparison_evidence(
+                run_id,
+                SimpleNamespace(
+                    logical_name="business-invariants",
+                    artifact_type="BUSINESS_INVARIANT",
+                ),
+                oracle_ca,
+                candidate_ca,
+                comp_result,
             ))
 
         artifact_evidence = tuple(
@@ -602,6 +679,7 @@ class VerticalSlicePipeline:
             artifact_evidence, comparison_evidence, _, _ = self._run_declaration_driven(
                 run_id, workload_id, oracle_result, candidate_result,
                 source_identity, candidate_identity,
+                input_files=input_files,
             )
         else:
             artifact_evidence, comparison_evidence = self._run_legacy(

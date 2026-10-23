@@ -36,7 +36,7 @@ every mainframe runtime.
 | Java generation | Yes | Yes | Tested subset | YELLOW |
 | Arithmetic semantics | Yes, subset | Yes | Limited | YELLOW/RED |
 | Sequential files | Yes | Yes | Tested subset | YELLOW |
-| Indexed/relative files | Partial | Yes | Limited | RED |
+| Indexed/relative files | Yes, certified subset (BL-134) | Yes | Limited — certified-subset oracle proof (generated Java byte-identical vs GnuCOBOL 3.1.2); no broad/VSAM file-image proof | YELLOW |
 | JCL | Modeling/subset | Yes | No broad runtime proof | RED |
 | CICS | Modeling/subset | Yes | No broad runtime proof | RED |
 | DB2 | Modeling/subset | Yes | No DB2 runtime proof | RED |

@@ -79,6 +79,7 @@ class VerdictDeriver:
             "GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate "
             "(DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), "
             "artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; "
+            "derived BUSINESS_INVARIANT reports gate business rules; "
             "INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); "
             "substring containment permanently forbidden."
         )
@@ -316,7 +317,10 @@ class VerdictDeriver:
 
     def _check_for_unsupported(self, manifest: EvidenceManifest) -> VerdictState | None:
         """Check for unsupported artifact types."""
-        supported_types = {"STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD"}
+        supported_types = {
+            "STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD",
+            "BUSINESS_INVARIANT",
+        }
         for artifact in manifest.artifact_evidence:
             if artifact.artifact.artifact_type not in supported_types:
                 return VerdictState.UNSUPPORTED
