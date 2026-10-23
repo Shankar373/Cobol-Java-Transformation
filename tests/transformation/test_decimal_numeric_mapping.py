@@ -27,20 +27,23 @@ from engine.transformation.java_ir import (
 )
 
 
-def _find_double_parse(assignments):
+def _find_decimal_object_parse(assignments):
+    """Find the assignment whose expression is a BigDecimal string parse."""
+    from engine.transformation.java_ir import JavaNewObject
+
     for assignment in assignments:
         if not isinstance(assignment, JavaAssignment):
             continue
         expression = assignment.expression
         if (
-            getattr(expression, "class_name", "") == "Double"
-            and expression.method_name == "parseDouble"
+            isinstance(expression, JavaNewObject)
+            and expression.class_name == "java.math.BigDecimal"
         ):
             return assignment
     return None
 
 
-def test_decimal_pic_maps_to_double():
+def test_decimal_pic_maps_to_big_decimal():
     item = DataItem(
         name="WS-AMOUNT",
         pic_type=PicType.NUMERIC,
@@ -50,7 +53,9 @@ def test_decimal_pic_maps_to_double():
 
     java_type = map_pic_to_java_type(item)
 
-    assert java_type.basic_type == JavaBasicType.DOUBLE
+    assert java_type.basic_type == JavaBasicType.DECIMAL
+    # Decimal-exact: never a binary-float double.
+    assert java_type.basic_type != JavaBasicType.DOUBLE
 
 
 def test_real_comp3_fixture_preserves_decimal_metadata_and_java_type():
@@ -68,17 +73,17 @@ def test_real_comp3_fixture_preserves_decimal_metadata_and_java_type():
         assert item.pic_length == width
         assert item.decimal_places == decimals
         assert item.value == value
-        assert map_pic_to_java_type(item).basic_type == JavaBasicType.DOUBLE
+        assert map_pic_to_java_type(item).basic_type == JavaBasicType.DECIMAL
 
     java_program = map_cobol_program_to_java(program)
     fields = {field.name: field for field in java_program.java_class.fields}
     assert all(
-        fields[name.replace("-", "_")].java_type.basic_type == JavaBasicType.DOUBLE
+        fields[name.replace("-", "_")].java_type.basic_type == JavaBasicType.DECIMAL
         for name in expected
     )
 
 
-def test_file_section_decimal_pic_preserves_metadata_and_read_uses_double_parse():
+def test_file_section_decimal_pic_preserves_metadata_and_read_uses_decimal_parse():
     cobol = """
 >>SOURCE FORMAT FREE
 IDENTIFICATION DIVISION.
@@ -119,10 +124,10 @@ MAIN.
     mapped = map_cobol_statement(read_stmt, program)
     read_if = next(stmt for stmt in mapped if isinstance(stmt, JavaIf))
     assignments = [stmt for stmt in read_if.then_body if isinstance(stmt, JavaAssignment)]
-    assert _find_double_parse(assignments) is not None
+    assert _find_decimal_object_parse(assignments) is not None
 
 
-def test_ir_file_input_converts_decimal_record_field_with_double_parse():
+def test_ir_file_input_converts_decimal_record_field_with_decimal_parse():
     java_program = JavaProgram(
         program_id="DECIMAL-INPUT",
         java_class=JavaClass(
@@ -180,17 +185,17 @@ def test_ir_decision_input_assignment_converts_decimal_field_with_double_parse()
     assert "Double.parseDouble(rec[0].trim())" in source
 
 
-def test_decimal_expression_literals_map_to_double():
+def test_decimal_expression_literals_map_to_big_decimal():
     for value in ("3.14", "-0.25"):
         java_expr = map_cobol_expr_to_java(value)
-        assert java_expr.java_type.basic_type == JavaBasicType.DOUBLE
+        assert java_expr.java_type.basic_type == JavaBasicType.DECIMAL
 
 
-def test_structured_decimal_literal_maps_to_double():
+def test_structured_decimal_literal_maps_to_big_decimal():
     java_expr = _map_cobol_expression_to_java(
         Literal(value="12.50", is_numeric=True)
     )
-    assert java_expr.java_type.basic_type == JavaBasicType.DOUBLE
+    assert java_expr.java_type.basic_type == JavaBasicType.DECIMAL
 
 
 def test_decimal_literal_type_is_preserved_through_active_file_io_generation():
@@ -274,9 +279,9 @@ MAIN.
     )
     declarations = generator._gen_io_variable_declarations(program, (mapping,))
     parsing = generator._gen_unstring_parsing_java(mapping, program)
-    assert "static double INPUT_AMOUNT = 0;" in declarations
+    assert "static java.math.BigDecimal INPUT_AMOUNT = java.math.BigDecimal.ZERO;" in declarations
     assert "static long INPUT_LONG = 0;" in declarations
-    assert "INPUT_AMOUNT = Double.parseDouble(rec[0].trim());" in parsing
+    assert "INPUT_AMOUNT = new java.math.BigDecimal(rec[0].trim());" in parsing
     assert "INPUT_LONG = Long.parseLong(rec[1].trim());" in parsing
 
 

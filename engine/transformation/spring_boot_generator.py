@@ -419,11 +419,16 @@ public class {class_name} {{
         lines.append(f"public class {class_name} {{")
 
         # Add field declarations from JavaClass fields
+        from engine.transformation.java_ir import JavaBasicType
         for field in (service.fields or ()):
             init_val = ""
             if field.initializer:
                 init_expr = self._expr_to_string(field.initializer)
                 init_val = f" = {init_expr}"
+            elif field.java_type and field.java_type.basic_type == JavaBasicType.DECIMAL:
+                # An uninitialized BigDecimal field is null: any first use
+                # would be a null-shadowing NPE, so seed the zero value.
+                init_val = " = java.math.BigDecimal.ZERO"
             field_type = field.java_type.to_source() if field.java_type else "Object"
             if "public" in (field.modifiers or ()):  # linkage fields
                 lines.append(f"    public static {field_type} {field.name}{init_val};")
@@ -513,10 +518,14 @@ public class {class_name} {{
             " */",
             f"public class {class_name} {{",
         ]
+        from engine.transformation.java_ir import JavaBasicType
         for field in fields:
             init_val = ""
             if field.initializer:
                 init_val = f" = {self._expr_to_string(field.initializer)}"
+            elif field.java_type and field.java_type.basic_type == JavaBasicType.DECIMAL:
+                # An uninitialized BigDecimal field is null: seed the zero.
+                init_val = " = java.math.BigDecimal.ZERO"
             field_type = field.java_type.to_source() if field.java_type else "Object"
             lines.append(f"    private {field_type} {field.name}{init_val};")
         lines.append("")
@@ -661,7 +670,7 @@ public class {class_name} {{
             JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaUnaryOp,
             JavaMethodCall, JavaStringConcat, JavaCast, JavaNewObject,
             JavaTernary, JavaArrayAccess, JavaNewArray,
-            JavaFilledArray,
+            JavaFilledArray, JavaBasicType,
         )
         if isinstance(expr, JavaLiteral):
             if expr.value == "null" and not expr.java_type:
@@ -673,6 +682,16 @@ public class {class_name} {{
             # compilable literals for quotes, backslashes, and control
             # bytes.
             from engine.transformation.java_generator import JavaGenerator
+            if (
+                expr.java_type
+                and expr.java_type.basic_type == JavaBasicType.DECIMAL
+            ):
+                # Decimal-exact literal: a string constructor preserves the
+                # exact digits/scale of the COBOL literal (never a double).
+                return (
+                    f'new java.math.BigDecimal('
+                    f'"{JavaGenerator._escape_java_string(expr.value)}")'
+                )
             if expr.java_type and expr.java_type.basic_type and \
                expr.java_type.basic_type.value == "String":
                 return f'"{JavaGenerator._escape_java_string(expr.value)}"'

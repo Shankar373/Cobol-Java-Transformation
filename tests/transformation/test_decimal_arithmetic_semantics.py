@@ -34,10 +34,43 @@ MAIN.
     java = _parse_map(cobol)
     source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
 
-    assert "(double)(WS_A)" in source
-    assert "(double)(WS_B)" in source
+    # Decimal-exact arithmetic: integer operands are coerced to BigDecimal
+    # (no binary-float double cast), division is approximated only at the
+    # intermediate DECIMAL128 precision — never at the receiver.
+    assert ".divide(java.math.BigDecimal.valueOf(WS_B), java.math.MathContext.DECIMAL128)" in source
+    assert "(double)" not in source
+    assert ".doubleValue()" not in source
     assert "setScale(2, java.math.RoundingMode.DOWN)" in source
-    assert source.endswith(".doubleValue();")
+    # The receiver keeps the BigDecimal store: silent high-order truncation
+    # keeps only the least-significant S9(5) integer digits.
+    assert source.endswith(".remainder(java.math.BigDecimal.valueOf(100000));")
+
+
+def test_decimal_receiver_is_big_decimal_exact_not_double_epsilon():
+    """Oracle regression (GnuCOBOL 3.1.2): ``0.29 * 100`` truncated to
+    ``PIC 9(3)V99`` stores ``029.00``; the double lane produced ``028.99``
+    because a binary-float epsilon crosses the truncation boundary.
+    Decimal receivers must be BigDecimal-exact."""
+    cobol = """\
+>>SOURCE FORMAT FREE
+IDENTIFICATION DIVISION.
+PROGRAM-ID. NUMERIC-EPSILON.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-A PIC S9(2)V99 VALUE 0.29.
+01 WS-P PIC 9(3) VALUE 100.
+01 WS-T PIC 9(3)V99 VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    COMPUTE WS-T = WS-A * WS-P.
+    STOP RUN.
+"""
+    java = _parse_map(cobol)
+    source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_T"))
+    assert ".multiply(" in source
+    assert "(double)" not in source
+    assert ".doubleValue()" not in source
+    assert "setScale(2, java.math.RoundingMode.DOWN)" in source
 
 
 def test_decimal_receiver_rounded_uses_half_up_and_narrows_to_integer():

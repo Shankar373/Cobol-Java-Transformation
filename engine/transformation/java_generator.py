@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 from engine.transformation.java_ir import (
     JavaApplication,
+    JavaBasicType,
     JavaClass,
     JavaField,
     JavaFileResource,
@@ -634,6 +635,10 @@ public class {class_name} {{
             field = field_map.get(field_name)
             if field and field.java_type.basic_type and field.java_type.basic_type.value == "int":
                 lines.append(f'            {field_name} = Integer.parseInt(rec[{i}].trim());')
+            elif field and field.java_type.basic_type and field.java_type.basic_type == JavaBasicType.DECIMAL:
+                # Decimal-exact parse: the (trim)med digits become an exact
+                # BigDecimal via the string constructor.
+                lines.append(f'            {field_name} = new java.math.BigDecimal(rec[{i}].trim());')
             elif field and field.java_type.basic_type and field.java_type.basic_type.value == "double":
                 lines.append(f'            {field_name} = Double.parseDouble(rec[{i}].trim());')
             else:
@@ -897,6 +902,8 @@ public class {class_name} {{
         for i, field in enumerate(java_class.fields):
             if field.java_type.basic_type and field.java_type.basic_type.value == "int":
                 lines.append(f'            {field.name} = Integer.parseInt(rec[{i}].trim());')
+            elif field.java_type.basic_type and field.java_type.basic_type == JavaBasicType.DECIMAL:
+                lines.append(f'            {field.name} = new java.math.BigDecimal(rec[{i}].trim());')
             elif field.java_type.basic_type and field.java_type.basic_type.value == "double":
                 lines.append(f'            {field.name} = Double.parseDouble(rec[{i}].trim());')
             else:
@@ -980,13 +987,23 @@ public class {class_name} {{
         from engine.transformation.java_ir import (
             JavaCast, JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaMethodCall,
             JavaStringConcat, JavaTernary, JavaUnaryOp,
-            JavaArrayAccess, JavaNewArray, JavaFilledArray,
+            JavaArrayAccess, JavaNewArray, JavaFilledArray, JavaNewObject,
         )
         if isinstance(expr, JavaLiteral):
             if expr.value == "null" and not expr.java_type:
                 return "null"
             if expr.value in ("true", "false") and not expr.java_type:
                 return expr.value
+            if (
+                expr.java_type
+                and expr.java_type.basic_type == JavaBasicType.DECIMAL
+            ):
+                # Decimal-exact literal: a string constructor preserves the
+                # exact digits/scale of the COBOL literal (never a double).
+                return (
+                    f'new java.math.BigDecimal('
+                    f'"{self._escape_java_string(expr.value)}")'
+                )
             # String literals need quotes; numeric literals don't
             # JavaLiteral without java_type may be a condition expression — don't quote
             if expr.java_type and expr.java_type.basic_type and \
@@ -1044,6 +1061,9 @@ public class {class_name} {{
                 if not grouped:
                     operand = f"({operand})"
             return f"({expr.operator}{operand})"
+        if isinstance(expr, JavaNewObject):
+            args = ", ".join(self._expr_to_string(a) for a in expr.arguments)
+            return f"new {expr.class_name}({args})"
         if isinstance(expr, JavaMethodCall):
             return self._method_call_to_string(expr)
         if isinstance(expr, JavaStringConcat):
@@ -1687,7 +1707,9 @@ public class {class_name} {{
     def _java_numeric_type_for_item(item) -> str:
         """Choose Java numeric storage type from COBOL PIC metadata."""
         if item.decimal_places > 0:
-            return "double"
+            # Decimal-exact fixed-point storage: the COBOL scale is a
+            # property of the value, never a floating-point binary fraction.
+            return "java.math.BigDecimal"
         return "long" if item.pic_length > 9 else "int"
 
     @staticmethod
@@ -1728,6 +1750,18 @@ public class {class_name} {{
         :class:`NumericValueError` so generation fails closed instead of
         emitting a bare Java identifier.
         """
+        if item.decimal_places > 0:
+            # Decimal-exact initializer: an exact BigDecimal object from the
+            # normalized digit string (scale/sign preserved verbatim).
+            if not item.value:
+                return "java.math.BigDecimal.ZERO"
+            normalized = normalize_value_for_pic(
+                item.value,
+                integer_digits=item.integer_digits,
+                decimal_digits=item.decimal_places,
+                signed=item.signed,
+            )
+            return f'new java.math.BigDecimal("{normalized}")'
         if not item.value:
             return "0"
         normalized = normalize_value_for_pic(
@@ -1786,14 +1820,18 @@ public class {class_name} {{
             java_name = field.replace("-", "_")
             item = self._lookup_cobol_data_item(program, field)
             if item and item.is_numeric:
-                parse_method = (
-                    "Double.parseDouble" if item.decimal_places > 0
-                    else "Long.parseLong" if item.pic_length > 9
-                    else "Integer.parseInt"
-                )
-                lines.append(
-                    f'            {java_name} = {parse_method}(rec[{i}].trim());'
-                )
+                if item.decimal_places > 0:
+                    # Decimal-exact parse: BigDecimal from the trimmed digits.
+                    lines.append(
+                        f'            {java_name} = new java.math.BigDecimal(rec[{i}].trim());'
+                    )
+                else:
+                    parse_stmt = (
+                        "Long.parseLong" if item.pic_length > 9 else "Integer.parseInt"
+                    )
+                    lines.append(
+                        f'            {java_name} = {parse_stmt}(rec[{i}].trim());'
+                    )
             else:
                 lines.append(f'            {java_name} = rec[{i}].trim();')
         return "\n".join(lines)

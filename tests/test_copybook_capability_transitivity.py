@@ -90,7 +90,7 @@ class TestNestedConstructsAreClassified:
             "OUTER.cpy": "       COPY INNER.\n",
             "INNER.cpy": REDEFINES_INNER,
         })
-        assert comp.level is CapabilityLevel.UNKNOWN  # REDEFINES registry level
+        assert comp.level is CapabilityLevel.PARTIAL  # REDEFINES registry level
         assert "REDEFINES" in comp.reason
         assert "INNER" in comp.reason, comp.reason
 
@@ -100,7 +100,7 @@ class TestNestedConstructsAreClassified:
             "cb/OUTER.cpy": "       COPY INNER.\n",
             "cb/INNER.cpy": REDEFINES_INNER,
         })
-        assert comp.level is CapabilityLevel.UNKNOWN
+        assert comp.level is CapabilityLevel.PARTIAL
         assert "INNER" in comp.reason, comp.reason
 
     def test_top_level_construct_attributed_to_top_file_only(self, tmp_path):
@@ -108,7 +108,7 @@ class TestNestedConstructsAreClassified:
             "NM.cob": MAIN,
             "OUTER.cpy": REDEFINES_INNER,
         })
-        assert comp.level is CapabilityLevel.UNKNOWN
+        assert comp.level is CapabilityLevel.PARTIAL
         assert "REDEFINES" in comp.reason
         assert "nested" not in comp.reason, comp.reason
 
