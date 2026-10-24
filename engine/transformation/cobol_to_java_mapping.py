@@ -104,6 +104,7 @@ from engine.transformation.java_ir import (
     JavaMethodCall,
     JavaMethodCallStatement,
     JavaNewArray,
+    JavaNewObject,
     JavaParameter,
     JavaProgram,
     JavaReportConfig,
@@ -142,7 +143,9 @@ def map_pic_to_java_type(item: DataItem) -> JavaType:
     Mapping rules:
     - PIC 9(n) where n <= 9  → int
     - PIC 9(n) where n > 9   → long
-    - PIC 9(n)V9(m)          → double
+    - PIC 9(n)V9(m)          → java.math.BigDecimal (decimal-exact fixed
+      point: pinned scale, explicit sign, receiver truncation/rounding
+      semantics; never a floating-point double)
     - PIC X(n)               → String
     - PIC A(n)               → String
     - Group items (children)  → String (treated as raw bytes)
@@ -154,7 +157,7 @@ def map_pic_to_java_type(item: DataItem) -> JavaType:
     if item.is_numeric:
         # Fixed-point PIC values require a decimal-capable Java type.
         if item.decimal_places > 0:
-            return JavaType(basic_type=JavaBasicType.DOUBLE)
+            return JavaType(basic_type=JavaBasicType.DECIMAL)
         if item.pic_length > 9:
             return JavaType(basic_type=JavaBasicType.LONG)
         return JavaType(basic_type=JavaBasicType.INT)
@@ -353,6 +356,18 @@ def _array_initializer(
             length=dimensions[0],
             fill=JavaLiteral(value=default_literal),
         )
+    if element_type.basic_type == JavaBasicType.DECIMAL and len(dimensions) == 1:
+        # Decimal tables are filled with exact BigDecimal defaults too:
+        # ``new BigDecimal[n]`` would leave nulls, so every entry gets an
+        # object with the item's normalized digit string.
+        return JavaFilledArray(
+            element_type=element_type,
+            length=dimensions[0],
+            fill=JavaLiteral(
+                value=default_literal,
+                java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+            ),
+        )
     return JavaNewArray(element_type=element_type, dimensions=dimensions)
 
 
@@ -360,7 +375,9 @@ def _array_initializer(
 def _numeric_literal_java_type(value: str) -> JavaType:
     """Return the Java type implied by a numeric literal spelling."""
     if "." in value:
-        return JavaType(basic_type=JavaBasicType.DOUBLE)
+        # A fractional literal is decimal-exact: rendered as a BigDecimal
+        # string constructor so its scale/sign survive verbatim.
+        return JavaType(basic_type=JavaBasicType.DECIMAL)
     if java_integral_suffix(value):
         # Outside Java's default int range: the literal must be typed long.
         return JavaType(basic_type=JavaBasicType.LONG)
@@ -879,7 +896,7 @@ def _numeric_display_items(program: CobolProgram) -> list[DataItem]:
     ]
 
 
-def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaMethodCall:
+def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaExpression:
     """Parse a fixed-format COBOL numeric field using its PIC metadata."""
     trimmed = JavaMethodCall(
         object_ref=value,
@@ -887,8 +904,13 @@ def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaMethodCall
         arguments=(),
     )
     if item.decimal_places > 0:
-        class_name, method_name = "Double", "parseDouble"
-    elif item.pic_length > 9:
+        # Decimal-exact: a BigDecimal string constructor keeps the exact
+        # digit string/scale (never a binary-float parse).
+        return JavaNewObject(
+            class_name="java.math.BigDecimal",
+            arguments=(trimmed,),
+        )
+    if item.pic_length > 9:
         class_name, method_name = "Long", "parseLong"
     else:
         class_name, method_name = "Integer", "parseInt"
@@ -1259,24 +1281,102 @@ def figurative_constant_to_java(kind: str, fill: str | None = None) -> JavaExpre
     return JavaLiteral(value=char, java_type=JavaType(basic_type=JavaBasicType.STRING))
 
 
-def _promote_numeric_expression_to_double(expr: JavaExpression) -> JavaExpression:
-    """Promote arithmetic operands to double for decimal receiver calculations."""
+def _promote_numeric_expression_to_decimal(
+    expr: JavaExpression,
+    program: CobolProgram | None,
+) -> JavaExpression:
+    """Promote an arithmetic expression to BigDecimal-exact form.
+
+    COBOL decimal arithmetic is fixed-point and exact; a double lane cannot
+    reproduce receiver semantics where a rounding/truncation boundary is
+    crossed by an epsilon (oracle: ``0.29 * 100`` truncated to
+    ``PIC 9(3)V99`` is ``029.00``, never ``028.99``).  The expression tree is
+    translated to exact BigDecimal operations instead:
+
+    - ``A + B``   → ``A.add(B)``
+    - ``A - B``   → ``A.subtract(B)``
+    - ``A * B``   → ``A.multiply(B)``
+    - ``A / B``   → ``A.divide(B, MathContext.DECIMAL128)`` (division is
+      approximated only at the intermediate precision, never at the
+      receiver: the receiver's own setScale applies COBOL truncation.)
+    - ``-X``      → ``X.negate()``
+    - integer literals/variables → ``new java.math.BigDecimal("...")`` /
+      ``java.math.BigDecimal.valueOf(...)`` (no binary-float conversion)
+    - a ref to a decimal item is already a BigDecimal value.
+    """
     if isinstance(expr, JavaBinaryOp):
-        return JavaBinaryOp(
-            left=_promote_numeric_expression_to_double(expr.left),
-            operator=expr.operator,
-            right=_promote_numeric_expression_to_double(expr.right),
+        left = _promote_numeric_expression_to_decimal(expr.left, program)
+        right = _promote_numeric_expression_to_decimal(expr.right, program)
+        method = {
+            "+": "add",
+            "-": "subtract",
+            "*": "multiply",
+            "%": "remainder",
+        }.get(expr.operator)
+        if method:
+            return JavaMethodCall(
+                object_ref=left,
+                method_name=method,
+                arguments=(right,),
+            )
+        if expr.operator == "/":
+            return JavaMethodCall(
+                object_ref=left,
+                method_name="divide",
+                arguments=(
+                    right,
+                    JavaVariableRef(name="java.math.MathContext.DECIMAL128"),
+                ),
+            )
+        return JavaMethodCall(
+            class_name="java.math.BigDecimal",
+            method_name="valueOf",
+            arguments=(expr,),
+            is_static=True,
         )
     if isinstance(expr, JavaUnaryOp):
-        return JavaUnaryOp(
-            operator=expr.operator,
-            operand=_promote_numeric_expression_to_double(expr.operand),
+        operand = _promote_numeric_expression_to_decimal(expr.operand, program)
+        if expr.operator == "-":
+            return JavaMethodCall(
+                object_ref=operand,
+                method_name="negate",
+                arguments=(),
+            )
+        return operand
+    if isinstance(expr, JavaLiteral):
+        java_type = expr.java_type
+        if java_type is None or java_type.basic_type == JavaBasicType.DECIMAL:
+            return expr
+        if java_type.basic_type in (JavaBasicType.INT, JavaBasicType.LONG):
+            # Strip the Java ``L`` suffix: the BigDecimal constructor takes
+            # the raw digit string.
+            return JavaLiteral(
+                value=expr.value.rstrip("Ll"),
+                java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+            )
+    if isinstance(expr, JavaVariableRef):
+        item = _find_data_item(program, expr.name)
+        if item is None or not item.is_numeric:
+            return JavaMethodCall(
+                class_name="java.math.BigDecimal",
+                method_name="valueOf",
+                arguments=(expr,),
+                is_static=True,
+            )
+        if item.decimal_places > 0:
+            # A decimal store is already a BigDecimal value.
+            return expr
+        return JavaMethodCall(
+            class_name="java.math.BigDecimal",
+            method_name="valueOf",
+            arguments=(expr,),
+            is_static=True,
         )
-    if isinstance(expr, JavaLiteral) and expr.java_type and expr.java_type.basic_type == JavaBasicType.DOUBLE:
-        return expr
-    return JavaCast(
-        target_type=JavaType(basic_type=JavaBasicType.DOUBLE),
-        expression=expr,
+    return JavaMethodCall(
+        class_name="java.math.BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
     )
 
 
@@ -1288,7 +1388,8 @@ def _expression_requires_fractional_type(
     if isinstance(expr, JavaLiteral):
         return bool(
             expr.java_type
-            and expr.java_type.basic_type == JavaBasicType.DOUBLE
+            and expr.java_type.basic_type
+            in (JavaBasicType.DOUBLE, JavaBasicType.DECIMAL)
         )
     if isinstance(expr, JavaVariableRef):
         item = _find_data_item(program, expr.name)
@@ -1469,6 +1570,15 @@ def _apply_numeric_receiver_semantics(
     scaled = _scale_numeric_receiver(expression, item, program, rounded)
     if item.signed or not _expression_can_be_negative(expression, program):
         return scaled
+    if item.decimal_places > 0:
+        # BigDecimal has no Java-Math.abs overload: the decimal magnitude is
+        # the object's own ``abs()`` (GnuCOBOL stores magnitude on unsigned
+        # PICs, e.g. ``COMPUTE UN = 0 - 5`` keeps ``005``).
+        return JavaMethodCall(
+            object_ref=scaled,
+            method_name="abs",
+            arguments=(),
+        )
     return JavaMethodCall(
         class_name="Math",
         method_name="abs",
@@ -1483,35 +1593,69 @@ def _scale_numeric_receiver(
     program: CobolProgram | None,
     rounded: bool = False,
 ) -> JavaExpression:
-    """Scale/truncate an expression to its receiving PIC (COBOL receiver semantics)."""
+    """Scale/truncate an expression to its receiving PIC (COBOL receiver semantics).
+
+    Decimal receivers use BigDecimal-exact arithmetic: whole COBOL receiver
+    semantics is ``setScale(receiver_scale, DOWN|HALF_UP)`` followed by the
+    silent high-order (integer-digit overflow) truncation.  Oracle-probed
+    equivalences: setScale DOWN reproduces GnuCOBOL truncation at any
+    intermediate scale, HALF_UP reproduces ``ROUNDED`` (including
+    magnitude-rounding on negatives: ``-0.149 → -00.15``), and
+    ``999.99 + 0.02`` stores ``000.01`` silently.
+    """
+    rounding_mode = (
+        "java.math.RoundingMode.HALF_UP" if rounded else "java.math.RoundingMode.DOWN"
+    )
     if item.decimal_places > 0:
         # Decimal receivers require fractional arithmetic even when all source
         # operands are integer PICs, so division is not accidentally integer division.
-        expression = _promote_numeric_expression_to_double(expression)
-    elif not _expression_requires_fractional_type(expression, program):
+        expression = _promote_numeric_expression_to_decimal(expression, program)
+        scaled = JavaMethodCall(
+            object_ref=expression,
+            method_name="setScale",
+            arguments=(
+                JavaLiteral(value=str(item.decimal_places)),
+                JavaVariableRef(name=rounding_mode),
+            ),
+        )
+        # COBOL picture overflow is silent: keep only the least-significant
+        # declared integer digits (mod 10**integer_digits, sign preserved).
+        integer_digits = max(0, item.integer_digits)
+        if integer_digits > 0:
+            bound = 10 ** integer_digits
+            bound_literal = JavaLiteral(
+                value=f"{bound}{java_integral_suffix(str(bound))}",
+                java_type=JavaType(basic_type=JavaBasicType.LONG),
+            )
+            scaled = JavaMethodCall(
+                object_ref=scaled,
+                method_name="remainder",
+                arguments=(
+                    JavaMethodCall(
+                        class_name="java.math.BigDecimal",
+                        method_name="valueOf",
+                        arguments=(bound_literal,),
+                        is_static=True,
+                    ),
+                ),
+            )
+        return scaled
+    if not _expression_requires_fractional_type(expression, program):
         # Keep ordinary integral operations native, but make a potentially
         # overflowing expression fail explicitly instead of silently wrapping.
         return _protect_integral_overflow(expression, item, program)
 
-    rounding_mode = (
-        "java.math.RoundingMode.HALF_UP" if rounded else "java.math.RoundingMode.DOWN"
-    )
+    # Mixed fractional expression → integral receiver: scale to zero
+    # decimals first (COBOL truncation), then narrow exactly.
+    expression = _promote_numeric_expression_to_decimal(expression, program)
     scaled = JavaMethodCall(
-        object_ref=JavaMethodCall(
-            class_name="java.math.BigDecimal",
-            method_name="valueOf",
-            arguments=(expression,),
-            is_static=True,
-        ),
+        object_ref=expression,
         method_name="setScale",
         arguments=(
-            JavaLiteral(value=str(item.decimal_places)),
+            JavaLiteral(value="0"),
             JavaVariableRef(name=rounding_mode),
         ),
     )
-    if item.decimal_places > 0:
-        return JavaMethodCall(object_ref=scaled, method_name="doubleValue", arguments=())
-
     narrow_method = "longValueExact" if item.pic_length > 9 else "intValueExact"
     return JavaMethodCall(object_ref=scaled, method_name=narrow_method, arguments=())
 
@@ -1993,6 +2137,79 @@ def expand_condition_names(
     return expression
 
 
+def _operand_is_decimal(token: str, program: CobolProgram | None) -> bool:
+    """Whether a condition operand is a COBOL decimal (fixed-point) value.
+
+    Decimal is decided by the *declared* receiver or literal spelling: a
+    point-literal is decimal, and a data item whose PIC declares fractional
+    digits stores a decimal-exact value.
+    """
+    tok = token.strip()
+    if not tok or tok.startswith('"') or tok.startswith("'"):
+        return False
+    if tok.replace(".", "").replace("-", "").isdigit():
+        return "." in tok
+    item = _find_data_item(program, tok)
+    return bool(item and item.is_numeric and item.decimal_places > 0)
+
+
+def _decimal_compare_operand(
+    token: str,
+    expr: JavaExpression,
+    program: CobolProgram | None,
+) -> JavaExpression:
+    """Coerce a condition operand into a BigDecimal-exact comparable form."""
+    tok = token.strip()
+    if tok.replace(".", "").replace("-", "").isdigit():
+        # Any numeric literal is a BigDecimal string constructor; the exact
+        # digits (including the scale) survive verbatim.
+        return JavaLiteral(
+            value=tok,
+            java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+        )
+    item = _find_data_item(program, tok)
+    if item is not None and item.is_numeric and item.decimal_places > 0:
+        # A decimal store is already a BigDecimal value.
+        return expr
+    return JavaMethodCall(
+        class_name="java.math.BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
+    )
+
+
+def _decimalized_comparison(
+    op: str,
+    left_name: str,
+    left_expr: JavaExpression,
+    right_str: str,
+    right_expr: JavaExpression,
+    program: CobolProgram | None,
+) -> JavaExpression:
+    """Build a numeric comparison when either operand is decimal.
+
+    BigDecimal cannot use Java relational operators (``X > 29.99`` does not
+    compile), so every decimal comparison is emitted as
+    ``(left).compareTo(right) <op> 0`` with both operands coerced to
+    BigDecimal-exact form.
+    """
+    if not _operand_is_decimal(left_name, program) and not _operand_is_decimal(
+        right_str, program
+    ):
+        return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
+    comparison = JavaMethodCall(
+        object_ref=_decimal_compare_operand(left_name, left_expr, program),
+        method_name="compareTo",
+        arguments=(_decimal_compare_operand(right_str, right_expr, program),),
+    )
+    return JavaBinaryOp(
+        left=comparison,
+        operator=op,
+        right=JavaLiteral(value="0"),
+    )
+
+
 def map_cobol_condition_to_java(
     condition: str,
     condition_names: dict[str, ConditionNameSpec] | None = None,
@@ -2042,6 +2259,20 @@ def map_cobol_condition_to_java(
         subject = thru_match.group(1).replace("-", "_")
         low = thru_match.group(2)
         high = thru_match.group(3)
+        subject_item = _find_data_item(program, subject)
+        if subject_item is not None and subject_item.decimal_places > 0:
+            # A decimal subject cannot use Java relational operators: the
+            # range folds into compareTo calls with BigDecimal bounds.
+            subject_expr = JavaVariableRef(name=subject)
+            return JavaBinaryOp(
+                left=_decimalized_comparison(
+                    ">=", subject, subject_expr, low, JavaLiteral(value=low), program
+                ),
+                operator="&&",
+                right=_decimalized_comparison(
+                    "<=", subject, subject_expr, high, JavaLiteral(value=high), program
+                ),
+            )
         left = JavaBinaryOp(
             left=JavaVariableRef(name=subject),
             operator=">=",
@@ -2182,7 +2413,9 @@ def map_cobol_condition_to_java(
                 return JavaUnaryOp(operator="!", operand=equals_call)
             return equals_call
 
-        return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
+        return _decimalized_comparison(
+            op, left_name, left_expr, right_str, right_expr, program
+        )
 
     return JavaLiteral(value=_expand_figurative_in_condition(condition_str))
 
@@ -2256,6 +2489,22 @@ def _build_for_condition(
     if m:
         subject = m.group(1).replace("-", "_")
         stop_val = m.group(2)
+        subject_item = _find_data_item(program, subject)
+        if subject_item is not None and subject_item.decimal_places > 0:
+            return JavaBinaryOp(
+                left=JavaMethodCall(
+                    object_ref=JavaVariableRef(name=subject),
+                    method_name="compareTo",
+                    arguments=(
+                        JavaLiteral(
+                            value=stop_val,
+                            java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+                        ),
+                    ),
+                ),
+                operator="<=",
+                right=JavaLiteral(value="0"),
+            )
         return JavaBinaryOp(
             left=JavaVariableRef(name=subject),
             operator="<=",
@@ -2267,6 +2516,22 @@ def _build_for_condition(
     if m:
         subject = m.group(1).replace("-", "_")
         stop_val = m.group(2)
+        subject_item = _find_data_item(program, subject)
+        if subject_item is not None and subject_item.decimal_places > 0:
+            return JavaBinaryOp(
+                left=JavaMethodCall(
+                    object_ref=JavaVariableRef(name=subject),
+                    method_name="compareTo",
+                    arguments=(
+                        JavaLiteral(
+                            value=stop_val,
+                            java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+                        ),
+                    ),
+                ),
+                operator="<",
+                right=JavaLiteral(value="0"),
+            )
         return JavaBinaryOp(
             left=JavaVariableRef(name=subject),
             operator="<",
@@ -2278,6 +2543,22 @@ def _build_for_condition(
     if m:
         subject = m.group(1).replace("-", "_")
         stop_val = m.group(2)
+        subject_item = _find_data_item(program, subject)
+        if subject_item is not None and subject_item.decimal_places > 0:
+            return JavaBinaryOp(
+                left=JavaMethodCall(
+                    object_ref=JavaVariableRef(name=subject),
+                    method_name="compareTo",
+                    arguments=(
+                        JavaLiteral(
+                            value=stop_val,
+                            java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+                        ),
+                    ),
+                ),
+                operator=">=",
+                right=JavaLiteral(value="0"),
+            )
         return JavaBinaryOp(
             left=JavaVariableRef(name=subject),
             operator=">=",
@@ -2289,6 +2570,22 @@ def _build_for_condition(
     if m:
         subject = m.group(1).replace("-", "_")
         stop_val = m.group(2)
+        subject_item = _find_data_item(program, subject)
+        if subject_item is not None and subject_item.decimal_places > 0:
+            return JavaBinaryOp(
+                left=JavaMethodCall(
+                    object_ref=JavaVariableRef(name=subject),
+                    method_name="compareTo",
+                    arguments=(
+                        JavaLiteral(
+                            value=stop_val,
+                            java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+                        ),
+                    ),
+                ),
+                operator=">",
+                right=JavaLiteral(value="0"),
+            )
         return JavaBinaryOp(
             left=JavaVariableRef(name=subject),
             operator=">",
@@ -3392,7 +3689,14 @@ def map_cobol_data_items_to_fields(
             initializer = _array_initializer(element_type, dimensions, default)
         else:
             java_type = element_type
-            initializer = JavaLiteral(value=default)
+            initializer = JavaLiteral(
+                value=default,
+                java_type=(
+                    JavaType(basic_type=JavaBasicType.DECIMAL)
+                    if element_type.basic_type == JavaBasicType.DECIMAL
+                    else None
+                ),
+            )
         fields.append(JavaField(
             java_type=java_type,
             name=java_name,

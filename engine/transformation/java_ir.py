@@ -53,6 +53,10 @@ class JavaBasicType(Enum):
     INT = "int"
     LONG = "long"
     DOUBLE = "double"
+    #: Decimal-exact fixed-point store for COBOL DECIMAL DISPLAY items.
+    #: BigDecimal preserves the declared scale and reproduces COBOL
+    #: truncation/rounding receiver semantics exactly (P1 numeric contract).
+    DECIMAL = "java.math.BigDecimal"
     STRING = "String"
     BOOLEAN = "boolean"
     CHAR = "char"

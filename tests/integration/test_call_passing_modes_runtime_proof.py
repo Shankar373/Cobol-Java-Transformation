@@ -13,12 +13,14 @@ linkage item):
   ``AFTER CALL VALUE=0150``;
 * BY CONTENT   — the callee receives a read-only copy:
   ``AFTER CALL VALUE=0100``;
-* BY VALUE     — the callee receives a separate copy:
-  ``AFTER CALL VALUE=0100``.
+* BY VALUE     — GnuCOBOL 3.1.2 (the only available COBOL runtime) declares
+  its BY VALUE implementation unfinished and aborts with SIGSEGV while the
+  callee reads the parameter (pinned by
+  ``test_call_passing_mode_oracle_proof`` for the same fixture). The oracle
+  is therefore asserted to abort, the generated Java is asserted against the
+  documented no-write-back lowering, and the differential pipeline verdict
+  for BY VALUE must fail closed to UNAVAILABLE — never VERIFIED.
 
-Every line renders without a space after ``=``, exactly as the fixture
-sources ``DISPLAY`` it (confirmed by both the GnuCOBOL oracle run and the
-byte-identical expectations in ``test_call_passing_mode_oracle_proof.py``).
 
 Docker-free classes pin parser/mapper behaviour per mode (including the
 caller-side sync-out, which must exist only for BY REFERENCE). Docker-gated
@@ -26,17 +28,6 @@ classes run the actual COBOL in the digest-pinned GnuCOBOL oracle, compile
 and run the generated Spring Boot JAR in the digest-pinned Temurin lane,
 and seal the differential verdict through the full pipeline with a complete
 evidence manifest.
-
-BY VALUE caveat (documented, never claimed away): GnuCOBOL 3.1.2 — the only
-available COBOL runtime — declares its BY VALUE support unfinished
-(``-Wunfinished``) and aborts with SIGSEGV before the callee can read the
-parameter, so BY VALUE has **no oracle observation**.  The oracle class
-pins that abort instead of fabricating equivalence (canonical pin:
-``test_call_passing_mode_oracle_proof.py`` ::
-``test_gnucobol_cannot_serve_as_a_by_value_oracle``), the Java class checks
-the lowering against the COBOL language rule only, and the pipeline class
-fails closed (never VERIFIED) for BY VALUE.  BY VALUE stays PARTIAL in
-``semantic_capability.CONSTRUCT_REGISTRY``.
 """
 
 from __future__ import annotations
@@ -64,12 +55,26 @@ from engine.transformation.java_to_spring_mapping import (
 from engine.transformation.spring_boot_generator import SpringBootGenerator
 
 # fixture-dir-suffix -> (mode token, caller sync-out expected?, expected
-# "AFTER CALL VALUE=" payload, expected callee "CHANGED" line fragment)
+# "AFTER CALL VALUE=" payload, expected callee "CHANGED" line fragment).
+# Expected lines match the fixtures' DISPLAY literals exactly: the output
+# concatenates the literal and the zero-padded value with no space
+# ("BEFORE CALL VALUE=0100"), as byte-verified by
+# test_call_passing_mode_oracle_proof.py.
 MODES = {
     "by-reference": ("REFERENCE", True, "0150", "MODIFY CHANGED VALUE=0150"),
     "by-content": ("CONTENT", False, "0100", "MODIFY CHANGED LOCAL COPY=0150"),
     "by-value": ("VALUE", False, "0100", "MODIFY CHANGED LOCAL COPY=0150"),
 }
+
+#: Documented BY VALUE lowering (GnuCOBOL cannot serve as a BY VALUE oracle).
+BY_VALUE_DOCUMENTED_STDOUT = (
+    "MAIN STARTED",
+    "BEFORE CALL VALUE=0100",
+    "MODIFY STARTED",
+    "MODIFY RECEIVED VALUE=0100",
+    "MODIFY CHANGED LOCAL COPY=0150",
+    "AFTER CALL VALUE=0100",
+)
 
 SYNC_OUT_LINE = "WS_VALUE = Modify.LS_VALUE"
 
@@ -262,16 +267,8 @@ needs_docker = pytest.mark.skipif(
 @pytest.mark.parametrize("fixture_suffix,spec", MODES.items())
 def test_oracle_cobol_semantics_per_mode(fixture_suffix, spec):
     """The independent GnuCOBOL oracle establishes the reference semantics
-    for THIS mode from the original COBOL sources.
-
-    BY REFERENCE / BY CONTENT run to completion and their observable lines
-    are checked.  BY VALUE has no oracle: GnuCOBOL 3.1.2's unfinished BY
-    VALUE support aborts (SIGSEGV) before the callee can read the
-    parameter, so this test pins that abort — never an equivalence —
-    matching the canonical pin
-    ``test_call_passing_mode_oracle_proof.py::test_gnucobol_cannot_serve_as_a_by_value_oracle``.
-    """
-    mode, _, after_value, changed_line = spec
+    for THIS mode from the original COBOL sources."""
+    mode, sync_out, after_value, changed_line = spec
     adapter = DockerOracleAdapter(OracleAdapterConfig(
         oracle_id="gnucobol-3.1.2", image_digest="",
         compiler_version="3.1.2.0", timeout_seconds=120,
@@ -280,16 +277,19 @@ def test_oracle_cobol_semantics_per_mode(fixture_suffix, spec):
         RunId(value=f"call-modes-oracle-{fixture_suffix}-001"),
         str(_cobol_dir(fixture_suffix)),
     )
-    stdout = outcome.stdout.decode(errors="replace")
-    if mode == "VALUE":
-        # Documented blocker, not a failure: no oracle observation exists,
-        # so nothing from this run may be read as runtime proof.
+    if fixture_suffix == "by-value":
+        # Blocker pin (mirrors test_call_passing_mode_oracle_proof on the
+        # same fixture): GnuCOBOL 3.1.2 BY VALUE aborts; no oracle behavior
+        # exists, so no equivalence claim may be derived from this lane.
+        assert outcome.exit_code != 0
         stderr = outcome.stderr.decode(errors="replace")
-        assert outcome.exit_code != 0, stdout[:800]
-        assert "SIGSEGV" in stderr or "unallocated memory" in stderr, stderr[:800]
-        assert changed_line not in stdout, stdout
+        assert "SIGSEGV" in stderr or "unallocated memory" in stderr
+        assert "MODIFY CHANGED LOCAL COPY=0150" not in (
+            outcome.stdout.decode(errors="replace")
+        )
         return
     assert outcome.exit_code == 0, outcome.stderr.decode(errors="replace")[:800]
+    stdout = outcome.stdout.decode(errors="replace")
     lines = [ln.strip() for ln in stdout.splitlines()]
     assert any(ln.endswith(f"AFTER CALL VALUE={after_value}") for ln in lines), lines
     assert any(changed_line in ln for ln in lines), lines
@@ -302,12 +302,12 @@ def test_generated_java_exhibits_mode_contract_per_mode(fixture_suffix, spec):
     exhibits this mode's contract as declared by its own fixture.
 
     For BY REFERENCE / BY CONTENT the expected lines are exactly what the
-    oracle test observed from the original COBOL.  For BY VALUE there is no
+    oracle test observed from the original COBOL. For BY VALUE there is no
     oracle observation at all (documented GnuCOBOL abort), so the assertion
-    is against the COBOL language rule only — caller data protected — and
+    is against the COBOL language rule only — caller data protected —
     never against an oracle run; BY VALUE remains PARTIAL.
     """
-    _, _, after_value, changed_line = spec
+    mode, sync_out, after_value, changed_line = spec
     _, _, files = _generate_project(fixture_suffix)
     tmpdir, manifest = _stage(files, fixture_suffix)
     adapter = DockerSpringBootCandidateAdapter()
@@ -319,6 +319,12 @@ def test_generated_java_exhibits_mode_contract_per_mode(fixture_suffix, spec):
     )
     assert result.exit_code == 0
     stdout = result.stdout.decode(errors="replace")
+    if fixture_suffix == "by-value":
+        # GnuCOBOL 3.1.2 aborts on BY VALUE (see the oracle test), so the
+        # Java lane is compared against the documented no-write-back
+        # lowering — never against the aborted oracle run.
+        assert stdout.splitlines() == list(BY_VALUE_DOCUMENTED_STDOUT)
+        return
     lines = [ln.strip() for ln in stdout.splitlines()]
     assert any(ln.endswith(f"AFTER CALL VALUE={after_value}") for ln in lines), lines
     assert any(changed_line in ln for ln in lines), lines
@@ -330,10 +336,10 @@ def test_full_differential_pipeline_verdict_per_mode(fixture_suffix):
     """End-to-end: oracle execution vs candidate execution, declared artifact
     comparison (STDOUT/STDERR/EXIT), sealed evidence manifest.
 
-    BY REFERENCE / BY CONTENT must reach VERIFIED with a complete manifest.
-    BY VALUE must fail closed: its oracle aborts, no observation exists, and
-    a VERIFIED verdict there would fabricate equivalence — the verdict may
-    be any non-VERIFIED state, never VERIFIED.
+    BY REFERENCE / BY CONTENT: the oracle and candidate both execute and the
+    verdict must be VERIFIED.  BY VALUE: the oracle aborts (SIGSEGV), so the
+    verdict must fail closed to UNAVAILABLE — an unavailable oracle can
+    never certify equivalence.
     """
     _, _, files = _generate_project(fixture_suffix)
     tmpdir, _ = _stage(files, fixture_suffix)
@@ -349,12 +355,11 @@ def test_full_differential_pipeline_verdict_per_mode(fixture_suffix):
         config, candidate_adapter=DockerSpringBootCandidateAdapter()
     )
     result = pipeline.run()
-    if MODES[fixture_suffix][0] == "VALUE":
-        assert result.verdict.state != VerdictState.VERIFIED, (
-            "BY VALUE has no oracle observation (documented GnuCOBOL "
-            f"SIGSEGV); VERIFIED would fabricate equivalence: "
-            f"{result.verdict.state}, differences={result.verdict.differences}"
+    if fixture_suffix == "by-value":
+        assert result.verdict.state == VerdictState.UNAVAILABLE, (
+            result.verdict.differences
         )
+        assert result.evidence_manifest.is_complete()
         return
     assert result.verdict.state == VerdictState.VERIFIED, result.verdict.differences
     assert result.evidence_manifest.is_complete()

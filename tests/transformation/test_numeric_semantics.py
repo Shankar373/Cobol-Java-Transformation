@@ -323,7 +323,12 @@ def test_generated_java_has_no_octal_and_scaled_defaults():
     )
     source = JavaGenerator().generate(program)[0].source_code
     assert "static int D = 7;" in source
-    assert "static double F = 1.23;" in source
+    # Decimal-exact fixed-point storage: BigDecimal preserves the
+    # declared scale exactly; no binary-float double ever exists.
+    assert (
+        'static java.math.BigDecimal F = new java.math.BigDecimal("1.23");'
+        in source
+    )
     assert "static int D = 007;" not in source
 
 

@@ -60,7 +60,10 @@ class ModernizationConfig:
     output_dir: str
     application_id: str = ""
     entrypoint: str = ""
-    docker_available: bool = True
+    # Fail-closed default: claiming runtime availability without an
+    # explicit probe would report Docker capability we may not have.
+    # Production callers (api.service) pass the live docker_cli probe.
+    docker_available: bool = False
     target_runtime: str = "spring_boot"
     java_version: str = "21"
     build_tool: str = "maven"

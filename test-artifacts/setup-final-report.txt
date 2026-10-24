@@ -1,0 +1,30 @@
+SystemaOps Setup Report (codex/universal-core)
+
+Summary:
+- Branch: codex/universal-core @ 7ae5873 (clean, synced with origin)
+- All required files present; opencode.md created
+- Docker: WSL2 running, images built/available (gnucobol-ocesql, maven-offline-springboot, eclipse-temurin:21-jdk)
+- Python 3.11 deps installed (with Windows-compatible wheels)
+- Node 20 + npm, frontend deps installed; tests pass, build succeeds
+- Docker images match expected digests (provenance recorded)
+
+Key test results:
+- Ingestion diagnostics: 3/3 passed
+- Parser/IR/Semantic: 89/89 passed
+- Java generator: 14/14 passed
+- App generator P0: 19/19 passed
+- API/P0/modernization: 46/46 passed
+- Execution/oracle/candidate core: 86/86 passed
+- Verdict/evidence/comparators: 54/54 passed
+- Docker Java integration: 16/16 passed
+- Docker image provenance: 6/6 passed
+- Frontend tests: 122/122 passed, build OK
+
+Docker image identities:
+- gnucobol-ocesql:latest (GnuCOBOL 3.1.2.0)
+- maven-offline-springboot:latest (Maven 3.9.16, Temurin 21; RepoDigest verified)
+- eclipse-temurin:21-jdk: RepoDigest matches runtime_digest in docker_spring_boot_adapter config
+
+Env paths/versions recorded in test-artifacts.
+
+Ready to run additional tests or proceed per user request.

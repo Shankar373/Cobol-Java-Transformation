@@ -25,6 +25,11 @@ def check_docker_available(subcommand: str = "info", timeout: int = 10) -> bool:
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
+    except OSError:
+        # A broken/unreachable daemon socket raises OSError, not
+        # FileNotFoundError.  A probe that errors must fail closed (absent),
+        # never propagate — otherwise a half-dead daemon reads as present.
+        return False
 
 
 def cleanup_container(container_name: str) -> tuple[bool, str]:
