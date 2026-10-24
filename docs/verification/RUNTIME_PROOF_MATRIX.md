@@ -6,21 +6,57 @@
 > that file remains a dated 2026-09-21 forensic snapshot and is preserved as
 > history.
 >
-> **Baseline for the runtime rows below (local runs, HEAD `2e2f4ca` + working
-> tree):** the Docker-gated integration/execution suite was executed with
-> `RUN_DOCKER_TESTS=1` on 2026-10-22 on the Windows dev host with the three
-> pinned images: **453 passed, 0 failed, 0 errors, 0 skipped, exit 0**
-> (1996.45 s; JUnit XML and identity evidence in
-> `test-artifacts/runtime-image-audit-2026-10-22/`, analysed in
-> `docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md` §5.2). The earlier
-> 2026-10-22 sequential full local sweep recorded **4006 passed, 0 failed, 0
-> skipped** across every suite. Both runs predate the verification-layer
-> addition described in this document; the **71** new Docker-free
-> `tests/verification` tests were run separately (71 passed) and are *not*
-> included in either count. The green GitHub Actions runs validate only their
-> committed SHA and **do not** cover this working tree — no CI run exists for
-> it, and no CI claim is made here. Per-row evidence names the exact test
-> module that produced the proof.
+> **Baseline for the runtime rows below (local runs, HEAD `b8a5499`):** the
+> **complete** suite was executed with `RUN_DOCKER_TESTS=1 pytest tests/ -q
+> --continue-on-collection-errors` on 2026-10-23 on the Windows dev host with
+> the three pinned images: **4174 passed, 10 failed, 0 collection errors,
+> exit 1** (5150.80 s; `test-artifacts/full-suite-2026-10-23/full-suite.log`).
+> The 10 failures were test-expectation contradictions, not capability
+> regressions: 7 in `tests/integration/test_call_passing_modes_runtime_proof.py`
+> (5 expected a space after `VALUE=` that no fixture emits; 1 asserted a
+> successful BY VALUE oracle run that can never happen — the documented
+> GnuCOBOL `-Wunfinished` SIGSEGV; 1 read the nonexistent `Verdict.reasons`
+> while the by-value pipeline correctly fail-closed) and 3 in
+> `tests/test_copybook_capability_transitivity.py` (expected the pre-BL-134
+> `REDEFINES` level `UNKNOWN`, now `PARTIAL`). Expectations were corrected
+> against independently verified ground truth (fixture sources, the passing
+> sibling oracle test, `CONSTRUCT_REGISTRY` entries); no per-mode semantic
+> assertion was dropped. Focused re-runs green: runtime-proof **20 passed**,
+> copybook-transitivity **10 passed**, and the exact CI capability-truth gate
+> selection **761 passed** — all exit 0. **Confirming full-suite re-run now
+> executed (2026-10-23, same command, HEAD `b8a5499` + the corrected
+> expectations):** **4183 passed, 1 failed** in 9041.98 s; the single failure
+> was `test_call_chain_runtime.py::test_spring_jar_executes_chain` with
+> `Maven build timed out` (1476 s) under concurrent host load — the
+> documented BL-010 host limitation — and **passes in isolation (1 passed,
+> 44.58 s)**, i.e. 4184/4184 effective. Log, JUnit XML and SHA-256 sums:
+> `test-artifacts/p0-verification-2026-10-23/`. **CI at `b8a5499`** (push,
+> 2026-10-23): supply chain
+> 2/2 SUCCESS, Phase-1 ingestion and frontend jobs SUCCESS; the
+> capability-truth gate and the backend Docker job FAILED on these same 10
+> test expectations (the corrected tests were in the working tree at this
+> writing). **Origin advancement during this session:** `origin/codex/universal-core`
+> moved `b8a5499..90b5452` (2 commits: `393ac13` P1 BigDecimal numeric
+> fidelity, `90b5452` build artifacts/test outputs) — verified by fetch;
+> **CI at `90b5452`: SystemaOps CI #634/#633 SUCCESS, Supply chain #216/#215
+> SUCCESS** (GitHub API, 2026-10-23T13:41Z). The local working tree is
+> behind origin by 2 and overlaps it in three files
+> (`test_call_passing_modes_runtime_proof.py`,
+> `test_copybook_capability_transitivity.py`,
+> `test-artifacts/docker-image-provenance.json`) with locally differing
+> text — reconciliation is an explicit operator decision; **no pull, merge
+> or checkout was performed**. Local verification results below apply to
+> HEAD `b8a5499` + the local working tree; the origin engine delta was
+> validated only by its own CI run. Historical local baselines from 2026-10-22 — the **453**-test
+> Docker-gated run (0 failed, exit 0, 1996.45 s; JUnit XML and identity
+> evidence in `test-artifacts/runtime-image-audit-2026-10-22/`, analysed in
+> `docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md` §5.2) and the
+> sequential **4006**-test sweep — predate both the verification-layer
+> addition described in this document and BL-134; the **71**
+> `tests/verification` tests are included in the 2026-10-23 count (they were
+> run separately, 71 passed, relative to those older baselines). Green GitHub
+> Actions runs cited elsewhere validate only their own committed SHAs.
+> Per-row evidence names the exact test module that produced the proof.
 
 ## Labels (honest vocabulary)
 

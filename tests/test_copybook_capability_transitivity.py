@@ -90,7 +90,11 @@ class TestNestedConstructsAreClassified:
             "OUTER.cpy": "       COPY INNER.\n",
             "INNER.cpy": REDEFINES_INNER,
         })
-        assert comp.level is CapabilityLevel.UNKNOWN  # REDEFINES registry level
+        # REDEFINES registry level is PARTIAL since the certified overlay
+        # subset landed (semantic_capability.CONSTRUCT_REGISTRY; lowering
+        # proven by test_redefines_lowering.py + structural oracle proof).
+        # PARTIAL is still non-SUPPORTED, so BL-039's lowering contract holds.
+        assert comp.level is CapabilityLevel.PARTIAL
         assert "REDEFINES" in comp.reason
         assert "INNER" in comp.reason, comp.reason
 
@@ -100,7 +104,8 @@ class TestNestedConstructsAreClassified:
             "cb/OUTER.cpy": "       COPY INNER.\n",
             "cb/INNER.cpy": REDEFINES_INNER,
         })
-        assert comp.level is CapabilityLevel.UNKNOWN
+        # REDEFINES registry level = PARTIAL (certified overlay subset).
+        assert comp.level is CapabilityLevel.PARTIAL
         assert "INNER" in comp.reason, comp.reason
 
     def test_top_level_construct_attributed_to_top_file_only(self, tmp_path):
@@ -108,7 +113,8 @@ class TestNestedConstructsAreClassified:
             "NM.cob": MAIN,
             "OUTER.cpy": REDEFINES_INNER,
         })
-        assert comp.level is CapabilityLevel.UNKNOWN
+        # REDEFINES registry level = PARTIAL (certified overlay subset).
+        assert comp.level is CapabilityLevel.PARTIAL
         assert "REDEFINES" in comp.reason
         assert "nested" not in comp.reason, comp.reason
 

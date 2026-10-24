@@ -8,6 +8,188 @@
 > every older statement that it "remains UNSUPPORTED/blocked at FILE-CONTROL"
 > is historical and is annotated in place.
 
+## Session: P0 audit re-verification — all three P0 blockers already fixed, confirming full-suite re-run, runtime proof, ProLeap evaluation (2026-10-23, HEAD `b8a5499`, working tree preserved)
+
+Working tree only — **nothing committed, pushed, staged, stashed, cleaned or
+switched; no existing change was reverted.** No production code was modified
+this session: the three P0 blockers named in the 2026-09-21 forensic
+snapshot (`docs/verification/CURRENT_CAPABILITY_VERIFICATION.md` — B1
+oracle `-free`, B2a uncompilable Java, B2b phantom `spring-file-io` POM)
+were verified **already fixed** in the current tree, so no fix was repeated.
+
+### P0 re-verification (exact commands, this host, Docker 29.8.2 + three pinned images)
+
+- **P1 oracle source format** — `engine/oracle/docker_adapter.py::
+  detect_source_format` / `_compile_format_flag` (`-free` only when every
+  module is free-format; fixed-format never reinterpreted). Command
+  `python -m pytest -q tests/execution/test_oracle_source_format.py` →
+  **14 passed** including all 4 Docker-gated tests: real GnuCOBOL compiles
+  the free-format workload (exit 0 + expected stdout), the fixed-format
+  workload still compiles, compile warnings/diagnostics retained separately.
+- **P3 Spring file-workload POM** — file I/O maps to JDK `java.io.*`, no
+  Maven artifact (`java_to_spring_mapping.py`); production-path generation
+  of `workload-file-write-read` yields a POM with only BOM-managed
+  `spring-boot-starter` + `spring-context` under parent 3.2.5; asserted no
+  `spring-file-io`. POM tests inside the focused run below.
+- **P2 generated Java compilation** — the generated project built inside
+  the pinned `maven-offline-springboot` container: exit 0,
+  `p0-file-workload-0.0.1-SNAPSHOT.jar` 10,351,185 bytes,
+  SHA-256 `22f5dbd01d79edb2043b3a524958b9956afd4e03a009cdff25825b31d07bdc99`.
+
+### Runtime proof + focused regression + confirming full suite
+
+- Smallest end-to-end workload through the production pipeline:
+  `RUN_DOCKER_TESTS=1 python -m pytest -q
+  tests/integration/test_file_write_read_runtime_proof.py` →
+  **15 passed, 61.18 s** (fresh GnuCOBOL oracle + generated candidate build
+  + execution + STDOUT/STDERR/EXIT_STATUS/FIXED_RECORD comparison +
+  mutations + determinism + evidence validation).
+- Focused P0 regression (oracle format + POM/phase7b + copybook
+  transitivity + call passing modes): **242 passed, 135.56 s**.
+- **Confirming full-suite re-run** (previously recorded as "not been
+  executed"): `RUN_DOCKER_TESTS=1 python -m pytest -q tests/
+  --continue-on-collection-errors` → **4183 passed, 1 failed, 0 collection
+  errors** (9041.98 s). The single failure,
+  `test_call_chain_runtime.py::test_spring_jar_executes_chain`, was
+  `Maven build timed out` (1476 s) under concurrent load — documented
+  BL-010 host limitation, not a capability regression — and **passes in
+  isolation (1 passed, 44.58 s)** ⇒ 4184/4184 effective. The 10 previously
+  failing expectations are green. Evidence (log, 3 JUnit XMLs, ProLeap
+  results, SHA-256 sums): `test-artifacts/p0-verification-2026-10-23/`
+  (never staged).
+
+### Phase 4 — ProLeap parser evaluation (isolated experiment, NOT integrated)
+
+- Report: `docs/audits/PROLEAP_PARSER_EVALUATION_2026-10-23.md`
+  (new file; the only repository file this session created).
+- Verified: upstream `uwol/proleap-cobol-parser` `main` @ `d1bfe75`, version
+  **4.0.0**, license **MIT** (LICENSE file + POM), compile deps ANTLR4
+  4.7.2 + slf4j-api 2.0.9, JDK 17+; **not on Maven Central**
+  (`numFound: 0`). Built from source with host Maven 3.9.16 in an isolated
+  `%TEMP%\opencode\proleap-eval` workspace outside the working tree.
+- Parse comparison (5 real fixtures, production format detection):
+  existing parser **5/5 accept**, ProLeap **1/5** (only the fixed-format
+  fixture). ProLeap 4.0.0 has **no free-format mode**
+  (`CobolSourceFormatEnum` = FIXED/TANDEM/VARIABLE; zero FREE matches in
+  upstream `src/`), so it rejects free-format sources at line 1 col 7
+  (`mismatched input 'ENTIFICATION'`). Verdict: evaluated, not integrated;
+  existing parser unchanged; no dependency added; no AGPL component.
+
+### Documentation updated this session (verified implementation only)
+
+`docs/verification/RUNTIME_PROOF_MATRIX.md` baseline note (confirming
+full-suite re-run now recorded), this checkpoint block, and the new ProLeap
+evaluation report. Frontend untouched (no frontend files changed).
+
+### Origin advancement discovered mid-session (operator decision required)
+
+`git fetch` (read-only) showed `origin/codex/universal-core` moved
+`b8a5499..90b5452` during this session — `393ac13` ("P1 numeric fidelity:
+replace double backing with BigDecimal-exact representation") and
+`90b5452` ("Add build artifacts and test outputs"). **CI at `90b5452`
+SUCCESS** (SystemaOps CI #634/#633, Supply chain #216/#215,
+2026-10-23T13:41Z, GitHub API). The local branch is now **behind origin by
+2** with locally differing uncommitted content in three files the remote
+also changed (`test_call_passing_modes_runtime_proof.py`,
+`test_copybook_capability_transitivity.py`,
+`test-artifacts/docker-image-provenance.json`) — a future pull/merge will
+conflict. **No pull, merge, rebase or checkout was performed**; reconciling
+local vs origin (including whether the remote engine delta invalidates any
+local verification result) is an explicit operator decision. This
+session's verification results apply to HEAD `b8a5499` + the local working
+tree; the origin engine delta was validated only by its own green CI run.
+
+### Invariants (re-affirmed)
+
+No LLM/nondeterministic component anywhere; no test weakened, deleted or
+skipped; BY VALUE never SUPPORTED/VERIFIED; GnuCOBOL ≠ z/OS claim never
+made; VSAM file-image equivalence never claimed; `test-artifacts/*` never
+staged; pinned image identities unchanged; commit/push only on explicit
+operator request after reviewing branch + working tree.
+
+## Session: BL-134 final consistency/regression audit — commit `b8a5499`, full-suite baseline, 10-failure triage (2026-10-23, HEAD `b8a5499`)
+
+Operator instruction **"commit and push now"** authorized — and only
+authorized — this session's commit/push; the earlier working-tree-only rule
+is superseded for this changeset. Nothing was reset, stashed, merged or
+switched; no Docker image, container or volume was touched.
+
+### Committed and pushed — `b8a5499` (66 files, +8846/−373)
+
+`fix(universal): certify indexed/relative DYNAMIC subset and reconcile
+capability truth (BL-134)` pushed to `origin/codex/universal-core` (was
+`2e2f4ca`). Never staged: `test-artifacts/*` (incl. the tracked-modified
+`test-artifacts/docker-image-provenance.json`) and the untracked 96,408-byte
+ELF fixture `tests/fixtures/call_byref/prog`. Contents: BL-134 certified-subset
+engine work, capability-truth doc reconciliation, and 23 new files (18 test
+modules, 4 engine modules, 1 audit doc) — see the commit body.
+
+### Fresh test evidence (this session, sequential, one pytest at a time)
+
+- Full suite `RUN_DOCKER_TESTS=1 pytest tests/ -q --continue-on-collection-errors`
+  → **4174 passed, 10 failed, 0 collection errors, exit 1** (5150.80 s;
+  `test-artifacts/full-suite-2026-10-23/`). No ACL/`tmp/` collection errors
+  occurred — the `tests/` scope never recursed into `tmp/`.
+- Audit-focused runs: transformation **2132 passed / 4 skipped**;
+  verification **71**; regression subset **256**; phase-d-negative **26**;
+  vsam-detection **17**; silent-loss **15**; focused indexed/relative **11**;
+  mutations **8**.
+
+### The 10 failures — triaged to test-expectation contradictions, fixed
+
+1. **`tests/integration/test_call_passing_modes_runtime_proof.py` (7):**
+   fixtures `DISPLAY "AFTER CALL VALUE=" WS-VALUE` emit **no space**, but 5
+   assertions expected `VALUE= 0150` (the mode values 0150/0100/0100
+   themselves were correct); 1 asserted a green BY VALUE **oracle** run —
+   impossible by documented design (GnuCOBOL 3.1.2 `-Wunfinished` SIGSEGV;
+   canonical pin `test_call_passing_mode_oracle_proof.py::
+   test_gnucobol_cannot_serve_as_a_by_value_oracle`); 1 read the nonexistent
+   `Verdict.reasons` (real attribute: `differences`) while the by-value
+   pipeline correctly fail-closed. Fixes: expectations aligned to
+   fixture/sibling ground truth; the oracle test now pins the BY VALUE abort;
+   the pipeline test pins **non-VERIFIED** for BY VALUE (VERIFIED is
+   fabricated equivalence and is asserted against); two test names renamed so
+   no "matches oracle"/"is verified" claim exists for BY VALUE. Re-run:
+   **20 passed, exit 0** (314 s).
+2. **`tests/test_copybook_capability_transitivity.py` (3):** expected the
+   pre-BL-134 `REDEFINES` level `UNKNOWN` after `CONSTRUCT_REGISTRY`
+   reclassified it `PARTIAL` (with OCCURS `PARTIAL`, 88-LEVEL `SUPPORTED` —
+   structural-oracle proof). Level expectations updated; every BL-039
+   reason/naming assertion untouched. Re-run: **10 passed, exit 0**.
+
+### Follow-on truth reconciliation (working tree at this writing)
+
+- **Five stale `docs/cobol_coverage_registry.json` rows corrected** under
+  BL-108's rule (implementing path + existing green test): REDEFINES/OCCURS →
+  PARTIAL certified subsets; 88-LEVEL → SUPPORTED (source-only fail-closed);
+  BY CONTENT → SUPPORTED (byte-identical oracle); BY VALUE → PARTIAL with
+  comparison N/A and oracle UNAVAILABLE. JSON round-trips, **70 rows**;
+  registry gates **43 passed**.
+- BACKLOG: **(bg)** change-log entry, Last-audit line, BL-003 supersession
+  annotation, BL-128/129/134 "not committed" → `b8a5499`;
+  `docs/verification/RUNTIME_PROOF_MATRIX.md` baseline replaced with the
+  2026-10-23 numbers + CI facts.
+
+### CI at `b8a5499` (push 2026-10-23, GitHub API)
+
+Supply chain **2/2 SUCCESS**; Phase-1 ingestion and frontend jobs **SUCCESS**;
+**Capability truth gate FAILED** and **Backend/COBOL-Java Docker job FAILED**
+(22 min) — both on exactly the 10 test expectations above (unfixed at that
+SHA). The exact gate selection run locally after the fixes: **761 passed,
+exit 0**; backend-side fixes verified (20 + 10 passed). CI should go green
+once this working tree is committed — operator authorization pending at time
+of writing.
+
+### Open blockers / invariants (unchanged)
+
+BL-130 DB2 (no `ocesql`, no DB2 client, no DB-state comparator); BL-131 MQ
+(license acceptance + image pull — **must ask first**); BL-132 CICS/IMS (IBM
+registries `UNAUTHORIZED`, paid entitlement); BL-133 JCL (no verifiable MVS
+runtime); `tmp/codex-*` ACL fix awaits authorization. No LLM anywhere; no
+test weakened/deleted/skipped; BY VALUE never SUPPORTED/VERIFIED; VSAM
+file-image equivalence never claimed; `test-artifacts/*` never staged; the
+three pinned image identities unchanged.
+
 ## Session: Universal runtime verification layer — deterministic technical + business equivalence (2026-10-22, working tree on HEAD `2e2f4ca`)
 
 Working tree only — **nothing committed, pushed, merged, stashed, cleaned or
