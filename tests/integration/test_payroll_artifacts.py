@@ -67,7 +67,7 @@ class TestPayrollOracleE2E:
     def test_oracle_execution(self):
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
-            image_digest="sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+            image_digest="",
             compiler_version="3.1.2.0",
             timeout_seconds=60,
         )
@@ -85,7 +85,7 @@ class TestPayrollOracleE2E:
     def test_oracle_generates_output_files(self):
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
-            image_digest="sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+            image_digest="",
             compiler_version="3.1.2.0",
             timeout_seconds=60,
         )
@@ -252,6 +252,41 @@ class TestPayrollMutations:
         )
         pipeline = VerticalSlicePipeline(config)
         result = pipeline.run()
+        assert result.verdict.state.value == "FAILED"
+
+    def test_mixed_run_stdout_matches_while_report_files_mismatch(self):
+        """EV-002: one run must record MATCH and MISMATCH together.
+
+        ``PayrollWrongName`` renames one employee.  The stdout totals are
+        unchanged, and ALICE has 3 years so she never triggers the
+        ``WARN:`` STDERR line — while ``report.txt`` and ``records.dat``
+        both contain the renamed value.  A single run must therefore hold
+        matching *and* mismatching artifacts at the same time and still
+        derive FAILED: the aggregation path no prior test exercised in
+        combination (the existing mutation tests each assert only verdict
+        state or a single artifact's result).
+        """
+        entrypoint, _ = MUTATIONS["wrong-name"]
+        config = _make_config(
+            "payroll-mut-mixed",
+            str(FIXTURES / "java-candidate-mutated"),
+            entrypoint,
+        )
+        result = VerticalSlicePipeline(config).run()
+
+        results = {
+            c.artifact_type: c.result for c in result.comparison_evidence
+        }
+        # Artifacts the mutation does not touch must still MATCH ...
+        assert results.get("STDOUT") == "MATCH", results
+        assert results.get("STDERR") == "MATCH", results
+        assert results.get("EXIT_STATUS") == "MATCH", results
+        # ... the file outputs it does touch must MISMATCH ...
+        assert results.get("TEXT_FILE") == "MISMATCH", results
+        assert results.get("FIXED_RECORD") == "MISMATCH", results
+        # ... in the same run, and the verdict must still be FAILED.
+        assert any(r == "MATCH" for r in results.values()), results
+        assert any(r == "MISMATCH" for r in results.values()), results
         assert result.verdict.state.value == "FAILED"
 
     def test_wrong_total_detected(self):

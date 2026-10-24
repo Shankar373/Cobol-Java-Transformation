@@ -192,7 +192,7 @@ class TestExitStatusComparatorAttacks:
         result = self.comp.compare(self.oracle, b"abc", self.cand, b"xyz")
         assert result.result.value == "INCONCLUSIVE"
 
-    def test_whitespace_handling(self):
+    def test_exit_status_surrounding_whitespace_stripped_yields_match(self):
         """Exit codes are stripped before comparison."""
         result = self.comp.compare(self.oracle, b"  0  ", self.cand, b"0")
         assert result.result.value == "MATCH"
@@ -282,7 +282,7 @@ class TestFixedRecordComparatorAttacks:
         result = self.comp.compare(oracle, b"AAAABBBB", cand, b"AAAABBBC")
         assert result.result.value == "MISMATCH"
 
-    def test_empty_records(self):
+    def test_identical_empty_fixed_records_match(self):
         oracle = self._artifact("ora", "ORACLE", b"", rc=0)
         cand = self._artifact("cand", "CANDIDATE", b"", rc=0)
         result = self.comp.compare(oracle, b"", cand, b"")

@@ -53,6 +53,10 @@ class JavaBasicType(Enum):
     INT = "int"
     LONG = "long"
     DOUBLE = "double"
+    #: Decimal-exact fixed-point store for COBOL DECIMAL DISPLAY items.
+    #: BigDecimal preserves the declared scale and reproduces COBOL
+    #: truncation/rounding receiver semantics exactly (P1 numeric contract).
+    DECIMAL = "java.math.BigDecimal"
     STRING = "String"
     BOOLEAN = "boolean"
     CHAR = "char"
@@ -70,7 +74,6 @@ class JavaType:
     class_name: str = ""  # for named types (e.g. "List", "Map")
     is_array: bool = False
     array_element_type: JavaType | None = None
-    is_nullable: bool = False
     generic_type_params: tuple[JavaType, ...] = ()  # e.g. List<String>
 
     @property
@@ -83,6 +86,8 @@ class JavaType:
 
     def to_source(self) -> str:
         """Render type as Java source string."""
+        if self.is_array and self.array_element_type is not None:
+            return f"{self.array_element_type.to_source()}[]"
         if self.basic_type:
             return self.basic_type.value
         if self.class_name:
@@ -169,6 +174,37 @@ class JavaCast(JavaExpression):
     expression: JavaExpression
 
 
+@dataclass(frozen=True)
+class JavaArrayAccess(JavaExpression):
+    """Array element access (``arr[index]``).
+
+    COBOL subscripts are 1-based, so the mapper emits ``index - 1`` inside
+    the access rather than assuming a 0-based source.
+    """
+    array: JavaExpression
+    index: JavaExpression
+
+
+@dataclass(frozen=True)
+class JavaNewArray(JavaExpression):
+    """Zero-initialised array allocation (``new int[n]`` / ``new int[n][m]``)."""
+    element_type: JavaType
+    dimensions: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class JavaFilledArray(JavaExpression):
+    """Array allocation whose elements all carry ``fill``.
+
+    COBOL initialises every table entry from its VALUE/default fill, so a
+    Java ``new String[n]`` (all nulls) is not equivalent for alphanumeric
+    tables.  Rendered as ``Collections.nCopies(n, fill).toArray(new T[0])``.
+    """
+    element_type: JavaType
+    length: int
+    fill: JavaExpression
+
+
 # ---------------------------------------------------------------------------
 # Java statements
 # ---------------------------------------------------------------------------
@@ -212,6 +248,13 @@ class JavaIf(JavaStatement):
 @dataclass(frozen=True)
 class JavaWhile(JavaStatement):
     """While loop."""
+    condition: JavaExpression
+    body: tuple[JavaStatement, ...] = ()
+
+
+@dataclass(frozen=True)
+class JavaDoWhile(JavaStatement):
+    """Do-while loop (PERFORM UNTIL WITH TEST AFTER)."""
     condition: JavaExpression
     body: tuple[JavaStatement, ...] = ()
 
@@ -325,6 +368,7 @@ class JavaClass:
     extends: str = ""  # superclass name
     implements: tuple[str, ...] = ()  # interface names
     imports: tuple[str, ...] = ()  # import statements
+    source_copybook: str = ""  # originating COPYBOOK stem (models only)
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +511,7 @@ class JavaStatusCodeMapping:
     code: str  # e.g. "R", "P", "A"
     label: str  # e.g. "REJECTED", "PENDING"
     counter_name: str  # Java variable name for the counter (e.g. "rejected")
+    field_name: str = ""  # field tested by the source condition
 
 
 @dataclass(frozen=True)
@@ -480,6 +525,8 @@ class JavaThresholdRule:
     operator: str  # ">", "<", ">=", "<="
     value: int
     constant_name: str = "THRESHOLD"  # Java constant name
+    pass_label: str = ""  # outcome in the source threshold's ELSE branch
+    pass_counter_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -493,6 +540,7 @@ class JavaSummaryField:
     java_var_name: str  # Java variable name
     format_width: int = 0  # from PIC metadata — 0 means no formatting
     is_numeric: bool = True
+    format_spec: str = ""  # type-aware String.format specifier ("" = width only)
 
 
 @dataclass(frozen=True)
@@ -561,6 +609,9 @@ class JavaProgram:
     generation_mode: str = ""  # "decision", "file_io", or "minimal"
     # Input record field names (positional — which fields are parsed from input records)
     input_record_fields: tuple[str, ...] = ()
+    input_amount_field: str = ""  # threshold operand traced to the input record
+    decision_result_field: str = ""  # receiving field of source outcome MOVEs
+    decision_result_width: int = 0
 
 
 @dataclass(frozen=True)

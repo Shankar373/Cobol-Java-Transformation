@@ -169,8 +169,8 @@ class TestNonClaimsReusability:
         java_code = files[0].source_code
 
         assert "if (WS_AMOUNT > WS_THRESHOLD)" in java_code
-        assert 'WS_STATUS = "APPROVED"' in java_code
-        assert 'WS_STATUS = "REJECTED"' in java_code
+        assert 'WS_STATUS = String.format("%-10s", "APPROVED").substring(0, 10)' in java_code
+        assert 'WS_STATUS = String.format("%-10s", "REJECTED").substring(0, 10)' in java_code
 
     def test_simple_calc_display(self, cobol_source: str):
         """Generated Java has DISPLAY statements with PIC formatting."""
@@ -185,5 +185,5 @@ class TestNonClaimsReusability:
         assert 'String.format("%05d", WS_RESULT)' in java_code
         # PIC 9(3) -> String.format("%03d", WS_COUNTER)
         assert 'String.format("%03d", WS_COUNTER)' in java_code
-        # PIC X(10) alphanumeric -> no formatting
+        # PIC X(10) has its declared width at initialization and MOVE.
         assert 'println("STATUS=" + WS_STATUS' in java_code

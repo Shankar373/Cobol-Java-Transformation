@@ -1,0 +1,511 @@
+{
+  "summary": {
+    "base": "http://127.0.0.1:18081",
+    "run_id": "run-8c5f32ccecf5",
+    "run_stage": "COMPLETED",
+    "run_error": null,
+    "stages_seen": [
+      "ASSEMBLY_COMPLETED",
+      "COMPLETED"
+    ],
+    "verdict_state": "FAILED",
+    "evidence_manifest_hash": "sha256:a5e95c06760ff833cff7dff390ae89d34ece62a460b9a5a3f60df062e864d68c",
+    "source_hash": "sha256:3e1166c3ea421707ececa92119fcd61eb0300517180df0394d93ec40bc08f1fd",
+    "oracle_id": "gnucobol-3.1.2",
+    "oracle_digest": "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+    "certification_contract": "declared:workload-integrated",
+    "proof_http": 200,
+    "central_status": "NOT_VERIFIED",
+    "overall_verification": "NOT_VERIFIED",
+    "evidence_complete": true,
+    "evidence_integrity_valid": false,
+    "required_dependencies_proven": false,
+    "runtime": {
+      "artifact_results": [
+        [
+          "STDOUT",
+          "MISMATCH"
+        ],
+        [
+          "STDERR",
+          "MISMATCH"
+        ],
+        [
+          "EXIT_STATUS",
+          "MISMATCH"
+        ],
+        [
+          "FIXED_RECORD",
+          "MISMATCH"
+        ]
+      ],
+      "candidate_exit_code": 1,
+      "evidence_complete": true,
+      "evidence_integrity_valid": false,
+      "executed_check_count": 4,
+      "oracle_exit_code": 0,
+      "verdict_state": "FAILED"
+    },
+    "jcl_status": "NOT_PRESENT",
+    "ledger": [
+      {
+        "dependency_id": "INTGCALC",
+        "kind": "PROGRAM",
+        "capability_level": "SUPPORTED",
+        "proof_state": "PARTIAL",
+        "required": true
+      },
+      {
+        "dependency_id": "INTGMAIN",
+        "kind": "PROGRAM",
+        "capability_level": "SUPPORTED",
+        "proof_state": "PARTIAL",
+        "required": true
+      },
+      {
+        "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+        "kind": "FILE",
+        "capability_level": "SUPPORTED",
+        "proof_state": "PARTIAL",
+        "required": true
+      },
+      {
+        "dependency_id": "FILE:INTGMAIN:TAX-IN",
+        "kind": "FILE",
+        "capability_level": "SUPPORTED",
+        "proof_state": "PARTIAL",
+        "required": true
+      },
+      {
+        "dependency_id": "COPYBOOK:TAXREC",
+        "kind": "COPYBOOK",
+        "capability_level": "SUPPORTED",
+        "proof_state": "PARTIAL",
+        "required": true
+      },
+      {
+        "dependency_id": "CALL:INTGMAIN->INTGCALC",
+        "kind": "CALL",
+        "capability_level": "SUPPORTED",
+        "proof_state": "PARTIAL",
+        "required": true
+      }
+    ],
+    "proven_dependencies": [],
+    "blocking_reasons": [
+      "runtime verdict is FAILED",
+      "INTGCALC: PARTIAL (PROGRAM capability is SUPPORTED but the runtime verdict is FAILED)",
+      "INTGMAIN: PARTIAL (PROGRAM capability is SUPPORTED but the runtime verdict is FAILED)",
+      "FILE:INTGMAIN:TAX-OUT: PARTIAL (FILE capability is SUPPORTED but the runtime verdict is FAILED)",
+      "FILE:INTGMAIN:TAX-IN: PARTIAL (FILE capability is SUPPORTED but the runtime verdict is FAILED)",
+      "COPYBOOK:TAXREC: PARTIAL (COPYBOOK capability is SUPPORTED but the runtime verdict is FAILED)",
+      "CALL:INTGMAIN->INTGCALC: PARTIAL (CALL capability is SUPPORTED but the runtime verdict is FAILED)"
+    ]
+  },
+  "full": {
+    "base": "http://127.0.0.1:18081",
+    "application_id": "app-9e8ce81dfefb",
+    "ingest": {
+      "application_id": "app-9e8ce81dfefb",
+      "workspace_path": "/var/lib/systemaops/work/tmp/ingest-app-9e8ce81dfefb-sda_lcx9",
+      "source_file_count": 3,
+      "total_size_bytes": 3057,
+      "discovery": {
+        "application_id": "app-9e8ce81dfefb",
+        "cobol_programs": [
+          {
+            "program_id": "INTGCALC",
+            "source_path": "CALC.cob",
+            "file_dependencies": [],
+            "calls": [],
+            "copybooks": [],
+            "entry_points": []
+          },
+          {
+            "program_id": "INTGMAIN",
+            "source_path": "MAIN.cob",
+            "file_dependencies": [
+              {
+                "name": "TAX-OUT",
+                "operation": "OPEN",
+                "mode": "OUTPUT"
+              },
+              {
+                "name": "TAX-IN",
+                "operation": "OPEN",
+                "mode": "INPUT"
+              },
+              {
+                "name": "TAX-IN",
+                "operation": "READ",
+                "mode": ""
+              },
+              {
+                "name": "TAX-OUT",
+                "operation": "WRITE",
+                "mode": ""
+              }
+            ],
+            "calls": [
+              {
+                "target": "INTGCALC",
+                "arguments": [
+                  "TAX-AMOUNT",
+                  "TAX-RATE",
+                  "WS-TAX"
+                ]
+              }
+            ],
+            "copybooks": [
+              "TAXREC"
+            ],
+            "entry_points": []
+          }
+        ],
+        "copybooks": [
+          "TAXREC"
+        ],
+        "jcl_jobs": [],
+        "file_dependencies": [
+          {
+            "program_id": "INTGMAIN",
+            "file_name": "TAX-OUT",
+            "operation": "OPEN"
+          },
+          {
+            "program_id": "INTGMAIN",
+            "file_name": "TAX-IN",
+            "operation": "OPEN"
+          },
+          {
+            "program_id": "INTGMAIN",
+            "file_name": "TAX-IN",
+            "operation": "READ"
+          },
+          {
+            "program_id": "INTGMAIN",
+            "file_name": "TAX-OUT",
+            "operation": "WRITE"
+          }
+        ],
+        "call_dependencies": [
+          {
+            "caller": "INTGMAIN",
+            "target": "INTGCALC"
+          }
+        ],
+        "dependency_edges": [
+          {
+            "source": "INTGMAIN",
+            "target": "INTGCALC",
+            "edge_type": "CALL"
+          },
+          {
+            "source": "INTGMAIN",
+            "target": "TAXREC",
+            "edge_type": "COPY"
+          },
+          {
+            "source": "INTGMAIN",
+            "target": "TAX-OUT",
+            "edge_type": "FILE_WRITE"
+          },
+          {
+            "source": "INTGMAIN",
+            "target": "TAX-IN",
+            "edge_type": "FILE_WRITE"
+          },
+          {
+            "source": "INTGMAIN",
+            "target": "TAX-IN",
+            "edge_type": "FILE_READ"
+          },
+          {
+            "source": "INTGMAIN",
+            "target": "TAX-OUT",
+            "edge_type": "FILE_WRITE"
+          }
+        ],
+        "source_file_count": 3,
+        "total_size_bytes": 3057,
+        "discovery_success": true,
+        "discovery_errors": [],
+        "detected_name": "integrated",
+        "top_level_entries": [
+          "CALC.cob",
+          "MAIN.cob",
+          "TAXREC.cpy"
+        ]
+      },
+      "detected_name": "integrated",
+      "top_level_entries": [
+        "CALC.cob",
+        "MAIN.cob",
+        "TAXREC.cpy"
+      ]
+    },
+    "run_id": "run-8c5f32ccecf5",
+    "stages_seen": [
+      "ASSEMBLY_COMPLETED",
+      "COMPLETED"
+    ],
+    "run": {
+      "id": "run-8c5f32ccecf5",
+      "application_id": "app-9e8ce81dfefb",
+      "workload_id": "integrated",
+      "stage": "COMPLETED",
+      "created_at": "2026-10-08T08:12:38.961026+00:00",
+      "completed_at": "2026-10-08T08:12:41.074662+00:00",
+      "error": null
+    },
+    "verdict_http": 200,
+    "verdict": {
+      "run_id": "run-8c5f32ccecf5",
+      "engine_run_id": "run-integrated-20261008081240",
+      "state": "FAILED",
+      "workload_id": "integrated",
+      "source_hash": "sha256:3e1166c3ea421707ececa92119fcd61eb0300517180df0394d93ec40bc08f1fd",
+      "candidate_hash": "sha256:83bea51bff486803b60252c8ed72ef7513aa91c536ec0d5d1e568a3c417357ff",
+      "oracle_id": "gnucobol-3.1.2",
+      "oracle_digest": "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+      "executed_check_count": 4,
+      "skipped_count": 0,
+      "unavailable_count": 1,
+      "supported_scope_statement": "V1 validation scope: GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate (DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); substring containment permanently forbidden.",
+      "evidence_manifest_hash": "sha256:a5e95c06760ff833cff7dff390ae89d34ece62a460b9a5a3f60df062e864d68c",
+      "derivation_timestamp": "2026-10-08T08:12:41.062112+00:00",
+      "differences": [
+        "STDOUT output differs",
+        "STDERR output differs",
+        "Exit code differs: 0 vs 1",
+        "Candidate declared artifact is missing/unavailable"
+      ],
+      "comparisons": [
+        {
+          "comparison_id": "comp-integrated-stdout-run-integrated-20261008081240",
+          "comparator_id": "STDOUT_COMPARATOR",
+          "comparator_version": "1.0.0",
+          "artifact_type": "STDOUT",
+          "result": "MISMATCH",
+          "differences": [
+            "STDOUT output differs"
+          ]
+        },
+        {
+          "comparison_id": "comp-integrated-stderr-run-integrated-20261008081240",
+          "comparator_id": "STDERR_COMPARATOR",
+          "comparator_version": "1.0.0",
+          "artifact_type": "STDERR",
+          "result": "MISMATCH",
+          "differences": [
+            "STDERR output differs"
+          ]
+        },
+        {
+          "comparison_id": "comp-integrated-exit-status-run-integrated-20261008081240",
+          "comparator_id": "EXIT_STATUS_COMPARATOR",
+          "comparator_version": "1.0.0",
+          "artifact_type": "EXIT_STATUS",
+          "result": "MISMATCH",
+          "differences": [
+            "Exit code differs: 0 vs 1"
+          ]
+        },
+        {
+          "comparison_id": "comp-integrated-output-run-integrated-20261008081240",
+          "comparator_id": "FIXED_RECORD_COMPARATOR",
+          "comparator_version": "1.0.0",
+          "artifact_type": "FIXED_RECORD",
+          "result": "MISMATCH",
+          "differences": [
+            "Candidate declared artifact is missing/unavailable"
+          ]
+        }
+      ],
+      "certification_contract": "declared:workload-integrated",
+      "contract_source": "declared"
+    },
+    "proof_http": 200,
+    "proof": {
+      "run_id": "run-8c5f32ccecf5",
+      "proof": {
+        "workload_id": "integrated",
+        "application_id": "app-9e8ce81dfefb",
+        "central_status": "NOT_VERIFIED",
+        "blocking_reasons": [
+          "runtime verdict is FAILED",
+          "INTGCALC: PARTIAL (PROGRAM capability is SUPPORTED but the runtime verdict is FAILED)",
+          "INTGMAIN: PARTIAL (PROGRAM capability is SUPPORTED but the runtime verdict is FAILED)",
+          "FILE:INTGMAIN:TAX-OUT: PARTIAL (FILE capability is SUPPORTED but the runtime verdict is FAILED)",
+          "FILE:INTGMAIN:TAX-IN: PARTIAL (FILE capability is SUPPORTED but the runtime verdict is FAILED)",
+          "COPYBOOK:TAXREC: PARTIAL (COPYBOOK capability is SUPPORTED but the runtime verdict is FAILED)",
+          "CALL:INTGMAIN->INTGCALC: PARTIAL (CALL capability is SUPPORTED but the runtime verdict is FAILED)"
+        ],
+        "generation_success": true,
+        "overall_capability": "SUPPORTED",
+        "jcl_status": "NOT_PRESENT",
+        "runtime": {
+          "artifact_results": [
+            [
+              "STDOUT",
+              "MISMATCH"
+            ],
+            [
+              "STDERR",
+              "MISMATCH"
+            ],
+            [
+              "EXIT_STATUS",
+              "MISMATCH"
+            ],
+            [
+              "FIXED_RECORD",
+              "MISMATCH"
+            ]
+          ],
+          "candidate_exit_code": 1,
+          "evidence_complete": true,
+          "evidence_integrity_valid": false,
+          "executed_check_count": 4,
+          "oracle_exit_code": 0,
+          "verdict_state": "FAILED"
+        },
+        "dependency_ledger": [
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "INTGCALC",
+            "kind": "PROGRAM",
+            "proof_state": "PARTIAL",
+            "reason": "PROGRAM capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "INTGMAIN",
+            "kind": "PROGRAM",
+            "proof_state": "PARTIAL",
+            "reason": "PROGRAM capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+            "kind": "FILE",
+            "proof_state": "PARTIAL",
+            "reason": "FILE capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "FILE:INTGMAIN:TAX-IN",
+            "kind": "FILE",
+            "proof_state": "PARTIAL",
+            "reason": "FILE capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "COPYBOOK:TAXREC",
+            "kind": "COPYBOOK",
+            "proof_state": "PARTIAL",
+            "reason": "COPYBOOK capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "CALL:INTGMAIN->INTGCALC",
+            "kind": "CALL",
+            "proof_state": "PARTIAL",
+            "reason": "CALL capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          }
+        ],
+        "required_dependencies": [
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "INTGCALC",
+            "kind": "PROGRAM",
+            "proof_state": "PARTIAL",
+            "reason": "PROGRAM capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "INTGMAIN",
+            "kind": "PROGRAM",
+            "proof_state": "PARTIAL",
+            "reason": "PROGRAM capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "FILE:INTGMAIN:TAX-OUT",
+            "kind": "FILE",
+            "proof_state": "PARTIAL",
+            "reason": "FILE capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "FILE:INTGMAIN:TAX-IN",
+            "kind": "FILE",
+            "proof_state": "PARTIAL",
+            "reason": "FILE capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "COPYBOOK:TAXREC",
+            "kind": "COPYBOOK",
+            "proof_state": "PARTIAL",
+            "reason": "COPYBOOK capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          },
+          {
+            "capability_level": "SUPPORTED",
+            "dependency_id": "CALL:INTGMAIN->INTGCALC",
+            "kind": "CALL",
+            "proof_state": "PARTIAL",
+            "reason": "CALL capability is SUPPORTED but the runtime verdict is FAILED",
+            "required": true,
+            "visible": true
+          }
+        ],
+        "unproven_dependencies": [],
+        "runtime_verdict_is_verified": false
+      },
+      "application_id": "app-9e8ce81dfefb",
+      "verdict_state": "FAILED",
+      "evidence_status": "COMPLETE",
+      "runtime_proof_status": "NOT_VERIFIED",
+      "reasons_for_not_verified": [
+        "runtime verdict is FAILED",
+        "INTGCALC: PARTIAL (PROGRAM capability is SUPPORTED but the runtime verdict is FAILED)",
+        "INTGMAIN: PARTIAL (PROGRAM capability is SUPPORTED but the runtime verdict is FAILED)",
+        "FILE:INTGMAIN:TAX-OUT: PARTIAL (FILE capability is SUPPORTED but the runtime verdict is FAILED)",
+        "FILE:INTGMAIN:TAX-IN: PARTIAL (FILE capability is SUPPORTED but the runtime verdict is FAILED)",
+        "COPYBOOK:TAXREC: PARTIAL (COPYBOOK capability is SUPPORTED but the runtime verdict is FAILED)",
+        "CALL:INTGMAIN->INTGCALC: PARTIAL (CALL capability is SUPPORTED but the runtime verdict is FAILED)"
+      ],
+      "proven_dependencies": [],
+      "unproven_dependencies": [],
+      "blocked_dependencies": [],
+      "unsupported_dependencies": [],
+      "evidence_complete": true,
+      "evidence_integrity_valid": false,
+      "required_dependencies_proven": false,
+      "overall_verification": "NOT_VERIFIED"
+    }
+  }
+}

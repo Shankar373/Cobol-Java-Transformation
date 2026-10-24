@@ -11,20 +11,59 @@ application discovery using the existing engine components.
 from __future__ import annotations
 
 import io
+import logging
 import re
 import zipfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from api.limits import env_int_limit
+
+logger = logging.getLogger(__name__)
+
 
 class IngestionError(Exception):
     """Raised when ingestion fails."""
 
 
-MAX_ZIP_ARCHIVE_BYTES = 100 * 1024 * 1024
-MAX_ZIP_ENTRIES = 5000
-MAX_TOTAL_EXTRACTED_BYTES = 500 * 1024 * 1024
+# Tightened ZIP limits for security (configurable via env for testing)
+# Default archive limit: 50MB (down from 100MB)
+# Default entry limit: 1000 (down from 5000)
+# Default extracted size limit: 200MB (down from 500MB)
+_MAX_ZIP_ARCHIVE_BYTES_DEFAULT = 50 * 1024 * 1024
+_MAX_ZIP_ENTRIES_DEFAULT = 1000
+_MAX_TOTAL_EXTRACTED_BYTES_DEFAULT = 200 * 1024 * 1024
+# How much a single ZIP entry is allowed to expand, as a ratio of uncompressed
+# to compressed size.  This is our guard against a "zip bomb" — a tiny archive
+# that blows up into gigabytes when extracted.  Real COBOL and JCL source
+# compresses only a few times over (typically 2:1 to 6:1, and even highly
+# repetitive fixed-format listings stay under about 30:1), while an entry made
+# of one repeated byte can easily exceed 1000:1.  Allowing 100:1 therefore
+# leaves two orders of magnitude of headroom for legitimate archives while
+# still rejecting anything that looks like a bomb.  Operators can retune it
+# through the environment without a code change.
+_MAX_ZIP_COMPRESSION_RATIO_DEFAULT = 100
+
+
+def _zip_limit(name: str, default: int) -> int:
+    return env_int_limit(name, default, logger)
+
+
+def _get_max_zip_archive_bytes() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_ZIP_ARCHIVE_BYTES", _MAX_ZIP_ARCHIVE_BYTES_DEFAULT)
+
+
+def _get_max_zip_entries() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_ZIP_ENTRIES", _MAX_ZIP_ENTRIES_DEFAULT)
+
+
+def _get_max_total_extracted_bytes() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_TOTAL_EXTRACTED_BYTES", _MAX_TOTAL_EXTRACTED_BYTES_DEFAULT)
+
+
+def _get_max_zip_compression_ratio() -> int:
+    return _zip_limit("CONTROL_PLANE_MAX_ZIP_COMPRESSION_RATIO", _MAX_ZIP_COMPRESSION_RATIO_DEFAULT)
 
 
 def _is_traversal(name: str) -> bool:
@@ -54,6 +93,12 @@ class DiscoveryResult:
     dependency_edges: list[dict] = field(default_factory=list)
     source_file_count: int = 0
     total_size_bytes: int = 0
+    discovery_errors: list[dict] = field(default_factory=list)
+
+    @property
+    def discovery_success(self) -> bool:
+        """Whether all discovery stages completed without errors."""
+        return not self.discovery_errors
 
     def to_dict(self) -> dict:
         return {
@@ -66,6 +111,8 @@ class DiscoveryResult:
             "dependency_edges": self.dependency_edges,
             "source_file_count": self.source_file_count,
             "total_size_bytes": self.total_size_bytes,
+            "discovery_success": self.discovery_success,
+            "discovery_errors": self.discovery_errors,
         }
 
 
@@ -76,11 +123,14 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
     Preserves the original directory structure from the ZIP.
 
     Security: extraction is path-traversal safe (Zip Slip protected), rejects
-    absolute paths and symlink entries, and enforces archive entry/size limits.
+    absolute paths, symlink entries, and duplicate/ambiguous entry names
+    (unique after separator normalization and case folding, so the extracted
+    tree is platform-independent), and enforces archive entry/size limits.
     """
-    if len(data) > MAX_ZIP_ARCHIVE_BYTES:
+    max_archive = _get_max_zip_archive_bytes()
+    if len(data) > max_archive:
         raise IngestionError(
-            f"ZIP archive exceeds size limit of {MAX_ZIP_ARCHIVE_BYTES} bytes"
+            f"ZIP archive exceeds size limit of {max_archive} bytes"
         )
 
     workspace = Path(tempfile.mkdtemp(prefix=f"ingest-{application_id}-"))
@@ -88,12 +138,16 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             members = zf.infolist()
-            if len(members) > MAX_ZIP_ENTRIES:
+            max_entries = _get_max_zip_entries()
+            if len(members) > max_entries:
                 raise IngestionError(
-                    f"ZIP archive exceeds entry limit of {MAX_ZIP_ENTRIES} files"
+                    f"ZIP archive exceeds entry limit of {max_entries} files"
                 )
 
             total_size = 0
+            max_extracted = _get_max_total_extracted_bytes()
+            max_ratio = _get_max_zip_compression_ratio()
+            seen_names: dict[str, str] = {}
             for info in members:
                 if _is_traversal(info.filename):
                     raise IngestionError(
@@ -103,11 +157,48 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
                     raise IngestionError(
                         f"Symlink ZIP entries are not allowed: {info.filename!r}"
                     )
+                if not info.is_dir():
+                    # Reject any two entries whose names collide once we normalise
+                    # separators and letter case.  Without this, exact duplicates
+                    # would silently overwrite each other (last one wins), and
+                    # names differing only by separator or case would extract
+                    # cleanly on Windows or Linux but not both — leaving an
+                    # extracted tree that depends on which machine ran the job.
+                    collision_key = info.filename.replace("\\", "/").casefold()
+                    prior = seen_names.get(collision_key)
+                    if prior is not None:
+                        raise IngestionError(
+                            f"Duplicate ZIP entry: {info.filename!r} collides "
+                            f"with {prior!r} (names must be unique after "
+                            "separator normalization and case folding)"
+                        )
+                    seen_names[collision_key] = info.filename
+                    # Reject entries whose declared size would explode on
+                    # extraction.  Our other limits only bound the final size;
+                    # by then a bomb has already been expanded on disk.  Checking
+                    # the declared ratio lets us refuse it before writing a
+                    # single byte.  Empty entries are skipped, both because
+                    # there is no ratio to judge and to avoid dividing by zero.
+                    if info.file_size > 0:
+                        if info.compress_size <= 0:
+                            raise IngestionError(
+                                f"ZIP entry {info.filename!r} declares "
+                                f"{info.file_size} uncompressed bytes over "
+                                f"{info.compress_size} compressed bytes"
+                                " (invalid compression ratio)"
+                            )
+                        ratio = info.file_size / info.compress_size
+                        if ratio > max_ratio:
+                            raise IngestionError(
+                                f"ZIP entry {info.filename!r} compression "
+                                f"ratio {ratio:.0f}:1 exceeds the "
+                                f"{max_ratio}:1 limit (possible zip bomb)"
+                            )
                 total_size += info.file_size
-                if total_size > MAX_TOTAL_EXTRACTED_BYTES:
+                if total_size > max_extracted:
                     raise IngestionError(
                         f"ZIP exceeds total extracted size limit of "
-                        f"{MAX_TOTAL_EXTRACTED_BYTES} bytes"
+                        f"{max_extracted} bytes"
                     )
 
             workspace_resolved = workspace.resolve()
@@ -197,8 +288,11 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                 "target": edge.target,
                 "edge_type": edge.edge_type,
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        result.discovery_errors.append({
+            "stage": "COBOL_DISCOVERY",
+            "message": str(exc),
+        })
 
     # Discover JCL
     try:
@@ -221,7 +315,6 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
 
         # Link JCL with COBOL if both exist
         if result.cobol_programs:
-            from engine.transformation.ir import CobolApplication
             cobol_discovery2 = ApplicationDiscovery()
             cobol_app2 = cobol_discovery2.discover(str(workspace), application_id=application_id)
             jcl_app = jcl_discovery.link_with_cobol(jcl_app, cobol_app2)
@@ -232,7 +325,10 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                     "target": dep.target,
                     "edge_type": dep.dependency_type,
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        result.discovery_errors.append({
+            "stage": "JCL_DISCOVERY",
+            "message": str(exc),
+        })
 
     return result

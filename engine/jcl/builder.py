@@ -76,11 +76,13 @@ class JclSemanticBuilder:
         jobs: list[JclSemanticJob] = []
         raw_sources = raw_sources or {}
 
-        for job in app.jobs:
-            raw_text = self._raw_for_job(job, raw_sources)
-            if raw_text is not None:
-                self._scan_unsupported(raw_text, job.name)
+        # Scan every raw source exactly once, attributing each line to the
+        # JOB statement in effect.  Scanning per job would duplicate and
+        # misattribute diagnostics across the jobs of a multi-job member.
+        for raw_text in raw_sources.values():
+            self._scan_unsupported(raw_text)
 
+        for job in app.jobs:
             jobs.append(self._build_job(job))
 
         inventory = self._build_dataset_inventory(jobs)
@@ -121,6 +123,18 @@ class JclSemanticBuilder:
             )
 
         dependencies = self._build_step_dependencies(job.name, steps)
+
+        # Job-level DDs (JOBLIB & co.) are preserved on the IR but are
+        # outside the semantic profile's supported subset — diagnose them
+        # explicitly instead of letting them vanish.
+        for dd in job.job_dd_statements:
+            self.diagnostics.error(
+                JclDiagnosticCode.JOB_LEVEL_DD,
+                f"Job-level DD {dd.name} is outside the supported subset "
+                "(the profile models step-scoped resources only); "
+                f"preserved on the job IR as {dd.name}",
+                job=job.name,
+            )
 
         return JclSemanticJob(
             name=job.name,
@@ -177,7 +191,6 @@ class JclSemanticBuilder:
             )
         else:
             mode = JclExecMode.NONE
-            target = ""
             self.diagnostics.error(
                 JclDiagnosticCode.STEP_NO_EXEC,
                 f"Step {step.name} EXEC has neither PGM nor PROC",
@@ -197,7 +210,10 @@ class JclSemanticBuilder:
             kind = JclResourceKind.SYSOUT
             norm_disp = JclDisposition.UNSPECIFIED
             dataset_use = JclDatasetUse.UNSPECIFIED
-        elif dd.is_inline or (dd.name.upper() == "SYSIN" and dd.sysin):
+        elif dd.is_inline:
+            # Inline data (DD * / DD DATA).  The old
+            # `dd.name.upper() == "SYSIN" and dd.sysin` extra clause was
+            # dead: the parser never set `sysin`.
             kind = JclResourceKind.SYSIN_INLINE
             norm_disp = JclDisposition.UNSPECIFIED
             dataset_use = JclDatasetUse.INPUT
@@ -383,17 +399,8 @@ class JclSemanticBuilder:
             )
         return tuple(inventory)
 
-    def _raw_for_job(self, job: JclJob, raw_sources: dict[str, str]) -> str | None:
-        if job.source_path and job.source_path in raw_sources:
-            return raw_sources[job.source_path]
-        if job.name:
-            pattern = re.compile(rf"//{re.escape(job.name)}\s+JOB\b", re.IGNORECASE)
-            for text in raw_sources.values():
-                if pattern.search(text):
-                    return text
-        return None
-
-    def _scan_unsupported(self, raw_text: str, job_name: str) -> None:
+    def _scan_unsupported(self, raw_text: str) -> None:
+        job_in_effect = ""
         for line_number, raw in enumerate(raw_text.splitlines(), start=1):
             if not raw.startswith("//"):
                 continue
@@ -403,7 +410,16 @@ class JclSemanticBuilder:
                 continue
 
             location = f"line {line_number}"
-            if stripped.startswith(",") or re.match(r"^\s+,", content):
+            job_name = job_in_effect
+
+            # JOB statements switch the attribution for the lines that
+            # follow, so multi-job members keep per-job diagnostics.
+            job_match = re.match(r"(\S+)\s+JOB\b", stripped, re.IGNORECASE)
+            if job_match:
+                job_in_effect = job_match.group(1)
+                job_name = job_in_effect
+
+            if stripped.startswith(","):
                 self.diagnostics.error(
                     JclDiagnosticCode.UNSUPPORTED_CONTINUATION,
                     "DD continuation / split statements are outside the supported subset",

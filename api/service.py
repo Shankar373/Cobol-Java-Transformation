@@ -4,11 +4,17 @@ Owns orchestration state transitions.  Does NOT duplicate transformation
 or validation logic — it delegates to:
   - engine.transformation.application_discovery.ApplicationDiscovery
   - engine.transformation.application_generator.ApplicationGenerator
-  - engine.pipeline.VerticalSlicePipeline
-  - engine.verdict.derivation.derive_verdict
-  - engine.evidence.integrity.EvidenceIntegrityValidator
+  - engine.pipeline.UniversalModernizationPipeline (derivation of the
+    verdict happens inside the engine pipeline via
+    engine.verdict.derivation.derive_verdict_validated /
+    derive_verdict_untrusted — nothing in api/ calls derive_verdict
+    directly, so the verdict wording always comes from the engine)
+  - engine.evidence.integrity.EvidenceIntegrityValidator (evidence
+    admission: pair consistency, artifact integrity, seal re-checks)
+  - engine.modernization.integrated_proof (dependency ledger +
+    central status gate for the certification surfaces)
 
-P0 MVP canonical path:
+Canonical end-to-end path (the MVP flow):
   COBOL ZIP/upload -> secure ingestion -> discovery -> per-program
   transformation -> JavaApplication -> Spring Boot mapping ->
   SpringBootGenerator -> generated Spring Boot project ->
@@ -22,11 +28,25 @@ used by validation.
 Production validation constraint: candidates are always executed inside
 Docker (use_docker_java=True). Host javac/java is never used for validation.
 Java candidate upload remains internal/test-only and out of the UI workflow.
+
+Safety controls implemented here:
+  * certification contract resolved from the trusted fixture registry (or an
+    explicit default) instead of a hard-coded artifact set;
+  * revalidation is single-flight: only terminal runs can be reset, the reset
+    clears evidence/verdict/error atomically and bumps validation_generation;
+  * stale background workers are rejected by the store (generation check);
+  * background jobs are counted against a configurable concurrency limit
+    (``CONTROL_PLANE_MAX_CONCURRENT_JOBS``) so retries cannot stack;
+  * uploads keep their directory hierarchy, reject traversal and never
+    silently overwrite a colliding path;
+  * a verdict served for a run must hash-match that run's evidence manifest.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import re
 import shutil
 import tempfile
 import threading
@@ -35,18 +55,331 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from api.errors import (
+    BusyError,
+    NotFoundError,
+    PersistenceCorruptionError,
+    ServiceError,
+)
 from api.models import RunStage
 from api.store import ApplicationRecord, RunRecord, Store
+from api.workload_contract import resolve_certification_contract
+from engine import docker_cli
+from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
+from engine.transformation.runtime_adapters import RuntimeTargetConfig
+
+__all__ = ["Service", "ServiceError"]
 
 logger = logging.getLogger(__name__)
 
-# Legacy source tree root markers — first match wins.
-SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl", "main.COB", "main.CBL"}
+# Legacy source tree root markers — first match wins (case-insensitive,
+# see _detect_source_root).
+SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl"}
+
+#: Default cap on background jobs running per Service instance.
+DEFAULT_MAX_CONCURRENT_JOBS = 4
+
+#: Upper bound for files accepted by the upload endpoints (defense in depth;
+#: the HTTP layer enforces the same limit before reading bodies).
+DEFAULT_MAX_UPLOAD_FILES = 1000
 
 
-class ServiceError(Exception):
-    """Raised when a service operation fails."""
+def _cleanup_temp_dir(path: str | Path | None) -> None:
+    """Best-effort cleanup of a temporary directory.
+
+    Logs but never raises; temp directories are created with mkdtemp and
+    should be cleaned up when no longer needed. Failure to clean up is
+    not a functional error.
+    """
+    if path is None:
+        return
+    p = Path(path)
+    if not p.exists():
+        return
+    # Only clean up directories that look like our temp prefixes
+    name = p.name
+    if not (name.startswith("cobol-") or name.startswith("java-") or name.startswith("ingest-") or name.startswith("pipeline-output-")):
+        logger.debug("Skipping cleanup of non-temp directory: %s", p)
+        return
+    try:
+        shutil.rmtree(p, ignore_errors=False)
+        logger.debug("Cleaned up temp directory: %s", p)
+    except Exception as exc:
+        logger.warning("Failed to clean up temp directory %s: %s", p, exc)
+
+
+def _job_limit() -> int:
+    """Effective background job limit (env read per call so it is testable)."""
+    raw = os.environ.get("CONTROL_PLANE_MAX_CONCURRENT_JOBS")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_CONCURRENT_JOBS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning(
+            "Invalid CONTROL_PLANE_MAX_CONCURRENT_JOBS=%r; using %d",
+            raw,
+            DEFAULT_MAX_CONCURRENT_JOBS,
+        )
+        return DEFAULT_MAX_CONCURRENT_JOBS
+
+
+def _upload_file_limit() -> int:
+    raw = os.environ.get("CONTROL_PLANE_MAX_UPLOAD_FILES")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_UPLOAD_FILES
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_MAX_UPLOAD_FILES
+
+
+def _safe_relative_path(name: str) -> Path:
+    """Normalise an uploaded entry name into a safe relative path.
+
+    Accepts nested paths (``src/PROG.cob``) but rejects absolute paths,
+    drive letters and ``..`` segments so an upload can never escape the
+    workspace directory.
+    """
+    raw = (name or "").replace("\\", "/")
+    if len(raw) >= 2 and raw[1] == ":":
+        raise ServiceError(f"Upload entry {name!r} contains a drive letter")
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    if not parts:
+        raise ServiceError(f"Upload entry {name!r} has no usable file name")
+    if any(p == ".." for p in parts):
+        raise ServiceError(f"Upload entry {name!r} contains a '..' segment")
+    relative = Path(*parts)
+    if relative.is_absolute():
+        raise ServiceError(f"Upload entry {name!r} resolves to an absolute path")
+    return relative
+
+
+def _capability_level(value: str):
+    """Parse a capability level string, failing closed to UNKNOWN."""
+    from engine.modernization.capability_analyzer import CapabilityLevel
+
+    try:
+        return CapabilityLevel(value)
+    except (ValueError, KeyError):
+        return CapabilityLevel.UNKNOWN
+
+
+def _report_facade(report: dict | None) -> object | None:
+    """Minimal report-like facade over a stored modernization report.
+
+    ``build_dependency_ledger``/``integrated_proof_from_pipelines`` only
+    need capability components plus ``generation_success``,
+    ``overall_capability`` and ``application_id``, all of which a stored
+    ``pipeline_report`` dict already carries.
+    """
+    from types import SimpleNamespace
+
+    if not report:
+        return None
+    pipeline = report.get("pipeline_report") or {}
+    if not pipeline:
+        return None
+    capability = pipeline.get("capability") or {}
+    components = tuple(
+        SimpleNamespace(
+            component_id=comp.get("component_id", ""),
+            component_type=comp.get("component_type", ""),
+            level=_capability_level(comp.get("level", "")),
+            reason=comp.get("reason", ""),
+        )
+        for comp in (capability.get("components") or [])
+    )
+    return SimpleNamespace(
+        application_id=pipeline.get("application_id", ""),
+        generation_success=bool((pipeline.get("transformation") or {}).get("success", False)),
+        overall_capability=capability.get("overall_level") or "",
+        capability_report=SimpleNamespace(components=components),
+    )
+
+
+def _jcl_status_for_source(source: str | Path | None) -> str:
+    """Best-effort JCL lane status for a source tree ("" when absent).
+
+    Returns ``NOT_PRESENT`` when no JCL member exists under the shared
+    member rule (case-insensitive ``.jcl`` / ``.jcllib`` or
+    extensionless JCL-looking members — the exact set the consumer
+    scans, so the two can no longer disagree), otherwise the JCL
+    consumer status.  Never raises: an unusable JCL tree fails closed
+    to ``ERROR`` so the ledger keeps the lane visible and blocked.
+    """
+    if source is None:
+        return "NOT_PRESENT"
+    root = Path(source)
+    if not root.exists() or not root.is_dir():
+        return "NOT_PRESENT"
+    from engine.transformation.jcl_discovery import find_jcl_members
+
+    if not find_jcl_members(root):
+        return "NOT_PRESENT"
+    from engine.transformation.jcl_consumer import modernize_jcl_workload
+
+    try:
+        return modernize_jcl_workload(root).status
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("JCL modernization failed for source %s", root)
+        return "ERROR"
+
+
+def _external_dependency_entries_for_source(
+    source: str | Path | None,
+) -> tuple:
+    """MQ/IMS/DB2/CICS dependency edges for a source tree (empty when absent).
+
+    Walks the same member set the discovery lane accepts (case-insensitive
+    ``.cbl`` / ``.cob`` plus extensionless members whose content starts an
+    IDENTIFICATION DIVISION — the shared member rule) and extracts
+    queue-name / PCB / segment entries from every real ``EXEC MQI`` /
+    ``EXEC DLI`` block, DB2 tables from every ``EXEC SQL`` block and CICS
+    resources from every ``EXEC CICS`` block.
+    One walker, one ledger: both the persist path and the recompute
+    fallback go through here, so neither can serve a narrower
+    dependency inventory than the other.  Scope note: the walker scans
+    COBOL members only — standalone ``.sql`` / ``.db2`` /
+    ``.cpy`` members are deliberately out of the COBOL-ledger scope
+    (``EXEC SQL`` lives inside COBOL members), so a table referenced only
+    by a loose ``.sql`` DDL member never enters this ledger.  Never
+    raises: an unreadable tree fails closed to no extra entries, keeping
+    the ledger's other lanes intact.
+    """
+    if source is None:
+        return ()
+    root = Path(source)
+    if not root.exists() or not root.is_dir():
+        return ()
+    from engine.modernization.external_dependency_edges import (
+        extract_cics_dependency_entries,
+        extract_db2_dependency_entries,
+        extract_external_dependency_entries,
+    )
+
+    seen: set[str] = set()
+    entries: list = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        suffix = path.suffix.lower()
+        if suffix not in {".cbl", ".cob"}:
+            if suffix != "":
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            # Extensionless member: accept only when the content starts an
+            # IDENTIFICATION DIVISION (single read — the text is needed for
+            # extraction anyway when the member qualifies).
+            if "IDENTIFICATION DIVISION" not in text[:4096].upper():
+                continue
+        else:
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+        for entry in (
+            *extract_external_dependency_entries(text),
+            *extract_db2_dependency_entries(text, program_id=path.stem.upper()),
+            *extract_cics_dependency_entries(text),
+        ):
+            if entry.dependency_id in seen:
+                continue
+            seen.add(entry.dependency_id)
+            entries.append(entry)
+    return tuple(entries)
+
+
+def _proof_payload(
+    workload_id: str,
+    report: object,
+    runtime,
+    jcl_status: str,
+    extra_dependencies: tuple = (),
+) -> dict:
+    """Assemble the auditable integrated-proof payload.
+
+    Presentation shaping: every ledger entry is flattened to its ``to_dict()``
+    and bucketed (proven/unproven/blocked/unsupported) so the API and UI can
+    render without re-deriving engine internals.  Fail-closed semantics
+    live in the engine; this method only shapes the result.
+    ``extra_dependencies`` carries lanes the modernization report does not
+    model (JCL status is joined separately; MQ/IMS/DB2/CICS dependency
+    edges come from ``_external_dependency_entries_for_source``).
+    """
+    from engine.modernization.integrated_proof import (
+        ProofState,
+        build_dependency_ledger,
+        evaluate_central_status,
+    )
+
+    ledger = build_dependency_ledger(
+        report,
+        runtime,
+        extra_dependencies=extra_dependencies,
+        jcl_status=jcl_status,
+    )
+    central_status, reasons = evaluate_central_status(
+        ledger,
+        runtime,
+        generation_success=report.generation_success,
+    )
+
+    def _bucket(state_value: str) -> list[dict]:
+        return [e.to_dict() for e in ledger if e.proof_state.value == state_value]
+
+    def _unsupported_bucket() -> list[dict]:
+        # UNSUPPORTED is a *capability level*, not a proof state —
+        # bucketing on a nonexistent ProofState member made this list
+        # structurally always empty.  The capability axis is the truth the
+        # field name describes.
+        return [
+            e.to_dict()
+            for e in ledger
+            if e.capability_level.value == "UNSUPPORTED"
+        ]
+
+    required_entries = [e for e in ledger if e.required]
+
+    runtime_dict = {
+        "verdict_state": runtime.verdict_state,
+        "executed_check_count": runtime.executed_check_count,
+        "evidence_complete": runtime.evidence_complete,
+        "evidence_integrity_valid": runtime.evidence_integrity_valid,
+        "oracle_exit_code": runtime.oracle_exit_code,
+        "candidate_exit_code": runtime.candidate_exit_code,
+        "artifact_results": [list(a) for a in runtime.artifact_results],
+    }
+
+    return {
+        "workload_id": workload_id,
+        "application_id": report.application_id,
+        "central_status": central_status.value,
+        "blocking_reasons": list(reasons),
+        "reasons_for_not_verified": list(reasons),
+        "generation_success": bool(report.generation_success),
+        "overall_capability": report.overall_capability,
+        "jcl_status": jcl_status,
+        "runtime": runtime_dict,
+        "dependency_ledger": [e.to_dict() for e in ledger],
+        "required_dependencies": [e.to_dict() for e in required_entries],
+        "runtime_verdict_is_verified": runtime.verdict_is_verified,
+        "proven_dependencies": _bucket("PROVEN"),
+        "unproven_dependencies": _bucket("UNPROVEN"),
+        "blocked_dependencies": _bucket("BLOCKED"),
+        "unsupported_dependencies": _unsupported_bucket(),
+        "evidence_complete": runtime.evidence_complete,
+        "evidence_integrity_valid": runtime.evidence_integrity_valid,
+        # Non-vacuous: all(...) over an empty required set would assert
+        # proof that does not exist (empty ledger => nothing proven).
+        "required_dependencies_proven": bool(required_entries)
+        and all(e.proof_state is ProofState.PROVEN for e in required_entries),
+        "overall_verification": central_status.value,
+    }
 
 
 class Service:
@@ -54,6 +387,36 @@ class Service:
 
     def __init__(self, store: Store) -> None:
         self._store = store
+        self._jobs_lock = threading.Lock()
+        self._active_jobs = 0
+
+    # -- background job slots ------------------------------------------------
+
+    def _acquire_job_slot(self) -> None:
+        """Reserve a background job slot or fail fast with ``BusyError``."""
+        limit = _job_limit()
+        with self._jobs_lock:
+            if self._active_jobs >= limit:
+                raise BusyError(
+                    f"Concurrent job limit reached ({limit}); retry after"
+                    " the running jobs finish"
+                )
+            self._active_jobs += 1
+
+    def _launch(self, target: str, args: tuple, *, name: str) -> None:
+        """Start ``getattr(self, target)(*args)`` releasing its slot on exit.
+
+        The slot is released in a wrapper ``finally`` so it is returned even
+        when the worker method is replaced (e.g. by tests) or raises.
+        """
+        def _runner() -> None:
+            try:
+                getattr(self, target)(*args)
+            finally:
+                with self._jobs_lock:
+                    self._active_jobs -= 1
+
+        threading.Thread(target=_runner, daemon=True, name=name).start()
 
     # -- applications -------------------------------------------------------
 
@@ -63,7 +426,12 @@ class Service:
         description: str,
         workload_id: str,
         java_entrypoint: str,
+        target_runtime: str = "spring_boot",
     ) -> ApplicationRecord:
+        try:
+            RuntimeTargetConfig(target_runtime=target_runtime)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from exc
         app_id = f"app-{uuid.uuid4().hex[:12]}"
         record = ApplicationRecord(
             id=app_id,
@@ -71,13 +439,14 @@ class Service:
             description=description,
             workload_id=workload_id,
             java_entrypoint=java_entrypoint,
+            target_runtime=target_runtime,
         )
         return self._store.add_application(record)
 
     def get_application(self, app_id: str) -> ApplicationRecord:
         rec = self._store.get_application(app_id)
         if rec is None:
-            raise ServiceError(f"Application {app_id!r} not found")
+            raise NotFoundError(f"Application {app_id!r} not found")
         return rec
 
     def ingest_application(self, app_id: str, data: bytes, zip_filename: str = "") -> dict:
@@ -103,35 +472,45 @@ class Service:
         # 1. Extract ZIP to workspace
         workspace = ingest_zip(data, app_id)
 
-        # 2. Detect source root (top-level dir if ZIP contains a single root dir)
-        source_root = self._detect_source_root(workspace)
+        try:
+            # 2. Detect source root (top-level dir if ZIP contains a single root dir)
+            source_root = self._detect_source_root(workspace)
 
-        # 3. Run application discovery
-        discovery = discover_application(source_root, app_id)
+            # 3. Run application discovery from the workspace root so that
+            # sibling trees (jcl/, copybooks/, nested cobol/) are visible
+            # to COBOL discovery, JCL discovery and COPY resolution.
+            discovery = discover_application(workspace, app_id)
 
-        # 4. Persist paths on the application record
-        app.cobol_source_path = str(source_root)
+            # 4. Persist paths on the application record
+            # Clean up previous COBOL source temp directory if it was a temp dir
+            if app.cobol_source_path:
+                _cleanup_temp_dir(app.cobol_source_path)
+            app.cobol_source_path = str(workspace)
 
-        # 5. Update application name if it was auto-generated placeholder
-        #    or if the detected name is more specific (single dir override)
-        if detected_name and detected_name != "application":
-            # If the user didn't provide a meaningful name (empty or generic),
-            # use the detected name. Always deduplicate.
-            current_is_generic = not app.name or app.name == "application"
-            if current_is_generic:
-                app.name = self._store.unique_name(detected_name)
-            else:
-                # User provided a name — preserve it, but deduplicate if needed
-                existing = self._store.find_application_by_name(app.name)
-                if existing is not None and existing.id != app_id:
-                    app.name = self._store.unique_name(app.name)
+            # 5. Update application name if it was auto-generated placeholder
+            #    or if the detected name is more specific (single dir override)
+            if detected_name and detected_name != "application":
+                # If the user didn't provide a meaningful name (empty or generic),
+                # use the detected name. Always deduplicate.
+                current_is_generic = not app.name or app.name == "application"
+                if current_is_generic:
+                    app.name = self._store.unique_name(detected_name)
+                else:
+                    # User provided a name — preserve it, but deduplicate if needed
+                    existing = self._store.find_application_by_name(app.name)
+                    if existing is not None and existing.id != app_id:
+                        app.name = self._store.unique_name(app.name)
 
-        self._store.update_application(app)
+            self._store.update_application(app)
 
-        result = discovery.to_dict()
-        result["detected_name"] = detected_name
-        result["top_level_entries"] = top_entries
-        return result
+            result = discovery.to_dict()
+            result["detected_name"] = detected_name
+            result["top_level_entries"] = top_entries
+            return result
+        except Exception:
+            # Clean up workspace on failure
+            _cleanup_temp_dir(workspace)
+            raise
 
     def _detect_source_root(self, workspace: Path) -> Path:
         """Return the actual source root inside an extracted workspace.
@@ -148,30 +527,97 @@ class Service:
             return dirs[0]
 
         # Check for source markers at top level
-        if any(f.name in SOURCE_ROOT_MARKERS for f in files):
+        if any(f.name.lower() in SOURCE_ROOT_MARKERS for f in files):
             return workspace
 
         # Check one level down
         for d in dirs:
-            if any((d / m).exists() for m in SOURCE_ROOT_MARKERS):
+            if any((d / m).exists() for m in SOURCE_ROOT_MARKERS) or any(
+                c.name.lower() in SOURCE_ROOT_MARKERS
+                for c in d.iterdir()
+                if c.is_file()
+            ):
                 return d
 
         # Fallback: workspace itself
         return workspace
 
-    def upload_cobol_source(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
-        """Write COBOL source files into a temp directory and update the record."""
-        app = self.get_application(app_id)
+    # -- uploads -------------------------------------------------------------
 
-        base = Path(tempfile.mkdtemp(prefix=f"cobol-{app_id}-"))
+    @staticmethod
+    def _validate_upload(files: dict[str, bytes]) -> list[tuple[str, Path]]:
+        """Normalise and de-collide upload entry names (fail closed)."""
+        if not files:
+            raise ServiceError("No files supplied")
+        upload_limit = _upload_file_limit()
+        if len(files) > upload_limit:
+            raise ServiceError(
+                f"Too many files in one upload"
+                f" ({len(files)} > {upload_limit})"
+            )
+
+        resolved: list[tuple[str, Path]] = []
+        seen: dict[str, tuple[str, str]] = {}
         for name, content in files.items():
-            safe_name = Path(name).name
-            if not safe_name:
-                continue
-            (base / safe_name).write_bytes(content)
+            if not isinstance(content, (bytes, bytearray)):
+                raise ServiceError(f"Upload entry {name!r} is not binary content")
+            relative = _safe_relative_path(name)
+            # Decide duplicate names on a normalised, case-folded string rather
+            # than on `Path` objects.  Comparing `Path`s is case-insensitive on
+            # Windows but case-sensitive on Linux, so uploading `A.cob` and
+            # `a.cob` quietly let both through on Linux while one overwrote the
+            # other on Windows — the stored tree changed with the platform.  We
+            # fold separators and case ourselves so the same upload is either
+            # accepted or rejected identically everywhere.  ZIP uploads already
+            # apply the same rule (see api/ingestion.py).
+            collision_key = relative.as_posix().casefold()
+            prior = seen.get(collision_key)
+            if prior is not None:
+                raise ServiceError(
+                    f"Upload entries {prior[0]!r} and {name!r} resolve to"
+                    f" the same path {relative.as_posix()!r} (names must be"
+                    " unique after separator normalization and case folding)"
+                )
+            seen[collision_key] = (name, relative.as_posix())
+            resolved.append((name, relative))
+        return resolved
 
+    def _write_upload(
+        self,
+        files: dict[str, bytes],
+        prefix: str,
+        app_id: str,
+    ) -> Path:
+        """Write validated entries to a fresh temp dir, hierarchy preserved."""
+        resolved = self._validate_upload(files)
+        base = Path(tempfile.mkdtemp(prefix=f"{prefix}-{app_id}-"))
+        for name, relative in resolved:
+            target = base / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(bytes(files[name]))
+        return base
+
+    def upload_cobol_source(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
+        """Write COBOL source files into a temp directory and update the record.
+
+        Directory structure is preserved (``src/A.cob`` and ``copy/A.cob``
+        stay distinct); traversal is rejected and colliding paths are an
+        explicit error instead of a silent overwrite.
+        """
+        app = self.get_application(app_id)
+        # Validate + write the NEW source BEFORE touching the
+        # previous directory.  A rejected re-upload (traversal, collision,
+        # disk error) used to run cleanup first, destroying the previous
+        # good source and leaving the record pointing at a deleted dir.
+        # The old path is only cleaned once the record points at the new
+        # one; if the store update itself fails, the previous source is
+        # preserved (fail-safe: an orphan temp dir, never data loss).
+        base = self._write_upload(files, "cobol", app_id)
+        previous = app.cobol_source_path
         app.cobol_source_path = str(base)
         self._store.update_application(app)
+        if previous:
+            _cleanup_temp_dir(previous)
         return app, len(files)
 
     def upload_java_candidate(self, app_id: str, files: dict[str, bytes]) -> tuple[ApplicationRecord, int]:
@@ -182,16 +628,14 @@ class Service:
         modernize endpoint is explicitly called with use_uploaded_candidate.
         """
         app = self.get_application(app_id)
-
-        base = Path(tempfile.mkdtemp(prefix=f"java-{app_id}-"))
-        for name, content in files.items():
-            safe_name = Path(name).name
-            if not safe_name:
-                continue
-            (base / safe_name).write_bytes(content)
-
+        # Same write-then-cleanup ordering as the COBOL upload —
+        # a rejected re-upload must never destroy the previous candidate.
+        base = self._write_upload(files, "java", app_id)
+        previous = app.java_candidate_path
         app.java_candidate_path = str(base)
         self._store.update_application(app)
+        if previous:
+            _cleanup_temp_dir(previous)
         return app, len(files)
 
     # -- modernize (transform + validate) -----------------------------------
@@ -208,11 +652,32 @@ class Service:
         (or FAILED).  The frontend polls GET /runs/{id} to observe progress.
         Each stage is recorded as its underlying operation starts; no
         stage is emitted without the operation actually running.
+
+        Fails before a run is created when the application is unknown (404),
+        has no source (400), its certification contract cannot be resolved
+        (400) or the job limit is reached (429).
         """
         app = self.get_application(app_id)
 
         if app.cobol_source_path is None:
             raise ServiceError("No COBOL source uploaded for this application")
+
+        # Fail-closed pre-flight: reject an unusable stored runtime target
+        # BEFORE a run is created (never silently modernize for a
+        # different runtime than the application declares).
+        try:
+            RuntimeTargetConfig(target_runtime=app.target_runtime)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from exc
+
+        # Pre-flight: resolve the certification contract before creating a
+        # run so an unusable workload fails the request instead of failing
+        # a run in the background.
+        resolve_certification_contract(
+            app.workload_id, description=f"API-driven workload for {app.name}"
+        )
+
+        self._acquire_job_slot()
 
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         run = RunRecord(
@@ -221,20 +686,23 @@ class Service:
             workload_id=app.workload_id,
             stage=RunStage.CREATED,
         )
-        self._store.add_run(run)
+        try:
+            self._store.add_run(run)
+        except Exception:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+            raise
 
         # Return a snapshot so the caller sees CREATED regardless of how
         # quickly the background thread advances the live record.
         snapshot = replace(run)
 
         # Launch background worker — daemon thread dies with the process.
-        thread = threading.Thread(
-            target=self._modernize_background,
-            args=(app_id, run_id, use_uploaded_candidate),
-            daemon=True,
+        self._launch(
+            "_modernize_background",
+            (app_id, run_id, use_uploaded_candidate),
             name=f"modernize-{run_id}",
         )
-        thread.start()
 
         return snapshot
 
@@ -257,10 +725,7 @@ class Service:
 
         app = self._store.get_application(app_id)
         if app is None:
-            run.stage = RunStage.FAILED
-            run.error = f"Application {app_id!r} not found"
-            run.completed_at = datetime.now(timezone.utc).isoformat()
-            self._store.update_run(run)
+            self._finish_failed(run, f"Application {app_id!r} not found")
             return
 
         try:
@@ -277,11 +742,9 @@ class Service:
 
             adapter = None
             if not use_uploaded_candidate:
-                from engine.candidate.docker_spring_boot_adapter import (
-                    DockerSpringBootCandidateAdapter,
-                )
+                from engine.candidate.factory import candidate_adapter_for_target
 
-                adapter = DockerSpringBootCandidateAdapter()
+                adapter = candidate_adapter_for_target(app.target_runtime)
             self._run_validation(app, run, java_dir, entrypoint, adapter)
 
             # Terminal state is set here; VALIDATING_EVIDENCE itself is
@@ -294,7 +757,23 @@ class Service:
             run.error = str(exc)
             run.completed_at = datetime.now(timezone.utc).isoformat()
 
-        self._store.update_run(run)
+        self._persist_final(run)
+
+    def _finish_failed(self, run: RunRecord, message: str) -> None:
+        run.stage = RunStage.FAILED
+        run.error = message
+        run.completed_at = datetime.now(timezone.utc).isoformat()
+        self._persist_final(run)
+
+    def _persist_final(self, run: RunRecord) -> None:
+        """Persist a terminal transition, logging (never hiding) failures."""
+        try:
+            self._store.update_run(run)
+        except Exception:
+            # e.g. a concurrent revalidation bumped validation_generation.
+            logger.exception(
+                "Failed to persist terminal state for run %s", run.id
+            )
 
     # -- validate (re-run) --------------------------------------------------
 
@@ -302,42 +781,50 @@ class Service:
         """Re-run validation on an existing run's artifacts.
 
         Explicit behavior: consistent with :meth:`modernize`, revalidation
-        is asynchronous. The run is reset to ``CREATED`` (clearing the
-        previous terminal state) and a background daemon thread — the same
-        minimal mechanism used by modernization — re-executes validation of
-        the GENERATED artifact (``generated_app_path``, falling back to the
-        legacy ``java_candidate_path``). Callers poll ``GET /runs/{id}``
-        until a terminal stage; the returned snapshot always shows the
-        stage at call time.
+        is asynchronous. Only TERMINAL runs (``COMPLETED``/``FAILED``) may be
+        revalidated — that check is the single-flight guard, so a second
+        request while one is in flight gets ``409 Conflict`` instead of two
+        workers racing on one run.
+
+        :meth:`Store.begin_revalidation` performs the reset atomically: it
+        clears the previous verdict/evidence/error in the same statement that
+        returns the run to ``CREATED`` (a client can never observe a new
+        attempt carrying the old verdict) and increments
+        ``validation_generation`` so any stale worker can no longer write.
         """
         run = self._store.get_run(run_id)
         if run is None:
-            raise ServiceError(f"Run {run_id!r} not found")
+            raise NotFoundError(f"Run {run_id!r} not found")
 
         app = self._store.get_application(run.application_id)
         if app is None:
-            raise ServiceError(f"Application {run.application_id!r} not found")
+            raise NotFoundError(f"Application {run.application_id!r} not found")
 
         candidate_path = app.generated_app_path or app.java_candidate_path
         if app.cobol_source_path is None or candidate_path is None:
             raise ServiceError("Run lacks source or candidate paths for re-validation")
 
-        run.stage = RunStage.CREATED
-        run.completed_at = None
-        run.error = None
-        self._store.update_run(run)
-
-        snapshot = replace(run)
-
-        thread = threading.Thread(
-            target=self._revalidate_background,
-            args=(run_id,),
-            daemon=True,
-            name=f"revalidate-{run_id}",
+        # Resolve the contract BEFORE resetting the run so an unusable
+        # workload cannot destroy the terminal result.
+        contract = resolve_certification_contract(
+            app.workload_id, description=f"API-driven workload for {app.name}"
         )
-        thread.start()
 
-        return snapshot
+        # Slot first: a failed reset must not leave a reserved slot behind,
+        # and a reset must never happen without a worker to finish it.
+        self._acquire_job_slot()
+        try:
+            reset = self._store.begin_revalidation(
+                run_id, certification_contract=contract.contract_id
+            )
+        except Exception:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+            raise
+
+        self._launch("_revalidate_background", (run_id,), name=f"revalidate-{run_id}")
+
+        return reset
 
     def _revalidate_background(self, run_id: str) -> None:
         """Background worker: re-execute validation for a reset run."""
@@ -348,10 +835,7 @@ class Service:
 
         app = self._store.get_application(run.application_id)
         if app is None:
-            run.stage = RunStage.FAILED
-            run.error = f"Application {run.application_id!r} not found"
-            run.completed_at = datetime.now(timezone.utc).isoformat()
-            self._store.update_run(run)
+            self._finish_failed(run, f"Application {run.application_id!r} not found")
             return
 
         try:
@@ -367,11 +851,9 @@ class Service:
             candidate_dir = Path(candidate_path)
             adapter = None
             if (candidate_dir / "pom.xml").exists():
-                from engine.candidate.docker_spring_boot_adapter import (
-                    DockerSpringBootCandidateAdapter,
-                )
+                from engine.candidate.factory import candidate_adapter_for_target
 
-                adapter = DockerSpringBootCandidateAdapter()
+                adapter = candidate_adapter_for_target(app.target_runtime)
             self._run_validation(
                 app, run, candidate_dir, entrypoint, adapter
             )
@@ -383,9 +865,73 @@ class Service:
             run.error = str(exc)
             run.completed_at = datetime.now(timezone.utc).isoformat()
 
-        self._store.update_run(run)
+        self._persist_final(run)
 
     # -- internal -----------------------------------------------------------
+
+    def _resolve_entry_program(self, app: ApplicationRecord) -> str:
+        """Resolve the COBOL entry program id used for Spring Boot assembly.
+
+        ``ApplicationCreate.java_entrypoint`` is a client-supplied string that
+        defaults to the placeholder ``"Main"`` (the frontend never sends it).
+        The assembler only honours it when it matches a discovered COBOL
+        PROGRAM-ID; any unmatched value silently falls back to
+        "invoke every service", which hoists CALL targets to top-level
+        runners, reorders a CALL chain and produces behaviourally wrong Java
+        (surfacing downstream only as a STDOUT MISMATCH).
+
+        Resolution is therefore:
+
+        1. the declared value when it matches a discovered PROGRAM-ID
+           (compared with the assembler's own name normalisation);
+        2. otherwise the single discovered program that no CALL targets;
+        3. otherwise ``""`` — the assembler's existing behaviour, unchanged.
+
+        Never raises: discovery failure degrades to ``""`` rather than
+        failing the run.
+        """
+        declared = (app.java_entrypoint or "").strip()
+        if not app.cobol_source_path:
+            return declared
+
+        try:
+            from api.ingestion import discover_application
+
+            discovery = discover_application(Path(app.cobol_source_path), app.id)
+        except Exception:
+            logger.exception(
+                "Entry-program discovery failed for application %s; "
+                "falling back to the assembler's default",
+                app.id,
+            )
+            return declared
+
+        program_ids = [
+            str(program.get("program_id", ""))
+            for program in discovery.cobol_programs
+            if program.get("program_id")
+        ]
+        if not program_ids:
+            return declared
+
+        def _key(value: str) -> str:
+            return re.sub(r"[-_\s'\"`]+", "", value).upper()
+
+        keys = {_key(pid): pid for pid in program_ids}
+
+        if declared and _key(declared) in keys:
+            return keys[_key(declared)]
+
+        called = {
+            _key(str(edge.get("target", "")))
+            for edge in discovery.call_dependencies
+            if edge.get("target")
+        }
+        roots = [pid for pid in program_ids if _key(pid) not in called]
+        if len(roots) == 1:
+            return roots[0]
+
+        return declared
 
     def _generate_application(
         self,
@@ -411,12 +957,20 @@ class Service:
 
         output_dir = str(Path(tempfile.mkdtemp(prefix=f"pipeline-output-{run.id}-")))
 
+        # Capability analysis must be derived from actual
+        # implementation capability.  The Docker infrastructure component
+        # reflects the real probe (engine.docker_cli) — never a hardcoded
+        # True, which would claim runtime availability on Docker-less
+        # hosts (reporting capability we do not have).
+        docker_available = docker_cli.check_docker_available()
+
         pipeline_config = ModernizationConfig(
             source_dir=app.cobol_source_path,
             output_dir=output_dir,
             application_id=app.id,
-            entrypoint=app.java_entrypoint or "",
-            docker_available=True,
+            entrypoint=self._resolve_entry_program(app),
+            docker_available=docker_available,
+            target_runtime=app.target_runtime,
         )
 
         def _pipeline_progress(phase: str) -> None:
@@ -434,17 +988,30 @@ class Service:
             stage = stage_map.get(phase)
             if stage is not None:
                 run.stage = stage
-                self._store.update_run(run)
+                try:
+                    self._store.update_run(run)
+                except Exception:
+                    logger.exception(
+                        "Failed to persist stage %s for run %s",
+                        stage.value,
+                        run.id,
+                    )
 
         pipeline = UniversalModernizationPipeline(pipeline_config)
-        report = pipeline.execute(progress=_pipeline_progress)
+        try:
+            report = pipeline.execute(progress=_pipeline_progress)
+        except Exception:
+            _cleanup_temp_dir(output_dir)
+            raise
 
         if not report.generation_success:
+            _cleanup_temp_dir(output_dir)
             raise ServiceError(
                 "Pipeline generation failed: " + "; ".join(report.generation_errors)
             )
 
         if not report.generated_project_dir:
+            _cleanup_temp_dir(output_dir)
             limit_detail = "; ".join(report.limitations) if report.limitations else "unknown"
             raise ServiceError(
                 f"Pipeline produced no generated project directory: {limit_detail}"
@@ -492,35 +1059,29 @@ class Service:
     ) -> None:
         """Run the validation pipeline and persist evidence + verdict.
 
-        Canonical selection: DockerSpringBootCandidateAdapter for the
-        generated Spring Boot project (injected by the caller). The
-        internal/test-only uploaded path uses DockerJavaCandidateAdapter
-        via use_docker_java=True. RealJavaCandidateAdapter (host
-        javac/java) is never selected here. If Docker is unavailable the
-        pipeline returns UNAVAILABLE semantics instead of executing on
-        the host.
+        Canonical selection: the build + execute lane is chosen from the
+        application's ``target_runtime`` via
+        :func:`engine.candidate.factory.candidate_adapter_for_target`
+        (spring_boot → the Spring Boot lane; plain_java / jakarta_ee → the
+        generic Maven lane). The internal/test-only uploaded path uses
+        DockerJavaCandidateAdapter via use_docker_java=True.
+        RealJavaCandidateAdapter (host javac/java) is never selected here. If
+        Docker is unavailable the pipeline returns UNAVAILABLE semantics
+        instead of executing on the host.
 
         Comparison/evidence/verdict stay inside the pipeline trust boundary;
         this method only orchestrates and persists the pipeline result.
-        """
-        from engine.workload import WorkloadDefinition, WorkloadArtifact
 
-        workload_def = WorkloadDefinition(
-            workload_id=app.workload_id,
-            description=f"API-driven workload for {app.name}",
-            artifacts=(
-                WorkloadArtifact(
-                    logical_name="stdout",
-                    artifact_type="STDOUT",
-                    comparator_id="stdout-exact",
-                ),
-                WorkloadArtifact(
-                    logical_name="exit-status",
-                    artifact_type="EXIT_STATUS",
-                    comparator_id="exit-status-exact",
-                ),
-            ),
+        The certification contract comes from
+        :func:`api.workload_contract.resolve_certification_contract` — the
+        trusted fixture registry when the workload declares one, otherwise
+        the explicit default — and is recorded on the run record.
+        """
+        contract = resolve_certification_contract(
+            app.workload_id, description=f"API-driven workload for {app.name}"
         )
+        run.certification_contract = contract.contract_id
+        workload_def = contract.workload
 
         config = PipelineConfig(
             workload_id=app.workload_id,
@@ -543,7 +1104,14 @@ class Service:
             stage = phase_to_stage.get(phase)
             if stage is not None:
                 run.stage = stage
-                self._store.update_run(run)
+                try:
+                    self._store.update_run(run)
+                except Exception:
+                    logger.exception(
+                        "Failed to persist stage %s for run %s",
+                        stage.value,
+                        run.id,
+                    )
 
         pipeline = VerticalSlicePipeline(
             config, candidate_adapter=candidate_adapter
@@ -552,21 +1120,169 @@ class Service:
 
         run.evidence_manifest = result.evidence_manifest
         run.verdict = result.verdict
+        self._check_evidence_verdict_consistency(run)
+
+        # Persist the integrated proof computed at validation time so the
+        # read path never re-runs pipelines.  The JCL lane status and the
+        # UniversalModernizationPipeline report are both already available;
+        # revalidation re-persists here so a refreshed verdict never leaves
+        # a stale proof behind.
+        self._persist_integrated_proof(app, run, result)
+
         self._store.update_run(run)
+
+    def _persist_integrated_proof(
+        self,
+        app: ApplicationRecord,
+        run: RunRecord,
+        result,
+    ) -> None:
+        """Compute and store ``run.modernization_report["integrated_proof"]``.
+
+        Fail closed on the reconstruction boundary: without a stored
+        pipeline report there is nothing to prove, so the proof is left
+        absent (the read path answers 404) instead of fabricating one.
+        """
+        from engine.modernization.integrated_proof import runtime_evidence_from_result
+
+        run_report = run.modernization_report or {}
+        facade = _report_facade(run_report)
+        if facade is None:
+            return
+
+        jcl_status = _jcl_status_for_source(app.cobol_source_path)
+        proof = _proof_payload(
+            app.workload_id,
+            facade,
+            runtime_evidence_from_result(result),
+            jcl_status,
+            extra_dependencies=_external_dependency_entries_for_source(
+                app.cobol_source_path
+            ),
+        )
+        run_report["integrated_proof"] = proof
+        # Bind the proof to the validation generation it was computed under:
+        # ``begin_revalidation`` bumps the generation, so a later read treats
+        # this payload as stale and recomputes fail-closed instead of serving
+        # the previous attempt's claims.
+        proof["validation_generation"] = int(run.validation_generation)
+        run_report["jcl_status"] = jcl_status
+        run.modernization_report = run_report
+
+    @classmethod
+    def run_verdict_state(cls, run: RunRecord) -> str | None:
+        """Verdict state for a run summary, served fail-closed.
+
+        Returns ``None`` when no verdict was produced.  When a verdict
+        exists it is only served after the evidence<->verdict consistency
+        check passes (hash-matched manifest pair; VERIFIED without a
+        persisted manifest raises ``PersistenceCorruptionError``), so a
+        summary endpoint can never display an uncertified "VERIFIED".
+        """
+        if run.verdict is None:
+            return None
+        cls._check_evidence_verdict_consistency(run)
+        return str(run.verdict.to_dict().get("state"))
+
+    @staticmethod
+    def _check_evidence_verdict_consistency(run: RunRecord) -> None:
+        """Fail closed when a verdict does not hash-match its evidence.
+
+        When both artifacts are present, the verdict's
+        ``evidence_manifest_hash`` must equal the manifest hash the engine
+        computed; a mismatch means the pair was not produced together (for
+        example a stale verdict surviving a reset).
+
+        A VERIFIED verdict with no persisted evidence manifest has nothing
+        to hash-lock against, so it can never be served as certification:
+        VERIFIED always implies persisted, integrity-sealed evidence.
+        Non-certifying states (UNPROVEN/FAILED/UNAVAILABLE/...) may still
+        be served without a manifest for compatibility.
+        """
+        if run.verdict is None:
+            return
+        if run.evidence_manifest is None:
+            if run.verdict.state == VerdictState.VERIFIED:
+                raise PersistenceCorruptionError(
+                    f"Run {run.id!r} claims VERIFIED without a persisted"
+                    " evidence manifest"
+                )
+            return
+        expected = str(run.evidence_manifest.manifest_hash)
+        actual = str(run.verdict.evidence_manifest_hash)
+        if actual != expected:
+            raise PersistenceCorruptionError(
+                f"Verdict for run {run.id!r} does not match its evidence"
+                " manifest (hash mismatch)"
+            )
+
+    @staticmethod
+    def _require_valid_evidence(run: RunRecord) -> None:
+        """Fail closed when the run's evidence manifest is not integrity valid.
+
+        Evidence must be integrity validated before it is consumed.
+        ``GET /runs/{id}/artifacts`` serves content hashes *derived* from
+        the manifest, so the manifest first passes the trust-boundary
+        admission validator (``EvidenceIntegrityValidator`` — seal, run/
+        workload bindings, comparison-artifact bindings, required
+        evidence).  Any violation raises ``PersistenceCorruptionError``:
+        an artifact list computed from an unvalidated manifest is served
+        as neither integrity-checked nor binding-checked evidence.
+        """
+        from engine.evidence.integrity import (
+            EvidenceIntegrityValidator,
+            ValidatedEvidenceManifest,
+        )
+
+        outcome = EvidenceIntegrityValidator().validate(run.evidence_manifest)
+        if isinstance(outcome, ValidatedEvidenceManifest):
+            return
+        violations = "; ".join(
+            str(getattr(v, "description", None) or v) for v in outcome
+        )
+        raise PersistenceCorruptionError(
+            f"Evidence manifest for run {run.id!r} failed integrity"
+            f" validation: {violations or 'unknown violation'}"
+        )
 
     # -- queries ------------------------------------------------------------
 
     def get_run(self, run_id: str) -> RunRecord:
         rec = self._store.get_run(run_id)
         if rec is None:
-            raise ServiceError(f"Run {run_id!r} not found")
+            raise NotFoundError(f"Run {run_id!r} not found")
         return rec
 
+    def set_run_approval(
+        self,
+        run_id: str,
+        *,
+        decision: str,
+        approver: str,
+        reason: str | None,
+    ) -> RunRecord:
+        """Record a customer approval decision for a run.
+
+        Raises ``NotFoundError`` for unknown runs.  Decision-value and
+        field validation happen at the API boundary; the store re-checks
+        the decision value (fail closed at every layer).
+        """
+        return self._store.set_run_approval(
+            run_id, state=decision, approver=approver, reason=reason
+        )
+
     def get_artifacts(self, run_id: str) -> list[dict]:
-        """Return artifact metadata from the evidence manifest."""
+        """Return artifact metadata from the evidence manifest.
+
+        The evidence manifest is integrity validated first —
+        a manifest whose seal or bindings fail validation raises
+        ``PersistenceCorruptionError`` instead of serving content hashes
+        derived from untrusted evidence.
+        """
         run = self.get_run(run_id)
         if run.evidence_manifest is None:
             return []
+        self._require_valid_evidence(run)
         return [
             {
                 "artifact_id": ae.artifact.artifact_id,
@@ -587,10 +1303,15 @@ class Service:
         with ``GET /runs/{id}`` polling. The engine pipeline mints its own
         internal run ID; it is preserved as ``engine_run_id`` and never
         alters verdict semantics.
+
+        Raises ``NotFoundError`` when no verdict exists yet and
+        ``PersistenceCorruptionError`` when the stored verdict does not
+        hash-match the stored evidence manifest.
         """
         run = self.get_run(run_id)
         if run.verdict is None:
-            raise ServiceError("No verdict available for this run")
+            raise NotFoundError("No verdict available for this run")
+        self._check_evidence_verdict_consistency(run)
         data = dict(run.verdict.to_dict())
         engine_run_id = data.get("run_id")
         data["run_id"] = run.id
@@ -598,13 +1319,21 @@ class Service:
             data["engine_run_id"] = engine_run_id
         else:
             data.setdefault("engine_run_id", None)
+        data["certification_contract"] = run.certification_contract
         return data
 
     def get_comparisons(self, run_id: str) -> list[dict]:
-        """Return comparison details from the evidence manifest."""
+        """Return comparison details from the evidence manifest.
+
+        Comparison evidence is derived from the same stored evidence, so
+        the evidence<->verdict pair check runs here too — a stale or
+        broken pair fails closed instead of serving comparisons beside a
+        verdict they do not belong to.
+        """
         run = self.get_run(run_id)
         if run.evidence_manifest is None:
             return []
+        self._check_evidence_verdict_consistency(run)
         return [
             {
                 "comparison_id": c.comparison_id,
@@ -623,8 +1352,85 @@ class Service:
 
     def list_runs(self, app_id: str) -> list[RunRecord]:
         """Return all runs for an application ordered by creation time."""
-        self.get_application(app_id)  # raise ServiceError for unknown apps
+        self.get_application(app_id)  # raise NotFoundError for unknown apps
         return self._store.list_runs_for_application(app_id)
+
+    def _current_integrated_proof(self, run: RunRecord) -> dict | None:
+        """The run's proof for the *current* validation generation, or None.
+
+        Single derivation shared by both certification read surfaces:
+        ``GET /runs/{id}/proof`` and ``GET /runs/{id}/report`` must serve
+        the same proof — one endpoint can never publish a claim the other
+        would refuse.  Gate order:
+
+        1. no stored pipeline report → nothing provable → ``None``;
+        2. evidence<->verdict pair consistency →
+           ``PersistenceCorruptionError`` (a proof derived from a broken
+           pair is not evidence);
+        3. a persisted payload whose ``validation_generation`` stamp equals
+           the run's current generation is served as-is — no recompute on
+           the read path (legacy unstamped payloads read as generation 0);
+        4. otherwise recompute fail-closed from the run's *current*
+           artifacts, carrying platform dependency edges
+           (``_external_dependency_entries_for_source`` — the recompute
+           path may no longer drop MQ/IMS/DB2/CICS edges the
+           persist path would have served).  When the persisted payload is
+           stale and no pipeline report remains to recompute from,
+           nothing current exists → ``None`` so the caller drops the
+           stale payload instead of serving it.
+        """
+        from engine.modernization.integrated_proof import runtime_evidence_from_result
+
+        run_report = run.modernization_report
+        if run_report is None:
+            return None
+
+        # Gate 1: never serve a proof beside an inconsistent pair.
+        self._check_evidence_verdict_consistency(run)
+
+        proof = run_report.get("integrated_proof")
+        if proof is not None:
+            raw_stamp = proof.get("validation_generation", 0)
+            try:
+                stamped = int(raw_stamp)
+            except (TypeError, ValueError):
+                stamped = -1  # corrupt stamp never matches a generation
+            # Gate 2: only the proof of the current generation is current.
+            if stamped == int(run.validation_generation):
+                return proof
+            # Stale proof: fall through to recompute from current artifacts.
+
+        facade = _report_facade(run_report)
+        if facade is None:
+            return None
+
+        class _ResultFacade:
+            evidence_manifest = run.evidence_manifest
+            verdict = run.verdict
+            oracle_exit_code = None
+            candidate_exit_code = None
+            comparison_evidence = (
+                run.evidence_manifest.comparison_evidence
+                if run.evidence_manifest is not None
+                else ()
+            )
+
+        app = self.get_application(run.application_id)
+        runtime = runtime_evidence_from_result(_ResultFacade())
+        jcl_status = (
+            run_report["jcl_status"]
+            if "jcl_status" in run_report
+            else _jcl_status_for_source(app.cobol_source_path)
+        )
+        return _proof_payload(
+            app.workload_id,
+            facade,
+            runtime,
+            jcl_status,
+            extra_dependencies=_external_dependency_entries_for_source(
+                app.cobol_source_path
+            ),
+        )
 
     def get_run_report(self, run_id: str) -> dict:
         """Return the full modernization report for a run.
@@ -632,13 +1438,60 @@ class Service:
         Contains capability report, transformation plan, limitations,
         and recommendations. Only returned when the universal pipeline
         produced a report — never fabricated.
+
+        The embedded ``integrated_proof`` is never served from
+        cache.  The report surface runs the same trust gates as
+        ``GET /proof`` and embeds only the run's *current* proof — the
+        persisted payload when its generation stamp matches, a fail-closed
+        recompute otherwise, and nothing when no current proof exists
+        (a stale payload is dropped, not published).  The stored report
+        itself is left untouched — this is a read path.
+        """
+        run = self.get_run(run_id)
+        stored = run.modernization_report
+        if stored is None:
+            raise NotFoundError("No modernization report available for this run")
+
+        current = self._current_integrated_proof(run)
+        report = dict(stored)
+        if current is None:
+            report.pop("integrated_proof", None)
+        else:
+            report["integrated_proof"] = current
+        return report
+
+    def get_integrated_proof(self, run_id: str) -> dict:
+        """Return the integrated proof payload for a run.
+
+        Derivation and trust gates are shared with ``GET /report``
+        (``_current_integrated_proof``): primary path is the proof
+        persisted during validation; stale or missing payloads recompute
+        fail-closed from the stored pipeline report + stored
+        verdict/evidence, carrying platform dependency edges.
+        Raises ``NotFoundError`` when the run has no modernization report
+        at all, and a distinct ``NotFoundError`` when the persisted proof
+        belongs to a previous validation generation with no pipeline
+        report left to recompute it from.
         """
         run = self.get_run(run_id)
         if run.modernization_report is None:
-            raise ServiceError(
+            raise NotFoundError(
                 "No modernization report available for this run"
             )
-        return run.modernization_report
+
+        proof = self._current_integrated_proof(run)
+        if proof is None:
+            if (run.modernization_report or {}).get("integrated_proof") is not None:
+                raise NotFoundError(
+                    f"Run {run.id!r} has no current integrated proof: the"
+                    " persisted proof belongs to a previous validation"
+                    " generation and no pipeline report is available to"
+                    " recompute it"
+                )
+            raise NotFoundError(
+                "No modernization report available for this run"
+            )
+        return {"run_id": run.id, "proof": proof}
 
     def get_run_detail(self, run_id: str) -> dict:
         """Return a coherent run-detail payload.
@@ -675,12 +1528,7 @@ class Service:
             except Exception:
                 generated_files = []
 
-        verdict_state: str | None = None
-        if run.verdict is not None:
-            try:
-                verdict_state = str(run.verdict.to_dict().get("state"))
-            except Exception:
-                verdict_state = None
+        verdict_state: str | None = self.run_verdict_state(run)
 
         stage_messages = [run.stage.value]
         if run.error:

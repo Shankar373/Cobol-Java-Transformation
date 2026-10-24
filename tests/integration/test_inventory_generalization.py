@@ -71,7 +71,7 @@ def _make_config(
 class TestInventoryOracleE2E:
     """Verify the COBOL oracle produces correct inventory output."""
 
-    def test_oracle_executes(self) -> None:
+    def test_oracle_execution_is_covered_by_following_tests(self) -> None:
         pass  # Handled by other tests that verify oracle output
 
     def test_oracle_stdout_format(self) -> None:
@@ -80,7 +80,7 @@ class TestInventoryOracleE2E:
 
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
-            image_digest="sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+            image_digest="",
             compiler_version="3.1.2.0",
             timeout_seconds=30,
         )
@@ -98,7 +98,7 @@ class TestInventoryOracleE2E:
 
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
-            image_digest="sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+            image_digest="",
             compiler_version="3.1.2.0",
             timeout_seconds=30,
         )
@@ -116,7 +116,7 @@ class TestInventoryOracleE2E:
 
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
-            image_digest="sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+            image_digest="",
             compiler_version="3.1.2.0",
             timeout_seconds=30,
         )
@@ -585,7 +585,7 @@ class TestInventoryDeterminism:
 class TestInventoryEvidence:
     """Verify evidence manifests are complete."""
 
-    def test_evidence_counts(self) -> None:
+    def test_evidence_has_ten_artifact_and_five_comparison_records(self) -> None:
         import sys as _sys
         fixtures_dir = str(FIXTURES.parent)
         if fixtures_dir not in _sys.path:

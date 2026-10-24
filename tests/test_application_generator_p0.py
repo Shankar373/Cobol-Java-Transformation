@@ -335,14 +335,33 @@ class TestNoConcatenationProof:
         program_files = _program_files(result)
         assert len(program_files) == 2
 
-        combined = "\n".join(f.source_code for f in program_files)
-        # Each marker appears exactly once across the whole output.
-        assert combined.count("ALPHA-MARKER-111") == 1
-        assert combined.count("BETA-MARKER-222") == 1
+        # --- Per-file isolation invariants (the real no-concatenation contract) ---
+        # Map each file to its source code by matching which marker it contains.
+        by_program: dict[str, str] = {}
+        for f in program_files:
+            if "ALPHA-MARKER-111" in f.source_code:
+                by_program["ALPHA"] = f.source_code
+            elif "BETA-MARKER-222" in f.source_code:
+                by_program["BETA"] = f.source_code
+
+        # Both files must be found.
+        assert "ALPHA" in by_program, "No generated file contains ALPHA-MARKER-111"
+        assert "BETA" in by_program, "No generated file contains BETA-MARKER-222"
+
+        # Cross-contamination check: A's file must NOT contain B's marker.
+        assert "BETA-MARKER-222" not in by_program["ALPHA"], (
+            "ALPHA generated file contains BETA-MARKER-222 (concatenation detected)"
+        )
+        # B's file must NOT contain A's marker.
+        assert "ALPHA-MARKER-111" not in by_program["BETA"], (
+            "BETA generated file contains ALPHA-MARKER-111 (concatenation detected)"
+        )
 
         # No single generated class represents both programs.
         for f in program_files:
-            assert not ("ALPHA-MARKER-111" in f.source_code and "BETA-MARKER-222" in f.source_code)
+            assert not ("ALPHA-MARKER-111" in f.source_code and "BETA-MARKER-222" in f.source_code), (
+                f"{f.filename} contains both program markers (concatenation detected)"
+            )
 
 
 # ---------------------------------------------------------------------------

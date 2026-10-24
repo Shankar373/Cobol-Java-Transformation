@@ -1,0 +1,17 @@
+feat: integrated application proof gate and fail-closed negative scenarios
+
+Phase D TASK 4 joins the modernization report, the runtime lane evidence and
+the non-runtime lanes (JCL/DB2/CICS) into one dependency ledger whose central
+status gate can only downgrade (engine/modernization/integrated_proof.py).
+
+Cross-lane defects fixed while proving the join:
+- file dependency extraction matched verbs inside REWRITE/DELETE/START and
+  inside literals/comments; record names now resolve to their owning FD
+- WRITE of a record name no longer guesses the file from -REC naming
+- COBOL '=' on string literals maps to String.equals, never reference ==
+
+Adds fixtures/workload-integrated (JCL + MAIN + copybook + CALL + LINE
+SEQUENTIAL file), 22 positive proof tests and 25 negative scenario tests
+covering missing copybook, missing/arity-mismatched CALL, BY VALUE/BY
+CONTENT gap, INDEXED file, unavailable candidate, unsupported JCL, DB2 and
+CICS, plus gate invariants that keep central status NOT_VERIFIED.

@@ -1,4 +1,4 @@
-"""COPYBOOK semantic materialization — M7 (Lane C).
+"""COPYBOOK semantic materialization.
 
 Upgrades COPYBOOK handling from dependency-only metadata to semantic
 content, reusing existing IR structures:
@@ -15,12 +15,12 @@ no model class ever carries business-logic methods or a ``main`` method,
 and ``.cpy`` files are never fed to program discovery (established
 behaviour, locked in by tests).
 
-Conflict note: this module only ADDS isolated pieces. It imports from —
-but never modifies — the FRNC-owned files (parser, IR, mappings, Spring
-IR/generator). Pipeline wiring is specified in ``INTEGRATION`` below for
-the owning lane.
+Integration note: this module only ADDS isolated pieces. It imports
+from — but never modifies — the shared parser, IR, mapping, and Spring
+IR/generator modules. Pipeline wiring is specified in ``INTEGRATION``
+below (``INTEGRATION = __doc__``) for whoever wires this in.
 
-REQUIRED INTERFACE (for the owning lane — signatures to add there):
+REQUIRED INTERFACE (signatures the wiring code has to provide):
 
   1. ``CobolParser.parse_data_description_lines(lines: list[str])
        -> list[DataItem]``
@@ -36,31 +36,38 @@ REQUIRED INTERFACE (for the owning lane — signatures to add there):
 
      ``materialize_application_copybooks`` is specified here (pure,
      ``dataclasses.replace``-based) but intentionally NOT implemented
-     here: constructing a new ``CobolApplication`` touches discovery-owned
-     assembly semantics. The per-program primitive it needs,
+     here: constructing a new ``CobolApplication`` touches assembly
+     semantics owned by application discovery. The per-program
+     primitive it needs,
      ``materialize_copybooks_into_program``, IS implemented here.
 
   3. ``map_copybook_model_to_java_class(model, package) -> JavaClass``:
      specified here as ``build_copybook_model_class`` (implemented, reuses
-     ``map_cobol_data_items_to_fields``). The owning lane calls it once
+     ``map_cobol_data_items_to_fields``). The wiring code calls it once
      per ``plan_shared_models`` entry and appends the class to the
      ``JavaApplication`` model set — never to the executable program set,
      and entrypoint resolution must exclude ``*Record`` model classes.
 
   4. Spring Boot: carry each model ``JavaClass`` into
-     ``SpringBootApplication`` (new ``models`` field, Spring-IR lane) and
-     emit under ``model/`` via the Spring generator (Spring-generator
-     lane). ``rendered_model_path`` below fixes the canonical path so all
-     lanes agree without further coordination.
+     ``SpringBootApplication`` (new ``models`` field in the Spring IR)
+     and emit it under ``model/`` in the generated project.
+     ``rendered_model_path`` below fixes the canonical path so every
+     side agrees without further coordination.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from engine.transformation.copybook_resolver import ResolvedCopybook
+from engine.transformation.copybook_resolver import (
+    AmbiguousCopybookError,
+    CopybookResolutionError,
+    ResolvedCopybook,
+    resolve_copybook,
+)
 from engine.transformation.ir import CobolProgram, DataItem
 
 INTEGRATION = __doc__
@@ -100,11 +107,584 @@ def parse_copybook(path: str | Path) -> CopybookModel:
     OCCURS / group-hierarchy semantics as program parsing) without
     duplicating or modifying it. Copybook sources contain only data
     description entries, so no division scanning is required.
+
+    This is the *flat* parse: a copybook that itself contains ``COPY``
+    statements must go through ``_parse_copybook_expanded`` (the
+    application-preparation path), which resolves and expands nested COPY
+    statements first.  See ``_expand_copybook_text``.
     """
     from engine.transformation.cobol_parser import CobolParser
 
     src = Path(path)
     text = src.read_text(encoding="utf-8")
+    items = CobolParser().parse_data_description_lines(text.splitlines())
+    return CopybookModel(
+        name=src.stem.upper(), source_path=str(src), records=tuple(items)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Nested COPY expansion (COPY statements inside copybook content)
+# ---------------------------------------------------------------------------
+#
+# A COPY statement written *inside* a copybook is a real dependency.
+# ``parse_data_description_lines`` deliberately ignores non-data lines, so
+# without an expansion pass the nested target and its declarations silently
+# disappeared: generation reported ``success=True`` while emitting Java that
+# referenced fields it never declared (plan READY, capability SUPPORTED, no
+# diagnostic).  Expansion happens in memory only — COBOL sources are read,
+# never rewritten and never concatenated (no-concatenation contract).
+
+_COPY_STATEMENT = re.compile(
+    r"(?<![\w\-])COPY\s+(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z0-9][A-Za-z0-9_-]*))",
+    re.IGNORECASE,
+)
+# Comment lines: free format (``*`` after optional blanks) *and* fixed format
+# with a 6-column sequence number before the ``*``/``/`` indicator column.
+_COMMENT_LINE = re.compile(r"(?m)^(?:[ \t]*|\d{1,6}[ \t]*)[*/].*$")
+
+
+def _mask_inline_comment(line: str) -> str:
+    """Blank an unquoted ``*>`` inline comment on one line, length-preserving.
+
+    Quote-aware: a ``*>`` *inside* a VALUE literal (e.g. ``VALUE "*>"``) is
+    data, never a comment — blanking it would corrupt literal pairing in the
+    statement scan.
+    """
+    quote = ""
+    i = 0
+    length = len(line)
+    while i < length:
+        ch = line[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == ">" and i > 0 and line[i - 1] == "*":
+            return line[: i - 1] + " " * (length - i + 1)
+        i += 1
+    return line
+
+
+def _mask_comments(text: str) -> str:
+    """Blank comment lines and unquoted ``*>`` inline comments, preserving offsets.
+
+    Length is unchanged, so match positions computed on the masked text are
+    valid for the original text.
+    """
+    text = _COMMENT_LINE.sub(lambda m: " " * len(m.group(0)), text)
+    return "\n".join(_mask_inline_comment(line) for line in text.split("\n"))
+
+
+def _at_statement_start(text: str, pos: int) -> bool:
+    """True when ``pos`` begins a COBOL statement.
+
+    A statement starts at the beginning of the source or after ``.``/``;``,
+    with only blanks, line breaks, and — in fixed format — the 6-column
+    sequence-number field of intervening lines in between.  Guards against
+    treating the word ``COPY`` inside a VALUE literal, a data-name, or the
+    tail of an unterminated entry as a dependency.
+    """
+    i = pos - 1
+    while i >= 0:
+        ch = text[i]
+        if ch in " \t\r\n":
+            i -= 1
+            continue
+        if ch in ".;":
+            return True
+        if ch.isdigit():
+            # Walk back over a run of digits; accept it as a sequence-number
+            # field only when it sits at the start of its line.
+            j = i
+            digits = 0
+            while j >= 0 and text[j].isdigit() and digits < 6:
+                j -= 1
+                digits += 1
+            k = j
+            while k >= 0 and text[k] in " \t":
+                k -= 1
+            if k < 0 or text[k] in "\r\n":
+                i = k  # sequence field consumed; keep scanning backwards
+                continue
+            return False  # digits belong to the preceding entry, not a boundary
+        return False
+    return True
+
+
+def _statement_end(text: str, pos: int) -> int:
+    """Index just past the period terminating the statement at ``pos``.
+
+    Periods inside string literals do not terminate a statement, so a
+    ``REPLACING`` clause (pseudo-text operands) is consumed together with
+    its ``COPY`` statement.
+    """
+    i = pos
+    quote = ""
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == ".":
+            return i + 1
+        i += 1
+    return len(text)
+
+
+def _find_copy_statements(text: str) -> list[tuple[int, int, str]]:
+    """Locate COPY statements in copybook text.
+
+    Returns ``(start, end, target)`` spans in source order; ``end`` is just
+    past the statement's terminating period.  Comments are masked first and
+    every match must sit at statement position (see ``_at_statement_start``).
+    """
+    masked = _mask_comments(text)
+    spans: list[tuple[int, int, str]] = []
+    consumed_to = 0
+    for match in _COPY_STATEMENT.finditer(masked):
+        if match.start() < consumed_to:
+            continue  # already inside a previous (malformed) COPY statement
+        if not _at_statement_start(masked, match.start()):
+            continue
+        target = match.group(1) or match.group(2) or match.group(3)
+        if not target or target.upper() == "REPLACING":
+            continue
+        end = _statement_end(masked, match.end())
+        spans.append((match.start(), end, target))
+        consumed_to = end
+    return spans
+
+
+def _expand_copybook_text(
+    path: Path,
+    search_dirs: tuple[Path, ...],
+    chain: tuple[str, ...],
+    diagnostics: list[CopybookDiagnostic],
+) -> str:
+    """Copybook text with every nested COPY statement replaced by the expanded
+    text of its target, at the statement's own position (group hierarchy and
+    sibling order are preserved).
+
+    Fail-closed contract — a nested target that is missing, ambiguous,
+    unreadable (filesystem error *or* non-UTF-8 decode failure), or part
+    of a cycle appends an ``ERROR`` diagnostic (which fails generation
+    with the message surfaced verbatim) and the statement is skipped:
+    never silently dropped, never expanded twice, never recursed
+    without bound.  ``chain`` holds the ancestor copybook stems of the
+    current expansion path (cycle scope), and is empty only at the top
+    level, where a read or decode failure is re-raised so the caller
+    reports it verbatim as ``COPYBOOK_UNREADABLE``.
+    """
+    stem = path.stem.upper()
+    try:
+        text = _strip_sequence_numbers(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError) as exc:
+        # UnicodeDecodeError (a ValueError, not an OSError) must take the
+        # exact same fail-closed path as a filesystem error.
+        if not chain:
+            raise
+        diagnostics.append(
+            CopybookDiagnostic(
+                level="ERROR",
+                code="COPYBOOK_UNREADABLE",
+                message=f"Copybook {stem} at {path}: {exc}",
+            )
+        )
+        return ""
+
+    spans = _find_copy_statements(text)
+    if not spans:
+        return text
+
+    masked = _mask_comments(text)
+    pieces: list[str] = []
+    cursor = 0
+    for start, end, target in spans:
+        pairs, clause_error = _parse_replacing_clause(masked[start:end])
+        if clause_error is not None:
+            code, message = clause_error
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code=code,
+                    message=f"{message} (in copybook {stem})",
+                )
+            )
+            cursor = end
+            continue
+        pieces.append(text[cursor:start])
+        cursor = end
+        target_key = target.upper()
+        if target_key == stem or target_key in chain:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_CYCLE",
+                    message=(
+                        "Cyclic COPY reference: "
+                        + " -> ".join((*chain, stem, target_key))
+                    ),
+                )
+            )
+            continue
+        try:
+            resolved = resolve_copybook(
+                target, search_dirs, program_id=f"copybook {stem}"
+            )
+        except AmbiguousCopybookError as exc:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_AMBIGUOUS",
+                    message=(
+                        f"Ambiguous COPY target {target!r} in copybook {stem}: "
+                        + ", ".join(str(c) for c in exc.candidates)
+                    ),
+                )
+            )
+            continue
+        except CopybookResolutionError:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_UNRESOLVED",
+                    message=f"Missing COPY target: {target} (in copybook {stem})",
+                )
+            )
+            continue
+        pieces.append(
+            _apply_replacing(
+                _expand_copybook_text(
+                    resolved.path, search_dirs, (*chain, stem), diagnostics
+                ),
+                tuple(pairs),
+            )
+        )
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+def collect_copybook_texts(
+    path: Path,
+    search_dirs: tuple[Path, ...],
+) -> tuple[tuple[tuple[Path, str], ...], tuple[CopybookDiagnostic, ...]]:
+    """Per-file texts of a copybook and every nested COPY target.
+
+    Collected for the capability scan: analysis must see the same files
+    generation merges.
+
+    Returns ``(files, diagnostics)`` where ``files`` holds ``(path, text)``
+    for the top-level copybook first, then each reachable nested target in
+    deterministic depth-first order.  Resolution reuses the same strict
+    resolver and search directories as generation, so the file set matches
+    what ``_expand_copybook_text`` merges; a missing, ambiguous, unreadable
+    (filesystem error or non-UTF-8 decode failure) or cyclic nested target
+    appends the same ``ERROR`` diagnostic (naming the parent copybook) and
+    its file is simply absent — never silently expanded, never recursed
+    without bound.  ``REPLACING`` pairs are
+    irrelevant for construct scanning and are not applied.  Sequence
+    numbers are stripped exactly as at generation time.  Capability
+    analysis scans these texts so constructs inside nested copybooks
+    cannot escape the verdict.
+    """
+    files: list[tuple[Path, str]] = []
+    diagnostics: list[CopybookDiagnostic] = []
+
+    def _walk(current: Path, chain: tuple[str, ...]) -> None:
+        stem = current.stem.upper()
+        try:
+            text = _strip_sequence_numbers(current.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError) as exc:
+            diagnostics.append(CopybookDiagnostic(
+                level="ERROR",
+                code="COPYBOOK_UNREADABLE",
+                message=f"Copybook {stem} at {current}: {exc}",
+            ))
+            return
+        files.append((current, text))
+        spans = _find_copy_statements(text)
+        if not spans:
+            return
+        masked = _mask_comments(text)
+        for start, end, target in spans:
+            target_key = target.upper()
+            if target_key == stem or target_key in chain:
+                diagnostics.append(CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_CYCLE",
+                    message=(
+                        "Cyclic COPY reference: "
+                        + " -> ".join((*chain, stem, target_key))
+                    ),
+                ))
+                continue
+            try:
+                resolved = resolve_copybook(
+                    target, search_dirs, program_id=f"copybook {stem}"
+                )
+            except AmbiguousCopybookError as exc:
+                diagnostics.append(CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_AMBIGUOUS",
+                    message=(
+                        f"Ambiguous COPY target {target!r} in copybook {stem}: "
+                        + ", ".join(str(c) for c in exc.candidates)
+                    ),
+                ))
+                continue
+            except CopybookResolutionError:
+                diagnostics.append(CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_UNRESOLVED",
+                    message=f"Missing COPY target: {target} (in copybook {stem})",
+                ))
+                continue
+            _walk(resolved.path, (*chain, stem))
+
+    _walk(Path(path), ())
+    return tuple(files), tuple(diagnostics)
+
+
+_FIXED_FORMAT_LINE = re.compile(r"^(\d{6})(.)(.*)$")
+
+
+def _strip_sequence_numbers(text: str) -> str:
+    """Normalize fixed-format lines before scanning/parsing.
+
+    Mirrors ``CobolParser.parse`` (which strips the 6-column sequence
+    number and column-7 indicator of fixed-format sources): a line whose
+    first six characters are digits loses its sequence field, and ``*``/
+    ``/`` indicator lines become blank.  Without this the data-description
+    regex (``^\\d{1,2}\\s+NAME``) never matches sequence-numbered lines
+    and every declaration in a fixed-format copybook is silently lost.
+    Free-format lines (no six-digit prefix) are returned unchanged.
+    """
+    out: list[str] = []
+    for line in text.split("\n"):
+        cleaned = line.lstrip() if len(line) > 6 else line
+        m = _FIXED_FORMAT_LINE.match(cleaned)
+        if m and m.group(2) in ("*", "/"):
+            out.append("")  # comment line
+        elif m:
+            out.append(m.group(3).lstrip())
+        else:
+            out.append(cleaned)
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# COPY ... REPLACING clause
+# ---------------------------------------------------------------------------
+#
+# ``COPY x REPLACING ==&TAG== BY ==WS-NAME== …`` is the standard mechanism
+# for parameterized copybooks.  Initially the expansion consumed the
+# clause span but never applied it: pseudo-text names are not
+# valid data-names, so the copybook's entries parsed to nothing and the
+# program silently lost every declaration while generation reported
+# ``success=True`` (plan READY, capability SUPPORTED).  The clause grammar
+# below is the single source of truth for what is applied; anything it
+# cannot apply fails closed with an explicit diagnostic naming
+# ``REPLACING`` — an unapplied clause is never allowed to proceed
+# silently.  The capability analyzer imports the same parser so its
+# verdict can never drift from what materialization actually does.
+
+_REPLACING_KEYWORD = re.compile(r"\bREPLACING\b", re.IGNORECASE)
+_BY_KEYWORD = re.compile(r"\bBY\b", re.IGNORECASE)
+_COBOL_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+# Phrase forms of the clause we do not implement (IBM/enterprise
+# extensions).  They are recognised only to fail closed with a diagnostic
+# naming them — never applied partially, never silently dropped.
+_UNSUPPORTED_REPLACING_PHRASES = ("LEADING", "TRAILING", "PARTIAL")
+
+
+def _parse_replacing_clause(
+    stmt: str,
+) -> tuple[list[tuple[str, str]], tuple[str, str] | None]:
+    """Parse the REPLACING clause of one COPY statement.
+
+    Returns ``(pairs, error)``.  ``pairs`` is empty when the statement has
+    no REPLACING clause; ``error`` is ``None`` on success and otherwise a
+    ``(code, message)`` pair whose code is ``COPYBOOK_REPLACING_UNSUPPORTED``
+    (recognised phrase/operand form we do not apply) or
+    ``COPYBOOK_REPLACING_MALFORMED`` (clause does not parse), with the
+    message naming ``REPLACING``.
+
+    Supported operand forms: pseudo-text ``==...==`` pairs (possibly
+    multi-line) and COBOL-word operands, multiple pairs, case-insensitive.
+    Unsupported (fail closed): ``LEADING``/``TRAILING``/``PARTIAL``
+    phrases, ``+``/``-`` prefixed operands, literal (quoted) operands — a
+    pattern that lives inside quotes can never be matched safely by the
+    unquoted-text substitution, so it is never applied.
+    """
+    match = _REPLACING_KEYWORD.search(stmt)
+    if not match:
+        return [], None
+    body = stmt.rstrip()
+    if body.endswith("."):
+        body = body[:-1]
+    length = len(body)
+    pos = match.end()
+    pairs: list[tuple[str, str]] = []
+
+    def _skip_ws(i: int) -> int:
+        while i < length and body[i] in " \t\r\n":
+            i += 1
+        return i
+
+    def _read_operand(i: int) -> tuple[str | None, int, tuple[str, str] | None]:
+        if i >= length:
+            return None, i, (
+                "COPYBOOK_REPLACING_MALFORMED",
+                "REPLACING clause ended where an operand was expected",
+            )
+        ch = body[i]
+        if ch in "+-":
+            return None, i, (
+                "COPYBOOK_REPLACING_UNSUPPORTED",
+                f"REPLACING prefixed operand {ch!r} is not applied",
+            )
+        if ch in "'\"":
+            return None, i, (
+                "COPYBOOK_REPLACING_UNSUPPORTED",
+                "REPLACING literal (quoted) operand is not applied",
+            )
+        if body.startswith("==", i):
+            end = body.find("==", i + 2)
+            if end < 0:
+                return None, i, (
+                    "COPYBOOK_REPLACING_MALFORMED",
+                    "REPLACING pseudo-text operand is not terminated by ==",
+                )
+            operand = body[i + 2 : end].strip()
+            if not operand:
+                return None, i, (
+                    "COPYBOOK_REPLACING_MALFORMED",
+                    "REPLACING pseudo-text operand is empty",
+                )
+            return operand, end + 2, None
+        word_match = _COBOL_WORD.match(body, i)
+        if not word_match:
+            return None, i, (
+                "COPYBOOK_REPLACING_MALFORMED",
+                f"REPLACING clause has an unexpected token {body[i:i + 12]!r}",
+            )
+        word = word_match.group(0)
+        if word.upper() in _UNSUPPORTED_REPLACING_PHRASES:
+            return None, i, (
+                "COPYBOOK_REPLACING_UNSUPPORTED",
+                f"REPLACING {word.upper()} phrase is not applied",
+            )
+        return word, word_match.end(), None
+
+    while True:
+        pos = _skip_ws(pos)
+        if pos >= length:
+            break
+        left, pos, error = _read_operand(pos)
+        if error:
+            return pairs, error
+        pos = _skip_ws(pos)
+        by_match = _BY_KEYWORD.match(body, pos)
+        if not by_match:
+            return pairs, (
+                "COPYBOOK_REPLACING_MALFORMED",
+                "REPLACING clause is missing the BY keyword between operands",
+            )
+        pos = _skip_ws(by_match.end())
+        right, pos, error = _read_operand(pos)
+        if error:
+            return pairs, error
+        pairs.append((left, right))
+    if not pairs:
+        return pairs, (
+            "COPYBOOK_REPLACING_MALFORMED",
+            "REPLACING clause contains no operand pairs",
+        )
+    return pairs, None
+
+
+def _apply_replacing(text: str, pairs: tuple[tuple[str, str], ...]) -> str:
+    """Substitute REPLACING operands into copybook text (single pass, in memory).
+
+    Bounded, documented semantics:
+
+    * *simultaneous* — at every position the first pair (clause order)
+      whose pattern matches wins, and the inserted replacement text is
+      never rescanned for further matches;
+    * case-insensitive with COBOL word boundaries: a pattern never matches
+      inside a longer word (word characters and ``-`` bound a match);
+    * quoted literals are copied verbatim — a tag inside ``'...'`` /
+      ``"..."`` is data, never substituted (the same reason literal
+      operands are rejected as patterns);
+    * comment lines were already masked away by the statement scan; this
+      function never touches files (expansion stays in-memory only).
+    """
+    if not pairs:
+        return text
+    compiled = [
+        (
+            re.compile(
+                r"(?<![\w-])" + re.escape(pattern) + r"(?![\w-])",
+                re.IGNORECASE,
+            ),
+            replacement,
+        )
+        for pattern, replacement in pairs
+    ]
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    quote = ""
+    while i < n:
+        ch = text[i]
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch in "'\"":
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        for cre, replacement in compiled:
+            m = cre.match(text, i)
+            if m:
+                out.append(replacement)
+                i = m.end()
+                break
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def _parse_copybook_expanded(
+    path: str | Path,
+    search_dirs: tuple[Path, ...],
+    diagnostics: list[CopybookDiagnostic],
+    replacing: tuple[tuple[str, str], ...] = (),
+) -> CopybookModel:
+    """Parse a copybook with nested COPY statements resolved and expanded.
+
+    Provenance stays on the top-level file (``name``/``source_path``);
+    nested targets contribute their declarations at the COPY statement's
+    position and any problem becomes an ERROR diagnostic on ``diagnostics``.
+    ``replacing`` holds the already-validated REPLACING pairs from the
+    caller's COPY statement; they are applied to the fully-expanded text
+    (nested targets included) before data parsing — see ``_apply_replacing``
+    for the bounded substitution semantics.
+    """
+    from engine.transformation.cobol_parser import CobolParser
+
+    src = Path(path)
+    text = _expand_copybook_text(src, search_dirs, (), diagnostics)
+    text = _apply_replacing(text, replacing)
     items = CobolParser().parse_data_description_lines(text.splitlines())
     return CopybookModel(
         name=src.stem.upper(), source_path=str(src), records=tuple(items)
@@ -118,12 +698,16 @@ def parse_copybook(path: str | Path) -> CopybookModel:
 def materialize_copybooks_into_program(
     program: CobolProgram,
     models: Mapping[str, CopybookModel],
+    program_models: Mapping[tuple[str, str], CopybookModel] | None = None,
 ) -> tuple[CobolProgram, tuple[CopybookDiagnostic, ...]]:
     """Give a program's semantic model access to its copybook-defined fields.
 
     For every name in ``program.copybooks`` (case-insensitive lookup into
     ``models``), the copybook's level-01 records are appended to the
-    program's ``working_storage``. The COBOL source is never rewritten and
+    program's ``working_storage``.  ``program_models`` (optional, keyed by
+    ``(program_id, copybook_name)``) carries the clause-parameterized
+    parses and takes precedence over ``models`` for the owning
+    program. The COBOL source is never rewritten and
     files are never concatenated; the ``copybooks`` tuple (provenance:
     program -> copybook dependency) is preserved unchanged.
 
@@ -189,7 +773,17 @@ def materialize_copybooks_into_program(
         return replace(item, children=tuple(kept_children))
 
     for ref_name in program.copybooks:
-        model = models.get(ref_name.upper())
+        # A clause-parameterized parse (keyed by
+        # (program, copybook)) takes precedence over the shared cache,
+        # so a program that copied with REPLACING never merges the
+        # unsubstituted shared model.
+        model = None
+        if program_models:
+            model = program_models.get(
+                (program.program_id.upper(), ref_name.upper())
+            )
+        if model is None:
+            model = models.get(ref_name.upper())
         if model is None:
             diagnostics.append(
                 CopybookDiagnostic(
@@ -219,7 +813,7 @@ def materialize_copybooks_into_program(
                 existing.add(leaf.name.upper())
                 merged.append(leaf)
 
-    return replace(program, working_storage=tuple(merged), linkage_section=program.linkage_section, using_parameters=program.using_parameters), tuple(diagnostics)
+    return replace(program, working_storage=tuple(merged)), tuple(diagnostics)
 
 
 # ---------------------------------------------------------------------------
@@ -242,16 +836,51 @@ class CopybookPreparation:
         return tuple(d.message for d in self.diagnostics if d.level == "ERROR")
 
 
+def _unit_replacing_pairs(
+    unit,
+) -> tuple[
+    dict[str, tuple[tuple[str, str], ...]],
+    list[tuple[str, str, str]],
+]:
+    """Extract per-target REPLACING pairs from a program's own COPY statements.
+
+    The clause lives in the *program* source (``COPY x REPLACING …``), not
+    in the copybook file, so it must be read from the unit and applied when
+    that unit's copybook reference is materialized.  When the same program
+    copies the same target more than once with different clauses, the first
+    statement's pairs win (documented bound).  Clause errors are returned
+    as ``(target, code, message)`` for the caller to bind to materialized
+    refs.
+    """
+    pairs_by_target: dict[str, tuple[tuple[str, str], ...]] = {}
+    errors: list[tuple[str, str, str]] = []
+    source = unit.source_text or ""
+    if not source or not _REPLACING_KEYWORD.search(source):
+        return pairs_by_target, errors
+    masked = _mask_comments(source)
+    for start, end, target in _find_copy_statements(source):
+        pairs, error = _parse_replacing_clause(masked[start:end])
+        key = target.upper()
+        if error is not None:
+            errors.append((key, error[0], error[1]))
+            continue
+        if pairs and key not in pairs_by_target:
+            pairs_by_target[key] = tuple(pairs)
+    return pairs_by_target, errors
+
+
 def prepare_application_copybooks(
     application, source_root=None
 ) -> CopybookPreparation:
     """Resolve + parse + merge copybooks for a discovered application.
 
-    Search directories: ``source_root`` (the ingested source tree) when
-    given — preferred, because unit ``source_path`` values are stored
-    relative to the discovery root. Otherwise each unit's source path is
-    resolved against the current working directory. COBOL sources are
-    only read, never written.
+    Search directories: when ``source_root`` (the ingested source
+    tree) is given, the search set is exactly the shared deterministic
+    authority ``copybook_resolver.copybook_search_dirs`` that discovery
+    uses, so a reference discovered as RESOLVED is found here too, in every
+    layout either side accepts.  Only in the legacy no-``source_root`` path
+    is each unit's source-path parent used (resolved against the current
+    working directory). COBOL sources are only read, never written.
 
     Returns materialized application + diagnostics + shared-model plans +
     built model classes. Callers must treat ``has_errors`` as a
@@ -259,6 +888,7 @@ def prepare_application_copybooks(
     verbatim — never a silent fallback to unmaterialized programs.
     """
     from engine.transformation.copybook_resolver import (
+        copybook_search_dirs,
         resolve_application_copybooks,
     )
     from engine.transformation.ir import CobolApplication
@@ -268,12 +898,14 @@ def prepare_application_copybooks(
     if source_root is not None:
         root = Path(source_root)
         if root.is_dir():
-            search_dirs.append(root)
+            search_dirs.extend(copybook_search_dirs(root))
     for unit in application.programs:
         if unit.program is None:
             continue  # unparseable unit: generator's empty check owns this
         for cb in unit.copybooks:
             refs.append((unit.program_id, cb.copybook_name))
+        if source_root is not None:
+            continue  # parity with discovery: the shared authority only
         candidate = Path(unit.source_path)
         if not candidate.is_absolute():
             candidate = Path.cwd() / candidate
@@ -292,20 +924,65 @@ def prepare_application_copybooks(
         for m in missing
     ]
 
-    models: dict[str, CopybookModel] = {}
-    for ref in resolved:
-        key = ref.copybook_name.upper()
-        if key not in models:
-            try:
-                models[key] = parse_copybook(ref.path)
-            except OSError as exc:
+    # Per-program REPLACING pairs: the clause lives in the
+    # program's COPY statement, so a clause-parameterized copybook parses
+    # per (program, target).  Its merged IR is per-program correct, and no
+    # shared model plan is registered for it — substituted content is
+    # program-specific, so the shared-class dedup contract stays untouched.
+    # Clause diagnostics bind only to refs discovery actually recorded
+    # (a clause on a COPY we never recorded materializes nothing).
+    recorded = {(p.upper(), n.upper()) for p, n in refs}
+    unit_pairs: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {}
+    for unit in application.programs:
+        if unit.program is None:
+            continue
+        program_id = unit.program_id.upper()
+        pairs_by_target, clause_errors = _unit_replacing_pairs(unit)
+        for target, pairs in pairs_by_target.items():
+            if (program_id, target) in recorded:
+                unit_pairs[(program_id, target)] = pairs
+        for target, code, message in clause_errors:
+            if (program_id, target) in recorded:
                 diagnostics.append(
                     CopybookDiagnostic(
                         level="ERROR",
-                        code="COPYBOOK_UNREADABLE",
-                        message=f"COPY {ref.copybook_name} at {ref.path}: {exc}",
+                        code=code,
+                        message=f"{message} (in program {unit.program_id})",
                     )
                 )
+
+    models: dict[str, CopybookModel] = {}
+    program_models: dict[tuple[str, str], CopybookModel] = {}
+    for ref in resolved:
+        key = ref.copybook_name.upper()
+        pair_key = (ref.program_id.upper(), key)
+        pairs = unit_pairs.get(pair_key)
+        cache: dict = program_models if pairs else models
+        cache_key: object = pair_key if pairs else key
+        if cache_key in cache:
+            continue
+        try:
+            # Expanded parse: nested COPY statements inside the copybook
+            # are resolved against the same search directories and their
+            # declarations merged at the COPY statement's position
+            # (missing/cyclic/ambiguous nested targets fail closed with
+            # an explicit diagnostic); the caller's validated
+            # REPLACING pairs are applied to the fully-expanded text
+            # before data parsing.
+            cache[cache_key] = _parse_copybook_expanded(
+                ref.path,
+                tuple(search_dirs),
+                diagnostics,
+                replacing=pairs or (),
+            )
+        except (OSError, UnicodeError) as exc:
+            diagnostics.append(
+                CopybookDiagnostic(
+                    level="ERROR",
+                    code="COPYBOOK_UNREADABLE",
+                    message=f"COPY {ref.copybook_name} at {ref.path}: {exc}",
+                )
+            )
 
     merged_units = []
     for unit in application.programs:
@@ -313,7 +990,7 @@ def prepare_application_copybooks(
             merged_units.append(unit)
             continue
         merged_program, merge_diags = materialize_copybooks_into_program(
-            unit.program, models
+            unit.program, models, program_models
         )
         diagnostics.extend(merge_diags)
         merged_units.append(replace(unit, program=merged_program))
@@ -451,15 +1128,15 @@ def plan_shared_models(
 # ---------------------------------------------------------------------------
 
 def build_copybook_model_class(plan: CopybookModelPlan):
-    """Build the shared model ``JavaClass`` for a plan (REQUIRED-INTERFACE 3).
+    """Build the shared model ``JavaClass`` for a plan.
 
-    Reuses ``map_cobol_data_items_to_fields`` so copybook fields get the
-    identical Java types/defaults as program WORKING-STORAGE fields, then
-    converts them to private instance state with public accessors. The
-    class carries data only: no business-logic methods, no ``main``.
+    Implements interface 3 of the REQUIRED INTERFACE list in the module
+    docstring.  Reuses ``map_cobol_data_items_to_fields`` so copybook
+    fields get the identical Java types/defaults as program
+    WORKING-STORAGE fields, then converts them to private instance
+    state with public accessors.  The class carries data only: no
+    business-logic methods, no ``main``.
     """
-    from dataclasses import replace as dc_replace
-
     from engine.transformation.cobol_to_java_mapping import (
         map_cobol_data_items_to_fields,
     )
@@ -477,7 +1154,7 @@ def build_copybook_model_class(plan: CopybookModelPlan):
 
     static_fields = map_cobol_data_items_to_fields(plan.fields)
     fields = tuple(
-        dc_replace(f, is_static=False, modifiers=("private",))
+        replace(f, is_static=False, modifiers=("private",))
         for f in static_fields
     )
 
@@ -524,6 +1201,7 @@ def build_copybook_model_class(plan: CopybookModelPlan):
             JavaConstructor(class_name=plan.class_name, parameters=()),
         ),
         modifiers=("public",),
+        source_copybook=plan.copybook_name,
     )
 
 

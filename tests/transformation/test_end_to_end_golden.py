@@ -155,7 +155,7 @@ class TestNegativeGolden:
     limitation that Phase 5F architecture is designed to address.
     """
 
-    def test_threshold_mutation_does_not_change_java(self):
+    def test_threshold_mutation_updates_threshold_literal_and_changes_generated_java(self):
         """SOURCE-DRIVEN: Threshold mutation now changes generated Java.
 
         The generator reads the threshold from the parsed IR (ThresholdRule).
@@ -177,7 +177,7 @@ class TestNegativeGolden:
         assert "THRESHOLD = 1000" in java2
         assert java1 != java2
 
-    def test_status_code_mutation_does_not_change_java(self):
+    def test_status_code_mutation_updates_status_literal_and_changes_generated_java(self):
         """STATUS CODE MUTATION IS NOW PROPAGATED: IR-driven generator.
 
         The generator extracts status codes from the COBOL IF/MOVE patterns.

@@ -25,11 +25,6 @@ class WorkloadExecutionError(RuntimeError):
     """Raised when a workload statement cannot be executed."""
 
 
-def _execute_workload_sql(db: Db2ControlledDatabase, stmt) -> Db2SqlStatus | None:
-    """Execute one non-cursor, non-singleton statement, returning status."""
-    return db.execute(stmt).status
-
-
 def run_db2_workload(
     cobol_text: str,
     program_id: str,
@@ -47,6 +42,8 @@ def run_db2_workload(
 
     ``statement_bindings`` supplies input host-variable values in the order
     of ``model.statements``; an empty dict is used for any missing entry.
+    Cursor queries bind their host variables at ``OPEN`` — the values
+    belong in the ``OPEN`` statement's entry.
     """
     model = Db2SemanticAnalyzer().analyze_program(
         program_id,
@@ -54,6 +51,11 @@ def run_db2_workload(
             SqlParser().parse_embedded_sql(sql)
             for sql in extract_embedded_sql_blocks(cobol_text)
         ),
+        # Forward the program's SQLCA field names: without them the
+        # model's sqlcode_field/sqlstate_field stayed empty regardless of
+        # what the caller declared.
+        sqlcode_field=sqlcode_field,
+        sqlstate_field=sqlstate_field,
     )
     db = controlled_class()
     db.create_schema(ddl_text)
@@ -82,7 +84,10 @@ def run_db2_workload(
             if stmt.statement_type == "OPEN_CURSOR" and cursor_name not in holders:
                 raise WorkloadExecutionError(f"OPEN before DECLARE: {cursor_name}")
             operation = "OPEN" if stmt.statement_type == "OPEN_CURSOR" else "CLOSE"
-            trace(operation, db.execute(stmt).status, name=cursor_name)
+            # Query host variables bind at OPEN: the OPEN
+            # statement's bindings entry supplies the cursor query values.
+            trace(operation, db.execute(stmt, bindings=stmt_bindings).status,
+                  name=cursor_name)
             continue
         if stmt.statement_type == "FETCH_CURSOR":
             cursor_name = _cursor_name(stmt)

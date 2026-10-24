@@ -45,7 +45,11 @@ from engine.evidence.models import (
     EvidenceManifest,
     ExecutionEvidence,
 )
-from engine.verdict.derivation import derive_verdict
+from engine.verdict.derivation import (
+    derive_verdict,
+    derive_verdict_untrusted,
+    derive_verdict_validated,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -75,8 +79,8 @@ def _exec(
         stdout_hash=_h(f"stdout-{exec_id}"),
         stderr_hash=_h(f"stderr-{exec_id}"),
         generated_files={},
-        source_tree_hash_before=_h("before"),
-        source_tree_hash_after=_h("after"),
+        source_tree_hash_before=_h("source-tree"),
+        source_tree_hash_after=_h("source-tree"),
         termination_status=status,
         timeout_applied=timeout,
     )
@@ -137,8 +141,8 @@ def _manifest(
     candidate_source_hash_str: str | None = None,
     oracle_execs: tuple[ExecutionEvidence, ...] | None = None,
     candidate_execs: tuple[ExecutionEvidence, ...] | None = None,
-    artifacts: tuple[ArtifactEvidence, ...] = (),
-    comparisons: tuple[ComparisonEvidence, ...] = (),
+    artifacts: tuple[ArtifactEvidence, ...] | None = None,
+    comparisons: tuple[ComparisonEvidence, ...] | None = None,
     include_candidate: bool = True,
     oracle_id_str: str = "gnucobol-3.1.2",
     oracle_digest: str = "sha256:" + "a" * 64,
@@ -152,6 +156,16 @@ def _manifest(
         candidate_execs = (_exec(run_id, "candidate-exec-1", runtime_id="candidate-java"),)
 
     cand_source_hash = candidate_source_hash_str if candidate_source_hash_str is not None else source_hash_str
+
+    if artifacts is None:
+        artifacts = (
+            _art_ev("art-o", "STDOUT", "ORACLE", "output-data", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "output-data", "candidate-exec-1"),
+        )
+    if comparisons is None:
+        comparisons = (
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
+        )
 
     return EvidenceManifest(
         manifest_version="1.0",
@@ -205,7 +219,7 @@ class TestAdversarial01_TamperedComparisonResult:
     but the content_hash of the comparison detects the tampering.
     """
 
-    def test_tampered_comparison_detected(self):
+    def test_tampered_comparison_result_still_passes_structural_validation(self):
         run_id = RunId(value="run-tamper-comp")
 
         # Real comparison is MISMATCH; forged comparison claims MATCH
@@ -245,7 +259,7 @@ class TestAdversarial02_ReplacedArtifactContent:
     doesn't have), content hash verification requires the content.
     """
 
-    def test_replaced_content_detected_by_hash(self):
+    def test_replaced_artifact_content_still_validates_without_byte_check(self):
         run_id = RunId(value="run-replace-content")
         # Create artifact with specific content_hash
         art = _art_ev("art-o", "STDOUT", "ORACLE", "original-hash", "oracle-exec-1")
@@ -255,7 +269,16 @@ class TestAdversarial02_ReplacedArtifactContent:
         # Validator checks structural bindings, not byte-level content.
         # The manifest_hash covers content_hash fields, so any change
         # to the hash field changes the manifest integrity.
-        manifest = _manifest(run_id=run_id, artifacts=(art,))
+        manifest = _manifest(
+            run_id=run_id,
+            artifacts=(
+                art,
+                _art_ev("art-c", "STDOUT", "CANDIDATE", "candidate-hash", "candidate-exec-1"),
+            ),
+            comparisons=(
+                _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
+            ),
+        )
 
         result = validator.validate(manifest)
         assert isinstance(result, ValidatedEvidenceManifest)
@@ -301,8 +324,13 @@ class TestAdversarial03_CrossRunArtifactReplay:
                 input_id="inp", stdin_hash=_h("inp"),
             ),
             execution_evidence=(oracle_b, candidate_b),
-            artifact_evidence=(stolen_artifact,),
-            comparison_evidence=(),
+            artifact_evidence=(
+                stolen_artifact,
+                _art_ev("art-shared-c", "STDOUT", "CANDIDATE", "data-b", "candidate-exec-1"),
+            ),
+            comparison_evidence=(
+                _comp(run_b, result="MATCH", oracle_id="art-shared-id", candidate_id="art-shared-c"),
+            ),
         )
 
         result = validator.validate(manifest)
@@ -420,7 +448,7 @@ class TestAdversarial06_ChangedWorkloadId:
     execution evidence is bound to run_id.
     """
 
-    def test_changed_workload_id_detected(self):
+    def test_changed_workload_id_changes_integrity_hash(self):
         run_id = RunId(value="run-changed-wl")
 
         # Create a valid manifest for workload A
@@ -601,7 +629,7 @@ class TestAdversarial10_ChangedOracleDigest:
     that oracle execution evidence exists.
     """
 
-    def test_changed_oracle_digest_detected(self):
+    def test_changed_oracle_digest_changes_integrity_hash(self):
         run_id = RunId(value="run-oracle-digest")
 
         manifest = _manifest(
@@ -788,7 +816,7 @@ class TestAdversarial14_TamperedControlledInput:
     so the integrity hash changes.
     """
 
-    def test_tampered_input_detected(self):
+    def test_tampered_controlled_input_changes_integrity_hash(self):
         run_id = RunId(value="run-input-tamper")
 
         manifest = _manifest(run_id=run_id)
@@ -827,7 +855,7 @@ class TestAdversarial15_MutatedArtifactOwnership:
     content_hash remains consistent.
     """
 
-    def test_mutated_ownership_detected(self):
+    def test_valid_artifact_ownership_passes_validation(self):
         run_id = RunId(value="run-ownership")
 
         art_oracle = _art_ev("art-o", "STDOUT", "ORACLE", "data", "oracle-exec-1")
@@ -902,7 +930,7 @@ class TestAdversarial17_ForgedManifestHash:
     so any tampering is detected.
     """
 
-    def test_forged_hash_detected(self):
+    def test_recomputed_forged_manifest_changes_integrity_hash(self):
         run_id = RunId(value="run-forged-hash")
 
         manifest = _manifest(run_id=run_id)
@@ -948,7 +976,7 @@ class TestAdversarial18_ReplaySameArtifactIdsDifferentOwnership:
     The run binding catches this because execution_id must match.
     """
 
-    def test_replay_same_ids_different_ownership(self):
+    def test_artifact_replayed_across_runs_rejected_cross_run(self):
         run_a = RunId(value="run-A-replay-ids")
         run_b = RunId(value="run-B-replay-ids")
 
@@ -958,6 +986,9 @@ class TestAdversarial18_ReplaySameArtifactIdsDifferentOwnership:
             artifacts=(
                 _art_ev("art-shared-id", "STDOUT", "ORACLE", "data-a", "oracle-exec-1"),
                 _art_ev("art-shared-c", "STDOUT", "CANDIDATE", "data-a", "candidate-exec-1"),
+            ),
+            comparisons=(
+                _comp(run_a, result="MATCH", oracle_id="art-shared-id", candidate_id="art-shared-c"),
             ),
         )
 
@@ -987,23 +1018,29 @@ class TestAdversarial18_ReplaySameArtifactIdsDifferentOwnership:
                 input_id="inp", stdin_hash=_h("inp"),
             ),
             execution_evidence=(
-                _exec(run_b, "oracle-exec-1"),  # Same exec_id but different run_id
-                _exec(run_b, "candidate-exec-1", runtime_id="candidate-java"),
+                _exec(run_b, "oracle-exec-B"),
+                _exec(run_b, "candidate-exec-B", runtime_id="candidate-java"),
             ),
-            artifact_evidence=(stolen_artifact,),
-            comparison_evidence=(),
+            artifact_evidence=(
+                stolen_artifact,
+                _art_ev("art-shared-c", "STDOUT", "CANDIDATE", "data-b", "candidate-exec-B"),
+            ),
+            comparison_evidence=(
+                _comp(run_b, result="MATCH", oracle_id="art-shared-id", candidate_id="art-shared-c"),
+            ),
         )
 
         # Manifest A validates
         result_a = validator.validate(manifest_a)
         assert isinstance(result_a, ValidatedEvidenceManifest)
 
-        # Manifest B validates (oracle-exec-1 is in its execution evidence)
+        # Manifest B must reject the stolen artifact because its execution belongs to run A.
         result_b = validator.validate(manifest_b)
-        assert isinstance(result_b, ValidatedEvidenceManifest)
-
-        # But they produce different integrity hashes
-        assert result_a.integrity_hash != result_b.integrity_hash
+        assert isinstance(result_b, list)
+        assert any(
+            violation.violation_type == ViolationType.CROSS_RUN_REPLAY
+            for violation in result_b
+        )
 
 
 class TestAdversarial19_OmittedRequiredEvidence:
@@ -1046,7 +1083,7 @@ class TestAdversarial20_VerdictDeriverRemainsPure:
     """Prove that VerdictDeriver does not accept raw evidence directly
     in the production path. The pipeline calls validator first."""
 
-    def test_verdict_deriver_pure(self):
+    def test_clean_manifest_validates_then_derives_verified_separately(self):
         """VerdictDeriver.derive() is still a pure function.
         The validator is called separately in the pipeline."""
         run_id = RunId(value="run-pure")
@@ -1092,13 +1129,23 @@ class TestPositiveWorkloads:
             ),
         )
 
-    @pytest.mark.parametrize("wl", ["payroll", "inventory", "claims", "indexed", "relative"])
+    @pytest.mark.parametrize(
+        "wl",
+        ["payroll", "inventory", "claims", "indexed", "relative"],
+        ids=["workload-payroll", "workload-inventory", "workload-claims",
+             "workload-indexed", "workload-relative"],
+    )
     def test_valid_workload_validates(self, wl: str):
         manifest = self._valid_manifest(wl)
         result = validator.validate(manifest)
         assert isinstance(result, ValidatedEvidenceManifest)
 
-    @pytest.mark.parametrize("wl", ["payroll", "inventory", "claims", "indexed", "relative"])
+    @pytest.mark.parametrize(
+        "wl",
+        ["payroll", "inventory", "claims", "indexed", "relative"],
+        ids=["workload-payroll", "workload-inventory", "workload-claims",
+             "workload-indexed", "workload-relative"],
+    )
     def test_valid_workload_verdict_verified(self, wl: str):
         manifest = self._valid_manifest(wl)
         verdict = derive_verdict(manifest)
@@ -1169,9 +1216,15 @@ class TestManifestHashStrengthened:
         run_id = RunId(value="run-hash-art")
         m1 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data1", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
         m2 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data2", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
         assert m1.manifest_hash != m2.manifest_hash
 
@@ -1219,9 +1272,15 @@ class TestIntegrityHashCoversEvidenceGraph:
         run_id = RunId(value="run-integ-art")
         m1 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data1", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
         m2 = _manifest(run_id=run_id, artifacts=(
             _art_ev("art-o", "STDOUT", "ORACLE", "data2", "oracle-exec-1"),
+            _art_ev("art-c", "STDOUT", "CANDIDATE", "data", "candidate-exec-1"),
+        ), comparisons=(
+            _comp(run_id, result="MATCH", oracle_id="art-o", candidate_id="art-c"),
         ))
 
         r1 = validator.validate(m1)
@@ -1279,25 +1338,26 @@ class TestPipelineTrustBoundary:
     """Prove that the production pipeline cannot produce VERIFIED
     when evidence has integrity violations.
 
-    These tests replicate the pipeline's trust-boundary logic:
+    These tests drive the pipeline's ACTUAL trust-boundary admission
+    (engine/pipeline.py:649-659):
     1. validate(manifest)
-    2. If violations → derive_verdict → override VERIFIED to ERROR
-    3. If valid → derive_verdict (natural verdict)
+    2. If violations → derive_verdict_untrusted (VERIFIED clamped to ERROR)
+    3. If valid → derive_verdict_validated (natural verdict)
 
-    This is the exact code path in engine/pipeline.py:480-506.
+    P2-j truth note: this replica previously cited a stale location
+    (engine/pipeline.py:480-506) and called raw ``derive_verdict``, which
+    no longer matches the production path — it now exercises the same
+    admission + derivation functions the pipeline calls.
     """
 
     def _pipeline_trust_boundary(self, manifest: EvidenceManifest) -> VerdictState:
-        """Replicate the pipeline's trust-boundary enforcement logic."""
+        """Drive the exact admission + derivation path the pipeline uses."""
         validation_result = validator.validate(manifest)
         if isinstance(validation_result, list):
-            verdict = derive_verdict(manifest)
-            if verdict.state == VerdictState.VERIFIED:
-                return VerdictState.ERROR
-            return verdict.state
+            verdict = derive_verdict_untrusted(manifest, validation_result)
         else:
-            verdict = derive_verdict(manifest)
-            return verdict.state
+            verdict = derive_verdict_validated(validation_result)
+        return verdict.state
 
     def test_forged_all_match_structurally_valid(self):
         """Forged manifest with valid structural bindings + all MATCH
