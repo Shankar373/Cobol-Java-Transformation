@@ -132,6 +132,70 @@ class TestProbeFailClosedEdges:
         assert cap.level == CapabilityLevel.UNAVAILABLE
 
 
+class TestUnsupportedWorkloadStaysUnsupportedWithDocker:
+    """Runtime availability cannot upgrade an unsupported workload.
+
+    Docker being present must not turn an out-of-scope construct into a
+    claim of support: capability reflects the *workload* capability too.
+    """
+
+    def _program_with_out_of_scope_statement(self):
+        from engine.transformation.ir import (
+            CobolProgram,
+            CobolProgramUnit,
+            Paragraph,
+        )
+
+        class UnrecognizedStatement:
+            """An IR node no transformer claims (stands in for out-of-scope)."""
+
+            def __init__(self) -> None:
+                self.value = "future-cics-command"
+
+        program = CobolProgram(program_id="OUTSIDE", paragraphs=(
+            Paragraph(name="MAIN", statements=(UnrecognizedStatement(),)),
+        ))
+        return CobolApplication(application_id="APP", programs=(
+            CobolProgramUnit(
+                program_id="OUTSIDE",
+                source_path="MAIN.cob",
+                program=program,
+            ),
+        ))
+
+    def test_docker_present_does_not_upgrade_unsupported(self):
+        report = CapabilityAnalyzer(docker_available=True).analyze(
+            self._program_with_out_of_scope_statement()
+        )
+        cap = _program_component(report)
+        assert cap.level == CapabilityLevel.UNSUPPORTED
+        assert "Unrecognized/unmapped IR statement" in cap.reason
+
+    def test_unparseable_program_is_unsupported_not_supported(self):
+        from engine.transformation.ir import CobolProgramUnit, Paragraph
+
+        app = CobolApplication(application_id="APP", programs=(
+            CobolProgramUnit(
+                program_id="BROKEN",
+                source_path="MAIN.cob",
+                program=None,
+                parse_error="COBOL01 unexpected token",
+            ),
+        ))
+        report = CapabilityAnalyzer(docker_available=True).analyze(app)
+        cap = _program_component(report)
+        assert cap.level == CapabilityLevel.UNSUPPORTED
+        assert "Failed to parse program" in cap.reason
+
+    def test_docker_flag_never_forces_unsupported_to_supported(self):
+        """The regression guard: availability is necessary, never sufficient."""
+        app = self._program_with_out_of_scope_statement()
+        with_docker = CapabilityAnalyzer(docker_available=True).analyze(app)
+        assert _program_component(with_docker).level is not (
+            CapabilityLevel.SUPPORTED
+        )
+
+
 class TestModernizationConfigIsFailClosedByDefault:
     """Constructing the pipeline without a probe must not assert Docker."""
 

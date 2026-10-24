@@ -39,15 +39,37 @@
 > moved `b8a5499..90b5452` (2 commits: `393ac13` P1 BigDecimal numeric
 > fidelity, `90b5452` build artifacts/test outputs) — verified by fetch;
 > **CI at `90b5452`: SystemaOps CI #634/#633 SUCCESS, Supply chain #216/#215
-> SUCCESS** (GitHub API, 2026-10-23T13:41Z). The local working tree is
-> behind origin by 2 and overlaps it in three files
-> (`test_call_passing_modes_runtime_proof.py`,
-> `test_copybook_capability_transitivity.py`,
-> `test-artifacts/docker-image-provenance.json`) with locally differing
-> text — reconciliation is an explicit operator decision; **no pull, merge
-> or checkout was performed**. Local verification results below apply to
-> HEAD `b8a5499` + the local working tree; the origin engine delta was
-> validated only by its own CI run. Historical local baselines from 2026-10-22 — the **453**-test
+> SUCCESS** (GitHub API, 2026-10-23T13:41Z). **Reconciliation executed
+> 2026-10-24 (operator-directed):** the local branch (`010f70d`) was merged
+> with `origin/codex/universal-core` (`b8a5499..90b5452`) via
+> `git merge --no-commit --no-ff`, with all three overlapping files resolved
+> explicitly — `test_call_passing_modes_runtime_proof.py` → origin's stricter
+> version (BY VALUE must fail closed to `UNAVAILABLE`; matches
+> `engine/verdict/derivation.py`, where an oracle `nonzero_exit` derives
+> `UNAVAILABLE`), `test_copybook_capability_transitivity.py` → local version
+> (same `PARTIAL` assertions, richer certified-subset comments),
+> `test-artifacts/docker-image-provenance.json` → origin's (identical
+> digests, newer `recorded_at`; the superseded local working-tree edit is
+> preserved in the operator's temp backup). Every untracked artifact was
+> preserved byte-identically (blob hashes compared before merge; the six
+> shared-name files were backed up, removed, and restored from origin).
+> Merge committed as `9df18ac`. **Post-reconciliation full-suite
+> verification (2026-10-24, `RUN_DOCKER_TESTS=1 pytest tests -q -p
+> no:randomly --junitxml=test-artifacts/final-reconciled-backend-junit.xml`):
+> **4185 passed, 0 failed, 0 skipped, 0 errors, exit 0** (2877.55 s) with the
+> three pinned images — including oracle source-format (14), file
+> write/read artifact proof (15), generated-Java JCL compile (2), call-mode
+> runtime proof (20), copybook runtime (29), numeric oracle (6), payroll
+> (29), claims (42), security (31) and R1 hardening (15), all 0 failed.
+> `tests/test_docker_capability_truth.py` (17 tests, P0 Docker-capability
+> fail-closed coverage incl. probe timeout/OSError and unsupported workload)
+> was created after collection in that run and passes standalone (17
+> passed, exit 0). Frontend (2026-10-24): `tsc -b && vite build` exit 0;
+> vitest **160 passed** (15 files). CI has not yet run for `9df18ac`; no CI
+> claim is made for it here. Local verification results in the rows below
+> were produced at HEAD `b8a5499` + the local working tree (2026-10-23);
+> the origin engine delta (`393ac13`) is additionally covered by the
+> 2026-10-24 post-merge run above. Historical local baselines from 2026-10-22 — the **453**-test
 > Docker-gated run (0 failed, exit 0, 1996.45 s; JUnit XML and identity
 > evidence in `test-artifacts/runtime-image-audit-2026-10-22/`, analysed in
 > `docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md` §5.2) and the

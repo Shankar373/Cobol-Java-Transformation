@@ -6604,6 +6604,42 @@ criteria/tests, verification level and evidence location.
     prerequisites), BL-131 (MQ license/entitlement — ask first), BL-132
     (IBM registries UNAUTHORIZED), BL-133 (no verifiable MVS runtime).
 
+- 2026-10-24 — **(bh) Release reconciliation + P0 Docker-capability
+  fail-closed hardening: local/origin divergence resolved, full suite 4185
+  passed / 0 failed (exit 0) on the merged tree.**
+  Reconciled `codex/universal-core` (local `010f70d`) with
+  `origin/codex/universal-core` (`393ac13` BigDecimal fidelity + `90b5452`
+  artifacts) using `git merge --no-commit --no-ff`; the three overlapping
+  files were resolved explicitly (call-modes → origin's stricter BY VALUE
+  `UNAVAILABLE` fail-closed, matching `derivation.py`; copybook-transitivity
+  → local `PARTIAL` assertions with comments; docker provenance → origin's
+  newer `recorded_at` with identical digests, superseded local edit
+  retained in operator backup). All untracked evidence preserved
+  byte-identically (pre-merge blob-hash comparison; six shared-name files
+  backed up and restored). Merge committed as `9df18ac`.
+  - **New P0 coverage `tests/test_docker_capability_truth.py` (17 tests,
+    exit 0):** Docker available→SUPPORTED, unavailable→UNAVAILABLE (and
+    never SUPPORTED), probe timeout/FileNotFound/OSError→UNAVAILABLE,
+    unsupported workload stays UNSUPPORTED with Docker present,
+    `ModernizationConfig.docker_available` default flipped fail-open `True`
+    → fail-closed `False` (only runtime-validation call sites omitted it),
+    and `_generate_application` pinned to the live `docker_cli` probe (no
+    hardcoded `True`). The new tests caught one live fail-open:
+    `check_docker_available` propagated a generic `OSError` (broken daemon
+    socket) instead of returning False — fixed in `engine/docker_cli.py`.
+  - **Evidence (2026-10-24):** full backend suite `RUN_DOCKER_TESTS=1` →
+    **4185 passed / 0 failed / 0 skipped, exit 0**, 2877.55 s,
+    `test-artifacts/final-reconciled-backend-junit.xml` + `.log`
+    (the new P0 file postdates collection in that run; verified standalone
+    17/17); capability-truth CI gate selection **761 passed** exit 0;
+    numeric-fidelity trio **107 passed**; frontend `tsc -b && vite build`
+    exit 0 and vitest **160 passed** (15 files).
+  - **Preserved invariants:** no LLM; no test weakened/deleted/skipped; BY
+    VALUE never claimed SUPPORTED/VERIFIED; VSAM file-image equivalence
+    never claimed; IBM lanes (BL-130…BL-133) unchanged and BLOCKED; no
+    push performed without operator review; `tests/fixtures/call_byref/prog`
+    left untracked per prior policy.
+
 ## Phase 0 closure metadata and carry-forward register (Master README §§53, 77)
 
 This register supplies the explicit owner/role, target phase, dependency, residual risk, reason, and acceptance criteria required for every backlog item. “Owner” is a responsible role, not a claim that a named individual has accepted assignment. Closed items retain their historical evidence above; open items remain carried forward and are not silently waived.
