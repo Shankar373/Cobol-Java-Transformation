@@ -111,7 +111,7 @@ Approved plan items P0-1…P0-4 + verification ladder + docs.
 | 6 | Java compilation (`integration/test_docker_java`, `transformation/test_claims_transformation`, `RUN_DOCKER_TESTS=1`) | **44 passed, exit 0, 71.9 s** |
 | 7 | Docker proofs (`tests/integration` + container hardening, `RUN_DOCKER_TESTS=1`) | **445 passed, 4 skipped, exit 0, 1492.67 s (24:52)** |
 | 9 | Frontend (`npm test` / `npm run build`) | **160 passed, exit 0, 11.1 s** / **exit 0 (vite build OK)** |
-| 8 | Full backend (`RUN_DOCKER_TESTS=1 pytest tests --junitxml=…`) | third attempt running (launched 2026-10-26 12:23 with streaming output; attempt 1 killed by the 15:21 host restart at 530 tests/failures=0, attempt 2 killed by a 75-min harness timeout with pipe-buffered output) — final numbers recorded in this block when it completes |
+| 8 | Full backend (`RUN_DOCKER_TESTS=1 pytest tests --junitxml=…`) | **COMPLETED 2026-10-26 (attempt 4) — NOT GREEN: `25 failed, 4271 passed, 2 skipped, 4 warnings, 5 errors in 5387.67s (1:29:47)`, exit 1.** JUnit `test-artifacts/p0-final-backend-junit.xml` (tests=4303, failures=25, errors=5, skipped=2). Attempts 1–3 were killed externally with **0 failures** in everything they covered — 15:21 host restart (530 tests), 75-min harness timeout with buffered output, 12:40 host restart (524 tests, `time=1019s`); partials preserved as `*.interrupted-restart*.xml`, not evidence. Failure clusters: oracle-identity `ValueError`/`exit_code None` (~11), Maven/Java timeouts (~5), plan-`non-transformable`/stuck-`CREATED` (~6), seal 409 in `test_e2e` (1), claims/indexed assertions. vs baseline `final-reconciled-backend-junit.xml` (4185 tests, 0 failures): **29 of 30 non-green passed there, 1 absent, 0 failing there** — all new vs the verified baseline. Isolation re-run of the 12 affected files in progress to separate load from deterministic regression |
 
 - **Step 10 — exact-SHA CI:** baseline `ff3c8ec…` re-verified via GitHub
   API: **14/14 checks success** (Push runs 40074198359 + 40074198377, PR runs
@@ -145,6 +145,55 @@ test suites (`test_container_hardening`, `test_upload_hostile_paths`,
 `test_evidence_substitution`, `test_production_auth_env`). Secret/temp-path
 scan of the diff: clean. Untracked evidence (`test-artifacts/**`, PROLEAP
 evaluation doc, probe fixtures) deliberately NOT staged (D-4).
+
+### Post-push confirmation (2026-10-26 12:33 IST)
+
+- Commit **`c0c4f9bb3be7abbb5f8aeffdab57de467d3fc639`** on
+  `codex/universal-core` — 33 files, +1971/−31 (27 modified + 6 new);
+  push `ff3c8ec..c0c4f9b` exit 0, branch in sync with
+  `origin/codex/universal-core`.
+- PR #2: head now `c0c4f9b…`, state **open, `merged: false`** (249
+  commits; `mergeable_state=unstable` while checks run). No tag, no
+  force-push, no merge — fast-forward head update only.
+- Exact-SHA CI at `c0c4f9b…` **FINAL (observed via GitHub API)**:
+  `SystemaOps CI` runs **639** (push) and **640** (PR) → **failure**;
+  Supply-chain runs **221** (push) + **222** (PR) → **success**.
+  Job breakdown (both CI runs): `Capability truth gate` **failure** (11 s,
+  failed step `Verify capability truth`), `Backend and COBOL/Java Docker
+  tests` **failure** (18 min / 23 min, failed step `Run backend, oracle,
+  and integration tests`), Frontend ✓, Phase 1 ingestion ✓. CI job logs
+  are admin-only (HTTP 403) — diagnosis done by local reproduction.
+- **Gate failure root-caused + fixed (my P0-4 addition, 2026-10-26):**
+  reproduced in a clean pytest-only venv
+  (`C:\Users\bandi\AppData\Local\Temp\opencode\gatevenv`, pytest 9.1.1,
+  mirroring CI's `pip install pytest`): `1 failed, 777 passed` —
+  `tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded`
+  does `from api import service` → `api/models.py` →
+  `ModuleNotFoundError: No module named 'pydantic'`. The gate installs
+  **pytest only by design (BL-012)**; local full-deps runs had hidden it
+  (778 passed). Fix: explicit `--deselect` of that one API-layer test in
+  the gate's `ci.yml` list with a comment block — test code untouched, and
+  the test stays fully enforced by the backend job (whole-suite run), where
+  attempt 4 executed it **passed**. Verified in both environments:
+  venv gate **777 passed, 1 deselected, exit 0**; full-deps gate **777
+  passed, 1 deselected, exit 0**; bash `run:`-block structure re-executed
+  from the extracted YAML (comment + continuations parse clean).
+- **Backend-job failure:** CI ran the same full suite this tree runs
+  locally; local full run's 30 non-green tests (see step-8 row) are the
+  working hypothesis; CI job log/artifact download requires admin auth
+  (403), so exact CI test names are NOT claimed — pending the post-fix
+  CI run and the local isolation result below.
+- Second host restart at **12:40** (same day) aborted this record's first
+  append and killed local step-8 attempt 3 (524 tests, failures=0,
+  `time=1019s` → preserved as
+  `test-artifacts/p0-final-backend-junit.interrupted-restart-2026-10-26.xml`);
+  attempt 4 relaunched 12:41. CI runs on GitHub-hosted runners are
+  unaffected by local host restarts — now the primary verification lane.
+- Local step-8 attempt 4 **completed 14:11** (numbers in the step-8 row).
+  Isolation re-run of the 12 affected test files launched after it
+  (`RUN_DOCKER_TESTS=1`, `--junitxml=test-artifacts/p0-failures-isolation-junit.xml`,
+  242 items) to classify the 30 non-green tests as environmental/load vs
+  deterministic regression — result pending, not claimed.
 
 ## Session: P0 audit re-verification — all three P0 blockers already fixed, confirming full-suite re-run, runtime proof, ProLeap evaluation (2026-10-23, HEAD `b8a5499`, working tree preserved)
 

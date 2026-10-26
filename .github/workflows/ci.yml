@@ -34,6 +34,12 @@ jobs:
         # COBOL/Java image build (BL-012).
         run: |
           set -o pipefail
+          # Note: tests/test_docker_capability_truth.py contains one API-layer
+          # source-contract test (test_service_layer_probes_live_not_hardcoded)
+          # that imports api.service, which requires pydantic. This gate
+          # deliberately installs pytest only (BL-012 - no hidden runtime-stack
+          # coupling), so that single test is deselected here and remains
+          # enforced by the backend job, which runs the full suite.
           python -m pytest -q \
             tests/transformation/test_capability_registry_reconciliation.py \
             tests/transformation/test_capability_walker_depth.py \
@@ -89,7 +95,8 @@ jobs:
             tests/test_utilities_vsam_detection.py \
             tests/test_external_dependency_edges.py \
             tests/test_runtime_adapter_architecture.py \
-            tests/test_docker_capability_truth.py
+            tests/test_docker_capability_truth.py \
+            --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics
