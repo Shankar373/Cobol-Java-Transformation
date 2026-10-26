@@ -48,7 +48,9 @@ after the commands.
 ```bash
 # 1. Backend (FastAPI control plane, port 8000; auth OFF by default —
 #    set CONTROL_PLANE_API_TOKEN to require a bearer token on every route
-#    except /health)
+#    except /health; CONTROL_PLANE_ENV=production FAILS CLOSED without
+#    that token — startup error plus 401 on every non-/health route,
+#    wired into docker-compose.production.yml and start-production.sh)
 python -m pip install -r requirements.lock
 python -m uvicorn api.app:app --port 8000
 

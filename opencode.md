@@ -8,6 +8,144 @@
 > every older statement that it "remains UNSUPPORTED/blocked at FILE-CONTROL"
 > is historical and is annotated in place.
 
+## Session: P0 production hardening — non-root containers, production auth fail-closed, upload safety, evidence-seal, capability truth (2026-10-24 session; **committed + pushed 2026-10-26 on operator authorization**, verified baseline `ff3c8ecbeb3feed14f2c04e0bd7137eeed2a6bae`)
+
+Held as an uncommitted working tree all session until the operator's explicit
+instruction "check once and push it" (2026-10-26 12:32) authorized the
+commit/push and superseded this session's standing no-push rule: the batch is
+committed on top of `ff3c8ec…` and pushed to `origin/codex/universal-core` as
+a fast-forward head update of PR #2 — **PR #2 not merged**, no tag, no
+force-push, no reset/clean; untracked evidence deliberately left untracked
+(D-4). All results below were executed on this host (Windows, Docker Desktop
+29.8.2) with exact commands cited; nothing is claimed as passed without a run.
+Approved plan items P0-1…P0-4 + verification ladder + docs.
+
+### P0-1 — container hardening (all `docker run` sites, non-root)
+
+- Shared helper `engine/execution/container_hardening.py` (new):
+  `container_run_hardening_flags(lane)` = `--security-opt
+  no-new-privileges=true --cap-drop ALL --user 10001:10001`;
+  `NON_ROOT_EXEMPT_LANES` **empty** (no silent root fallback);
+  `prepare_host_tree(path, writable=…)` best-effort POSIX chmod of host
+  staging trees (o+r[X], o+w when writable) so uid 10001 can read/write them.
+- All **10 run sites** hardened: oracle adapter (+prepared `/workspace`
+  base mount), docker_java_adapter (java probe, javac, exec),
+  docker_spring_boot_adapter (java probe, maven probe, build, exec),
+  producer `opensource4j.py`, deprecated `docker_runner.py`.
+  The new drift guard (`tests/test_container_hardening.py`) immediately
+  caught a missed site during development (java `_detect_java_version`
+  probe) — proof the guard works.
+- `Dockerfile.maven-offline`: precache RUN now ends `chmod 755 /root &&
+  chmod -R a+rX /root/.m2` (no extra layer) so the non-root build identity
+  can read the offline repo; image rebuilt → `sha256:aea01e81217…`
+  (runtime identity `4d0603880065…` unchanged; provenance JSON regenerated,
+  digest-only diff).
+- Maven lane validated empirically: `-e HOME=/tmp -e
+  MAVEN_CONFIG=/tmp/.m2` + `--tmpfs /workspace/project/target:rw,exec,size=512m,mode=1777`
+  → `BUILD_OK TMPFS_WRITE_OK`.
+- Evidence: hardening suite **14 passed/4 skipped** (no Docker) and
+  **16 passed/2 skipped** with `RUN_DOCKER_TESTS=1` (real container asserts
+  `id -u`/`id -g`=10001 + bind-mount write, ~1.4 s).
+  Focused runtime proof `RUN_DOCKER_TESTS=1 pytest tests/integration/test_file_write_read_runtime_proof.py`
+  → **15 passed, exit 0, 73 s**.
+
+### P0-2 — production auth fails closed
+
+- `CONTROL_PLANE_ENV`: `production` → import-time
+  `verify_production_auth_configuration()` raises without
+  `CONTROL_PLANE_API_TOKEN`, and middleware answers **401** for every
+  non-`/health` route even if startup was bypassed; unknown values raise at
+  import; `""/development/dev/test` keep dev parity (auth off, pinned by
+  existing tests).
+- Wired: `docker-compose.production.yml` (`CONTROL_PLANE_ENV: production`),
+  `.env.production.example`, `scripts/deploy/start-production.sh`.
+- `tests/test_production_auth_env.py` (new) pins gate + middleware +
+  secrets-never-logged + CORS deny-by-default + deployment source pins;
+  with existing auth suites → **65 passed, exit 0**.
+
+### P0-3 — upload safety + evidence-substitution seal
+
+- `api/ingestion.py`: `application_id` validated against
+  `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` **before** `tempfile.mkdtemp`
+  (no path-aiming prefix), and any rejection removes the workspace
+  (`_discard_workspace`) — previously the workspace leaked on every
+  rejected archive.
+- New `api/artifact_seal.py`: chunked SHA-256 per file, POSIX-relative keys,
+  JSON `{algorithm,files,sealed_at}`; sealed at generation
+  (`_generate_application` → `Store.set_generated_seal`), verified
+  fail-closed at `GET /runs/{id}/download` and APPROVED decisions
+  (REJECTED always allowed) — changed/added/removed files, missing or
+  malformed seal → **409**.
+- `api/store.py`: DB schema **v6**, `runs.generated_seal` written ONLY by
+  `add_run`/`set_generated_seal` (`update_run` never touches it — stale-worker
+  policy); `begin_revalidation` clears it with the attempt's evidence.
+  Legacy unsealed runs fail closed at approval+download until re-validated
+  (intentional, disclosed behavior change).
+- Tests: new `tests/test_upload_hostile_paths.py` (30: Windows drive/UNC/
+  extended-length/mixed-separator ZIP entries, symlink entries, every
+  `CONTROL_PLANE_MAX_*` limit, id safety incl. "no mkdtemp on rejection",
+  workspace cleanup, concurrency, `_cleanup_temp_dir`) and
+  `tests/test_evidence_substitution.py` (31: seal unit contract,
+  tamper-every-kind through the API, approval/download enforcement,
+  persistence/stale-worker/revalidation invariants).
+  Fixtures that seed bundles now seal them (phase12 `_seed_generated`,
+  phase11 p2 helper, `_mock_generate`) — contract update, not weakening.
+- Touched-suite batch → **191 passed, exit 0, 33.6 s**.
+
+### P0-4 — capability truth
+
+- `tests/test_docker_capability_truth.py` reviewed (17 tests): mapping +
+  fail-closed edges complete; no redundant additions. Only gap = not in the
+  fast CI gate list → added to `ci.yml` (54 → **55 files**); gate re-run
+  **778 passed, exit 0** (761 baseline + 17).
+
+### Verification ladder (exact results, this host)
+
+| # | Suite | Result |
+|---|---|---|
+| 1 | Security (13 files/dirs: api security, auth env, r1, container hardening, hostile paths, evidence seal, zip dups, network honesty, ingestion diagnostics, adversarial/, deployment/, phase11 p2, phase12 p4) | **465 passed, 4 skipped, exit 0, 13.5 s** |
+| 2 | Capability gate (exact `ci.yml` list, 55 files) | **778 passed, exit 0, 5.6 s** |
+| 3 | Numeric (`test_numeric_semantics`, `test_decimal_numeric_mapping`, `integration/test_numeric_oracle_proof`, `RUN_DOCKER_TESTS=1`) | **102 passed, exit 0, 16.3 s** |
+| 4 | Parser/IR (`transformation/test_parser`, `test_jcl_parser`, `unit/test_identities`) | **131 passed, exit 0, 0.7 s** |
+| 5 | Artifact comparison (`tests/comparators`) | **28 passed, exit 0, 0.2 s** |
+| 6 | Java compilation (`integration/test_docker_java`, `transformation/test_claims_transformation`, `RUN_DOCKER_TESTS=1`) | **44 passed, exit 0, 71.9 s** |
+| 7 | Docker proofs (`tests/integration` + container hardening, `RUN_DOCKER_TESTS=1`) | **445 passed, 4 skipped, exit 0, 1492.67 s (24:52)** |
+| 9 | Frontend (`npm test` / `npm run build`) | **160 passed, exit 0, 11.1 s** / **exit 0 (vite build OK)** |
+| 8 | Full backend (`RUN_DOCKER_TESTS=1 pytest tests --junitxml=…`) | third attempt running (launched 2026-10-26 12:23 with streaming output; attempt 1 killed by the 15:21 host restart at 530 tests/failures=0, attempt 2 killed by a 75-min harness timeout with pipe-buffered output) — final numbers recorded in this block when it completes |
+
+- **Step 10 — exact-SHA CI:** baseline `ff3c8ec…` re-verified via GitHub
+  API: **14/14 checks success** (Push runs 40074198359 + 40074198377, PR runs
+  40074201743 + 40074201765 — capability gate, Phase 1 ingestion, backend +
+  COBOL/Java Docker, frontend, Python/Frontend SBOM audits, release
+  manifest). The hardening tree was pushed on operator authorization
+  2026-10-26 — exact-SHA CI at the new head is triggered by that push and
+  its results are recorded post-push below (not claimed until observed).
+- **Restart incident (transparency):** the opencode server restarted at
+  15:21, killing the in-flight step-8 run (partial junit, 530 tests,
+  failures=0) and a replayed step-7 command (partial, 127 tests). Both
+  partial files are preserved as
+  `test-artifacts/p0-final-backend-junit.interrupted-restart.xml` and
+  `p0-docker-proofs-junit.interrupted-restart.xml`; they are **not**
+  evidence of completion. Step 7's authoritative record is its completion
+  notification above.
+
+### Diff inventory (committed 2026-10-26 — commit/push confirmation recorded post-push below)
+
+27 tracked files modified + 6 new files staged: engine adapters ×5 +
+producer, `Dockerfile.maven-offline`,
+`test-artifacts/docker-image-provenance.json` (digest-only),
+`api/{app,service,store,ingestion}.py`, `ci.yml`, compose,
+`.env.production.example`, `start-production.sh`, docs
+(`RUNTIME_PROOF_MATRIX`, `BACKLOG` BL-135…BL-138, two dated audits
+annotated, README, `ENVIRONMENT.md`, `PRODUCTION.md`,
+`PRODUCTION_SECURITY.md`, `UNIVERSAL_RUNTIME_PROOF_AUDIT…`) and 3 edited
+test suites (fixture contract updates), plus `opencode.md`; new files:
+`engine/execution/container_hardening.py`, `api/artifact_seal.py` and 4
+test suites (`test_container_hardening`, `test_upload_hostile_paths`,
+`test_evidence_substitution`, `test_production_auth_env`). Secret/temp-path
+scan of the diff: clean. Untracked evidence (`test-artifacts/**`, PROLEAP
+evaluation doc, probe fixtures) deliberately NOT staged (D-4).
+
 ## Session: P0 audit re-verification — all three P0 blockers already fixed, confirming full-suite re-run, runtime proof, ProLeap evaluation (2026-10-23, HEAD `b8a5499`, working tree preserved)
 
 Working tree only — **nothing committed, pushed, staged, stashed, cleaned or

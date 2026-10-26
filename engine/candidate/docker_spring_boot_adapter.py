@@ -15,6 +15,10 @@ Security model:
 - Container-per-execution (--rm)
 - Network disabled for execution (--network none)
 - Resource limits for execution
+- Hardened execution: no-new-privileges, --cap-drop ALL, non-root
+  --user 10001:10001 on build, version probes and execution
+  (see engine.execution.container_hardening; the maven build image exposes
+  its offline repository world-readable so the non-root build works)
 - Read-only JAR mount for execution
 - Hard timeout with explicit termination/cleanup lifecycle
 - Fail-closed immutable image provenance:
@@ -52,6 +56,10 @@ from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
     RunId,
+)
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
 )
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
 
@@ -222,7 +230,9 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 # No immutable identity: never run a version probe by tag.
                 return ""
             result = subprocess.run(
-                ["docker", "run", "--rm", "--network", "none",
+                ["docker", "run", "--rm",
+                 *container_run_hardening_flags("probe-java-version"),
+                 "--network", "none",
                  runtime_ref, "java", "-version"],
                 capture_output=True,
                 timeout=30,
@@ -244,7 +254,9 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 # No immutable identity: never run a version probe by tag.
                 return ""
             result = subprocess.run(
-                ["docker", "run", "--rm", "--network", "none",
+                ["docker", "run", "--rm",
+                 *container_run_hardening_flags("probe-maven-version"),
+                 "--network", "none",
                  build_ref, "mvn", "-version"],
                 capture_output=True,
                 timeout=30,
@@ -374,19 +386,30 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 # Maven build command
                 maven_cmd = "mvn -o -B -Dmaven.test.skip=true package"
 
+                # The non-root build identity can't read /root (mode 700);
+                # the image publishes its offline repository world-readable
+                # (Dockerfile.maven-offline) and MAVEN_OPTS pins the repo
+                # path, so HOME only has to be a writable scratch dir.
+                prepare_host_tree(staged_project, writable=True)
+                prepare_host_tree(output_dir, writable=True)
+
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    *container_run_hardening_flags("maven-build"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", self._config.memory_limit,
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace/project",
+                    "-e", "HOME=/tmp",
+                    "-e", "MAVEN_CONFIG=/tmp/.m2",
                     # Bind-mount the source (Maven reads from here)
                     *docker_volume_arg(staged_project, "/workspace/project", readonly=False),
                     # Maven writes target/ inside the container only (tmpfs),
-                    # preventing root-owned files on the host tmpdir.
-                    "--tmpfs", "/workspace/project/target:rw,exec,size=512m",
+                    # preventing root-owned files on the host tmpdir.  mode=1777
+                    # lets the non-root build identity create target/ entries.
+                    "--tmpfs", "/workspace/project/target:rw,exec,size=512m,mode=1777",
                     # Bind-mount output dir (Python-owned — receives the JAR)
                     *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     build_ref,
@@ -572,14 +595,27 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
                 java_cmd = f"java -jar /workspace/jars/{jar_name}"
 
+                # Writable base at /workspace: certified indexed/relative
+                # candidates assign RELATIVE file names into the working
+                # directory, which must not depend on a root-owned image dir.
+                workspace_dir = Path(tmpdir) / "ws"
+                workspace_dir.mkdir()
+                prepare_host_tree(workspace_dir, writable=True)
+                prepare_host_tree(staged_jars, writable=False)
+                prepare_host_tree(output_dir, writable=True)
+                if input_files:
+                    prepare_host_tree(input_dir, writable=False)
+
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    *container_run_hardening_flags("spring-exec"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", self._config.memory_limit,
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace",
+                    *docker_volume_arg(workspace_dir, "/workspace", readonly=False),
                     *docker_volume_arg(staged_jars, "/workspace/jars", readonly=True),
                     *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     *input_mount_args,

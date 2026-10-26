@@ -99,7 +99,7 @@ universal COBOL coverage or z/OS/mainframe equivalence.
 | Lane | Image | Source / provenance | Version & pin | License |
 |---|---|---|---|---|
 | COBOL oracle | `gnucobol-ocesql:latest` | Built locally from `Dockerfile.gnucobol`; base `ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401` (official Ubuntu image, Canonical) | GnuCOBOL 3.1.2.0-1 from the official Ubuntu 22.04 archive; digest-pinned base; image identity auto-resolved at execution and fail-closed on mismatch | GnuCOBOL: GPL-3.0; Ubuntu base: Ubuntu/Canonical package licenses |
-| Candidate build | `maven-offline-springboot:latest` | Built locally from `Dockerfile.maven-offline`; base `maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320` (official Maven image, Docker Hub) | Maven 3.9 + Temurin 21; Spring Boot 3.2.5 precached offline (matches generator output); build identity taken from the provenance record and fail-closed when empty | Maven: Apache-2.0; Temurin/OpenJDK: GPLv2 + Classpath Exception; Spring Boot: Apache-2.0 |
+| Candidate build | `maven-offline-springboot:latest` | Built locally from `Dockerfile.maven-offline`; base `maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320` (official Maven image, Docker Hub) | Maven 3.9 + Temurin 21; Spring Boot 3.2.5 precached offline (matches generator output); build identity taken from the provenance record and fail-closed when empty. P0 hardening (2026-10-24): offline repo world-readable, build lane runs non-root `--user 10001:10001` with writes confined to tmpfs `target/` + host-mounted `output/` | Maven: Apache-2.0; Temurin/OpenJDK: GPLv2 + Classpath Exception; Spring Boot: Apache-2.0 |
 | Candidate execution | `eclipse-temurin:21-jdk` | Pinned in `DockerSpringBootConfig.runtime_digest` (`engine/candidate/docker_spring_boot_adapter.py`) | `eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026`; re-resolved and verified before every run; empty digest fails closed | GPLv2 + Classpath Exception |
 
 Maintenance status: all three bases are actively maintained upstream
@@ -109,9 +109,24 @@ in `test-artifacts/docker-image-provenance.json`.
 
 Sandboxing for every container: `--network none`, `--memory 512m`,
 `--cpus 1.0`, `--pids-limit 256` (candidate) / 512m+1.0 (oracle), read-only
-mounts where the lane allows it. Containers run as **root inside the
-sandbox** (no `USER` directive in the Dockerfiles) — a documented limitation,
-not a claim of hardened isolation.
+mounts where the lane allows it. Every `docker run` site additionally
+carries the P0 execution hardening of 2026-10-24 through the shared
+helper `engine/execution/container_hardening.py`: `--security-opt
+no-new-privileges=true`, `--cap-drop ALL`, and an explicit non-root
+`--user 10001:10001` (no `USER` directive is relied upon). All ten run
+sites — COBOL oracle, javac, java version probe, maven version probe,
+maven build, spring-boot exec, java exec, producer cobj, deprecated
+runner — use the helper; `tests/test_container_hardening.py` fails if a
+new site appears without it, and a Docker-gated runtime proof runs a
+real container with the exact flags and asserts uid/gid 10001 plus a
+successful write through a host-prepared bind mount (non-root verified
+lane by lane with real runtime proofs). The maven build image publishes
+its offline repository world-readable (`Dockerfile.maven-offline`) so
+the non-root build identity can read its precache; build writes stay
+outside `/root` (tmpfs `target/`, host-mounted `output/`). Host staging
+trees are prepared with `prepare_host_tree()` so the container user can
+read/write them regardless of the creating umask. No runtime lane (COBOL
+compiler, javac, java, maven, runtime process) uses a shell.
 
 ### Exact commands (local or CI)
 
@@ -274,7 +289,10 @@ generated Java (not merely an identical input hash):
   `docs/verification/CURRENT_CAPABILITY_VERIFICATION.md` are historical
   (2026-09-21, host-`javac` harness) and are preserved unmodified as history;
   they are not current status.
-- Containers run as root inside network-isolated, resource-limited sandboxes.
+- Containers run as a dedicated non-root user (`--user 10001:10001`, no
+  `sudo`/`su` in images) with `--security-opt no-new-privileges=true` and
+  `--cap-drop ALL`, inside network-isolated, resource-limited sandboxes
+  (P0 hardening 2026-10-24; every run site uses the shared helper).
 - The default certification contract compares STDOUT + EXIT_STATUS only; it is
   deliberately narrow and cannot certify file-producing workloads (that is the
   behaviour pinned by `TestDefaultContractRun`).

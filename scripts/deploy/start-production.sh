@@ -16,6 +16,9 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
+# App-level fail-closed switch: the API process itself verifies this pair
+# (CONTROL_PLANE_ENV=production requires a token at import time).
+export CONTROL_PLANE_ENV="${CONTROL_PLANE_ENV:-production}"
 if [ -z "${CONTROL_PLANE_API_TOKEN:-}" ]; then
   echo "FATAL: CONTROL_PLANE_API_TOKEN is empty — refusing to start an unauthenticated production API." >&2
   exit 1

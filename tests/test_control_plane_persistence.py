@@ -55,6 +55,14 @@ def _mock_generate(self_svc, app, run):
     app.generated_program_ids = ("HELLO-WORLD",)
     app.java_candidate_path = str(artifact_dir)
     self_svc._store.update_application(app)
+    # Real generation seals the bundle onto the run (api.artifact_seal);
+    # the stub mirrors that contract so approval/export verification sees
+    # exactly what the pipeline writes.
+    from api.artifact_seal import compute_generated_seal
+
+    seal = compute_generated_seal(artifact_dir)
+    self_svc._store.set_generated_seal(run.id, seal)
+    run.generated_seal = seal
     self_svc._store.update_run(run)
     return artifact_dir, "com.example.HelloWorld"
 

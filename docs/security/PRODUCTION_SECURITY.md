@@ -19,7 +19,10 @@ Today: env-file only (`.env.production`, mode `0600`, owned by the
 deploy user, never committed — `.gitignore` covers `.env*`). No vault/
 KMS integration exists; that is a documented gap, not a silent default.
 `CONTROL_PLANE_API_TOKEN` is compared in constant time and is required
-in production (the start script refuses an empty token). Rotate by
+in production — with `CONTROL_PLANE_ENV=production` (set by the start
+script, compose, and `.env.production.example`) the control plane itself
+refuses to start without it and answers 401 on every non-`/health` route,
+in addition to the start script and compose guards. Rotate by
 writing a new token and redeploying (single replica → seconds of
 downtime; accepted for this single-node design). Never log or echo the
 token; it must not appear in `docker inspect` dumps shared externally

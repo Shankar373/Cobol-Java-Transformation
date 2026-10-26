@@ -6,7 +6,8 @@ not be overridden.
 
 | Variable | Required | Default (app) | Production guidance |
 |---|---|---|---|
-| `CONTROL_PLANE_API_TOKEN` | **Yes** (enforced by start script) | unset = auth OFF (dev default) | 48+ random bytes; rotate by redeploy |
+| `CONTROL_PLANE_API_TOKEN` | **Yes** (enforced by the app in production, by `start-production.sh`, and by compose) | unset = auth OFF (dev default) | 48+ random bytes; rotate by redeploy |
+| `CONTROL_PLANE_ENV` | **Yes** in production (`production`) | unset = development | Fail-closed production gate: `production` refuses to start without `CONTROL_PLANE_API_TOKEN` and answers 401 on every non-`/health` route even if startup was bypassed; an unrecognised value aborts startup; `development`/`dev`/`test` keep dev parity |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | **Yes** | — | host paths; certbot/ACME or org CA; never commit |
 | `HTTPS_PORT` | No | 443 | host bind for :443 |
 | `FRONTEND_DIST_PATH` | No | `./frontend/dist` | `npm run build` output; absent = API-only mode |

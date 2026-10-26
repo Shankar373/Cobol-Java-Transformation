@@ -88,7 +88,8 @@ jobs:
             tests/test_bl058_working_storage_group_hierarchy.py \
             tests/test_utilities_vsam_detection.py \
             tests/test_external_dependency_edges.py \
-            tests/test_runtime_adapter_architecture.py
+            tests/test_runtime_adapter_architecture.py \
+            tests/test_docker_capability_truth.py
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

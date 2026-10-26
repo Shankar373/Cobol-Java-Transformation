@@ -26,6 +26,10 @@ import uuid
 from pathlib import Path
 
 from engine.docker_cli import cleanup_container
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
+)
 from engine.execution.sandbox_paths import sandbox_staging_dir, to_host_path
 from engine.transformation.contracts import (
     GeneratedFile,
@@ -182,18 +186,21 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 #   --memory / --cpus / --pids-limit
                 #                 bound CPU, memory and process count so a
                 #                 pathological program cannot exhaust the host
-                #   no-new-privileges
-                #                 prevents the process inside the container
-                #                 from gaining more privilege than it started with
+                #   no-new-privileges / --cap-drop ALL / --user 10001:10001
+                #                 hardened execution identity (shared flags —
+                #                 engine.execution.container_hardening)
                 container_name = f"cobj-{uuid.uuid4().hex[:12]}"
+                # The container user must be able to read the staged source
+                # and write the generated .java next to it.
+                prepare_host_tree(tmpdir, writable=True)
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    *container_run_hardening_flags("producer-cobj"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", _PRODUCER_MEMORY_LIMIT,
                     "--cpus", _PRODUCER_CPU_LIMIT,
                     "--pids-limit", str(_PRODUCER_PIDS_LIMIT),
-                    "--security-opt", "no-new-privileges=true",
                     "-v", f"{to_host_path(tmpdir)}:/cobol",
                     self.DOCKER_IMAGE,
                     "cobj", f"/cobol/{program_id}.cob",

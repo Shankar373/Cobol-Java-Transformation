@@ -15,6 +15,14 @@ RUN mkdir -p /tmp/precache/src/main/java/precache && \
     echo '<project><modelVersion>4.0.0</modelVersion><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.2.5</version></parent><groupId>precache</groupId><artifactId>precache</artifactId><version>0.0.1</version><properties><java.version>21</java.version></properties><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-batch</artifactId></dependency></dependencies><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>' > /tmp/precache/pom.xml && \
     echo 'package precache;public class Precache{public static void main(String[] a){}}' > /tmp/precache/src/main/java/precache/Precache.java && \
     cd /tmp/precache && mvn -B -DskipTests dependency:go-offline package && \
-    rm -rf /tmp/precache
+    rm -rf /tmp/precache && \
+    chmod 755 /root && chmod -R a+rX /root/.m2
 
+# P0 non-root execution (2026-10-24): the workload containers run as
+# --user 10001:10001 (engine.execution.container_hardening).  /root is
+# 0700 in the base image, so the offline repository above would be
+# unreadable to the build identity; publishing it world-readable (dirs
+# a+rX, files a+r) lets the non-root build read its precache while every
+# write target stays outside /root (tmpfs target/, host-mounted output/).
+# Done inside the precache RUN so no extra layer duplicates the repo.
 ENV MAVEN_OPTS="-Dmaven.repo.local=/root/.m2/repository"

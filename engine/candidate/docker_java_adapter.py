@@ -7,6 +7,8 @@ Security model:
 - Container-per-execution (--rm)
 - Network disabled (--network none)
 - Resource limits (--memory, --cpus, --pids-limit)
+- Hardened execution: no-new-privileges, --cap-drop ALL, non-root
+  --user 10001:10001 (see engine.execution.container_hardening)
 - Read-only staged source (-v :ro)
 - Hard timeout with explicit termination/cleanup lifecycle
 - Structured sandbox evidence
@@ -33,6 +35,10 @@ from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
     RunId,
+)
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
 )
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
 
@@ -171,7 +177,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
         try:
             result = subprocess.run(
                 [
-                    "docker", "run", "--rm", "--network", "none",
+                    "docker", "run", "--rm",
+                    *container_run_hardening_flags("probe-java-version"),
+                    "--network", "none",
                     # Execute by immutable identity when resolved; the version
                     # probe must never run an image selected by floating tag.
                     self._resolved_digest or self._config.image,
@@ -285,9 +293,13 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 # Deterministic container name for cleanup tracking
                 container_name = f"javac-{uuid.uuid4().hex[:12]}"
 
+                prepare_host_tree(staged_source, writable=False)
+                prepare_host_tree(staged_output, writable=True)
+
                 # Docker command: compile inside container
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    *container_run_hardening_flags("javac"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", self._config.memory_limit,
@@ -453,15 +465,29 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 # Deterministic container name for explicit cleanup
                 container_name = f"java-{uuid.uuid4().hex[:12]}"
 
+                # Writable base at /workspace so candidates that assign
+                # RELATIVE file names (certified indexed/relative subset)
+                # can create them under the non-root identity; children
+                # (classes/output/input) nest below it.
+                workspace_dir = Path(tmpdir) / "ws"
+                workspace_dir.mkdir()
+                prepare_host_tree(workspace_dir, writable=True)
+                prepare_host_tree(staged_classes, writable=False)
+                prepare_host_tree(output_dir, writable=True)
+                if input_files:
+                    prepare_host_tree(input_dir, writable=False)
+
                 # Docker command: execute inside container
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    *container_run_hardening_flags("java-exec"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", self._config.memory_limit,
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace",
+                    *docker_volume_arg(workspace_dir, "/workspace", readonly=False),
                     *docker_volume_arg(staged_classes, "/workspace/classes", readonly=True),
                     *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     *input_mount_args,

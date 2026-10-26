@@ -80,6 +80,7 @@ def _start_run(app_id: str) -> str:
 def _seed_generated(run_id: str, files: list[tuple[str, bytes]]) -> Path:
     """Attach a generated-app directory to the run's application."""
     import api.app as app_mod
+    from api.artifact_seal import compute_generated_seal
 
     run = app_mod._service.get_run(run_id)
     app_rec = app_mod._service.get_application(run.application_id)
@@ -92,6 +93,12 @@ def _seed_generated(run_id: str, files: list[tuple[str, bytes]]) -> Path:
         path.write_bytes(content)
     app_rec.generated_app_path = str(target)
     app_mod._service._store.update_application(app_rec)
+    # A real run seals its generated bundle at generation time
+    # (api.artifact_seal); approval/export verify the seal, so the
+    # fixture seals the seeded bytes exactly like the pipeline would.
+    app_mod._service._store.set_generated_seal(
+        run_id, compute_generated_seal(target)
+    )
     return target
 
 

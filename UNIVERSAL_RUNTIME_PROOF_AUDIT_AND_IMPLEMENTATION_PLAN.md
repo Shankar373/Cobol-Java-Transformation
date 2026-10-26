@@ -19,6 +19,15 @@
 > generator output stays UNKNOWN, and DB2/CICS/MQ/IMS/JCL remain
 > UNAVAILABLE/BLOCKED. Authoritative current status:
 > `docs/verification/RUNTIME_PROOF_MATRIX.md` + `docs/CAPABILITY_MATRIX.md`.
+>
+> **Status addendum (2026-10-24, P0 production-hardening batch, BL-135):** the
+> "containers run as root (documented limitation)" statements below (the §34
+> table row and the sandbox bullet) are **historical**: every `docker run` site
+> now uses the shared helper (`engine/execution/container_hardening.py`) with
+> `--security-opt no-new-privileges=true`, `--cap-drop ALL`, and a non-root
+> `--user 10001:10001`, verified lane by lane with real container proofs.
+> Also superseded: the `docker_available=True` hardcoding row (already fixed
+> by BL-095, 2026-10-19). See `docs/verification/RUNTIME_PROOF_MATRIX.md`.
 
 ---
 

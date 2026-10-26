@@ -39,7 +39,7 @@ the run is not a green full-suite result.
 | README CI baseline cited stale runs #417/#418 as "current" | P2 | **Corrected** to a verified dated snapshot (run 38980053986, re-verified live 2026-10-17) |
 | Unexecuted tests could silently skip when runtime proof was requested | P3 | **Fail-closed rule added**: `RUN_DOCKER_TESTS=1` without Docker fails the run (`test_requested_runtime_proof_has_a_runtime` + unit-tested gate matrix) |
 | `api/service.py:953` hardcodes `docker_available=True` for capability analysis | P3 | **Not changed** (see §8: planning-honesty issue, outside the runtime-proof path; changing it alters capability levels on Docker-less hosts) |
-| Containers run as root inside the sandbox | P3 | **Not changed** (documented limitation; bind-mount permission breakage risk outweighs benefit at this stage) |
+| Containers run as root inside the sandbox | P3 | **Superseded (2026-10-24, BL-135):** fixed — all ten `docker run` sites now run non-root (`--user 10001:10001`, `--security-opt no-new-privileges=true`, `--cap-drop ALL`) via `engine/execution/container_hardening.py`; original "not changed" decision was this audit's, later reversed by the P0 hardening batch |
 
 Parser recognition ≠ semantic support, compilation ≠ behavioural equivalence,
 and unit tests ≠ integration/runtime proof were kept distinct throughout:

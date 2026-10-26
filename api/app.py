@@ -46,6 +46,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from api.artifact_seal import verify_generated_seal
 from api.errors import ApiError, PayloadTooLargeError, ServiceError
 from api.ingestion import IngestionError
 from api.limits import env_int_limit
@@ -336,10 +337,72 @@ def _expected_token() -> str | None:
     return token if token else None
 
 
+# ---------------------------------------------------------------------------
+# Deployment environment (P0: production fails closed without auth)
+# ---------------------------------------------------------------------------
+#
+# Dev/test behaviour is unchanged: without CONTROL_PLANE_ENV (or with an
+# explicit development/test value) the API runs with auth off when no
+# CONTROL_PLANE_API_TOKEN is configured, exactly as before.  Setting
+# CONTROL_PLANE_ENV=production flips the control plane to fail-closed:
+# the process refuses to start without a token, and — defence in depth —
+# the middleware answers 401 for every non-/health request even if the
+# import-time check was somehow bypassed.
+_PRODUCTION_ENVIRONMENT = "production"
+_KNOWN_NON_PRODUCTION_ENVIRONMENTS = frozenset({"", "development", "dev", "test"})
+
+
+def deployment_environment() -> str:
+    """Normalised ``CONTROL_PLANE_ENV`` value (``""`` when unset)."""
+    return os.environ.get("CONTROL_PLANE_ENV", "").strip().lower()
+
+
+def production_environment_active() -> bool:
+    """True when this process is configured as a production deployment."""
+    return deployment_environment() == _PRODUCTION_ENVIRONMENT
+
+
+def verify_production_auth_configuration() -> None:
+    """Fail closed when production would run without bearer authentication.
+
+    Raises ``RuntimeError`` (which aborts process startup when called at
+    import time) when:
+
+    * ``CONTROL_PLANE_ENV`` holds an unrecognised value — an unknown
+      environment must not silently behave like development, and
+    * ``CONTROL_PLANE_ENV=production`` with no ``CONTROL_PLANE_API_TOKEN``.
+
+    Development and test environments keep their historical behaviour.
+    """
+    env = deployment_environment()
+    if env not in _KNOWN_NON_PRODUCTION_ENVIRONMENTS and env != _PRODUCTION_ENVIRONMENT:
+        raise RuntimeError(
+            f"Unknown CONTROL_PLANE_ENV {env!r}; recognised values are "
+            f"'production' and {sorted(v or '(unset)' for v in _KNOWN_NON_PRODUCTION_ENVIRONMENTS)}. "
+            "Refusing to start in an unrecognised deployment environment."
+        )
+    if env == _PRODUCTION_ENVIRONMENT and _expected_token() is None:
+        raise RuntimeError(
+            "CONTROL_PLANE_ENV=production requires CONTROL_PLANE_API_TOKEN to be "
+            "set; refusing to start an unauthenticated production control plane."
+        )
+
+
 @app.middleware("http")
 async def _require_api_token(request: Request, call_next):
     token = _expected_token()
-    if token is None or request.url.path == "/health":
+    if request.url.path == "/health":
+        return await call_next(request)
+    if token is None:
+        if production_environment_active():
+            # Fail closed: a production process without a configured token
+            # must never serve an unauthenticated request (defence in depth
+            # behind verify_production_auth_configuration's startup check).
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Not authenticated"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return await call_next(request)
 
     header = request.headers.get("Authorization", "")
@@ -369,6 +432,11 @@ def _token_matches(provided: str, expected: str) -> bool:
     provided_bytes = provided.encode("latin-1", errors="replace")
     expected_bytes = expected.encode("latin-1", errors="replace")
     return hmac.compare_digest(provided_bytes, expected_bytes)
+
+
+# Import-time fail-closed gate: a production process without a bearer token
+# (or an unknown CONTROL_PLANE_ENV) aborts here instead of serving.
+verify_production_auth_configuration()
 
 
 @app.exception_handler(ApiError)
@@ -939,6 +1007,12 @@ def download_generated(run_id: str) -> StreamingResponse:
                 f"Generated application exceeds the {max_bytes} byte"
                 " download limit"
             )
+
+    # Never export bytes that no longer match the run's sealed evidence:
+    # a bundle substituted on disk after execution fails closed (409)
+    # instead of being served as the verified artifact (P0 — see
+    # api.artifact_seal).
+    verify_generated_seal(java_dir, run.generated_seal)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

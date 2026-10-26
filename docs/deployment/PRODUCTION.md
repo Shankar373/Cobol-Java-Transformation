@@ -118,7 +118,12 @@ ENV_FILE=.env.production ./scripts/deploy/start-production.sh
 ```
 
 `start-production.sh` refuses to start when `CONTROL_PLANE_API_TOKEN`
-or the TLS cert/key is missing. `verify-production.sh` checks compose
+or the TLS cert/key is missing, and the control plane itself fails
+closed in production: with `CONTROL_PLANE_ENV=production` (set by the
+start script, compose, and `.env.production.example`) the process
+refuses to start without `CONTROL_PLANE_API_TOKEN` and answers 401 on
+every non-`/health` route even if startup checks were bypassed.
+`verify-production.sh` checks compose
 rendering, container health, TLS `/health`, sandbox image presence,
 `--network none` execution, and that `/applications` returns 401
 unauthenticated.

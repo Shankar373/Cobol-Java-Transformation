@@ -55,6 +55,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from api.artifact_seal import compute_generated_seal, verify_generated_seal
 from api.errors import (
     BusyError,
     NotFoundError,
@@ -1032,6 +1033,15 @@ class Service:
         app.java_candidate_path = report.generated_project_dir
         self._store.update_application(app)
 
+        # Seal the bundle now: every file is hashed and the seal is bound
+        # to this run, so any later substitution on disk is detected
+        # before customer approval or export (P0 evidence-substitution
+        # protection — api.artifact_seal).  A bundle that cannot be
+        # sealed fails the run instead of shipping unverifiable bytes.
+        seal = compute_generated_seal(report.generated_project_dir)
+        self._store.set_generated_seal(run.id, seal)
+        run.generated_seal = seal
+
         return Path(report.generated_project_dir), report.generated_entrypoint
 
     @staticmethod
@@ -1266,7 +1276,19 @@ class Service:
         Raises ``NotFoundError`` for unknown runs.  Decision-value and
         field validation happen at the API boundary; the store re-checks
         the decision value (fail closed at every layer).
+
+        An APPROVED decision additionally requires the generated bundle
+        on disk to still match the run's sealed evidence
+        (:func:`api.artifact_seal.verify_generated_seal`): a customer
+        must never sign off on bytes substituted after execution.  A
+        REJECTED decision is always allowed — rejecting a run whose
+        bundle is broken or missing has to keep working.
         """
+        if decision == "APPROVED":
+            run = self.get_run(run_id)
+            app = self.get_application(run.application_id)
+            if app.generated_app_path is not None:
+                verify_generated_seal(app.generated_app_path, run.generated_seal)
         return self._store.set_run_approval(
             run_id, state=decision, approver=approver, reason=reason
         )

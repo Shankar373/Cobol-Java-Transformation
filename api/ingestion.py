@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+import shutil
 import zipfile
 import tempfile
 from dataclasses import dataclass, field
@@ -25,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 class IngestionError(Exception):
     """Raised when ingestion fails."""
+
+
+# Application ids are interpolated into the temp workspace name, so they
+# are restricted to a path-safe alphabet before any directory is created.
+# A value like "../evil" or "a/b" must never reach tempfile.mkdtemp.
+_SAFE_APPLICATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 # Tightened ZIP limits for security (configurable via env for testing)
@@ -126,7 +133,17 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
     absolute paths, symlink entries, and duplicate/ambiguous entry names
     (unique after separator normalization and case folding, so the extracted
     tree is platform-independent), and enforces archive entry/size limits.
+
+    The ``application_id`` is validated against a path-safe alphabet before
+    it is used as the workspace directory prefix, and a rejected archive
+    leaves no workspace directory behind on disk.
     """
+    if not _SAFE_APPLICATION_ID.match(application_id):
+        raise IngestionError(
+            "Unsafe application id: must start with a letter or digit and"
+            " contain at most 128 characters from [A-Za-z0-9._-]"
+        )
+
     max_archive = _get_max_zip_archive_bytes()
     if len(data) > max_archive:
         raise IngestionError(
@@ -220,13 +237,27 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
                             break
                         dst.write(chunk)
     except zipfile.BadZipFile as exc:
+        _discard_workspace(workspace)
         raise IngestionError(f"Invalid ZIP archive: {exc}") from exc
     except IngestionError:
+        _discard_workspace(workspace)
         raise
     except Exception as exc:
+        _discard_workspace(workspace)
         raise IngestionError(f"Failed to extract ZIP: {exc}") from exc
 
     return workspace
+
+
+def _discard_workspace(workspace: Path) -> None:
+    """Remove the partially extracted workspace of a rejected ingest.
+
+    A hostile archive that trips any validation limit must not leave its
+    partial extraction (or an empty workspace) on disk.  Best-effort by
+    design: cleanup failure is logged by nobody and never masks the
+    original ``IngestionError``.
+    """
+    shutil.rmtree(workspace, ignore_errors=True)
 
 
 def discover_application(workspace: Path, application_id: str) -> DiscoveryResult:

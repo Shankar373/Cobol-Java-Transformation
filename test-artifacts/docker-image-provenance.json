@@ -1,13 +1,13 @@
 {
-  "build_identity": "maven-offline-springboot@sha256:32139c85749826f0790acf02224113fed7498c2f3160d70e6467c18c1b5d7eb1",
+  "build_identity": "maven-offline-springboot@sha256:aea01e812170627e918b93a2c39da088acc72778c1d839f0b66b8cf91ea2362b",
   "build_identity_kind": "repo-digest",
   "build_image": "maven-offline-springboot:latest",
-  "build_image_id": "sha256:32139c85749826f0790acf02224113fed7498c2f3160d70e6467c18c1b5d7eb1",
+  "build_image_id": "sha256:aea01e812170627e918b93a2c39da088acc72778c1d839f0b66b8cf91ea2362b",
   "build_repo_digests": [
-    "maven-offline-springboot@sha256:32139c85749826f0790acf02224113fed7498c2f3160d70e6467c18c1b5d7eb1"
+    "maven-offline-springboot@sha256:aea01e812170627e918b93a2c39da088acc72778c1d839f0b66b8cf91ea2362b"
   ],
   "contract_version": "1.0",
-  "recorded_at": "2026-10-23T08:24:40.006243+00:00",
+  "recorded_at": "2026-10-24T08:58:33.112678+00:00",
   "runtime_identity": "eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026",
   "runtime_identity_kind": "repo-digest",
   "runtime_image": "eclipse-temurin:21-jdk",

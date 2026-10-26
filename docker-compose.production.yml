@@ -36,6 +36,10 @@ services:
       # deliberately unchanged, so local development stays simple; this
       # requirement is attached only to the production deployment file.
       CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:?CONTROL_PLANE_API_TOKEN must be set - see .env.production.example}
+      # App-level fail-closed switch (P0): with CONTROL_PLANE_ENV=production
+      # the API itself refuses to start without a token and answers 401 for
+      # every unauthenticated request — independent of this compose guard.
+      CONTROL_PLANE_ENV: production
       CONTROL_PLANE_DB: /app/data/control-plane.db
       TMPDIR: /app/tmp
       # Where the engine stages files that Docker containers bind-mount.

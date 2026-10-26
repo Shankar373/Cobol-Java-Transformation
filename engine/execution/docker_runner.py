@@ -29,6 +29,10 @@ from engine.execution.abstractions import (
     ExecutionCommand,
     ExecutionResult,
 )
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
+)
 from engine.execution.sandbox_paths import to_host_path
 from engine.source_hash import compute_source_tree_hash
 
@@ -76,6 +80,7 @@ class DockerRunner:
 
         docker_cmd = [
             "docker", "run", "--rm",
+            *container_run_hardening_flags("docker-runner"),
             "--network", "none" if config.network_disabled else "bridge",
             "--memory", config.memory_limit,
             "--cpus", config.cpu_limit,
@@ -87,6 +92,7 @@ class DockerRunner:
             # Translate container-visible staging paths to the host-visible
             # bind source so the host daemon resolves the intended workspace
             # (identity mapping outside the configured staging root).
+            prepare_host_tree(host_path, writable=False)
             docker_cmd.extend(["-v", f"{to_host_path(host_path)}:{container_path}:ro"])
 
         for key, value in config.environment.items():

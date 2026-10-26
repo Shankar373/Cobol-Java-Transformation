@@ -32,6 +32,10 @@ from engine.domain.identities import (
     OracleIdentity,
     RunId,
 )
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
+)
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
 from engine.oracle.adapter import (
     OracleAdapter,
@@ -457,14 +461,35 @@ class DockerOracleAdapter(OracleAdapter):
                 # stop/remove it (parity with the candidate adapters).
                 container_name = f"oracle-{uuid.uuid4().hex[:12]}"
 
+                # Writable base at /workspace: GnuCOBOL programs in the
+                # certified indexed/relative workloads assign files to
+                # RELATIVE names (e.g. "IDXFILE.DAT") and write them into
+                # the working directory.  The image's own /workspace is
+                # root-owned; mounting a prepared host dir here keeps those
+                # writes working under the non-root container identity
+                # (nested binds: /workspace first, then its children).
+                workspace_dir = Path(tmpdir) / "ws"
+                workspace_dir.mkdir()
+
+                # Host trees are bind-mounted: make them accessible to the
+                # non-root container user regardless of the creating umask.
+                prepare_host_tree(Path(tmpdir) / "src", writable=False)
+                prepare_host_tree(workspace_dir, writable=True)
+                prepare_host_tree(output_dir, writable=True)
+                prepare_host_tree(diagnostics_dir, writable=True)
+                if input_files:
+                    prepare_host_tree(input_dir, writable=False)
+
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    *container_run_hardening_flags("oracle"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", "512m",
                     "--cpus", "1.0",
                     "--pids-limit", "256",
                     "--workdir", "/workspace",
+                    *docker_volume_arg(workspace_dir, "/workspace", readonly=False),
                     *docker_volume_arg(Path(tmpdir) / "src", container_src, readonly=True),
                     *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     *docker_volume_arg(diagnostics_dir, "/workspace/compilation", readonly=False),

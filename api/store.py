@@ -192,11 +192,19 @@ class RunRecord:
     approval_approver: str | None = None
     approval_reason: str | None = None
     approval_decided_at: str | None = None
+    # Sealed SHA-256 evidence for the generated application bundle
+    # (api.artifact_seal).  Written ONLY by add_run (default None) and
+    # Store.set_generated_seal; update_run never touches it, mirroring the
+    # approval-column policy so a stale worker cannot clobber the seal of
+    # a newer attempt.  begin_revalidation clears it atomically with the
+    # rest of the attempt's evidence.  NULL means "unsealed": export and
+    # APPROVED decisions fail closed until the run is re-validated.
+    generated_seal: str | None = None
 
 
 #: Database schema version written by this code. Payload schema versions are
 #: tracked separately in :mod:`api.serialization`.
-DB_SCHEMA_VERSION = 5
+DB_SCHEMA_VERSION = 6
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS applications (
@@ -315,6 +323,12 @@ class Store:
             self._conn.execute(
                 "ALTER TABLE runs ADD COLUMN approval_decided_at TEXT"
             )
+        if "generated_seal" not in columns:  # migration 6 (bundle seal)
+            # NULL = a run completed before sealing existed; export and
+            # APPROVED decisions fail closed until it is re-validated.
+            self._conn.execute(
+                "ALTER TABLE runs ADD COLUMN generated_seal TEXT"
+            )
 
     # -- applications -------------------------------------------------------
 
@@ -416,14 +430,16 @@ class Store:
                     " stage, created_at, completed_at, error, evidence_blob,"
                     " verdict_blob, report_blob, validation_generation,"
                     " certification_contract, approval_state,"
-                    " approval_approver, approval_reason, approval_decided_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " approval_approver, approval_reason, approval_decided_at,"
+                    " generated_seal)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     self._run_params(record, stage)
                     + (
                         record.approval_state,
                         record.approval_approver,
                         record.approval_reason,
                         record.approval_decided_at,
+                        record.generated_seal,
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -532,6 +548,24 @@ class Store:
             assert row is not None  # updated above under the lock
             return self._run_from_row(row)
 
+    def set_generated_seal(self, run_id: str, seal: str) -> None:
+        """Persist the sealed bundle evidence for a run (P0).
+
+        Written by the same worker that produced the generated
+        application; ``update_run`` deliberately never rewrites this
+        column (see :class:`RunRecord`), so a stale worker from an older
+        validation attempt cannot clobber the seal of a newer one.
+        Raises :class:`NotFoundError` for unknown runs.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE runs SET generated_seal = ? WHERE id = ?",
+                (seal, run_id),
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Run {run_id!r} not found")
+            self._conn.commit()
+
     def begin_revalidation(
         self,
         run_id: str,
@@ -570,9 +604,12 @@ class Store:
                 " validation_generation = ?, certification_contract = ?,"
                 # Approval never carries forward across attempts —
                 # the reset clears the whole approval record atomically
-                # with the stage change (consistent snapshot).
+                # with the stage change (consistent snapshot).  The bundle
+                # seal belongs to the attempt that produced the bytes, so
+                # it is cleared too and re-sealed by the next generation.
                 " approval_state = 'PENDING', approval_approver = NULL,"
-                " approval_reason = NULL, approval_decided_at = NULL"
+                " approval_reason = NULL, approval_decided_at = NULL,"
+                " generated_seal = NULL"
                 " WHERE id = ?",
                 (
                     RunStage.CREATED.value,
@@ -702,4 +739,5 @@ class Store:
             approval_approver=row["approval_approver"],
             approval_reason=row["approval_reason"],
             approval_decided_at=row["approval_decided_at"],
+            generated_seal=row["generated_seal"],
         )
