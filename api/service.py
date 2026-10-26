@@ -1038,6 +1038,10 @@ class Service:
         # before customer approval or export (P0 evidence-substitution
         # protection — api.artifact_seal).  A bundle that cannot be
         # sealed fails the run instead of shipping unverifiable bytes.
+        # This interim seal is refreshed by _run_validation after the
+        # build/execute lane settles the tree — that final seal is the
+        # one approval and export verify (the validation build adds
+        # files such as target/*.jar after this point).
         seal = compute_generated_seal(report.generated_project_dir)
         self._store.set_generated_seal(run.id, seal)
         run.generated_seal = seal
@@ -1138,6 +1142,19 @@ class Service:
         # revalidation re-persists here so a refreshed verdict never leaves
         # a stale proof behind.
         self._persist_integrated_proof(app, run, result)
+
+        # Re-seal after validation: build/execution run inside this phase
+        # and can leave the bundle's final bytes different from the interim
+        # seal taken at generation, so the seal a customer approves or
+        # downloads must be taken here — after the pipeline settles the
+        # tree.  This also restores the seal cleared by
+        # Store.begin_revalidation (the revalidate path seals nowhere else).
+        # Substitution after this point still fails closed (409) at approval
+        # and export; a validation that raises never reaches this seal and
+        # keeps the run fail-closed.
+        seal = compute_generated_seal(java_dir)
+        self._store.set_generated_seal(run.id, seal)
+        run.generated_seal = seal
 
         self._store.update_run(run)
 

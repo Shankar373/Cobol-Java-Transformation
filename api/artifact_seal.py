@@ -15,9 +15,13 @@ on-disk bundle that customers download.
 This module closes that gap:
 
 * :func:`compute_generated_seal` hashes every file of the bundle
-  (chunked SHA-256, POSIX-relative keys) at generation time; the seal is
-  persisted with the run record (``runs.generated_seal``) by
-  ``Store.set_generated_seal``;
+  (chunked SHA-256, POSIX-relative keys); the seal is persisted with the
+  run record (``runs.generated_seal``) by ``Store.set_generated_seal``.
+  The lifecycle seals twice: an interim seal at generation and the
+  authoritative seal at the end of validation — the validation lane's
+  build/execute writes into the bundle (e.g. ``target/*.jar``), so only
+  the post-validation seal reflects the bytes a customer approves and
+  downloads;
 * :func:`verify_generated_seal` re-derives the seal and refuses — via
   ``ConflictError`` (HTTP 409) — on any difference: changed bytes,
   added files, removed files, missing seal, malformed seal, or an

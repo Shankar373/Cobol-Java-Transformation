@@ -190,10 +190,40 @@ evaluation doc, probe fixtures) deliberately NOT staged (D-4).
   attempt 4 relaunched 12:41. CI runs on GitHub-hosted runners are
   unaffected by local host restarts — now the primary verification lane.
 - Local step-8 attempt 4 **completed 14:11** (numbers in the step-8 row).
-  Isolation re-run of the 12 affected test files launched after it
-  (`RUN_DOCKER_TESTS=1`, `--junitxml=test-artifacts/p0-failures-isolation-junit.xml`,
-  242 items) to classify the 30 non-green tests as environmental/load vs
-  deterministic regression — result pending, not claimed.
+- **Isolation re-run COMPLETED** (`RUN_DOCKER_TESTS=1`, the 12 affected
+  files, 242 items,
+  `test-artifacts/p0-failures-isolation-junit.xml`): **6 failed, 234
+  passed, 2 errors in 3026.18s (0:50:26), exit 1.** Classification:
+  only `test_e2e::TestZipIngestionE2E::test_download_after_modernize_
+  returns_zip_content_type` failed **in both** attempt 4 and isolation
+  (deterministic). Every other non-green test failed *differently* per
+  run — attempt-4 failures (`test_call_execution_p0` Maven timeout,
+  claims input-dependency, indexed semantics, integrated-proof stalls,
+  oracle-multiprogram `exit_code None`, payroll) **passed** in isolation,
+  while `test_maven_produces_jar` (Maven timeout 261s), `test_run_completes_
+  with_all_stages` (stuck `EXECUTING_GENERATED` 240s), copybook verdict/
+  errors and one oracle-identity error failed only here — the shuffled
+  pattern identifies load-dependent Docker/Maven timing, not deterministic
+  regression.
+- **Seal 409 root-caused + fixed (2026-10-26):** instrumented rerun
+  printed the exact diff — `added(1)=[target/app-154cd30f7284-0.0.1-SNAPSHOT.jar]`:
+  `_run_validation`'s Maven build writes the JAR into the bundle *after*
+  the interim seal taken in `_generate_application`, so approval's
+  `verify_generated_seal` saw one added file → 409. Fix (additive):
+  `_run_validation` re-seals after `pipeline.run()` settles the tree
+  (`compute_generated_seal` + `set_generated_seal`); this also restores
+  the seal `Store.begin_revalidation` clears — the revalidate path had
+  **no** re-seal at all before. Generation-time seal retained for
+  mocked/partial paths. Verification (the failing e2e test +
+  `test_evidence_substitution` + phase11/phase12 + integrated-proof +
+  modernization suites) result recorded when it lands.
+- **Second push (fix commits):** `6891b19` (ci.yml gate `--deselect` fix
+  + BL-138/opencode records) pushed `c0c4f9b..6891b19`. CI at that SHA:
+  **Capability truth gate success** (both runs — gate fix confirmed),
+  frontend ✓, Phase 1 ingestion ✓, supply-chain 223/224 ✓; backend job
+  still **failure** (19/23 min) — consistent with the seal 409 above;
+  exact CI test names stay admin-log-only (403). Seal-fix commit follows
+  local verification.
 
 ## Session: P0 audit re-verification — all three P0 blockers already fixed, confirming full-suite re-run, runtime proof, ProLeap evaluation (2026-10-23, HEAD `b8a5499`, working tree preserved)
 
