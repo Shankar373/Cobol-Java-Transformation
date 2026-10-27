@@ -132,6 +132,7 @@ class ProgramPlan:
     @property
     def is_blocked(self) -> bool:
         return self.capability_level in (
+            CapabilityLevel.UNKNOWN,
             CapabilityLevel.UNSUPPORTED,
             CapabilityLevel.UNAVAILABLE,
         )
@@ -753,10 +754,18 @@ class ModernizationPlanner:
         return tuple(reasons)
 
     def _derive_overall_status(self, report: CapabilityReport) -> ModernizationStatus:
-        """Derive overall modernization status from capability report."""
+        """Derive overall modernization status from capability report.
+
+        Fail closed (BL-139 follow-up): an ``UNKNOWN`` component means
+        support could not be determined — the plan must never surface
+        READY while an undetermined component exists (it used to fall
+        through to READY whenever any component was SUPPORTED).
+        """
         if report.unavailable_count > 0:
             return ModernizationStatus.BLOCKED
         if report.unsupported_count > 0:
+            return ModernizationStatus.BLOCKED
+        if report.unknown_count > 0:
             return ModernizationStatus.BLOCKED
         if report.partial_count > 0:
             return ModernizationStatus.PARTIAL
@@ -776,6 +785,8 @@ class ModernizationPlanner:
         summary: list[str] = []
 
         for p in programs:
+            # is_blocked covers UNKNOWN too — its blocking reasons
+            # (UNKNOWN_CONSTRUCT) belong in the human-readable summary.
             if p.is_blocked:
                 for br in p.blocking_reasons:
                     summary.append(f"Program {p.program_id}: {br.value} — {p.capability_reason}")

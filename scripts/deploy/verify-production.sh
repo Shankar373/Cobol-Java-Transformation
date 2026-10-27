@@ -47,8 +47,12 @@ check "api mounts /app/sandbox-staging" \
 check "staging writable as uid 10001" \
   docker run --rm --network none --user 10001:10001 -v "${STAGING}:/probe" "systemaops-api:${TAG}" \
     sh -c 'touch /probe/.writability-probe && rm /probe/.writability-probe'
+# BL-144: the probe used to end `... | grep -q probe; rm -f ...` — the
+# `; rm -f` tail made `bash -c` exit with rm's status (0) even when grep
+# failed, so check() recorded a false PASS.  Capture the pipe status,
+# clean up unconditionally, then exit with the captured status.
 check "host file visible through staging bind" \
-  bash -c "echo probe > '${STAGING}/.visibility-probe' && docker run --rm --network none -v '${STAGING}:/probe' 'systemaops-api:${TAG}' cat /probe/.visibility-probe | grep -q probe; rm -f '${STAGING}/.visibility-probe'"
+  bash -c "echo probe > '${STAGING}/.visibility-probe' && docker run --rm --network none -v '${STAGING}:/probe' 'systemaops-api:${TAG}' cat /probe/.visibility-probe | grep -q probe; rc=\$?; rm -f '${STAGING}/.visibility-probe'; exit \$rc"
 
 # --- R8: frontend production routing ----------------------------------------
 check "frontend /app/ serves index" \

@@ -435,11 +435,71 @@ class TestModernizationPlannerFailClosed:
                 assert prog.may_proceed is False
                 assert BlockingReason.DOCKER_UNAVAILABLE in prog.blocking_reasons
 
-    def test_unknown_level_blocking_is_expected_but_unasserted(self):
-        """UNKNOWN capability level is blocked."""
-        # This is tested implicitly - UNKNOWN should never be returned
-        # but if it is, it should be treated as blocked
-        pass
+    def test_unknown_level_blocks_program_plan(self, tmp_path):
+        """UNKNOWN capability (missing or undetermined analysis) is blocked.
+
+        Replaces the previous unasserted placeholder: the planner must fail
+        closed for UNKNOWN — no may_proceed, blocking reasons present, and
+        SKIP strategy/validation.
+        """
+        from engine.modernization.capability_analyzer import ComponentCapability
+        from engine.transformation.ir import CobolProgramUnit
+
+        (tmp_path / "X.cob").write_text(SIMPLE_PROGRAM)
+        planner = ModernizationPlanner(docker_available=True)
+        unit = CobolProgramUnit(
+            program_id="SIMPLE", source_path=str(tmp_path / "X.cob"), program=None
+        )
+
+        # cap=None → the "no analysis available" path.
+        missing = planner._build_program_plan(unit, None)
+        assert missing.capability_level == CapabilityLevel.UNKNOWN
+        assert missing.may_proceed is False
+        assert BlockingReason.UNKNOWN_CONSTRUCT in missing.blocking_reasons
+        assert missing.transformation_strategy == TransformationStrategy.SKIP
+        assert missing.validation_strategy == ValidationStrategy.SKIP
+
+        # An explicit UNKNOWN component blocks identically.
+        cap = ComponentCapability(
+            component_id="SIMPLE", component_type="PROGRAM",
+            level=CapabilityLevel.UNKNOWN, reason="synthetic unknown",
+        )
+        unknown = planner._build_program_plan(unit, cap)
+        assert unknown.capability_level == CapabilityLevel.UNKNOWN
+        assert unknown.may_proceed is False
+        assert unknown.blocking_reasons
+
+    def test_unknown_component_never_yields_ready_overall_status(self):
+        """BL-139 follow-up: UNKNOWN + SUPPORTED components → BLOCKED.
+
+        _derive_overall_status used to fall through to READY whenever any
+        component was SUPPORTED, presenting an undetermined application as
+        ready to transform.
+        """
+        from engine.modernization.capability_analyzer import (
+            CapabilityReport,
+            ComponentCapability,
+        )
+
+        report = CapabilityReport(
+            application_id="APP",
+            components=(
+                ComponentCapability(
+                    component_id="MAIN", component_type="PROGRAM",
+                    level=CapabilityLevel.SUPPORTED, reason="ok",
+                ),
+                ComponentCapability(
+                    component_id="MAIN->GONE", component_type="CALL",
+                    level=CapabilityLevel.UNKNOWN, reason="no analysis",
+                ),
+            ),
+            overall_level=CapabilityLevel.UNKNOWN,
+        )
+        status = ModernizationPlanner(docker_available=True)._derive_overall_status(report)
+        assert status == ModernizationStatus.BLOCKED, (
+            "an UNKNOWN component must block overall READY"
+        )
+        assert report.unknown_count == 1
 
 
 class TestModernizationPlannerTransformationStrategies:

@@ -397,6 +397,61 @@ class Store:
                 raise NotFoundError(f"Application {record.id!r} not found")
             self._conn.commit()
 
+    #: Columns ``update_application_fields`` accepts — the same set the
+    #: full-row ``update_application`` writes, nothing else.
+    _APPLICATION_FIELDS = frozenset({
+        "name", "description", "workload_id", "java_entrypoint",
+        "target_runtime", "cobol_source_path", "java_candidate_path",
+        "discovered_program_ids", "generated_app_path",
+        "generated_entrypoint", "generated_program_ids", "created_at",
+    })
+    #: Columns stored as JSON-encoded string lists.
+    _APPLICATION_LIST_FIELDS = frozenset({
+        "discovered_program_ids", "generated_program_ids",
+    })
+
+    def update_application_fields(
+        self, app_id: str, **fields: object
+    ) -> ApplicationRecord:
+        """Update only the named columns of one application row.
+
+        Column-scoped write: a concurrent writer that changed a *different*
+        column between this caller's read and write is never clobbered by a
+        stale full-row ``update_application`` (lost-update protection —
+        BL-141).  Unknown column names are rejected (fail closed), an empty
+        update is a programming error, and an unknown application raises
+        ``NotFoundError``.  Returns the refreshed record.
+        """
+        if not fields:
+            raise ValueError(
+                "update_application_fields requires at least one field"
+            )
+        unknown = set(fields) - self._APPLICATION_FIELDS
+        if unknown:
+            raise ValueError(
+                f"unknown application column(s): {sorted(unknown)}"
+            )
+        assignments: list[str] = []
+        values: list[object] = []
+        for key, value in fields.items():
+            if key in self._APPLICATION_LIST_FIELDS:
+                value = serialization.encode_str_list(tuple(value or ()))
+            assignments.append(f"{key} = ?")
+            values.append(value)
+        values.append(app_id)
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE applications SET {', '.join(assignments)} WHERE id = ?",
+                tuple(values),
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Application {app_id!r} not found")
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM applications WHERE id = ?", (app_id,)
+            ).fetchone()
+            return self._app_from_row(row)
+
     def find_application_by_name(self, name: str) -> ApplicationRecord | None:
         """Find an application by its exact name."""
         with self._lock:

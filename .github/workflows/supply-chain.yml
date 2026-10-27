@@ -40,11 +40,16 @@ jobs:
       - name: pip-audit (requirements.lock)
         id: pip-audit
         run: |
+          # BL-143: default run shell is `bash -e` (no pipefail) — without
+          # this the step exits with tee's status and audit findings can
+          # never fail the gate.
+          set -o pipefail
           mkdir -p test-artifacts/supply-chain
           python -m pip_audit -r requirements.lock --format=json --desc \
             | tee test-artifacts/supply-chain/pip-audit.json
       - name: Python SBOM (CycloneDX)
         run: |
+          set -o pipefail
           mkdir -p test-artifacts/supply-chain
           python -m cyclonedx_py requirements -i requirements.lock \
             --output-format JSON \
@@ -80,10 +85,14 @@ jobs:
         run: npm ci
       - name: npm audit (JSON report)
         run: |
+          # BL-143: pipefail (see python-audit) — npm audit findings must
+          # fail this step, not be masked by tee's exit status.
+          set -o pipefail
           mkdir -p ../test-artifacts/supply-chain
           npm audit --json | tee ../test-artifacts/supply-chain/npm-audit.json
       - name: Frontend SBOM (CycloneDX)
         run: |
+          set -o pipefail
           mkdir -p ../test-artifacts/supply-chain
           npm sbom --sbom-format cyclonedx --sbom-type library \
             | tee ../test-artifacts/supply-chain/sbom-frontend.cyclonedx.json

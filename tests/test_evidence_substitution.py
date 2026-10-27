@@ -393,3 +393,81 @@ class TestSealPersistence:
 
         assert reset.generated_seal is None
         assert store.get_run("run-rv").generated_seal is None
+
+
+# ---------------------------------------------------------------------------
+# Verify-then-package TOCTOU (BL-140): the zip must contain exactly the
+# bytes that were verified against the seal — not a second, later read of
+# the filesystem that an attacker could swap between the two.
+# ---------------------------------------------------------------------------
+
+
+class TestDownloadServesVerifiedBytes:
+    def test_zip_contains_verified_bytes_even_if_disk_swaps_mid_request(
+        self, monkeypatch
+    ):
+        """Simulate a filesystem swap between seal verification and packaging.
+
+        Pre-fix the endpoint verified the seal and then ``ZipFile.write``
+        re-read every file from disk — a substitution in that window was
+        served as the verified artifact.  Post-fix the bundle is read once,
+        verified, and packaged from those same bytes (``ZipFile.write`` is
+        never used), so a swap after verification cannot reach the archive.
+        """
+        run_id, target = _create_run_with_bundle(
+            [("Main.java", b"class Main {}")]
+        )
+        _seal(run_id, target)
+        assert _approve(run_id).status_code == 200
+
+        original_write = zipfile.ZipFile.write
+
+        def swapping_write(self, filename, arcname=None, *args, **kwargs):
+            # Mutate the file "after verification, before packaging".
+            Path(filename).write_bytes(b"class Main { /* swapped */ }")
+            return original_write(self, filename, arcname, *args, **kwargs)
+
+        monkeypatch.setattr(zipfile.ZipFile, "write", swapping_write)
+
+        resp = client.get(f"/runs/{run_id}/download")
+
+        assert resp.status_code == 200, resp.text
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            assert zf.read("Main.java") == b"class Main {}"
+
+    def test_read_verified_bundle_returns_exact_sealed_bytes(self, tmp_path):
+        from api.artifact_seal import read_verified_bundle
+
+        (tmp_path / "Main.java").write_bytes(b"class Main {}")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "Util.java").write_bytes(b"class Util {}")
+        seal = compute_generated_seal(tmp_path)
+
+        bundle = read_verified_bundle(tmp_path, seal)
+
+        assert bundle == {
+            "Main.java": b"class Main {}",
+            "sub/Util.java": b"class Util {}",
+        }
+
+    def test_read_verified_bundle_refuses_tampered_bytes(self, tmp_path):
+        from api.artifact_seal import read_verified_bundle
+
+        (tmp_path / "Main.java").write_bytes(b"class Main {}")
+        seal = compute_generated_seal(tmp_path)
+        (tmp_path / "Main.java").write_bytes(b"class Evil {}")
+
+        with pytest.raises(ConflictError):
+            read_verified_bundle(tmp_path, seal)
+
+    def test_read_verified_bundle_enforces_caps(self, tmp_path):
+        from api.artifact_seal import read_verified_bundle
+        from api.errors import PayloadTooLargeError
+
+        (tmp_path / "a.bin").write_bytes(b"x" * 100)
+        seal = compute_generated_seal(tmp_path)
+
+        with pytest.raises(PayloadTooLargeError):
+            read_verified_bundle(tmp_path, seal, max_files=0)
+        with pytest.raises(PayloadTooLargeError):
+            read_verified_bundle(tmp_path, seal, max_bytes=10)

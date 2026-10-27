@@ -46,7 +46,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from api.artifact_seal import verify_generated_seal
+from api.artifact_seal import read_verified_bundle
 from api.errors import ApiError, PayloadTooLargeError, ServiceError
 from api.ingestion import IngestionError
 from api.limits import env_int_limit
@@ -1011,14 +1011,21 @@ def download_generated(run_id: str) -> StreamingResponse:
     # Never export bytes that no longer match the run's sealed evidence:
     # a bundle substituted on disk after execution fails closed (409)
     # instead of being served as the verified artifact (P0 — see
-    # api.artifact_seal).
-    verify_generated_seal(java_dir, run.generated_seal)
+    # api.artifact_seal).  The bundle is read exactly once and those
+    # same bytes are verified AND packaged, so a filesystem swap between
+    # verification and packaging cannot reach the archive (verify-then-zip
+    # TOCTOU — BL-140); the file/byte caps are enforced during that read.
+    bundle = read_verified_bundle(
+        java_dir,
+        run.generated_seal,
+        max_files=max_files,
+        max_bytes=max_bytes,
+    )
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in files:
-            arcname = f.relative_to(java_dir)
-            zf.write(f, arcname)
+        for arcname in sorted(bundle):
+            zf.writestr(arcname, bundle[arcname])
 
     buf.seek(0)
     # Stable product filename derived from the application name (not the

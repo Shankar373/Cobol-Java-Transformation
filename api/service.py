@@ -482,27 +482,34 @@ class Service:
             # to COBOL discovery, JCL discovery and COPY resolution.
             discovery = discover_application(workspace, app_id)
 
-            # 4. Persist paths on the application record
-            # Clean up previous COBOL source temp directory if it was a temp dir
-            if app.cobol_source_path:
-                _cleanup_temp_dir(app.cobol_source_path)
+            # 4./5. Persist only the columns this path actually changes
+            # (BL-141 — lost updates): a concurrent writer's rename or any
+            # other column must never be clobbered by a stale full-row
+            # write from this record.  The previous source directory is
+            # removed only AFTER the record points at the new one, so a
+            # failed write never destroys the good source (fail-safe: an
+            # orphan temp dir, never data loss).
+            previous = app.cobol_source_path
+            updates: dict[str, object] = {"cobol_source_path": str(workspace)}
             app.cobol_source_path = str(workspace)
 
-            # 5. Update application name if it was auto-generated placeholder
-            #    or if the detected name is more specific (single dir override)
             if detected_name and detected_name != "application":
                 # If the user didn't provide a meaningful name (empty or generic),
                 # use the detected name. Always deduplicate.
                 current_is_generic = not app.name or app.name == "application"
                 if current_is_generic:
                     app.name = self._store.unique_name(detected_name)
+                    updates["name"] = app.name
                 else:
                     # User provided a name — preserve it, but deduplicate if needed
                     existing = self._store.find_application_by_name(app.name)
                     if existing is not None and existing.id != app_id:
                         app.name = self._store.unique_name(app.name)
+                        updates["name"] = app.name
 
-            self._store.update_application(app)
+            self._store.update_application_fields(app_id, **updates)
+            if previous:
+                _cleanup_temp_dir(previous)
 
             result = discovery.to_dict()
             result["detected_name"] = detected_name
@@ -616,7 +623,10 @@ class Service:
         base = self._write_upload(files, "cobol", app_id)
         previous = app.cobol_source_path
         app.cobol_source_path = str(base)
-        self._store.update_application(app)
+        # Column-scoped write (BL-141): only cobol_source_path changes here.
+        self._store.update_application_fields(
+            app_id, cobol_source_path=str(base)
+        )
         if previous:
             _cleanup_temp_dir(previous)
         return app, len(files)
@@ -634,7 +644,10 @@ class Service:
         base = self._write_upload(files, "java", app_id)
         previous = app.java_candidate_path
         app.java_candidate_path = str(base)
-        self._store.update_application(app)
+        # Column-scoped write (BL-141): only java_candidate_path changes here.
+        self._store.update_application_fields(
+            app_id, java_candidate_path=str(base)
+        )
         if previous:
             _cleanup_temp_dir(previous)
         return app, len(files)
@@ -1025,13 +1038,22 @@ class Service:
         run_report["recommendations"] = list(report.recommendations)
         run.modernization_report = run_report
 
-        # Update application provenance
+        # Update application provenance — column-scoped (BL-141): only the
+        # provenance columns this path produces are written; a concurrent
+        # rename or source-path change on the same row survives.
         app.discovered_program_ids = report.discovered_programs
         app.generated_app_path = report.generated_project_dir
         app.generated_entrypoint = report.generated_entrypoint
         app.generated_program_ids = report.generated_program_ids
         app.java_candidate_path = report.generated_project_dir
-        self._store.update_application(app)
+        self._store.update_application_fields(
+            app.id,
+            discovered_program_ids=report.discovered_programs,
+            generated_app_path=report.generated_project_dir,
+            generated_entrypoint=report.generated_entrypoint,
+            generated_program_ids=report.generated_program_ids,
+            java_candidate_path=report.generated_project_dir,
+        )
 
         # Seal the bundle now: every file is hashed and the seal is bound
         # to this run, so any later substitution on disk is detected
