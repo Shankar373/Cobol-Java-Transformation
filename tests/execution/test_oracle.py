@@ -18,7 +18,7 @@ from engine.oracle.adapter import (
 # ---------------------------------------------------------------------------
 
 class TestOracleAdapterConfig:
-    def test_valid_config(self):
+    def test_complete_config_validates_without_violations(self):
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
             image_digest="sha256:" + "a" * 64,
@@ -59,7 +59,7 @@ class TestOracleAdapterConfig:
 # ---------------------------------------------------------------------------
 
 class TestGnuCOBOLAdapter:
-    def test_valid_creation(self):
+    def test_constructor_stores_supplied_config(self):
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
             image_digest="sha256:" + "a" * 64,
@@ -97,7 +97,7 @@ class TestGnuCOBOLAdapter:
         status = adapter.probe()
         assert status == AdapterStatus.UNAVAILABLE
 
-    def test_execute(self):
+    def test_execute_returns_succeeded_status_with_zero_exit(self):
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
             image_digest="sha256:" + "a" * 64,

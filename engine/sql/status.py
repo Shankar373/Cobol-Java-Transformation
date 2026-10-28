@@ -8,6 +8,11 @@ programs.  Values are DB2-documented constants (syntax/semantic domain):
 - -811   / '21000' cardinality violation: singleton SELECT returned > 1 row
 - -803   / '23505' duplicate key on INSERT/UPDATE
 
+Plus one explicit lane sentinel for failures outside the mapped
+subset: -1 / '56000' via ``Db2SqlStatus.unmapped_error`` — a
+well-formed ERROR, never a claim about the exact DB2 code for that
+condition.
+
 Scope discipline (see module docstring on ``engine/sql``): these are DB2
 *semantic* constants.  They make test databases behave like DB2 at the
 status boundary, but a passing controller does NOT prove DB2 runtime
@@ -30,6 +35,17 @@ SQLSTATE_TOO_MANY_ROWS = "21000"
 
 SQLCODE_DUPLICATE_KEY = -803
 SQLSTATE_DUPLICATE_KEY = "23505"
+
+#: Lane sentinel for a failure OUTSIDE the mapped subset.
+#: SQLCODE -1 is not a DB2-documented code in this modeled subset: it
+#: marks "unclassified failure on the controlled database" so error
+#: handlers always return a well-formed ERROR status instead of
+#: constructing an invalid one.  SQLSTATE '56000' sits in DB2 class 56
+#: (internal error processing) and is used here as the lane's unmapped
+#: placeholder — it does NOT claim the exact DB2 SQLSTATE for the
+#: specific condition.
+SQLCODE_UNMAPPED_ERROR = -1
+SQLSTATE_UNMAPPED_ERROR = "56000"
 
 
 class Db2SqlCodeCategory(Enum):
@@ -113,6 +129,20 @@ class Db2SqlStatus:
             sqlcode=SQLCODE_DUPLICATE_KEY,
             sqlstate=SQLSTATE_DUPLICATE_KEY,
             message="Duplicate key value in unique or primary index",
+        )
+
+    @classmethod
+    def unmapped_error(cls, message: str) -> Db2SqlStatus:
+        """Well-formed status for a failure outside the mapped subset.
+
+        Used by the controlled-database error handlers so an unmapped
+        ``IntegrityError``/``OperationalError`` is reported as a normal
+        ERROR result instead of crashing the handler.
+        """
+        return cls(
+            sqlcode=SQLCODE_UNMAPPED_ERROR,
+            sqlstate=SQLSTATE_UNMAPPED_ERROR,
+            message=message,
         )
 
 

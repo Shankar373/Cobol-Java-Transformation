@@ -1,0 +1,70 @@
+{
+  "mode": "negative-level88",
+  "workload": "level88",
+  "db": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\negative-level88\\control-plane.db",
+  "zip": "C:\\Users\\bandi\\AppData\\Local\\Temp\\opencode\\w4-gate\\negative-level88\\level88.zip",
+  "application_id": "app-d3a2b38d236b",
+  "ingest": {
+    "application_id": "app-d3a2b38d236b",
+    "workspace_path": "C:\\Users\\bandi\\AppData\\Local\\Temp\\ingest-app-d3a2b38d236b-it3x52to\\cobol",
+    "source_file_count": 1,
+    "total_size_bytes": 1337,
+    "discovery": {
+      "application_id": "app-d3a2b38d236b",
+      "cobol_programs": [
+        {
+          "program_id": "LEVEL88-DEMO",
+          "source_path": "MAIN.cob",
+          "file_dependencies": [],
+          "calls": [],
+          "copybooks": [],
+          "entry_points": []
+        }
+      ],
+      "copybooks": [],
+      "jcl_jobs": [],
+      "file_dependencies": [],
+      "call_dependencies": [],
+      "dependency_edges": [],
+      "source_file_count": 1,
+      "total_size_bytes": 1337,
+      "discovery_success": true,
+      "discovery_errors": [],
+      "detected_name": "cobol",
+      "top_level_entries": [
+        "cobol"
+      ]
+    },
+    "detected_name": "cobol",
+    "top_level_entries": [
+      "cobol"
+    ]
+  },
+  "modernize_status": 202,
+  "run_id": "run-f47c392b1846",
+  "terminal": {
+    "run": {
+      "id": "run-f47c392b1846",
+      "application_id": "app-d3a2b38d236b",
+      "workload_id": "level88",
+      "stage": "FAILED",
+      "created_at": "2026-10-08T06:54:24.135944+00:00",
+      "completed_at": "2026-10-08T06:54:24.327257+00:00",
+      "error": "Pipeline generation failed: Transformation plan contains non-transformable programs: LEVEL88-DEMO"
+    },
+    "stages_seen": [
+      "FAILED"
+    ]
+  },
+  "run_stage": "FAILED",
+  "run_error": "Pipeline generation failed: Transformation plan contains non-transformable programs: LEVEL88-DEMO",
+  "verdict_http": 404,
+  "proof_http_process1": 404,
+  "proof_process1": "{\"detail\":\"No modernization report available for this run\"}",
+  "reload_run_http": 200,
+  "reload_run_stage": "FAILED",
+  "reload_verdict_http": 404,
+  "proof_http_process2": 404,
+  "proof_process2": "{\"detail\":\"No modernization report available for this run\"}",
+  "proof_identical_across_restart": null
+}

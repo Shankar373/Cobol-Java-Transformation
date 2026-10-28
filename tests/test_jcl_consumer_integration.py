@@ -52,18 +52,18 @@ def load_fixture(name: str) -> str:
 class TestJclDiscoveryIntegration:
     """Prove JCL files are discovered from the real fixture directory."""
 
-    def test_discover_fixture_directory(self) -> None:
+    def test_fixture_directory_yields_four_jobs_and_resolved_source_path(self) -> None:
         result = modernize_jcl_workload(FIXTURES, application_id="test-discover")
         assert result.application_id == "test-discover"
         assert result.source_path == str(FIXTURES.resolve())
         assert result.job_count == 4  # SIMPLEB, PAYORDER, CONDJOB, UNSUPP
 
-    def test_discover_returns_profile(self) -> None:
+    def test_result_profile_carries_all_four_fixture_jobs(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert result.profile is not None
         assert len(result.profile.application.jobs) == 4
 
-    def test_discover_step_count(self) -> None:
+    def test_fixture_directory_reports_at_least_ten_steps(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert result.step_count >= 10  # 2+3+4+5 steps across 4 jobs
 
@@ -75,22 +75,22 @@ class TestJclDiscoveryIntegration:
 class TestProfileInvocation:
     """Prove modernize_jcl is called through the consumer boundary."""
 
-    def test_profile_has_application(self) -> None:
+    def test_profile_application_carries_id_version_and_jobs(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         app = result.profile.application
         assert app.application_id == "jcl-modernization"
         assert app.profile_version == "1.0"
         assert len(app.jobs) > 0
 
-    def test_profile_has_resources(self) -> None:
+    def test_profile_application_exposes_resource_inventory(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert len(result.profile.application.resources) > 0
 
-    def test_profile_has_dataset_edges(self) -> None:
+    def test_profile_application_exposes_dataset_edges(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert len(result.profile.application.dataset_edges) > 0
 
-    def test_application_id_propagated(self) -> None:
+    def test_custom_application_id_reaches_the_profile_application(self) -> None:
         result = modernize_jcl_workload(FIXTURES, application_id="my-app-id")
         assert result.profile.application.application_id == "my-app-id"
 
@@ -102,7 +102,7 @@ class TestProfileInvocation:
 class TestStatusPropagation:
     """Prove status (FULL/PARTIAL/EMPTY) is correctly propagated."""
 
-    def test_fixture_status_partial(self) -> None:
+    def test_fixture_with_unsupported_constructs_reports_partial(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert result.status == JclProfileStatus.PARTIAL
 
@@ -131,16 +131,16 @@ class TestStatusPropagation:
 class TestDiagnosticsPropagation:
     """Prove diagnostics reach the consumer boundary."""
 
-    def test_diagnostics_not_empty(self) -> None:
+    def test_fixture_run_emits_diagnostics(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert len(result.diagnostics) > 0
 
-    def test_has_errors_matches_diagnostics(self) -> None:
+    def test_has_errors_flag_reflects_error_level_diagnostics(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         error_count = sum(1 for d in result.diagnostics if d.level.value == "ERROR")
         assert result.has_errors == (error_count > 0)
 
-    def test_has_warnings_matches_diagnostics(self) -> None:
+    def test_has_warnings_flag_reflects_warning_level_diagnostics(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         warn_count = sum(1 for d in result.diagnostics if d.level.value == "WARNING")
         assert result.has_warnings == (warn_count > 0)
@@ -150,7 +150,7 @@ class TestDiagnosticsPropagation:
         codes = {d.code for d in result.diagnostics}
         assert JclDiagnosticCode.PROFILE_NOTED in codes
 
-    def test_diagnostics_traceable_to_jobs(self) -> None:
+    def test_at_least_one_diagnostic_carries_a_job_name(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job_names = {d.job for d in result.diagnostics if d.job}
         assert len(job_names) > 0
@@ -163,7 +163,7 @@ class TestDiagnosticsPropagation:
 class TestUnsupportedPreserved:
     """Prove unsupported constructs are never silently discarded."""
 
-    def test_unsupported_constructs_not_empty(self) -> None:
+    def test_fixture_run_lists_unsupported_constructs(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert len(result.unsupported_constructs) > 0
 
@@ -179,7 +179,7 @@ class TestUnsupportedPreserved:
         result = modernize_jcl_workload(FIXTURES)
         assert "statements outside the supported subset" in result.unsupported_constructs
 
-    def test_unsupported_not_lost(self) -> None:
+    def test_job_with_unsupported_constructs_is_still_present(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         # All 4 fixture jobs preserved, even UNSUPP
         job_names = {j.name for j in result.profile.application.jobs}
@@ -198,20 +198,20 @@ class TestUnsupportedPreserved:
 class TestSpringBatchIRConsumer:
     """Prove the Spring Batch representation is accessible at the consumer boundary."""
 
-    def test_job_bean_naming(self) -> None:
+    def test_simpleb_job_bean_is_pascal_name_with_start_step01(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("SIMPLEB")
         assert job.job_bean == "SimplebJob"
         assert job.start_step == "Step01"
 
-    def test_step_tasklet_bean(self) -> None:
+    def test_step01_tasklet_bean_derives_from_step_name_and_program(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("SIMPLEB")
         step = job.steps[0]
         assert step.tasklet_bean == "Step01Tasklet"
         assert step.program == "SIMPLE-CALC"
 
-    def test_resource_mapping(self) -> None:
+    def test_payorder_input_dd_maps_to_input_type_with_dsn(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("PAYORDER")
         input_res = job.steps[0].resources[0]
@@ -219,7 +219,7 @@ class TestSpringBatchIRConsumer:
         assert input_res.resource_type == SpringBatchResourceType.INPUT
         assert input_res.dsn == "ORDER.INPUT"
 
-    def test_flow_edges(self) -> None:
+    def test_simpleb_sequential_steps_yield_success_flow_edge(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("SIMPLEB")
         assert len(job.flows) == 1
@@ -227,7 +227,7 @@ class TestSpringBatchIRConsumer:
         assert job.flows[0].target == "Step02"
         assert job.flows[0].on_status == EXIT_STATUS_SUCCESS
 
-    def test_conditional_flow_edges(self) -> None:
+    def test_cond_steps_yield_only_and_even_flow_edges(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         job = result.profile.application.get_job("CONDJOB")
         flow_only = next(f for f in job.flows if f.target == "Step02")
@@ -235,13 +235,13 @@ class TestSpringBatchIRConsumer:
         flow_even = next(f for f in job.flows if f.target == "Step03")
         assert flow_even.on_status == EXIT_STATUS_ANY
 
-    def test_dataset_edges(self) -> None:
+    def test_dataset_edges_record_order_input_and_order_output(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         edges = {(e.dataset, e.producer, e.consumer) for e in result.profile.application.dataset_edges}
         assert ("ORDER.INPUT", "", "Step01") in edges
         assert ("ORDER.OUTPUT", "Step03", "") in edges
 
-    def test_validate_clean(self) -> None:
+    def test_fixture_profile_validates_with_no_errors(self) -> None:
         result = modernize_jcl_workload(FIXTURES)
         assert result.profile.application.validate() == []
 
@@ -253,7 +253,7 @@ class TestSpringBatchIRConsumer:
 class TestInMemorySources:
     """Prove the in-memory entry point works identically."""
 
-    def test_in_memory_discovery(self) -> None:
+    def test_two_in_memory_sources_yield_two_jobs(self) -> None:
         sources = {
             "batch1.jcl": load_fixture("simple_batch.jcl"),
             "batch2.jcl": load_fixture("order_flow.jcl"),
@@ -263,7 +263,7 @@ class TestInMemorySources:
         assert result.job_count == 2
         assert result.status in (JclProfileStatus.FULL, JclProfileStatus.PARTIAL)
 
-    def test_in_memory_supported_constructs(self) -> None:
+    def test_clean_in_memory_source_reports_full_with_no_unsupported(self) -> None:
         jcl = (
             "//JOB JOB CLASS=A\n"
             "//STEP01 EXEC PGM=TEST\n"
@@ -282,7 +282,7 @@ class TestInMemorySources:
 class TestNoRegression:
     """Verify existing JCL tests still pass (baseline preserved)."""
 
-    def test_parser_regression(self) -> None:
+    def test_parser_extracts_single_job_step_and_program(self) -> None:
         from engine.transformation.jcl_parser import JclParser
 
         jcl = (
@@ -295,7 +295,7 @@ class TestNoRegression:
         assert app.jobs[0].name == "TESTJOB"
         assert app.jobs[0].steps[0].exec_.program == "CALC"
 
-    def test_discovery_still_works(self) -> None:
+    def test_discovery_returns_all_four_fixture_jobs(self) -> None:
         from engine.transformation.jcl_discovery import JclDiscovery
 
         discovery = JclDiscovery()
@@ -312,11 +312,11 @@ class TestNoRegression:
 class TestErrorHandling:
     """Consumer must not silently swallow errors."""
 
-    def test_nonexistent_path(self) -> None:
+    def test_missing_directory_raises_file_not_found(self) -> None:
         with pytest.raises(FileNotFoundError):
             modernize_jcl_workload("/nonexistent/path/xyz")
 
-    def test_file_not_directory(self, tmp_path: Path) -> None:
+    def test_path_to_a_file_instead_of_directory_raises_value_error(self, tmp_path: Path) -> None:
         f = tmp_path / "not_a_dir.jcl"
         f.write_text("//JOB JOB\n")
         with pytest.raises(ValueError, match="not a directory"):
@@ -330,7 +330,7 @@ class TestErrorHandling:
 class TestDeterminism:
     """Consumer results must be deterministic."""
 
-    def test_two_calls_identical(self) -> None:
+    def test_two_runs_over_same_tree_produce_identical_results(self) -> None:
         a = modernize_jcl_workload(FIXTURES, application_id="det-a")
         b = modernize_jcl_workload(FIXTURES, application_id="det-b")
         assert a.status == b.status

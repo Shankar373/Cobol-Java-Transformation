@@ -1,5 +1,27 @@
 # SystemaOps Current Capability Verification
 
+> **Historical snapshot note (2026-10-17):** the campaign recorded below is a
+> **dated forensic snapshot** (2026-09-21, commit `9ca0cfd`, host-`javac`
+> harness in the temp directory). It is preserved unmodified as history and
+> must not be read as current status: the runtime lanes it marks NOT_TESTED or
+> FAILED have since been executed live in Docker, and the current per-workload
+> runtime-proof status (with per-row evidence) is maintained in
+> `docs/verification/RUNTIME_PROOF_MATRIX.md`.
+>
+> Likewise, the systemic blockers recorded in §10 (B1 oracle `-free`, B2a
+> statement folding, B2b phantom POM — plus the D4 dynamic-CALL edge typing)
+> were re-checked against the code and are now fixed/corrected; see the
+> status correction under §10.
+>
+> **Repair note (2026-10-26):** this file was found with its ending cut off
+> mid-sentence in §10 behind a truncation artifact that reported a missing
+> character count. The §10 tail has been rewritten to a coherent, code-checked
+> ending and a new §11 records the verification basis (which suites were run,
+> with what counts, and when). Apart from three forward-pointers added to the
+> campaign record (Sec 5 row 7, Sec 6 row 16, Sec 7 `workload-dynamic-call`,
+> each marking a finding as since corrected in §10), Sections 1-9 are unchanged
+> — and the truncation artifact itself is gone.
+
 ## 1. Verification Date
 
 - **Date (UTC):** 2026-09-21
@@ -111,6 +133,8 @@ empty stdout). Nothing can reach LEVEL 6/7 until this is fixed.
 **B2.** Generated Spring Boot projects do not build: (a) 12 workloads emit uncompilable Java
 (COBOL keywords as identifiers, type errors, wrong arity); (b) 5 file workloads emit an invalid
 `pom.xml` (`org.springframework:spring-file-io` with no version).
+Both blockers are described as of the 2026-09-21 run; each is now fixed in this
+tree — see the status correction under Section 10.
 
 ## 6. Capability Matrix
 
@@ -125,7 +149,7 @@ Legend for stage columns: value = highest pipeline level actually demonstrated w
 | 4 | Single mapping pass | ALPHA.cob via API lane | n/a | generate×1, same object reused, 0 late COBOL maps | n/a | n/a | n/a | n/a | n/a | behavioral proof script | VERIFIED (mapping layer; committed P0 tests fail on test-bug) |
 | 5 | Spring Boot generation | 18 discovered apps | n/a | spring mapping+generator OK 18/18 | pom.xml + Application.java + services, entrypoint FQN | 1/18 | 1/18 | n/a | n/a | fresh projects on disk | TRANSFORMED ONLY (BUILDS proven once) |
 | 6 | Docker Java execution | copybook JAR (10 MB) | n/a | n/a | JAR in target/ | yes | RC=0, 153 B stdout (manual rerun w/ time) | n/a | vs manual oracle: identical lines (supplementary) | fresh container logs | EXECUTES ONLY (pipeline run timed out at 30 s) |
-| 7 | Independent GnuCOBOL oracle | 20 cobol dirs | n/a | n/a | n/a | n/a (cobc) | 0/20 in pipeline | FAILED ALL (missing `-free`) | none possible | fresh stderr captured | FAILED (harness flag bug; programs themselves valid — see Sec 8) |
+| 7 | Independent GnuCOBOL oracle | 20 cobol dirs | n/a | n/a | n/a | n/a (cobc) | 0/20 in pipeline | FAILED ALL (missing `-free`; fixed — see §10 status correction) | none possible | fresh stderr captured | FAILED (harness flag bug; programs themselves valid — see Sec 8) |
 | 8 | Evidence/security boundary | adversarial mutations | n/a | n/a | n/a | n/a | n/a | n/a | 205/205 unit attacks pass | pytest, no docker | VERIFIED (as unit-tested; NOT behavior proof) |
 | 9 | API/control plane | TestClient | discovery/tracking | modernize lane (fake pipeline) | generated dir + entrypoint | n/a | n/a | n/a | n/a | 73 pytest pass | VERIFIED (orchestration; not E2E equivalence) |
 | 10 | Frontend console | mocked API | render discovery/edges | n/a | n/a | `vite build` not run here | n/a | n/a | n/a | 81 vitest pass | PARTIALLY VERIFIED (renders; no live-backend E2E) |
@@ -134,7 +158,7 @@ Legend for stage columns: value = highest pipeline level actually demonstrated w
 | 13 | COPYBOOK | MAIN.cob+COMMON.CPY | COPY edge recorded | model CommonRecord.java + merged Demo | 2 java artifacts, Spring app | JAR built | RC=0 manual; pipeline timeout | pipeline compile-fail; manual `-free` OK, 7 lines | pipeline MISMATCH (empty-vs-timeout); manual identical (supplementary) | fresh | EXECUTES ONLY |
 | 14 | Static CALL arity-0 | call-linkage (MAIN+CALCULATE) | CALL edge MAIN→CALCULATE | 2 program classes + registry | Calculate.java, Main-equivalent, registry | NO (javac: cannot find symbol) | NO | NO (B1 + fixture LINKAGE order defect) | none | fresh | TRANSFORMED ONLY |
 | 15 | CALL USING / LINKAGE | by-ref/by-content/by-value | CALL+USING args recorded | Main+Modify classes | 3 artifacts each | NO (String→int, arity) | NO | by-ref/by-value run under manual `-free`; by-content rejected by GnuCOBOL 3.1 (`BY CONTENT` unsupported) | none | fresh | TRANSFORMED ONLY |
-| 16 | Dynamic CALL | dynamic-call (MAIN+CALC) | CALL target recorded as STATIC (limitation) | Main+Calc classes | 3 artifacts | NO (javac errors) | NO | NO (B1 + LINKAGE order defect) | none | fresh | TRANSFORMED ONLY (dynamic dispatch itself unproven even structurally) |
+| 16 | Dynamic CALL | dynamic-call (MAIN+CALC) | CALL target recorded as STATIC (limitation; edge typing corrected — see §10 D4) | Main+Calc classes | 3 artifacts | NO (javac errors) | NO | NO (B1 + LINKAGE order defect) | none | fresh | TRANSFORMED ONLY (dynamic dispatch itself unproven even structurally) |
 | 17 | JCL | fixtures/workload-jcl | jcl discovery exists | JCL→Spring Batch IR + generation (unit) | batch artifacts (unit) | not exercised E2E | NO | NO | none | 117-test subset pass | MODELED ONLY (no z/OS/JES equivalence — none claimed by code) |
 | 18 | DB2 / EXEC SQL | fixtures/workload-db2 | SQL deps extracted (unit) | repository mapping (unit) | repository/service (unit) | not exercised E2E | SQLite only (unit) | NO real DB2 | none | unit pass (incl. test_db2_execution) | MODELED ONLY + SQLite-execution (unit); NO DB2 runtime equivalence |
 | 19 | CICS | fixtures/workload-cics | CICS constructs parsed (unit) | CICS→Java mapping (unit) | model classes (unit) | not exercised E2E | NO | NO CICS TS | none | 117-test subset pass | MODELED ONLY; NO CICS TS equivalence |
@@ -239,8 +263,9 @@ no host fallback. Pipeline oracle result for EVERY workload: `exit=1`,
   `-Wunfinished` warning and runs (BY VALUE semantics visible, Sec 8).
 
 ### workload-dynamic-call — TRANSFORMED ONLY
-- Input: `MAIN.cob` + `CALC.cob` (CALL with identifier). Discovery records target as
-  `STATIC`-typed edge — dynamic dispatch is NOT modeled (limitation, Sec 10 D4).
+- Input: `MAIN.cob` + `CALC.cob` (CALL with identifier). Discovery recorded the target as
+  a `STATIC`-typed edge — dynamic dispatch was NOT modeled then (limitation, Sec 10 D4;
+  the current tree stamps `DYNAMIC` and fails closed).
 - Generated: 3 artifacts. Build: `Main.java:21` + `Calc.java:17-18` symbol errors. No JAR.
 - Oracle: B1 + same LINKAGE-order fixture defect as CALCULATE (F1).
 
@@ -352,11 +377,91 @@ Per-workload generated file lists + SHA prefixes are stored in each
 
 ## 10. Failed / Partial Capabilities
 
-- **B1. Oracle adapter missing `-free`** (`engine/oracle/docker_adapter.py:263-268`,
-  `compile_cmd = f"cobc -x ..."`). Stage: oracle execution. Exact error (all 20):
-  `MAIN.cob:1: error: invalid indicator 'F' at column 7` (+ per-file variants). Root cause proven:
-  same sources compile+run with `cobc -free` (Sec 8a). Harness/product-lane issue (fixtures are
-  uniformly free-format; adapter assumes fixed). Blocks LEVEL 6/7 for everything.
-- **B2a. Statement-folding codegen bug** (`cobol_to_java_mapping.py` + dirty-tree changes):
-  SUBTRACT/MULTIPL
-...[truncated 6154 chars]
+B1, B2a and B2b below are the blockers **as recorded on 2026-09-21**; their
+current status is settled in the "Status correction" subsection that follows.
+
+- **B1. Oracle adapter missing `-free`** (`engine/oracle/docker_adapter.py`,
+  `compile_cmd = f"cobc -x ..."` — line numbers as recorded on 2026-09-21). Stage: oracle
+  execution. Exact error (all 20): `MAIN.cob:1: error: invalid indicator 'F' at column 7`
+  (+ per-file variants). Root cause proven: same sources compile+run with `cobc -free`
+  (Sec 8a). Harness/product-lane issue (fixtures are uniformly free-format; adapter assumed
+  fixed). Blocked LEVEL 6/7 for everything *at campaign time* (see the status correction
+  below).
+- **B2a. Statement-folding codegen bug** (`engine/transformation/cobol_to_java_mapping.py`):
+  statements such as SUBTRACT / MULTIPLY / EVALUATE / PERFORM were folded into
+  `System.out.println(...)`, emitting COBOL keywords (`SUBTRACT`, `FROM`, `GIVING`) as Java
+  identifiers and no arithmetic — so 12 workloads produced uncompilable Java (the "folding
+  bug" cells in Sec 7 rows 22-28).
+- **B2b. Phantom `spring-file-io` POM dependency**: the 5 file workloads emit
+  `org.springframework:spring-file-io` with no version in `pom.xml`, so Maven rejects the
+  build before it ever compiles (Sec 7 rows 29-34).
+- **D4. Dynamic CALL target recorded as STATIC** (Sec 7 row 16, campaign record): discovery
+  stamped a CALL to an identifier with a `STATIC`-typed edge, so dynamic dispatch appeared
+  unmodeled. **Corrected 2026-10-26:** the tree now stamps non-literal targets `DYNAMIC`
+  (`engine/transformation/application_discovery.py`: `call_type="STATIC" if is_literal else
+  "DYNAMIC"`, carried as `call_type=DYNAMIC` edge metadata), and both the capability
+  analyzer (`CapabilityAnalyzer`, `is_dynamic` → `UNSUPPORTED`, "Dynamic CALL (data-item
+  target) has no static dispatch") and the modernization planner fail closed on it with
+  `BlockingReason.DYNAMIC_CALL`. What still holds from row 16 is the runtime statement:
+  dynamic dispatch was never exercised end-to-end in this campaign and is not re-certified
+  here.
+
+### Status correction (2026-10-26): B1, B2a and B2b are FIXED in this working tree
+
+B1/B2a/B2b are properties of the 2026-09-21 campaign run, not of today's tree. Re-read
+against the code on 2026-10-26:
+
+- **B1 fixed.** `engine/oracle/docker_adapter.py` now has `detect_source_format()` /
+  `_compile_format_flag()`, which append `-free ` only when every compile unit in the set
+  is detected free-format (`return "-free " if formats == {"free"} else ""`); fixed-format
+  modules are never reinterpreted. Covered by `tests/execution/test_oracle_source_format.py`.
+- **B2a fixed.** `cobol_to_java_mapping.py` now lowers these statements explicitly —
+  `SUBTRACT A FROM B GIVING C` → `C = B - A` (chained multi-source form included),
+  `MULTIPLY A BY B [GIVING C]` → assignment — as `JavaAssignment` nodes. The only remaining
+  "fold" helpers in the mapper are relational/range lowering (`NOT =`, range → `compareTo`),
+  not statement-into-print folding.
+- **B2b fixed.** `spring-file-io` appears nowhere under `engine/`; file I/O maps to JDK
+  `java.io.*`, and `tests/transformation/test_phase7b1_spring_boot_ir.py` /
+  `test_phase7b2_executable_project.py` assert the artifact is absent from generated POMs
+  ("spring-file-io does not exist in Maven central; do not add it").
+- `opencode.md` (session 2026-10-23, "P0 audit re-verification") independently records the
+  same three defects found already fixed, with exact commands: `test_oracle_source_format.py`
+  **14 passed** incl. 4 Docker-gated, a production-path file-workload POM asserted free of
+  `spring-file-io`, and a generated project built in the pinned Maven container (exit 0,
+  JAR 10,351,185 B).
+
+The per-workload levels, matrix rows and the headline "0 of 20 reach ORACLE_MATCHED" in
+Sections 5-9 were measured on 2026-09-21 and were **not** re-measured for this repair: they
+remain the record of that campaign, not a statement about the current tree.
+
+## 11. Verification Basis for This File (2026-10-26)
+
+Every count below was produced by running the suite locally against this working tree on
+**2026-10-26**. These are local runs, **not** CI results: they must not be restated,
+paraphrased or cited as CI runs, CI job outcomes or run URLs. The authoritative CI record
+lives in `opencode.md` and `docs/BACKLOG.md` (see the baseline note at the top of this file).
+
+- Capability-truth gate block, parsed straight out of `.github/workflows/ci.yml`
+  (56 test files listed there on this date, including the new
+  `tests/test_shell_script_contracts.py`): **794 passed, 1 deselected, 17.89 s**
+  (791 with that suite's first 14 tests; 777 before it was added to the block).
+- New production-readiness suites, each run on its own:
+  `tests/test_workspace_persistence.py` **18 passed**,
+  `tests/test_readiness.py` **13 passed**,
+  `tests/test_structured_logging.py` **25 passed**,
+  `tests/test_backup_verification.py` **15 passed**,
+  `tests/test_shell_script_contracts.py` **17 passed** (parametrized cases +
+  deploy/backup wiring pins).
+- The auth lane `tests/test_production_auth_env.py` (grown this session with token-floor,
+  CORS-preflight and bundle-guard wiring cases) run together with readiness +
+  structured logging: **68 passed**.
+- Frontend: `npm run build` passes and prints
+  `bundle-secret-guard: OK (2 asset(s) checked in dist)`; the frontend suite reports
+  **166 passed** (was 160; +6 bundle-guard tests).
+- Baselines carried over from earlier in the same session, unchanged:
+  security **459 passed, 2 skipped**; numeric **102**; parser/IR **131**;
+  comparators **28**; Java compilation **44**.
+
+These runs verify the control-plane / verification surface above. They do **not**
+re-certify the 20-workload campaign in Sections 5-10, whose evidence remains the
+2026-09-21 forensic snapshot.

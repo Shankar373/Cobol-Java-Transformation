@@ -13,12 +13,14 @@ This is the authoritative mechanism for workload generality:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from engine.contracts.models import (
     FailurePolicy,
     NormalizationPolicy,
     OrderingPolicy,
 )
+from engine.verification.business_invariants import BusinessInvariant
 
 
 @dataclass(frozen=True)
@@ -89,10 +91,75 @@ class WorkloadDefinition:
     description: str
     artifacts: tuple[WorkloadArtifact, ...]
     inputs: tuple[WorkloadInput, ...] = ()
+    #: Declarative business rules evaluated independently against the oracle
+    #: and candidate observations. They are surfaced as derived
+    #: BUSINESS_INVARIANT artifacts so the existing evidence/comparator/
+    #: verdict gates apply; they never weaken artifact comparison.
+    invariants: tuple[BusinessInvariant, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.artifacts:
             raise ValueError("At least one artifact must be declared")
+
+        artifact_names = [a.logical_name for a in self.artifacts]
+        duplicate_artifacts = sorted(
+            {name for name in artifact_names if artifact_names.count(name) > 1}
+        )
+        if duplicate_artifacts:
+            raise ValueError(
+                f"Duplicate artifact logical_name(s): {duplicate_artifacts}"
+            )
+
+        input_logicals = [i.logical_name for i in self.inputs]
+        duplicate_logicals = sorted(
+            {name for name in input_logicals if input_logicals.count(name) > 1}
+        )
+        if duplicate_logicals:
+            raise ValueError(
+                f"Duplicate input logical_name(s): {duplicate_logicals}"
+            )
+
+        container_paths = [i.container_path for i in self.inputs]
+        duplicate_paths = sorted(
+            {path for path in container_paths if container_paths.count(path) > 1}
+        )
+        if duplicate_paths:
+            raise ValueError(
+                f"Duplicate input container_path(s): {duplicate_paths}"
+            )
+
+        # Inputs are staged by basename; two inputs with the same basename
+        # would silently overwrite each other in the staged input directory.
+        basenames = [Path(i.source_path).name for i in self.inputs]
+        duplicate_basenames = sorted(
+            {name for name in basenames if basenames.count(name) > 1}
+        )
+        if duplicate_basenames:
+            raise ValueError(
+                f"Duplicate input file name(s) {duplicate_basenames}: staged "
+                f"inputs are keyed by file name"
+            )
+
+        invariant_ids = []
+        for invariant in self.invariants:
+            if not isinstance(invariant, BusinessInvariant):
+                raise ValueError(
+                    f"invariants must be BusinessInvariant, got "
+                    f"{type(invariant).__name__}"
+                )
+            invariant_ids.append(invariant.invariant_id)
+        duplicate_invariants = sorted(
+            {name for name in invariant_ids if invariant_ids.count(name) > 1}
+        )
+        if duplicate_invariants:
+            raise ValueError(
+                f"Duplicate invariant_id(s): {duplicate_invariants}"
+            )
+        if self.invariants and "business-invariants" in artifact_names:
+            raise ValueError(
+                "artifact logical_name 'business-invariants' is reserved for "
+                "derived business-invariant reports"
+            )
 
     def get_artifact(self, logical_name: str) -> WorkloadArtifact:
         for a in self.artifacts:

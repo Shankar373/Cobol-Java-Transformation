@@ -1,0 +1,220 @@
+[
+    {
+        "Id": "sha256:9c51a1ca1462ef496b56d932becece2e673658fe43b34fcc0a186b43f26f4ddc",
+        "RepoTags": [
+            "gnucobol-ocesql:latest"
+        ],
+        "RepoDigests": [],
+        "Parent": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-10-07T13:07:43.203677061Z",
+        "DockerVersion": "",
+        "Author": "",
+        "Config": {
+            "Hostname": "",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "DEBIAN_FRONTEND=noninteractive"
+            ],
+            "Cmd": [
+                "/bin/bash"
+            ],
+            "Image": "",
+            "Volumes": null,
+            "WorkingDir": "/workspace",
+            "Entrypoint": null,
+            "OnBuild": null,
+            "Labels": {
+                "org.opencontainers.image.version": "22.04"
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 284385096,
+        "GraphDriver": {
+            "Data": {
+                "LowerDir": "/var/lib/docker/overlay2/150gyh7mp3brl24l7fy8yrkr1/diff:/var/lib/docker/overlay2/165m2plszvg1ifclti5xp7zag/diff:/var/lib/docker/overlay2/6a576cc66eb101b37a4de0cb6aabaf6d75dd1eed06ed1fe05fc43bcb3a3f7d34/diff",
+                "MergedDir": "/var/lib/docker/overlay2/2w1eseskfroch03o573vn53x8/merged",
+                "UpperDir": "/var/lib/docker/overlay2/2w1eseskfroch03o573vn53x8/diff",
+                "WorkDir": "/var/lib/docker/overlay2/2w1eseskfroch03o573vn53x8/work"
+            },
+            "Name": "overlay2"
+        },
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:cbaf391e670933f026c05c7dedec3faf8f194b6c2d83b0d5694ad68323c8077c",
+                "sha256:7edb4919b0bbf1bea440f7facc9b179e0c28c25f48ca7b6a38e85afb9b32a9b6",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                "sha256:d8cddf5e0b6ad6c239e762d56ef560b1818d5b742eb0b7b8573ba19179a71e2f"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-10-07T13:07:44.842225207Z"
+        }
+    },
+    {
+        "Id": "sha256:1515451c18529b930134894a4cba21eacbd36f4056430a8fbc05068c0f35384f",
+        "RepoTags": [
+            "maven-offline-springboot:latest"
+        ],
+        "RepoDigests": [],
+        "Parent": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-10-07T13:08:19.889084276Z",
+        "DockerVersion": "",
+        "Author": "",
+        "Config": {
+            "Hostname": "",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "JAVA_HOME=/opt/java/openjdk",
+                "LANG=en_US.UTF-8",
+                "LANGUAGE=en_US:en",
+                "LC_ALL=en_US.UTF-8",
+                "JAVA_VERSION=jdk-21.0.12.1+1",
+                "MAVEN_HOME=/usr/share/maven",
+                "MAVEN_CONFIG=/root/.m2",
+                "MAVEN_OPTS=-Dmaven.repo.local=/root/.m2/repository"
+            ],
+            "Cmd": [
+                "mvn"
+            ],
+            "Image": "",
+            "Volumes": null,
+            "WorkingDir": "",
+            "Entrypoint": [
+                "/usr/local/bin/mvn-entrypoint.sh"
+            ],
+            "OnBuild": null,
+            "Labels": {
+                "org.opencontainers.image.description": "Apache Maven is a software project management and comprehension tool. Based on the concept of a project object model (POM), Maven can manage a project's build, reporting and documentation from a central piece of information.",
+                "org.opencontainers.image.source": "https://github.com/carlossg/docker-maven",
+                "org.opencontainers.image.title": "Apache Maven",
+                "org.opencontainers.image.url": "https://github.com/carlossg/docker-maven",
+                "org.opencontainers.image.version": "24.04"
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 602223728,
+        "GraphDriver": {
+            "Data": {
+                "LowerDir": "/var/lib/docker/overlay2/2a83cfeb3c3321b73ef44802855f8517de8eade3dd7b94c023f23682035d4964/diff:/var/lib/docker/overlay2/5ed2ff9c9106741a7bd000108ba4fd5515b39d713cbb22e71169ac35c7762cb8/diff:/var/lib/docker/overlay2/8d08444e6beca4066a597aefa3c90e97c0109daa8b27f899c370e69d6ad579f2/diff:/var/lib/docker/overlay2/273d4c3d92e3e1cc6af09451f6047c75843c9d5a1ae3e62d0e5b676e181d937c/diff:/var/lib/docker/overlay2/0851befe172e59a7ce07d05751b298f6baf889a4aab4d8ed303693daa1457638/diff:/var/lib/docker/overlay2/dff470174a6482c1394a137b7339dff358ffed93cc1101c05e1a54d3c5f9dd75/diff:/var/lib/docker/overlay2/10a8b3d3b20fffaf7d5224b4f2d0ca1a7b5502f8ec87c55723fbc30283b41a77/diff:/var/lib/docker/overlay2/413d4842db75cac4ee0fb2f55d2a64e80497f1b03a3fd955d6173619f1a7fd42/diff:/var/lib/docker/overlay2/e0b79f0e9ac430a111e3d5be224dde36d1a0751137d740481815d9a0d469ece0/diff",
+                "MergedDir": "/var/lib/docker/overlay2/muleozxnpmc0580rdyf73d814/merged",
+                "UpperDir": "/var/lib/docker/overlay2/muleozxnpmc0580rdyf73d814/diff",
+                "WorkDir": "/var/lib/docker/overlay2/muleozxnpmc0580rdyf73d814/work"
+            },
+            "Name": "overlay2"
+        },
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:65e5d715ea720349e6475f91651a0956279fc295a45fd73aa04f1cec046281a1",
+                "sha256:6f566707a84390786b5cd2fb983e971ec1e2b75cfc21ebd9c80b5396827c533e",
+                "sha256:ca5bef2a3913937a256b7621ab176108434989a2d01ff97474d6e26f4e66fca6",
+                "sha256:388f0656bbd0ae77130e9f9152e0df1553394ae7cde28c479c3c6dc617835b55",
+                "sha256:715539af3b24d060e27c2dca1acbb621d26b3d0d64a5238928caf5696f8e4d8c",
+                "sha256:2e48f19c01f2bb984226795a1a1e0686b96a7be175135e1de43780cc2c24e32a",
+                "sha256:f349623d0e345c9876e011dfaecc855cb5763a3061099bbc0b39f0cd3a979b82",
+                "sha256:a2545243b6fdbd7a222f3e15e355af8799b45f4fce63ecef69886a79bc7798a1",
+                "sha256:7c8cd899efceabb4d3f213b83f26cf6ecf6e115c357f531806219a3168a9397b",
+                "sha256:343b8b87b0564d71f7cbbf46ce040aec897bbbb1a664cbee987744ffb6979008"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-10-07T13:08:20.458503581Z"
+        }
+    },
+    {
+        "Id": "sha256:b389ca026d545339a1ae02b3377cf9a60121811bf877ff0f8f296097031cccbf",
+        "RepoTags": [
+            "eclipse-temurin:21-jdk"
+        ],
+        "RepoDigests": [
+            "eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026"
+        ],
+        "Parent": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-09-25T22:38:06.466067944Z",
+        "DockerVersion": "",
+        "Author": "",
+        "Config": {
+            "Hostname": "",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "JAVA_HOME=/opt/java/openjdk",
+                "LANG=en_US.UTF-8",
+                "LANGUAGE=en_US:en",
+                "LC_ALL=en_US.UTF-8",
+                "JAVA_VERSION=jdk-21.0.12.1+1"
+            ],
+            "Cmd": [
+                "jshell"
+            ],
+            "Image": "",
+            "Volumes": null,
+            "WorkingDir": "",
+            "Entrypoint": [
+                "/__cacert_entrypoint.sh"
+            ],
+            "OnBuild": null,
+            "Labels": {
+                "org.opencontainers.image.created": "2026-09-12T10:25:59.825539+00:00",
+                "org.opencontainers.image.description": "The Ubuntu container image maintained by Canonical\n\nUbuntu is a Debian-based Linux operating system that runs from the desktop to the cloud, to all your internet connected things.\nIt is the world's most popular operating system across public clouds and OpenStack clouds.\nIt is the number one platform for containers; from Docker to Kubernetes to LXD, Ubuntu can run your containers at scale.\nFast, secure and simple, Ubuntu powers millions of PCs worldwide.\n",
+                "org.opencontainers.image.title": "ubuntu",
+                "org.opencontainers.image.version": "26.04"
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 474807354,
+        "GraphDriver": {
+            "Data": {
+                "LowerDir": "/var/lib/docker/overlay2/afc3684096c6d0939db3240f5176985f639b040aceaeeab0c4889b926cccce0e/diff:/var/lib/docker/overlay2/93457210e904b3395ca6f8383a8f2e79e2098fc6e1ea0b95b109a44b7ec5f506/diff:/var/lib/docker/overlay2/99b280f5bc888e987a20eb7e241481f13e0505eff3ec027f60f12e59c7f9c1fa/diff:/var/lib/docker/overlay2/edcb3c84371e2ef1d95b42d89023f9639a137df5fbcf59e5cc5d12b23e9b5b0a/diff:/var/lib/docker/overlay2/445141a1d477cb067e3ff531c5f69283ced2cfd9e41c9f19f3f92b4a147219a7/diff",
+                "MergedDir": "/var/lib/docker/overlay2/edb7e8c3f311f860bc291457efb65c035d5a281d139cd261c344e078473f5a2d/merged",
+                "UpperDir": "/var/lib/docker/overlay2/edb7e8c3f311f860bc291457efb65c035d5a281d139cd261c344e078473f5a2d/diff",
+                "WorkDir": "/var/lib/docker/overlay2/edb7e8c3f311f860bc291457efb65c035d5a281d139cd261c344e078473f5a2d/work"
+            },
+            "Name": "overlay2"
+        },
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:485d137fd3bfb545f1b417ea708e2281594be7a334e8a85ab75c5332db6089e9",
+                "sha256:598e8330e2e633ea6b06bbf1e8b80c275553b7c1de53899af154d1f480a7eefa",
+                "sha256:81c0998006e95287009d6215c7b78b148603a1943c45e293af1f359a927e0b6a",
+                "sha256:c92c574b320ad8b462272bd1ed9c24eb046ead6d6e59f820cb6c7a563f7e813d",
+                "sha256:fe4896a59b4847b7b4823c55feae31493b6d9eee2ee0b4d8cf17c0a07241f397",
+                "sha256:520cb54cd6a23935531a75de13d363763d6028df0315f51c8ca67617296b8e9e"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-10-07T13:08:28.253819351Z"
+        }
+    }
+]

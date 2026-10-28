@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** A working candidate execution lane exists. The repository also contains a later Spring/Docker lane; version boundaries must remain explicit. **V2 extension (D-10 approved 2026-10-21):** the Spring Boot/Maven lane is now defined in `JAVA_CANDIDATE_CONTRACT_V2.md`.
+
 # JAVA CANDIDATE CONTRACT — V1
 
 > **Status:** AUTHORITATIVE on the platform side; **producer-binding force gated on
@@ -34,7 +36,8 @@ A V1 Java candidate is a **plain Java source tree**:
 
 **Deferred to V2 (explicitly):** Maven/Spring Boot candidate adapter (the second
 observed shape). Adding it is a versioned contract extension with its own build/execution
-and sandbox rules — not a V1 concern.
+and sandbox rules — not a V1 concern. **V2 extension now exists:** see
+`JAVA_CANDIDATE_CONTRACT_V2.md` (D-10 approved 2026-10-21).
 
 ## 3. Candidate Manifest (mandatory fields)
 
@@ -77,7 +80,10 @@ Per ADR-0008 / DR-18 (normative for the execution layer):
    pinned JDK via `javac`; compilation failures are candidate-build failures
    (recorded; verdict cannot be `VERIFIED`), never retried loosely or patched.
 3. **Sandbox:** read-only staged candidate copy; `network none`; memory/CPU/pids
-   limits; **hard timeout** (timeout ⇒ `ERROR`, never PASS).
+   limits; **hard timeout** (timeout ⇒ `ERROR`, never PASS); hardening flags
+   `--security-opt no-new-privileges=true`, `--cap-drop ALL` and non-root
+   `--user 10001:10001` from the shared helper (BL-135, drift-guarded by
+   `tests/test_container_hardening.py`).
 4. **Working directory / environment:** exactly as declared in the manifest; nothing
    implicit.
 5. **Input model:** the controlled workload inputs (stdin bytes, input files) staged
@@ -114,6 +120,8 @@ behavior ≠ business equivalence (a verdict may never skip levels).
 
 ## 8. Change Control
 
-Version 1.0. The V2 Maven/Spring adapter, additional entrypoint conventions, or any
-dependency-resolution allowance requires: new contract version + ADR + sandbox review +
+Version 1.0. The V2 Maven/Spring adapter is now defined in
+`JAVA_CANDIDATE_CONTRACT_V2.md` (D-10 approved 2026-10-21). Any further
+extension (additional build systems, network-enabled builds, runtime dependency
+resolution) requires: new contract version + ADR + sandbox review +
 mutation-proof coverage before any verdict rests on it.

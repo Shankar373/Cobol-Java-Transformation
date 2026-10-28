@@ -283,7 +283,7 @@ class TestExplicitMapping:
         app = _map("HANDLE AID PF3(PF3-RTN)")
         assert app.services[0].explicit_constructs[0].kind == CicsExplicitKind.HANDLE_AID
 
-    def test_validation_error(self):
+    def test_link_without_program_name_emits_error_issue(self):
         app = _map("LINK COMMAREA(:WS-CUST)")
         assert any(issue.severity == CicsIssueSeverity.ERROR
                    for issue in app.services[0].issues)

@@ -39,7 +39,7 @@ def build(source: str, path: str = "test.jcl"):
 class TestParserModelRegression:
     """Parser output must flow into the semantic model unchanged."""
 
-    def test_simple_job(self) -> None:
+    def test_simple_batch_model_preserves_step_order_and_programs(self) -> None:
         model, _ = build(load_fixture("simple_batch.jcl"), "simple_batch.jcl")
         job = model.get_job("SIMPLEB")
         assert job is not None
@@ -78,7 +78,7 @@ class TestParserModelRegression:
         assert sysout.name == "SYSPRINT"
         assert sysout.kind == JclResourceKind.SYSOUT
 
-    def test_model_validate_clean(self) -> None:
+    def test_order_flow_model_validates_without_errors(self) -> None:
         model, _ = build(load_fixture("order_flow.jcl"), "order_flow.jcl")
         assert model.validate() == []
 
@@ -94,7 +94,7 @@ class TestStepOrder:
         model, _ = build(load_fixture("conditional.jcl"), "conditional.jcl")
         assert model.step_order("CONDJOB") == ["STEP01", "STEP02", "STEP03", "STEP04"]
 
-    def test_order_index_assignment(self) -> None:
+    def test_steps_receive_sequential_order_indexes(self) -> None:
         model, _ = build(load_fixture("order_flow.jcl"), "order_flow.jcl")
         job = model.get_job("PAYORDER")
         indexes = [s.order_index for s in job.steps]
@@ -125,12 +125,12 @@ class TestDatasetRelationships:
         assert flow.producer == "STEP03"
         assert flow.consumers == ()
 
-    def test_dataset_inventory(self) -> None:
+    def test_inventory_lists_datasets_and_temporary_work(self) -> None:
         model, _ = build(load_fixture("order_flow.jcl"), "order_flow.jcl")
         names = {inv.name for inv in model.dataset_inventory}
         assert {"ORDER.INPUT", "&&WORK1", "ORDER.OUTPUT"} <= names
 
-    def test_dataset_references(self) -> None:
+    def test_dataset_references_yield_step_dd_dataset_triples(self) -> None:
         model, _ = build(load_fixture("order_flow.jcl"), "order_flow.jcl")
         refs = model.dataset_references("PAYORDER")
         assert ("STEP01", "INPUT", "ORDER.INPUT") in refs
@@ -140,7 +140,7 @@ class TestDatasetRelationships:
 class TestDependencySemantics:
     """Step activation dependency semantics."""
 
-    def test_sequential_dependencies(self) -> None:
+    def test_first_step_dependency_has_empty_source_and_sequential_control(self) -> None:
         model, _ = build(load_fixture("simple_batch.jcl"), "simple_batch.jcl")
         job = model.get_job("SIMPLEB")
         by_target = {dep.target: dep for dep in job.dependencies}
@@ -211,7 +211,7 @@ class TestUnsupportedConstructs:
 class TestDeterminism:
     """Semantic modeling must be deterministic."""
 
-    def test_two_builds_identical(self) -> None:
+    def test_two_builds_over_same_source_yield_identical_models(self) -> None:
         source = load_fixture("order_flow.jcl")
         model_a, diag_a = build(source, "order_flow.jcl")
         model_b, diag_b = build(source, "order_flow.jcl")
@@ -225,18 +225,18 @@ class TestDeterminism:
 class TestValidation:
     """Semantic model validation."""
 
-    def test_validate_proc_hidden(self) -> None:
+    def test_proc_step_fixture_has_no_model_consistency_errors(self) -> None:
         model, _ = build(load_fixture("unsupported.jcl"), "unsupported.jcl")
         errors = model.validate()
         assert errors == []  # model consistency, not construct support
 
-    def test_duplicate_step_detected(self) -> None:
+    def test_duplicate_step_name_fails_validation(self) -> None:
         jcl = "//JOB JOB CLASS=A\n//STEP01 EXEC PGM=A\n//STEP01 EXEC PGM=B"
         model, _ = build(jcl, "dup.jcl")
         assert model.validate() != []
         assert any("Duplicate step" in e for e in model.validate())
 
-    def test_empty_source(self) -> None:
+    def test_empty_source_yields_no_steps_and_no_diagnostics(self) -> None:
         model, diagnostics = build("", "x.jcl")
         assert all(not j.steps for j in model.jobs)
         assert diagnostics.all == ()

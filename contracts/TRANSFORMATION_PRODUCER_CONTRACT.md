@@ -1,3 +1,5 @@
+> **CURRENT IMPLEMENTATION STATUS:** This contract remains the external untrusted-producer boundary. The repository also owns a deterministic internal transformation path; the two concerns must remain distinct.
+
 # TRANSFORMATION PRODUCER CONTRACT — V1 (external interface only)
 
 > **Status:** AUTHORITATIVE on the platform side; **producer-binding force gated on
@@ -95,6 +97,10 @@ Rules:
   cannot reach `VERIFIED` without required mutation validation — so non-regenerating
   producers cannot achieve V1 certification for their candidates. This is the honest
   consequence, stated up front.
+  **DEFERRED (D-11 approved 2026-10-21, BL-112):** the derivation layer does not
+  currently read the `requires_mutation_regeneration` declaration field. The cap is
+  unimplemented. No current producer declares non-regeneration in the product path,
+  so exposure is latent. The waiver is recorded in `docs/BACKLOG.md` BL-112.
 - Regenerated candidates pass through the **same** intake validation (hashes, manifest)
   — no fast-path, no trust by ancestry.
 
@@ -116,7 +122,7 @@ co-approval:
 | `source_hash` mismatch | Refusal |
 | File-list/tree mismatch | Refusal |
 | Producer claim of equivalence supplied | Recorded as provenance only; verdict unchanged (test proves no effect) |
-| Non-regenerating producer + mutation stage | `UNAVAILABLE`; never silent skip; verdict reflects it |
+| Non-regenerating producer + mutation stage | `UNAVAILABLE`; never silent skip; verdict reflects it **(DEFERRED: cap not implemented; D-11 approved 2026-10-21, BL-112)** |
 | Two producers, identical candidates | Identical validation treatment (producer-agnostic test) |
 | Swapping producers | No architecture/verdict change beyond candidate identity |
 

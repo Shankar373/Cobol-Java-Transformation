@@ -11,6 +11,8 @@ vi.mock('../api/client', async (importOriginal) => {
     getVerdict: vi.fn(),
     getDiscovery: vi.fn(),
     getArtifacts: vi.fn(),
+    getRunApproval: vi.fn(),
+    setRunApproval: vi.fn(),
     downloadGenerated: vi.fn(),
   };
 });
@@ -23,6 +25,7 @@ import {
   getVerdict,
   getDiscovery,
   getArtifacts,
+  getRunApproval,
   downloadGenerated,
 } from '../api/client';
 
@@ -31,6 +34,7 @@ const mockGetRunDetail = vi.mocked(getRunDetail);
 const mockGetVerdict = vi.mocked(getVerdict);
 const mockGetDiscovery = vi.mocked(getDiscovery);
 const mockGetArtifacts = vi.mocked(getArtifacts);
+const mockGetRunApproval = vi.mocked(getRunApproval);
 const mockDownload = vi.mocked(downloadGenerated);
 
 function runResponse(stage: string, error: string | null = null) {
@@ -116,10 +120,21 @@ beforeEach(() => {
   mockGetVerdict.mockReset();
   mockGetDiscovery.mockReset();
   mockGetArtifacts.mockReset();
+  mockGetRunApproval.mockReset();
   mockDownload.mockReset();
   mockGetRunDetail.mockRejectedValue(new Error('detail unavailable'));
   mockGetVerdict.mockResolvedValue(verdictResponse('VERIFIED') as never);
   mockGetArtifacts.mockResolvedValue({ run_id: 'run-1', artifacts: [] } as never);
+  // Downloads are only offered once approval is APPROVED (BL-119). Default
+  // fixtures to APPROVED so existing download assertions still exercise the
+  // enabled button; gating itself is covered in download-approval-gating.test.tsx.
+  mockGetRunApproval.mockResolvedValue({
+    run_id: 'run-1',
+    state: 'APPROVED',
+    approver: 'alice',
+    reason: null,
+    decided_at: '2024-01-01T00:02:00Z',
+  } as never);
 });
 
 afterEach(() => {
@@ -133,11 +148,15 @@ describe('ModernizationRun stage order', () => {
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
 
-    await waitFor(() => expect(screen.getByText('Transforming')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Transformation & Generation')).toBeInTheDocument());
 
-    const progress = screen.getByText('Progress').closest('div')!.parentElement!;
-    const text = progress.textContent ?? '';
-    expect(text.indexOf('Executing Oracle')).toBeLessThan(text.indexOf('Building'));
+    const pipelineList = screen.getByRole('list', { name: /modernization pipeline/i });
+
+    const text = pipelineList.textContent ?? '';
+    // EXECUTING_ORACLE and BUILDING both belong to the 'Execution & Comparison'
+    // group; verify that 'Discovery' appears before 'Execution & Comparison'
+    // to confirm the grouped stepper respects backend order.
+    expect(text.indexOf('Discovery')).toBeLessThan(text.indexOf('Execution & Comparison'));
   });
 
   it('never renders INGESTING as a run stage', async () => {
@@ -145,7 +164,7 @@ describe('ModernizationRun stage order', () => {
     mockGetDiscovery.mockRejectedValue(new Error('not yet'));
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
-    await waitFor(() => expect(screen.getByText('Discovering')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Discovery')).toBeInTheDocument());
 
     expect(screen.queryByText('Ingesting')).not.toBeInTheDocument();
   });
@@ -172,7 +191,7 @@ describe('ModernizationRun stage order', () => {
     mockGetDiscovery.mockRejectedValue(new Error('not yet'));
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
-    await waitFor(() => expect(screen.getByText('Created')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Discovery')).toBeInTheDocument());
 
     expect(screen.queryByText('Source Ingestion')).not.toBeInTheDocument();
   });
@@ -218,7 +237,8 @@ describe('ModernizationRun polling failures', () => {
     mockGetDiscovery.mockRejectedValue(new Error('not yet'));
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" pollIntervalMs={50} />);
-    expect(await screen.findByText('Transforming')).toBeInTheDocument();
+    // TRANSFORMING maps to the 'Transformation & Generation' customer group node
+    expect(await screen.findByText('Transformation & Generation')).toBeInTheDocument();
 
     expect(await screen.findByText('Live updates interrupted')).toBeInTheDocument();
     expect(screen.getByText(/network down/)).toBeInTheDocument();
@@ -240,7 +260,8 @@ describe('ModernizationRun polling failures', () => {
     await waitFor(() =>
       expect(mockGetRun.mock.calls.length).toBeGreaterThan(callsBefore),
     );
-    expect(await screen.findByText('Generating')).toBeInTheDocument();
+    // GENERATING maps to the 'Transformation & Generation' customer group node
+    expect(await screen.findByText('Transformation & Generation')).toBeInTheDocument();
   });
 
   it('initial load failure shows run context with retry', async () => {
@@ -333,6 +354,23 @@ describe('ModernizationRun download', () => {
     await waitFor(() => expect(mockDownload).toHaveBeenCalledWith('run-1'));
     expect(createObjectURL).toHaveBeenCalledWith(blob);
   });
+
+  it('disables the download until approval is APPROVED', async () => {
+    mockGetRun.mockResolvedValue(runResponse('COMPLETED') as never);
+    mockGetDiscovery.mockResolvedValue(discoveryResponse() as never);
+    mockGetRunApproval.mockResolvedValue({
+      run_id: 'run-1',
+      state: 'PENDING',
+      approver: null,
+      reason: null,
+      decided_at: null,
+    } as never);
+
+    render(<ModernizationRun runId="run-1" applicationId="app-1" />);
+
+    const btn = await screen.findByText(/Download \(awaiting approval\)/);
+    expect(btn).toBeDisabled();
+  });
 });
 
 describe('VerdictDisplay — all seven states (render only, no rules)', () => {
@@ -410,7 +448,8 @@ describe('ModernizationRun discovery timing', () => {
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
 
     await waitFor(() => expect(screen.getByText('Discovery Results')).toBeInTheDocument());
-    expect(screen.getByText('Transforming')).toBeInTheDocument();
+    // TRANSFORMING maps to the 'Transformation & Generation' customer group node
+    expect(screen.getByText('Transformation & Generation')).toBeInTheDocument();
   });
 
   it('shows CALL and COPY edge counts from backend edges', async () => {
@@ -440,6 +479,7 @@ describe('ModernizationRun discovery timing', () => {
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
 
     await waitFor(() => expect(screen.getByText('Still running')).toBeInTheDocument());
-    expect(screen.getByText('Building')).toBeInTheDocument();
+    // BUILDING maps to the 'Execution & Comparison' customer group node
+    expect(screen.getByText('Execution & Comparison')).toBeInTheDocument();
   });
 });

@@ -949,11 +949,11 @@ class TestDb2ApplicationValidation:
 class TestDb2ApplicationGetTables:
     """T33: Db2Application get_tables()."""
 
-    def test_empty(self):
+    def test_get_tables_returns_empty_list_when_no_dependencies(self):
         app = Db2Application(program_id="PROG1")
         assert app.get_tables() == []
 
-    def test_with_deps(self):
+    def test_get_tables_returns_unique_table_names_from_dependencies(self):
         deps = (
             Db2TableDependency(program_id="PROG1", table_name="T1", operation="READ"),
             Db2TableDependency(program_id="PROG1", table_name="T2", operation="READ"),
@@ -968,11 +968,11 @@ class TestDb2ApplicationGetTables:
 class TestDb2ApplicationGetTableColumns:
     """T34: Db2Application get_table_columns()."""
 
-    def test_empty(self):
+    def test_get_table_columns_returns_empty_list_when_table_unknown(self):
         app = Db2Application(program_id="PROG1")
         assert app.get_table_columns("T1") == []
 
-    def test_with_columns(self):
+    def test_get_table_columns_returns_columns_from_matching_dependency(self):
         deps = (
             Db2TableDependency(
                 program_id="PROG1",
@@ -990,11 +990,11 @@ class TestDb2ApplicationGetTableColumns:
 class TestDb2ApplicationGetDependencies:
     """T35: Db2Application get_dependencies()."""
 
-    def test_empty(self):
+    def test_get_dependencies_returns_empty_list_when_table_unknown(self):
         app = Db2Application(program_id="PROG1")
         assert app.get_dependencies("T1") == []
 
-    def test_with_deps(self):
+    def test_get_dependencies_returns_only_the_queried_table_dependencies(self):
         deps = (
             Db2TableDependency(
                 program_id="PROG1",

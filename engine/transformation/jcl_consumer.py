@@ -1,6 +1,6 @@
 """JCL consumer integration module.
 
-Consumer-side boundary for the JCL modernization lane.  This module calls
+Consumer-side boundary for the JCL modernization path.  This module calls
 the lane's public API (``JclDiscovery``, ``modernize_jcl``) and returns a
 structured result that the control-plane layer can surface.
 
@@ -25,8 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from engine.jcl.diagnostics import JclDiagnostic
-from engine.transformation.jcl_discovery import JclDiscovery
+from engine.jcl.diagnostics import JclDiagnostic, JclDiagnosticCode
+from engine.transformation.jcl_discovery import JclDiscovery, find_jcl_members
 from engine.transformation.jcl_to_spring_batch import (
     JclModernizationProfile,
     modernize_jcl,
@@ -65,6 +65,26 @@ class JclConsumerResult:
     profile: JclModernizationProfile | None = None
 
 
+def _result_for(profile, application_id: str, source_path: str) -> JclConsumerResult:
+    """Summarize a JCL modernization profile into its consumer result."""
+    job_count = len(profile.application.jobs)
+    step_count = sum(len(job.steps) for job in profile.application.jobs)
+
+    return JclConsumerResult(
+        application_id=application_id,
+        source_path=source_path,
+        status=profile.status,
+        has_errors=profile.has_errors,
+        has_warnings=profile.has_warnings,
+        job_count=job_count,
+        step_count=step_count,
+        supported_constructs=profile.supported_constructs,
+        unsupported_constructs=profile.unsupported_constructs,
+        diagnostics=profile.diagnostics,
+        profile=profile,
+    )
+
+
 def modernize_jcl_workload(
     source_path: str | Path,
     application_id: str = "jcl-modernization",
@@ -81,7 +101,9 @@ def modernize_jcl_workload(
        can surface through the API without modifying any shared files.
 
     Args:
-        source_path: directory containing JCL files (``*.jcl``).
+        source_path: directory of JCL members (shared member rule:
+            case-insensitive ``.jcl`` / ``.jcllib`` suffixes, plus
+            extensionless members whose content starts with ``//``).
         application_id: identifier for the originating application.
         base_package: target Java package namespace for the batch layer.
 
@@ -99,17 +121,36 @@ def modernize_jcl_workload(
     if not source.is_dir():
         raise ValueError(f"Source path is not a directory: {source}")
 
-    # 1. Discover JCL jobs.
+    # 1. Discover JCL jobs (shared JCL member rule).
     discovery = JclDiscovery()
     jcl_app = discovery.discover(source)
 
-    # 2. Read raw JCL sources for unsupported-construct scanning.
+    # 2. Read every member for the unsupported-construct scan.  Keys are
+    #    member-relative paths (not basenames), so colliding basenames
+    #    can never overwrite each other.  Undecodable members
+    #    are diagnosed fail-closed instead of crashing the run or being
+    #    silently dropped.
     raw_sources: dict[str, str] = {}
-    for jcl_file in sorted(source.rglob("*.jcl")):
+    decode_diagnostics: list[JclDiagnostic] = []
+    for jcl_file in find_jcl_members(source):
+        key = jcl_file.relative_to(source).as_posix()
         try:
-            raw_sources[jcl_file.name] = jcl_file.read_text(encoding="utf-8")
-        except OSError:
-            continue
+            raw_sources[key] = jcl_file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            decode_diagnostics.append(
+                JclDiagnostic.error(
+                    JclDiagnosticCode.SOURCE_DECODE_FAILED,
+                    f"JCL member '{key}' is not valid UTF-8; excluded from "
+                    "the IR and surfaced here so it is never silently lost",
+                )
+            )
+        except OSError as exc:
+            decode_diagnostics.append(
+                JclDiagnostic.error(
+                    JclDiagnosticCode.SOURCE_DECODE_FAILED,
+                    f"JCL member '{key}' could not be read: {exc}",
+                )
+            )
 
     # 3. Modernize.
     profile = modernize_jcl(
@@ -117,25 +158,11 @@ def modernize_jcl_workload(
         raw_sources,
         application_id=application_id,
         base_package=base_package,
+        pre_diagnostics=tuple(decode_diagnostics),
     )
 
     # 4. Summarize.
-    job_count = len(profile.application.jobs)
-    step_count = sum(len(job.steps) for job in profile.application.jobs)
-
-    return JclConsumerResult(
-        application_id=application_id,
-        source_path=str(source.resolve()),
-        status=profile.status,
-        has_errors=profile.has_errors,
-        has_warnings=profile.has_warnings,
-        job_count=job_count,
-        step_count=step_count,
-        supported_constructs=profile.supported_constructs,
-        unsupported_constructs=profile.unsupported_constructs,
-        diagnostics=profile.diagnostics,
-        profile=profile,
-    )
+    return _result_for(profile, application_id, str(source.resolve()))
 
 
 def modernize_jcl_from_sources(
@@ -172,19 +199,4 @@ def modernize_jcl_from_sources(
     )
 
     # 3. Summarize.
-    job_count = len(profile.application.jobs)
-    step_count = sum(len(job.steps) for job in profile.application.jobs)
-
-    return JclConsumerResult(
-        application_id=application_id,
-        source_path="(in-memory)",
-        status=profile.status,
-        has_errors=profile.has_errors,
-        has_warnings=profile.has_warnings,
-        job_count=job_count,
-        step_count=step_count,
-        supported_constructs=profile.supported_constructs,
-        unsupported_constructs=profile.unsupported_constructs,
-        diagnostics=profile.diagnostics,
-        profile=profile,
-    )
+    return _result_for(profile, application_id, "(in-memory)")

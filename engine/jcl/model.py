@@ -128,7 +128,6 @@ class JclDatasetFlow:
     dataset: str
     producer: str
     consumers: tuple[str, ...]
-    disposition: str = ""
 
 
 @dataclass(frozen=True)
@@ -239,8 +238,8 @@ class JclSemanticModel:
                     errors.append(
                         f"Step {step.name} in job {job.name} has no EXEC program"
                     )
+            names = {s.name for s in job.steps}
             for dep in job.dependencies:
-                names = {s.name for s in job.steps}
                 if dep.source and dep.source not in names:
                     errors.append(
                         f"Dependency source not a step: {dep.source} in job {job.name}"
@@ -251,10 +250,3 @@ class JclSemanticModel:
                     )
         return errors
 
-    def unsupported_jobs(self) -> list[str]:
-        """Job names whose model indicates unsupported constructs (no-op stub).
-
-        Provided for symmetry with the shared IR; the diagnostics carried by
-        the modernization profile are the authoritative signal.
-        """
-        return []

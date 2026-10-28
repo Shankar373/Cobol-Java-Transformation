@@ -1,5 +1,13 @@
 # Phase 5E — COBOL → Native Java Transformation: Completion Report
 
+> **HISTORICAL (label added 2026-10-16, Phase 12 F-02 documentation reconciliation):**
+> this is a dated phase record, not a current status claim (Master README §78).
+> Corrections against canonical truth: the table below marks **GO TO** and
+> **OCCURS** as "Supported"; canonical status is **GO TO = UNSUPPORTED**
+> (comment + diagnostic only) and **OCCURS = UNVERIFIED** (generated Java does
+> not compile). Canonical authority: `docs/SEMANTIC_PROOF_MATRIX.md`,
+> `docs/CAPABILITY_MATRIX.md`. Live status: `opencode.md` + `docs/BACKLOG.md` register.
+
 **Date:** 2026-09-15  
 **Status:** COMPLETE
 

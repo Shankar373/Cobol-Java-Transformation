@@ -1,0 +1,22 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MIDPROG.
+       AUTHOR. PHASE-D-D2.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-MARK        PIC X(4) VALUE "MID ".
+
+       LINKAGE SECTION.
+       01  LS-A           PIC 9(4).
+       01  LS-B           PIC 9(4).
+       01  LS-TOTAL       PIC 9(6).
+
+       PROCEDURE DIVISION USING LS-A LS-B LS-TOTAL.
+       MID-PARA.
+           DISPLAY "MID-START".
+           DISPLAY "MID-A=" LS-A.
+           DISPLAY "MID-B=" LS-B.
+           COMPUTE LS-TOTAL = LS-A + LS-B.
+           DISPLAY "MID-SUM=" LS-TOTAL.
+           CALL "LEAFPROG" USING BY REFERENCE LS-TOTAL.
+           DISPLAY "MID-TOTAL-AFTER-LEAF=" LS-TOTAL.

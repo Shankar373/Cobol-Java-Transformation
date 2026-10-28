@@ -1,14 +1,15 @@
 import React from 'react';
 import { tokens } from '../theme/tokens';
+import { IconInbox } from './icons';
 
 interface EmptyStateProps {
-  icon?: string;
+  icon?: React.ReactNode;
   title: string;
   description?: string;
   action?: React.ReactNode;
 }
 
-export function EmptyState({ icon = '\u{1F4CB}', title, description, action }: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
     <div
       style={{
@@ -17,7 +18,17 @@ export function EmptyState({ icon = '\u{1F4CB}', title, description, action }: E
         color: tokens.colors.textSecondary,
       }}
     >
-      <div style={{ fontSize: 48, marginBottom: tokens.spacing.md }}>{icon}</div>
+      <div
+        style={{
+          fontSize: 48,
+          marginBottom: tokens.spacing.md,
+          display: 'flex',
+          justifyContent: 'center',
+          color: tokens.colors.textMuted,
+        }}
+      >
+        {icon ?? <IconInbox size={44} />}
+      </div>
       <div
         style={{
           fontSize: tokens.font.sizes.lg,
