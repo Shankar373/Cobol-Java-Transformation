@@ -80,7 +80,10 @@ Per ADR-0008 / DR-18 (normative for the execution layer):
    pinned JDK via `javac`; compilation failures are candidate-build failures
    (recorded; verdict cannot be `VERIFIED`), never retried loosely or patched.
 3. **Sandbox:** read-only staged candidate copy; `network none`; memory/CPU/pids
-   limits; **hard timeout** (timeout ⇒ `ERROR`, never PASS).
+   limits; **hard timeout** (timeout ⇒ `ERROR`, never PASS); hardening flags
+   `--security-opt no-new-privileges=true`, `--cap-drop ALL` and non-root
+   `--user 10001:10001` from the shared helper (BL-135, drift-guarded by
+   `tests/test_container_hardening.py`).
 4. **Working directory / environment:** exactly as declared in the manifest; nothing
    implicit.
 5. **Input model:** the controlled workload inputs (stdin bytes, input files) staged

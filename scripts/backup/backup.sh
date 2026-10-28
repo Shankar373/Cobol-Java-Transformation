@@ -45,5 +45,16 @@ docker image inspect systemaops-api:production > "$DEST/api-image.json" 2>/dev/n
 cp test-artifacts/docker-image-provenance.production.json "$DEST/" 2>/dev/null || true
 echo "$STAMP" > "$DEST/STAMP.txt"
 
+# 4. Verify the backup is *restorable*, not merely present: a gzip of an
+# empty volume or a truncated SQLite copy passes "file exists" and fails
+# at restore time (the R10-era failure). Runs in the same pinned image so
+# the host needs no Python; `set -e` makes a failed verification fail the
+# whole backup.
+docker run --rm \
+  -v "$DEST_HOST:/backup:ro" \
+  -v "$(host_path "$PWD/scripts/backup"):/scripts:ro" \
+  python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 \
+  python3 /scripts/verify_backup.py /backup
+
 echo "OK: backup written to $DEST"
 ls -la "$DEST"

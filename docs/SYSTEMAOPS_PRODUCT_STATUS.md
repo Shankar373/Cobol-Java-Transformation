@@ -148,7 +148,10 @@ demo proves this fail-closed behavior.
 - Secure archive extraction (traversal/size/file-count limits).
 - Isolated Docker execution with network restrictions and hard timeouts.
 - API: opt-in bearer token (`CONTROL_PLANE_API_TOKEN`; constant-time
-  byte-wise compare that answers 401 for any input, including non-ASCII),
+  byte-wise compare that answers 401 for any input, including non-ASCII;
+  32-character minimum enforced at startup in production via
+  `verify_production_auth_configuration()`; CORS `OPTIONS` preflight exempted,
+  since browsers never attach credentials to it),
   bounded uploads (request/file/count bytes + duplicate-filename
   rejection), write-then-cleanup re-upload ordering (a rejected re-upload
   preserves the previous source), bounded generated-app download
@@ -239,7 +242,9 @@ close, since superseded — live HEAD/SHA in `opencode.md`) — push and
 PR runs GREEN for both (4/4 runs each), every job success: Python/Frontend
 audit + SBOM, Release dependency manifest, Phase 1 ingestion diagnostics,
 Backend + COBOL/Java Docker tests, Frontend tests/TypeScript/production
-build, Capability truth gate (54 files), Supply chain (SBOM +
+build, Capability truth gate (54 files at that snapshot — recount: the gate
+list is 55 files at `62e647f` and **56 files** in the current working tree as
+counted in `.github/workflows/ci.yml` on 2026-10-26), Supply chain (SBOM +
 vulnerability scanning).  Phase 10's three work SHAs and its docs verdict
 commit `c039de3` were likewise verified green (12/12 + 4/4 runs).
 Run #306 and CI #417/#418 (`fedb7dd` baseline) remain in historical
@@ -297,6 +302,37 @@ per-client rate limiting, retention/TTL, audit logging, external secret
 management and TLS at the deployment boundary, multi-node coordination,
 broader mutation/adversarial proof, and expanded numeric/file semantics proof.
 See `docs/KNOWN_ISSUES.md` and `docs/REMEDIATION_MATRIX.md`.
+
+New files added in the current working tree as production-readiness hardening
+(all untracked, existence verified on disk 2026-10-26):
+
+- `api/paths.py` — durable workspace root selected by
+  `CONTROL_PLANE_WORKSPACE_DIR` (compose and `Dockerfile.production` set
+  `/app/workspaces` on the named volume `control-plane-work`; unset falls back
+  to the platform temp directory).
+- `api/logging_config.py` — structured logging: `CONTROL_PLANE_LOG_LEVEL`
+  (default `INFO`), `CONTROL_PLANE_LOG_FORMAT` (json in production, text
+  otherwise), `X-Request-Id` correlation.
+- `scripts/backup/verify_backup.py` — restore-verification of a produced backup,
+  chained from `scripts/backup/backup.sh`.
+- `frontend/scripts/verify-bundle-secrets.mjs` and
+  `frontend/scripts/verify-bundle-secrets.d.mts` — bundle-secret guard chained
+  into the `npm run build` script.
+- `frontend/src/__tests__/bundle-secret-guard.test.ts` — the guard's 6 tests
+  (frontend suite 166, up from 160).
+- `tests/test_readiness.py` (13), `tests/test_structured_logging.py` (25),
+  `tests/test_workspace_persistence.py` (18), `tests/test_backup_verification.py`
+  (15), `tests/test_shell_script_contracts.py` (14) — suites for the surface
+  above; counts are local runs on 2026-10-26, not CI results.
+- `.gitattributes` — pins `*.sh text eol=lf` (all six `scripts/**/*.sh`
+  converted CRLF→LF, enforced by `tests/test_shell_script_contracts.py`).
+
+Together with the `GET /ready` endpoint and auth exemptions in `api/app.py`, the
+32-character production token floor, the CORS preflight exemption, the bounded
+final-persist retry in `api/service.py`, the `capability-truth` gate addition in
+`.github/workflows/ci.yml`, and the deploy preflight/verification in
+`scripts/deploy/`, these close part of the gap above — they do not make the
+product production-certified.
 
 ## Positioning vs. alternatives
 

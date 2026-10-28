@@ -53,7 +53,10 @@ testing and mutation proof should be expanded.
 Control-plane persistence now uses versioned JSON payloads (no pickle) with seal checks,
 a fail-closed lifecycle state machine with single-flight revalidation, bounded and
 optionally token-authenticated API endpoints, and startup reconciliation of interrupted
-runs. Still open for production: a durable job queue with resume across restarts,
+runs. The 2026-10-26 readiness batch added a durable workspace root (BL-139), a `/ready`
+readiness probe (BL-140), structured logging with request/run correlation (BL-141),
+bounded-retry terminal writes (BL-143) and a 32-character production token floor
+(BL-144). Still open for production: a durable job queue with resume across restarts,
 per-client rate limiting, retention/TTL, audit logging, external secret management for
 `CONTROL_PLANE_API_TOKEN` (the token is an env-var deployment control, not a user/role
 model), TLS and egress policy at the deployment boundary, and multi-node coordination
@@ -108,6 +111,59 @@ the frontend production build; current CI runs are tracked in `opencode.md`.
 ### Docker-unavailable local verification — HISTORICAL
 Earlier reports described Docker as unavailable locally. Current CI successfully exercises the
 Docker backend/oracle path, so those reports are not current project state.
+
+### Production-hardening batch BL-135..BL-138 — RESOLVED, committed `c0c4f9b` / `62e647f` 2026-10-26
+- **BL-135** all ten `docker run` sites now share
+  `engine/execution/container_hardening.py::container_run_hardening_flags`
+  (`no-new-privileges`, `--cap-drop ALL`, non-root `--user 10001:10001`);
+  drift guard `tests/test_container_hardening.py`.
+- **BL-136** `CONTROL_PLANE_ENV` is a fail-closed production gate: `production`
+  requires `CONTROL_PLANE_API_TOKEN` at import and on every route except the
+  probes (`/health`, `/ready`) and CORS preflight `OPTIONS`, and an unknown
+  environment value raises at startup.
+- **BL-137** upload path validation (strict `application_id` regex before
+  `mkdtemp`, workspace discarded on rejection) plus the generated-artifact seal
+  (`api/artifact_seal.py`, schema version 6): changed bytes, added/removed files
+  or a missing/malformed seal all answer 409 at download/approval.
+  **Disclosed behavior change:** runs completed before sealing exist with
+  `generated_seal NULL` and fail closed (409) at approval/export until
+  re-validated — intentional, not a regression. `verify_generated_seal` returns
+  `None` on success and raises `ConflictError` on mismatch.
+- **BL-138** the Docker capability-truth suite is in the fast ci.yml gate, which
+  explicitly `--deselect`s its single API-layer test (needs pydantic; still
+  enforced by the backend job's whole-suite run).
+
+### Production-readiness batch (BL-139..BL-147) — SHIPPED 2026-10-26
+- **Durable workspace root** (BL-139): `CONTROL_PLANE_WORKSPACE_DIR`, pinned to
+  the `control-plane-work` volume in compose/Dockerfile — uploads and generated
+  apps now survive restarts, backups and restores (previously written to a
+  `/app/tmp` tmpfs the volume never saw).
+- **Readiness probe** (BL-140): `GET /ready` returns 503 when database,
+  workspace or sandbox staging is unusable (Docker reported but non-gating),
+  wired into the compose healthcheck, image `HEALTHCHECK`, nginx and
+  `verify-production.sh`; `/health` stays liveness-only.
+- **Structured logging** (BL-141/BL-143): `CONTROL_PLANE_LOG_LEVEL` /
+  `CONTROL_PLANE_LOG_FORMAT` (JSON in production), `X-Request-Id` correlation,
+  one access line per request (method/path/status/duration — never tokens) and
+  run lifecycle events; terminal writes retry boundedly and log failure loudly.
+- **Secrets handling** (BL-144): production rejects tokens under 32 characters
+  at startup, and `npm run build` fails if `VITE_CONTROL_PLANE_API_TOKEN` would
+  be inlined into public assets (`ALLOW_BUNDLED_API_TOKEN=1` acknowledges with a
+  warning).
+- **Deployment validation** (BL-145/BL-146): `start-production.sh` preflights
+  `docker info` + `docker compose config --quiet` before `up`;
+  `verify-production.sh` derives the api container id from compose; all six
+  shell scripts corrected CRLF to LF with `.gitattributes` enforcement and a
+  contract suite (they were unrunnable on Linux, and CI never executes `.sh`).
+- **Backup verification** (BL-147): `backup.sh` now fails unless
+  `scripts/backup/verify_backup.py` confirms the SQLite copy opens, passes
+  `integrity_check` and holds a non-newer schema, and the workspaces archive is
+  a non-empty gzip tar.
+
+Approved deferrals are unchanged and remain open: D-7 (evidence TTL, BL-113),
+D-7 (rate limiting, BL-114), D-8 (cancellation/retry/deadline, BL-115), D-9
+(enterprise scope, BL-122), BL-116 materialization, D-4 — see "P1 — Deferred
+production gaps" above; nothing in this batch claims them.
 
 ### Universal-runtime-proof audit fixes — RESOLVED locally 2026-10-19 (pending CI via R-1)
 The 2026-10-19 audit found and fixed red-first: frontend Authorization integration (BL-094),

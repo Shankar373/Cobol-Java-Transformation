@@ -18,13 +18,22 @@ check() { # check <label> <command...>
 }
 
 check "compose config renders" docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" config
+# Derive the api container from compose instead of hardcoding the
+# project-name-dependent id (systemaops-production-api-1): a renamed
+# project, a custom compose project name, or a version-dependent naming
+# scheme silently turned these into permanent FAILs — or checked the wrong
+# container. Empty id = the stack is not running, which is a FAIL anyway.
+API_CONTAINER="$(docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" ps -q --all api 2>/dev/null | head -n 1 || true)"
 # NOTE: not via check()|grep — the label text would satisfy the grep.
-if [ "$(docker inspect --format='{{.State.Health.Status}}' systemaops-production-api-1 2>/dev/null)" = "healthy" ]; then
+if [ -n "$API_CONTAINER" ] && [ "$(docker inspect --format='{{.State.Health.Status}}' "$API_CONTAINER" 2>/dev/null)" = "healthy" ]; then
   echo "PASS: api container healthy"
 else
-  echo "FAIL: api container healthy"; FAIL=1
+  echo "FAIL: api container healthy (api container id: ${API_CONTAINER:-not-found})"; FAIL=1
 fi
 check "TLS /health via nginx" curl -fsS --max-time 10 "https://127.0.0.1:${PORT}/health"
+# Readiness, not liveness: 503 here means the control plane cannot persist
+# writes (SQLite/workspace/staging) even though the process is up.
+check "TLS /ready via nginx (readiness)" curl -fsS --max-time 10 "https://127.0.0.1:${PORT}/ready"
 check "sandbox image gnucobol present" docker image inspect gnucobol-ocesql:latest
 check "sandbox image maven present" docker image inspect maven-offline-springboot:latest
 check "sandbox image java runtime present" docker image inspect eclipse-temurin:21-jdk
@@ -43,12 +52,16 @@ case "$STAGING" in
 esac
 check "staging dir exists on host" test -d "$STAGING"
 check "api mounts /app/sandbox-staging" \
-  bash -c "docker inspect systemaops-production-api-1 | grep -q /app/sandbox-staging"
+  bash -c "test -n '${API_CONTAINER}' && docker inspect '${API_CONTAINER}' | grep -q /app/sandbox-staging"
 check "staging writable as uid 10001" \
   docker run --rm --network none --user 10001:10001 -v "${STAGING}:/probe" "systemaops-api:${TAG}" \
     sh -c 'touch /probe/.writability-probe && rm /probe/.writability-probe'
+# BL-144: the probe used to end `... | grep -q probe; rm -f ...` — the
+# `; rm -f` tail made `bash -c` exit with rm's status (0) even when grep
+# failed, so check() recorded a false PASS.  Capture the pipe status,
+# clean up unconditionally, then exit with the captured status.
 check "host file visible through staging bind" \
-  bash -c "echo probe > '${STAGING}/.visibility-probe' && docker run --rm --network none -v '${STAGING}:/probe' 'systemaops-api:${TAG}' cat /probe/.visibility-probe | grep -q probe; rm -f '${STAGING}/.visibility-probe'"
+  bash -c "echo probe > '${STAGING}/.visibility-probe' && docker run --rm --network none -v '${STAGING}:/probe' 'systemaops-api:${TAG}' cat /probe/.visibility-probe | grep -q probe; rc=\$?; rm -f '${STAGING}/.visibility-probe'; exit \$rc"
 
 # --- R8: frontend production routing ----------------------------------------
 check "frontend /app/ serves index" \

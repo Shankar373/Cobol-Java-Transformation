@@ -115,6 +115,22 @@ Every artifact contract declares:
 Artifact content is stored **content-addressed by SHA-256**; the manifest references
 hashes. Two artifacts with identical content share storage; identity remains distinct.
 
+**Platform note (BL-137):** content-addressing above protects artifacts *in the
+store*; the **generated bundle a customer downloads** carries a second, run-level
+seal. `api/artifact_seal.py::compute_generated_seal` hashes every file of the
+on-disk bundle (chunked SHA-256, POSIX-relative keys) and persists it as
+`runs.generated_seal` — sealed twice, an interim seal at generation and the
+authoritative seal at the end of validation, because the validation lane writes
+`target/*.jar` into the bundle. The approval decision (`APPROVED` only —
+rejecting must always work) and `GET /runs/{id}/download` re-derive the seal and
+answer **409 Conflict** on any difference: changed bytes, added files, removed
+files, missing/malformed seal, or unsupported algorithm. Runs completed before
+sealing exist with `generated_seal NULL` and fail closed (409) at
+approval/export until re-validated — a disclosed behavior change, not a
+regression. This seal is distinct from the evidence-manifest seal
+(`engine.evidence.integrity`), which covers the in-memory evidence graph rather
+than the downloadable bundle.
+
 ## 7. Test-First Requirements (for implementation)
 
 | Test | Expected |

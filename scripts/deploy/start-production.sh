@@ -47,5 +47,18 @@ if ! chown 10001:10001 "$HOST_SANDBOX_STAGING_DIR" 2>/dev/null; then
 fi
 chmod 0755 "$HOST_SANDBOX_STAGING_DIR"
 
+# Preflight: validate daemon reachability and the rendered stack BEFORE
+# mutating anything. Without this, a stopped daemon or an unrenderable
+# compose/env file surfaced as a partial `up` (half the services started)
+# with an error that looked like an app failure rather than a config one.
+if ! docker info >/dev/null 2>&1; then
+  echo "FATAL: docker daemon not reachable — is Docker running (check 'docker context ls' for the right daemon)?" >&2
+  exit 1
+fi
+if ! docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" config --quiet; then
+  echo "FATAL: docker compose config does not render — fix the compose/env-file errors above; nothing was started." >&2
+  exit 1
+fi
+
 docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" up -d --remove-orphans
 exec ./scripts/deploy/verify-production.sh "$ENV_FILE"

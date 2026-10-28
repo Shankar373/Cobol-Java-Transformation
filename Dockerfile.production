@@ -71,15 +71,22 @@ COPY scripts/record_docker_image_provenance.py /app/scripts/record_docker_image_
 RUN mkdir -p /app/data /app/workspaces /app/tmp /app/sandbox-staging && \
     chown -R 10001:10001 /app
 
+# Durable artifact root (uploaded COBOL + generated application bundles).
+# Defaults to the named volume in production so artifacts survive restarts
+# and are captured by scripts/backup/backup.sh; $TMPDIR (/app/tmp tmpfs)
+# stays scratch-only. Unset in development = platform temp dir.
+ENV CONTROL_PLANE_WORKSPACE_DIR=/app/workspaces
+
 USER 10001:10001
 
 EXPOSE 8000
 
-# Single liveness probe path served by the app (no auth required on it).
-# Compose adds start_period + interval; readiness beyond "process is up"
-# is a documented gap — see docs/operations/RUNBOOK.md.
+# Readiness (not just liveness): /ready returns 503 while SQLite, the
+# durable workspace root (CONTROL_PLANE_WORKSPACE_DIR) or the sandbox
+# staging root is unusable, so `docker ps` shows the container unhealthy
+# instead of healthy-but-lossy. Compose overrides this with the same probe.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8000/health || exit 1
+    CMD curl -fsS http://127.0.0.1:8000/ready || exit 1
 
 # exec-form CMD so PID 1 receives SIGTERM directly (graceful shutdown via
 # uvicorn). One worker: the store is SQLite (single-writer) and background

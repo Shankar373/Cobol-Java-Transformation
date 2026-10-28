@@ -65,6 +65,14 @@ NEVER inferred from configuration presence, environment variables, or file exist
   fixtures corrupted between runs).
 - **`network none`** — V1 has no SQL (ADR-0007); the oracle container gets no network.
 - **Resource limits** — memory, CPU, pids limits per container.
+- **Hardening flags (BL-135)** — every `docker run` site carries
+  `--security-opt no-new-privileges=true`, `--cap-drop ALL` and an explicit
+  non-root `--user 10001:10001` (the `systemaops` identity from
+  `Dockerfile.production`, so API-created staging trees share one numeric
+  owner). Flags come from the single shared helper
+  `engine/execution/container_hardening.py::container_run_hardening_flags`;
+  `NON_ROOT_EXEMPT_LANES` is empty, so no lane runs as container root, and
+  `tests/test_container_hardening.py` fails the suite if a site drifts.
 - **Hard timeout** — a platform-enforced execution timeout. Timeout is a platform
   failure (`ERROR` verdict state), never PASS.
 - **Cleanup** — the execution workspace is removed after evidence capture.

@@ -48,18 +48,22 @@ after the commands.
 ```bash
 # 1. Backend (FastAPI control plane, port 8000; auth OFF by default —
 #    set CONTROL_PLANE_API_TOKEN to require a bearer token on every route
-#    except /health; CONTROL_PLANE_ENV=production FAILS CLOSED without
-#    that token — startup error plus 401 on every non-/health route,
-#    wired into docker-compose.production.yml and start-production.sh)
+#    except /health and /ready; CONTROL_PLANE_ENV=production FAILS CLOSED
+#    without that token or with one under 32 characters — startup error
+#    plus 401 on every other route, wired into docker-compose.production.yml
+#    and start-production.sh)
 python -m pip install -r requirements.lock
 python -m uvicorn api.app:app --port 8000
 
 # 2. Verify it is up
 curl http://localhost:8000/health
-# expected: {"status":"ok"}
+# expected: {"status":"ok"}  (liveness: process is up)
+curl http://localhost:8000/ready
+# expected: HTTP 200 when database/workspace/staging are usable,
+#          HTTP 503 when a gating dependency is down (see docs/deployment/PRODUCTION.md)
 
 # 3. Frontend (second terminal; Vite dev server on 5173, proxies
-#    /applications, /runs and /health to localhost:8000)
+#    /applications, /runs, /health and /ready to localhost:8000)
 cd frontend
 npm ci
 npm run dev
@@ -95,10 +99,10 @@ RUN_DOCKER_TESTS=1 python -m pytest -q tests/test_e2e.py
 
 ```bash
 python -m pytest -q tests/test_silent_loss_registry.py tests/test_ingestion_diagnostics.py   # 18 passed
-python tools/check_backlog_table.py           # OK: 122 register rows
-cd frontend && npm test                       # vitest suite
+python tools/check_backlog_table.py           # OK: 147 register rows
+cd frontend && npm test                       # vitest suite (166 passed)
 cd frontend && npm run lint                   # tsc --noEmit
-cd frontend && npm run build                  # tsc -b && vite build
+cd frontend && npm run build                  # tsc -b && vite build && bundle-secret guard
 ```
 
 **Troubleshooting (observed behavior, not hypothetical):**
@@ -116,8 +120,11 @@ cd frontend && npm run build                  # tsc -b && vite build
 - *Sequential full-suite Docker runs on WSL2 show intermittent failures under
   load:* known environment limitation (BL-010); run the affected tests in
   isolation, and treat Linux CI as the authoritative Docker result.
-- *Download button disabled / HTTP 409:* export requires customer approval
-  (BL-091); submit `APPROVED` in the approval panel first.
+- *Download button disabled / HTTP 409:* three designed causes: export
+  requires customer approval (BL-091; submit `APPROVED` in the approval
+  panel first); artifacts whose bytes no longer match their generated seal
+  fail closed with 409 instead of serving tampered content; and a
+  revalidation requested while one is already in flight answers 409.
 - *401 from the API:* a `CONTROL_PLANE_API_TOKEN` is set; enter the token in
   the Dashboard's token form (or call the API with
   `Authorization: Bearer <token>`).
@@ -139,7 +146,7 @@ remaining blockers — is in **[docs/SUBMISSION_GUIDE.md](docs/SUBMISSION_GUIDE.
 
 ## Implemented
 
-- Secure ZIP ingestion with traversal and extraction limits.
+- Secure ZIP ingestion with traversal, duplicate-entry and extraction limits.
 - Application discovery and dependency modeling.
 - COBOL parser and semantic IR.
 - Deterministic capability analysis and transformation planning.
@@ -148,11 +155,21 @@ remaining blockers — is in **[docs/SUBMISSION_GUIDE.md](docs/SUBMISSION_GUIDE.
 - Docker-backed Java candidate execution.
 - GnuCOBOL oracle execution in CI.
 - Artifact capture and comparison infrastructure.
-- Evidence integrity validation.
+- Evidence integrity validation with generated-artifact seals (a changed
+  bundle fails closed instead of serving tampered content).
 - Seven-state deterministic verdict derivation.
-- SQLite-backed API/control-plane persistence.
-- React frontend.
-- CI for ingestion, backend/oracle/Docker, and frontend/build.
+- SQLite-backed API/control-plane persistence with a durable workspace root
+  (`CONTROL_PLANE_WORKSPACE_DIR`, pinned to the `control-plane-work` volume
+  in production).
+- Readiness/liveness probes: `/ready` (503 when a gating dependency is
+  down) and `/health`, wired into compose healthcheck, image HEALTHCHECK,
+  nginx and `verify-production.sh`.
+- Structured logging (JSON in production) with per-request `X-Request-Id`
+  correlation and run lifecycle events (`run.started`/`run.terminal`/...).
+- React frontend with approval-gated, seal-verified artifact export.
+- Production image runs non-root (uid/gid 10001) with staged writable paths.
+- CI for ingestion, backend/oracle/Docker, frontend/build, and the
+  capability-truth gate.
 
 ## Evidence ladder
 
@@ -178,8 +195,14 @@ Current proof is subset-based.
 High-risk or incomplete proof areas include numeric precision/sign/COMP/COMP-3/rounding,
 broad CALL and multi-program behavior, copybook completeness, indexed/relative files
 beyond the oracle-proven certified subset (and any VSAM file-image equivalence),
-JCL, CICS, DB2, production security hardening, persistent serialization, and broad
+JCL, CICS, DB2, the deferred production-hardening controls (token TTL / rate
+limiting D-7, request cancellation / retry / deadlines D-8, enterprise scope
+D-9 — `docs/BACKLOG.md`), persistent serialization, and broad
 mutation/adversarial proof.
+
+Shipped hardening (bearer auth with a fail-closed production gate and 32-char
+token floor, non-root image, readiness probe, structured logging, upload caps,
+pre-deploy preflight) does not by itself close those deferred items.
 
 GnuCOBOL equivalence is not a blanket claim of z/OS or mainframe equivalence.
 
@@ -203,6 +226,12 @@ GnuCOBOL equivalence is not a blanket claim of z/OS or mainframe equivalence.
 - docs/CAPABILITY_MATRIX.md — current capability/evidence boundary
 - docs/VERIFICATION_STATUS.md — current verification evidence
 - docs/verification/RUNTIME_PROOF_MATRIX.md — live per-workload runtime-proof status (Docker lanes, images/digests, exact commands, honest labels)
+- docs/deployment/PRODUCTION.md — production deployment runbook: readiness (/ready), token floor, structured logging, deploy preflight, verification
+- docs/deployment/ENVIRONMENT.md — environment variable reference (code-accurate defaults)
+- docs/operations/RUNBOOK.md — operational diagnostics (probes, log events, known failure modes)
+- docs/operations/BACKUP_RECOVERY.md — backup, automatic verification and restore drill
+- docs/security/PRODUCTION_SECURITY.md — production security posture, shipped controls and deferred controls
+- docs/TRUST_BOUNDARY.md — what is trusted, sealed, and revalidated
 - UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md — 2026-10-19 evidence-driven audit, remediation record (BL-094/095/096) and roadmap
 - docs/KNOWN_ISSUES.md — current risks and resolved historical blockers
 - docs/REMEDIATION_MATRIX.md — remediation priorities

@@ -42,6 +42,14 @@ services:
       CONTROL_PLANE_ENV: production
       CONTROL_PLANE_DB: /app/data/control-plane.db
       TMPDIR: /app/tmp
+      # Durable artifacts (uploaded COBOL, upload workspaces, the generated
+      # application bundle) go HERE, not in $TMPDIR. $TMPDIR is the tmpfs
+      # above: restarts wipe it, so anything referenced by the database and
+      # hashed by the evidence seal would 404 after a recreate, and
+      # scripts/backup/backup.sh would tar an empty volume. The named
+      # control-plane-work volume mounted at /app/workspaces persists across
+      # restarts and is what the backup captures.
+      CONTROL_PLANE_WORKSPACE_DIR: /app/workspaces
       # Where the engine stages files that Docker containers bind-mount.
       # Docker resolves a bind-mount source against the HOST filesystem, not
       # the service container's, so the engine stages under a path the service
@@ -103,7 +111,11 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      # /ready (not /health): a 503 means the control plane cannot persist
+      # writes (SQLite/workspace/staging unusable). nginx only starts once
+      # the API is genuinely ready — a liveness-only 200 would let the stack
+      # come up on a control plane that loses every upload on restart.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
       interval: 30s
       timeout: 5s
       start_period: 20s

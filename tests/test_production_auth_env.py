@@ -20,6 +20,7 @@ None of these tests weaken the existing bearer-token suite
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -66,9 +67,38 @@ class TestProductionConfigurationGate:
 
     def test_production_with_token_accepted(self, monkeypatch):
         monkeypatch.setenv("CONTROL_PLANE_ENV", "production")
-        monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", "sekret-token")
+        monkeypatch.setenv(
+            "CONTROL_PLANE_API_TOKEN", "prod-token-that-is-definitely-long-enough"
+        )
 
         verify_production_auth_configuration()  # must not raise
+
+    @pytest.mark.parametrize(
+        "weak",
+        ["x", "changeme", "password123", "a" * 31],
+        ids=["one-char", "changeme", "password123", "31-chars"],
+    )
+    def test_production_rejects_trivially_short_tokens(
+        self, monkeypatch, weak
+    ):
+        """Non-emptiness alone accepted ``CONTROL_PLANE_API_TOKEN=x``.
+
+        Every other guard in the stack (compose ``:?``, the start script)
+        only checked that *something* was set, so a one-character
+        production token deployed fine. Startup now fails closed with the
+        generation command in the message.
+        """
+        monkeypatch.setenv("CONTROL_PLANE_ENV", "production")
+        monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", weak)
+
+        with pytest.raises(RuntimeError, match="at least 32 characters"):
+            verify_production_auth_configuration()
+
+    def test_strength_floor_applies_to_production_only(self, monkeypatch):
+        monkeypatch.setenv("CONTROL_PLANE_ENV", "development")
+        monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", "short")
+
+        verify_production_auth_configuration()  # dev parity: no raise
 
     @pytest.mark.parametrize("value", ["", "development", "dev", "test"])
     def test_non_production_environments_keep_dev_default(
@@ -205,6 +235,43 @@ class TestCorsDenyByDefault:
 
         assert "access-control-allow-origin" not in {k.lower() for k in resp.headers}
 
+    def test_preflight_is_not_blocked_by_auth_when_a_token_is_set(
+        self, monkeypatch
+    ):
+        """Browsers never attach ``Authorization`` to an OPTIONS preflight.
+
+        The auth middleware is the outermost layer, so before this fix it
+        answered 401 *before* CORSMiddleware could reply — meaning CORS was
+        unusable in exactly the configuration that enables it (a token AND
+        ``CONTROL_PLANE_ALLOWED_ORIGINS``, where both are production
+        defaults). The preflight passes without a token; the data-bearing
+        GET/POST that follows is still fully authenticated, and without
+        configured origins no CORS grant is issued.
+        """
+        monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", "sekret-token")
+        monkeypatch.delenv("CONTROL_PLANE_ALLOWED_ORIGINS", raising=False)
+
+        preflight = client.options(
+            "/applications",
+            headers={
+                "Origin": "https://evil.example.com",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+        assert preflight.status_code != 401, (
+            "auth must not answer preflights: it made configured CORS"
+            " unusable while protecting no data (OPTIONS carries none)"
+        )
+        assert (
+            "access-control-allow-origin"
+            not in {k.lower() for k in preflight.headers}
+        ), "no configured origins = no CORS grant"
+
+        # The actual request is still gated.
+        assert client.get("/applications").status_code == 401
+        assert client.post("/applications", json={}).status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Deployment wiring (the switch must actually be on in production artifacts)
@@ -227,3 +294,33 @@ class TestProductionDeploymentWiring:
             encoding="utf-8"
         )
         assert 'CONTROL_PLANE_ENV="${CONTROL_PLANE_ENV:-production}"' in text
+
+    def test_frontend_build_chains_the_bundle_secret_guard(self):
+        """Vite inlines ``VITE_CONTROL_PLANE_API_TOKEN`` into public assets.
+
+        The guard logic lives in
+        ``frontend/scripts/verify-bundle-secrets.mjs``; if ``npm run build``
+        does not chain it, CI's frontend job builds a bundle that could leak
+        the control-plane token with nothing to stop it. This asserts the
+        wiring (the guard's decision logic is pinned by the frontend suite).
+        """
+        pkg = json.loads(
+            (REPO_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
+        )
+        build = pkg["scripts"]["build"]
+        assert "verify-bundle-secrets.mjs" in build, (
+            "npm run build must chain the bundle-secret guard"
+        )
+        assert (
+            REPO_ROOT / "frontend" / "scripts" / "verify-bundle-secrets.mjs"
+        ).is_file()
+
+    def test_example_env_supplies_no_token_value(self):
+        """The example must stay empty: a committed token is a leaked token."""
+        for line in (REPO_ROOT / ".env.production.example").read_text(
+            encoding="utf-8"
+        ).splitlines():
+            if line.startswith("CONTROL_PLANE_API_TOKEN="):
+                assert line == "CONTROL_PLANE_API_TOKEN="
+                return
+        raise AssertionError("example env must document the token variable")

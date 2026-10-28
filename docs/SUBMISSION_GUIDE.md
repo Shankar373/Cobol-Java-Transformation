@@ -2,7 +2,10 @@
 
 > **Verified commit:** `49821ad1e1d91845dee4ed04e46aa7ab009dcb71`
 > (`codex/universal-core`, 2026-10-21). This guide is written against that
-> exact tree and its exact-SHA CI results. It links to the repository's
+> exact tree and its exact-SHA CI results — except §7 (security posture) and
+> the backlog-row count, refreshed 2026-10-26 for the production-readiness
+> batch (BL-139..BL-147); CI status for changes after `49821ad` is recorded
+> in `opencode.md`, never asserted here. It links to the repository's
 > existing authoritative documents instead of restating them (Master README
 > §78 authority hierarchy). Live state is tracked in `opencode.md`; defects
 > and decisions in `docs/BACKLOG.md`.
@@ -124,8 +127,8 @@ rights (API returns 403), and this guide does not invent numbers.
   Sequential full-file runs on this WSL2 host show intermittent
   Docker-load-related failures (see Troubleshooting) — Linux CI is the
   authoritative Docker environment.
-- Backlog structural gate: `python tools/check_backlog_table.py` → **OK: 122
-  rows, all 7 columns, unique ids**.
+- Backlog structural gate: `python tools/check_backlog_table.py` → **OK: 147
+  rows, all 7 columns, unique ids** (2026-10-26).
 
 ## 6. Supported COBOL subset and known limitations
 
@@ -152,12 +155,26 @@ machine-readably, in `docs/cobol_coverage_registry.json`, summarized in
 
 **Present and enforced:** optional constant-time bearer-token auth
 (`CONTROL_PLANE_API_TOKEN`; unset = auth off = documented dev default;
-production compose refuses to start without it — BL-099), bounded request/file
-bodies and file-count caps, ZIP traversal + zip-bomb ratio guards (BL-097,
-BL-103), case-fold collision checks (BL-102), security headers, typed
-fail-closed errors, container sandboxing (`--network none`, memory/CPU/pids
-limits, digest-pinned images), approval-gated export (409 until `APPROVED`),
-and evidence-integrity seals over artifact hashes.
+`CONTROL_PLANE_ENV=production` fails closed at startup without a token of at
+least 32 characters — BL-099/BL-136/BL-144), bounded request/file bodies and
+file-count caps, ZIP traversal + zip-bomb ratio guards (BL-097, BL-103),
+case-fold collision checks (BL-102), security headers, typed fail-closed
+errors, container sandboxing (`--network none`, memory/CPU/pids limits,
+digest-pinned images, non-root uid/gid 10001 with `no-new-privileges` and
+`--cap-drop ALL` across all ten `docker run` sites — BL-135), approval-gated
+export (409 until `APPROVED`), generated-artifact seals (changed bytes, a
+modified file set, or a legacy `generated_seal NULL` row all fail closed at
+approval/download — BL-137), CORS preflights that pass auth so the
+documented cross-origin deployment works with a token set (GET/POST stay
+fully authenticated; no grant without configured origins — BL-142),
+readiness probing (`GET /ready` answers 503 when database, workspace or
+staging is unusable; `/health` stays liveness-only — BL-140), structured
+JSON logging with `X-Request-Id` correlation and run lifecycle events, the
+token intentionally never a log field (BL-141), a frontend build guard that
+refuses to bundle `VITE_CONTROL_PLANE_API_TOKEN` (BL-144), a pre-deploy
+configuration preflight in `start-production.sh` (BL-145), and self-verifying
+backups (`backup.sh` fails unless `verify_backup.py` confirms the copy
+restores — BL-147).
 
 **Deferred by explicit owner decision (documented, never claimed):** D-7 TTL
 staleness + rate limiting (BL-113/114), D-8 cancellation/retry (BL-115), D-9
@@ -220,7 +237,7 @@ report it explicitly and the run fails closed; nothing is silently accepted
 | How do you prove the Java matches the COBOL? | Independent execution: GnuCOBOL in Docker (digest-pinned) vs the candidate in a network-isolated container, declared artifacts compared by explicit comparator contracts, under a sealed evidence manifest. |
 | Why is download gated? | Customer approval workflow (BL-091, D-1): export returns 409 until `APPROVED`; every UI entry point is disabled with an explanatory label (BL-119). |
 | Production-ready? | No — honestly documented: `docs/KNOWN_ISSUES.md` + §70 gaps (durable queue, rate limits, RBAC/audit, TLS, multi-node) with owner-approved deferrals D-7…D-11. |
-| Where is CI green? | Exact SHA `49821ad`: 4/4 workflow runs green (links in §5). Older runs/SHAs in historical reports are labeled historical (BL-009). |
+| Where is CI green? | Dated baseline: exact SHA `49821ad`: 4/4 workflow runs green (links in §5). The current verified commit and its runs live in `opencode.md` — this row is a 2026-10-21 snapshot, never a live pointer (BL-009). |
 | What happens without Docker? | Docker lanes report `UNAVAILABLE` and the run fails closed — never a fake pass (`RUN_DOCKER_TESTS=1` without Docker fails, rather than skips). |
 
 ## 10. Completion matrix (§71 release gate) and remaining blockers

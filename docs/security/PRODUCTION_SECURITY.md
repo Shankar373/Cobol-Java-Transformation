@@ -21,12 +21,36 @@ KMS integration exists; that is a documented gap, not a silent default.
 `CONTROL_PLANE_API_TOKEN` is compared in constant time and is required
 in production — with `CONTROL_PLANE_ENV=production` (set by the start
 script, compose, and `.env.production.example`) the control plane itself
-refuses to start without it and answers 401 on every non-`/health` route,
-in addition to the start script and compose guards. Rotate by
-writing a new token and redeploying (single replica → seconds of
-downtime; accepted for this single-node design). Never log or echo the
+refuses to start without it and answers 401 on every route except the
+`/health` and `/ready` probes (and CORS preflight `OPTIONS`, see below),
+in addition to the start script and compose guards.
+
+**Token strength floor.** The same import-time check
+(`verify_production_auth_configuration()`, `api/app.py`) also refuses a
+production token shorter than **32 characters** — non-emptiness alone
+used to let `x` satisfy every guard. The failure message prints the
+generator: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+Unrecognised `CONTROL_PLANE_ENV` values fail closed as well;
+development/test accept any length (historical behaviour). The start
+script only rejects an *empty* token, so a short token dies one layer
+later — at API import — and the container never serves.
+
+Rotate by writing a new token and redeploying (single replica → seconds
+of downtime; accepted for this single-node design). Never log or echo the
 token; it must not appear in `docker inspect` dumps shared externally
 (use `docker compose config` with values redacted).
+
+**Frontend bundle guard.** `npm run build` in `frontend/` runs
+`scripts/verify-bundle-secrets.mjs` after `vite build` and **fails the
+build** when `VITE_CONTROL_PLANE_API_TOKEN` is set for that build, or
+when any built asset in `dist/` contains an inlined
+`"VITE_CONTROL_PLANE_API_TOKEN":"<value>"` signature (Vite inlines
+`VITE_*` into `dist/assets/*.js`, readable by any anonymous browser —
+the value also survives rotation in every cached copy).
+`ALLOW_BUNDLED_API_TOKEN=1 npm run build` overrides the failure and
+prints a WARNING instead; that override is for closed internal
+deployments only. The supported path is the runtime override
+(`localStorage.systemaops.apiToken` / `setApiToken()`).
 
 ## Network and ports
 
@@ -40,7 +64,8 @@ token; it must not appear in `docker inspect` dumps shared externally
   to the API process can start privileged containers. Mitigations
   applied: read-only root-adjacent mounts where possible,
   `no-new-privileges`, fixed non-root uid, no published API port, bearer
-  auth on every route except `/health`. If your policy forbids the socket
+  auth on every route except the `/health` and `/ready` probes (plus CORS
+  preflight `OPTIONS`, below). If your policy forbids the socket
   mount, run the API directly on the Docker host (venv + systemd) instead
   of in a container — the sandbox flags are unchanged either way.
 
@@ -62,10 +87,19 @@ token; it must not appear in `docker inspect` dumps shared externally
 ## CORS, auth, headers
 
 - Auth: bearer token (`Authorization: Bearer` or `X-API-Key`) on all
-  routes except `/health`; 401 otherwise. No per-client rate limiting
-  exists (documented gap) — put operational rate limits at your WAF/edge
-  if exposed beyond trusted users.
-- CORS: deny-by-default; only `GET,POST` from an explicit allowlist.
+  routes except the `/health` and `/ready` probes; 401 otherwise. CORS
+  preflight `OPTIONS` requests pass the auth middleware without a token:
+  browsers never attach `Authorization` to a preflight, so requiring it
+  answered 401 *before* `CORSMiddleware` could reply and made the
+  allowlist unusable in exactly the configuration that enables it (token
+  + allowed origins). A preflight carries no payload; the data-bearing
+  `GET`/`POST` that follows is still fully authenticated. No per-client
+  rate limiting exists (documented gap) — put operational rate limits at
+  your WAF/edge if exposed beyond trusted users.
+- CORS: deny-by-default; the middleware is only added when
+  `CONTROL_PLANE_ALLOWED_ORIGINS` is a non-empty comma-separated
+  allowlist, and only `GET,POST` (+ `Authorization`, `X-API-Key`,
+  `Content-Type` headers) are permitted.
 - Headers: HSTS, `nosniff`, `DENY` framing, legacy XSS block,
   strict referrer policy, locked-down permissions policy, restrictive
   CSP, `no-store` on API responses. Uploads: bounded request/file/count
@@ -78,7 +112,12 @@ token; it must not appear in `docker inspect` dumps shared externally
   layers and are removed with the sandbox container; `/app/tmp` does not
   survive container replacement by design.
 - Logs: `json-file` driver capped at `10m` × 5 files per service to bound
-  disk. Log content is uvicorn/nginx access+error streams — no secrets
-  are logged by the app (auth failures return bare 401). Ship to your
+  disk. App logging is configured by `api/logging_config.py`
+  (`CONTROL_PLANE_LOG_LEVEL`, `CONTROL_PLANE_LOG_FORMAT`; JSON by default
+  in production): one `event=http.request` line per request with method,
+  path, status and `duration_ms` — never headers, never tokens — plus run
+  lifecycle events carrying `run_id`. No secrets are logged by the app
+  (auth failures return a bare 401 and the token is never a log field).
+  The rest of the stream is uvicorn/nginx access+error. Ship to your
   aggregator from the Docker driver; redact `Authorization` headers at
   the collector.

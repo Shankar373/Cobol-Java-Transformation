@@ -55,7 +55,9 @@ Per ADR-0008 / DR-18 (same sandbox guarantees as V1 §5):
    the pinned offline image; build failures are candidate-build failures
    (recorded; verdict cannot be `VERIFIED`).
 3. **Sandbox:** read-only staged candidate copy; `network none`; memory/CPU/
-   pids limits; **hard timeout** (timeout ⇒ `ERROR`, never PASS).
+   pids limits; **hard timeout** (timeout ⇒ `ERROR`, never PASS); hardening
+   flags `--security-opt no-new-privileges=true`, `--cap-drop ALL` and
+   non-root `--user 10001:10001` from the shared helper (BL-135).
 4. **Working directory / environment:** exactly as declared in the manifest.
 5. **Input model:** identical to oracle side (differential requirement).
 6. **Output capture:** stdout, stderr, exit code, generated files (per-file

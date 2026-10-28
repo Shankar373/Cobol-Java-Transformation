@@ -362,9 +362,34 @@ class TestDockerExecution:
         # IF CLAIM-AMOUNT > 500 -> false, so AMOUNT LE 500
         assert any("AMOUNT LE 500" in line for line in app_output)
 
-    def test_stdout_has_iterations(self, execution_result):
-        """Output contains iteration results - not applicable for this simplified test."""
-        pass
+    def test_stdout_trace_in_order(self, execution_result):
+        """The workload's DISPLAY trace appears in source order.
+
+        Replaces a previous zero-assertion placeholder ("iterations — not
+        applicable"): the fixture program has no loop, but ordering is real
+        coverage the sibling `any(...)` checks do not provide.
+        """
+        stdout = execution_result.stdout.decode(errors="replace")
+        app_output = _extract_app_output(stdout)
+        markers = [
+            "COPYBOOK DEMO STARTED",
+            "INITIAL CLAIM-ID",
+            "UPDATED CLAIM-AMOUNT",
+            "WS-RESULT=",
+            "FINAL CLAIM-ID",
+        ]
+        positions = [
+            next(
+                (i for i, line in enumerate(app_output) if marker in line),
+                -1,
+            )
+            for marker in markers
+        ]
+        for marker, idx in zip(markers, positions):
+            assert idx >= 0, f"missing trace marker: {marker}"
+        assert positions == sorted(positions), (
+            f"DISPLAY trace out of order: {list(zip(markers, positions))}"
+        )
 
     def test_stdout_has_final_values(self, execution_result):
         """Output contains final values."""

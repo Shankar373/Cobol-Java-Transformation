@@ -41,8 +41,9 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from api.errors import ConflictError, ServiceError
+from api.errors import ConflictError, PayloadTooLargeError, ServiceError
 
 #: The only accepted hashing algorithm.  A seal declaring anything else
 #: is refused (fail closed) rather than silently re-interpreted.
@@ -135,3 +136,102 @@ def verify_generated_seal(root: str | Path, seal_json: str | None) -> None:
             f" evidence ({len(differing)} file(s) differ after execution);"
             " re-validate the run before approval or export"
         )
+
+
+def _parse_seal_files(seal_json: str | None) -> dict[str, str]:
+    """Validate the seal document and return its recorded file→hash map."""
+    if not seal_json:
+        raise ConflictError(
+            "Run has no sealed evidence for its generated application;"
+            " re-validate the run before approval or export"
+        )
+    try:
+        seal = json.loads(seal_json)
+    except (TypeError, ValueError) as exc:
+        raise ConflictError(
+            "Sealed evidence for the generated application is malformed"
+        ) from exc
+    if not isinstance(seal, dict) or seal.get("algorithm") != SEAL_ALGORITHM:
+        raise ConflictError(
+            "Sealed evidence uses an unsupported hashing algorithm"
+        )
+    recorded = seal.get("files")
+    if not isinstance(recorded, dict):
+        raise ConflictError(
+            "Sealed evidence for the generated application is malformed"
+        )
+    return {str(k): str(v) for k, v in recorded.items()}
+
+
+def read_verified_bundle(
+    root: str | Path,
+    seal_json: str | None,
+    *,
+    max_files: int | None = None,
+    max_bytes: int | None = None,
+) -> dict[str, bytes]:
+    """Read the bundle exactly once and verify *those* bytes against the seal.
+
+    Returns ``{posix_relative_path: bytes}`` — the same buffers a caller
+    packages for export — so there is no window between verification and
+    packaging in which the filesystem can be swapped (verify-then-zip
+    TOCTOU).  Caps are enforced while reading so memory stays bounded;
+    exceeding either cap raises ``PayloadTooLargeError`` (HTTP 413), a
+    seal mismatch raises ``ConflictError`` (409), and an unreadable
+    bundle raises ``ServiceError`` (400).  Every failure refuses the
+    operation — a bundle that cannot be read-and-verified is never
+    returned for export.
+    """
+    recorded = _parse_seal_files(seal_json)
+    root_path = Path(root)
+    if not root_path.is_dir():
+        raise ServiceError("Generated application bundle is not available")
+
+    try:
+        paths = sorted(p for p in root_path.rglob("*") if p.is_file())
+    except OSError as exc:
+        raise ServiceError(
+            "Generated application bundle could not be sealed (unreadable file)"
+        ) from exc
+
+    if max_files is not None and len(paths) > max_files:
+        raise PayloadTooLargeError(
+            f"Generated application has {len(paths)} files,"
+            f" exceeding the {max_files} file download limit"
+        )
+
+    bundle: dict[str, bytes] = {}
+    total_bytes = 0
+    try:
+        for path in paths:
+            data = path.read_bytes()
+            total_bytes += len(data)
+            if max_bytes is not None and total_bytes > max_bytes:
+                raise PayloadTooLargeError(
+                    f"Generated application exceeds the {max_bytes} byte"
+                    " download limit"
+                )
+            bundle[path.relative_to(root_path).as_posix()] = data
+    except OSError as exc:
+        raise ServiceError(
+            "Generated application bundle could not be sealed (unreadable file)"
+        ) from exc
+
+    actual = {
+        key: hashlib.sha256(data).hexdigest()
+        for key, data in bundle.items()
+    }
+    if actual != recorded:
+        differing = (
+            set(recorded) ^ set(actual)
+        ) | {
+            key
+            for key in set(recorded) & set(actual)
+            if recorded[key] != actual[key]
+        }
+        raise ConflictError(
+            "Generated application bundle does not match its sealed"
+            f" evidence ({len(differing)} file(s) differ after execution);"
+            " re-validate the run before approval or export"
+        )
+    return bundle

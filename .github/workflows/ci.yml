@@ -95,7 +95,11 @@ jobs:
             tests/test_utilities_vsam_detection.py \
             tests/test_external_dependency_edges.py \
             tests/test_runtime_adapter_architecture.py \
+            tests/test_shell_script_contracts.py \
             tests/test_docker_capability_truth.py \
+            tests/transformation/test_call_capability_fail_closed.py \
+            tests/transformation/test_cics_multiline_parsing.py \
+            tests/transformation/test_modernization_planner.py \
             --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded
 
   phase1-ingestion:

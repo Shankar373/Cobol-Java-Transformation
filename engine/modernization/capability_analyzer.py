@@ -1189,9 +1189,17 @@ class CapabilityAnalyzer:
         else:
             # A resolved call is only as transformable as its callee.
             callee = program_levels.get(normalize_cobol_name(edge.target))
-            if callee is None or callee is CapabilityLevel.SUPPORTED:
+            if callee is CapabilityLevel.SUPPORTED:
                 level = CapabilityLevel.SUPPORTED
                 reason = "Resolved"
+            elif callee is None:
+                # Fail closed (BL-139): a RESOLVED edge whose target has no
+                # capability analysis is undetermined — never SUPPORTED.
+                level = CapabilityLevel.UNKNOWN
+                reason = (
+                    f"Resolved call target {edge.target} has no capability"
+                    " analysis"
+                )
             elif callee in (CapabilityLevel.PARTIAL, CapabilityLevel.UNAVAILABLE):
                 level = CapabilityLevel.PARTIAL
                 reason = (

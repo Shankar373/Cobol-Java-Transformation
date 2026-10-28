@@ -15,11 +15,11 @@ import logging
 import re
 import shutil
 import zipfile
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from api.limits import env_int_limit
+from api.paths import new_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,10 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
             f"ZIP archive exceeds size limit of {max_archive} bytes"
         )
 
-    workspace = Path(tempfile.mkdtemp(prefix=f"ingest-{application_id}-"))
+    # Durable: the ingest workspace is referenced by cobol_source_path and
+    # hashed by the evidence seal, so it must outlive the container (see
+    # api.paths). Scratch extraction stays in $TMPDIR.
+    workspace = new_workspace(prefix=f"ingest-{application_id}-")
 
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:

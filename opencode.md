@@ -8,6 +8,78 @@
 > every older statement that it "remains UNSUPPORTED/blocked at FILE-CONTROL"
 > is historical and is annotated in place.
 
+## Session: File-level audit reconciliation + fail-closed remediation BL-139…BL-145 (2026-10-27, working tree on HEAD `cb89b46`, **uncommitted — no push/merge without authorization**)
+
+Baseline captured before any edit: branch `codex/universal-core`, HEAD
+`cb89b460b257c31e5de709723e73d4d910687d97`, working tree clean,
+**4,303 tests collected** (the 3,476 figure in older docs is stale),
+Python 3.12.3 `.venv`, Docker 29.8.2, Node 20 (nvm v20.20.2 installed this
+session for the frontend — system had only Windows node, which cannot run the
+Linux-native `node_modules`). `test-artifacts/*` untouched.
+
+The first-draft `docs/FILE_LEVEL_AUDIT.md` (this HEAD) was reconciled against
+the register (`docs/BACKLOG.md` = priority authority) and code probes **before
+any fix**: BL-040 "OPEN" → register FIXED 2026-10-14 (re-verified green, 27
+passed); BL-045/046 "escaping OPEN" → both FIXED 2026-10-16 (BL-045 is the
+nested-CALL defect, not escaping); BL-054 → FIXED 2026-10-15 (`pipeline.py:221`
+`target/` skip verified in code); the draft's "BL-110/BL-111" labels were
+misattributions (register BL-110/111 = contract-V2 / mutation-gate rows) — the
+two real unregistered T7 shell defects were filed as **BL-143/BL-144**. The
+audit is rewritten with sections A (baseline), B (per-file findings), C
+(traceable remediation checklist), D–F, G (exact results + unknowns).
+
+**All fixes red-first (failing test captured before the code change), all in
+the working tree only:**
+
+| ID | Fix | Red → Green |
+|---|---|---|
+| **BL-139(1)** P1 | `_analyze_call`: callee absent from `program_levels` → `UNKNOWN` naming the target (was `SUPPORTED`) | `test_call_capability_fail_closed.py` **2 failed/4 passed → 6 passed** |
+| **BL-139(2)** P1 | `_derive_overall_status`: `unknown_count>0 → BLOCKED` (was READY-despite-UNKNOWN, probe-proven); `ProgramPlan.is_blocked` includes UNKNOWN; blocking summary includes UNKNOWN programs | readiness probe **READY → BLOCKED**; planner **39 passed** |
+| **BL-140** P1 | `read_verified_bundle` (single read + hash those bytes + caps during read) replaces verify-then-`ZipFile.write` double-read at download | `test_evidence_substitution.py` **4 failed → 29 passed**; download/approval batch **63 passed** |
+| **BL-141** P1 | `Store.update_application_fields` column-scoped writes; 4 service paths write only their columns; ingest deletes previous source only after successful update (orphan-dir on failure, never data loss) | `test_application_lost_updates.py` **9 failed → 9 passed**; API batch **140 passed** |
+| **BL-142** P1 | `cics_parser._split_statements`: period-split then line-merge (new statement only when balanced AND next line starts a known CICS verb) — wrapped FROM/RESP/INTO preserved, newline-separated commands still split | `test_cics_multiline_parsing.py` **8 failed/4 passed → 13 passed**; CICS regression **241 passed** |
+| **BL-143** P2 | `set -o pipefail` in all 5 `| tee` blocks of `supply-chain.yml` (audits can now fail the gate) | structural PyYAML test red → green; workflow parses |
+| **BL-144** P1 | visibility probe captures `rc=$?`, cleans up, `exit $rc` (old `; rm -f` tail behaviorally proven to mask grep failure) | `test_ci_deployment_security.py` **3 failed/5 passed → 8 passed**; `bash -n` OK |
+| **BL-145** P2 | two zero-assertion `pass` tests replaced with asserting tests (UNKNOWN-blocking contract ×2; copybook DISPLAY-trace ordering) | planner **39 passed** |
+
+Capability regression after BL-139: **215 passed** (10 files) and **239
+passed** (13-file modernization batch incl. UNKNOWN→BLOCKED).
+
+**Verification checkpoint (2026-10-27):**
+- Frontend: `tsc --noEmit` **exit 0**; `tsc -b && vite build` **exit 0**
+  (53 modules, dist emitted); vitest **160 passed (15 files), exit 0** —
+  matches the (bh) frontend baseline.
+- CI capability-truth gate: the three new dependency-light suites
+  (`test_call_capability_fail_closed.py`, `test_cics_multiline_parsing.py`,
+  `test_modernization_planner.py`) wired into `ci.yml` (gate 55 → **58
+  files**; AST-verified no third-party imports, so the pytest-only gate
+  design holds) — exact gate command re-run locally: **834 passed, 1
+  deselected, exit 0** (pre-session 777+1).
+- Rendered deployment config: `docker compose -f docker-compose.production.yml
+  config` **exit 0** (134 lines) with a temp `.env.production` built from the
+  example (removed afterwards, `.gitignore`d), `CONTROL_PLANE_ENV: production`
+  + required token interpolated, 6 hardening references present; render
+  **fails closed** without `CONTROL_PLANE_API_TOKEN` (BL-099/136 gate
+  proven); `bash -n` clean on all four `scripts/deploy/*.sh`.
+- Collection: **4,343 tests** (4,303 baseline + 40 net new).
+- Full backend suite (fresh run on the final tree, no `RUN_DOCKER_TESTS`):
+  JUnit `/tmp/opencode/audit/final-junit.xml` — run in flight at the time
+  this block was written; final counts quoted in the session report from the
+  artifact only (an earlier mixed-state run started before the fixes was
+  killed and archived as contaminated; Docker-based tests execute here since
+  Docker is available — cross-WSL mounts make the run slow).
+- Docs updated: `docs/FILE_LEVEL_AUDIT.md` (A–G, reconciled), register rows
+  BL-139…BL-145 + change-log **(bi)** in `docs/BACKLOG.md`,
+  `docs/CAPABILITY_MATRIX.md` CALL row (+BL-139 fail-closed clause), this
+  checkpoint.
+- **No production-ready claim.** Open P0: none. Deferred/blocked unchanged
+  (BL-113/114/115/122 D-7..D-9; register-BL-111/112 D-11; BL-130…133 lanes;
+  BL-093 D-4; BL-015 PR merge — human only). No capability label made more
+  favourable; no test weakened or skipped; no DB2/CICS/JCL runtime
+  equivalence claimed anywhere.
+
+---
+
 ## Session: P0 production hardening — non-root containers, production auth fail-closed, upload safety, evidence-seal, capability truth (2026-10-24 session; **committed + pushed 2026-10-26 on operator authorization**, verified baseline `ff3c8ecbeb3feed14f2c04e0bd7137eeed2a6bae`)
 
 Held as an uncommitted working tree all session until the operator's explicit

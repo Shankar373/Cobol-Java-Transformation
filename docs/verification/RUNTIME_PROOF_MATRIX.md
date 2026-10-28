@@ -79,6 +79,29 @@
 > run separately, 71 passed, relative to those older baselines). Green GitHub
 > Actions runs cited elsewhere validate only their own committed SHAs.
 > Per-row evidence names the exact test module that produced the proof.
+>
+> **Verification update 2026-10-26 (HEAD `62e647f` + this working tree,
+> production-readiness batch; no CI claim is made for these changes here —
+> none existed at writing, and the authoritative record is the Actions run
+> for the exact pushed SHA):** the ci.yml capability-truth block, parsed and
+> executed exactly as written, now gives **794 passed, 1 deselected, exit 0,
+> 17.89 s** — the block gained `tests/test_shell_script_contracts.py` (17
+> tests: LF bytes, bash shebang, `bash -n` syntax, `.gitattributes` pin, and
+> source pins for the deploy preflight / derived container id /
+> backup-verification chain).
+> The same selection was **777 passed** immediately before that addition and
+> **761 passed** at `b8a5499` above. New suites this batch, each exit 0:
+> `tests/test_workspace_persistence.py` (**18**),
+> `tests/test_structured_logging.py` (**25**), `tests/test_readiness.py`
+> (**13**), `tests/test_backup_verification.py` (**15**),
+> `tests/test_shell_script_contracts.py` (**17**); security lane + readiness
+> + logging + workspace + API subset **550 passed, 2 skipped (58.75 s)**;
+> `tests/test_production_auth_env.py` + structured logging + readiness
+> **68 passed**; frontend `npm test` **166 passed (exit 0)** and
+> `npm run build` exit 0 with `bundle-secret-guard: OK (2 asset(s) checked
+> in dist)`. All six `scripts/**/*.sh` were converted CRLF→LF (a CRLF
+> shebang cannot exec on Linux) with `.gitattributes` pinning `eol=lf` — CI
+> never executes a `.sh` file, which is why the defect survived.
 
 ## Labels (honest vocabulary)
 
