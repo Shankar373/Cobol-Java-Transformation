@@ -550,6 +550,18 @@ def _unstring_fail_closed_symbol(*reasons: str) -> str:
     return "UNSUPPORTED_UNSTRING$" + "$".join(reasons)
 
 
+def _accept_fail_closed_symbol(*reasons: str) -> str:
+    """Java identifier naming an ACCEPT form with no certified mapping.
+
+    Same fail-closed contract as :func:`_string_fail_closed_symbol`: the
+    ``$`` makes the name unresolvable so ``javac`` reports the form
+    (FROM DATE/TIME/..., signed or decimal numeric target, unknown
+    target) instead of the program running with a silently wrong field
+    value.
+    """
+    return "UNSUPPORTED_ACCEPT$" + "$".join(reasons)
+
+
 def _string_phrase_java(src: JavaExpression, delim) -> JavaExpression:
     """One sending phrase truncated at its delimiter.
 
@@ -2995,68 +3007,115 @@ def map_cobol_statement(
         result.append(JavaReturn())
 
     elif isinstance(stmt, AcceptStatement):
-        # ACCEPT target [FROM source]
-        # Certified: ACCEPT target (read a line from standard input).
-        # ACCEPT ... FROM DATE/TIME/DAY/... fail closed.
+        # ACCEPT <field> [FROM device] — certified stdin subset.
+        #
+        # Oracle-pinned (GnuCOBOL 3.1.2, tests/integration/
+        # test_accept_oracle_proof.py): the plain form and FROM
+        # CONSOLE / STDIN / SYSIN each consume one whole standard-input
+        # line, sequentially, through the program-wide CobolStdin
+        # helper.  A per-statement Scanner buffered stdin ahead and
+        # broke the second ACCEPT; a String expression assigned to a
+        # numeric field did not compile at all.
+        #
+        #   PIC X(n)      -> first n chars, space-padded (EOF: n spaces)
+        #   unsigned PIC 9(n), n <= 18
+        #                 -> GnuCOBOL alphanumeric-to-numeric move of the
+        #                    first n bytes (spaces removed, one leading or
+        #                    trailing sign ignored, anything else zero;
+        #                    EOF: zero)
+        #
+        # Everything else fails closed with an unresolvable symbol so
+        # javac names the form instead of a wrong value shipping.
+        device = (stmt.source or "").upper()
         java_target = stmt.target.replace("-", "_")
-        if stmt.source and stmt.source.upper() not in ("", "CONSOLE", "STANDARD-INPUT"):
-            # FROM clause present — not certified.
+        item = _find_data_item(program, stmt.target)
+        width = item.pic_length if item is not None else 0
+        stdin_devices = ("", "CONSOLE", "STDIN", "SYSIN")
+        if device not in stdin_devices:
             result.append(JavaAssignment(
                 target=java_target,
                 expression=JavaVariableRef(
-                    name=f"UNSUPPORTED_ACCEPT$FROM_{stmt.source.upper().replace('-', '_')}"
+                    name=_accept_fail_closed_symbol(
+                        "FROM", device.replace("-", "_") or "MISSING"
+                    )
+                ),
+            ))
+        elif (
+            item is None
+            or not item.is_elementary
+            or item.occurs
+            or item.usage not in (None, "", "DISPLAY")
+            or width <= 0
+            or (
+                item.is_numeric
+                and (item.signed or item.decimal_places > 0 or width > 18)
+            )
+        ):
+            # Group/table targets, non-DISPLAY usages, signed or decimal
+            # numeric targets, targets wider than 18 digits (long cannot
+            # hold more) and targets with no declared PIC have no
+            # certified lowering.
+            reasons = []
+            if item is None or width <= 0:
+                reasons.append("TARGET")
+            if item is not None and not item.is_elementary:
+                reasons.append("GROUP")
+            if item is not None and item.occurs:
+                reasons.append("TABLE")
+            if item is not None and item.usage not in (None, "", "DISPLAY"):
+                reasons.append(
+                    "USAGE$" + (item.usage or "").upper().replace("-", "_")
+                )
+            if item is not None and item.is_numeric:
+                if item.signed:
+                    reasons.append("SIGNED")
+                if item.decimal_places > 0:
+                    reasons.append("DECIMAL")
+                if width > 18:
+                    reasons.append("WIDE")
+            result.append(JavaAssignment(
+                target=java_target,
+                expression=JavaVariableRef(
+                    name=_accept_fail_closed_symbol(*reasons)
                 ),
             ))
         else:
-            # Read a line from stdin, trim, pad/truncate to PIC width.
-            item = _find_data_item(program, stmt.target)
-            width = item.pic_length if (item is not None and item.pic_length and item.pic_length > 0) else 0
-            result.append(JavaLocalVarDecl(
-                java_type=JavaType(basic_type=JavaBasicType.STRING),
-                name="_accept_line",
-                initializer=JavaMethodCall(
-                    object_ref=JavaNewObject(
-                        class_name="java.util.Scanner",
-                        arguments=(JavaVariableRef(name="System.in"),),
-                    ),
-                    method_name="nextLine",
-                    arguments=(),
-                ),
-            ))
-            if width <= 0:
+            line_call = JavaMethodCall(
+                class_name="CobolStdin",
+                method_name="readLine",
+                arguments=(),
+                is_static=True,
+            )
+            width_lit = JavaLiteral(
+                value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)
+            )
+            if item.is_numeric:
+                number_call = JavaMethodCall(
+                    class_name="CobolStdin",
+                    method_name="number",
+                    arguments=(line_call, width_lit),
+                    is_static=True,
+                )
                 result.append(JavaAssignment(
                     target=java_target,
-                    expression=JavaVariableRef(name="_accept_line"),
+                    # CobolStdin.number returns long; int fields narrow it.
+                    expression=(
+                        number_call
+                        if width > 9
+                        else JavaCast(
+                            target_type=JavaType(basic_type=JavaBasicType.INT),
+                            expression=number_call,
+                        )
+                    ),
                 ))
             else:
                 result.append(JavaAssignment(
                     target=java_target,
-                    expression=JavaTernary(
-                        condition=JavaBinaryOp(
-                            left=JavaMethodCall(object_ref=JavaVariableRef(name="_accept_line"), method_name="length", arguments=()),
-                            operator=">",
-                            right=JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
-                        ),
-                        true_expr=JavaMethodCall(
-                            object_ref=JavaVariableRef(name="_accept_line"),
-                            method_name="substring",
-                            arguments=(
-                                JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
-                                JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
-                            ),
-                        ),
-                        false_expr=JavaStringConcat(parts=(
-                            JavaVariableRef(name="_accept_line"),
-                            JavaMethodCall(
-                                object_ref=JavaLiteral(value=" ", java_type=JavaType(basic_type=JavaBasicType.STRING)),
-                                method_name="repeat",
-                                arguments=(JavaBinaryOp(
-                                    left=JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
-                                    operator="-",
-                                    right=JavaMethodCall(object_ref=JavaVariableRef(name="_accept_line"), method_name="length", arguments=()),
-                                ),),
-                            ),
-                        )),
+                    expression=JavaMethodCall(
+                        class_name="CobolStdin",
+                        method_name="alnum",
+                        arguments=(line_call, width_lit),
+                        is_static=True,
                     ),
                 ))
 

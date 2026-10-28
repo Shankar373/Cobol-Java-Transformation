@@ -250,7 +250,17 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "SORT": _unsupported("SORT is not implemented in the deterministic mapper"),
     "MERGE": _unsupported("MERGE is not implemented in the deterministic mapper"),
     "ACCEPT": _supported(
-        "ACCEPT target reads a line from standard input into the field",
+        "ACCEPT <field> [FROM CONSOLE|STDIN|SYSIN] consumes one whole "
+        "standard-input line per statement through a shared reader: "
+        "PIC X(n) receives the first n characters space-padded (EOF: n "
+        "spaces); unsigned PIC 9(n), n <= 18, receives the GnuCOBOL "
+        "alphanumeric-to-numeric conversion of the first n bytes "
+        "(spaces removed, one leading or trailing sign ignored, "
+        "anything else yields zero; EOF: zero). Byte-identical to "
+        "GnuCOBOL 3.1.2 (tests/integration/test_accept_oracle_proof"
+        ".py). Other FROM devices (DATE/TIME/DAY/COMMAND-LINE/...), "
+        "signed, decimal, non-DISPLAY, table, group and unknown "
+        "targets fail closed with an unresolvable symbol.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "INITIALIZE": _supported(

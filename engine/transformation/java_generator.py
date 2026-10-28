@@ -428,6 +428,7 @@ public class {class_name} {{
         # Main method body — from JavaProgram.java_class.methods (excluding main)
         main_body = ""
         loop_body = ""
+        uses_cobol_stdin_stmt = False
 
         # Find the main method and extract its body
         for method in java_class.methods:
@@ -448,8 +449,18 @@ public class {class_name} {{
                                 f"statement type {type(stmt).__name__} has no "
                                 "generator mapping."
                             )
+                        if "CobolStdin." in rendered:
+                            uses_cobol_stdin_stmt = True
                         for line in rendered.split("\n"):
                             main_body += f"        {line}\n"
+
+        support_code = ""
+        if uses_cobol_stdin_stmt:
+            # ACCEPT lowering references the shared CobolStdin helper;
+            # emit it next to the program class (same pattern as
+            # CobolFileIo in the minimal path).
+            from engine.transformation.stdin_support_template import COBOL_STDIN_JAVA
+            support_code = "\n" + COBOL_STDIN_JAVA + "\n"
 
         return f'''import java.io.BufferedReader;
 import java.io.FileReader;
@@ -483,8 +494,7 @@ public class {class_name} {{
 
 {main_body}
     }}
-}}
-'''
+}}{support_code}'''
 
     def _generate_minimal_java_from_ir(self, program: JavaProgram, class_name: str) -> str:
         """Generate Java for minimal programs from JavaProgram IR."""
@@ -499,6 +509,7 @@ public class {class_name} {{
         main_body = ""
         uses_file_write = False
         uses_cobol_file_io_stmt = False
+        uses_cobol_stdin_stmt = False
 
         for method in java_class.methods:
             method_stmts: list[str] = []
@@ -510,6 +521,8 @@ public class {class_name} {{
                         uses_file_write = True
                     if "CobolFileIo." in stmt_str:
                         uses_cobol_file_io_stmt = True
+                    if "CobolStdin." in stmt_str:
+                        uses_cobol_stdin_stmt = True
 
             if method.name == "main":
                 main_body = "".join(f"        {s}\n" for s in method_stmts)
@@ -535,6 +548,12 @@ public class {class_name} {{
         if uses_cobol_file_io:
             from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
             support_code = "\n" + COBOL_FILE_IO_JAVA + "\n"
+        if uses_cobol_stdin_stmt:
+            # ACCEPT lowering references the shared CobolStdin helper;
+            # emit it next to the program class (same pattern as
+            # CobolFileIo) so the output always compiles standalone.
+            from engine.transformation.stdin_support_template import COBOL_STDIN_JAVA
+            support_code += "\n" + COBOL_STDIN_JAVA + "\n"
         if uses_file_write:
             file_write_imports = (
                 "import java.io.FileWriter;\n"

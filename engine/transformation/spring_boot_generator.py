@@ -92,10 +92,11 @@ class SpringBootGenerator:
         # File I/O support class: emitted when a generated service performs
         # COBOL file operations (detected by "CobolFileIo." references).
         emitted_cobol_file_io = False
+        emitted_cobol_stdin = False
         for service, service_file in zip(application.services, service_files):
-            if emitted_cobol_file_io:
+            if emitted_cobol_file_io and emitted_cobol_stdin:
                 break
-            if "CobolFileIo." in service_file.source_code:
+            if not emitted_cobol_file_io and "CobolFileIo." in service_file.source_code:
                 from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
                 package = service.package
                 path = f"src/main/java/{package.replace('.', '/')}/CobolFileIo.java"
@@ -106,6 +107,19 @@ class SpringBootGenerator:
                     path=path,
                 ))
                 emitted_cobol_file_io = True
+            if not emitted_cobol_stdin and "CobolStdin." in service_file.source_code:
+                # ACCEPT lowering references the shared CobolStdin helper;
+                # emit it in the same package as the referencing service.
+                from engine.transformation.stdin_support_template import COBOL_STDIN_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolStdin.java"
+                files.append(GeneratedFile(
+                    filename="CobolStdin.java",
+                    source_code=f"package {package};\n\n{COBOL_STDIN_JAVA}\n",
+                    class_name="CobolStdin",
+                    path=path,
+                ))
+                emitted_cobol_stdin = True
 
         # Shared copybook models are emitted by the single model loop below
         # (after the adapter implementations): a second loop here appended
