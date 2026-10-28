@@ -551,7 +551,10 @@ class TestArchitectureInvariants:
             for f in result.generated_files:
                 if f.filename.endswith(".java") and f.class_name != "ServiceRegistry":
                     # Should not import other program classes directly
-                    pass  # Current architecture uses static main methods
+                    # (current architecture uses static main methods).
+                    assert f.source_code.strip(), (
+                        f"Generated file {f.filename} is empty"
+                    )
 
     def test_evidence_not_fabricated(self):
         """Evidence is never fabricated."""

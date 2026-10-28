@@ -676,7 +676,10 @@ public class {class_name} {{
             return "\n".join(lines)
         if isinstance(stmt, JavaBlock):
             return "\n".join(self._stmt_to_string(s) for s in stmt.statements)
-        return ""
+        raise ValueError(
+            "MISSING_REQUIRED_SEMANTIC: Java statement type "
+            f"{type(stmt).__name__} has no generator mapping."
+        )
 
     def _expr_to_string(self, expr) -> str:
         """Convert a Java IR expression to a Java source string."""

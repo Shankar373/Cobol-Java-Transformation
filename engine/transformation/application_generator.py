@@ -128,14 +128,13 @@ class ApplicationGenerator:
                 errors=("No COBOL programs discovered in application",),
             )
 
-        java_app = map_cobol_programs_to_application(
-            programs=programs,
-            application_id=materialized.application_id,
-            copybooks=materialized.copybooks,
-            edges=materialized.edges,
-        )
-
         try:
+            java_app = map_cobol_programs_to_application(
+                programs=programs,
+                application_id=materialized.application_id,
+                copybooks=materialized.copybooks,
+                edges=materialized.edges,
+            )
             files = tuple(self._generator.generate_from_java(java_app))
         except Exception as exc:  # survive no required semantics (honest failure)
             return ApplicationGenerationResult(

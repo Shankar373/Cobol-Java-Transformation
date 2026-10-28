@@ -1016,4 +1016,10 @@ class TestRuffEvidence:
 
     def test_ruff_baseline_recorded(self):
         """Ruff check baseline recorded."""
-        assert True, "Ruff status recorded in final report"
+        # Ruff is not installed in this environment, so the claim that a
+        # ruff baseline was recorded is unsupported.  Assert the honest
+        # state instead of vacuously passing.
+        import shutil
+        assert shutil.which("ruff") is None, (
+            "ruff is now available; update the forensic evidence claim"
+        )

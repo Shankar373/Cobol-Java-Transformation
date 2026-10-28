@@ -983,7 +983,11 @@ class TestJclCobolFileLinking:
         linked = discovery.link_with_cobol(jcl_app, cobol_app)
 
         file_deps = [d for d in linked.dependencies if d.dependency_type == "COBOL_FILE"]
-        assert len(file_deps) >= 0  # May or may not match depending on name matching
+        # Linking must produce a well-formed dependency list (not crash);
+        # the count is data-dependent, so assert structure, not a
+        # trivially-true lower bound.
+        assert isinstance(linked.dependencies, (list, tuple))
+        assert all(getattr(d, "dependency_type", None) for d in linked.dependencies)
 
 
 class TestForensicSearch:

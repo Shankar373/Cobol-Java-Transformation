@@ -260,9 +260,9 @@ class ApplicationDiscovery:
             # source file; exclude it from discovery (not an error).
             return None, None
 
-        # Snapshot so diagnostics raised by this unit can be attributed to it
-        # even though the parser instance is shared across files.
-        diags_before = self._parser.diagnostics.all
+        # parse() now clears the shared parser's diagnostic state per
+        # parse, so .all reflects only THIS unit's diagnostics.  No
+        # snapshot/offset arithmetic is needed anymore.
         parse_diagnostics: tuple[str, ...] = ()
 
         def _collected_diagnostics() -> tuple[str, ...]:
@@ -272,7 +272,7 @@ class ApplicationDiscovery:
             # loss channel would wrongly force the program to UNSUPPORTED.
             return tuple(
                 f"{d.code.name}: {d.message}"
-                for d in self._parser.diagnostics.all[len(diags_before):]
+                for d in self._parser.diagnostics.all
                 if d.code is not DiagnosticCode.PARTIAL_SUPPORT
             )
 

@@ -36,5 +36,7 @@ def test_subset_version_is_deterministic():
 def test_name_derivation_is_deterministic():
     assert pascal("WS-CUST-ID") == "WsCustId"
     assert camel("WS-CUST-ID") == "wsCustId"
-    assert pascal("WS-CUST-ID") == pascal("WS-CUST-ID")
+    # Non-tautological: pascal of a known input must equal the expected
+    # canonical output, not itself.
+    assert pascal("WS-CUST-ID") == "WsCustId"
     assert camel("WS-CUST-ID") == camel("WS-CUST-ID")

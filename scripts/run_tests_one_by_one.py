@@ -97,9 +97,6 @@ def run_one(rel_path: str, out_dir: Path, env: dict[str, str], timeout: int) -> 
 
     duration = time.monotonic() - started
     counts = parse_junit(junit_path)
-    if counts["tests"] == 0 and not timed_out:
-        # Collection error / import error: junit may still carry the suite.
-        counts = parse_junit(junit_path)
 
     status = "PASS"
     if timed_out:
@@ -108,10 +105,18 @@ def run_one(rel_path: str, out_dir: Path, env: dict[str, str], timeout: int) -> 
         status = "ERROR"
     elif counts["failures"]:
         status = "FAIL"
+    elif counts["tests"] == 0 and returncode in (0, 5):
+        # pytest exits 5 when a run collects nothing; that is a zero-test
+        # file (renamed/moved/mis-imported), not a crash, but it must
+        # never read as PASS (audit D-3).  Any other non-zero exit with
+        # zero tests (4 = usage/collection error) stays ERROR.
+        status = "NO_TESTS"
     elif returncode != 0:
         status = "ERROR"
-    elif counts["tests"] == 0:
-        status = "NO_TESTS"
+    elif counts["skipped"] == counts["tests"]:
+        # Every test in the file was gated away: the file verified nothing,
+        # so it must not read as a clean PASS (audit D-3).
+        status = "ALL_SKIP"
 
     tail = "\n".join(output.splitlines()[-40:])
     return {
@@ -168,7 +173,12 @@ def write_reports(results: list[dict], out_dir: Path, started_at: str) -> dict:
             f"| {r['status']} | {r['file']} | {r['tests']} | {r['failures']} | "
             f"{r['errors']} | {r['skipped']} | {r['duration_s']} |"
         )
-    problems = [r for r in results if r["status"] not in ("PASS", "NO_TESTS")]
+    # NO_TESTS is a problem, not a pass: a file that collected zero tests
+    # (renamed, moved, mis-imported) silently vanished from the suite, and
+    # treating it as benign let the driver exit 0 while reporting nothing
+    # ran (audit D-3).  ALL_SKIP is likewise reported in diagnostics: every
+    # test in the file was gated away, so the file verified nothing.
+    problems = [r for r in results if r["status"] != "PASS"]
     if problems:
         lines += ["", "## Diagnostics (last output lines)", ""]
         for r in problems:
@@ -206,7 +216,16 @@ def main() -> int:
     if args.filter:
         rel_files = [f for f in rel_files if args.filter in f]
     if args.start_at:
-        idx = next((i for i, f in enumerate(rel_files) if args.start_at in f), 0)
+        idx = next((i for i, f in enumerate(rel_files) if args.start_at in f), None)
+        if idx is None:
+            # A --start-at needle that matches nothing used to silently
+            # restart the whole suite from the beginning (default 0),
+            # hiding the typo behind a full run (audit D-3).
+            print(
+                f"ERROR: --start-at {args.start_at!r} matched no test file.",
+                file=sys.stderr,
+            )
+            return 2
         rel_files = rel_files[idx:]
 
     if not rel_files:
@@ -275,7 +294,19 @@ def main() -> int:
                     flush=True,
                 )
     except KeyboardInterrupt:
+        # An interrupted run is NOT a passing run: report it distinctly
+        # (audit D-3) instead of exiting 0 off partial results.
         print("\nInterrupted — writing partial report...", flush=True)
+        results.sort(key=lambda r: r["file"])
+        payload = write_reports(results, out_dir, started_at)
+        t = payload["totals"]
+        print(
+            f"\nINTERRUPTED: {t['files']} files recorded before interrupt "
+            f"(of {len(rel_files)} remaining+done)",
+            flush=True,
+        )
+        print(f"Report: {out_dir / 'summary.md'}", flush=True)
+        return 130
 
     results.sort(key=lambda r: r["file"])
     payload = write_reports(results, out_dir, started_at)
@@ -286,7 +317,23 @@ def main() -> int:
         flush=True,
     )
     print(f"Report: {out_dir / 'summary.md'}", flush=True)
-    bad = payload["by_status"].get("FAIL", 0) + payload["by_status"].get("ERROR", 0) + payload["by_status"].get("TIMEOUT", 0)
+    # Fail on FAIL/ERROR/TIMEOUT as before, and additionally on:
+    #  - NO_TESTS: a file that collected zero tests silently vanished;
+    #  - ALL_SKIP:  every test in the file was gated away, proving nothing;
+    #  - a run that recorded zero files (empty collection).
+    # All three previously exited 0 while reporting that nothing ran
+    # (audit D-3).
+    by_status = payload["by_status"]
+    bad = (
+        by_status.get("FAIL", 0)
+        + by_status.get("ERROR", 0)
+        + by_status.get("TIMEOUT", 0)
+        + by_status.get("NO_TESTS", 0)
+        + by_status.get("ALL_SKIP", 0)
+    )
+    if not results:
+        print("ERROR: no test files were recorded — empty run.", flush=True)
+        return 1
     return 1 if bad else 0
 
 

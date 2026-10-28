@@ -999,7 +999,10 @@ public class {class_name} {{
                         lines.append(f"    {inner_line}")
             lines.append("}")
             return "\n".join(lines)
-        return ""
+        raise ValueError(
+            "MISSING_REQUIRED_SEMANTIC: Java statement type "
+            f"{type(stmt).__name__} has no generator mapping."
+        )
 
     def _expr_to_string(self, expr) -> str:
         """Convert a Java IR expression to a Java source string."""

@@ -207,7 +207,12 @@ class TestPipelineNoCallback:
         # The existing mock tests prove this — when _mock_validation is used,
         # the pipeline is replaced entirely. The real pipeline's progress
         # callback is optional (default None), so behavior is unchanged.
-        pass  # Covered by test_async_modernize and test_api tests
+        # Real (non-vacuous) assertion: progress callback is optional.
+        from engine.pipeline import VerticalSlicePipeline
+        import inspect
+        sig = inspect.signature(VerticalSlicePipeline.run)
+        assert "progress" in sig.parameters
+        assert sig.parameters["progress"].default is None
 
 
 # ---------------------------------------------------------------------------

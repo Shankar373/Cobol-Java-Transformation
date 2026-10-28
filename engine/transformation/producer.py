@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engine.transformation.cobol_parser import CobolParseError, CobolParser
+from engine.transformation.contracts import Diagnostic as ContractDiagnostic
+from engine.transformation.diagnostics import to_contract_diagnostic
 from engine.transformation.ir import CobolProgram
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator
 
@@ -42,9 +44,20 @@ class TransformationResult:
     generated_files: tuple[GeneratedFile, ...] = ()
     program_ir: CobolProgram | None = None
     errors: tuple[str, ...] = ()
+    diagnostics: tuple[ContractDiagnostic, ...] = ()
     producer_identity: str = "cobol-to-java-transformer"
     producer_version: str = "1.0.0"
     transformation_timestamp: str = ""
+
+    @property
+    def has_errors(self) -> bool:
+        return bool(self.errors) or any(
+            d.level == "ERROR" for d in self.diagnostics
+        )
+
+    @property
+    def has_warnings(self) -> bool:
+        return any(d.level == "WARNING" for d in self.diagnostics)
 
     @property
     def java_source_tree(self) -> dict[str, str]:
@@ -91,6 +104,30 @@ class TransformationProducer:
             # Step 1: Parse COBOL → IR
             program = self._parser.parse(cobol_source)
 
+            # Propagate parser diagnostics so no statement loss is silent.
+            parser_diagnostics = tuple(
+                to_contract_diagnostic(d) for d in self._parser.diagnostics.all
+            )
+
+            # Fail closed when the parser recorded error-level diagnostics
+            # (e.g. no transformable COBOL program structure).  Without
+            # this check the producer fabricated success=True for input
+            # like "INVALID COBOL SOURCE".
+            if self._parser.diagnostics.has_errors:
+                error_messages = tuple(
+                    d.message for d in self._parser.diagnostics.errors
+                )
+                if not error_messages:
+                    error_messages = ("Parse error: invalid COBOL source",)
+                return TransformationResult(
+                    success=False,
+                    errors=error_messages,
+                    diagnostics=parser_diagnostics,
+                    producer_identity="cobol-to-java-transformer",
+                    producer_version="1.0.0",
+                    transformation_timestamp=timestamp,
+                )
+
             # Step 2: Generate Java from IR
             generated_files = self._generator.generate(program)
 
@@ -98,6 +135,7 @@ class TransformationProducer:
                 success=True,
                 generated_files=tuple(generated_files),
                 program_ir=program,
+                diagnostics=parser_diagnostics,
                 producer_identity="cobol-to-java-transformer",
                 producer_version="1.0.0",
                 transformation_timestamp=timestamp,

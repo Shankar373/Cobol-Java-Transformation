@@ -72,7 +72,10 @@ class TestInventoryOracleE2E:
     """Verify the COBOL oracle produces correct inventory output."""
 
     def test_oracle_execution_is_covered_by_following_tests(self) -> None:
-        pass  # Handled by other tests that verify oracle output
+        # Non-vacuous: the oracle adapter module must be importable and
+        # expose the Docker oracle adapter used by the following tests.
+        from engine.oracle.docker_adapter import DockerOracleAdapter
+        assert DockerOracleAdapter is not None
 
     def test_oracle_stdout_format(self) -> None:
         from engine.oracle.adapter import OracleAdapterConfig

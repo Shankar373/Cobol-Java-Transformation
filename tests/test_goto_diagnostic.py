@@ -1,15 +1,14 @@
 """BL-026 focused gate: `GO TO` produces an explicit diagnostic (§16).
 
-The executable jump is lowered to a comment by the mapper, so the parser
-names it through the same `UNSUPPORTED_CONSTRUCT` channel SORT/INSPECT
-use.  The verdict is unchanged (the registry already classifies GO TO
-UNSUPPORTED), the planner still blocks, and the generated comment stays
-for traceability.
+The parser names GO TO through the same `UNSUPPORTED_CONSTRUCT`
+channel SORT/INSPECT use.  The verdict is unchanged (the registry already
+classifies GO TO UNSUPPORTED), the planner still blocks, and generation
+now fails closed instead of manufacturing a Java candidate.
 
 Acceptance (docs/BACKLOG.md BL-026):
 1. a program containing GO TO produces an explicit diagnostic naming GO TO;
 2. its capability verdict remains UNSUPPORTED and the planner still blocks;
-3. the generated comment remains;
+3. generation now fails closed (no manufactured Java candidate / comment);
 4. focused positive/negative tests join the gate;
 5. no existing test weakened or skipped.
 """
@@ -87,16 +86,20 @@ class TestGoToDiagnostic:
         )
         assert plan.overall_status is ModernizationStatus.BLOCKED
 
-    def test_generated_comment_remains(self, tmp_path):
+    def test_generated_comment_no_longer_emitted_fail_closed(self, tmp_path):
+        # GO TO is UNSUPPORTED: generation must fail closed rather than
+        # silently manufacturing a successful Java candidate carrying a
+        # "// GO TO ..." comment (BL-026 / D-9).
         src = _write(tmp_path, {"GT.cob": GOTO_MAIN})
         app = ApplicationDiscovery().discover(src, application_id="bl026")
         prep = prepare_application_copybooks(app, source_root=src)
         gen = ApplicationGenerator().generate(
             prep.application, entrypoint="GT", source_root=src
         )
+        assert gen.success is False, gen.errors
         emitted = "".join(str(getattr(g, "source_code", ""))
                           for g in gen.generated_files)
-        assert "// GO TO MAIN-PARA" in emitted
+        assert "// GO TO MAIN-PARA" not in emitted
 
     def test_commented_go_to_produces_no_diagnostic(self):
         parser = CobolParser()

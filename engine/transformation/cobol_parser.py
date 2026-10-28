@@ -471,6 +471,14 @@ class CobolParser:
 
     def parse(self, source: str) -> CobolProgram:
         """Parse COBOL source text into a CobolProgram IR."""
+        # Per-parse isolation: a shared parser instance must not carry
+        # diagnostics or unsupported-statement state from a previous
+        # parse into this one (application_discovery shares one parser
+        # across files).  Clearing here makes .diagnostics.all reflect
+        # only THIS parse.
+        self._diagnostics.clear()
+        self._unsupported_statements = []
+        self._record_owner = {}
         lines = source.split("\n")
         # Remove comments and empty lines
         code_lines = []
@@ -2939,15 +2947,42 @@ class CobolParser:
         return GoToStatement(target=target), start + 1
 
     def _parse_initialize(self, lines: list[str], start: int) -> tuple[InitializeStatement, int]:
-        """Parse INITIALIZE field1 [field2 ...]."""
+        """Parse INITIALIZE field1 [field2 ...] [ALL TO VALUE] [REPLACING ...].
+
+        The plain form treats every token as a target.  The ``ALL TO
+        VALUE`` and ``REPLACING`` clauses are recorded on the IR statement
+        (fail-closed at lowering time) — their keyword tokens are never
+        targets.
+        """
         from engine.transformation.ir import InitializeStatement
 
         line = lines[start].strip()
         # Strip the INITIALIZE keyword and trailing period.
         text = re.sub(r"^INITIALIZE\s+", "", line, flags=re.IGNORECASE).rstrip(".")
         tokens = text.split()
-        targets = tuple(t for t in tokens if t)
-        return InitializeStatement(targets=targets), start + 1
+        all_to_value = False
+        replacing = ""
+        targets: list[str] = []
+        index = 0
+        while index < len(tokens):
+            keyword = tokens[index].upper()
+            if keyword == "ALL":
+                # ALL TO VALUE (and the GnuCOBOL-accepted bare ALL alias).
+                all_to_value = True
+                break
+            if keyword == "REPLACING":
+                replacing = " ".join(tokens[index:])
+                break
+            targets.append(tokens[index])
+            index += 1
+        return (
+            InitializeStatement(
+                targets=tuple(targets),
+                all_to_value=all_to_value,
+                replacing=replacing,
+            ),
+            start + 1,
+        )
 
     def _parse_accept(self, lines: list[str], start: int) -> tuple[AcceptStatement, int]:
         """Parse ACCEPT target [FROM source]."""

@@ -526,6 +526,79 @@ def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
 
 
 # ---------------------------------------------------------------------------
+# INITIALIZE: category-default assignments (GnuCOBOL 3.1.2 oracle-pinned)
+# ---------------------------------------------------------------------------
+
+def _initialize_zero_assignment(java_target: str, item: DataItem) -> JavaAssignment:
+    """Typed zero for one numeric INITIALIZE item (oracle: signed zero
+    displays ``+0``, decimal zero formats with the PIC scale)."""
+    if item.decimal_places > 0:
+        return JavaAssignment(
+            target=java_target,
+            expression=JavaLiteral(
+                value="0",
+                java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+            ),
+        )
+    return JavaAssignment(
+        target=java_target,
+        expression=JavaLiteral(
+            value="0", java_type=JavaType(basic_type=JavaBasicType.INT)
+        ),
+    )
+
+
+def _initialize_spaces_assignment(java_target: str, item: DataItem) -> JavaAssignment:
+    """n spaces for one alphanumeric INITIALIZE item (n = PIC width)."""
+    width = item.pic_length if item.pic_length and item.pic_length > 0 else 1
+    return JavaAssignment(
+        target=java_target,
+        expression=JavaLiteral(
+            value=" " * width,
+            java_type=JavaType(basic_type=JavaBasicType.STRING),
+        ),
+    )
+
+
+def _initialize_item_assignments(item: DataItem) -> list[JavaStatement] | None:
+    """Category-default assignments for one INITIALIZE target subtree.
+
+    Returns ``None`` when the item has no certified lowering (a table
+    (OCCURS) item or child) so the caller can fail closed instead of
+    silently emitting wrong code.
+
+    GnuCOBOL 3.1.2 oracle-pinned semantics
+    (``tests/integration/test_initialize_oracle_proof.py``): FILLER is
+    never initialized, 88-level condition-names are not data, nested
+    groups expand recursively, alphanumeric children become spaces of
+    their PIC width, and every numeric child — display, COMP, COMP-3,
+    signed, decimal — becomes a typed zero.
+    """
+    name = item.name.upper()
+    if name in ("FILLER", "88"):
+        # FILLER keeps its bytes (oracle: probe kept "xyz"); the parser
+        # records 88-level condition-names as a bogus '88' child (they
+        # are not data and have no storage).
+        return []
+    if item.occurs:
+        # Table children/targets: GnuCOBOL initializes every element,
+        # but the Java lane stores tables as arrays — not certified.
+        return None
+    if item.is_group:
+        expanded: list[JavaStatement] = []
+        for child in item.children:
+            sub = _initialize_item_assignments(child)
+            if sub is None:
+                return None
+            expanded.extend(sub)
+        return expanded
+    java_target = item.name.replace("-", "_")
+    if item.is_numeric:
+        return [_initialize_zero_assignment(java_target, item)]
+    return [_initialize_spaces_assignment(java_target, item)]
+
+
+# ---------------------------------------------------------------------------
 # STRING: delimiter-aware sending phrases and write position
 # ---------------------------------------------------------------------------
 
@@ -560,6 +633,18 @@ def _accept_fail_closed_symbol(*reasons: str) -> str:
     value.
     """
     return "UNSUPPORTED_ACCEPT$" + "$".join(reasons)
+
+
+def _initialize_fail_closed_symbol(*reasons: str) -> str:
+    """Java identifier naming an INITIALIZE form with no certified mapping.
+
+    Same fail-closed contract as :func:`_string_fail_closed_symbol`: the
+    ``$`` makes the name unresolvable so ``javac`` reports the form
+    (ALL TO VALUE, REPLACING, table target or table child, unknown
+    target) instead of the program running with silently wrong field
+    values.
+    """
+    return "UNSUPPORTED_INITIALIZE$" + "$".join(reasons)
 
 
 def _string_phrase_java(src: JavaExpression, delim) -> JavaExpression:
@@ -2990,8 +3075,14 @@ def map_cobol_statement(
         ))
 
     elif isinstance(stmt, GoToStatement):
-        # GO TO → comment (control flow not directly mappable)
-        result.append(JavaComment(text=f"// GO TO {stmt.target}"))
+        # GO TO is classified UNSUPPORTED by the capability registry and
+        # the modernization planner blocks before generation.  Lowering
+        # it to a comment silently manufactured a successful Java
+        # candidate, so fail closed here instead.
+        raise ValueError(
+            "MISSING_REQUIRED_SEMANTIC: GO TO statement is not supported "
+            f"(target {stmt.target}); control flow is not mappable."
+        )
 
     elif isinstance(stmt, StopRunStatement):
         result.append(JavaReturn())
@@ -3120,35 +3211,53 @@ def map_cobol_statement(
                 ))
 
     elif isinstance(stmt, InitializeStatement):
-        # INITIALIZE field1 [field2 ...] — set each field to its type
-        # default: spaces for alphanumeric, zero for numeric.
-        for target in stmt.targets:
-            java_target = target.replace("-", "_")
-            item = _find_data_item(program, target)
-            if item is not None and item.is_numeric:
-                if item.decimal_places > 0:
+        # INITIALIZE field1 [field2 ...] — oracle-proven GnuCOBOL 3.1.2
+        # semantics (tests/integration/test_initialize_oracle_proof.py):
+        #
+        # - plain form: elementary targets get their category default
+        #   (alphanumeric -> spaces of the PIC width, numeric -> typed
+        #   zero including COMP/COMP-3 and signed/decimal display);
+        #   group targets are expanded recursively to every elementary
+        #   subordinate by category, skipping FILLER (never initialized)
+        #   and 88-level condition-names (not data).  VALUE clauses are
+        #   ignored, and the statement overwrites existing data.
+        # - ALL TO VALUE / REPLACING clauses, table (OCCURS) targets or
+        #   children, and unknown targets fail closed with an
+        #   unresolvable symbol.
+        if stmt.all_to_value or stmt.replacing:
+            reasons = ("ALL_TO_VALUE",) if stmt.all_to_value else ("REPLACING",)
+            result.append(JavaAssignment(
+                target=(
+                    stmt.targets[0].replace("-", "_")
+                    if stmt.targets
+                    else "unused"
+                ),
+                expression=JavaVariableRef(
+                    name=_initialize_fail_closed_symbol(*reasons)
+                ),
+            ))
+        else:
+            for target in stmt.targets:
+                java_target = target.replace("-", "_")
+                item = _find_data_item(program, target)
+                if item is None:
                     result.append(JavaAssignment(
                         target=java_target,
-                        expression=JavaLiteral(
-                            value="0",
-                            java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+                        expression=JavaVariableRef(
+                            name=_initialize_fail_closed_symbol("TARGET")
                         ),
                     ))
-                else:
+                    continue
+                assignments = _initialize_item_assignments(item)
+                if assignments is None:
                     result.append(JavaAssignment(
                         target=java_target,
-                        expression=JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                        expression=JavaVariableRef(
+                            name=_initialize_fail_closed_symbol("TABLE")
+                        ),
                     ))
-            else:
-                # Alphanumeric (or unknown): spaces.
-                width = item.pic_length if (item is not None and item.pic_length and item.pic_length > 0) else 1
-                result.append(JavaAssignment(
-                    target=java_target,
-                    expression=JavaLiteral(
-                        value=" " * width,
-                        java_type=JavaType(basic_type=JavaBasicType.STRING),
-                    ),
-                ))
+                    continue
+                result.extend(assignments)
 
     elif isinstance(stmt, ReadStatement):
         # READ file [NEXT] [KEY IS k] [INTO w] / AT END / NOT AT END /

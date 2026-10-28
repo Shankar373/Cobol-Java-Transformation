@@ -165,15 +165,20 @@ class GnuCOBOLAdapter(OracleAdapter):
             raise ValueError(f"GnuCOBOL adapter requires oracle_id='gnucobol-3.1.2', got {config.oracle_id}")
 
     def probe(self) -> AdapterStatus:
-        """Probe GnuCOBOL availability."""
-        # In real implementation, this would check if Docker image exists
-        # For now, return AVAILABLE if config is valid
-        violations = self._config.validate()
-        if violations:
-            self._status = AdapterStatus.UNAVAILABLE
-        else:
-            self._status = AdapterStatus.AVAILABLE
-        return self._status
+        """Probe GnuCOBOL availability.
+
+        A config-shaped probe cannot establish that a compiler exists
+        (audit D-6): the old body reported AVAILABLE whenever the config
+        fields were non-empty, which let callers believe a GnuCOBOL oracle
+        was reachable on a host with neither Docker nor cobc.  Real
+        availability lives in ``engine/oracle/docker_adapter.py``.
+        """
+        raise NotImplementedError(
+            "GnuCOBOLAdapter.probe cannot verify compiler availability; "
+            "reporting AVAILABLE from config validation alone would "
+            "fabricate an oracle. Use DockerOracleAdapter, which inspects "
+            "the pinned image."
+        )
 
     def execute(
         self,
@@ -182,32 +187,18 @@ class GnuCOBOLAdapter(OracleAdapter):
         input_data: bytes | None = None,
         input_files: dict[str, bytes] | None = None,
     ) -> OracleExecutionResult:
-        """Execute GnuCOBOL oracle."""
-        from datetime import datetime, timezone
+        """Execute GnuCOBOL oracle.
 
-        from engine.domain.identities import ExecutionId
-
-        execution_id = ExecutionId(value=f"oracle-{run_id.value}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
-        start_time = datetime.now(timezone.utc).isoformat()
-
-        # In real implementation, this would:
-        # 1. Create container with pinned image
-        # 2. Stage source read-only
-        # 3. Compile and execute
-        # 4. Capture output
-        # For now, return placeholder
-        end_time = datetime.now(timezone.utc).isoformat()
-
-        return OracleExecutionResult(
-            execution_id=execution_id,
-            run_id=run_id,
-            oracle_id=self._config.oracle_id,
-            status=AdapterStatus.SUCCEEDED,
-            exit_code=0,
-            stdout=b"",
-            stderr=b"",
-            start_time=start_time,
-            end_time=end_time,
-            termination_status="normal",
-            timeout_applied=False,
+        The old body returned SUCCEEDED/exit 0 with empty stdout for any
+        source (audit D-6) — a fabricated oracle run whose empty output
+        would then be "compared" against candidate output.  Oracle
+        execution is now fail-closed; the real implementation is
+        ``engine/oracle/docker_adapter.py`` (staged, network-disabled,
+        digest-checked).
+        """
+        raise NotImplementedError(
+            "GnuCOBOLAdapter has no execution implementation; returning "
+            "SUCCEEDED would fabricate an oracle evidence record. Use "
+            "DockerOracleAdapter."
         )
+

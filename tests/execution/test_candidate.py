@@ -1,5 +1,7 @@
 """Tests for Java candidate adapter interface."""
 
+import pytest
+
 from engine.candidate.adapter import (
     CandidateExecutionResult,
     CandidateManifest,
@@ -85,7 +87,8 @@ class TestPlainJavaCandidateAdapter:
         violations = adapter.validate_candidate("/workspace/candidate", manifest)
         assert any("external dependencies" in v for v in violations)
 
-    def test_compile_of_staged_candidate_reports_success(self):
+    def test_compile_fails_closed_not_fabricated_success(self):
+        """audit D-6: the placeholder must not report a fake compilation."""
         adapter = PlainJavaCandidateAdapter()
         manifest = CandidateManifest(
             candidate_id="cand-001",
@@ -94,10 +97,11 @@ class TestPlainJavaCandidateAdapter:
             generated_files={"Main.java": "hash1"},
             entrypoint="com.example.Main",
         )
-        result = adapter.compile("/workspace/candidate", manifest)
-        assert result.success
+        with pytest.raises(NotImplementedError, match="DockerJavaCandidateAdapter"):
+            adapter.compile("/workspace/candidate", manifest)
 
-    def test_execute_returns_succeeded_status_with_zero_exit(self):
+    def test_execute_fails_closed_not_fabricated_success(self):
+        """audit D-6: the placeholder must not fabricate an execution."""
         adapter = PlainJavaCandidateAdapter()
         manifest = CandidateManifest(
             candidate_id="cand-001",
@@ -106,14 +110,12 @@ class TestPlainJavaCandidateAdapter:
             generated_files={"Main.java": "hash1"},
             entrypoint="com.example.Main",
         )
-        result = adapter.execute(
-            run_id=RunId(value="run-001"),
-            compiled_path="/workspace/compiled",
-            manifest=manifest,
-        )
-        assert result.status == AdapterStatus.SUCCEEDED
-        assert result.exit_code == 0
-        assert result.termination_status == "normal"
+        with pytest.raises(NotImplementedError, match="DockerJavaCandidateAdapter"):
+            adapter.execute(
+                run_id=RunId(value="run-001"),
+                compiled_path="/workspace/compiled",
+                manifest=manifest,
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -264,8 +264,14 @@ public class WriteTest {
                 entrypoint="WriteTest",
             )
             compilation = adapter.compile(str(src_dir), manifest)
-            if not compilation.success:
-                pytest.skip("Compilation failed")
+            # A compilation failure here means the read-only-mount probe
+            # never ran: silently skipping would report "passed" for a
+            # test that proved nothing (audit D-1).
+            assert compilation.success, (
+                "compilation of the read-only mount probe failed; the "
+                "write-attempt assertion below never executed. "
+                f"errors={compilation.compilation_errors}"
+            )
 
             with tempfile.TemporaryDirectory() as classdir:
                 for name, bytecode in compilation.class_files.items():

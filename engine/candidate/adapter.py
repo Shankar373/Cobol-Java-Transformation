@@ -197,16 +197,19 @@ class PlainJavaCandidateAdapter(CandidateAdapter):
         return violations
 
     def compile(self, candidate_path: str, manifest: CandidateManifest) -> CompilationResult:
-        """Compile candidate Java source."""
-        # In real implementation, this would:
-        # 1. Stage candidate read-only
-        # 2. Run platform-controlled javac
-        # 3. Capture compilation output
-        # For now, return placeholder
-        return CompilationResult(
-            success=True,
-            class_files={},
-            compilation_time_ms=0,
+        """Compile candidate Java source.
+
+        There is no host-lane javac in this adapter (audit D-6).  The old
+        body returned ``success=True`` with zero class files, so any caller
+        that trusted it recorded a fabricated successful compilation and
+        never ran the real compiler.  Real compilation happens only in
+        ``engine/candidate/docker_java_adapter.py``.
+        """
+        raise NotImplementedError(
+            "PlainJavaCandidateAdapter has no compiler implementation; the "
+            "V1 contract requires platform-controlled javac. Use "
+            "DockerJavaCandidateAdapter for real compilation — this "
+            "placeholder must never report a compilation result."
         )
 
     def execute(
@@ -217,29 +220,16 @@ class PlainJavaCandidateAdapter(CandidateAdapter):
         input_data: bytes | None = None,
         input_files: dict[str, bytes] | None = None,
     ) -> CandidateExecutionResult:
-        """Execute compiled candidate."""
-        from datetime import datetime, timezone
+        """Execute compiled candidate.
 
-        execution_id = ExecutionId(value=f"candidate-{run_id.value}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
-        start_time = datetime.now(timezone.utc).isoformat()
-
-        # In real implementation, this would:
-        # 1. Create container with pinned JDK
-        # 2. Stage compiled classes read-only
-        # 3. Execute with controlled inputs
-        # 4. Capture output
-        # For now, return placeholder
-        end_time = datetime.now(timezone.utc).isoformat()
-
-        return CandidateExecutionResult(
-            execution_id=execution_id,
-            run_id=run_id,
-            status=AdapterStatus.SUCCEEDED,
-            exit_code=0,
-            stdout=b"",
-            stderr=b"",
-            start_time=start_time,
-            end_time=end_time,
-            termination_status="normal",
-            timeout_applied=False,
+        The old body returned SUCCEEDED/exit 0 with empty stdout for any
+        input (audit D-6) — a fabrication channel that made executions
+        "pass" without running anything.  Execution without a real runtime
+        is now fail-closed.
+        """
+        raise NotImplementedError(
+            "PlainJavaCandidateAdapter has no execution implementation; "
+            "returning SUCCEEDED here would fabricate an execution "
+            "evidence record. Use DockerJavaCandidateAdapter."
         )
+

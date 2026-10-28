@@ -77,40 +77,34 @@ class TestGnuCOBOLAdapter:
         with pytest.raises(ValueError, match="gnucobol-3.1.2"):
             GnuCOBOLAdapter(config)
 
-    def test_probe_available(self):
+    def test_probe_fails_closed_instead_of_trusting_config(self):
+        """audit D-6: config validation cannot prove a compiler exists.
+
+        The old probe returned AVAILABLE whenever the config fields were
+        non-empty — a host with neither Docker nor cobc read as ready.
+        """
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
             image_digest="sha256:" + "a" * 64,
             compiler_version="3.1.2.0",
         )
         adapter = GnuCOBOLAdapter(config)
-        status = adapter.probe()
-        assert status == AdapterStatus.AVAILABLE
+        with pytest.raises(NotImplementedError, match="DockerOracleAdapter"):
+            adapter.probe()
 
-    def test_probe_unavailable(self):
-        config = OracleAdapterConfig(
-            oracle_id="gnucobol-3.1.2",
-            image_digest="",  # Invalid
-            compiler_version="3.1.2.0",
-        )
-        adapter = GnuCOBOLAdapter(config)
-        status = adapter.probe()
-        assert status == AdapterStatus.UNAVAILABLE
-
-    def test_execute_returns_succeeded_status_with_zero_exit(self):
+    def test_execute_fails_closed_not_fabricated_success(self):
+        """audit D-6: the placeholder must not fabricate an oracle run."""
         config = OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
             image_digest="sha256:" + "a" * 64,
             compiler_version="3.1.2.0",
         )
         adapter = GnuCOBOLAdapter(config)
-        result = adapter.execute(
-            run_id=RunId(value="run-001"),
-            source_path="/workspace/source",
-        )
-        assert result.status == AdapterStatus.SUCCEEDED
-        assert result.exit_code == 0
-        assert result.termination_status == "normal"
+        with pytest.raises(NotImplementedError, match="DockerOracleAdapter"):
+            adapter.execute(
+                run_id=RunId(value="run-001"),
+                source_path="/workspace/source",
+            )
 
     def test_get_identity(self):
         config = OracleAdapterConfig(
