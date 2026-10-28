@@ -94,12 +94,24 @@ function groupIndexForStage(stage: RunStage): number {
   return -1;
 }
 
-function nodeStatus(groupIdx: number, activeGroupIdx: number, isFailed: boolean): NodeStatus {
-  if (isFailed) {
-    if (groupIdx < activeGroupIdx) return 'done';
+function nodeStatus(
+  groupIdx: number,
+  activeGroupIdx: number,
+  isFailed: boolean,
+  hasAnchor: boolean,
+): NodeStatus {
+  if (isFailed && !hasAnchor) {
+    // No evidence of where the run halted: claim nothing. Every progression
+    // node stays pending and only the appended Failed node is marked.
     return 'pending';
   }
   if (groupIdx < activeGroupIdx) return 'done';
+  // The anchor group is where the pipeline stopped. Rendering it `pending`
+  // would assert the stage was never entered — an understatement of real
+  // progress of exactly one node, which is the defect this anchor exists to
+  // remove. `active` reads as "reached here and halted" alongside the Failed
+  // node; `done` would over-claim completion we cannot prove (PLANNING is a
+  // member of the planning group but does not mean the plan finished).
   if (groupIdx === activeGroupIdx) return 'active';
   return 'pending';
 }
@@ -124,12 +136,41 @@ function XIcon() {
 export interface PipelineStepperProps {
   stage: RunStage;
   showIngested?: boolean;
+  /**
+   * Last non-terminal stage observed for this run.
+   *
+   * The backend records only `[stage, error]` in `stage_messages`
+   * (`api/service.py`), so a FAILED run never reports *where* it halted.
+   * Callers that tracked the run while it was in flight pass that stage here
+   * so the groups it already cleared render `done` and the group it halted in
+   * renders `active`.  When absent the historical behaviour is preserved:
+   * every progression node renders `pending` and only the appended Failed
+   * node is marked.
+   */
+  lastStage?: RunStage | null;
 }
 
-export function PipelineStepper({ stage }: PipelineStepperProps) {
+// A terminal stage cannot be the point of failure, so it is never used as the
+// fallback anchor (guards against a caller passing one by mistake).  JSON
+// `null` from the API must be rejected too — `null !== undefined`, so a plain
+// `!== undefined` check would accept it and anchor on "no stage", inventing
+// progress for pre-migration rows.
+function isUsableFailureAnchor(
+  stage: RunStage | null | undefined,
+): stage is RunStage {
+  return stage != null && stage !== 'FAILED' && stage !== 'COMPLETED';
+}
+
+export function PipelineStepper({ stage, lastStage }: PipelineStepperProps) {
   const isFailed = stage === 'FAILED';
-  const rawIdx = groupIndexForStage(stage);
-  const activeGroupIdx = isFailed ? Math.max(0, rawIdx !== -1 ? rawIdx : 0) : Math.max(0, rawIdx);
+  // `groupIndexForStage('FAILED')` is -1 because FAILED only exists on the
+  // appended 8th node, which used to force activeGroupIdx to 0 and render
+  // every group pending.  Anchoring on the last stage actually reached re-arms
+  // the `groupIdx < activeGroupIdx → 'done'` branch in nodeStatus.
+  const anchor = isFailed && isUsableFailureAnchor(lastStage) ? lastStage : null;
+  const hasAnchor = anchor !== null;
+  const groupStage = anchor ?? stage;
+  const activeGroupIdx = Math.max(0, groupIndexForStage(groupStage));
 
   const groups = isFailed
     ? [...CUSTOMER_GROUPS, { key: 'failed' as const, label: 'Failed', sublabel: 'Pipeline halted', stages: ['FAILED' as RunStage] }]
@@ -145,7 +186,7 @@ export function PipelineStepper({ stage }: PipelineStepperProps) {
         const isFinalFailed = group.key === 'failed';
         const status: NodeStatus = isFinalFailed
           ? 'failed'
-          : nodeStatus(i, activeGroupIdx, isFailed);
+          : nodeStatus(i, activeGroupIdx, isFailed, hasAnchor);
 
         const dotColorMap: Record<NodeStatus, string> = {
           done: tokens.colors.success,

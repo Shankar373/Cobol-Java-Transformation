@@ -60,6 +60,9 @@ from engine.transformation.ir import (
     UnstringStatement,
     WriteStatement,
     ExitProgramStatement,
+    GobackStatement,
+    InitializeStatement,
+    AcceptStatement,
     FieldReference,
     FigurativeConstant,
     Literal,
@@ -2638,8 +2641,10 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     StartStatement, RewriteStatement, DeleteStatement, StringStatement,
     StopRunStatement, CallStatement,
     ExitProgramStatement, SetConditionStatement,
+    UnstringStatement, GobackStatement, InitializeStatement,
+    AcceptStatement,
 })
-STATEMENT_CAPABILITY_PARTIAL = frozenset({UnstringStatement})
+STATEMENT_CAPABILITY_PARTIAL = frozenset()
 STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement, PerformTimesStatement})
 
 
@@ -2984,6 +2989,108 @@ def map_cobol_statement(
         # generated program body.
         result.append(JavaReturn())
 
+    elif isinstance(stmt, GobackStatement):
+        # GOBACK returns control to the caller — a Java return from the
+        # generated program body.
+        result.append(JavaReturn())
+
+    elif isinstance(stmt, AcceptStatement):
+        # ACCEPT target [FROM source]
+        # Certified: ACCEPT target (read a line from standard input).
+        # ACCEPT ... FROM DATE/TIME/DAY/... fail closed.
+        java_target = stmt.target.replace("-", "_")
+        if stmt.source and stmt.source.upper() not in ("", "CONSOLE", "STANDARD-INPUT"):
+            # FROM clause present — not certified.
+            result.append(JavaAssignment(
+                target=java_target,
+                expression=JavaVariableRef(
+                    name=f"UNSUPPORTED_ACCEPT$FROM_{stmt.source.upper().replace('-', '_')}"
+                ),
+            ))
+        else:
+            # Read a line from stdin, trim, pad/truncate to PIC width.
+            item = _find_data_item(program, stmt.target)
+            width = item.pic_length if (item is not None and item.pic_length and item.pic_length > 0) else 0
+            result.append(JavaLocalVarDecl(
+                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                name="_accept_line",
+                initializer=JavaMethodCall(
+                    object_ref=JavaNewObject(
+                        class_name="java.util.Scanner",
+                        arguments=(JavaVariableRef(name="System.in"),),
+                    ),
+                    method_name="nextLine",
+                    arguments=(),
+                ),
+            ))
+            if width <= 0:
+                result.append(JavaAssignment(
+                    target=java_target,
+                    expression=JavaVariableRef(name="_accept_line"),
+                ))
+            else:
+                result.append(JavaAssignment(
+                    target=java_target,
+                    expression=JavaTernary(
+                        condition=JavaBinaryOp(
+                            left=JavaMethodCall(object_ref=JavaVariableRef(name="_accept_line"), method_name="length", arguments=()),
+                            operator=">",
+                            right=JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
+                        ),
+                        true_expr=JavaMethodCall(
+                            object_ref=JavaVariableRef(name="_accept_line"),
+                            method_name="substring",
+                            arguments=(
+                                JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                                JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
+                            ),
+                        ),
+                        false_expr=JavaStringConcat(parts=(
+                            JavaVariableRef(name="_accept_line"),
+                            JavaMethodCall(
+                                object_ref=JavaLiteral(value=" ", java_type=JavaType(basic_type=JavaBasicType.STRING)),
+                                method_name="repeat",
+                                arguments=(JavaBinaryOp(
+                                    left=JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
+                                    operator="-",
+                                    right=JavaMethodCall(object_ref=JavaVariableRef(name="_accept_line"), method_name="length", arguments=()),
+                                ),),
+                            ),
+                        )),
+                    ),
+                ))
+
+    elif isinstance(stmt, InitializeStatement):
+        # INITIALIZE field1 [field2 ...] — set each field to its type
+        # default: spaces for alphanumeric, zero for numeric.
+        for target in stmt.targets:
+            java_target = target.replace("-", "_")
+            item = _find_data_item(program, target)
+            if item is not None and item.is_numeric:
+                if item.decimal_places > 0:
+                    result.append(JavaAssignment(
+                        target=java_target,
+                        expression=JavaLiteral(
+                            value="0",
+                            java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
+                        ),
+                    ))
+                else:
+                    result.append(JavaAssignment(
+                        target=java_target,
+                        expression=JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                    ))
+            else:
+                # Alphanumeric (or unknown): spaces.
+                width = item.pic_length if (item is not None and item.pic_length and item.pic_length > 0) else 1
+                result.append(JavaAssignment(
+                    target=java_target,
+                    expression=JavaLiteral(
+                        value=" " * width,
+                        java_type=JavaType(basic_type=JavaBasicType.STRING),
+                    ),
+                ))
+
     elif isinstance(stmt, ReadStatement):
         # READ file [NEXT] [KEY IS k] [INTO w] / AT END / NOT AT END /
         # INVALID KEY / NOT INVALID KEY — exactly one CobolFileIo read:
@@ -3320,34 +3427,231 @@ def map_cobol_statement(
                 )
 
     elif isinstance(stmt, UnstringStatement):
-        # The file-lane generator implements the certified delimited split;
-        # this generic mapper path has no splitter and emitted only a comment.
-        # Any extra clause changes the split (where the next scan starts, how
-        # many receivers were filled, what happens on overflow), so it must
-        # fail closed by name instead of looking like executed code.
-        result.append(JavaComment(text=f"// UNSTRING {stmt.source}"))
+        # Certified subset: UNSTRING source DELIMITED BY <literal> INTO
+        # targets, with no pointer/overflow/varying/tallying/ALL/multiple-
+        # delimiter clauses.  Every other clause changes the split (where the
+        # next scan starts, how many receivers were filled, what happens on
+        # overflow) and is diagnosed fail-closed by the parser; the mapper
+        # keeps that behaviour by emitting an unresolvable symbol so the
+        # generated program cannot silently run with wrong semantics.
+        result.append(JavaComment(text=f"UNSTRING {stmt.source}"))
         reasons: list[str] = []
-        if stmt.pointer:
-            reasons.append(
-                "WITH_POINTER_" + stmt.pointer.upper().replace("-", "_")
-            )
+        # WITH POINTER is implemented (certified subset) - not a blocker.
         if stmt.has_overflow:
             reasons.append("ON_OVERFLOW")
         if stmt.varying_pointer:
             reasons.append(
                 "VARYING_IN_" + stmt.varying_pointer.upper().replace("-", "_")
             )
-        if stmt.tallying_pointer:
+        # TALLYING IN is implemented (certified subset): count the receiving
+        # fields that received a piece.
+        delim_is_literal = (
+            len(stmt.delimiter) >= 2
+            and stmt.delimiter[0] == stmt.delimiter[-1]
+            and stmt.delimiter[0] in ("'", '"')
+        )
+        if not delim_is_literal and stmt.delimiter:
             reasons.append(
-                "TALLYING_IN_" + stmt.tallying_pointer.upper().replace("-", "_")
+                "DELIMITED_BY_IDENTIFIER_" + stmt.delimiter.upper().replace("-", "_")
             )
-        if reasons and stmt.targets:
-            result.append(JavaAssignment(
-                target=stmt.targets[0].replace("-", "_"),
-                expression=JavaVariableRef(
-                    name=_unstring_fail_closed_symbol(*reasons)
+        certified = not reasons and bool(stmt.targets)
+        if not certified:
+            if reasons and stmt.targets:
+                result.append(JavaAssignment(
+                    target=stmt.targets[0].replace("-", "_"),
+                    expression=JavaVariableRef(
+                        name=_unstring_fail_closed_symbol(*reasons)
+                    ),
+                ))
+            return result
+        # Certified subset: emit a real delimited split.
+        has_pointer = bool(stmt.pointer)
+        pointer_java = stmt.pointer.replace("-", "_") if has_pointer else None
+
+        # _unstr_ptr is always defined (defaults to 1 = start of source) so
+        # downstream code (TALLYING IN) can reference it uniformly.
+        if not has_pointer:
+            result.append(JavaLocalVarDecl(
+                java_type=JavaType(basic_type=JavaBasicType.INT),
+                name="_unstr_ptr",
+                initializer=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
+            ))
+
+        # Source expression (field or literal).
+        src_expr = map_cobol_expr_to_java(stmt.source)
+        delim_value = stmt.delimiter.strip().strip(chr(39) + chr(34))
+        delim_java = JavaLiteral(
+            value=delim_value,
+            java_type=JavaType(basic_type=JavaBasicType.STRING),
+        )
+
+        # WITH POINTER: start position is 1-based; if 0 treat as 1.
+        if has_pointer and pointer_java is not None:
+            result.append(JavaLocalVarDecl(
+                java_type=JavaType(basic_type=JavaBasicType.INT),
+                name="_unstr_ptr",
+                initializer=JavaTernary(
+                    condition=JavaBinaryOp(
+                        left=JavaVariableRef(name=pointer_java),
+                        operator="<=",
+                        right=JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                    ),
+                    true_expr=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                    false_expr=JavaVariableRef(name=pointer_java),
                 ),
             ))
+            # source substring from pointer position
+            result.append(JavaLocalVarDecl(
+                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                name="_unstr_src",
+                initializer=JavaTernary(
+                    condition=JavaBinaryOp(
+                        left=JavaVariableRef(name="_unstr_ptr"),
+                        operator="<=",
+                        right=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
+                    ),
+                    true_expr=JavaMethodCall(
+                        object_ref=src_expr,
+                        method_name="substring",
+                        arguments=(
+                            JavaBinaryOp(
+                                left=JavaVariableRef(name="_unstr_ptr"),
+                                operator="-",
+                                right=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                            ),
+                        ),
+                    ),
+                    false_expr=JavaLiteral(value="", java_type=JavaType(basic_type=JavaBasicType.STRING)),
+                ),
+            ))
+        else:
+            result.append(JavaLocalVarDecl(
+                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                name="_unstr_src",
+                initializer=src_expr,
+            ))
+
+        result.append(JavaLocalVarDecl(
+            java_type=JavaType(basic_type=JavaBasicType.STRING),
+            name="_unstr_delim",
+            initializer=delim_java,
+        ))
+        result.append(JavaLocalVarDecl(
+            java_type=JavaType(basic_type=JavaBasicType.STRING, is_array=True, array_element_type=JavaType(basic_type=JavaBasicType.STRING)),
+            name="_unstr_parts",
+            initializer=JavaMethodCall(
+                object_ref=JavaVariableRef(name="_unstr_src"),
+                method_name="split",
+                arguments=(
+                    JavaMethodCall(
+                        class_name="java.util.regex.Pattern",
+                        method_name="quote",
+                        is_static=True,
+                        arguments=(JavaVariableRef(name="_unstr_delim"),),
+                    ),
+                    JavaLiteral(
+                        value="-1",
+                        java_type=JavaType(basic_type=JavaBasicType.INT),
+                    ),
+                ),
+            ),
+        ))
+        parts_len = JavaVariableRef(name="_unstr_parts.length")
+        for i, target in enumerate(stmt.targets):
+            java_target = target.replace("-", "_")
+            item = _find_data_item(program, target)
+            width = item.pic_length if (item is not None and item.pic_length and item.pic_length > 0) else 0
+            part_access = JavaArrayAccess(
+                array=JavaVariableRef(name="_unstr_parts"),
+                index=JavaLiteral(value=str(i), java_type=JavaType(basic_type=JavaBasicType.INT)),
+            )
+            if width <= 0:
+                result.append(JavaAssignment(
+                    target=java_target,
+                    expression=JavaTernary(
+                        condition=JavaBinaryOp(left=parts_len, operator=">", right=JavaLiteral(value=str(i), java_type=JavaType(basic_type=JavaBasicType.INT))),
+                        true_expr=part_access,
+                        false_expr=JavaLiteral(value="", java_type=JavaType(basic_type=JavaBasicType.STRING)),
+                    ),
+                ))
+                continue
+            part_len = JavaMethodCall(object_ref=part_access, method_name="length", arguments=())
+            truncate = JavaMethodCall(object_ref=part_access, method_name="substring", arguments=(
+                JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
+            ))
+            pad_amount = JavaBinaryOp(
+                left=JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),
+                operator="-",
+                right=part_len,
+            )
+            repeat_call = JavaMethodCall(
+                object_ref=JavaLiteral(value=" ", java_type=JavaType(basic_type=JavaBasicType.STRING)),
+                method_name="repeat",
+                arguments=(pad_amount,),
+            )
+            padded = JavaStringConcat(parts=(part_access, repeat_call))
+            inner = JavaTernary(
+                condition=JavaBinaryOp(left=part_len, operator=">", right=JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT))),
+                true_expr=truncate,
+                false_expr=padded,
+            )
+            expr = JavaTernary(
+                condition=JavaBinaryOp(left=parts_len, operator=">", right=JavaLiteral(value=str(i), java_type=JavaType(basic_type=JavaBasicType.INT))),
+                true_expr=inner,
+                false_expr=JavaMethodCall(
+                    object_ref=JavaLiteral(value=" ", java_type=JavaType(basic_type=JavaBasicType.STRING)),
+                    method_name="repeat",
+                    arguments=(JavaLiteral(value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)),),
+                ),
+            )
+            result.append(JavaAssignment(target=java_target, expression=expr))
+
+        # TALLYING IN: count the receiving fields that received a piece.
+        if stmt.tallying_pointer:
+            tally_java = stmt.tallying_pointer.replace("-", "_")
+            result.append(JavaAssignment(
+                target=tally_java,
+                expression=JavaTernary(
+                    condition=JavaBinaryOp(
+                        left=JavaVariableRef(name="_unstr_ptr"),
+                        operator="<=",
+                        right=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
+                    ),
+                    true_expr=JavaMethodCall(
+                        class_name="Math",
+                        method_name="min",
+                        is_static=True,
+                        arguments=(
+                            JavaVariableRef(name="_unstr_parts.length"),
+                            JavaLiteral(value=str(len(stmt.targets)), java_type=JavaType(basic_type=JavaBasicType.INT)),
+                        ),
+                    ),
+                    false_expr=JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                ),
+            ))
+
+        # WITH POINTER update: certified subset consumes all pieces, so
+        # pointer advances to end of source + 1 (or stays unchanged if ptr
+        # was already beyond source).
+        if has_pointer and pointer_java is not None:
+            result.append(JavaAssignment(
+                target=pointer_java,
+                expression=JavaTernary(
+                    condition=JavaBinaryOp(
+                        left=JavaVariableRef(name="_unstr_ptr"),
+                        operator="<=",
+                        right=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
+                    ),
+                    true_expr=JavaBinaryOp(
+                        left=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
+                        operator="+",
+                        right=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
+                    ),
+                    false_expr=JavaVariableRef(name=pointer_java),
+                ),
+            ))
+        return result
 
     elif isinstance(stmt, PerformStatement):
         # Check for VARYING form
@@ -4392,6 +4696,10 @@ def _derive_generation_mode(program: CobolProgram) -> str:
 
     if caps.decision and program.status_codes:
         return "decision"
-    if caps.input_record_mapping:
+    # file_io mode needs an actual input file (the lane raises
+    # "No input files found" otherwise).  A program that UNSTRINGs a
+    # WORKING-STORAGE field has an InputRecordMapping but no FD, so it
+    # must take the minimal lane and rely on the mapper's UNSTRING split.
+    if caps.input_record_mapping and getattr(program, "file_definitions", None):
         return "file_io"
     return "minimal"

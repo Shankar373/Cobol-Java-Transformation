@@ -200,11 +200,30 @@ class RunRecord:
     # rest of the attempt's evidence.  NULL means "unsealed": export and
     # APPROVED decisions fail closed until the run is re-validated.
     generated_seal: str | None = None
+    # Last NON-terminal stage this run occupied.  The run-detail payload has
+    # no "failed at stage" field, so this is the only durable record of where
+    # a FAILED run actually halted — the UI pipeline stepper anchors on it to
+    # render cleared groups as done instead of leaving every node pending.
+    # Written by add_run/update_run (terminal stages never overwrite it),
+    # cleared by begin_revalidation so a fresh attempt starts clean.  NULL
+    # for runs created before schema v7 (UI falls back to all-pending).
+    last_stage: str | None = None
 
 
 #: Database schema version written by this code. Payload schema versions are
 #: tracked separately in :mod:`api.serialization`.
-DB_SCHEMA_VERSION = 6
+DB_SCHEMA_VERSION = 7
+
+
+def _last_stage_anchor(stage: RunStage, previous: str | None) -> str | None:
+    """Return the ``last_stage`` value to persist for a transition to ``stage``.
+
+    Terminal stages (``FAILED``/``COMPLETED``) never overwrite the anchor: the
+    whole point is to remember the stage the run was in *before* it stopped.
+    """
+    if stage in TERMINAL_STAGES:
+        return previous
+    return stage.value
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS applications (
@@ -329,6 +348,13 @@ class Store:
             self._conn.execute(
                 "ALTER TABLE runs ADD COLUMN generated_seal TEXT"
             )
+        if "last_stage" not in columns:  # migration 7 (failure-point anchor)
+            # NULL = a run that predates the column, or one that went
+            # terminal before any non-terminal stage was recorded; the UI
+            # falls back to the historical all-pending rendering.
+            self._conn.execute(
+                "ALTER TABLE runs ADD COLUMN last_stage TEXT"
+            )
 
     # -- applications -------------------------------------------------------
 
@@ -431,8 +457,8 @@ class Store:
                     " verdict_blob, report_blob, validation_generation,"
                     " certification_contract, approval_state,"
                     " approval_approver, approval_reason, approval_decided_at,"
-                    " generated_seal)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " generated_seal, last_stage)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     self._run_params(record, stage)
                     + (
                         record.approval_state,
@@ -440,6 +466,7 @@ class Store:
                         record.approval_reason,
                         record.approval_decided_at,
                         record.generated_seal,
+                        _last_stage_anchor(stage, record.last_stage),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -475,7 +502,8 @@ class Store:
         """
         with self._lock:
             row = self._conn.execute(
-                "SELECT stage, validation_generation FROM runs WHERE id = ?",
+                "SELECT stage, validation_generation, last_stage"
+                " FROM runs WHERE id = ?",
                 (record.id,),
             ).fetchone()
             if row is None:
@@ -497,6 +525,18 @@ class Store:
                 raise InvalidStateTransitionError(
                     f"invalid run state transition"
                     f" {current_stage.value} -> {target_stage.value}"
+                )
+
+            # Anchor for the UI pipeline stepper: remember the last
+            # non-terminal stage so a FAILED run can show which groups it
+            # cleared.  Deliberately a separate statement — _run_params is
+            # positionally sliced between INSERT and UPDATE, so adding a
+            # column there would silently break the binding order.
+            new_last_stage = _last_stage_anchor(target_stage, row["last_stage"])
+            if new_last_stage != row["last_stage"]:
+                self._conn.execute(
+                    "UPDATE runs SET last_stage = ? WHERE id = ?",
+                    (new_last_stage, record.id),
                 )
 
             cursor = self._conn.execute(
@@ -609,7 +649,10 @@ class Store:
                 # it is cleared too and re-sealed by the next generation.
                 " approval_state = 'PENDING', approval_approver = NULL,"
                 " approval_reason = NULL, approval_decided_at = NULL,"
-                " generated_seal = NULL"
+                # A fresh attempt must not inherit the previous attempt's
+                # failure point, or the stepper would show progress the
+                # new run has not made yet.
+                " generated_seal = NULL, last_stage = NULL"
                 " WHERE id = ?",
                 (
                     RunStage.CREATED.value,
@@ -652,6 +695,39 @@ class Store:
             )
             self._conn.commit()
             return len(rows)
+
+    def probe_database(self) -> tuple[bool, str]:
+        """Readiness probe: is the control-plane database usable right now?
+
+        Opens a *separate* connection so an in-flight transaction on the
+        service connection cannot make a healthy database look broken, and
+        opens the file read-write (``mode=rw`` fails on a missing or
+        read-only file), which is exactly the property ``/ready`` must
+        report: uploads and run updates are writes, so a read-only control
+        plane is not ready. ``:memory:`` stores are probed on the live
+        connection because there is no file to open.
+        """
+        if not self._db_path or self._db_path == ":memory:":
+            try:
+                self._conn.execute(
+                    "SELECT count(*) FROM sqlite_master"
+                ).fetchone()
+                return True, "in-memory store reachable"
+            except Exception as exc:  # pragma: no cover - defensive
+                return False, f"in-memory store unavailable: {exc}"
+
+        probe = None
+        try:
+            probe = sqlite3.connect(
+                f"file:{self._db_path}?mode=rw", uri=True, timeout=2.0
+            )
+            probe.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            return True, "reachable and writable"
+        except Exception as exc:
+            return False, f"{exc}"
+        finally:
+            if probe is not None:
+                probe.close()
 
     # -- row mapping ----------------------------------------------------------
 
@@ -740,4 +816,5 @@ class Store:
             approval_reason=row["approval_reason"],
             approval_decided_at=row["approval_decided_at"],
             generated_seal=row["generated_seal"],
+            last_stage=row["last_stage"],
         )

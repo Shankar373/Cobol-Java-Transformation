@@ -18,17 +18,32 @@ Endpoints:
   GET    /runs/{id}/report                       — modernization report
   GET    /runs/{id}/download                     — download generated ZIP
   GET    /health                                 — liveness probe
+  GET    /ready                                  — readiness probe (503 when
+                                                   a gating dependency is down)
 
 Security / abuse controls:
   * optional bearer-token auth — set ``CONTROL_PLANE_API_TOKEN`` and every
-    route except ``/health`` requires ``Authorization: Bearer <token>``
-    (constant-time comparison; no token configured means auth is off, which
-    is the documented development default);
+    route except ``/health`` and ``/ready`` requires
+    ``Authorization: Bearer <token>`` (constant-time comparison; no token
+    configured means auth is off, which is the documented development
+    default);
   * bounded upload reads — ``CONTROL_PLANE_MAX_REQUEST_BYTES``,
     ``CONTROL_PLANE_MAX_FILE_BYTES`` and ``CONTROL_PLANE_MAX_UPLOAD_FILES``
     reject oversized payloads before they are buffered;
   * typed service errors map to explicit HTTP statuses
     (404/409/413/429/400/500) instead of a generic 400/500.
+
+Logging / observability:
+  * one idempotent handler configured at import (see
+    ``api.logging_config``): JSON lines in production, text in
+    development, level via ``CONTROL_PLANE_LOG_LEVEL``, encoding via
+    ``CONTROL_PLANE_LOG_FORMAT``;
+  * every request gets an ``X-Request-Id`` (echoed when safe, minted
+    otherwise) that is injected into all records emitted while handling
+    it, and one access line is written per request with method, path,
+    status and duration — no headers, no tokens, ever;
+  * run lifecycle events carry ``run_id`` / ``stage`` / ``event`` fields
+    so ``docker logs | grep <run>`` (or ``jq``) reconstructs a run.
 """
 
 from __future__ import annotations
@@ -38,6 +53,7 @@ import io
 import logging
 import os
 import re
+import time
 import zipfile
 from pathlib import Path
 
@@ -50,6 +66,11 @@ from api.artifact_seal import verify_generated_seal
 from api.errors import ApiError, PayloadTooLargeError, ServiceError
 from api.ingestion import IngestionError
 from api.limits import env_int_limit
+from api.logging_config import (
+    REQUEST_ID_VAR,
+    configure_logging,
+    new_request_id,
+)
 from api.models import (
     ApplicationCreate,
     ApplicationResponse,
@@ -75,6 +96,12 @@ from api.service import Service
 from api.store import ApplicationRecord, Store
 
 logger = logging.getLogger(__name__)
+
+# Configure structured logging before anything else emits a record: without
+# this the root logger's implicit WARNING level silently dropped every
+# info/debug line in the control plane (RUNBOOK gap "structured operational
+# logging"). Idempotent — a second import or `force=False` call is a no-op.
+configure_logging()
 
 # ---------------------------------------------------------------------------
 # Singletons (MVP — module-level, no DI framework)
@@ -114,10 +141,18 @@ try:
     _interrupted = _store.mark_interrupted_runs()
     if _interrupted:
         logger.warning(
-            "Marked %d interrupted run(s) as FAILED at startup", _interrupted
+            "Marked %d interrupted run(s) as FAILED at startup",
+            _interrupted,
+            extra={
+                "event": "startup.reconciled",
+                "interrupted_runs": _interrupted,
+            },
         )
 except Exception:
-    logger.exception("Startup reconciliation of interrupted runs failed")
+    logger.exception(
+        "Startup reconciliation of interrupted runs failed",
+        extra={"event": "startup.reconcile_failed"},
+    )
 
 app = FastAPI(
     title="COBOL-Java Transformation Control Plane",
@@ -346,8 +381,9 @@ def _expected_token() -> str | None:
 # CONTROL_PLANE_API_TOKEN is configured, exactly as before.  Setting
 # CONTROL_PLANE_ENV=production flips the control plane to fail-closed:
 # the process refuses to start without a token, and — defence in depth —
-# the middleware answers 401 for every non-/health request even if the
-# import-time check was somehow bypassed.
+# the middleware answers 401 for every request except the probes
+# (/health, /ready) and CORS preflight OPTIONS even if the import-time
+# check was somehow bypassed.
 _PRODUCTION_ENVIRONMENT = "production"
 _KNOWN_NON_PRODUCTION_ENVIRONMENTS = frozenset({"", "development", "dev", "test"})
 
@@ -362,6 +398,13 @@ def production_environment_active() -> bool:
     return deployment_environment() == _PRODUCTION_ENVIRONMENT
 
 
+#: Minimum ``CONTROL_PLANE_API_TOKEN`` length accepted in production.
+#: Non-emptiness alone let trivial values ("x", "changeme") satisfy every
+#: guard in the stack; a shared control-plane secret must at least clear a
+#: brute-force floor. `secrets.token_urlsafe(48)` yields 64 characters.
+_MIN_PRODUCTION_TOKEN_LENGTH = 32
+
+
 def verify_production_auth_configuration() -> None:
     """Fail closed when production would run without bearer authentication.
 
@@ -369,10 +412,14 @@ def verify_production_auth_configuration() -> None:
     import time) when:
 
     * ``CONTROL_PLANE_ENV`` holds an unrecognised value — an unknown
-      environment must not silently behave like development, and
-    * ``CONTROL_PLANE_ENV=production`` with no ``CONTROL_PLANE_API_TOKEN``.
+      environment must not silently behave like development,
+    * ``CONTROL_PLANE_ENV=production`` with no ``CONTROL_PLANE_API_TOKEN``,
+      or with a token shorter than :data:`_MIN_PRODUCTION_TOKEN_LENGTH`
+      (a strength floor: non-emptiness alone accepted ``x``), and
+    * by implication, a process that fails here never serves a request.
 
-    Development and test environments keep their historical behaviour.
+    Development and test environments keep their historical behaviour
+    (auth off by default, any token accepted).
     """
     env = deployment_environment()
     if env not in _KNOWN_NON_PRODUCTION_ENVIRONMENTS and env != _PRODUCTION_ENVIRONMENT:
@@ -381,17 +428,37 @@ def verify_production_auth_configuration() -> None:
             f"'production' and {sorted(v or '(unset)' for v in _KNOWN_NON_PRODUCTION_ENVIRONMENTS)}. "
             "Refusing to start in an unrecognised deployment environment."
         )
-    if env == _PRODUCTION_ENVIRONMENT and _expected_token() is None:
+    token = _expected_token()
+    if env == _PRODUCTION_ENVIRONMENT and token is None:
         raise RuntimeError(
             "CONTROL_PLANE_ENV=production requires CONTROL_PLANE_API_TOKEN to be "
             "set; refusing to start an unauthenticated production control plane."
+        )
+    if env == _PRODUCTION_ENVIRONMENT and len(token) < _MIN_PRODUCTION_TOKEN_LENGTH:
+        raise RuntimeError(
+            f"CONTROL_PLANE_ENV=production requires CONTROL_PLANE_API_TOKEN to be "
+            f"at least {_MIN_PRODUCTION_TOKEN_LENGTH} characters (this one is "
+            f"{len(token)}); refusing a trivially guessable production token. "
+            "Generate one: python -c \"import secrets; "
+            "print(secrets.token_urlsafe(48))\""
         )
 
 
 @app.middleware("http")
 async def _require_api_token(request: Request, call_next):
     token = _expected_token()
-    if request.url.path == "/health":
+    # Unauthenticated probes only: liveness and readiness carry no data and
+    # no secrets, and must answer for orchestrators that cannot authenticate.
+    if request.url.path in ("/health", "/ready"):
+        return await call_next(request)
+    # CORS preflight: browsers never attach Authorization (or any credential)
+    # to an OPTIONS preflight, so requiring the token here answered 401
+    # *before* CORSMiddleware could reply — cross-origin deployment was
+    # unusable in exactly the configuration that enables it (token + allowed
+    # origins). An OPTIONS request carries no payload and can only elicit the
+    # method Allow header, so it is safe to pass; the actual GET/POST that
+    # follows is still fully authenticated.
+    if request.method == "OPTIONS":
         return await call_next(request)
     if token is None:
         if production_environment_active():
@@ -416,6 +483,55 @@ async def _require_api_token(request: Request, call_next):
             headers={"WWW-Authenticate": "Bearer"},
         )
     return await call_next(request)
+
+
+@app.middleware("http")
+async def _request_id_and_access_log(request: Request, call_next):
+    """Outermost middleware: correlation id + one structured access line.
+
+    Registered *after* the auth middleware, and Starlette applies the last
+    registered middleware outermost, so this wraps auth: a 401 still gets
+    an ``X-Request-Id`` and still appears in the logs — the exact case a
+    customer reports as "my request failed, here is the id".
+
+    The id is echoed when it is header-safe (``[A-Za-z0-9._-]{1,64}`` —
+    never reflected raw, so it cannot inject response headers) and is held
+    in a contextvar that ``api.logging_config.RequestIdFilter`` injects
+    into every record emitted while handling the request. The access line
+    logs method/path/status/duration only: headers and tokens are never
+    logged (pinned by the token-leak tests).
+    """
+    request_id = new_request_id(request.headers.get("X-Request-Id"))
+    ctx_token = REQUEST_ID_VAR.set(request_id)
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        _log_access(request, request_id, 500, started)
+        raise
+    finally:
+        REQUEST_ID_VAR.reset(ctx_token)
+
+    response.headers["X-Request-Id"] = request_id
+    _log_access(request, request_id, response.status_code, started)
+    return response
+
+
+def _log_access(
+    request: Request, request_id: str, status: int, started: float
+) -> None:
+    """One INFO line per request; never headers, never tokens."""
+    logger.info(
+        "request",
+        extra={
+            "event": "http.request",
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status": status,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+        },
+    )
 
 
 def _token_matches(provided: str, expected: str) -> bool:
@@ -772,6 +888,7 @@ def get_run_detail(run_id: str) -> RunDetailResponse:
         verdict_state=detail["verdict_state"],
         discovery=detail["discovery"],
         stage_messages=detail["stage_messages"],
+        last_stage=detail.get("last_stage"),
         generated_files=detail["generated_files"],
     )
 
@@ -1032,9 +1149,89 @@ def download_generated(run_id: str) -> StreamingResponse:
 
 
 # ---------------------------------------------------------------------------
-# Health
+# Health / readiness
 # ---------------------------------------------------------------------------
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    """Liveness only: the process answers. Use ``/ready`` for dependencies."""
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready() -> JSONResponse:
+    """Readiness probe: can this control plane actually serve writes?
+
+    ``/health`` proves only that the process answers. ``/ready`` verifies
+    the dependencies whose failure makes the API unable to do its job:
+
+    * ``database`` — the SQLite file opens **read-write** (uploads and run
+      updates are writes; a read-only or missing file is not ready);
+    * ``workspace`` — the durable artifact root
+      (``CONTROL_PLANE_WORKSPACE_DIR``) is creatable and writable, so
+      ingest/upload/generation land somewhere that survives a restart and
+      ``scripts/backup/backup.sh`` captures (unset = development temp dir,
+      which is a supported configuration, not a fault);
+    * ``staging`` — the sandbox staging root (``SANDBOX_STAGING_DIR``) is
+      usable when configured (unset = development temp staging);
+    * ``docker`` — the host daemon is probed and **reported but not
+      gating**: a host daemon outage cannot be fixed by restarting this
+      container, and the API keeps serving honestly either way (runs fail
+      closed at the execution stage). Restarting on it would loop;
+    * ``jobs`` — active/limit worker slots, informational.
+
+    Returns 200 when the gating checks pass and 503 otherwise, so compose /
+    Docker healthchecks mark a control plane that cannot persist anything
+    as unhealthy instead of serving it.
+    """
+    from api.paths import workspace_root, workspace_root_problems
+    from engine import docker_cli
+    from engine.execution.sandbox_paths import ensure_staging_root, get_staging_root
+
+    checks: dict[str, dict[str, object]] = {}
+
+    db_ok, db_detail = _store.probe_database()
+    checks["database"] = {"ok": db_ok, "detail": db_detail}
+
+    ws_root = workspace_root()
+    ws_problems = workspace_root_problems()
+    checks["workspace"] = {
+        "ok": not ws_problems,
+        "detail": ws_problems[0]
+        if ws_problems
+        else (str(ws_root) if ws_root else "unset (platform temp directory)"),
+    }
+
+    staging_root = get_staging_root()
+    if staging_root is None:
+        staging_ok, staging_detail = True, (
+            "SANDBOX_STAGING_DIR not configured (development temp staging)"
+        )
+    else:
+        try:
+            ensure_staging_root()
+            staging_ok, staging_detail = True, f"{staging_root} writable"
+        except Exception as exc:  # RuntimeError from ensure_staging_root
+            staging_ok, staging_detail = False, str(exc)
+    checks["staging"] = {"ok": staging_ok, "detail": staging_detail}
+
+    docker_ok = docker_cli.check_docker_available(timeout=2)
+    checks["docker"] = {
+        "ok": docker_ok,
+        "gating": False,
+        "detail": "daemon reachable"
+        if docker_ok
+        else "daemon unreachable - runs fail closed at execution (not gating)",
+    }
+
+    active, limit = _service.job_slots()
+    checks["jobs"] = {"active": active, "limit": limit, "gating": False}
+
+    ready_ok = db_ok and not ws_problems and staging_ok
+    return JSONResponse(
+        status_code=200 if ready_ok else 503,
+        content={
+            "status": "ready" if ready_ok else "not_ready",
+            "checks": checks,
+        },
+    )

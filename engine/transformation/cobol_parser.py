@@ -45,7 +45,10 @@ from engine.transformation.ir import (
     DisplayStatement,
     DivideStatement,
     ExitProgramStatement,
+    GobackStatement,
     Expression,
+    InitializeStatement,
+    AcceptStatement,
     FileAccessMode,
     FieldReference,
     FileDefinition,
@@ -135,6 +138,25 @@ _STATEMENT_LEADING_VERBS: tuple[str, ...] = (
 _STRING_CONTINUATION_STOP = re.compile(
     r"^(?:"
     + "|".join(re.escape(v) for v in _STATEMENT_LEADING_VERBS)
+    + r"|ELSE"
+    + r"|(?:NOT\s+)?(?:AT\s+END|INVALID\s+KEY)"
+    + r")(?:\s|\.$|$)",
+    re.IGNORECASE,
+)
+
+# A line that can never continue an arithmetic or MOVE statement: it opens a
+# new statement, closes a scope, opens a file clause, or opens an EVALUATE
+# ``WHEN`` branch.  Branch statements inside EVALUATE are routinely written
+# without a terminating period (``WHEN STAT-OK`` / ``MOVE "A" TO WS-R`` /
+# ``WHEN STAT-ERROR``), so ``WHEN`` must end the statement here exactly as
+# ``ELSE`` already does.  Without it the branch clause was absorbed into the
+# MOVE operand list, the condition name lost its 88-level lowering and was
+# emitted as a bare Java identifier.  Built from the same verb vocabulary as
+# ``_STRING_CONTINUATION_STOP`` so the two cannot drift.
+_ARITHMETIC_CONTINUATION_STOP = re.compile(
+    r"^(?:"
+    + "|".join(re.escape(v) for v in _STATEMENT_LEADING_VERBS)
+    + r"|WHEN"
     + r"|ELSE"
     + r"|(?:NOT\s+)?(?:AT\s+END|INVALID\s+KEY)"
     + r")(?:\s|\.$|$)",
@@ -392,6 +414,61 @@ class CobolParser:
             location=name,
         )
 
+    def _apply_replace_directives(self, lines: list[str]) -> list[str]:
+        """Apply REPLACE compiler directives as a source preprocessor.
+
+        Returns a new list of source lines with substitutions applied.
+        REPLACE OFF ends the current replacement scope.
+        """
+        result: list[str] = []
+        active: list[tuple[str, str]] = []  # (old, new) pairs
+        for line in lines:
+            stripped = line.strip()
+            upper = stripped.upper()
+            if upper.startswith("REPLACE "):
+                rest = stripped[len("REPLACE "):].rstrip(".").strip()
+                if rest.upper() == "OFF":
+                    active = []
+                    continue
+                # Parse pairs: ==old== BY ==new== [, ==old2== BY ==new2==]
+                pairs = self._parse_replace_pairs(rest)
+                if pairs is None:
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        "REPLACE with non-pseudo-text operands is not supported",
+                        location="REPLACE",
+                    )
+                    result.append(line)
+                    continue
+                active.extend(pairs)
+                continue
+            # Apply active replacements.
+            out = line
+            for old_text, new_text in active:
+                out = out.replace(old_text, new_text)
+            result.append(out)
+        return result
+
+    def _parse_replace_pairs(self, text: str) -> list[tuple[str, str]] | None:
+        """Parse ``==old== BY ==new==`` pairs separated by commas.
+
+        Returns None if any operand is not pseudo-text (==...==).
+        """
+        # Split on commas that are not inside ==...==.
+        pairs: list[tuple[str, str]] = []
+        # Simple regex: find all ==...== BY ==...== patterns
+        import re as _re
+        pattern = _re.compile(r"==(.+?)==\s+BY\s+==(.+?)==", _re.IGNORECASE)
+        matches = pattern.findall(text)
+        if not matches:
+            return None
+        # Verify the whole text is consumed (only separators remain).
+        consumed = pattern.sub("", text)
+        consumed = consumed.replace(",", "").strip()
+        if consumed:
+            return None
+        return [(m[0], m[1]) for m in matches]
+
     def parse(self, source: str) -> CobolProgram:
         """Parse COBOL source text into a CobolProgram IR."""
         lines = source.split("\n")
@@ -411,6 +488,13 @@ class CobolParser:
                 cleaned = area_match.group(3).lstrip()
             if cleaned and not cleaned.startswith("*"):
                 code_lines.append(cleaned)
+
+        # REPLACE compiler directive: text substitution preprocessor.
+        # ``REPLACE ==old== BY ==new==.`` applies the substitution to all
+        # subsequent source lines until ``REPLACE OFF.``.  Multiple pairs are
+        # separated by commas.  Only pseudo-text (==...==) operands are
+        # supported; bare-word operands fail closed with a diagnostic.
+        code_lines = self._apply_replace_directives(code_lines)
 
         # Parse divisions
         # These clauses continue an operation header; they are not new
@@ -603,16 +687,9 @@ class CobolParser:
                     "per-invocation storage has no Java mapping in this lane",
                     location=f"line {number}",
                 )
-            if re.search(r"(?<![\w-])REPLACE(?![\w-])", upper):
-                # Guard against the COPY ... REPLACING clause, which is a
-                # different construct handled by the copybook lane.
-                if not re.search(r"(?<![\w-])REPLACING(?![\w-])", upper):
-                    self._diagnostics.warning(
-                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                        "REPLACE directive is recognised but not transformed: "
-                        "compiler text substitution is not applied in this lane",
-                        location=f"line {number}",
-                    )
+            # REPLACE is now implemented as a preprocessor; only diagnose
+            # when it survives preprocessing (i.e. non-pseudo-text operands).
+            pass
 
     def _validate_program_structure(self, program: CobolProgram, source: str) -> None:
         """Emit PARSE_ERROR if input contains no valid COBOL program structure.
@@ -1247,9 +1324,22 @@ class CobolParser:
         if upper.startswith("EXIT PROGRAM"):
             return ExitProgramStatement(), start + 1
 
+        # GOBACK — terminate this program and return to the caller.
+        # Semantically equivalent to EXIT PROGRAM for the generated Java lane.
+        if upper.startswith("GOBACK"):
+            return GobackStatement(), start + 1
+
         # STOP RUN
         if upper.startswith("STOP RUN"):
             return StopRunStatement(), start + 1
+
+        # ACCEPT target [FROM source]
+        if upper.startswith("ACCEPT "):
+            return self._parse_accept(lines, start)
+
+        # INITIALIZE field1 [field2 ...] — set each to type default.
+        if upper.startswith("INITIALIZE "):
+            return self._parse_initialize(lines, start)
 
         # Scope terminators left behind by a statement parser that returned
         # before its closing delimiter.  They carry no executable semantics of
@@ -1692,9 +1782,55 @@ class CobolParser:
             not_invalid_key_body=tuple(sections["not_invalid"]),
         ), next_index
 
+    def _join_arithmetic_continuation(
+        self, lines: list[str], start: int
+    ) -> tuple[str, int]:
+        """Join the continuation lines of an unterminated arithmetic statement.
+
+        COBOL statements are free-format and routinely wrap across physical
+        lines.  The logical-line joiner in :meth:`parse` only folds the
+        ``MOVE``/``ADD ... TO`` and ``IF ... <operator>`` forms, so a wrapped
+        ``COMPUTE``/``SUBTRACT``/``MULTIPLY``/``DIVIDE`` reached the statement
+        parsers as separate fragments: the verb line produced an **empty** IR
+        node ("Statement did not parse into IR") and every following line was
+        reported as its own unsupported statement.  Capability analysis then
+        aggregated those diagnostics into UNSUPPORTED and failed the run, so a
+        purely cosmetic line wrap was indistinguishable from a real
+        unsupported construct.
+
+        Guards keep a following statement, scope terminator, file clause or
+        paragraph heading out of the expression — without them a wrapped
+        statement would swallow the statement that follows it.
+        Returns ``(joined_text, next_line_index)``.
+        """
+        parts = [lines[start].strip()]
+        i = start
+        while i + 1 < len(lines) and not parts[-1].rstrip().endswith("."):
+            nxt = lines[i + 1].strip()
+            # Never absorb a comment or a blank line into the expression.
+            if not nxt or nxt.startswith("*"):
+                break
+            masked = self._mask_quoted(nxt)
+            if any(
+                pattern.search(masked)
+                for _, pattern in self._FILE_CLAUSE_HEADERS
+            ):
+                break
+            # A new statement, a scope terminator or a file-clause header can
+            # never be arithmetic continuation text (a sending operand cannot
+            # be a reserved verb), so the statement must end before it.
+            if _SCOPE_TERMINATOR.match(nxt) or _ARITHMETIC_CONTINUATION_STOP.match(nxt):
+                break
+            # A bare ``NAME.`` line is a paragraph heading, not an operand.
+            if re.match(r"^[A-Z0-9][\w-]*\.\s*$", nxt, re.IGNORECASE):
+                break
+            i += 1
+            parts.append(nxt)
+        return " ".join(parts), i + 1
+
     def _parse_move(self, lines: list[str], start: int) -> tuple[MoveStatement, int]:
         """Parse MOVE source TO target statement."""
-        line = lines[start].strip()
+        line, end = self._join_arithmetic_continuation(lines, start)
 
         match = re.search(r"MOVE\s+(.+?)\s+TO\s+(.+?)(?:\.)?$", line, re.IGNORECASE)
         if match:
@@ -1707,14 +1843,15 @@ class CobolParser:
                 targets=targets,
                 source_expr=self._build_expression(source),
                 target_ref=FieldReference(name=target) if target else None,
-            ), start + 1
+            ), end
 
         self._emit_unparsed("MOVE", lines[start])
-        return MoveStatement(source="", target=""), start + 1
+        return MoveStatement(source="", target=""), end
 
     def _parse_add(self, lines: list[str], start: int) -> tuple[AddStatement, int]:
         """Parse ADD source TO target statement."""
-        line = lines[start].strip().rstrip(".").strip()
+        line, end = self._join_arithmetic_continuation(lines, start)
+        line = line.strip().rstrip(".").strip()
 
         match = re.search(
             r"ADD\s+(.+?)\s+TO\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
@@ -1733,14 +1870,15 @@ class CobolParser:
                 target_ref=FieldReference(name=target),
                 giving_target=giving_target,
                 rounded=rounded,
-            ), start + 1
+            ), end
 
         self._emit_unparsed("ADD", lines[start])
-        return AddStatement(source="", target=""), start + 1
+        return AddStatement(source="", target=""), end
 
     def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
         """Parse SUBTRACT source FROM field [GIVING target]."""
-        line = lines[start].strip().rstrip(".").strip()
+        line, end = self._join_arithmetic_continuation(lines, start)
+        line = line.strip().rstrip(".").strip()
         match = re.search(
             r"SUBTRACT\s+(\S+)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
             line,
@@ -1748,7 +1886,7 @@ class CobolParser:
         )
         if not match:
             self._emit_unparsed("SUBTRACT", lines[start])
-            return SubtractStatement(source="", from_field=""), start + 1
+            return SubtractStatement(source="", from_field=""), end
         source = match.group(1).rstrip(".")
         from_field = match.group(2).rstrip(".")
         to_field = match.group(3).rstrip(".") if match.group(3) else None
@@ -1761,7 +1899,7 @@ class CobolParser:
             from_ref=FieldReference(name=from_field),
             to_ref=FieldReference(name=to_field) if to_field else None,
             rounded=rounded,
-        ), start + 1
+        ), end
 
     def _parse_multiply(self, lines: list[str], start: int) -> tuple[MultiplyStatement, int]:
         """Parse MULTIPLY source BY field [GIVING target].
@@ -1774,7 +1912,8 @@ class CobolParser:
         forms vanished silently while the arithmetic registry key stayed
         reachable.  The simple certified form is unchanged.
         """
-        line = lines[start].strip().rstrip(".").strip()
+        line, end = self._join_arithmetic_continuation(lines, start)
+        line = line.strip().rstrip(".").strip()
         match = re.search(
             r"MULTIPLY\s+(\S+)\s+BY\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
             line,
@@ -1782,7 +1921,7 @@ class CobolParser:
         )
         if not match:
             self._emit_unparsed("MULTIPLY", lines[start])
-            return MultiplyStatement(source="", multiplicand=""), start + 1
+            return MultiplyStatement(source="", multiplicand=""), end
         source = match.group(1).rstrip(".")
         multiplicand = match.group(2).rstrip(".")
         target = match.group(3).rstrip(".") if match.group(3) else None
@@ -1795,7 +1934,7 @@ class CobolParser:
             multiplicand_ref=FieldReference(name=multiplicand),
             target_ref=FieldReference(name=target) if target else None,
             rounded=rounded,
-        ), start + 1
+        ), end
 
     def _parse_call(self, lines: list[str], start: int) -> tuple[CallStatement, int]:
         """Parse CALL literal/identifier USING arguments, including continuations.
@@ -1882,7 +2021,7 @@ class CobolParser:
 
     def _parse_divide(self, lines: list[str], start: int) -> tuple[DivideStatement, int]:
         """Parse DIVIDE source BY divisor GIVING target [REMAINDER rem] statement."""
-        line = lines[start].strip()
+        line, end = self._join_arithmetic_continuation(lines, start)
 
         # Match with optional REMAINDER
         match = re.search(
@@ -1904,7 +2043,7 @@ class CobolParser:
                 divisor_expr=self._build_expression(divisor),
                 target_ref=FieldReference(name=target),
                 rounded=rounded,
-            ), start + 1
+            ), end
 
         # DIVIDE <a> INTO <b> [GIVING <c>]: result = b / a.
         # With GIVING, <c> receives b / a and <b> is unchanged; without it
@@ -1934,14 +2073,15 @@ class CobolParser:
                 divisor_expr=self._build_expression(denominator),
                 target_ref=FieldReference(name=target),
                 rounded=rounded,
-            ), start + 1
+            ), end
 
         self._emit_unparsed("DIVIDE", lines[start])
-        return DivideStatement(source="", divisor="", target=""), start + 1
+        return DivideStatement(source="", divisor="", target=""), end
 
     def _parse_compute(self, lines: list[str], start: int) -> tuple['ComputeStatement', int]:
         """Parse COMPUTE target = expression."""
-        line = lines[start].strip()
+        line, end = self._join_arithmetic_continuation(lines, start)
+        line = line.strip()
 
         match = re.search(
             r"COMPUTE\s+(\S+)(?:\s+(ROUNDED))?\s*=\s*(.+?)\.?\s*$",
@@ -1976,10 +2116,10 @@ class CobolParser:
                 target_ref=FieldReference(name=target),
                 expression_expr=self._build_expression(expression),
                 rounded=rounded,
-            ), start + 1
+            ), end
 
         self._emit_unparsed("COMPUTE", lines[start])
-        return ComputeStatement(target="", expression=""), start + 1
+        return ComputeStatement(target="", expression=""), end
 
     def _parse_inline_statements(self, text: str) -> tuple[list[Any], list[str]]:
         """Parse statements written inline on a control-verb line.
@@ -2797,6 +2937,27 @@ class CobolParser:
         )
 
         return GoToStatement(target=target), start + 1
+
+    def _parse_initialize(self, lines: list[str], start: int) -> tuple[InitializeStatement, int]:
+        """Parse INITIALIZE field1 [field2 ...]."""
+        from engine.transformation.ir import InitializeStatement
+
+        line = lines[start].strip()
+        # Strip the INITIALIZE keyword and trailing period.
+        text = re.sub(r"^INITIALIZE\s+", "", line, flags=re.IGNORECASE).rstrip(".")
+        tokens = text.split()
+        targets = tuple(t for t in tokens if t)
+        return InitializeStatement(targets=targets), start + 1
+
+    def _parse_accept(self, lines: list[str], start: int) -> tuple[AcceptStatement, int]:
+        """Parse ACCEPT target [FROM source]."""
+        from engine.transformation.ir import AcceptStatement
+
+        line = lines[start].strip().rstrip(".")
+        match = re.search(r"ACCEPT\s+(\S+)(?:\s+FROM\s+(\S+))?", line, re.IGNORECASE)
+        target = match.group(1).strip() if match else ""
+        source = match.group(2).strip() if (match and match.group(2)) else ""
+        return AcceptStatement(target=target, source=source), start + 1
 
     def _extract_threshold_rules(self, lines: list[str]) -> list[ThresholdRule]:
         """Extract numeric threshold rules from IF conditions.

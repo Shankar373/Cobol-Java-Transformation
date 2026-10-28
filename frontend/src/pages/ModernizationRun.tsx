@@ -27,6 +27,7 @@ import {
 } from '../components/icons';
 import {
   RunResponse,
+  type RunStage,
   VerdictResponse,
   DiscoveryResult,
   ArtifactMetadata,
@@ -164,10 +165,26 @@ export function ModernizationRun({
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [approvalState, setApprovalState] = useState<ApprovalState | null>(null);
   const pollFailuresRef = useRef(0);
+  // Last non-terminal stage seen for the current run.  The API has no
+  // "failed at stage" field, so the stepper is anchored on this instead —
+  // without it a FAILED run renders every pipeline node as pending.
+  const lastStageRef = useRef<RunStage | null>(null);
 
   // Opening a run straight from the dashboard passes no application id —
   // fall back to the id the run itself reports once it has loaded.
   const effectiveAppId = applicationId || run?.application_id || '';
+
+  // Where the run halted, for the FAILED-run stepper.  Prefer the stage this
+  // page tracked live, then the anchor persisted by GET /runs/{id}/detail
+  // (required when a FAILED run is opened cold and no poll ever saw it
+  // non-terminal).  `detail.id` must match: `detail` is not cleared on a
+  // runId change, so an unmatched payload belongs to the previous run.
+  const detailAnchor: RunStage | null =
+    detail && detail.id === runId && typeof detail.last_stage === 'string' && detail.last_stage
+      ? (detail.last_stage as RunStage)
+      : null;
+  const failureAnchor: RunStage | undefined =
+    lastStageRef.current ?? detailAnchor ?? undefined;
 
   // Discovery is independent of run stage: fetch it as soon as the page
   // loads so programs/dependencies render whenever the API provides them
@@ -219,6 +236,11 @@ export function ModernizationRun({
     hasRunRef.current = true;
     setPollFailures(0);
     setPollError(null);
+    // Remember where the run actually got to while it is still in flight;
+    // once terminal (FAILED) this ref is the only record of the failure point.
+    if (!isTerminalStage(runData.stage)) {
+      lastStageRef.current = runData.stage;
+    }
     setRun(runData);
     if (runDetail) setDetail(runDetail);
 
@@ -243,6 +265,9 @@ export function ModernizationRun({
   useEffect(() => {
     let mounted = true;
     let timer: ReturnType<typeof setInterval> | null = null;
+    // A new run id means a new pipeline: drop the anchor so a FAILED run
+    // cannot inherit the previous run's last stage.
+    lastStageRef.current = null;
 
     const tick = async () => {
       try {
@@ -519,6 +544,7 @@ export function ModernizationRun({
             <PipelineStepper
               stage={run.stage}
               showIngested={!!ingestionEvidence}
+              lastStage={failureAnchor}
             />
           </SectionCard>
 

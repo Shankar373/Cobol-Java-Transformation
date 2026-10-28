@@ -191,6 +191,64 @@ describe('PipelineStepper — FAILED terminal handling', () => {
     // Failed node has aria-label containing 'failed'
     expect(screen.getByRole('listitem', { name: /Failed: failed/i })).toBeInTheDocument();
   });
+
+  it('keeps every progression node pending when no lastStage is supplied', () => {
+    // Historical behaviour: the API exposes no failure stage, so without an
+    // anchor the stepper must not invent progress.
+    render(<PipelineStepper stage="FAILED" />);
+    for (const label of EXPECTED_7_NODES) {
+      const item = screen.getByText(label).closest('[role="listitem"]');
+      expect(item?.getAttribute('aria-label')).toMatch(/: pending$/);
+    }
+    expect(screen.getByRole('listitem', { name: /Failed: failed/i })).toBeInTheDocument();
+  });
+
+  it('marks groups cleared before lastStage as done and the halted group active', () => {
+    render(<PipelineStepper stage="FAILED" lastStage="PLANNING" />);
+    expect(screen.getByRole('listitem', { name: /Discovery: done/i })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: /Capability Analysis: done/i })).toBeInTheDocument();
+    // The group the run halted in was entered — `pending` would claim it was
+    // never started; `done` would claim a completion we cannot prove.
+    expect(screen.getByRole('listitem', { name: /Transformation Planning: active/i })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: /Evidence Validation: pending/i })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: /Failed: failed/i })).toBeInTheDocument();
+  });
+
+  it('anchors on a completed sub-stage without claiming the following group', () => {
+    // PLAN_COMPLETED means planning finished, but the failure happened before
+    // generation, so Transformation & Generation must stay pending.
+    render(<PipelineStepper stage="FAILED" lastStage="PLAN_COMPLETED" />);
+    expect(screen.getByRole('listitem', { name: /Discovery: done/i })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: /Capability Analysis: done/i })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: /Transformation Planning: active/i })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: /Transformation & Generation: pending/i })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: /Failed: failed/i })).toBeInTheDocument();
+  });
+
+  it('still renders exactly 8 nodes when lastStage is supplied', () => {
+    render(<PipelineStepper stage="FAILED" lastStage="GENERATING" />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(8);
+  });
+
+  it('treats a JSON null anchor as no anchor (pre-migration rows)', () => {
+    // The API returns `last_stage: null` for rows written before schema v7.
+    // `null !== undefined`, so an `!== undefined` guard would have accepted it
+    // and anchored on "no stage", inventing Discovery progress.
+    render(<PipelineStepper stage="FAILED" lastStage={null} />);
+    for (const label of EXPECTED_7_NODES) {
+      const item = screen.getByText(label).closest('[role="listitem"]');
+      expect(item?.getAttribute('aria-label')).toMatch(/: pending$/);
+    }
+    expect(screen.getByRole('listitem', { name: /Failed: failed/i })).toBeInTheDocument();
+  });
+
+  it('ignores a terminal lastStage so a completed group is never claimed', () => {
+    render(<PipelineStepper stage="FAILED" lastStage="COMPLETED" />);
+    for (const label of EXPECTED_7_NODES) {
+      const item = screen.getByText(label).closest('[role="listitem"]');
+      expect(item?.getAttribute('aria-label')).toMatch(/: pending$/);
+    }
+  });
 });
 
 describe('PipelineStepper — all internal stages map to exactly one group', () => {

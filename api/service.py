@@ -48,8 +48,8 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 import threading
+import time
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -63,6 +63,7 @@ from api.errors import (
     ServiceError,
 )
 from api.models import RunStage
+from api.paths import new_workspace
 from api.store import ApplicationRecord, RunRecord, Store
 from api.workload_contract import resolve_certification_contract
 from engine import docker_cli
@@ -419,6 +420,15 @@ class Service:
 
         threading.Thread(target=_runner, daemon=True, name=name).start()
 
+    def job_slots(self) -> tuple[int, int]:
+        """``(active, limit)`` worker slots — reported by the ``/ready`` probe.
+
+        Process-local by design (single-replica SQLite control plane); the
+        numbers are operational visibility, not a cluster-wide quota.
+        """
+        with self._jobs_lock:
+            return self._active_jobs, _job_limit()
+
     # -- applications -------------------------------------------------------
 
     def create_application(
@@ -591,7 +601,7 @@ class Service:
     ) -> Path:
         """Write validated entries to a fresh temp dir, hierarchy preserved."""
         resolved = self._validate_upload(files)
-        base = Path(tempfile.mkdtemp(prefix=f"{prefix}-{app_id}-"))
+        base = new_workspace(prefix=f"{prefix}-{app_id}-")
         for name, relative in resolved:
             target = base / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -704,6 +714,14 @@ class Service:
             (app_id, run_id, use_uploaded_candidate),
             name=f"modernize-{run_id}",
         )
+        logger.info(
+            "modernize started",
+            extra={
+                "event": "run.started",
+                "run_id": run_id,
+                "application_id": app_id,
+            },
+        )
 
         return snapshot
 
@@ -721,7 +739,11 @@ class Service:
         """
         run = self._store.get_run(run_id)
         if run is None:
-            logger.error("Background modernize: run %s not found", run_id)
+            logger.error(
+                "Background modernize: run %s not found",
+                run_id,
+                extra={"event": "run.missing", "run_id": run_id},
+            )
             return
 
         app = self._store.get_application(app_id)
@@ -753,7 +775,15 @@ class Service:
             run.stage = RunStage.COMPLETED
             run.completed_at = datetime.now(timezone.utc).isoformat()
         except Exception as exc:
-            logger.exception("Background modernize %s failed", run_id)
+            logger.exception(
+                "Background modernize %s failed",
+                run_id,
+                extra={
+                    "event": "run.failed",
+                    "run_id": run_id,
+                    "application_id": app_id,
+                },
+            )
             run.stage = RunStage.FAILED
             run.error = str(exc)
             run.completed_at = datetime.now(timezone.utc).isoformat()
@@ -766,15 +796,54 @@ class Service:
         run.completed_at = datetime.now(timezone.utc).isoformat()
         self._persist_final(run)
 
-    def _persist_final(self, run: RunRecord) -> None:
-        """Persist a terminal transition, logging (never hiding) failures."""
-        try:
-            self._store.update_run(run)
-        except Exception:
-            # e.g. a concurrent revalidation bumped validation_generation.
-            logger.exception(
-                "Failed to persist terminal state for run %s", run.id
-            )
+    def _persist_final(self, run: RunRecord, *, attempts: int = 3) -> bool:
+        """Persist a terminal transition with bounded retries.
+
+        A lost terminal write strands the run in a non-terminal stage
+        forever — clients poll a state no worker will ever update, and only
+        the next restart's ``mark_interrupted_runs`` reconciles it. Most
+        failures here are transient (SQLite write-lock contention with a
+        concurrent worker), so a short bounded retry recovers them. A
+        deterministic rejection (a concurrent revalidation bumped
+        ``validation_generation`` — this worker's record is stale by
+        design) fails through to the bound and is then logged loudly with
+        run id, stage and attempt count instead of being swallowed.
+
+        Never raises, never hides: returns whether the write landed.
+        """
+        delay = 0.05
+        for attempt in range(1, attempts + 1):
+            try:
+                self._store.update_run(run)
+                logger.info(
+                    "run reached terminal state",
+                    extra={
+                        "event": "run.terminal",
+                        "run_id": run.id,
+                        "stage": run.stage.value,
+                        "application_id": run.application_id,
+                    },
+                )
+                return True
+            except Exception:
+                if attempt < attempts:
+                    time.sleep(delay)
+                    delay *= 2
+                    continue
+                logger.exception(
+                    "Failed to persist terminal state for run %s after"
+                    " %d attempts; the run stays non-terminal until the"
+                    " next restart reconciles it",
+                    run.id,
+                    attempts,
+                    extra={
+                        "event": "run.terminal_persist_failed",
+                        "run_id": run.id,
+                        "stage": run.stage.value,
+                        "attempts": attempts,
+                    },
+                )
+        return False
 
     # -- validate (re-run) --------------------------------------------------
 
@@ -824,6 +893,14 @@ class Service:
             raise
 
         self._launch("_revalidate_background", (run_id,), name=f"revalidate-{run_id}")
+        logger.info(
+            "revalidation started",
+            extra={
+                "event": "run.revalidating",
+                "run_id": run_id,
+                "application_id": run.application_id,
+            },
+        )
 
         return reset
 
@@ -831,7 +908,11 @@ class Service:
         """Background worker: re-execute validation for a reset run."""
         run = self._store.get_run(run_id)
         if run is None:
-            logger.error("Background revalidate: run %s not found", run_id)
+            logger.error(
+                "Background revalidate: run %s not found",
+                run_id,
+                extra={"event": "run.missing", "run_id": run_id},
+            )
             return
 
         app = self._store.get_application(run.application_id)
@@ -861,7 +942,15 @@ class Service:
             run.stage = RunStage.COMPLETED
             run.completed_at = datetime.now(timezone.utc).isoformat()
         except Exception as exc:
-            logger.exception("Background revalidate %s failed", run_id)
+            logger.exception(
+                "Background revalidate %s failed",
+                run_id,
+                extra={
+                    "event": "run.failed",
+                    "run_id": run_id,
+                    "application_id": run.application_id,
+                },
+            )
             run.stage = RunStage.FAILED
             run.error = str(exc)
             run.completed_at = datetime.now(timezone.utc).isoformat()
@@ -956,7 +1045,10 @@ class Service:
         if app.cobol_source_path is None:
             raise ServiceError("No COBOL source available for discovery")
 
-        output_dir = str(Path(tempfile.mkdtemp(prefix=f"pipeline-output-{run.id}-")))
+        # Durable: this bundle becomes generated_app_path, is sealed, and is
+        # served by /runs/{id}/download - it must survive restarts so the
+        # seal still verifies after the container is recreated.
+        output_dir = str(new_workspace(prefix=f"pipeline-output-{run.id}-"))
 
         # Capability analysis must be derived from actual
         # implementation capability.  The Docker infrastructure component
@@ -1585,5 +1677,9 @@ class Service:
             "verdict_state": verdict_state,
             "discovery": discovery,
             "stage_messages": stage_messages,
+            # Last non-terminal stage reached.  This is what lets the UI
+            # render a FAILED run's progress honestly — `stage_messages` is
+            # only `[stage, error]` and carries no failure point.
+            "last_stage": run.last_stage,
             "generated_files": generated_files,
         }

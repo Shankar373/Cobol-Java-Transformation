@@ -31,7 +31,10 @@ from engine.transformation.ir import (
     DeleteStatement,
     DisplayStatement,
     DivideStatement,
+    AcceptStatement,
     ExitProgramStatement,
+    GobackStatement,
+    InitializeStatement,
     GoToStatement,
     IfStatement,
     MoveStatement,
@@ -162,7 +165,17 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "boundary rule (writes and advances capped at W+1 inside 1..W+1, "
         "no-op outside) — byte-verified against GnuCOBOL 3.1.2 (BL-028)"
     ),
-    "UNSTRING": _partial("UNSTRING is supported only for the certified delimited subset"),
+    "UNSTRING": _supported(
+        "UNSTRING DELIMITED BY <literal> INTO targets is mapped to a Java "
+        "String.split with per-receiver PIC-width padding/truncation; byte-"
+        "identical to GnuCOBOL 3.1.2 for the certified subset "
+        "(tests/integration/test_unstring_oracle_proof.py). WITH POINTER and "
+        "TALLYING IN are now also implemented and oracle-proven. ON OVERFLOW, "
+        "VARYING IN, DELIMITER IN, COUNT IN, ALL and multiple delimiters "
+        "still fail closed with an UNSUPPORTED_CONSTRUCT diagnostic naming "
+        "the clause (test_unstring_clause_diagnostics.py)",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "DISPLAY": _supported("DISPLAY is mapped to deterministic output semantics"),
     "STOP RUN": _supported("STOP RUN terminates generated execution"),
     "EXIT PROGRAM": _supported(
@@ -236,8 +249,15 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     ),
     "SORT": _unsupported("SORT is not implemented in the deterministic mapper"),
     "MERGE": _unsupported("MERGE is not implemented in the deterministic mapper"),
-    "ACCEPT": _unsupported("ACCEPT is not implemented in the deterministic mapper"),
-    "INITIALIZE": _unsupported("INITIALIZE is not implemented in the deterministic mapper"),
+    "ACCEPT": _supported(
+        "ACCEPT target reads a line from standard input into the field",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "INITIALIZE": _supported(
+        "INITIALIZE sets each target field to its type default (spaces for "
+        "alphanumeric, zero for numeric)",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "INSPECT": _unsupported("INSPECT is not implemented in the deterministic mapper"),
     "SEARCH": _unsupported("SEARCH is not implemented in the deterministic mapper"),
     "SET": _unsupported("SET semantics are not implemented in the deterministic mapper"),
@@ -256,7 +276,11 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     ),
     "ALTER": _unsupported("ALTER is outside the certified deterministic subset"),
     "NEXT SENTENCE": _unsupported("NEXT SENTENCE is not represented by the procedure IR"),
-    "GOBACK": _unsupported("GOBACK is not represented by the procedure IR"),
+    "GOBACK": _supported(
+        "GOBACK terminates the generated program and returns to the caller, "
+        "lowered to a Java return from the current method",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "SIZE ERROR": _unsupported("SIZE ERROR handling is not yet represented in the arithmetic IR"),
     # External utilities and system services are detection-first classified —
     # the first step of the verification ladder (Detected -> Classified) only.
@@ -335,10 +359,10 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "Java lane: no IR node, no mapper and no re-entrant runtime semantics; "
         "classified UNSUPPORTED by detection, never transformed"
     ),
-    "REPLACE": _unsupported(
-        "REPLACE ... END-REPLACE (compiler text-substitution directive) has no "
-        "deterministic Java lane: no IR node and no source-rewrite step before "
-        "generation; classified UNSUPPORTED by detection, never transformed"
+    "REPLACE": _supported(
+        "REPLACE ==old== BY ==new== is applied as a source preprocessor before "
+        "parsing; only pseudo-text operands are supported",
+        source_only=CapabilityLevel.UNSUPPORTED,
     ),
     # Figurative constants (ZERO / SPACES / QUOTES / LOW-VALUE / HIGH-VALUE /
     # ALL "x").  These are reserved *words* with a fixed value.  They used to
@@ -499,6 +523,9 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     StartStatement.__name__: "START",
     StopRunStatement.__name__: "STOP RUN",
     ExitProgramStatement.__name__: "EXIT PROGRAM",
+    AcceptStatement.__name__: "ACCEPT",
+    GobackStatement.__name__: "GOBACK",
+    InitializeStatement.__name__: "INITIALIZE",
     StringStatement.__name__: "STRING",
     SubtractStatement.__name__: "SUBTRACT",
     UnstringStatement.__name__: "UNSTRING",

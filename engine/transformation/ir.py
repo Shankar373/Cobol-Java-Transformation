@@ -691,6 +691,40 @@ class ExitProgramStatement:
     """EXIT PROGRAM — terminate this program and return to the caller."""
 
 
+class GobackStatement:
+    """GOBACK — terminate this program and return to the caller.
+
+    Semantically equivalent to EXIT PROGRAM for the generated Java lane:
+    both lower to a Java ``return`` from the current method.  GOBACK is
+    tracked as a distinct construct so capability reporting names it
+    correctly.
+    """
+
+
+@dataclass(frozen=True)
+class AcceptStatement:
+    """ACCEPT target [FROM source] — read input into a field.
+
+    Only the plain ``ACCEPT field`` form (read a line from standard
+    input) is certified.  ``ACCEPT ... FROM DATE/TIME/DAY/...`` and
+    ``ACCEPT ... FROM COMMAND-LINE`` are recorded but fail closed.
+    """
+
+    target: str = ""
+    source: str = ""  # FROM clause (empty = standard input)
+
+
+@dataclass(frozen=True)
+class InitializeStatement:
+    """INITIALIZE field1 [field2 ...] — set each field to its type default.
+
+    Alphanumeric fields (PIC X) are set to spaces; numeric fields (PIC 9)
+    are set to zero.  Only the plain (no REPLACING) form is certified.
+    """
+
+    targets: tuple[str, ...] = ()
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
@@ -717,6 +751,9 @@ Statement = (
     | GoToStatement
     | StopRunStatement
     | ExitProgramStatement
+    | GobackStatement
+    | InitializeStatement
+    | AcceptStatement
 )
 
 

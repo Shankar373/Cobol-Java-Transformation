@@ -318,6 +318,8 @@ export interface RunDetailResponse {
   verdict_state: string | null;
   discovery: Record<string, unknown> | null;
   stage_messages: string[];
+  /** Last non-terminal stage reached — anchors the FAILED-run stepper. */
+  last_stage?: string | null;
   generated_files: string[];
 }
 

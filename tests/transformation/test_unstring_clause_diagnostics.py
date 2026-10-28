@@ -22,7 +22,7 @@ from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.cobol_to_java_mapping import map_cobol_statement
 from engine.transformation.diagnostics import DiagnosticCode
 from engine.transformation.ir import UnstringStatement
-from engine.transformation.java_ir import JavaAssignment, JavaVariableRef
+from engine.transformation.java_ir import JavaAssignment, JavaLocalVarDecl, JavaVariableRef
 
 HEADER = """\
 IDENTIFICATION DIVISION.
@@ -164,14 +164,16 @@ class TestCertifiedSubsetStaysQuiet:
 
 
 class TestMapperFailsClosedForClauses:
-    def test_pointer_clause_renders_unresolvable_symbol(self) -> None:
+    def test_pointer_clause_is_now_implemented(self) -> None:
+        # WITH POINTER is now implemented (certified subset): the mapper
+        # emits a real split with pointer tracking instead of an
+        # unresolvable symbol.  Other extra clauses still fail closed.
         _, stmt = _parse(
             "    UNSTRING WS-SRC DELIMITED BY \",\"\n"
             "        INTO WS-A\n"
             "        WITH POINTER WS-P\n"
             "    END-UNSTRING.\n"
         )
-        # Re-parse with the program object for field lookup.
         parser = CobolParser()
         program_ir = parser.parse(
             HEADER
@@ -182,14 +184,16 @@ class TestMapperFailsClosedForClauses:
             + "    STOP RUN.\n"
         )
         mapped = map_cobol_statement(stmt, program_ir)
+        # No unresolvable symbol is emitted for WITH POINTER.
         symbols = [
             s.expression.name
             for s in mapped
             if isinstance(s, JavaAssignment)
             and isinstance(s.expression, JavaVariableRef)
         ]
-        assert any(name.startswith("UNSUPPORTED_UNSTRING$") for name in symbols), symbols
-        assert any("WITH_POINTER" in name for name in symbols), symbols
+        assert not any(name.startswith("UNSUPPORTED_UNSTRING$") for name in symbols), symbols
+        # A real split is emitted.
+        assert any(isinstance(s, JavaLocalVarDecl) and s.name == "_unstr_parts" for s in mapped), mapped
 
     def test_certified_subset_does_not_fabricate_fail_closed_symbol(self) -> None:
         _, stmt = _parse(

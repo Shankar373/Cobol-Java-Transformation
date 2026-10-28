@@ -272,6 +272,9 @@ class RunDetailResponse(BaseModel):
     verdict_state: str | None = None
     discovery: dict | None = None
     stage_messages: list[str] = Field(default_factory=list)
+    # Last non-terminal stage this run occupied; None for runs created
+    # before schema v7 or ones that went terminal without recording one.
+    last_stage: str | None = None
     generated_files: list[str] = Field(default_factory=list)
 
 
