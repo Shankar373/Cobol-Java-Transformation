@@ -39,11 +39,17 @@ function dependencyKindIcon(kind: string): React.ReactNode {
 }
 
 export function IntegratedProof({ proof }: IntegratedProofProps) {
-  const { proof: proofData } = proof;
-  
+  const proofData = proof?.proof ?? null;
+  const dependencyLedger = Array.isArray(proofData?.dependency_ledger)
+    ? proofData.dependency_ledger
+    : [];
+  const reasonsForNotVerified = Array.isArray(proof?.reasons_for_not_verified)
+    ? proof.reasons_for_not_verified
+    : [];
+
   // Group dependencies by kind for display
-  const dependenciesByKind: Record<string, Array<typeof proofData.dependency_ledger[0]>> = {};
-  proofData.dependency_ledger.forEach(dep => {
+  const dependenciesByKind: Record<string, Array<typeof dependencyLedger[0]>> = {};
+  dependencyLedger.forEach(dep => {
     if (!dependenciesByKind[dep.kind]) {
       dependenciesByKind[dep.kind] = [];
     }
@@ -66,9 +72,9 @@ export function IntegratedProof({ proof }: IntegratedProofProps) {
               Final Proof Status
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.sm }}>
-              {formatProofState(proofData.central_status).icon}
+              {formatProofState(proofData?.central_status ?? 'UNPROVEN').icon}
               <span style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.lg }}>
-                {proofData.central_status}
+                {proofData?.central_status ?? 'UNPROVEN'}
               </span>
             </div>
           </div>
@@ -127,42 +133,42 @@ export function IntegratedProof({ proof }: IntegratedProofProps) {
               <div style={{ border: `1px solid ${tokens.colors.divider}`, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
                 <div style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>Evidence Complete</div>
                 <div style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.sm }}>
-                  {proof.evidence_complete ? 'YES' : 'NO'}
+                  {proof?.evidence_complete ? 'YES' : 'NO'}
                 </div>
               </div>
               <div style={{ border: `1px solid ${tokens.colors.divider}`, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
                 <div style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>Evidence Integrity</div>
                 <div style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.sm }}>
-                  {proof.evidence_integrity_valid ? 'VALID' : 'INVALID'}
+                  {proof?.evidence_integrity_valid ? 'VALID' : 'INVALID'}
                 </div>
               </div>
               <div style={{ border: `1px solid ${tokens.colors.divider}`, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
                 <div style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>Runtime Verdict</div>
                 <div style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.sm }}>
-                  {proof.proof.runtime_verdict_is_verified ? 'VERIFIED' : 'NOT_VERIFIED'}
+                  {proof?.proof?.runtime_verdict_is_verified ? 'VERIFIED' : 'NOT_VERIFIED'}
                 </div>
               </div>
             </div>
           </div>
           
           {/* Reasons for NOT VERIFIED */}
-          {proof.reasons_for_not_verified.length > 0 && (
+          {reasonsForNotVerified.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.md }}>
               <div style={{ fontWeight: tokens.font.weights.semibold, fontSize: tokens.font.sizes.sm }}>
                 Reasons for NOT VERIFIED
               </div>
               <div style={{ background: tokens.colors.surfaceAlt, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
-                {proof.reasons_for_not_verified.map((reason, index) => (
+                {reasonsForNotVerified.map((reason, index) => (
                   <div key={index} style={{ padding: tokens.spacing.xs, borderBottom: `1px solid ${tokens.colors.divider}` }}>
                     <span style={{ color: tokens.colors.textSecondary, fontSize: tokens.font.sizes.sm }}>
                       • {reason}
                     </span>
                   </div>
                 ))}
-                {proof.reasons_for_not_verified.length > 0 && (
+                {reasonsForNotVerified.length > 0 && (
                   <div key="last" style={{ paddingTop: tokens.spacing.xs }}>
                     <span style={{ color: tokens.colors.textSecondary, fontSize: tokens.font.sizes.xs }}>
-                      Total: {proof.reasons_for_not_verified.length} issue{proof.reasons_for_not_verified.length !== 1 ? 's' : ''}
+                      Total: {reasonsForNotVerified.length} issue{reasonsForNotVerified.length !== 1 ? 's' : ''}
                     </span>
                   </div>
                 )}
@@ -179,25 +185,25 @@ export function IntegratedProof({ proof }: IntegratedProofProps) {
               <div style={{ border: `1px solid ${tokens.colors.divider}`, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
                 <div style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>Proven</div>
                 <div style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.sm }}>
-                  {proof.proven_dependencies.length}
+                  {proof?.proven_dependencies?.length ?? 0}
                 </div>
               </div>
               <div style={{ border: `1px solid ${tokens.colors.divider}`, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
                 <div style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>Unproven</div>
                 <div style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.sm }}>
-                  {proof.unproven_dependencies.length}
+                  {proof?.unproven_dependencies?.length ?? 0}
                 </div>
               </div>
               <div style={{ border: `1px solid ${tokens.colors.divider}`, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
                 <div style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>Blocked</div>
                 <div style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.sm }}>
-                  {proof.blocked_dependencies.length}
+                  {proof?.blocked_dependencies?.length ?? 0}
                 </div>
               </div>
               <div style={{ border: `1px solid ${tokens.colors.divider}`, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm }}>
                 <div style={{ fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>Unsupported</div>
                 <div style={{ fontWeight: tokens.font.weights.bold, fontSize: tokens.font.sizes.sm }}>
-                  {proof.unsupported_dependencies.length}
+                  {proof?.unsupported_dependencies?.length ?? 0}
                 </div>
               </div>
             </div>

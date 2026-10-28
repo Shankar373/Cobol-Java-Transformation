@@ -42,6 +42,7 @@ from engine.transformation.ir import (
     FileOrganization,
     FileAccessMode,
     ProgramCall,
+    UnstringStatement,
     normalize_cobol_name,
 )
 from engine.transformation.cobol_parser import CobolParser
@@ -462,7 +463,22 @@ class CapabilityAnalyzer:
                 message,
             ))
 
-        def _note_ir(name: str) -> None:
+        def _unstring_certified(stmt: UnstringStatement) -> bool:
+            # Mirror the mapper's certified subset: DELIMITED BY <literal>,
+            # no ON OVERFLOW, no VARYING IN, non-empty targets.  Pointer and
+            # TALLYING IN are implemented and do not disqualify.
+            if stmt.has_overflow:
+                return False
+            if stmt.varying_pointer:
+                return False
+            if not stmt.targets:
+                return False
+            delim = stmt.delimiter or ""
+            if len(delim) < 2 or delim[0] != delim[-1] or delim[0] not in ("'", '"'):
+                return False
+            return True
+
+        def _note_ir(name: str, stmt=None) -> None:
             ir_types_seen.add(name)
             key = IR_TYPE_TO_CONSTRUCT.get(name)
             if key is None:
@@ -473,6 +489,19 @@ class CapabilityAnalyzer:
                     name,
                     CapabilityLevel.UNSUPPORTED,
                     f"Unrecognized/unmapped IR statement {name}",
+                ))
+                return
+            # Instance-level refinement: UNSTRING is only SUPPORTED for the
+            # certified subset (DELIMITED BY <literal>, no ON OVERFLOW /
+            # VARYING IN / identifier delimiter).  Outside that subset the
+            # mapper fails closed, so the capability must not claim SUPPORTED.
+            if name == "UnstringStatement" and stmt is not None and not _unstring_certified(stmt):
+                findings.append((
+                    "UNSTRING",
+                    CapabilityLevel.PARTIAL,
+                    "UNSTRING instance is outside the certified subset "
+                    "(DELIMITED BY <literal>, no ON OVERFLOW / VARYING IN / "
+                    "identifier delimiter); mapper fails closed",
                 ))
                 return
             entry = CONSTRUCT_REGISTRY[key]
@@ -527,7 +556,7 @@ class CapabilityAnalyzer:
 
         def _walk(stmt) -> None:
             name = type(stmt).__name__
-            _note_ir(name)
+            _note_ir(name, stmt)
 
             # ROUNDED is a flag carried on the arithmetic statement itself, not
             # a statement class.  Read it from IR so the verdict is backed by

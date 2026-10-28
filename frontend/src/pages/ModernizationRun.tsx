@@ -265,9 +265,22 @@ export function ModernizationRun({
   useEffect(() => {
     let mounted = true;
     let timer: ReturnType<typeof setInterval> | null = null;
-    // A new run id means a new pipeline: drop the anchor so a FAILED run
-    // cannot inherit the previous run's last stage.
+    // A new run id means a new pipeline: drop every piece of state that
+    // belonged to the previous run so a reused component instance can never
+    // render stale data (or a stale APPROVED gate) under the new id.
     lastStageRef.current = null;
+    setRun(null);
+    setDetail(null);
+    setVerdict(null);
+    setDiscovery(null);
+    setArtifacts(null);
+    setReport(null);
+    setIntegratedProof(null);
+    setApprovalState(null);
+    setDownloadError(null);
+    setLoadError(null);
+    setPollFailures(0);
+    pollFailuresRef.current = 0;
 
     const tick = async () => {
       try {

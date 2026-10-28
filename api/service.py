@@ -722,11 +722,23 @@ class Service:
         snapshot = replace(run)
 
         # Launch background worker — daemon thread dies with the process.
-        self._launch(
-            "_modernize_background",
-            (app_id, run_id, use_uploaded_candidate),
-            name=f"modernize-{run_id}",
-        )
+        # If the thread cannot be started, the slot must be released and the
+        # already-created run must be marked FAILED instead of stranding it
+        # (terminal-state guarantee).
+        try:
+            self._launch(
+                "_modernize_background",
+                (app_id, run_id, use_uploaded_candidate),
+                name=f"modernize-{run_id}",
+            )
+        except Exception as exc:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+            run.stage = RunStage.FAILED
+            run.error = f"Failed to launch background worker: {exc}"
+            run.completed_at = datetime.now(timezone.utc).isoformat()
+            self._persist_final(run)
+            raise ServiceError(f"Failed to launch background worker: {exc}") from exc
         logger.info(
             "modernize started",
             extra={
@@ -750,7 +762,15 @@ class Service:
         as run failures.  Stages are updated before each expensive operation
         so the frontend can observe real progress via polling.
         """
-        run = self._store.get_run(run_id)
+        try:
+            run = self._store.get_run(run_id)
+        except Exception:
+            logger.exception(
+                "Background modernize: could not load run %s",
+                run_id,
+                extra={"event": "run.load_failed", "run_id": run_id},
+            )
+            return
         if run is None:
             logger.error(
                 "Background modernize: run %s not found",
@@ -759,7 +779,16 @@ class Service:
             )
             return
 
-        app = self._store.get_application(app_id)
+        try:
+            app = self._store.get_application(app_id)
+        except Exception:
+            logger.exception(
+                "Background modernize: could not load application %s",
+                app_id,
+                extra={"event": "run.load_failed", "run_id": run_id},
+            )
+            self._finish_failed(run, f"Application {app_id!r} could not be loaded")
+            return
         if app is None:
             self._finish_failed(run, f"Application {app_id!r} not found")
             return
@@ -905,7 +934,16 @@ class Service:
                 self._active_jobs -= 1
             raise
 
-        self._launch("_revalidate_background", (run_id,), name=f"revalidate-{run_id}")
+        try:
+            self._launch("_revalidate_background", (run_id,), name=f"revalidate-{run_id}")
+        except Exception as exc:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+            reset.stage = RunStage.FAILED
+            reset.error = f"Failed to launch background worker: {exc}"
+            reset.completed_at = datetime.now(timezone.utc).isoformat()
+            self._persist_final(reset)
+            raise ServiceError(f"Failed to launch background worker: {exc}") from exc
         logger.info(
             "revalidation started",
             extra={
@@ -919,7 +957,15 @@ class Service:
 
     def _revalidate_background(self, run_id: str) -> None:
         """Background worker: re-execute validation for a reset run."""
-        run = self._store.get_run(run_id)
+        try:
+            run = self._store.get_run(run_id)
+        except Exception:
+            logger.exception(
+                "Background revalidate: could not load run %s",
+                run_id,
+                extra={"event": "run.load_failed", "run_id": run_id},
+            )
+            return
         if run is None:
             logger.error(
                 "Background revalidate: run %s not found",
@@ -928,7 +974,16 @@ class Service:
             )
             return
 
-        app = self._store.get_application(run.application_id)
+        try:
+            app = self._store.get_application(run.application_id)
+        except Exception:
+            logger.exception(
+                "Background revalidate: could not load application %s",
+                run.application_id,
+                extra={"event": "run.load_failed", "run_id": run_id},
+            )
+            self._finish_failed(run, f"Application {run.application_id!r} could not be loaded")
+            return
         if app is None:
             self._finish_failed(run, f"Application {run.application_id!r} not found")
             return

@@ -1,0 +1,7 @@
+# Shell scripts must be LF everywhere: a CRLF shebang makes Linux exec
+# fail with "bad interpreter: /usr/bin/env bash\r", and all six deploy/
+# backup scripts were committed CRLF (never executed by CI, so nothing
+# caught it). `eol=lf` forces LF on checkout regardless of the developer's
+# autocrlf setting; tests/test_shell_script_contracts.py enforces both the
+# file bytes and `bash -n` syntax.
+*.sh text eol=lf

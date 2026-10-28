@@ -33,13 +33,13 @@ MAIN-LOGIC.
 """
 
 
-def _capability_levels(cobol_body: str) -> tuple[CapabilityLevel, str]:
+def _capability_levels(cobol_body: str, docker_available: bool = False) -> tuple[CapabilityLevel, str]:
     """Classify a one-program application containing cobol_body."""
     source = MINIMUM_PROGRAM.format(body=cobol_body)
     with tempfile.TemporaryDirectory() as tmpdir:
         (Path(tmpdir) / "MAIN.cob").write_text(source, encoding="utf-8")
         app = ApplicationDiscovery().discover(Path(tmpdir))
-        report = CapabilityAnalyzer(docker_available=False).analyze(app)
+        report = CapabilityAnalyzer(docker_available=docker_available).analyze(app)
     programs = [c for c in report.components if c.component_type == "PROGRAM"]
     assert len(programs) == 1
     return programs[0].level, programs[0].reason
@@ -206,9 +206,13 @@ class TestGoBackIsNotAParagraph:
         names = [p.name for p in program.paragraphs]
         assert "GOBACK" not in names
 
-    def test_goback_is_unsupported(self) -> None:
-        level, _ = _capability_levels("    GOBACK.\n")
-        assert level == CapabilityLevel.UNSUPPORTED
+    def test_goback_is_supported_when_infrastructure_available(self) -> None:
+        # GOBACK lowers to a Java return (cobol_to_java_mapping.py) and is
+        # registered as SUPPORTED.  Under docker_available=False the program
+        # is downgraded to UNAVAILABLE by the infra gate, which says nothing
+        # about GOBACK itself, so probe with infrastructure available.
+        level, _ = _capability_levels("    GOBACK.\n", docker_available=True)
+        assert level == CapabilityLevel.SUPPORTED
 
 
 class TestTerminalExitProgram:
