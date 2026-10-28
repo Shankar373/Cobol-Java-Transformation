@@ -75,7 +75,7 @@
            OPEN OUTPUT REPORT-FILE
            OPEN OUTPUT SETTLE-FILE
 
-           PERFORM LOAD-PAYMENTS UNTIL WS-EOF-PAYMENTS = 'Y'
+           PERFORM LOAD-PAYMENTS
 
            MOVE WS-HEADER TO REPORT-REC
            WRITE REPORT-REC
@@ -119,7 +119,10 @@
                    MOVE WS-PR-AMOUNT-STR
                        TO WS-PT-AMOUNT(WS-PAY-COUNT)
            END-READ
- 
+           IF WS-EOF-PAYMENTS NOT = 'Y'
+               GO TO LOAD-PAYMENTS
+           END-IF.
+
        PROCESS-CLAIMS.
            READ CLAIMS-FILE
                AT END

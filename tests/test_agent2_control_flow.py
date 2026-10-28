@@ -434,16 +434,15 @@ class TestGoTo:
         prog = _parse("GO TO OTHER-PARA.\n")
         assert isinstance(_stmts(prog)[0], GoToStatement)
 
-    def test_goto_maps_to_comment_not_code(self) -> None:
+    def test_goto_maps_fail_closed(self) -> None:
+        import pytest
         from engine.transformation.cobol_to_java_mapping import (
             map_cobol_statement,
         )
-        from engine.transformation.java_ir import JavaComment
 
         prog = _parse("GO TO OTHER-PARA.\n")
-        mapped = map_cobol_statement(_stmts(prog)[0], prog)
-        assert len(mapped) == 1
-        assert isinstance(mapped[0], JavaComment)
+        with pytest.raises(ValueError, match="MISSING_REQUIRED_SEMANTIC"):
+            map_cobol_statement(_stmts(prog)[0], prog)
 
     def test_goto_program_is_unsupported(self) -> None:
         from engine.modernization.capability_analyzer import (
