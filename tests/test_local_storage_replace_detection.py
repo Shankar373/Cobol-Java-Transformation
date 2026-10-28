@@ -8,9 +8,10 @@ file pins the fix at three layers:
 
 1. the parser emits an explicit `UNSUPPORTED_CONSTRUCT` diagnostic the moment
    it sees either construct (fail-closed, never silent);
-2. the capability registry classifies both `UNSUPPORTED` at IR level *and*
-   source-only level, so a program containing them can never be reported
-   SUPPORTED;
+2. the capability registry classifies LOCAL-STORAGE `UNSUPPORTED` at IR level
+   *and* source-only level, and REPLACE `UNSUPPORTED` at source-only level
+   (REPLACE itself is a supported source preprocessor), so a program
+   containing either can never be reported SUPPORTED;
 3. the source scanner detects both (with the pre-procedure scan the analyzer
    already performs for data-division constructs), and detection never
    misfires on near-miss identifiers or on `COPY ... REPLACING`.
@@ -116,8 +117,17 @@ class TestRegistryClassification:
         assert entry.effective_source_level is CapabilityLevel.UNSUPPORTED, entry
 
     def test_replace_registry_entry_fails_closed(self) -> None:
+        """REPLACE keeps a two-level verdict (preprocessor landed 2026-10-28).
+
+        ``level`` is SUPPORTED because pseudo-text REPLACE is now applied as a
+        source preprocessor before parsing.  A source-only instance must still
+        fail closed: the analyzer's source-scan path and the copybook verdict
+        both gate on ``effective_source_level``, so a program containing
+        REPLACE can never be reported SUPPORTED (pinned end-to-end by
+        ``TestCapabilityVerdicts.test_replace_program_is_never_reported_supported``).
+        """
         entry = CONSTRUCT_REGISTRY["REPLACE"]
-        assert entry.level is CapabilityLevel.UNSUPPORTED, entry
+        assert entry.level is CapabilityLevel.SUPPORTED, entry
         assert entry.effective_source_level is CapabilityLevel.UNSUPPORTED, entry
 
 
