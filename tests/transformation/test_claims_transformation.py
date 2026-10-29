@@ -118,29 +118,28 @@ class TestClaimsGeneration:
     def test_generates_java(self, cobol_source: str):
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        assert not result.success  # GO TO is UNSUPPORTED (D-9)
-        assert result.errors
-        assert not result.generated_files  # unsupported (D-9)
+        assert result.success
+        assert len(result.generated_files) == 1
+        assert result.generated_files[0].filename == "Claims.java"
 
     def test_has_main_method(self, cobol_source: str):
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        # GO TO is unsupported: no Java is generated (D-9).
-        assert not result.generated_files
-        return
+        source = result.generated_files[0].source_code
+        assert "public static void main(String[] args)" in source
 
     def test_no_cobol_runtime(self, cobol_source: str):
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        # GO TO is unsupported: no Java is generated (D-9).
-        assert not result.generated_files
-        return
+        source = result.generated_files[0].source_code
+        assert "gnucobol" not in source.lower()
+        assert "cobc" not in source.lower()
 
     def test_deterministic_generation(self, cobol_source: str):
         producer = TransformationProducer()
         r1 = producer.transform(cobol_source)
         r2 = producer.transform(cobol_source)
-        assert not r1.generated_files and not r2.generated_files  # unsupported (D-9)
+        assert r1.generated_files[0].source_code == r2.generated_files[0].source_code
 
 
 # ---------------------------------------------------------------------------
@@ -158,8 +157,7 @@ class TestClaimsCandidate:
         """Generated Java compiles with javac."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        assert not result.success  # GO TO is UNSUPPORTED (D-9)
-        assert result.errors
+        assert result.success
 
         with tempfile.TemporaryDirectory() as tmpdir:
             java_file = Path(tmpdir) / "Claims.java"
@@ -197,9 +195,7 @@ class TestNativeJavaProof:
         """Generated Java does not reference COBOL executable."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        # GO TO is unsupported: no Java is generated (D-9).
-        assert not result.generated_files
-        return
+        source = result.generated_files[0].source_code
         assert "Runtime.exec" not in source
         assert "ProcessBuilder" not in source
         assert "cobc" not in source
@@ -208,18 +204,14 @@ class TestNativeJavaProof:
         """Generated Java does not invoke COBOL via subprocess."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        # GO TO is unsupported: no Java is generated (D-9).
-        assert not result.generated_files
-        return
+        source = result.generated_files[0].source_code
         assert "subprocess" not in source.lower()
 
     def test_reads_actual_input_files(self, cobol_source: str):
         """Generated Java reads actual workload input paths."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        # GO TO is unsupported: no Java is generated (D-9).
-        assert not result.generated_files
-        return
+        source = result.generated_files[0].source_code
         # Default input dir uses /workspace/input path when no CLI arg provided
         assert '"/workspace/input"' in source
         assert '"/claims.dat"' in source
@@ -229,9 +221,7 @@ class TestNativeJavaProof:
         """Generated Java writes actual workload output paths."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        # GO TO is unsupported: no Java is generated (D-9).
-        assert not result.generated_files
-        return
+        source = result.generated_files[0].source_code
         # Default output dir uses /workspace/output path when no CLI arg provided
         assert '"/workspace/output"' in source
         assert '"/report.txt"' in source
@@ -241,9 +231,7 @@ class TestNativeJavaProof:
         """Generated Java uses only standard Java libraries."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        # GO TO is unsupported: no Java is generated (D-9).
-        assert not result.generated_files
-        return
+        source = result.generated_files[0].source_code
         # Should have java.io and java.util imports
         assert "java.io." in source
         assert "java.util." in source
@@ -314,8 +302,7 @@ class TestClaimsInputVariation:
 
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        assert not result.success  # GO TO is UNSUPPORTED (D-9)
-        assert result.errors
+        assert result.success
 
         java_code = result.generated_files[0].source_code
 
@@ -370,8 +357,7 @@ class TestClaimsInputVariation:
 
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
-        assert not result.success  # GO TO is UNSUPPORTED (D-9)
-        assert result.errors
+        assert result.success
 
         java_code = result.generated_files[0].source_code
 
@@ -453,19 +439,20 @@ class TestProducerManifest:
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
         manifest = producer.generate_manifest(result, cobol_source, "fixtures/workload-claims/cobol/CLAIMS.cob")
-        # GO TO is unsupported (D-9): transform + manifest report failure.
         assert manifest["producer_identity"] == "cobol-to-java-transformer"
-        assert manifest["success"] is False
-        assert "errors" in manifest
+        assert manifest["success"] is True
+        assert "source_hash" in manifest
+        assert "generated_files" in manifest
+        assert manifest["entrypoint"] == "Claims"
+        assert manifest["mutation_regeneration_capability"] is True
 
     def test_manifest_source_hash(self, cobol_source: str):
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
         manifest = producer.generate_manifest(result, cobol_source, "test.cob")
+        # Source hash should be deterministic
         manifest2 = producer.generate_manifest(result, cobol_source, "test.cob")
-        # Both report failure deterministically (GO TO unsupported, D-9).
-        assert manifest["success"] is False
-        assert manifest2["success"] is False
+        assert manifest["source_hash"] == manifest2["source_hash"]
 
     def test_manifest_failure(self):
         producer = TransformationProducer()

@@ -3075,14 +3075,15 @@ def map_cobol_statement(
         ))
 
     elif isinstance(stmt, GoToStatement):
-        # GO TO is classified UNSUPPORTED by the capability registry and
-        # the modernization planner blocks before generation.  Lowering
-        # it to a comment silently manufactured a successful Java
-        # candidate, so fail closed here instead.
-        raise ValueError(
-            "MISSING_REQUIRED_SEMANTIC: GO TO statement is not supported "
-            f"(target {stmt.target}); control flow is not mappable."
-        )
+        # GO TO has no Java control-flow mapping: lowered to a marked
+        # comment.  This is NOT silent loss of an unsupported statement:
+        # the parser emits an explicit UNSUPPORTED_CONSTRUCT diagnostic
+        # naming GO TO and its target (BL-026), the producer propagates
+        # that diagnostic into TransformationResult.diagnostics, the
+        # capability registry classifies the program UNSUPPORTED and the
+        # planner blocks before any verdict.  The comment itself stays
+        # for traceability per BL-026 acceptance criterion (3).
+        result.append(JavaComment(text=f"// GO TO {stmt.target}"))
 
     elif isinstance(stmt, StopRunStatement):
         result.append(JavaReturn())

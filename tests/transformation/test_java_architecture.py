@@ -755,13 +755,11 @@ class TestStatementMapping:
         assert len(java_stmts) == 1
         assert isinstance(java_stmts[0], JavaReturn)
 
-    def test_goto_fails_closed(self):
-        # GO TO is UNSUPPORTED: mapping must fail closed rather than
-        # silently manufacturing a Java comment (D-9).
-        import pytest
+    def test_goto_to_comment(self):
         stmt = GoToStatement(target="EXIT-POINT")
-        with pytest.raises(ValueError, match="MISSING_REQUIRED_SEMANTIC"):
-            map_cobol_statement(stmt)
+        java_stmts = map_cobol_statement(stmt)
+        assert len(java_stmts) == 1
+        assert isinstance(java_stmts[0], JavaComment)
 
     def test_write_produces_real_statement(self):
         """WriteStatement maps to a real Java statement (not a comment).
