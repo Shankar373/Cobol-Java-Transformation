@@ -119,7 +119,7 @@ No confirmed critical regressions. All four commits CI-green on exact pushed SHA
 
 ### P1 — High (open, documented, not fixed this session)
 1. **L.3.2** `update_application` lost-update — **FIXED** (commit a3509ca + follow-up): added `version` column (schema v7→v8, migration for legacy DBs), `version` field on `ApplicationRecord`, `expected_version` param on `update_application`/`update_application_fields` raising `ConflictError` (409) on stale write; version increments on every successful write. Legacy callers (no `expected_version`) unchanged. Tests: `test_optimistic_concurrency.py` 10 passed (incl. legacy-DB migration).
-2. **L.3.7** Forged evidence (self-signed sha256 seal in `engine/evidence/integrity.py`; no cosign/sigstore/HMAC). Integrity claim is advisory against a capable attacker. *Fix: real signing or remove integrity claim.*
+2. **L.3.7** Forged evidence (self-signed sha256 seal). Integrity claim narrowed (a3509ca). Design proposal added: docs/L3_7_TRUSTED_SIGNING_PROPOSAL.md (Option C Ed25519 / Option B HMAC). Not implemented; remains open until trusted signing is verified.
 3. **L.3.6** `.dockerignore` not tracked (`git ls-files` confirms absent). Build-context leak risk. *Fix: `git add -f .dockerignore` + commit.*
 
 ### P2 — Medium (open)
