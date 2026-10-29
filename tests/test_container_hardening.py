@@ -88,7 +88,10 @@ class TestHardeningFlagsContract:
 
 class TestPrepareHostTree:
     def test_missing_path_is_a_no_op(self):
-        prepare_host_tree(Path("/definitely/not/here-42"), writable=True)
+        path = Path("/definitely/not/here-42")
+        assert not path.exists()
+        prepare_host_tree(path, writable=True)  # must not raise
+        assert not path.exists()  # still absent: a missing path is a no-op
 
     @pytest.mark.skipif(
         os.name == "nt",
@@ -124,7 +127,10 @@ class TestPrepareHostTree:
         """Best-effort preparation must never raise on any platform."""
         (tmp_path / "x").mkdir()
         (tmp_path / "x" / "f").write_bytes(b"y")
-        prepare_host_tree(tmp_path, writable=True)
+        before = sorted(p.name for p in (tmp_path / "x").iterdir())
+        prepare_host_tree(tmp_path, writable=True)  # must not raise
+        after = sorted(p.name for p in (tmp_path / "x").iterdir())
+        assert before == after  # no files lost during preparation
 
 
 # ---------------------------------------------------------------------------
