@@ -147,7 +147,6 @@ cython_debug/
 Thumbs.db
 
 # Docker
-.dockerignore
 
 # Temporary files
 *.tmp
@@ -267,7 +266,6 @@ mvnw.cmd
 build/
 
 # Docker
-.dockerignore
 
 # IDE
 .idea/

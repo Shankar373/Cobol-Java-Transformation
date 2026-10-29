@@ -40,7 +40,7 @@ from pathlib import Path
 
 #: Must track ``api.store.DB_SCHEMA_VERSION`` (asserted by the unit test,
 #: which imports ``api.store`` rather than copying the number).
-SCHEMA_VERSION_CEILING = 7
+SCHEMA_VERSION_CEILING = 8
 
 DB_NAME = "control-plane.db"
 TARBALL_NAME = "workspaces.tar.gz"

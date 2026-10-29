@@ -158,6 +158,9 @@ class ApplicationRecord:
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    # Optimistic-concurrency token (L.3.2): incremented on every successful
+    # write; a stale expected_version yields ConflictError (409).
+    version: int = 0
 
 
 @dataclass
@@ -212,7 +215,7 @@ class RunRecord:
 
 #: Database schema version written by this code. Payload schema versions are
 #: tracked separately in :mod:`api.serialization`.
-DB_SCHEMA_VERSION = 7
+DB_SCHEMA_VERSION = 8
 
 
 def _last_stage_anchor(stage: RunStage, previous: str | None) -> str | None:
@@ -239,7 +242,8 @@ CREATE TABLE IF NOT EXISTS applications (
     generated_app_path TEXT,
     generated_entrypoint TEXT,
     generated_program_ids TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
@@ -326,6 +330,11 @@ class Store:
                 "ALTER TABLE applications ADD COLUMN target_runtime"
                 " TEXT NOT NULL DEFAULT 'spring_boot'"
             )
+        if "version" not in app_columns:            # migration 8 (optimistic concurrency, L.3.2)
+            self._conn.execute(
+                "ALTER TABLE applications ADD COLUMN version"
+                " INTEGER NOT NULL DEFAULT 0"
+            )
         if "approval_state" not in columns:  # migration 5 (approval columns)
             # Existing runs predate the approval workflow and read back as
             # PENDING — the fail-closed default (export stays blocked).
@@ -367,8 +376,8 @@ class Store:
                     " cobol_source_path, java_candidate_path,"
                     " discovered_program_ids, generated_app_path,"
                     " generated_entrypoint, generated_program_ids,"
-                    " created_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " created_at, version)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     self._app_params(record),
                 )
             except sqlite3.IntegrityError as exc:
@@ -393,35 +402,86 @@ class Store:
             ).fetchall()
             return [self._app_from_row(r) for r in rows]
 
-    def update_application(self, record: ApplicationRecord) -> None:
+    def update_application(
+        self, record: ApplicationRecord, *, expected_version: int | None = None
+    ) -> ApplicationRecord:
+        """Full-row update.
+
+        When ``expected_version`` is given, the write is conditional on the
+        stored ``version`` matching it (optimistic concurrency, L.3.2): a
+        stale caller gets ``ConflictError`` (HTTP 409) instead of silently
+        overwriting a concurrent writer. The version is incremented on every
+        successful write.
+        """
         with self._lock:
-            cursor = self._conn.execute(
-                "UPDATE applications SET name = ?, description = ?,"
-                " workload_id = ?, java_entrypoint = ?,"
-                " target_runtime = ?,"
-                " cobol_source_path = ?, java_candidate_path = ?,"
-                " discovered_program_ids = ?, generated_app_path = ?,"
-                " generated_entrypoint = ?, generated_program_ids = ?,"
-                " created_at = ? WHERE id = ?",
-                (
-                    record.name,
-                    record.description,
-                    record.workload_id,
-                    record.java_entrypoint,
-                    record.target_runtime,
-                    record.cobol_source_path,
-                    record.java_candidate_path,
-                    serialization.encode_str_list(record.discovered_program_ids),
-                    record.generated_app_path,
-                    record.generated_entrypoint,
-                    serialization.encode_str_list(record.generated_program_ids),
-                    record.created_at,
-                    record.id,
-                ),
-            )
+            if expected_version is None:
+                cursor = self._conn.execute(
+                    "UPDATE applications SET name = ?, description = ?,"
+                    " workload_id = ?, java_entrypoint = ?,"
+                    " target_runtime = ?,"
+                    " cobol_source_path = ?, java_candidate_path = ?,"
+                    " discovered_program_ids = ?, generated_app_path = ?,"
+                    " generated_entrypoint = ?, generated_program_ids = ?,"
+                    " created_at = ?, version = version + 1 WHERE id = ?",
+                    (
+                        record.name,
+                        record.description,
+                        record.workload_id,
+                        record.java_entrypoint,
+                        record.target_runtime,
+                        record.cobol_source_path,
+                        record.java_candidate_path,
+                        serialization.encode_str_list(record.discovered_program_ids),
+                        record.generated_app_path,
+                        record.generated_entrypoint,
+                        serialization.encode_str_list(record.generated_program_ids),
+                        record.created_at,
+                        record.id,
+                    ),
+                )
+            else:
+                cursor = self._conn.execute(
+                    "UPDATE applications SET name = ?, description = ?,"
+                    " workload_id = ?, java_entrypoint = ?,"
+                    " target_runtime = ?,"
+                    " cobol_source_path = ?, java_candidate_path = ?,"
+                    " discovered_program_ids = ?, generated_app_path = ?,"
+                    " generated_entrypoint = ?, generated_program_ids = ?,"
+                    " created_at = ?, version = version + 1"
+                    " WHERE id = ? AND version = ?",
+                    (
+                        record.name,
+                        record.description,
+                        record.workload_id,
+                        record.java_entrypoint,
+                        record.target_runtime,
+                        record.cobol_source_path,
+                        record.java_candidate_path,
+                        serialization.encode_str_list(record.discovered_program_ids),
+                        record.generated_app_path,
+                        record.generated_entrypoint,
+                        serialization.encode_str_list(record.generated_program_ids),
+                        record.created_at,
+                        record.id,
+                        expected_version,
+                    ),
+                )
             if cursor.rowcount == 0:
-                raise NotFoundError(f"Application {record.id!r} not found")
+                # Distinguish "not found" from "stale version".
+                exists = self._conn.execute(
+                    "SELECT 1 FROM applications WHERE id = ?", (record.id,)
+                ).fetchone()
+                if exists is None:
+                    raise NotFoundError(f"Application {record.id!r} not found")
+                raise ConflictError(
+                    f"Application {record.id!r} version conflict "
+                    f"(expected {expected_version})"
+                )
             self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM applications WHERE id = ?", (record.id,)
+            ).fetchone()
+            return self._app_from_row(row)
 
     #: Columns ``update_application_fields`` accepts — the same set the
     #: full-row ``update_application`` writes, nothing else.
@@ -437,7 +497,7 @@ class Store:
     })
 
     def update_application_fields(
-        self, app_id: str, **fields: object
+        self, app_id: str, *, expected_version: int | None = None, **fields: object
     ) -> ApplicationRecord:
         """Update only the named columns of one application row.
 
@@ -446,7 +506,12 @@ class Store:
         stale full-row ``update_application`` (lost-update protection —
         BL-141).  Unknown column names are rejected (fail closed), an empty
         update is a programming error, and an unknown application raises
-        ``NotFoundError``.  Returns the refreshed record.
+        ``NotFoundError``.
+
+        When ``expected_version`` is given, the write is conditional on the
+        stored ``version`` matching it (optimistic concurrency, L.3.2): a
+        stale caller gets ``ConflictError`` (HTTP 409) instead of silently
+        overwriting a concurrent writer.
         """
         if not fields:
             raise ValueError(
@@ -464,14 +529,32 @@ class Store:
                 value = serialization.encode_str_list(tuple(value or ()))
             assignments.append(f"{key} = ?")
             values.append(value)
-        values.append(app_id)
+        # Always bump the optimistic-concurrency token on a successful write.
+        assignments.append("version = version + 1")
+        if expected_version is None:
+            values.append(app_id)
+            where = "WHERE id = ?"
+            params = tuple(values)
+        else:
+            values.append(app_id)
+            values.append(expected_version)
+            where = "WHERE id = ? AND version = ?"
+            params = tuple(values)
         with self._lock:
             cursor = self._conn.execute(
-                f"UPDATE applications SET {', '.join(assignments)} WHERE id = ?",
-                tuple(values),
+                f"UPDATE applications SET {', '.join(assignments)} {where}",
+                params,
             )
             if cursor.rowcount == 0:
-                raise NotFoundError(f"Application {app_id!r} not found")
+                exists = self._conn.execute(
+                    "SELECT 1 FROM applications WHERE id = ?", (app_id,)
+                ).fetchone()
+                if exists is None:
+                    raise NotFoundError(f"Application {app_id!r} not found")
+                raise ConflictError(
+                    f"Application {app_id!r} version conflict "
+                    f"(expected {expected_version})"
+                )
             self._conn.commit()
             row = self._conn.execute(
                 "SELECT * FROM applications WHERE id = ?", (app_id,)
@@ -802,6 +885,7 @@ class Store:
             record.generated_entrypoint,
             serialization.encode_str_list(record.generated_program_ids),
             record.created_at,
+            record.version,
         )
 
     @staticmethod
@@ -824,6 +908,7 @@ class Store:
                 row["generated_program_ids"]
             ),
             created_at=row["created_at"],
+            version=row["version"] if "version" in row.keys() else 0,
         )
 
     @staticmethod

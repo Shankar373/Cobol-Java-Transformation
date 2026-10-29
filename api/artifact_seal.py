@@ -33,6 +33,14 @@ boundary is the control-plane store: an attacker who can rewrite the
 database can rewrite the seal too, exactly like every other persisted
 fact.  This protects the far more likely case of filesystem substitution
 of the artifact after execution.
+
+The seal is tamper-*evidence* (it detects filesystem substitution) and is
+NOT a cryptographic signature: it is NOT tamper-proof against an attacker
+who can rewrite the persisted seal in the store. Trusted signing
+(cosign/sigstore/HMAC with a server-side secret) is intentionally not
+implemented (audit L.3.7); the integrity guarantee is deliberately narrowed
+to filesystem-substitution detection. Do not over-claim integrity beyond
+that.
 """
 
 from __future__ import annotations
