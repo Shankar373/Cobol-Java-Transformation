@@ -621,8 +621,8 @@ class TestApplicationValidation:
             app = discovery.discover(tmpdir, application_id="TEST")
 
             errors = app.validate()
-            # Note: This depends on parser behavior
-            # If parser handles duplicate IDs, this test may need adjustment
+            # Duplicate PROGRAM-IDs must be reported, not silently accepted.
+            assert any("Duplicate PROGRAM-ID" in e for e in errors), errors
 
     def test_unresolved_call_reporting(self):
         """Unresolved calls are reported in validation."""
