@@ -136,8 +136,8 @@ class TestLastStageAnchor:
 
 
 class TestSchemaMigration:
-    def test_schema_version_is_v7(self):
-        assert DB_SCHEMA_VERSION == 7
+    def test_schema_version_is_v8(self):
+        assert DB_SCHEMA_VERSION == 8
 
     def test_legacy_v1_database_gains_the_column(self, tmp_path):
         path = tmp_path / "legacy-v1.db"
