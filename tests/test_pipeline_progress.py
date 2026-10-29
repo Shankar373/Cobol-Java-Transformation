@@ -313,20 +313,22 @@ class TestAsyncAPIStagePersistence:
             self_svc._store.update_application(app)
             return Path("/tmp/mock"), "com.example.Main"
 
-        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
             for phase in ["EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE"]:
                 run.stage = RunStage(phase)
                 self_svc._store.update_run(run)
 
         app_id = self._create_and_upload_app()
         mock_adapter = MagicMock()
+        # Keep the patches active while the background worker runs. The
+        # endpoint is asynchronous, so dropping the patch context immediately
+        # after POST races the worker against restoration of real methods.
         with patch.object(Service, "_generate_application", mock_generate), \
              patch.object(Service, "_run_validation", mock_validation), \
              patch("engine.candidate.docker_spring_boot_adapter.DockerSpringBootCandidateAdapter", return_value=mock_adapter):
             resp = client.post(f"/applications/{app_id}/modernize")
             run_id = resp.json()["run_id"]
-
-        observed = self._wait_for_stage(run_id)
+            observed = self._wait_for_stage(run_id)
 
         # Run reached terminal state (mock runs instantly so intermediate
         # stages may be missed by polling)
@@ -346,7 +348,7 @@ class TestAsyncAPIStagePersistence:
             self_svc._store.update_application(app)
             return Path("/tmp/mock"), "com.example.Main"
 
-        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
+        def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None, require_trusted_provenance=False):
             for phase in ["EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE"]:
                 run.stage = RunStage(phase)
                 self_svc._store.update_run(run)
@@ -371,7 +373,7 @@ class TestAsyncAPIStagePersistence:
 
         canonical_order = [
             "CREATED", "INGESTING", "DISCOVERING", "DISCOVERY_COMPLETED",
-            "TRANSFORMING", "GENERATING", "BUILDING", "EXECUTING_ORACLE",
+            "TRANSFORMING", "GENERATING", "EXECUTING_ORACLE", "BUILDING",
             "EXECUTING_GENERATED", "COMPARING", "VALIDATING_EVIDENCE", "COMPLETED",
         ]
         last_idx = -1

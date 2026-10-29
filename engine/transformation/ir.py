@@ -43,6 +43,45 @@ class PicType(Enum):
     NUMERIC = "NUMERIC"
 
 
+@dataclass(frozen=True)
+class SourceProvenance:
+    """Canonical source provenance for semantic IR nodes."""
+    source_name: str = ""
+    line: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
+    construct: str = ""
+
+
+@dataclass(frozen=True)
+class CobolType:
+    """Canonical source-language type information."""
+    pic_type: PicType
+    length: int = 0
+    decimal_places: int = 0
+    signed: bool = False
+    usage: str = "DISPLAY"
+
+    @property
+    def is_numeric(self) -> bool:
+        return self.pic_type == PicType.NUMERIC
+
+    @property
+    def precision(self) -> int:
+        return self.length
+
+
+@dataclass(frozen=True)
+class FieldProvenance:
+    """Canonical relationship between a COBOL field and an input record."""
+    source: SourceProvenance = SourceProvenance()
+    file_name: str = ""
+    record_name: str = ""
+    field_name: str = ""
+    input_position: int | None = None
+
+
 # ---------------------------------------------------------------------------
 # Expressions
 # ---------------------------------------------------------------------------
@@ -63,9 +102,10 @@ class Literal(Expression):
         'HELLO'
         "WORLD"
     """
-    value: str  # the raw literal text
+    value: str
     is_numeric: bool = False
     is_signed: bool = False
+    semantic_type: CobolType | None = None
 
 
 @dataclass(frozen=True)
@@ -77,7 +117,9 @@ class FieldReference(Expression):
         WS-TOTAL
         AMOUNT
     """
-    name: str  # the COBOL field name
+    name: str
+    semantic_type: CobolType | None = None
+    provenance: FieldProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -193,8 +235,21 @@ class DataItem:
     decimal_places: int = 0  # V clause: digits after decimal point
     value: str | None = None
     occurs: int | None = None
-    redefines: str | None = None  # REDEFINES clause
+    redefines: str | None = None
+    signed: bool = False
+    usage: str = "DISPLAY"
+    provenance: SourceProvenance = SourceProvenance()
     children: tuple[DataItem, ...] = ()
+
+    @property
+    def semantic_type(self) -> CobolType:
+        return CobolType(
+            pic_type=self.pic_type,
+            length=self.pic_length,
+            decimal_places=self.decimal_places,
+            signed=self.signed,
+            usage=self.usage,
+        )
 
     @property
     def is_alphanumeric(self) -> bool:
@@ -224,11 +279,10 @@ class DataItem:
     def format_width(self) -> int:
         """Total display width for numeric formatting.
 
-        Derived from PIC: integer digits + decimal places.
-        For PIC 9(6): width=6, decimal_places=0
-        For PIC 9(6)V99: width=8, decimal_places=2
+        The V (implied decimal point) occupies no storage, so width is the
+        total number of 9 positions represented by the PIC.
         """
-        return self.pic_length + self.decimal_places
+        return self.pic_length
 
     @property
     def is_decimal(self) -> bool:
@@ -303,14 +357,31 @@ class OpenStatement:
 
 
 @dataclass(frozen=True)
+class CloseStatement:
+    """CLOSE file."""
+    file_name: str
+
+
+@dataclass(frozen=True)
 class ReadStatement:
     """READ file AT END / NOT AT END / INVALID KEY / NOT INVALID KEY."""
     file_name: str
     record_name: str
     key: str = ""  # READ with key for indexed/relative
     into_field: str = ""  # READ INTO field
+    read_next: bool = False  # READ NEXT RECORD
     at_end_body: tuple[Statement, ...] = ()
     not_at_end_body: tuple[Statement, ...] = ()
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class StartStatement:
+    """START file KEY IS [relational-operator] key."""
+    file_name: str
+    key: str = ""
+    operator: str = ""  # "=", "<", "<=", ">", ">="
     invalid_key_body: tuple[Statement, ...] = ()
     not_invalid_key_body: tuple[Statement, ...] = ()
 
@@ -321,6 +392,8 @@ class WriteStatement:
     record_name: str
     file_name: str
     from_field: str = ""  # WRITE FROM field
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -343,14 +416,12 @@ class DeleteStatement:
 
 @dataclass(frozen=True)
 class MoveStatement:
-    """MOVE source TO target.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """MOVE source TO one or more targets."""
     source: str
     target: str
-    source_expr: Expression | None = None  # structured source expression
-    target_ref: FieldReference | None = None  # structured target reference
+    source_expr: Expression | None = None
+    target_ref: FieldReference | None = None
+    targets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,6 +434,39 @@ class AddStatement:
     target: str
     source_expr: Expression | None = None  # structured source expression
     target_ref: FieldReference | None = None  # structured target reference
+    giving_target: str | None = None  # ADD ... GIVING result
+
+
+@dataclass(frozen=True)
+class SubtractStatement:
+    """SUBTRACT source FROM from_field [GIVING to_field]."""
+    source: str
+    from_field: str
+    to_field: str | None = None
+    source_expr: Expression | None = None
+    from_ref: FieldReference | None = None
+    to_ref: FieldReference | None = None
+    sources: tuple[str, ...] = ()  # multi-source SUBTRACT A B C FROM D
+
+
+@dataclass(frozen=True)
+class MultiplyStatement:
+    """MULTIPLY source BY multiplicand [GIVING target]."""
+    source: str
+    multiplicand: str
+    target: str | None = None
+    source_expr: Expression | None = None
+    multiplicand_ref: FieldReference | None = None
+    target_ref: FieldReference | None = None
+
+
+@dataclass(frozen=True)
+class CallStatement:
+    """CALL a statically or dynamically named COBOL program."""
+    program_name: str
+    arguments: tuple[str, ...] = ()
+    passing_modes: tuple[str, ...] = ()
+    is_dynamic: bool = False
 
 
 @dataclass(frozen=True)
@@ -393,6 +497,41 @@ class ComputeStatement:
 
 
 @dataclass(frozen=True)
+class DecisionNode:
+    """Canonical decision/control-flow view over an IF subtree."""
+    condition: Condition
+    then_body: tuple["Statement", ...] = ()
+    else_body: tuple["Statement", ...] = ()
+    explicit_else: bool = False
+    provenance: SourceProvenance = SourceProvenance()
+
+
+@dataclass(frozen=True)
+class EvaluateWhen:
+    """One WHEN arm of an EVALUATE statement.
+
+    Conditions are structured semantic predicates over the EVALUATE subject.
+    The other flag marks WHEN OTHER as the final fallback branch.
+    """
+    conditions: tuple[Condition, ...] = ()
+    body: tuple[Statement, ...] = ()
+    other: bool = False
+    provenance: SourceProvenance = SourceProvenance()
+
+
+@dataclass(frozen=True)
+class EvaluateStatement:
+    """Canonical single-subject EVALUATE control-flow statement.
+
+    WHEN arms remain structured so downstream mappings do not reconstruct
+    selector and branch semantics from flattened IF strings.
+    """
+    subject: Expression
+    arms: tuple[EvaluateWhen, ...] = ()
+    provenance: SourceProvenance = SourceProvenance()
+
+
+@dataclass(frozen=True)
 class IfStatement:
     """IF condition THEN ... ELSE ... END-IF.
 
@@ -401,18 +540,36 @@ class IfStatement:
     condition: str
     then_body: tuple[Statement, ...] = ()
     else_body: tuple[Statement, ...] = ()
-    structured_condition: Condition | None = None  # structured condition tree
+    structured_condition: Condition | None = None
+    provenance: SourceProvenance = SourceProvenance()
+
+    @property
+    def has_explicit_else(self) -> bool:
+        return bool(self.else_body)
+
+    @property
+    def decision_tree(self) -> "DecisionNode":
+        condition = self.structured_condition or BooleanCondition(
+            field=FieldReference(name=self.condition)
+        )
+        return DecisionNode(
+            condition=condition,
+            then_body=self.then_body,
+            else_body=self.else_body,
+            explicit_else=self.has_explicit_else,
+            provenance=self.provenance,
+        )
 
 
 @dataclass(frozen=True)
 class PerformStatement:
-    """PERFORM paragraph-name UNTIL condition, or PERFORM paragraph-name.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """PERFORM paragraph/inline block with optional UNTIL, TIMES, VARYING or THRU."""
     paragraph_name: str
     until_condition: str | None = None
-    structured_condition: Condition | None = None  # structured condition tree
+    structured_condition: Condition | None = None
+    body: tuple[Statement, ...] = ()
+    thru_target: str | None = None
+    test_after: bool = False  # WITH TEST AFTER → do-while; default (BEFORE) → while
 
 
 @dataclass(frozen=True)
@@ -476,13 +633,19 @@ class StopRunStatement:
 # Union type for all statements
 Statement = (
     OpenStatement
+    | CloseStatement
     | ReadStatement
+    | StartStatement
     | WriteStatement
     | RewriteStatement
     | DeleteStatement
     | MoveStatement
     | AddStatement
+    | SubtractStatement
+    | MultiplyStatement
+    | CallStatement
     | DivideStatement
+    | EvaluateStatement
     | IfStatement
     | PerformStatement
     | PerformTimesStatement
@@ -596,8 +759,9 @@ class InputRecordMapping:
     """
     record_name: str  # e.g. "CLAIM-REC", "PAYMENT-REC"
     file_name: str  # e.g. "CLAIMS-FILE"
-    delimiter: str  # e.g. "|"
-    fields: tuple[str, ...] = ()  # ordered target field names
+    delimiter: str
+    fields: tuple[str, ...] = ()
+    field_provenance: tuple[FieldProvenance, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -652,8 +816,11 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
             all_stmts.extend(_flatten_statements(stmt))
 
     has_move = any(isinstance(s, MoveStatement) for s in all_stmts)
-    has_arithmetic = any(isinstance(s, (AddStatement, DivideStatement)) for s in all_stmts)
-    has_condition = any(isinstance(s, IfStatement) for s in all_stmts)
+    has_arithmetic = any(
+        isinstance(s, (AddStatement, SubtractStatement, MultiplyStatement, DivideStatement, ComputeStatement))
+        for s in all_stmts
+    )
+    has_condition = any(isinstance(s, (IfStatement, EvaluateStatement)) for s in all_stmts)
     has_display = any(isinstance(s, DisplayStatement) for s in all_stmts)
     has_goto = any(isinstance(s, GoToStatement) for s in all_stmts)
     has_perform = any(isinstance(s, PerformStatement) for s in all_stmts)
@@ -672,14 +839,19 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
     # InputRecordMapping
     has_input_record = bool(program.input_record_mappings)
 
-    # --- Decision: any IfStatement with MoveStatement in then_body ---
+    # --- Decision: structured IF/EVALUATE with MOVE outcomes ---
     decision = False
     if has_condition and has_move:
         for s in all_stmts:
-            if isinstance(s, IfStatement):
-                if any(isinstance(x, MoveStatement) for x in s.then_body):
-                    decision = True
-                    break
+            if isinstance(s, IfStatement) and any(isinstance(x, MoveStatement) for x in s.then_body):
+                decision = True
+                break
+            if isinstance(s, EvaluateStatement) and any(
+                any(isinstance(x, MoveStatement) for x in arm.body)
+                for arm in s.arms
+            ):
+                decision = True
+                break
 
     # --- Lookup: table search pattern (IF with array indexing) ---
     # Generic COBOL table search: IF field(idx) = search-value
@@ -738,22 +910,121 @@ def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
 
 
 def _flatten_statements(stmt: Statement) -> list[Statement]:
-    """Recursively flatten compound statements into a list."""
+    """Recursively flatten canonical compound statements without losing structure."""
     result = [stmt]
     if isinstance(stmt, IfStatement):
         for s in stmt.then_body:
             result.extend(_flatten_statements(s))
         for s in stmt.else_body:
             result.extend(_flatten_statements(s))
-    if isinstance(stmt, ReadStatement):
+    elif isinstance(stmt, EvaluateStatement):
+        for arm in stmt.arms:
+            for s in arm.body:
+                result.extend(_flatten_statements(s))
+    elif isinstance(stmt, ReadStatement):
         for s in stmt.not_at_end_body:
             result.extend(_flatten_statements(s))
         for s in stmt.at_end_body:
             result.extend(_flatten_statements(s))
-    if isinstance(stmt, PerformStatement):
-        # PERFORM body statements are in paragraphs, not in the statement itself
+        for s in stmt.not_invalid_key_body:
+            result.extend(_flatten_statements(s))
+        for s in stmt.invalid_key_body:
+            result.extend(_flatten_statements(s))
+    elif isinstance(stmt, PerformStatement):
+        # PERFORM body statements are in paragraphs, not in the statement itself.
         pass
     return result
+
+
+def _bind_semantic_node(
+    node,
+    symbols: dict[str, DataItem],
+    input_provenance: dict[str, FieldProvenance],
+):
+    """Recursively bind FieldReference nodes to canonical source symbols."""
+    from dataclasses import fields as dataclass_fields, is_dataclass, replace
+
+    if isinstance(node, FieldReference):
+        item = symbols.get(node.name.upper())
+        if item is None:
+            return node
+        return replace(
+            node,
+            semantic_type=item.semantic_type,
+            provenance=input_provenance.get(
+                item.name.upper(),
+                FieldProvenance(source=item.provenance, field_name=item.name),
+            ),
+        )
+
+    if isinstance(node, tuple):
+        return tuple(_bind_semantic_node(value, symbols, input_provenance) for value in node)
+
+    if not is_dataclass(node):
+        return node
+
+    changes = {}
+    for field_def in dataclass_fields(node):
+        value = getattr(node, field_def.name)
+        bound = _bind_semantic_node(value, symbols, input_provenance)
+        if bound != value:
+            changes[field_def.name] = bound
+    return replace(node, **changes) if changes else node
+
+
+def bind_program_semantics(program: "CobolProgram") -> "CobolProgram":
+    """Bind source types/provenance into the parsed semantic IR."""
+    from dataclasses import replace
+
+    symbols: dict[str, DataItem] = {}
+
+    def add_items(items: tuple[DataItem, ...]) -> None:
+        for item in items:
+            symbols[item.name.upper()] = item
+            add_items(item.children)
+
+    add_items(program.working_storage)
+    add_items(program.linkage_section)
+    for fd in program.file_definitions:
+        add_items(fd.record_items)
+
+    # Input provenance is a projection of the canonical field symbol, not a
+    # second field model. When a field participates in more than one input
+    # mapping, leave the reference provenance unresolved rather than choosing
+    # an arbitrary record.
+    input_candidates: dict[str, list[FieldProvenance]] = {}
+    bound_mappings = []
+    for mapping in program.input_record_mappings:
+        field_provenance = tuple(
+            FieldProvenance(
+                source=symbols.get(name.upper(), DataItem(name=name)).provenance,
+                file_name=mapping.file_name,
+                record_name=mapping.record_name,
+                field_name=name,
+                input_position=index,
+            )
+            for index, name in enumerate(mapping.fields)
+        )
+        for provenance in field_provenance:
+            input_candidates.setdefault(provenance.field_name.upper(), []).append(provenance)
+        bound_mappings.append(replace(mapping, field_provenance=field_provenance))
+
+    input_provenance = {
+        name: candidates[0]
+        for name, candidates in input_candidates.items()
+        if len(candidates) == 1
+    }
+
+    bound_paragraphs = tuple(
+        _bind_semantic_node(paragraph, symbols, input_provenance)
+        for paragraph in program.paragraphs
+    )
+
+    return replace(
+        program,
+        paragraphs=bound_paragraphs,
+        input_record_mappings=tuple(bound_mappings),
+    )
 
 
 @dataclass(frozen=True)
@@ -778,9 +1049,11 @@ class CobolProgram:
     summary_fields: tuple[str, ...] = ()
     report_header: str = ""
     # Dependency information
-    called_programs: tuple[str, ...] = ()  # PROGRAM-IDs called via CALL
+    called_programs: tuple[str, ...] = ()
     copybooks: tuple[str, ...] = ()  # COPY references
     entry_points: tuple[str, ...] = ()  # ENTRY statements
+    linkage_section: tuple[DataItem, ...] = ()
+    using_parameters: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -809,6 +1082,10 @@ class CopybookReference:
     source_program: str  # PROGRAM-ID of program containing COPY
     copybook_name: str  # name of the copybook
     location: str = ""  # line/column if available
+    resolution: str = "UNRESOLVED"
+    resolved_path: str = ""
+    source_hash: str | None = None
+    diagnostic: str = ""
 
 
 @dataclass(frozen=True)
@@ -836,6 +1113,16 @@ class DependencyEdge:
 
 
 @dataclass(frozen=True)
+class DiscoveryIssue:
+    """Authoritative discovery outcome for a source unit."""
+    source_path: str
+    program_id: str
+    status: str
+    message: str
+    source_hash: str | None = None
+
+
+@dataclass(frozen=True)
 class CobolProgramUnit:
     """A single program unit within an application.
 
@@ -843,11 +1130,13 @@ class CobolProgramUnit:
     """
     program_id: str
     source_path: str  # filesystem path to the source file
-    program: CobolProgram
+    program: CobolProgram | None
     calls: tuple[ProgramCall, ...] = ()
     copybooks: tuple[CopybookReference, ...] = ()
     entry_points: tuple[str, ...] = ()
     file_dependencies: tuple[FileDependency, ...] = ()
+    status: str = "PARSED"
+    diagnostic: str = ""
 
 
 @dataclass(frozen=True)
@@ -861,13 +1150,16 @@ class CobolApplication:
     programs: tuple[CobolProgramUnit, ...] = ()
     copybooks: tuple[str, ...] = ()  # discovered copybook names
     edges: tuple[DependencyEdge, ...] = ()  # dependency graph edges
+    discovery_complete: bool = True
+    discovery_issues: tuple[DiscoveryIssue, ...] = ()
 
     def get_program(self, program_id: str) -> CobolProgramUnit | None:
         """Find a program by its PROGRAM-ID."""
-        for p in self.programs:
-            if p.program_id == program_id:
-                return p
-        return None
+        matches = [p for p in self.programs if p.program_id.upper() == program_id.upper()]
+        if len(matches) > 1:
+            paths = ", ".join(sorted(p.source_path for p in matches))
+            raise ValueError(f"Ambiguous PROGRAM-ID {program_id}: {paths}")
+        return matches[0] if matches else None
 
     def get_callers(self, target: str) -> list[str]:
         """Find all programs that call the target."""

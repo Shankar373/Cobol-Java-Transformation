@@ -28,6 +28,7 @@ from engine.candidate.docker_spring_boot_adapter import (
     DockerSpringBootCandidateAdapter,
     DockerSpringBootConfig,
 )
+from engine.candidate.image_provenance import load_adapter_provenance
 from engine.contracts.models import NormalizationPolicy, OrderingPolicy
 from engine.domain.identities import (
     AdapterStatus,
@@ -51,9 +52,7 @@ COPYBOOK_COBOL_DIR = Path("fixtures/workload-copybook/cobol")
 def _oracle_config() -> OracleAdapterConfig:
     return OracleAdapterConfig(
         oracle_id="gnucobol-3.1.2",
-        image_digest=(
-            "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
-        ),
+        image_digest=DockerOracleAdapter.V1_DIGEST,
         compiler_version="3.1.2.0",
         timeout_seconds=30,
     )
@@ -188,16 +187,21 @@ class TestAdapterAvailability:
         assert adapter.status == AdapterStatus.AVAILABLE
 
     def test_build_digest_verified(self):
-        """Build image digest matches configured value."""
+        """Build image identity matches the provisioned immutable identity."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.build_resolved_digest
-        assert adapter.build_resolved_digest == DockerSpringBootConfig().build_digest
+        provenance = load_adapter_provenance()
+        assert provenance.validate() == []
+        assert "sha256:" in adapter.build_identity
+        assert adapter.build_identity == provenance.build_identity
+        assert adapter.build_identity_kind == provenance.build_identity_kind
 
     def test_runtime_digest_verified(self):
         """Runtime image digest matches configured value."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.runtime_resolved_digest
-        assert adapter.runtime_resolved_digest == DockerSpringBootConfig().runtime_digest
+        provenance = load_adapter_provenance()
+        assert provenance.runtime_identity == DockerSpringBootConfig().runtime_digest
+        assert "sha256:" in adapter.runtime_identity
+        assert adapter.runtime_identity == DockerSpringBootConfig().runtime_digest
 
 
 # ============================================================
@@ -349,8 +353,10 @@ class TestDockerExecution:
         stdout = execution_result.stdout.decode(errors="replace")
         app_output = _extract_app_output(stdout)
         normalized = [_normalize_numbers(l) for l in app_output]
-        # UPDATED CLAIM-AMOUNT = 100 (from MOVE 100 TO CLAIM-AMOUNT)
-        assert any("UPDATED CLAIM-AMOUNT=100" in line for line in normalized)
+        # The current COBOL source displays the moved value as INITIAL and
+        # repeats the unchanged value as FINAL; there is no UPDATED display.
+        assert any("INITIAL CLAIM-AMOUNT=100" in line for line in normalized)
+        assert any("FINAL CLAIM-AMOUNT=100" in line for line in normalized)
         # WS-RESULT = CLAIM-AMOUNT = 100
         assert any("WS-RESULT=100" in line for line in normalized)
         # IF CLAIM-AMOUNT > 500 -> false, so AMOUNT LE 500
@@ -407,8 +413,10 @@ class TestOracleExecution:
     def test_oracle_has_computation(self, oracle_result):
         """Oracle output contains computed values."""
         stdout = oracle_result.stdout.decode(errors="replace")
-        # UPDATED CLAIM-AMOUNT = 100 (from MOVE 100 TO CLAIM-AMOUNT)
-        assert "UPDATED CLAIM-AMOUNT=000100" in stdout
+        # The current COBOL source has no UPDATED display; the moved value
+        # is emitted as INITIAL and the final value remains unchanged.
+        assert "INITIAL CLAIM-AMOUNT=000100" in stdout
+        assert "FINAL CLAIM-AMOUNT=000100" in stdout
         # WS-RESULT = CLAIM-AMOUNT = 100
         assert "WS-RESULT=00000100" in stdout
         # IF CLAIM-AMOUNT > 500 -> false, so AMOUNT LE 500

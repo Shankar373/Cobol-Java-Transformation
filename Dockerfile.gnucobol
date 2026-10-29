@@ -1,4 +1,10 @@
-FROM ubuntu:22.04
+# Base image pinned by digest so `docker build --pull` resolves the exact
+# rootfs every run instead of whatever ubuntu:22.04 points at today.
+# Apt packages are deliberately not version-pinned: a pin to a package
+# revision that the archive no longer serves would break the build, and the
+# invariant that actually matters (GnuCOBOL 3.1.2.0) is enforced by the
+# cobc banner check below and re-checked in CI.
+FROM ubuntu:22.04@sha256:b8b6ee6aa931ecd9d0d952abc34dc0e5f7c6a30c6bb71b079fe399fde0329c02
 
 # Install GnuCOBOL 3.x — the project's V1 oracle runtime.
 # Uses Ubuntu 22.04 packages which provide gnucobol 3.1.2.0-1.
@@ -12,7 +18,9 @@ RUN apt-get update -qq && \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Smoke-test: cobc --version must succeed
-RUN cobc --version
+# Smoke-test: cobc must run and must report the pinned V1 oracle compiler
+# version (PipelineConfig.oracle_compiler_version = 3.1.2.0). Fails the build
+# if the base package drifts to a different GnuCOBOL release.
+RUN set -eux; cobc --version; cobc --version | grep -F "3.1.2.0"
 
 WORKDIR /workspace

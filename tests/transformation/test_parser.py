@@ -15,6 +15,7 @@ from engine.transformation.ir import (
     MoveStatement,
     OpenStatement,
     Paragraph,
+    PerformStatement,
     PicType,
     ReadStatement,
     StopRunStatement,
@@ -199,3 +200,87 @@ class TestCobolParserStatements:
         main = next(p for p in program.paragraphs if p.name == "MAIN-LOGIC")
         stops = [s for s in main.statements if isinstance(s, StopRunStatement)]
         assert len(stops) == 1
+
+
+
+    def test_named_paragraph_does_not_create_empty_synthetic_main(self, parser: CobolParser):
+        """A named paragraph is the first procedure paragraph, not a second MAIN."""
+        source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TEST.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 100 TO LIMIT.
+           IF LIMIT > 0
+               DISPLAY "POSITIVE"
+           END-IF.
+           PERFORM WORK UNTIL LIMIT = 0.
+           STOP RUN.
+       WORK.
+           MOVE 0 TO LIMIT.
+"""
+        program = parser.parse(source)
+
+        assert [paragraph.name for paragraph in program.paragraphs] == ["MAIN", "WORK"]
+        main = program.paragraphs[0]
+        assert len(main.statements) == 4
+        assert isinstance(main.statements[0], MoveStatement)
+        assert isinstance(main.statements[1], IfStatement)
+        assert isinstance(main.statements[2], PerformStatement)
+        assert isinstance(main.statements[3], StopRunStatement)
+        assert main.statements[0].source_expr is not None
+        assert main.statements[1].structured_condition is not None
+        assert main.statements[2].structured_condition is not None
+
+    def test_multiline_move_preserves_source_and_target(self, parser: CobolParser):
+        """A continued TO clause must remain one semantic MOVE statement."""
+        source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TEST.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 'APPROVED'
+               TO WS-STATUS
+           STOP RUN.
+"""
+        program = parser.parse(source)
+        move = program.paragraphs[0].statements[0]
+
+        assert isinstance(move, MoveStatement)
+        assert move.source == "'APPROVED'"
+        assert move.target == "WS-STATUS"
+        assert move.source_expr is not None
+        assert move.target_ref is not None
+
+    def test_parser_does_not_raise_index_error_on_malformed_statements(self, parser: CobolParser):
+        """Malformed/empty statement inputs must not raise IndexError (regression)."""
+        sources = [
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    .\n",
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n",
+        ]
+        for source in sources:
+            program = parser.parse(source)
+            assert program.paragraphs is not None
+        with pytest.raises(CobolParseError, match="Incomplete IF"):
+            parser.parse("IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    IF X > 0\n")
+
+    def test_inline_perform_times_ir_contract(self, parser: CobolParser):
+        """Inline PERFORM n TIMES yields TIMES=n with no synthetic condition."""
+        source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TEST.
+       PROCEDURE DIVISION.
+       MAIN.
+           PERFORM 3 TIMES
+               MOVE 1 TO LIMIT
+           END-PERFORM.
+           STOP RUN.
+"""
+        program = parser.parse(source)
+        main = program.paragraphs[0]
+        stmt = main.statements[0]
+        assert isinstance(stmt, PerformStatement)
+        assert stmt.paragraph_name == ""
+        assert stmt.until_condition == "TIMES=3"
+        assert stmt.structured_condition is None
+        assert len(stmt.body) == 1

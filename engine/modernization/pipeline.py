@@ -59,6 +59,8 @@ class ModernizationReport:
     output_dir: str
 
     # Discovery results
+    discovery_complete: bool = False
+    discovery_issues: tuple[object, ...] = ()
     discovered_programs: tuple[str, ...] = ()
     discovered_copybooks: tuple[str, ...] = ()
     discovered_calls: tuple[str, ...] = ()
@@ -78,6 +80,8 @@ class ModernizationReport:
     generation_success: bool = False
     generation_errors: tuple[str, ...] = ()
     generated_program_ids: tuple[str, ...] = ()
+    producer_identity: str = ApplicationGenerator.PRODUCER_IDENTITY
+    producer_version: str = ApplicationGenerator.PRODUCER_VERSION
 
     # Assembly: the Spring Boot project directory and entry point
     generated_project_dir: str = ""
@@ -93,6 +97,17 @@ class ModernizationReport:
             "source_dir": self.source_dir,
             "output_dir": self.output_dir,
             "discovery": {
+                "complete": self.discovery_complete,
+                "issues": [
+                    {
+                        "source_path": getattr(issue, "source_path", ""),
+                        "program_id": getattr(issue, "program_id", ""),
+                        "status": getattr(issue, "status", ""),
+                        "message": getattr(issue, "message", ""),
+                        "source_hash": getattr(issue, "source_hash", None),
+                    }
+                    for issue in self.discovery_issues
+                ],
                 "programs": list(self.discovered_programs),
                 "copybooks": list(self.discovered_copybooks),
                 "calls": list(self.discovered_calls),
@@ -105,6 +120,8 @@ class ModernizationReport:
                 "success": self.generation_success,
                 "program_ids": list(self.generated_program_ids),
                 "errors": list(self.generation_errors),
+                "producer_identity": self.producer_identity,
+                "producer_version": self.producer_version,
             },
             "assembly": {
                 "project_dir": self.generated_project_dir,
@@ -122,6 +139,7 @@ class ModernizationReport:
             f"Output: {self.output_dir}",
             "",
             "DISCOVERY:",
+            f"  Complete: {self.discovery_complete}",
             f"  Programs: {', '.join(self.discovered_programs)}",
             f"  Copybooks: {', '.join(self.discovered_copybooks) or 'none'}",
             f"  CALLs: {', '.join(self.discovered_calls) or 'none'}",
@@ -212,6 +230,22 @@ class UniversalModernizationPipeline:
         except Exception as e:
             report.limitations = (f"Discovery failed: {e}",)
             return report
+        # Real CobolApplication instances always expose discovery_complete.
+        # Keep lightweight legacy test doubles compatible without weakening
+        # the typed production contract.
+        if not getattr(application, "discovery_complete", True):
+            issues = tuple(
+                f"{issue.status}: {issue.source_path}: {issue.message}"
+                for issue in application.discovery_issues
+            )
+            report.limitations = (
+                "Discovery incomplete; modernization is blocked until all required source units are understood",
+                *issues,
+            )
+            report.recommendations = (
+                "Resolve discovery failures before requesting transformation",
+            )
+            return report
         if progress:
             progress("DISCOVERY_COMPLETED")
 
@@ -237,6 +271,37 @@ class UniversalModernizationPipeline:
             progress("PLAN_COMPLETED")
 
         # Phase 4: TRANSFORM (per-program, never concatenate)
+        # The transformation plan is authoritative for what may be emitted.
+        # Do not generate candidates for components explicitly classified as
+        # UNSUPPORTED or UNAVAILABLE; doing so would silently contradict the
+        # capability analysis and could produce a misleading candidate.
+        skipped_programs = tuple(
+            c.component_id
+            for c in plan.components
+            if c.component_type == "PROGRAM"
+            and c.action.name == "SKIP"
+        )
+        if skipped_programs:
+            report.generation_errors = (
+                "Transformation plan contains non-transformable programs: "
+                + ", ".join(skipped_programs),
+            )
+            report.limitations = (
+                "Transformation blocked by capability plan",
+                *tuple(
+                    c.reason
+                    for c in plan.components
+                    if c.component_type == "PROGRAM"
+                    and c.component_id in skipped_programs
+                    and c.reason
+                ),
+            )
+            report.recommendations = (
+                "Add a producer/transformer for the blocked constructs or "
+                "provide an explicit manual transformation path",
+            )
+            return report
+
         if progress:
             progress("TRANSFORMING")
         try:
@@ -260,6 +325,8 @@ class UniversalModernizationPipeline:
 
         report.generation_success = True
         report.generated_program_ids = gen_result.program_ids
+        report.producer_identity = gen_result.producer_identity
+        report.producer_version = gen_result.producer_version
 
         # Phase 5: ASSEMBLY via Spring Boot mapping (same path as the service)
         if progress:
@@ -348,6 +415,8 @@ class UniversalModernizationPipeline:
             application_id=report.application_id,
             source_dir=report.source_dir,
             output_dir=report.output_dir,
+            discovery_complete=app.discovery_complete,
+            discovery_issues=app.discovery_issues,
             discovered_programs=tuple(u.program_id for u in app.programs),
             discovered_copybooks=app.copybooks,
             discovered_calls=tuple(

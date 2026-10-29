@@ -13,7 +13,10 @@ Implements the oracle adapter with real Docker execution:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
+import shlex
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -33,14 +36,154 @@ from engine.oracle.adapter import (
 
 
 class DockerOracleAdapter(OracleAdapter):
-    """Real Docker-backed GnuCOBOL oracle adapter."""
+    """Real Docker-backed GnuCOBOL oracle adapter.
+
+    Multi-program applications are compiled and linked by GnuCOBOL from
+    their separate source modules (``cobc -x ENTRY.cob OTHER.cob ...``):
+    sources are never concatenated. The entry module is resolved by
+    explicit entry_program, main.cob/main.cbl convention, then legacy
+    first-module fallback. Single-module workloads behave exactly as
+    before.
+    """
 
     V1_IMAGE = "gnucobol-ocesql:latest"
-    V1_DIGEST = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+    V1_DIGEST = os.environ.get(
+        "SYSTEMAOPS_ORACLE_DIGEST",
+        "sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+    )
 
     def __init__(self, config: OracleAdapterConfig) -> None:
         super().__init__(config)
         self._docker_available = self._check_docker()
+        self._verified_image_ref = ""
+        self._verified_image_digest = ""
+        self._observed_compiler_version = ""
+        self._observed_docker_version = ""
+        self._identity_failure_reason = ""
+        if self._docker_available:
+            self._resolve_runtime_identity()
+
+    @staticmethod
+    def compiler_matches_declared(observed: str, declared: str) -> bool:
+        """Return True when the observed cobc banner proves the declared version.
+
+        The observed value is the first ``cobc --version`` banner line (for
+        example ``cobc (GnuCOBOL) 3.1.2.0``); the declared value is the
+        ``PipelineConfig.oracle_compiler_version`` this configuration claims
+        to run (for example ``3.1.2.0``).
+        """
+        return bool(declared) and bool(observed) and declared in observed
+
+    def _unverified(self, reason: str) -> None:
+        """Fail closed: drop any resolved identity and record why."""
+        self._verified_image_ref = ""
+        self._verified_image_digest = ""
+        self._observed_compiler_version = ""
+        self._observed_docker_version = ""
+        self._identity_failure_reason = reason
+
+    @property
+    def identity_failure_reason(self) -> str:
+        """Why runtime identity verification failed ("" when verified)."""
+        return self._identity_failure_reason
+
+    def _resolve_runtime_identity(self) -> None:
+        """Resolve and verify the exact image used by Oracle execution."""
+        self._identity_failure_reason = ""
+        expected = self._config.image_digest.strip()
+        if not expected.startswith("sha256:"):
+            self._unverified("no pinned image digest configured")
+            return
+        try:
+            inspect = subprocess.run(
+                ["docker", "image", "inspect", self.V1_IMAGE],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if inspect.returncode != 0:
+                self._unverified("oracle image is not present locally")
+                return
+            payload = json.loads(inspect.stdout.decode(errors="replace"))
+            if not payload:
+                self._unverified("docker image inspect returned no metadata")
+                return
+            repo_digests = payload[0].get("RepoDigests") or []
+            image_id = payload[0].get("Id") or ""
+            matching = [ref for ref in repo_digests if ref.rsplit("@", 1)[-1] == expected]
+            if not matching and image_id == expected:
+                matching = [image_id]
+            if not matching:
+                self._unverified("local oracle image digest does not match the pinned digest")
+                return
+            observed_digest = (
+                matching[0].rsplit("@", 1)[-1]
+                if "@" in matching[0]
+                else matching[0]
+            )
+            if observed_digest != expected:
+                self._unverified("local oracle image digest does not match the pinned digest")
+                return
+            self._verified_image_digest = observed_digest
+            self._verified_image_ref = matching[0]
+            compiler = subprocess.run(
+                ["docker", "run", "--rm", "--network", "none",
+                 self._verified_image_ref, "cobc", "--version"],
+                capture_output=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if compiler.returncode == 0:
+                for line in compiler.stdout.decode(errors="replace").splitlines():
+                    if "cobc" in line.lower() or "version" in line.lower():
+                        self._observed_compiler_version = line.strip()
+                        break
+            if not self.compiler_matches_declared(
+                self._observed_compiler_version, self._config.compiler_version
+            ):
+                observed = self._observed_compiler_version or "<no cobc banner>"
+                self._unverified(
+                    "observed compiler version does not match the declared "
+                    f"oracle compiler version {self._config.compiler_version!r} "
+                    f"(observed {observed!r})"
+                )
+                return
+            version = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if version.returncode == 0:
+                self._observed_docker_version = version.stdout.decode(errors="replace").strip()
+        except (OSError, ValueError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            self._unverified(f"runtime identity verification failed: {type(exc).__name__}")
+
+    @property
+    def verified_image_digest(self) -> str:
+        return self._verified_image_digest
+
+    @property
+    def verified_image_ref(self) -> str:
+        return self._verified_image_ref
+
+    @property
+    def observed_compiler_version(self) -> str:
+        return self._observed_compiler_version
+
+    @property
+    def observed_docker_version(self) -> str:
+        return self._observed_docker_version
+
+    def get_identity(self):
+        """Return the observed image identity when verification succeeded."""
+        if not self._verified_image_digest:
+            return super().get_identity()
+        from engine.domain.identities import OracleIdentity
+        return OracleIdentity(
+            oracle_id=self._config.oracle_id,
+            image_digest=self._verified_image_digest,
+            compiler_version=self._observed_compiler_version or self._config.compiler_version,
+            preprocessor_version=self._config.preprocessor_version,
+            base_image=self._config.base_image,
+        )
 
     def _check_docker(self) -> bool:
         try:
@@ -59,21 +202,149 @@ class DockerOracleAdapter(OracleAdapter):
             self._status = AdapterStatus.UNAVAILABLE
             return self._status
 
-        try:
-            result = subprocess.run(
-                ["docker", "image", "inspect", self.V1_IMAGE],
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            if result.returncode == 0:
-                self._status = AdapterStatus.AVAILABLE
-            else:
-                self._status = AdapterStatus.UNAVAILABLE
-        except Exception:
-            self._status = AdapterStatus.UNAVAILABLE
-
+        self._resolve_runtime_identity()
+        self._status = (
+            AdapterStatus.AVAILABLE
+            if self._verified_image_ref
+            else AdapterStatus.UNAVAILABLE
+        )
         return self._status
+
+    # Filenames that designate the application entry module by convention.
+    # Mirrors the ingestion layer's source-root markers without importing it.
+    ENTRY_MODULE_MARKERS = frozenset({"main.cob", "main.cbl"})
+
+    COBOL_SUFFIXES = (".cob", ".cbl")
+
+    @staticmethod
+    def _read_program_id(source_file: Path) -> str:
+        """Extract PROGRAM-ID for entry matching only (not parsing)."""
+        try:
+            text = source_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return ""
+        match = re.search(
+            r"PROGRAM-ID\.\s*([A-Za-z0-9][A-Za-z0-9_-]*)",
+            text,
+            re.IGNORECASE,
+        )
+        return match.group(1).upper() if match else ""
+
+    @classmethod
+    def select_modules(
+        cls,
+        source_dir: Path,
+        entry_program: str | None = None,
+    ) -> tuple[str | None, list[str]]:
+        """Select the entry module and link set for a COBOL source directory.
+
+        Returns (entry_filename, [other_module_filenames]). Only top-level
+        *.cob/*.cbl files are modules; copybooks and other files are never
+        compiled. Sources are NEVER concatenated — GnuCOBOL compiles and
+        links the separate modules with a single multi-file command.
+
+        Entry resolution order:
+          1. explicit entry_program (PROGRAM-ID, then filename match);
+          2. main.cob/main.cbl filename convention (case-insensitive);
+          3. legacy first-glob fallback.
+        """
+        # .cob takes precedence over .cbl (legacy glob order), each sorted.
+        modules: list[str] = []
+        for suffix in cls.COBOL_SUFFIXES:
+            modules.extend(sorted(
+                (
+                    f.name
+                    for f in source_dir.iterdir()
+                    if f.is_file() and f.suffix.lower() == suffix
+                ),
+                key=str.lower,
+            ))
+        if not modules:
+            return None, []
+
+        wanted = (entry_program or "").strip().strip("'\"").upper()
+        if wanted:
+            for name in modules:
+                if cls._read_program_id(source_dir / name) == wanted:
+                    others = [m for m in modules if m != name]
+                    return name, others
+            for name in modules:
+                if name.lower() == wanted.lower() or Path(name).stem.upper() == wanted:
+                    others = [m for m in modules if m != name]
+                    return name, others
+
+        for name in modules:
+            if name.lower() in cls.ENTRY_MODULE_MARKERS:
+                others = [m for m in modules if m != name]
+                return name, others
+
+        # Legacy fallback: first module wins (historical glob behaviour
+        # restricted to a deterministic sorted order).
+        return modules[0], modules[1:]
+
+    # --- Source format detection -----------------------------------------
+    #
+    # GnuCOBOL defaults to fixed source format. The fixture estate mixes
+    # free-format (code beginning at column 1) and fixed-format (sequence
+    # area columns 1-6, indicator column 7) sources, so the oracle must
+    # select the format flag per compilation unit instead of assuming one.
+    # Sources are NEVER rewritten or normalised.
+
+    @staticmethod
+    def _line_is_comment(line: str) -> bool:
+        """True for fixed- or free-format comment lines."""
+        if line.startswith("*") or line.startswith("/"):
+            return True
+        if len(line) > 6 and line[6] in "*/":
+            return True
+        return line.lstrip().startswith("*>")
+
+    @classmethod
+    def detect_source_format(cls, text: str) -> str:
+        """Classify COBOL source text as ``"free"`` or ``"fixed"``.
+
+        An explicit ``>>SOURCE FORMAT`` directive takes precedence. In its
+        absence fixed format is assumed unless a code line places a
+        non-digit, non-space character in the sequence area (columns 1-6):
+        that is impossible in fixed format and is characteristic of free
+        format, where code may begin at column 1.
+        """
+        for raw in text.splitlines():
+            upper = raw.strip().upper()
+            if upper.startswith(">>SOURCE") and "FORMAT" in upper:
+                if "FREE" in upper:
+                    return "free"
+                if "FIXED" in upper:
+                    return "fixed"
+        for raw in text.splitlines():
+            line = raw.rstrip("\r\n")
+            if not line.strip() or cls._line_is_comment(line):
+                continue
+            if any(ch not in "0123456789 " for ch in line[:6]):
+                return "free"
+        return "fixed"
+
+    @classmethod
+    def _module_source_format(cls, source_dir: Path, module: str) -> str:
+        try:
+            text = (source_dir / module).read_text(
+                encoding="utf-8", errors="ignore"
+            )
+        except OSError:
+            return "fixed"
+        return cls.detect_source_format(text)
+
+    @classmethod
+    def _compile_format_flag(cls, source_dir: Path, modules: list[str]) -> str:
+        """Return the ``cobc`` source-format flag for a module set.
+
+        V1 contract: the modules of one application share a single source
+        format. ``-free`` is applied only when every module is detected as
+        free format; otherwise GnuCOBOL's fixed-format default is kept, so
+        fixed-format workloads are never reinterpreted as free format.
+        """
+        formats = {cls._module_source_format(source_dir, m) for m in modules}
+        return "-free " if formats == {"free"} else ""
 
     def _compute_source_hash(self, source_path: str) -> ContentHash:
         hasher = hashlib.sha256()
@@ -93,6 +364,7 @@ class DockerOracleAdapter(OracleAdapter):
         source_path: str,
         input_data: bytes | None = None,
         input_files: dict[str, bytes] | None = None,
+        entry_program: str | None = None,
     ) -> OracleExecutionResult:
         execution_id = ExecutionId(
             value=f"oracle-{run_id.value}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
@@ -119,6 +391,27 @@ class DockerOracleAdapter(OracleAdapter):
                 source_tree_hash_after=source_hash_before,
             )
 
+        if not self._verified_image_ref:
+            end_time = datetime.now(timezone.utc)
+            reason = self._identity_failure_reason or (
+                "runtime image could not be verified against expected digest"
+            )
+            return OracleExecutionResult(
+                execution_id=execution_id,
+                run_id=run_id,
+                oracle_id=self._config.oracle_id,
+                status=AdapterStatus.UNAVAILABLE,
+                exit_code=None,
+                stdout=b"",
+                stderr=f"Oracle runtime identity is unverified: {reason}".encode(),
+                start_time=start_time.isoformat(),
+                end_time=end_time.isoformat(),
+                termination_status="error",
+                timeout_applied=False,
+                source_tree_hash_before=source_hash_before,
+                source_tree_hash_after=source_hash_before,
+            )
+
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 cobol_source = Path(source_path)
@@ -126,6 +419,12 @@ class DockerOracleAdapter(OracleAdapter):
                     dest = Path(tmpdir) / "src" / cobol_source.name
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(cobol_source.read_bytes())
+                    # A single COBOL entry file may depend on sibling COPYBOOKs.
+                    # Stage those read-only dependencies without broadening the
+                    # compile/link set to unrelated COBOL program modules.
+                    for copybook in cobol_source.parent.iterdir():
+                        if copybook.is_file() and copybook.suffix.lower() == ".cpy":
+                            (dest.parent / copybook.name).write_bytes(copybook.read_bytes())
                     container_src = "/workspace/src"
                 else:
                     import shutil
@@ -134,13 +433,11 @@ class DockerOracleAdapter(OracleAdapter):
                     container_src = "/workspace/src"
 
                 main_file = cobol_source.name if cobol_source.is_file() else None
+                link_modules: list[str] = []
                 if main_file is None:
-                    for f in Path(tmpdir, "src").glob("*.cob"):
-                        main_file = f.name
-                        break
-                    for f in Path(tmpdir, "src").glob("*.cbl"):
-                        main_file = f.name
-                        break
+                    main_file, link_modules = self.select_modules(
+                        Path(tmpdir, "src"), entry_program=entry_program
+                    )
 
                 if main_file is None:
                     end_time = datetime.now(timezone.utc)
@@ -173,9 +470,29 @@ class DockerOracleAdapter(OracleAdapter):
                         "-v", f"{os.path.abspath(input_dir)}:/workspace/input:ro",
                     ]
 
+                # Multi-module link: the entry module plus every other
+                # COBOL module, compiled/linked by GnuCOBOL from separate
+                # source files (never concatenated) so static CALLs resolve.
+                # Source format is detected per unit so free-format sources
+                # compile without reinterpreting fixed-format ones.
+                compile_units = " ".join(
+                    shlex.quote(name) for name in [main_file, *link_modules]
+                )
+                format_flag = self._compile_format_flag(
+                    Path(tmpdir, "src"), [main_file, *link_modules]
+                )
+                # Keep compiler diagnostics separate from the runtime
+                # stderr artifact. Successful compilation warnings must not
+                # contaminate behavioral STDERR comparison.
                 compile_cmd = (
                     f"cd {container_src} && "
-                    f"cobc -x {main_file} -o /tmp/oracle_prog && "
+                    f"cobc -x {format_flag}{compile_units} "
+                    f"-o /tmp/oracle_prog 2>/tmp/oracle_compile.stderr; "
+                    f"compile_status=$?; "
+                    f"if [ $compile_status -ne 0 ]; then "
+                    f"cat /tmp/oracle_compile.stderr >&2; "
+                    f"exit $compile_status; "
+                    f"fi; "
                     f"cd /workspace && "
                     f"/tmp/oracle_prog"
                 )
@@ -190,7 +507,7 @@ class DockerOracleAdapter(OracleAdapter):
                     "-v", f"{os.path.abspath(tmpdir)}/src:{container_src}:ro",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
                     *input_mount_args,
-                    self.V1_IMAGE,
+                    self._verified_image_ref,
                     "sh", "-c", compile_cmd,
                 ]
 
@@ -238,6 +555,9 @@ class DockerOracleAdapter(OracleAdapter):
                 generated_files=generated_files if generated_files else None,
                 source_tree_hash_before=source_hash_before,
                 source_tree_hash_after=source_hash_after,
+                observed_compiler_version=self._observed_compiler_version or None,
+                observed_docker_version=self._observed_docker_version or None,
+                runtime_image_digest=self._verified_image_digest or None,
             )
 
         except Exception as e:

@@ -115,6 +115,12 @@ class CandidateExecutionResult:
     timeout_applied: bool
     timeout_duration: int | None = None
     generated_files: dict[str, bytes] | None = None
+    observed_java_version: str | None = None
+    observed_maven_version: str | None = None
+    observed_docker_version: str | None = None
+    runtime_image_digest: str | None = None
+    producer_identity: str | None = None
+    producer_version: str | None = None
 
     def to_execution_evidence(self) -> ExecutionEvidence:
         """Convert to execution evidence."""
@@ -144,6 +150,12 @@ class CandidateExecutionResult:
             termination_status=self.termination_status,
             timeout_applied=self.timeout_applied,
             timeout_duration=self.timeout_duration,
+            java_version=self.observed_java_version,
+            maven_version=self.observed_maven_version,
+            docker_version=self.observed_docker_version,
+            image_digest=self.runtime_image_digest,
+            producer_identity=self.producer_identity,
+            producer_version=self.producer_version,
         )
 
 

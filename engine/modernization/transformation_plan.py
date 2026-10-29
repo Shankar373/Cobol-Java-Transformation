@@ -118,6 +118,45 @@ class TransformationPlanGenerator:
         entrypoint: str = "",
     ) -> TransformationPlan:
         """Generate a transformation plan from a capability report."""
+        # Discovery is an application-level completeness gate. A plan built
+        # from a partial inventory could otherwise transform the successfully
+        # parsed subset while silently treating failed source units as absent.
+        # Keep the inventory visible to callers, but fail closed at planning.
+        if not application.discovery_complete:
+            components = [
+                ComponentPlan(
+                    component_id=unit.program_id,
+                    component_type="PROGRAM",
+                    action=TransformationAction.SKIP,
+                    transformer=TransformerType.SKIP,
+                    reason=(
+                        f"Discovery incomplete: {unit.status}: {unit.diagnostic}"
+                        if unit.status != "PARSED"
+                        else "Discovery incomplete; complete source inventory is required before transformation"
+                    ),
+                )
+                for unit in application.programs
+            ]
+            assembly = AssemblyPlan(
+                output_type="SPRING_BOOT",
+                base_package="com.modernized.app",
+                application_name=application.application_id,
+                include_service_registry=len(components) > 1,
+            )
+            oracle = OraclePlan(
+                source_format="free",
+                entry_program=self._resolve_entrypoint(application, components, entrypoint),
+            )
+            return TransformationPlan(
+                application_id=application.application_id,
+                components=tuple(components),
+                assembly=assembly,
+                oracle=oracle,
+                total_programs=len(components),
+                transformable_programs=0,
+                skipped_programs=len(components),
+            )
+
         components: list[ComponentPlan] = []
 
         # Build capability lookup
@@ -197,9 +236,9 @@ class TransformationPlanGenerator:
             return ComponentPlan(
                 component_id=program_id,
                 component_type="PROGRAM",
-                action=TransformationAction.TRANSFORM,
-                transformer=TransformerType.INTERNAL_NATIVE,
-                reason="No capability analysis — default transformable",
+                action=TransformationAction.SKIP,
+                transformer=TransformerType.SKIP,
+                reason="Missing capability analysis — transformation not proven",
             )
 
         if capability.level == CapabilityLevel.SUPPORTED:
@@ -237,8 +276,9 @@ class TransformationPlanGenerator:
         return ComponentPlan(
             component_id=program_id,
             component_type="PROGRAM",
-            action=TransformationAction.TRANSFORM,
-            transformer=TransformerType.INTERNAL_NATIVE,
+            action=TransformationAction.SKIP,
+            transformer=TransformerType.SKIP,
+            reason=f"Unknown capability level: {capability.level.value}",
         )
 
     def _topological_sort(self, application: CobolApplication) -> list:

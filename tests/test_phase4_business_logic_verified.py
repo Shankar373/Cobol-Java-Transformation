@@ -135,12 +135,21 @@ class TestParsing:
 
     def test_calc_has_evaluate(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
-        from engine.transformation.ir import IfStatement
+        from engine.transformation.ir import EvaluateStatement
         prog = CobolParser().parse((FIXTURE_DIR / "CALC.cob").read_text())
-        # EVALUATE converts to nested IF
         all_stmts = [s for para in prog.paragraphs for s in para.statements]
-        has_if = any(isinstance(s, IfStatement) for s in all_stmts)
-        assert has_if, "CALC must have an EVALUATE (converted to nested IF)"
+        evaluate = next((s for s in all_stmts if isinstance(s, EvaluateStatement)), None)
+        assert evaluate is not None, "CALC must preserve its canonical EVALUATE"
+        assert len(evaluate.arms) == 5
+        assert evaluate.arms[-1].other is True
+
+    def test_evaluate_other_maps_to_boolean_true(self) -> None:
+        from engine.transformation.cobol_to_java_mapping import map_cobol_condition_to_java
+        from engine.transformation.java_ir import JavaLiteral
+
+        expr = map_cobol_condition_to_java("OTHER")
+        assert isinstance(expr, JavaLiteral)
+        assert expr.value == "true"
 
     def test_calc_has_perform_varying(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
@@ -150,6 +159,7 @@ class TestParsing:
                  if isinstance(s, PerformStatement) and s.until_condition
                  and "VARYING" in (s.until_condition or "")]
         assert len(stmts) >= 1, "CALC must have a PERFORM VARYING"
+        assert "UNTIL WS-LOOP-CNT > 5" in stmts[0].until_condition
 
     def test_main_has_call(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
@@ -194,6 +204,34 @@ class TestJavaMapping:
         assert "Calc" in main_src, (
             f"Expected Calc reference in Main.java:\n{main_src}"
         )
+
+    def test_spring_service_preserves_checked_exceptions(self) -> None:
+        from engine.transformation.application_discovery import ApplicationDiscovery
+        from engine.transformation.application_generator import ApplicationGenerator
+        from engine.transformation.java_to_spring_mapping import map_java_application_to_spring_boot
+        from engine.transformation.spring_boot_generator import SpringBootGenerator
+
+        app = ApplicationDiscovery().discover(
+            str(FIXTURE_DIR), application_id="business-logic-app"
+        )
+        gen_result = ApplicationGenerator().generate(
+            app, entrypoint="MAIN", source_root=FIXTURE_DIR
+        )
+        assert gen_result.success, gen_result.errors
+        spring_app = map_java_application_to_spring_boot(
+            gen_result.java_application, entry_program="MAIN"
+        )
+        files = {
+            f.class_name: f.source_code
+            for f in SpringBootGenerator().generate_project(spring_app)
+        }
+
+        main_service = next(
+            svc for svc in spring_app.services
+            if svc.source_program == "MAIN"
+        )
+        main_src = files[main_service.name]
+        assert "public void mainLogic() throws Exception {" in main_src
 
     def test_calc_has_system_out_println(self) -> None:
         from engine.transformation.cobol_parser import CobolParser
@@ -333,7 +371,7 @@ class TestVerifiedVerdict:
         # --- Stage D: GnuCOBOL oracle (independent reference) ---
         oracle_cfg = OracleAdapterConfig(
             oracle_id="gnucobol-business-logic",
-            image_digest="sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780",
+            image_digest=DockerOracleAdapter.V1_DIGEST,
             compiler_version="3.1.2.0",
         )
         oracle_adapter = DockerOracleAdapter(oracle_cfg)

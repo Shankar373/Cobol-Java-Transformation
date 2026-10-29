@@ -17,6 +17,11 @@ Security model:
 - Resource limits for execution
 - Read-only JAR mount for execution
 - Hard timeout with explicit termination/cleanup lifecycle
+- Fail-closed immutable image provenance:
+  - registry RepoDigest takes precedence when Docker reports one;
+  - locally built images without a RepoDigest use their immutable Image ID;
+  - runtime execution additionally requires a RepoDigest identity;
+  - expected and observed identities must match exactly.
 """
 
 from __future__ import annotations
@@ -36,6 +41,13 @@ from engine.candidate.adapter import (
     CandidateManifest,
     CompilationResult,
 )
+from engine.candidate.image_provenance import (
+    DEFAULT_PROVENANCE_PATH,
+    DockerImageObservation,
+    load_adapter_provenance,
+    resolve_docker_image_identity,
+    verify_image_identity,
+)
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
@@ -45,11 +57,19 @@ from engine.domain.identities import (
 
 @dataclass(frozen=True)
 class DockerSpringBootConfig:
-    """Configuration for Docker-backed Spring Boot candidate adapter."""
+    """Configuration for Docker-backed Spring Boot candidate adapter.
+
+    ``build_identity`` is the exact immutable identity provisioned for the
+    current deployment: a registry RepoDigest when Docker reports one, or the
+    immutable local Image ID for an image built locally. It may be supplied
+    directly or through a validated provenance record at ``provenance_path``.
+    An empty build identity always fails closed.
+    """
     build_image: str = "maven-offline-springboot:latest"
-    build_digest: str = "maven-offline-springboot@sha256:99d13a5416066fcba901aec7cb10a4bffd4d5e081cf94475478b35e023a7f678"
+    build_identity: str = ""
     runtime_image: str = "eclipse-temurin:21-jdk"
-    runtime_digest: str = "eclipse-temurin@sha256:1f79c73404fb0cccf9a3459eda22892f368d994b1028d6fb1ae871c1f49749a6"
+    runtime_digest: str = "eclipse-temurin@sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026"
+    provenance_path: str = str(DEFAULT_PROVENANCE_PATH)
     build_timeout_seconds: int = 240
     execution_timeout_seconds: int = 30
     memory_limit: str = "512m"
@@ -68,27 +88,55 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         super().__init__()
         self._config = config or DockerSpringBootConfig()
         self._docker_available = self._check_docker()
-        self._build_resolved_digest: str = ""
-        self._runtime_resolved_digest: str = ""
-        self._java_version: str = ""
-        self._maven_version: str = ""
+        self._build_observation = DockerImageObservation(
+            requested_ref=self._config.build_image
+        )
+        self._runtime_observation = DockerImageObservation(
+            requested_ref=self._config.runtime_image
+        )
+        self._java_version = ""
+        self._maven_version = ""
+        self._docker_version = ""
 
         if self._docker_available:
-            self._build_resolved_digest = self._resolve_build_digest()
-            self._runtime_resolved_digest = self._resolve_runtime_digest()
+            self._build_observation = self._resolve_build_observation()
+            self._runtime_observation = self._resolve_runtime_observation()
             self._java_version = self._detect_java_version()
             self._maven_version = self._detect_maven_version()
+            self._docker_version = self._detect_docker_version()
 
-            if self._config.build_digest and self._build_resolved_digest != self._config.build_digest:
-                self._status = AdapterStatus.UNAVAILABLE
-            elif self._config.runtime_digest and self._runtime_resolved_digest != self._config.runtime_digest:
-                self._status = AdapterStatus.UNAVAILABLE
-            elif self._build_resolved_digest and self._runtime_resolved_digest:
-                self._status = AdapterStatus.AVAILABLE
-            else:
-                self._status = AdapterStatus.UNAVAILABLE
+            build_verified = verify_image_identity(
+                expected_identity=self._expected_build_identity(),
+                observed=self._build_observation,
+                require_repo_digest=False,
+            )
+            runtime_verified = verify_image_identity(
+                expected_identity=self._config.runtime_digest,
+                observed=self._runtime_observation,
+                require_repo_digest=True,
+            )
+            self._status = (
+                AdapterStatus.AVAILABLE
+                if build_verified and runtime_verified
+                else AdapterStatus.UNAVAILABLE
+            )
         else:
             self._status = AdapterStatus.UNAVAILABLE
+
+    def _expected_build_identity(self) -> str:
+        """Return the explicit provisioned build identity, if any."""
+        explicit_identity = self._config.build_identity.strip()
+        if explicit_identity:
+            return explicit_identity
+        if not self._config.provenance_path.strip():
+            return ""
+        try:
+            provenance = load_adapter_provenance(self._config.provenance_path)
+        except (OSError, ValueError):
+            return ""
+        if provenance.build_image.strip() != self._config.build_image.strip():
+            return ""
+        return provenance.build_identity
 
     def _check_docker(self) -> bool:
         try:
@@ -102,33 +150,21 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
-    def _resolve_digest(self, image: str) -> str:
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", "--format", "{{index .RepoDigests 0}}", image],
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            if result.returncode == 0:
-                output = result.stdout.decode(errors="replace").strip()
-                if "sha256:" in output:
-                    return output
-            return ""
-        except Exception:
-            return ""
+    def _resolve_image_observation(self, image: str) -> DockerImageObservation:
+        """Resolve immutable Docker identity evidence for one image reference."""
+        return resolve_docker_image_identity(image)
 
-    def _resolve_build_digest(self) -> str:
-        return self._resolve_digest(self._config.build_image)
+    def _resolve_build_observation(self) -> DockerImageObservation:
+        return self._resolve_image_observation(self._config.build_image)
 
-    def _resolve_runtime_digest(self) -> str:
-        return self._resolve_digest(self._config.runtime_image)
+    def _resolve_runtime_observation(self) -> DockerImageObservation:
+        return self._resolve_image_observation(self._config.runtime_image)
 
     def _detect_java_version(self) -> str:
         try:
             result = subprocess.run(
                 ["docker", "run", "--rm", "--network", "none",
-                 self._config.runtime_image, "java", "-version"],
+                 self._runtime_observation.identity, "java", "-version"],
                 capture_output=True,
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -146,7 +182,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         try:
             result = subprocess.run(
                 ["docker", "run", "--rm", "--network", "none",
-                 self._config.build_image, "mvn", "-version"],
+                 self._build_observation.identity, "mvn", "-version"],
                 capture_output=True,
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -160,17 +196,51 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         except Exception:
             return ""
 
+    def _detect_docker_version(self) -> str:
+        try:
+            result = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            return result.stdout.decode(errors="replace").strip() if result.returncode == 0 else ""
+        except Exception:
+            return ""
+
+    @property
+    def docker_version(self) -> str:
+        return self._docker_version
+
     @property
     def available(self) -> bool:
         return self._status == AdapterStatus.AVAILABLE
 
     @property
+    def build_identity(self) -> str:
+        return self._build_observation.identity
+
+    @property
+    def build_identity_kind(self) -> str:
+        return self._build_observation.identity_kind
+
+    @property
     def build_resolved_digest(self) -> str:
-        return self._build_resolved_digest
+        """Compatibility alias for the selected immutable build identity."""
+        return self._build_observation.identity
+
+    @property
+    def runtime_identity(self) -> str:
+        return self._runtime_observation.identity
+
+    @property
+    def runtime_identity_kind(self) -> str:
+        return self._runtime_observation.identity_kind
 
     @property
     def runtime_resolved_digest(self) -> str:
-        return self._runtime_resolved_digest
+        """Compatibility alias for the selected immutable runtime identity."""
+        return self._runtime_observation.identity
 
     @property
     def java_version(self) -> str:
@@ -279,8 +349,38 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
                 container_name = f"maven-{uuid.uuid4().hex[:12]}"
 
-                # Maven build command
+                # Maven runs as root in the build image so it can use the
+                # pre-cached /root/.m2 repository. Because the project and output
+                # directories are bind-mounted from the host, Maven can otherwise
+                # leave root-owned files behind and make TemporaryDirectory cleanup
+                # fail on Linux CI. Reconcile ownership before the container exits.
                 maven_cmd = "mvn -o -B -Dmaven.test.skip=true package"
+                host_uid = os.getuid() if hasattr(os, "getuid") else None
+                host_gid = os.getgid() if hasattr(os, "getgid") else None
+
+                if host_uid is not None and host_gid is not None:
+                    build_shell = (
+                        f"{maven_cmd}; build_status=$?; "
+                        f"if [ $build_status -eq 0 ]; then "
+                        f"jar_status=0; "
+                        f"for jar in target/*.jar; do "
+                        f"if [ -f \"$jar\" ] && [ \"$jar\" != \"*.jar\" ]; then "
+                        f"cp \"$jar\" /workspace/output/ || jar_status=$?; "
+                        f"fi; "
+                        f"done; "
+                        f"if [ $jar_status -ne 0 ]; then build_status=$jar_status; fi; "
+                        f"fi; "
+                        f"chown -R {host_uid}:{host_gid} /workspace/project /workspace/output "
+                        f"2>/dev/null || true; "
+                        f"exit $build_status"
+                    )
+                else:
+                    # Docker Desktop/Windows does not expose POSIX uid/gid semantics
+                    # through this process; retain the existing build behavior there.
+                    build_shell = (
+                        f"{maven_cmd} && "
+                        f"cp target/*.jar /workspace/output/ 2>/dev/null || true"
+                    )
 
                 docker_cmd = [
                     "docker", "run", "--rm",
@@ -292,8 +392,8 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     "--workdir", "/workspace/project",
                     "-v", f"{os.path.abspath(staged_project)}:/workspace/project",
                     "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
-                    self._config.build_image,
-                    "sh", "-c", f"{maven_cmd} && cp target/*.jar /workspace/output/ 2>/dev/null || true",
+                    self._build_observation.identity,
+                    "sh", "-c", build_shell,
                 ]
 
                 proc = None
@@ -306,11 +406,29 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     )
 
                     if proc.returncode != 0:
+                        stdout = proc.stdout.decode(errors="replace")
                         stderr = proc.stderr.decode(errors="replace")
+                        diagnostics = "\n".join(
+                            part for part in (stdout, stderr) if part
+                        )
+                        # Keep Maven's actionable error lines compact enough for
+                        # callers/test reports to retain the actual compiler
+                        # diagnostic instead of pytest truncating the middle of
+                        # a large stdout capture.
+                        error_lines = [
+                            line for line in diagnostics.splitlines()
+                            if "[ERROR]" in line
+                        ]
+                        if error_lines:
+                            compilation_errors = tuple(
+                                f"Maven build failed: {line}" for line in error_lines
+                            )
+                        else:
+                            compilation_errors = (f"Maven build failed: {diagnostics}",)
                         return CompilationResult(
                             success=False,
                             class_files={},
-                            compilation_errors=(f"Maven build failed: {stderr}",),
+                            compilation_errors=compilation_errors,
                             compilation_time_ms=int(
                                 (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                             ),
@@ -547,6 +665,12 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     timeout_applied=termination == "timeout",
                     timeout_duration=self._config.execution_timeout_seconds if termination == "timeout" else None,
                     generated_files=generated_files if generated_files else None,
+                    observed_java_version=self._java_version or None,
+                    observed_maven_version=self._maven_version or None,
+                    runtime_image_digest=self._runtime_observation.identity or None,
+                    observed_docker_version=self._docker_version or None,
+                    producer_identity=manifest.producer_identity or None,
+                    producer_version=manifest.producer_version or None,
                 )
 
         except Exception as e:

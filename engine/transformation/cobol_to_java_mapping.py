@@ -26,22 +26,40 @@ All decisions derived from generic COBOL IR elements.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 from engine.transformation.ir import (
     AddStatement,
+    CallStatement,
+    BooleanCondition,
+    Comparison,
+    Condition,
+    LogicalCondition,
+    Literal,
+    NegatedCondition,
+    CloseStatement,
     CobolProgram,
     ComputeStatement,
     DataItem,
+    DeleteStatement,
     DisplayStatement,
+    EvaluateStatement,
     DivideStatement,
     FileDefinition,
+    FieldProvenance,
     GoToStatement,
     IfStatement,
     MoveStatement,
+    MultiplyStatement,
+    OpenStatement,
     Paragraph,
     PerformStatement,
     ReadStatement,
+    RewriteStatement,
+    StartStatement,
     StopRunStatement,
     StringStatement,
+    SubtractStatement,
     UnstringStatement,
     WriteStatement,
 )
@@ -62,8 +80,10 @@ from engine.transformation.java_ir import (
     JavaFileKey,
     JavaFileOrganization,
     JavaFileResource,
+    JavaFor,
     JavaIf,
     JavaLiteral,
+    JavaLocalVarDecl,
     JavaMatchOutcome,
     JavaMethod,
     JavaMethodCall,
@@ -80,7 +100,9 @@ from engine.transformation.java_ir import (
     JavaThresholdRule,
     JavaTransactionBoundary,
     JavaType,
+    JavaUnaryOp,
     JavaVariableRef,
+    JavaWhile,
 )
 
 
@@ -89,44 +111,579 @@ from engine.transformation.java_ir import (
 # ---------------------------------------------------------------------------
 
 def map_pic_to_java_type(item: DataItem) -> JavaType:
-    """Map a COBOL PIC clause to a Java type.
-
-    Mapping rules:
-    - PIC 9(n) where n <= 9  → int
-    - PIC 9(n) where n > 9   → long
-    - PIC 9(n)V9(m)          → double
-    - PIC X(n)               → String
-    - PIC A(n)               → String
-    - Group items (children)  → String (treated as raw bytes)
-    - PIC S9(n)              → int (signed)
-    """
+    """Map COBOL PIC data without collapsing fixed-point decimals into binary floating point."""
     if item.children:
         return JavaType(basic_type=JavaBasicType.STRING)
-
+    if item.is_numeric and item.decimal_places > 0:
+        return JavaType(class_name="BigDecimal")
     if item.is_numeric:
-        # Check for decimal (V clause implied by pic_length > integer digits)
-        if item.pic_length > 9:
-            return JavaType(basic_type=JavaBasicType.LONG)
-        return JavaType(basic_type=JavaBasicType.INT)
-
-    # Alphanumeric → String
+        return JavaType(basic_type=JavaBasicType.LONG if item.pic_length > 9 else JavaBasicType.INT)
     return JavaType(basic_type=JavaBasicType.STRING)
 
 
 def map_pic_to_java_default(item: DataItem) -> str:
-    """Get the Java default value for a COBOL PIC type."""
     if item.is_numeric:
-        if item.value:
-            return item.value.strip("'\"")
-        return "0"
-    if item.value:
-        return f'"{item.value.strip(chr(39) + chr(34))}"'
-    return '""'
+        return (item.value or "").replace("'", "").replace('"', "") if item.value else "0"
+    return f'"{item.value.strip(chr(39) + chr(34))}"' if item.value else '""'
+
+
+def _is_decimal_item(item: DataItem | None) -> bool:
+    return bool(item and item.is_numeric and item.decimal_places > 0)
+
+
+def _expression_is_decimal(expr, field_items):
+    from engine.transformation import ir as _cobol_ir
+    if isinstance(expr, _cobol_ir.Literal):
+        return bool("." in expr.value or (expr.semantic_type and expr.semantic_type.decimal_places > 0))
+    if isinstance(expr, _cobol_ir.FieldReference):
+        return bool(
+            (expr.semantic_type and expr.semantic_type.decimal_places > 0)
+            or _is_decimal_item(field_items.get(expr.name.replace("-", "_")))
+        )
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        return _expression_is_decimal(expr.operand, field_items)
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        return _expression_is_decimal(expr.left, field_items) or _expression_is_decimal(expr.right, field_items)
+    return False
+
+
+def _big_decimal_value(expr):
+    return JavaMethodCall(
+        class_name="BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
+    )
+
+
+def _decimal_value_initializer(value: str, decimal_places: int):
+    """Map a fixed-point VALUE literal to an exact unscaled BigDecimal initializer."""
+    try:
+        numeric_value = Decimal(value)
+    except InvalidOperation as exc:
+        raise ValueError(
+            f"UNSUPPORTED_NUMERIC_SEMANTIC: invalid decimal VALUE {value!r}"
+        ) from exc
+    scale = Decimal(10) ** decimal_places
+    unscaled = numeric_value * scale
+    if unscaled != unscaled.to_integral_value():
+        raise ValueError(
+            "UNSUPPORTED_NUMERIC_SEMANTIC: decimal VALUE precision exceeds "
+            f"PIC scale {decimal_places}"
+        )
+    return JavaMethodCall(
+        object_ref=_big_decimal_value(
+            JavaLiteral(
+                value=str(unscaled.to_integral_value()),
+                java_type=JavaType(basic_type=JavaBasicType.INT),
+            )
+        ),
+        method_name="movePointLeft",
+        arguments=(JavaLiteral(value=str(decimal_places)),),
+    )
+
+
+def _map_numeric_expression(expr, field_items, expected_decimal=False):
+    from engine.transformation import ir as _cobol_ir
+    decimal_context = expected_decimal or _expression_is_decimal(expr, field_items)
+
+    if isinstance(expr, _cobol_ir.Literal):
+        if expr.is_numeric:
+            value = JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.INT))
+            return _big_decimal_value(value) if decimal_context else value
+        return JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+    if isinstance(expr, _cobol_ir.FieldReference):
+        ref = JavaVariableRef(name=expr.name.replace("-", "_"))
+        if decimal_context:
+            item = field_items.get(expr.name.replace("-", "_"))
+            if not _is_decimal_item(item) and not (expr.semantic_type and expr.semantic_type.decimal_places > 0):
+                return _big_decimal_value(ref)
+        return ref
+
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        operand = _map_numeric_expression(expr.operand, field_items, decimal_context)
+        if decimal_context and expr.operator == "-":
+            return JavaMethodCall(object_ref=operand, method_name="negate", arguments=())
+        return JavaUnaryOp(operator=expr.operator, operand=operand)
+
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        left = _map_numeric_expression(expr.left, field_items, decimal_context)
+        right = _map_numeric_expression(expr.right, field_items, decimal_context)
+        if decimal_context:
+            if expr.operator == "+":
+                return JavaMethodCall(object_ref=left, method_name="add", arguments=(right,))
+            if expr.operator == "-":
+                return JavaMethodCall(object_ref=left, method_name="subtract", arguments=(right,))
+            if expr.operator == "*":
+                return JavaMethodCall(object_ref=left, method_name="multiply", arguments=(right,))
+            if expr.operator == "/":
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal DIVIDE requires explicit target precision")
+        return JavaBinaryOp(left=left, operator=expr.operator, right=right)
+
+    return map_cobol_expr_to_java(str(expr))
+
+
+def _map_cobol_expression_to_java(expr, field_items=None, expected_decimal=False):
+    return _map_numeric_expression(expr, field_items or {}, expected_decimal)
+
+
+def _map_numeric_binary_expression(
+    left,
+    operator: str,
+    right,
+    field_items: dict[str, DataItem] | None = None,
+):
+    """Lower arithmetic using the Java IR representation and COBOL type metadata."""
+    field_items = field_items or {}
+    if operator in {"+", "-", "*"} and (
+        _is_big_decimal_expression(left, field_items)
+        or _is_big_decimal_expression(right, field_items)
+    ):
+        method_name = {"+": "add", "-": "subtract", "*": "multiply"}[operator]
+        return JavaMethodCall(
+            object_ref=_as_big_decimal(left, field_items),
+            method_name=method_name,
+            arguments=(_as_big_decimal(right, field_items),),
+        )
+    return JavaBinaryOp(left=left, operator=operator, right=right)
+
+
+def _is_big_decimal_expression(
+    expr,
+    field_items: dict[str, DataItem] | None = None,
+) -> bool:
+    if isinstance(expr, JavaMethodCall) and (
+        expr.class_name == "BigDecimal"
+        or expr.method_name in {"add", "subtract", "multiply", "setScale", "negate"}
+    ):
+        return True
+    if isinstance(expr, JavaVariableRef) and field_items:
+        item = field_items.get(expr.name)
+        return _is_decimal_item(item)
+    return False
+
+
+def _as_big_decimal(
+    expr,
+    field_items: dict[str, DataItem] | None = None,
+):
+    if _is_big_decimal_expression(expr, field_items):
+        return expr
+    return JavaMethodCall(
+        class_name="BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
+    )
+
+
+def _coerce_assignment_expression(expression, target_item):
+    if target_item is not None and _is_decimal_item(target_item):
+        if not isinstance(expression, JavaMethodCall):
+            expression = _big_decimal_value(expression)
+        return JavaMethodCall(
+            object_ref=expression,
+            method_name="setScale",
+            arguments=(
+                JavaLiteral(value=str(target_item.decimal_places)),
+                JavaVariableRef(name="RoundingMode.DOWN"),
+            ),
+        )
+    if isinstance(expression, JavaMethodCall) and expression.class_name == "BigDecimal":
+        raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal-to-integer assignment is not proven")
+    return expression
 
 
 # ---------------------------------------------------------------------------
 # COBOL statement → Java statement mapping
+
 # ---------------------------------------------------------------------------
+# COBOL statement → Java statement mapping
+# ---------------------------------------------------------------------------
+
+# Module-level counter for generated PERFORM...TIMES loop variables.
+# Each counted loop gets a unique counter name so that sequential or
+# nested TIMES loops in the same method never redeclare one another
+# (which would not compile in Java).
+import itertools as _itertools
+
+_times_loop_counter = _itertools.count()
+
+
+def _fresh_times_var() -> str:
+    """Return a unique loop-counter name for a PERFORM...TIMES loop."""
+    return f"_times_{next(_times_loop_counter)}"
+
+
+def _negate_condition(java_cond) :
+    """Negate a mapped Java condition for PERFORM...UNTIL (TEST BEFORE).
+
+    COBOL loops WHILE NOT <until-condition>; Java renders while (!(...)).
+    """
+    return JavaUnaryOp(operator="!", operand=java_cond)
+
+
+# ---------------------------------------------------------------------------
+# COBOL file I/O → CobolFileIo.* helpers
+# ---------------------------------------------------------------------------
+# Module-level counter for generated file-I/O scratch variables (READ
+# record buffers, status temporaries).  Reset once per program mapping so
+# generated names stay deterministic for a given program.
+_io_var_counter = _itertools.count()
+
+
+def _reset_file_io_vars() -> None:
+    """Reset the file-I/O scratch-variable counter (per-program determinism)."""
+    global _io_var_counter
+    _io_var_counter = _itertools.count()
+
+
+def _fresh_io_var(prefix: str) -> str:
+    """Unique scratch-variable name, e.g. ``_read_0`` / ``_st_1``."""
+    return f"_{prefix}_{next(_io_var_counter)}"
+
+
+_STDOUT_KEYWORDS = frozenset({
+    "STDOUT", "SYSOUT", "SYSPRINT", "SYS000", "S1", "PRINT",
+})
+
+
+def _find_file_def(
+    program: CobolProgram | None, file_name: str,
+) -> FileDefinition | None:
+    """File definition for ``file_name``, or None when unmatched."""
+    if program is None or not file_name:
+        return None
+    for fd in program.file_definitions:
+        if fd.name == file_name:
+            return fd
+    return None
+
+
+def _resolve_path(fd: FileDefinition | None) -> str | None:
+    """Container path for real file I/O; None for STDOUT/unknown/missing."""
+    if fd is None:
+        return None
+    cp = (fd.container_path or "").upper()
+    if not cp or cp in _STDOUT_KEYWORDS:
+        return None
+    return fd.container_path
+
+
+def _str_lit(value: str) -> JavaLiteral:
+    return JavaLiteral(value=value, java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+
+def _int_lit(value: int) -> JavaLiteral:
+    return JavaLiteral(value=str(value))
+
+
+def _bool_lit(value: bool) -> JavaLiteral:
+    # Renderers quote unknown literals; true/false must stay bare Java    # keywords — both generators special-case untyped true/false/null.
+    return JavaLiteral(value="true" if value else "false")
+
+
+def _cobol_call(method: str, *args: JavaExpression) -> JavaMethodCall:
+    """Static ``CobolFileIo.<method>(...)`` call expression."""
+    return JavaMethodCall(
+        class_name="CobolFileIo",
+        method_name=method,
+        arguments=tuple(args),
+        is_static=True,
+    )
+
+
+def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
+    """Data item by COBOL name (WORKING-STORAGE first, then FD records)."""
+    if program is None or not name:
+        return None
+    for item in program.working_storage:
+        if item.name == name:
+            return item
+    for fd in program.file_definitions:
+        for item in fd.record_items:
+            if item.name == name:
+                return item
+    return None
+
+
+def _record_layout(fd: FileDefinition | None) -> list[tuple[str, int, bool, bool]]:
+    """(java_name, width, is_numeric, is_long) per elementary record item.
+
+    Widths follow COBOL DISPLAY semantics: alphanumeric = PIC length,
+    numeric = format width.  Items keep FD declaration order — the same
+    order GnuCOBOL writes into the record area.  ``is_long`` mirrors
+    ``map_pic_to_java_type`` (pic_length > 9 → long).
+    """
+    if fd is None:
+        return []
+    layout: list[tuple[str, int, bool, bool]] = []
+    for item in fd.record_items:
+        if item.is_condition_name or item.is_group:
+            continue
+        width = item.format_width if item.is_numeric else item.pic_length
+        if width <= 0:
+            continue
+        is_long = item.is_numeric and item.pic_length > 9
+        layout.append((item.name.replace("-", "_"), width, item.is_numeric, is_long))
+    return layout
+
+
+def _record_total_width(fd: FileDefinition | None) -> int:
+    """Total record width in bytes/characters (sum of item widths)."""
+    return sum(width for _, width, _, _ in _record_layout(fd))
+
+
+def _key_field_item(
+    fd: FileDefinition | None, program: CobolProgram | None,
+) -> DataItem | None:
+    """RECORD KEY data item (record area first, then WORKING-STORAGE)."""
+    if fd is None or fd.record_key is None:
+        return None
+    key_name = fd.record_key.field_name
+    for item in fd.record_items:
+        if item.name == key_name:
+            return item
+    if program is not None:
+        for item in program.working_storage:
+            if item.name == key_name:
+                return item
+    return None
+
+
+def _key_len(fd: FileDefinition | None, program: CobolProgram | None) -> int:
+    """Primary-key byte width (0 = sequential / no key)."""
+    item = _key_field_item(fd, program)
+    if item is None:
+        return 0
+    return item.format_width if item.is_numeric else item.pic_length
+
+
+def _key_expr(
+    stmt_key: str, fd: FileDefinition | None, program: CobolProgram | None,
+) -> JavaExpression:
+    """Key value: explicit READ/START KEY clause, else record-key field."""
+    if stmt_key:
+        return map_cobol_expr_to_java(stmt_key)
+    item = _key_field_item(fd, program)
+    if item is not None:
+        return JavaVariableRef(name=item.name.replace("-", "_"))
+    if fd is not None and fd.relative_key:
+        return JavaVariableRef(name=fd.relative_key.replace("-", "_"))
+    return _int_lit(0)
+
+
+def _is_relative(fd: FileDefinition | None) -> bool:
+    """True when the file uses COBOL RELATIVE organization (RRN-addressed)."""
+    if fd is None:
+        return False
+    org = fd.organization
+    value = org.value if hasattr(org, "value") else str(org)
+    return str(value).upper() == "RELATIVE"
+
+
+def _open_key_len(fd: FileDefinition | None, program: CobolProgram | None) -> int:
+    """keyLen passed to CobolFileIo.open: -1 selects relative RRN mode."""
+    if _is_relative(fd):
+        return -1
+    return _key_len(fd, program)
+
+
+def _status_target(fd: FileDefinition | None, program: CobolProgram | None) -> str:
+    """Java name of the declared FILE STATUS field ('' when undeclared)."""
+    if fd is None or program is None or not fd.file_status_field:
+        return ""
+    fsj = fd.file_status_field.replace("-", "_")
+    names = {item.name.replace("-", "_") for item in program.working_storage}
+    for fd2 in program.file_definitions:
+        names.update(i.name.replace("-", "_") for i in fd2.record_items)
+    return fsj if fsj in names else ""
+
+
+def _status_eq(status_var: str, code: str) -> JavaExpression:
+    """``"code".equals(status)`` — identity-safe String comparison."""
+    return JavaMethodCall(
+        object_ref=_str_lit(code),
+        method_name="equals",
+        arguments=(JavaVariableRef(name=status_var),),
+    )
+
+
+def _bind_status(
+    result: list[JavaStatement],
+    status_var: str,
+    call: JavaMethodCall,
+    need_expr: bool = False,
+) -> str:
+    """Bind a status-returning CobolFileIo call.
+
+    Assigns to the declared FILE STATUS field when available; otherwise
+    keeps the value in a fresh scratch variable (when a branch needs it)
+    or discards it.  Returns the variable usable in conditions ('').
+    """
+    if status_var:
+        result.append(JavaAssignment(target=status_var, expression=call))
+        return status_var
+    if need_expr:
+        tmp = _fresh_io_var("st")
+        result.append(JavaLocalVarDecl(
+            java_type=JavaType(basic_type=JavaBasicType.STRING),
+            name=tmp,
+            initializer=call,
+        ))
+        return tmp
+    result.append(JavaMethodCallStatement(call=call))
+    return ""
+
+
+def _status_branch(
+    result: list[JavaStatement],
+    status_var: str,
+    code: str,
+    fail_body,
+    ok_body,
+    program=None,
+    called_programs=None,
+) -> None:
+    """Emit the INVALID KEY / NOT INVALID KEY branch on a status code.
+
+    ``fail_body`` (INVALID KEY scope) runs when status == code;
+    ``ok_body`` (NOT INVALID KEY scope) runs otherwise.  Exactly one of
+    the two bodies may be present; both may be empty (no branch emitted).
+    COBOL body statements are mapped to Java before being placed in the
+    branch (raw COBOL IR would render as an empty JavaIf body).
+    """
+    def _map(body) -> tuple[JavaStatement, ...]:
+        return tuple(
+            j
+            for s in body
+            for j in map_cobol_statement(s, program, called_programs)
+        )
+
+    fail = _map(fail_body)
+    ok = _map(ok_body)
+    if fail and ok:
+        result.append(JavaIf(
+            condition=_status_eq(status_var, code),
+            then_body=fail,
+            else_body=ok,
+        ))
+    elif fail:
+        result.append(JavaIf(
+            condition=_status_eq(status_var, code),
+            then_body=fail,
+            else_body=(),
+        ))
+    elif ok:
+        result.append(JavaIf(
+            condition=_negate_condition(_status_eq(status_var, code)),
+            then_body=ok,
+            else_body=(),
+        ))
+
+
+def _assembly_expression(
+    fd: FileDefinition | None, content_var: str,
+) -> JavaExpression | None:
+    """Padded fixed-length record image for WRITE/REWRITE.
+
+    Concatenates each record item padded to its DISPLAY width (spaces for
+    alphanumeric, leading zeros for numeric) — byte-identical to the
+    record area GnuCOBOL writes.  Falls back to the record variable when
+    the FD carries no layout.
+    """
+    layout = _record_layout(fd)
+    if layout:
+        parts: list[JavaExpression] = []
+        for name, width, numeric, _is_long in layout:
+            val: JavaExpression = JavaVariableRef(name=name)
+            if numeric:
+                val = JavaMethodCall(
+                    class_name="String",
+                    method_name="valueOf",
+                    arguments=(val,),
+                    is_static=True,
+                )
+            parts.append(_cobol_call("pad", val, _int_lit(width), _bool_lit(numeric)))
+        if len(parts) == 1:
+            return parts[0]
+        return JavaStringConcat(parts=tuple(parts))
+    if content_var:
+        return JavaVariableRef(name=content_var)
+    return None
+
+
+def _disassembly_statements(
+    fd: FileDefinition | None, read_var: str,
+) -> list[JavaStatement]:
+    """Split a read record image back into the FD record fields.
+
+    The image is padded to the full record width first so short lines
+    never break ``substring``; numeric fields are trimmed then parsed
+    into int/long exactly as ``map_pic_to_java_type`` typed them.
+    """
+    layout = _record_layout(fd)
+    if not layout:
+        return []
+    total = sum(width for _, width, _, _ in layout)
+    padded = _cobol_call(
+        "pad", JavaVariableRef(name=read_var), _int_lit(total), _bool_lit(False),
+    )
+    stmts: list[JavaStatement] = []
+    offset = 0
+    for name, width, numeric, is_long in layout:
+        window = JavaMethodCall(
+            object_ref=padded,
+            method_name="substring",
+            arguments=(_int_lit(offset), _int_lit(offset + width)),
+        )
+        if numeric:
+            expr: JavaExpression = JavaMethodCall(
+                class_name="Long" if is_long else "Integer",
+                method_name="parseLong" if is_long else "parseInt",
+                arguments=(
+                    JavaMethodCall(object_ref=window, method_name="trim", arguments=()),
+                ),
+                is_static=True,
+            )
+        else:
+            expr = window
+        stmts.append(JavaAssignment(target=name, expression=expr))
+        offset += width
+    return stmts
+
+
+def _into_statement(
+    into_field: str, read_var: str, program: CobolProgram | None,
+) -> JavaStatement | None:
+    """READ INTO: MOVE the record image into the receiving field."""
+    if not into_field:
+        return None
+    target = into_field.replace("-", "_")
+    item = _find_data_item(program, into_field)
+    ref = JavaVariableRef(name=read_var)
+    if item is None:
+        return JavaAssignment(target=target, expression=ref)
+    if item.is_numeric:
+        is_long = item.pic_length > 9
+        return JavaAssignment(
+            target=target,
+            expression=JavaMethodCall(
+                class_name="Long" if is_long else "Integer",
+                method_name="parseLong" if is_long else "parseInt",
+                arguments=(
+                    JavaMethodCall(object_ref=ref, method_name="trim", arguments=()),
+                ),
+                is_static=True,
+            ),
+        )
+    if item.pic_length > 0:
+        return JavaAssignment(
+            target=target,
+            expression=_cobol_call("pad", ref, _int_lit(item.pic_length), _bool_lit(False)),
+        )
+    return JavaAssignment(target=target, expression=ref)
 
 def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     """Map a COBOL expression string to a Java expression.
@@ -178,37 +735,86 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     return JavaVariableRef(name=java_name)
 
 
-def map_cobol_condition_to_java(condition: str) -> JavaExpression:
-    """Map a COBOL condition string to a Java expression.
 
-    Converts COBOL condition syntax to Java boolean expression.
-    Returns a JavaBinaryOp for simple conditions, or JavaLiteral for complex ones.
-    """
+
+def map_cobol_condition_to_java(condition: str | Condition, field_items=None) -> JavaExpression:
+    """Map a COBOL condition while preserving the parser semantic tree."""
+    if isinstance(condition, Condition):
+        def expression(expr) -> JavaExpression:
+            return _map_cobol_expression_to_java(expr, field_items or {})
+
+        def structured(node: Condition) -> JavaExpression:
+            if isinstance(node, Comparison):
+                return JavaBinaryOp(
+                    left=expression(node.left),
+                    operator={"=": "==", "<>": "!="}.get(node.operator, node.operator),
+                    right=expression(node.right),
+                )
+            if isinstance(node, LogicalCondition):
+                return JavaBinaryOp(
+                    left=structured(node.left),
+                    operator="&&" if node.operator == "AND" else "||",
+                    right=structured(node.right),
+                )
+            if isinstance(node, NegatedCondition):
+                return JavaUnaryOp(operator="!", operand=structured(node.condition))
+            if isinstance(node, BooleanCondition):
+                field = expression(node.field)
+                if node.is_negated:
+                    return JavaUnaryOp(operator="!", operand=field)
+                return JavaBinaryOp(
+                    left=field,
+                    operator="!=",
+                    right=JavaLiteral(value="0"),
+                )
+            raise TypeError(f"Unsupported structured COBOL condition: {type(node).__name__}")
+
+        return structured(condition)
+
     condition = condition.strip()
+    import re as _re
 
-    # Handle IS/IS NOT
+    if condition == "OTHER" or condition.endswith(" = OTHER") or condition.endswith("== OTHER"):
+        return JavaLiteral(value="true")
+
+    thru_match = _re.match(
+        r'^(\w[\w-]*)\s*==\s*(\d+)\s+THRU\s+(\d+)$',
+        condition.replace("-", "_").replace(" = ", " == ").strip(),
+    )
+    if thru_match:
+        subject = thru_match.group(1).replace("-", "_")
+        low = thru_match.group(2)
+        high = thru_match.group(3)
+        return JavaBinaryOp(
+            left=JavaBinaryOp(
+                left=JavaVariableRef(name=subject),
+                operator=">=",
+                right=JavaLiteral(value=low),
+            ),
+            operator="&&",
+            right=JavaBinaryOp(
+                left=JavaVariableRef(name=subject),
+                operator="<=",
+                right=JavaLiteral(value=high),
+            ),
+        )
+
     condition = condition.replace(" IS NOT ", " != ")
     condition = condition.replace(" IS ", " == ")
-
-    # Handle = <>
     condition = condition.replace(" <> ", " != ")
-    # Handle bare = (but not ==)
-    import re as _re
-    condition = _re.sub(r'(?<!=)=(?!=)', ' == ', condition)
-
-    # Handle AND/OR
+    condition = _replace_bare_equals(condition)
     condition = condition.replace(" AND ", " && ")
     condition = condition.replace(" OR ", " || ")
-
-    # Handle NOT
     condition = condition.replace("NOT ", "!")
 
-    # Convert field references
     parts = condition.split()
     result_parts = []
     for part in parts:
         if part in ("==", "!=", "&&", "||", "(", ")", "!", ">=", "<=", ">", "<"):
             result_parts.append(part)
+        elif len(part) >= 2 and part.startswith("'") and part.endswith("'"):
+            inner = part[1:-1].replace('"', '\\"')
+            result_parts.append(f'"{inner}"')
         elif part.startswith("'") or part.startswith('"'):
             result_parts.append(part)
         elif part.replace(".", "").replace("-", "").isdigit():
@@ -217,70 +823,281 @@ def map_cobol_condition_to_java(condition: str) -> JavaExpression:
             result_parts.append(part.replace("-", "_"))
 
     condition_str = " ".join(result_parts)
-
-    # Try to parse simple binary conditions: left OP right
-    binary_match = _re.match(
-        r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$',
-        condition_str,
-    )
+    binary_match = _re.match(r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$', condition_str)
     if binary_match:
-        left_name = binary_match.group(1)
-        op = binary_match.group(2)
-        right_str = binary_match.group(3)
-
-        left_expr: JavaExpression
-        if left_name.replace(".", "").replace("-", "").isdigit():
-            left_expr = JavaLiteral(value=left_name)
-        else:
-            left_expr = JavaVariableRef(name=left_name)
-
-        right_expr: JavaExpression
-        if right_str.replace(".", "").replace("-", "").isdigit():
-            right_expr = JavaLiteral(value=right_str)
-        else:
-            right_expr = JavaVariableRef(name=right_str)
-
+        left_name, op, right_str = binary_match.groups()
+        left_expr = JavaLiteral(value=left_name) if left_name.replace(".", "").replace("-", "").isdigit() else JavaVariableRef(name=left_name)
+        right_expr = JavaLiteral(value=right_str) if right_str.replace(".", "").replace("-", "").isdigit() else JavaVariableRef(name=right_str)
         return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
-
     return JavaLiteral(value=condition_str)
 
+def _replace_bare_equals(condition: str) -> str:
+    """Replace COBOL bare `=` with Java `==`, quote-aware.
 
-def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) -> list[JavaStatement]:
-    """Map a single COBOL statement to one or more Java statements."""
+    Leaves `==`, `>=`, `<=`, `!=` untouched and never rewrites `=`
+    inside single/double-quoted literals (e.g. ``WS-G = 'A=B'``).
+    """
+    import re as _re
+    # Split into quoted and unquoted segments; only rewrite unquoted ones.
+    parts = _re.split(r"('[^']*'|\"[^\"]*\")", condition)
+    for i in range(0, len(parts), 2):
+        parts[i] = _re.sub(r'(?<![<>!=])=(?!=)', ' == ', parts[i])
+    return "".join(parts)
+
+
+def _build_for_condition(var_name: str, until_condition: str) -> JavaExpression:
+    """Build a for-loop condition expression from a COBOL UNTIL condition.
+
+    COBOL: PERFORM VARYING ... UNTIL condition  =  loop WHILE NOT condition.
+    So:    UNTIL var > N  →  var <= N
+           UNTIL var >= N →  var < N
+           UNTIL var < N  →  var >= N
+    """
+    import re as _re
+    until_condition = until_condition.strip()
+    if until_condition == "TRUE":
+        return JavaLiteral(value="true")
+
+    # Try to parse: var > value  →  var <= value
+    m = _re.match(r'(\w[\w-]*)\s*>\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator="<=",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Try to parse: var >= value  →  var < value
+    m = _re.match(r'(\w[\w-]*)\s*>=\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator="<",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Try to parse: var < value  →  var >= value
+    m = _re.match(r'(\w[\w-]*)\s*<\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator=">=",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Try to parse: var <= value  →  var > value
+    m = _re.match(r'(\w[\w-]*)\s*<=\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator=">",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Fallback: map the condition as a Java expression
+    return map_cobol_condition_to_java(until_condition)
+
+
+def _is_plain_reference(arg: str) -> bool:
+    """Whether a CALL USING argument is a plain data-item reference.
+
+    Only plain references can receive BY REFERENCE write-back
+    (``WS-X = Callee.LS``). Literals and compound expressions have no
+    caller-side storage — matching COBOL, where a BY REFERENCE literal
+    is passed through a temporary whose modification is discarded.
+    """
+    import re as _re
+    return _re.match(r"^[A-Za-z][\w-]*$", (arg or "").strip()) is not None
+
+
+def _expand_thru_range(stmt, program) -> list[str]:
+    """Expand PERFORM <first> THRU <last> to the paragraph names in range.
+
+    Returns the paragraph names from <first> through <last> inclusive, in
+    source order. When the program context is unavailable or an endpoint
+    is unknown, returns just the named paragraph so generation still fails
+    closed (unknown method → compile error) instead of silently skipping.
+    """
+    first = (stmt.paragraph_name or "").strip()
+    last = (stmt.thru_target or "").strip()
+    if program is not None:
+        names = [para.name for para in program.paragraphs]
+        if first in names and last in names:
+            lo = names.index(first)
+            hi = names.index(last)
+            if lo <= hi:
+                return names[lo:hi + 1]
+    return [first] if first else []
+
+
+def map_cobol_statement(
+    stmt: Statement,
+    program: CobolProgram | None = None,
+    called_programs: dict[str, CobolProgram] | None = None,
+) -> list[JavaStatement]:
+    """Map a single COBOL statement to one or more Java statements.
+
+    Args:
+        stmt: The COBOL IR statement to map.
+        program: The enclosing CobolProgram — used for field format-width
+            lookups and file-definition resolution.
+        called_programs: Optional map of program-id → CobolProgram for
+            all programs in the application.  Used to resolve the correct
+            entry-point method when generating inter-program CALL IR.
+    """
     result: list[JavaStatement] = []
 
-    # Build field format width lookup if program provided
+    # Build DISPLAY format metadata from COBOL data items.
     field_format_widths = {}
+    field_items = {}
     if program is not None:
         for item in program.working_storage:
+            field_items[item.name.replace("-", "_")] = item
             if item.is_numeric and item.format_width > 0:
                 field_format_widths[item.name.replace("-", "_")] = item.format_width
+        for fd in program.file_definitions:
+            for item in fd.record_items:
+                field_items[item.name.replace("-", "_")] = item
+                if item.is_numeric and item.format_width > 0:
+                    field_format_widths[item.name.replace("-", "_")] = item.format_width
 
     if isinstance(stmt, MoveStatement):
-        target = stmt.target.replace("-", "_")
-        source = map_cobol_expr_to_java(stmt.source)
-        result.append(JavaAssignment(target=target, expression=source))
+        source = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        # The IR stores every destination in ``targets`` (primary first) and
+        # mirrors the primary one into ``target``. Emitting ``target`` and
+        # then iterating the full tuple would duplicate the primary
+        # assignment, so ``targets`` is the authoritative list.
+        move_targets = stmt.targets or ((stmt.target,) if stmt.target else ())
+        for move_target in move_targets:
+            result.append(JavaAssignment(
+                target=move_target.replace("-", "_"),
+                expression=source,
+            ))
 
     elif isinstance(stmt, AddStatement):
-        target = stmt.target.replace("-", "_")
-        source = map_cobol_expr_to_java(stmt.source)
-        # ADD source TO target → target += source
+        # ADD A TO B GIVING C → C = A + B  (C receives result, B unchanged)
+        # ADD A TO B           → B = A + B  (in-place)
+        target = stmt.giving_target.replace("-", "_") if stmt.giving_target else stmt.target.replace("-", "_")
+        source_a = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        source_b = (
+            _map_cobol_expression_to_java(stmt.target_ref, field_items)
+            if stmt.target_ref is not None
+            else JavaVariableRef(name=stmt.target.replace("-", "_"))
+        )
+        if stmt.giving_target:
+            result.append(JavaAssignment(
+                target=target,
+                expression=_coerce_assignment_expression(
+                    _map_numeric_binary_expression(source_a, "+", source_b),
+                    field_items.get(target),
+                ),
+            ))
+        else:
+            result.append(JavaAssignment(
+                target=target,
+                expression=JavaBinaryOp(
+                    left=source_b,
+                    operator="+",
+                    right=source_a,
+                ),
+            ))
+
+    elif isinstance(stmt, SubtractStatement):
+        # SUBTRACT A FROM B GIVING C → C = B - A
+        # SUBTRACT A FROM B           → B = B - A (in-place)
+        # SUBTRACT A B C FROM D GIVING E → E = D - A - B - C (multi-source)
+        # SUBTRACT A B C FROM D           → D = D - A - B - C (multi-source, in-place)
+        target = stmt.to_field.replace("-", "_") if stmt.to_field else stmt.from_field.replace("-", "_")
+        # Determine all subtrahends: use sources tuple if present, else single source
+        sources = stmt.sources if stmt.sources else (stmt.source,)
+        java_sources = [
+            (
+                _map_cobol_expression_to_java(stmt.source_expr, field_items)
+                if stmt.source_expr is not None and s == stmt.source and len(sources) == 1
+                else map_cobol_expr_to_java(s)
+            )
+            for s in sources
+        ]
+        # Build chained subtraction: ((minuend - s1) - s2) - ...
+        expr: JavaExpression = (
+            _map_cobol_expression_to_java(stmt.from_ref, field_items)
+            if stmt.from_ref is not None
+            else JavaVariableRef(name=stmt.from_field.replace("-", "_"))
+        )
+        for src in java_sources:
+            expr = _map_numeric_binary_expression(expr, "-", src, field_items)
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(
-                left=JavaVariableRef(name=target),
-                operator="+",
-                right=source,
+            expression=_coerce_assignment_expression(expr, field_items.get(target)),
+        ))
+
+    elif isinstance(stmt, MultiplyStatement):
+        # MULTIPLY A BY B GIVING C → C = A * B
+        # MULTIPLY A BY B           → B = A * B (in-place, B receives result, A unchanged)
+        # The left operand is always the source (A, multiplier)
+        # If GIVING is present, target=C, multiplicand=B (both unchanged after)
+        # If no GIVING, target=B (multiplicand gets updated in-place)
+        if stmt.target:
+            target = stmt.target.replace("-", "_")
+        else:
+            target = stmt.multiplicand.replace("-", "_")
+        source = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        multiplicand = (
+            _map_cobol_expression_to_java(stmt.multiplicand_ref, field_items)
+            if stmt.multiplicand_ref is not None
+            else JavaVariableRef(name=stmt.multiplicand.replace("-", "_"))
+        )
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(
+                _map_numeric_binary_expression(
+                    source,
+                    "*",
+                    multiplicand,
+                    field_items,
+                ),
+                field_items.get(target),
             ),
         ))
 
     elif isinstance(stmt, DivideStatement):
         target = stmt.target.replace("-", "_")
-        source = map_cobol_expr_to_java(stmt.source)
-        divisor = map_cobol_expr_to_java(stmt.divisor)
+        source = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        divisor = (
+            _map_cobol_expression_to_java(stmt.divisor_expr, field_items)
+            if stmt.divisor_expr is not None
+            else map_cobol_expr_to_java(stmt.divisor)
+        )
         result.append(JavaAssignment(
             target=target,
-            expression=JavaBinaryOp(left=source, operator="/", right=divisor),
+            expression=_coerce_assignment_expression(
+                JavaBinaryOp(left=source, operator="/", right=divisor),
+                field_items.get(target),
+            ),
         ))
         # REMAINDER target = source % divisor
         if stmt.remainder:
@@ -292,35 +1109,133 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
 
     elif isinstance(stmt, ComputeStatement):
         target = stmt.target.replace("-", "_")
-        expression = map_cobol_expr_to_java(stmt.expression)
-        result.append(JavaAssignment(target=target, expression=expression))
+        target_item = field_items.get(target)
+        from engine.transformation.ir import BinaryExpression
+        decimal_expression = stmt.expression_expr is not None and (
+            _expression_is_decimal(stmt.expression_expr, field_items) or _is_decimal_item(target_item)
+        )
+        # Prefer the structured expression produced by the parser so chained
+        # arithmetic and nested expressions preserve their real operator tree.
+        if (decimal_expression and isinstance(stmt.expression_expr, BinaryExpression)
+                and stmt.expression_expr.operator == "/"):
+            if target_item is None or not target_item.is_numeric:
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: COMPUTE division requires declared target precision")
+            expression = JavaMethodCall(
+                object_ref=_map_cobol_expression_to_java(stmt.expression_expr.left, field_items, True),
+                method_name="divide",
+                arguments=(
+                    _map_cobol_expression_to_java(stmt.expression_expr.right, field_items, True),
+                    JavaLiteral(value=str(target_item.decimal_places)),
+                    JavaVariableRef(name="RoundingMode.DOWN"),
+                ),
+            )
+        else:
+            expression = (
+                _map_cobol_expression_to_java(stmt.expression_expr, field_items, decimal_expression)
+                if stmt.expression_expr is not None
+                else map_cobol_expr_to_java(stmt.expression)
+            )
+        if decimal_expression and target_item is not None and target_item.is_numeric and not _is_decimal_item(target_item):
+            expression = JavaMethodCall(
+                object_ref=expression,
+                method_name="longValue" if target_item.pic_length > 9 else "intValue",
+                arguments=(),
+            )
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(expression, field_items.get(target)),
+        ))
 
     elif isinstance(stmt, DisplayStatement):
         parts: list[JavaExpression] = []
         for part in stmt.parts:
-            if part.startswith('"'):
+            is_quoted = (
+                (part.startswith("'") and part.endswith("'"))
+                or (part.startswith('"') and part.endswith('"'))
+            )
+            if is_quoted:
+                # COBOL string literal: strip quotes → Java String literal
                 inner = part[1:-1]
                 if inner:
-                    parts.append(JavaLiteral(value=inner))
+                    parts.append(JavaLiteral(
+                        value=inner,
+                        java_type=JavaType(basic_type=JavaBasicType.STRING),
+                    ))
             else:
                 java_name = part.replace("-", "_")
-                # Check if this field has a format width for numeric formatting
+                var_ref = JavaVariableRef(name=java_name)
+                item = field_items.get(java_name)
                 if java_name in field_format_widths:
                     width = field_format_widths[java_name]
-                    var_ref = JavaVariableRef(name=java_name)
-                    # String.format("%0Nd", var) for zero-padded numeric display
                     format_spec = JavaLiteral(value="%0{}d".format(width))
-                    parts.append(JavaMethodCall(
-                        class_name="String",
-                        method_name="format",
-                        arguments=(format_spec, var_ref),
-                        is_static=True,
-                    ))
+                    if item is not None and item.decimal_places > 0:
+                        display_value = JavaMethodCall(
+                            object_ref=var_ref,
+                            method_name="movePointRight",
+                            arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                        )
+                        display_value = JavaMethodCall(
+                            object_ref=display_value,
+                            method_name="longValueExact",
+                            arguments=(),
+                        )
+                        formatted_value = JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, display_value),
+                            is_static=True,
+                        )
+                        integer_width = width - item.decimal_places
+                        parts.append(JavaStringConcat(parts=(
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(
+                                    JavaLiteral(value="0"),
+                                    JavaLiteral(value=str(integer_width)),
+                                ),
+                            ),
+                            JavaLiteral(
+                                value=".",
+                                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                            ),
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(JavaLiteral(value=str(integer_width)),),
+                            ),
+                        )))
+                    else:
+                        parts.append(JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, var_ref),
+                            is_static=True,
+                        ))
                 else:
-                    parts.append(JavaVariableRef(name=java_name))
+                    # COBOL PIC X fields have fixed character width. Java
+                    # Strings are variable-length, so DISPLAY must reproduce
+                    # the field's storage width rather than silently trimming
+                    # trailing spaces from the observable output.
+                    if item is not None and not item.is_numeric and item.format_width > 0:
+                        width = item.format_width
+                        format_spec = JavaLiteral(value="%-{}s".format(width))
+                        padded = JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, var_ref),
+                            is_static=True,
+                        )
+                        parts.append(JavaMethodCall(
+                            object_ref=padded,
+                            method_name="substring",
+                            arguments=(JavaLiteral(value="0"), JavaLiteral(value=str(width))),
+                        ))
+                    else:
+                        parts.append(var_ref)
         if parts:
             concat = JavaStringConcat(parts=tuple(parts))
-            # out.println(...) or System.err.println(...)
+            # out.println(...) or System.err.println(...) based on destination
             is_stderr = stmt.destination == "STDERR"
             if is_stderr:
                 result.append(JavaMethodCallStatement(
@@ -339,8 +1254,51 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
                     )
                 ))
 
+    elif isinstance(stmt, EvaluateStatement):
+        # EVALUATE is already canonicalized into structured WHEN predicates.
+        # Lower only the canonical IR here; do not reconstruct COBOL text.
+        def map_arm(index: int) -> list:
+            if index >= len(stmt.arms):
+                return []
+
+            arm = stmt.arms[index]
+            body: list = []
+            for nested in arm.body:
+                body.extend(map_cobol_statement(nested, program))
+
+            if arm.other:
+                return body
+
+            conditions = [
+                map_cobol_condition_to_java(condition)
+                for condition in arm.conditions
+            ]
+            if not conditions:
+                return map_arm(index + 1)
+
+            condition = conditions[0]
+            for next_condition in conditions[1:]:
+                condition = JavaBinaryOp(
+                    left=condition,
+                    operator="||",
+                    right=next_condition,
+                )
+
+            else_body = map_arm(index + 1)
+            return [
+                JavaIf(
+                    condition=condition,
+                    then_body=tuple(body),
+                    else_body=tuple(else_body),
+                )
+            ]
+
+        result.extend(map_arm(0))
+
     elif isinstance(stmt, IfStatement):
-        condition = map_cobol_condition_to_java(stmt.condition)
+        condition = map_cobol_condition_to_java(
+            stmt.structured_condition if stmt.structured_condition is not None else stmt.condition
+        )
         then_body = []
         for s in stmt.then_body:
             then_body.extend(map_cobol_statement(s, program))
@@ -361,24 +1319,326 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
         result.append(JavaReturn())
 
     elif isinstance(stmt, ReadStatement):
-        # READ → loop structure (handled at higher level)
-        body = []
-        for s in stmt.not_at_end_body:
-            body.extend(map_cobol_statement(s, program))
-        if body:
-            result.append(JavaBlock(statements=tuple(body)))
+        # READ file [NEXT] [KEY IS k] [INTO w] / AT END / NOT AT END /
+        # INVALID KEY / NOT INVALID KEY — exactly one CobolFileIo read:
+        #
+        #   String _read_N = CobolFileIo.readNext(path);      // cursor/next
+        #   String _read_N = CobolFileIo.readKey(path, k);    // keyed/random
+        #   if (_read_N != null) {                         // record read
+        #       [fs = "00";] [record disassembly;] [INTO;] [ok bodies]
+        #   } else {
+        #       [fs = "10"/"23";] [AT END / INVALID KEY bodies]
+        #   }
+        #
+        # Keyed reads fail with status 23 (INVALID KEY); cursor reads
+        # fail with status 10 (AT END).  Status is assigned only when a
+        # declared FILE STATUS field exists.  The record area is only
+        # (re)populated on success — matching COBOL AT END semantics.
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        status_var = _status_target(fd, program)
+        has_at_end = bool(stmt.at_end_body or stmt.not_at_end_body)
+        has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+
+        if path is None:
+            # STDOUT/unmatched destination: no real record to read —
+            # preserve legacy behaviour by inlining the success bodies.
+            result.append(JavaComment(
+                text=f"// READ {stmt.file_name}: no file path; success bodies inlined",
+            ))
+            for s in stmt.not_at_end_body:
+                result.extend(map_cobol_statement(s, program, called_programs))
+            for s in stmt.not_invalid_key_body:
+                result.extend(map_cobol_statement(s, program, called_programs))
+        else:
+            # Indexed random READ (no NEXT) uses the current record-key field.
+            # READ NEXT / sequential uses the cursor. Relative uses RRN.
+            relative_read = _is_relative(fd) and not stmt.read_next
+            if not stmt.key and not relative_read and not stmt.read_next:
+                if fd is not None and fd.record_key is not None:
+                    key_item = _key_field_item(fd, program)
+                    if key_item is not None:
+                        stmt_key_for_read = key_item.name
+                    else:
+                        stmt_key_for_read = ""
+                else:
+                    stmt_key_for_read = ""
+            else:
+                stmt_key_for_read = stmt.key
+
+            keyed = bool(stmt_key_for_read) or (
+                has_inv and not has_at_end
+                and fd is not None and fd.record_key is not None
+                and not stmt.read_next
+            )
+            read_var = _fresh_io_var("read")
+            if relative_read:
+                call = _cobol_call(
+                    "readRelative", _str_lit(path), _key_expr("", fd, program),
+                )
+            elif keyed:
+                call = _cobol_call(
+                    "readKey", _str_lit(path),
+                    _key_expr(stmt_key_for_read, fd, program),
+                )
+            else:
+                call = _cobol_call("readNext", _str_lit(path))
+            result.append(JavaLocalVarDecl(
+                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                name=read_var,
+                initializer=call,
+            ))
+
+            # Success branch: status + record disassembly + INTO + bodies.
+            then_body: list[JavaStatement] = []
+            if status_var:
+                then_body.append(JavaAssignment(
+                    target=status_var, expression=_str_lit("00"),
+                ))
+            then_body.extend(_disassembly_statements(fd, read_var))
+            into_stmt = _into_statement(stmt.into_field, read_var, program)
+            if into_stmt is not None:
+                then_body.append(into_stmt)
+            for s in stmt.not_invalid_key_body:
+                then_body.extend(map_cobol_statement(s, program, called_programs))
+            for s in stmt.not_at_end_body:
+                then_body.extend(map_cobol_statement(s, program, called_programs))
+
+            # Failure branch: status + AT END / INVALID KEY bodies.
+            # Relative random READ and keyed READ both signal INVALID KEY (23);
+            # sequential cursor READ signals AT END (10).
+            fail_status = "23" if (keyed or relative_read) else "10"
+            else_body: list[JavaStatement] = []
+            if status_var or has_at_end or has_inv:
+                if status_var:
+                    else_body.append(JavaAssignment(
+                        target=status_var, expression=_str_lit(fail_status),
+                    ))
+                for s in stmt.at_end_body:
+                    else_body.extend(map_cobol_statement(s, program, called_programs))
+                for s in stmt.invalid_key_body:
+                    else_body.extend(map_cobol_statement(s, program, called_programs))
+
+            if then_body or else_body:
+                result.append(JavaIf(
+                    condition=JavaBinaryOp(
+                        left=JavaVariableRef(name=read_var),
+                        operator="!=",
+                        right=JavaLiteral(value="null"),
+                    ),
+                    then_body=tuple(then_body),
+                    else_body=tuple(else_body),
+                ))
 
     elif isinstance(stmt, WriteStatement):
-        # WRITE → method call (handled at higher level)
-        result.append(JavaComment(text=f"// WRITE {stmt.record_name}"))
+        # WRITE record [FROM field] [INVALID KEY ...].
+        #
+        # Destination semantics:
+        #   * STDOUT/SYSOUT/SYS* (or unmatched file) → System.out.println
+        #   * real file path → CobolFileIo.write(path, recordImage, keyLen)
+        #
+        # Record image: WRITE … FROM field uses the field as-is; otherwise
+        # the FD record items are assembled field-by-field padded to their
+        # DISPLAY widths — byte-identical to the COBOL record area.
+        # keyLen > 0 selects the indexed path (dup key → status 22, which
+        # is what runs the INVALID KEY scope).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        content_var = (stmt.from_field or stmt.record_name).replace("-", "_")
+
+        if path is None:
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    object_ref=JavaVariableRef(name="System.out"),
+                    method_name="println",
+                    arguments=(JavaVariableRef(name=content_var),),
+                )
+            ))
+        else:
+            rec_expr = _assembly_expression(fd, content_var)
+            if rec_expr is None:
+                rec_expr = JavaVariableRef(name=content_var)
+            if _is_relative(fd):
+                # RELATIVE: third arg is the current RRN (relative key field).
+                rrn_expr = _key_expr("", fd, program)
+                call = _cobol_call("write", _str_lit(path), rec_expr, rrn_expr)
+            else:
+                call = _cobol_call(
+                    "write", _str_lit(path), rec_expr, _int_lit(_key_len(fd, program)),
+                )
+            has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+            status_var = _bind_status(
+                result, _status_target(fd, program), call, need_expr=has_inv,
+            )
+            if has_inv:
+                _status_branch(
+                    result, status_var, "22",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
+
+    elif isinstance(stmt, OpenStatement):
+        # OPEN mode file → CobolFileIo.open(path, mode, keyLen).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        if path is None:
+            result.append(JavaComment(
+                text=f"// OPEN {stmt.mode} {stmt.file_name}",
+            ))
+        else:
+            call = _cobol_call(
+                "open", _str_lit(path), _str_lit(stmt.mode),
+                _int_lit(_open_key_len(fd, program)),
+            )
+            _bind_status(result, _status_target(fd, program), call)
+
+    elif isinstance(stmt, CloseStatement):
+        # CLOSE file → CobolFileIo.close(path) (flush + persist index).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        if path is None:
+            result.append(JavaComment(text=f"// CLOSE {stmt.file_name}"))
+        else:
+            _bind_status(
+                result, _status_target(fd, program),
+                _cobol_call("close", _str_lit(path)),
+            )
+
+    elif isinstance(stmt, StartStatement):
+        # START file KEY IS [rel] key → position the indexed cursor.
+        # INVALID KEY runs when no record satisfies the relation (23).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        if path is None:
+            result.append(JavaComment(text=f"// START {stmt.file_name}"))
+        else:
+            op = stmt.operator or "="
+            call = _cobol_call(
+                "start", _str_lit(path), _str_lit(op),
+                _key_expr(stmt.key, fd, program),
+            )
+            has_bodies = bool(
+                stmt.invalid_key_body or stmt.not_invalid_key_body
+            )
+            status_var = _bind_status(
+                result, _status_target(fd, program), call, need_expr=has_bodies,
+            )
+            if has_bodies:
+                _status_branch(
+                    result, status_var, "23",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
+
+    elif isinstance(stmt, RewriteStatement):
+        # REWRITE record — indexed replace via CobolFileIo.rewrite.
+        # Sequential REWRITE is not supported by CobolFileIo and fails
+        # closed with status 23 (observable, never silently skipped).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        content_var = (stmt.from_field or stmt.record_name).replace("-", "_")
+        has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+        status_field = _status_target(fd, program)
+        if path is None:
+            result.append(JavaComment(text=f"// REWRITE {stmt.file_name}"))
+        else:
+            key_len = _key_len(fd, program)
+            if _is_relative(fd):
+                # RELATIVE REWRITE: replace the record at the current RRN.
+                rrn_expr = _key_expr("", fd, program)
+                rec_expr = _assembly_expression(fd, content_var)
+                if rec_expr is None:
+                    rec_expr = JavaVariableRef(name=content_var)
+                call = _cobol_call("rewrite", _str_lit(path), rec_expr, rrn_expr)
+                cond_status = _bind_status(
+                    result, status_field, call, need_expr=has_inv,
+                )
+            elif key_len <= 0:
+                result.append(JavaComment(
+                    text=f"// REWRITE {stmt.file_name}: sequential REWRITE "
+                    "unsupported by CobolFileIo",
+                ))
+                if status_field:
+                    cond_status = status_field
+                    result.append(JavaAssignment(
+                        target=status_field, expression=_str_lit("23"),
+                    ))
+                elif has_inv:
+                    cond_status = _fresh_io_var("st")
+                    result.append(JavaLocalVarDecl(
+                        java_type=JavaType(basic_type=JavaBasicType.STRING),
+                        name=cond_status,
+                        initializer=_str_lit("23"),
+                    ))
+                else:
+                    cond_status = ""
+            else:
+                rec_expr = _assembly_expression(fd, content_var)
+                if rec_expr is None:
+                    rec_expr = JavaVariableRef(name=content_var)
+                call = _cobol_call(
+                    "rewrite", _str_lit(path), rec_expr, _int_lit(key_len),
+                )
+                cond_status = _bind_status(
+                    result, status_field, call, need_expr=has_inv,
+                )
+            if has_inv:
+                _status_branch(
+                    result, cond_status, "23",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
+
+    elif isinstance(stmt, DeleteStatement):
+        # DELETE file record by primary key → CobolFileIo.delete.
+        # RELATIVE → CobolFileIo.deleteRelative(path, RRN).
+        # Missing key → status 23 runs the INVALID KEY scope.
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+        if path is None:
+            result.append(JavaComment(text=f"// DELETE {stmt.file_name}"))
+        else:
+            if _is_relative(fd):
+                rrn_expr = _key_expr("", fd, program)
+                call = _cobol_call("deleteRelative", _str_lit(path), rrn_expr)
+            else:
+                call = _cobol_call(
+                    "delete", _str_lit(path), _key_expr("", fd, program),
+                    _int_lit(_key_len(fd, program)),
+                )
+            status_var = _bind_status(
+                result, _status_target(fd, program), call, need_expr=has_inv,
+            )
+            if has_inv:
+                _status_branch(
+                    result, status_var, "23",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
 
     elif isinstance(stmt, StringStatement):
-        # STRING → assignment
+        # STRING → concatenation assignment.
+        # Structured expressions preserve literal quoting (Literal →
+        # quoted Java string, never a bare identifier); raw parts carry
+        # COBOL quoting (e.g. '"SUBTRACT"') and are parsed the same way.
         if stmt.target:
             target = stmt.target.replace("-", "_")
-            parts_exprs = []
-            for part in stmt.structured_parts:
-                parts_exprs.append(map_cobol_expr_to_java(str(part)))
+            parts_exprs: list[JavaExpression] = []
+            if stmt.structured_parts:
+                for part in stmt.structured_parts:
+                    parts_exprs.append(_map_cobol_expression_to_java(part))
+            else:
+                for part in stmt.parts:
+                    parts_exprs.append(map_cobol_expr_to_java(part))
             if parts_exprs:
                 result.append(JavaAssignment(
                     target=target,
@@ -390,13 +1650,268 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
         result.append(JavaComment(text=f"// UNSTRING {stmt.source}"))
 
     elif isinstance(stmt, PerformStatement):
-        # PERFORM → method call
-        result.append(JavaMethodCallStatement(
-            call=JavaMethodCall(
-                method_name=stmt.paragraph_name.replace("-", "_"),
-                arguments=(),
-            )
-        ))
+        # Check for VARYING form
+        if stmt.until_condition and stmt.until_condition.startswith("VARYING "):
+            # PERFORM VARYING var FROM init BY step UNTIL condition [inline-body]
+            # Parse: "VARYING WS-LOOP-CNT FROM 1 BY 1 UNTIL WS-LOOP-CNT > 5"
+            parts = stmt.until_condition.split(" FROM ")
+            if len(parts) >= 2:
+                var_part = parts[0].replace("VARYING ", "").strip()
+                rest = parts[1]
+                by_until = rest.split(" UNTIL ")
+                init_and_by = by_until[0].strip() if by_until else "1"
+                until_part = by_until[1].strip() if len(by_until) > 1 else "TRUE"
+
+                # Parse init and BY from "1 BY 1"
+                init_val = "1"
+                by_val = "1"
+                if " BY " in init_and_by:
+                    ib_parts = init_and_by.split(" BY ")
+                    init_val = ib_parts[0].strip()
+                    by_val = ib_parts[1].strip()
+                else:
+                    init_val = init_and_by.strip()
+
+                # Build condition expression using map_cobol_condition_to_java
+                condition_expr = map_cobol_condition_to_java(
+                    f"{var_part} < {until_part}" if "<" not in until_part and ">" not in until_part
+                    else until_part.replace(var_part, var_part.replace("-", "_"))
+                )
+                # Build proper loop condition: var < stop_value (for > cases)
+                var_jname = var_part.replace("-", "_")
+                cond_java = _build_for_condition(var_jname, until_part)
+
+                # Generate for loop body: use inline body or paragraph call
+                body_stmts: list[JavaStatement] = []
+                if stmt.body:
+                    for s in stmt.body:
+                        body_stmts.extend(map_cobol_statement(s, program))
+                elif stmt.paragraph_name:
+                    body_stmts.append(JavaMethodCallStatement(
+                        call=JavaMethodCall(
+                            method_name=_to_java_method_name(stmt.paragraph_name),
+                            arguments=(),
+                        )
+                    ))
+
+                result.append(JavaFor(
+                    init=JavaLocalVarDecl(
+                        java_type=JavaType(basic_type=JavaBasicType.INT),
+                        name=var_jname,
+                        initializer=JavaLiteral(value=init_val),
+                    ),
+                    condition=cond_java,
+                    update=JavaAssignment(
+                        target=var_jname,
+                        expression=JavaBinaryOp(
+                            left=JavaVariableRef(name=var_jname),
+                            operator="+",
+                            right=JavaLiteral(value=by_val),
+                        ),
+                    ),
+                    body=tuple(body_stmts),
+                ))
+            else:
+                if stmt.body:
+                    body_stmts = []
+                    for s in stmt.body:
+                        body_stmts.extend(map_cobol_statement(s, program))
+                    result.append(JavaBlock(statements=tuple(body_stmts)))
+                elif stmt.paragraph_name:
+                    result.append(JavaMethodCallStatement(
+                        call=JavaMethodCall(
+                            method_name=_to_java_method_name(stmt.paragraph_name),
+                            arguments=(),
+                        )
+                    ))
+        elif stmt.until_condition and stmt.until_condition.startswith("TIMES="):
+            # PERFORM <para> <n> TIMES  (out-of-line) or
+            # PERFORM <n> TIMES ... END-PERFORM (inline).
+            # COBOL executes the body exactly n times; a zero/negative
+            # count executes zero times — the Java for-loop matches this.
+            times_val = stmt.until_condition.replace("TIMES=", "").strip()
+            if times_val.lstrip("-").isdigit():
+                count_expr = JavaLiteral(value=times_val)
+            else:
+                # Field reference count: PERFORM PARA WS-K TIMES.
+                count_expr = JavaVariableRef(name=times_val.replace("-", "_"))
+            loop_var = _fresh_times_var()
+            body_stmts: list[JavaStatement] = []
+            if stmt.body:
+                for s in stmt.body:
+                    body_stmts.extend(map_cobol_statement(s, program))
+            elif stmt.paragraph_name:
+                body_stmts.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        method_name=_to_java_method_name(stmt.paragraph_name),
+                        arguments=(),
+                    )
+                ))
+            result.append(JavaFor(
+                init=JavaLocalVarDecl(
+                    java_type=JavaType(basic_type=JavaBasicType.INT),
+                    name=loop_var,
+                    initializer=JavaLiteral(value="0"),
+                ),
+                condition=JavaBinaryOp(
+                    left=JavaVariableRef(name=loop_var),
+                    operator="<",
+                    right=count_expr,
+                ),
+                update=JavaAssignment(
+                    target=loop_var,
+                    expression=JavaBinaryOp(
+                        left=JavaVariableRef(name=loop_var),
+                        operator="+",
+                        right=JavaLiteral(value="1"),
+                    ),
+                ),
+                body=tuple(body_stmts),
+            ))
+        elif stmt.until_condition:
+            # PERFORM <para> UNTIL <cond> (out-of-line TEST-BEFORE loop) or
+            # PERFORM UNTIL <cond> ... END-PERFORM (inline loop).
+            # COBOL checks the condition BEFORE each iteration, including
+            # the first (zero iterations when already true) — exactly the
+            # semantics of Java while (!(cond)).
+            java_cond = map_cobol_condition_to_java(stmt.until_condition)
+            loop_body: list[JavaStatement] = []
+            if stmt.body:
+                for s in stmt.body:
+                    loop_body.extend(map_cobol_statement(s, program))
+            elif stmt.paragraph_name:
+                loop_body.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        method_name=_to_java_method_name(stmt.paragraph_name),
+                        arguments=(),
+                    )
+                ))
+            result.append(JavaWhile(
+                condition=_negate_condition(java_cond),
+                body=tuple(loop_body),
+            ))
+        elif stmt.thru_target:
+            # PERFORM <first> THRU <last> — execute every paragraph from
+            # <first> through <last> inclusive, in source order.
+            for target in _expand_thru_range(stmt, program):
+                result.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        method_name=_to_java_method_name(target),
+                        arguments=(),
+                    )
+                ))
+        else:
+            # Simple PERFORM → method call
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    method_name=_to_java_method_name(stmt.paragraph_name),
+                    arguments=(),
+                )
+            ))
+
+    elif isinstance(stmt, CallStatement):
+        # CALL program-name [USING parameters] — static inter-program call.
+        #
+        # Parameter passing uses value-result through the callee's static
+        # linkage fields (COBOL LINKAGE SECTION items become static fields
+        # of the generated class):
+        #   1. sync-in:  Callee.LS = <caller arg>   (all modes)
+        #   2. call:     Callee.MAIN_LOGIC()
+        #   3. sync-out: <caller arg> = Callee.LS   (BY REFERENCE only,
+        #      and only when the argument is a plain data-item reference)
+        #
+        # This preserves observable COBOL mutation semantics despite Java
+        # pass-by-value: BY REFERENCE writes flow back to the caller, while
+        # BY CONTENT / BY VALUE writes stay local to the callee.
+        #
+        # Entry-point resolution (generic rule, no fixture-specific logic):
+        #   * Callee with LINKAGE SECTION + arity match → value-result
+        #     sequence above with entry MAIN_LOGIC.
+        #   * Callee without LINKAGE → entry is its first paragraph.
+        #   * Unknown callee (unresolved CALL) or arity mismatch → legacy
+        #     static call with arguments, which fails closed at Java compile
+        #     time instead of silently skipping the call.
+        #   * Dynamic CALL (unquoted data-item target) never matches a static
+        #     program-id and therefore always takes the fail-closed path.
+        target_id = _normalise_program_id(stmt.program_name)
+        # A quoted CALL target (CALL 'SUBP') is a static literal; an
+        # unquoted target (CALL WS-PGM) is a dynamic data-item reference
+        # whose runtime value cannot be resolved statically. Dynamic CALLs
+        # must never take the value-result path — they fail closed below.
+        #
+        # The parser stores the target with quotes already stripped
+        # (CALL 'SUBP' → program_name='SUBP'), so inspecting the first
+        # character cannot distinguish the two forms. CallStatement
+        # records the distinction in ``is_dynamic``; that is authoritative.
+        raw_target = (stmt.program_name or "").strip()
+        is_static_target = bool(raw_target) and not stmt.is_dynamic
+        callee_linkage: list[str] = []
+        if is_static_target and called_programs is not None:
+            callee = called_programs.get(target_id)
+            if callee is not None and callee.linkage_section:
+                callee_linkage = [
+                    item.name.replace("-", "_")
+                    for item in callee.linkage_section
+                ]
+
+        class_name = _to_java_class_name(target_id)
+        if (
+            is_static_target
+            and callee_linkage
+            and len(stmt.arguments) == len(callee_linkage)
+            and len(stmt.arguments) > 0
+        ):
+            modes = list(stmt.passing_modes) or ["REFERENCE"] * len(stmt.arguments)
+            # 1. sync-in (all modes, positional: USING order ↔ LINKAGE order)
+            for arg, link in zip(stmt.arguments, callee_linkage):
+                result.append(JavaAssignment(
+                    target=f"{class_name}.{link}",
+                    expression=map_cobol_expr_to_java(arg),
+                ))
+            # 2. call
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    class_name=class_name,
+                    method_name="MAIN_LOGIC",
+                    arguments=(),
+                    is_static=True,
+                )
+            ))
+            # 3. sync-out (BY REFERENCE data items only)
+            for arg, link, mode in zip(stmt.arguments, callee_linkage, modes):
+                if mode.upper() == "REFERENCE" and _is_plain_reference(arg):
+                    result.append(JavaAssignment(
+                        target=arg.replace("-", "_"),
+                        expression=JavaVariableRef(name=f"{class_name}.{link}"),
+                    ))
+        else:
+            call_args = []
+            for arg in stmt.arguments:
+                call_args.append(map_cobol_expr_to_java(arg.replace("-", "_")))
+
+            # Resolve entry method. Dynamic targets never resolve: even when
+            # a program-id textually matches, the CALL dispatches on a
+            # runtime value, so a static edge would be unsound.
+            entry_method = "MAIN_LOGIC"  # default
+            if is_static_target and called_programs is not None:
+                callee = called_programs.get(target_id)
+                if callee is not None:
+                    if callee.linkage_section:
+                        entry_method = "MAIN_LOGIC"
+                    elif callee.paragraphs:
+                        # First paragraph becomes the Java method entry
+                        entry_method = _to_java_method_name(callee.paragraphs[0].name)
+                    else:
+                        entry_method = "MAIN_LOGIC"
+
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    class_name=class_name,
+                    method_name=entry_method,
+                    arguments=tuple(call_args),
+                    is_static=True,
+                )
+            ))
 
     return result
 
@@ -407,6 +1922,7 @@ def map_cobol_statement(stmt: Statement, program: CobolProgram | None = None) ->
 
 def map_cobol_data_items_to_fields(
     items: tuple[DataItem, ...],
+    source_provenance: dict[str, object] | None = None,
 ) -> tuple[JavaField, ...]:
     """Map COBOL WORKING-STORAGE items to Java fields."""
     fields: list[JavaField] = []
@@ -415,12 +1931,36 @@ def map_cobol_data_items_to_fields(
         java_name = item.name.replace("-", "_")
         default = map_pic_to_java_default(item)
         initializer = JavaLiteral(value=default)
+        if _is_decimal_item(item):
+            if "." in default:
+                initializer = _decimal_value_initializer(
+                    default,
+                    item.decimal_places,
+                )
+            else:
+                initializer = _big_decimal_value(
+                    JavaLiteral(
+                        value=default,
+                        java_type=JavaType(basic_type=JavaBasicType.INT),
+                    )
+                )
+                initializer = JavaMethodCall(
+                    object_ref=initializer,
+                    method_name="movePointLeft",
+                    arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                )
         fields.append(JavaField(
             java_type=java_type,
             name=java_name,
             initializer=initializer,
             is_static=True,
             format_width=item.format_width if item.is_numeric else 0,
+            decimal_places=item.decimal_places if item.is_numeric else 0,
+            source_provenance=(
+                source_provenance.get(item.name.upper())
+                if source_provenance is not None
+                else FieldProvenance(source=item.provenance, field_name=item.name)
+            ),
         ))
     return tuple(fields)
 
@@ -428,41 +1968,2064 @@ def map_cobol_data_items_to_fields(
 def map_cobol_paragraph_to_method(
     para: Paragraph,
     program: CobolProgram,
+    called_programs: dict[str, CobolProgram] | None = None,
 ) -> JavaMethod:
     """Map a COBOL paragraph to a Java method."""
     body_stmts: list[JavaStatement] = []
     for stmt in para.statements:
-        body_stmts.extend(map_cobol_statement(stmt, program))
+        body_stmts.extend(map_cobol_statement(stmt, program, called_programs))
 
     return JavaMethod(
-        name=para.name.replace("-", "_"),
+        name=_to_java_method_name(para.name),
         return_type=JavaType(basic_type=JavaBasicType.VOID),
         parameters=(),
         body_statements=tuple(body_stmts),
         is_static=True,
         modifiers=("public", "static"),
+        # Paragraphs may contain CALLs (whose entries declare checked
+        # exceptions); propagating throws keeps every caller compilable.
+        exceptions=("Exception",),
     )
 
 
-def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
+def _derive_outcome_field_name(program: CobolProgram) -> str:
+    """Find the source field receiving literal decision outcomes.
+
+    Outcome assignments are part of the canonical statement tree. This
+    projection records the target field so output generation can consume the
+    same semantic outcome value instead of reading an unassigned Java field.
+    """
+    labels = {sc.label for sc in program.status_codes}
+    labels.update(program.match_outcome_labels)
+    default_label = _derive_default_status_label(program)
+    if default_label:
+        labels.add(default_label)
+
+    counts: dict[str, int] = {}
+
+    def walk(statements: tuple) -> None:
+        for stmt in statements:
+            if isinstance(stmt, MoveStatement):
+                source = (stmt.source or "").strip()
+                target = (stmt.target or "").rstrip(".")
+                if (
+                    len(source) >= 2
+                    and source[0] in "'\""
+                    and source[-1] == source[0]
+                    and source[1:-1] in labels
+                    and target
+                ):
+                    counts[target] = counts.get(target, 0) + 1
+            if isinstance(stmt, IfStatement):
+                decision = stmt.decision_tree
+                walk(decision.then_body)
+                walk(decision.else_body)
+            elif isinstance(stmt, EvaluateStatement):
+                for arm in stmt.arms:
+                    walk(arm.body)
+            nested = (
+                getattr(stmt, "not_at_end_body", ())
+                + getattr(stmt, "at_end_body", ())
+                + getattr(stmt, "not_invalid_key_body", ())
+                + getattr(stmt, "invalid_key_body", ())
+                + getattr(stmt, "body", ())
+            )
+            if nested and not isinstance(stmt, IfStatement):
+                walk(nested)
+
+    for paragraph in program.paragraphs:
+        walk(paragraph.statements)
+
+    if not counts:
+        return ""
+    return max(counts, key=counts.get)
+
+
+def _derive_default_status_label(program: CobolProgram) -> str:
+    """Read an implicit/default outcome from the canonical IF decision tree.
+
+    The decision structure in IfStatement is authoritative. This helper
+    deliberately does not consult status_codes or threshold_rules:
+    those are projections for specialised generation, not the source of
+    control-flow truth.
+
+    A numeric decision with literal MOVE outcomes on both branches is a
+    semantic decision point. Its ELSE branch is the source-defined default
+    outcome. The same rule therefore works for any program with this shape;
+    it is not tied to Claims or to field names.
+    """
+    def literal_move(statements: tuple) -> tuple[str, str] | None:
+        for stmt in statements:
+            if isinstance(stmt, MoveStatement):
+                source = (stmt.source or "").strip()
+                target = (stmt.target or "").rstrip(".")
+                if (
+                    len(source) >= 2
+                    and source[0] in "'\""
+                    and source[-1] == source[0]
+                    and target
+                ):
+                    return target, source[1:-1]
+        return None
+
+    def walk(statements: tuple):
+        for stmt in statements:
+            if isinstance(stmt, IfStatement):
+                decision = stmt.decision_tree
+                condition = decision.condition
+                if isinstance(condition, Comparison):
+                    left = condition.left
+                    right = condition.right
+                    left_type = getattr(left, "semantic_type", None)
+                    is_numeric_decision = (
+                        condition.operator in {"<", ">", "<=", ">="}
+                        and isinstance(right, Literal)
+                        and right.is_numeric
+                        and (left_type is None or left_type.is_numeric)
+                    )
+                    if is_numeric_decision:
+                        then_move = literal_move(decision.then_body)
+                        else_move = literal_move(decision.else_body)
+                        if (
+                            then_move is not None
+                            and else_move is not None
+                            and then_move[0].upper() == else_move[0].upper()
+                        ):
+                            return else_move[1]
+
+                    found = walk(stmt.then_body)
+                    if found is not None:
+                        return found
+                    found = walk(stmt.else_body)
+                    if found is not None:
+                        return found
+
+            # IF statements can be nested inside READ/START/WRITE/REWRITE/
+            # DELETE scopes. Those scopes are part of the canonical control
+            # flow, so inspect their statement bodies instead of limiting
+            # semantic decision discovery to paragraph-level IF nodes.
+            nested_bodies = (
+                getattr(stmt, "not_at_end_body", ())
+                + getattr(stmt, "at_end_body", ())
+                + getattr(stmt, "not_invalid_key_body", ())
+                + getattr(stmt, "invalid_key_body", ())
+            )
+            if nested_bodies:
+                found = walk(nested_bodies)
+                if found is not None:
+                    return found
+
+            if isinstance(stmt, EvaluateStatement):
+                for arm in stmt.arms:
+                    found = walk(arm.body)
+                    if found is not None:
+                        return found
+
+            # Generic compound statements may expose a body tuple.
+            body = getattr(stmt, "body", ())
+            if body:
+                found = walk(body)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(tuple(s for p in program.paragraphs for s in p.statements)) or ""
+# ---------------------------------------------------------------------------
+
+def map_pic_to_java_type(item: DataItem) -> JavaType:
+    """Map COBOL PIC data without collapsing fixed-point decimals into binary floating point."""
+    if item.children:
+        return JavaType(basic_type=JavaBasicType.STRING)
+    if item.is_numeric and item.decimal_places > 0:
+        return JavaType(class_name="BigDecimal")
+    if item.is_numeric:
+        return JavaType(basic_type=JavaBasicType.LONG if item.pic_length > 9 else JavaBasicType.INT)
+    return JavaType(basic_type=JavaBasicType.STRING)
+
+
+def map_pic_to_java_default(item: DataItem) -> str:
+    if item.is_numeric:
+        return (item.value or "").replace("'", "").replace('"', "") if item.value else "0"
+    return f'"{item.value.strip(chr(39) + chr(34))}"' if item.value else '""'
+
+
+def _is_decimal_item(item: DataItem | None) -> bool:
+    return bool(item and item.is_numeric and item.decimal_places > 0)
+
+
+def _expression_is_decimal(expr, field_items):
+    from engine.transformation import ir as _cobol_ir
+    if isinstance(expr, _cobol_ir.Literal):
+        return bool("." in expr.value or (expr.semantic_type and expr.semantic_type.decimal_places > 0))
+    if isinstance(expr, _cobol_ir.FieldReference):
+        return bool(
+            (expr.semantic_type and expr.semantic_type.decimal_places > 0)
+            or _is_decimal_item(field_items.get(expr.name.replace("-", "_")))
+        )
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        return _expression_is_decimal(expr.operand, field_items)
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        return _expression_is_decimal(expr.left, field_items) or _expression_is_decimal(expr.right, field_items)
+    return False
+
+
+def _big_decimal_value(expr):
+    return JavaMethodCall(
+        class_name="BigDecimal",
+        method_name="valueOf",
+        arguments=(expr,),
+        is_static=True,
+    )
+
+
+def _map_numeric_expression(expr, field_items, expected_decimal=False):
+    from engine.transformation import ir as _cobol_ir
+    decimal_context = expected_decimal or _expression_is_decimal(expr, field_items)
+
+    if isinstance(expr, _cobol_ir.Literal):
+        if expr.is_numeric:
+            value = JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.INT))
+            return _big_decimal_value(value) if decimal_context else value
+        return JavaLiteral(value=expr.value, java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+    if isinstance(expr, _cobol_ir.FieldReference):
+        ref = JavaVariableRef(name=expr.name.replace("-", "_"))
+        if decimal_context:
+            item = field_items.get(expr.name.replace("-", "_"))
+            if not _is_decimal_item(item) and not (expr.semantic_type and expr.semantic_type.decimal_places > 0):
+                return _big_decimal_value(ref)
+        return ref
+
+    if isinstance(expr, _cobol_ir.UnaryExpression):
+        operand = _map_numeric_expression(expr.operand, field_items, decimal_context)
+        if decimal_context and expr.operator == "-":
+            return JavaMethodCall(object_ref=operand, method_name="negate", arguments=())
+        return JavaUnaryOp(operator=expr.operator, operand=operand)
+
+    if isinstance(expr, _cobol_ir.BinaryExpression):
+        left = _map_numeric_expression(expr.left, field_items, decimal_context)
+        right = _map_numeric_expression(expr.right, field_items, decimal_context)
+        if decimal_context:
+            if expr.operator == "+":
+                return JavaMethodCall(object_ref=left, method_name="add", arguments=(right,))
+            if expr.operator == "-":
+                return JavaMethodCall(object_ref=left, method_name="subtract", arguments=(right,))
+            if expr.operator == "*":
+                return JavaMethodCall(object_ref=left, method_name="multiply", arguments=(right,))
+            if expr.operator == "/":
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal DIVIDE requires explicit target precision")
+        return JavaBinaryOp(left=left, operator=expr.operator, right=right)
+
+    return map_cobol_expr_to_java(str(expr))
+
+
+def _map_cobol_expression_to_java(expr, field_items=None, expected_decimal=False):
+    return _map_numeric_expression(expr, field_items or {}, expected_decimal)
+
+
+def _coerce_assignment_expression(expression, target_item):
+    if target_item is not None and _is_decimal_item(target_item):
+        if not isinstance(expression, JavaMethodCall):
+            expression = _big_decimal_value(expression)
+        return JavaMethodCall(
+            object_ref=expression,
+            method_name="setScale",
+            arguments=(
+                JavaLiteral(value=str(target_item.decimal_places)),
+                JavaVariableRef(name="RoundingMode.DOWN"),
+            ),
+        )
+    if isinstance(expression, JavaMethodCall) and expression.class_name == "BigDecimal":
+        raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: decimal-to-integer assignment is not proven")
+    return expression
+
+
+# ---------------------------------------------------------------------------
+# COBOL statement → Java statement mapping
+
+# ---------------------------------------------------------------------------
+# COBOL statement → Java statement mapping
+# ---------------------------------------------------------------------------
+
+# Module-level counter for generated PERFORM...TIMES loop variables.
+# Each counted loop gets a unique counter name so that sequential or
+# nested TIMES loops in the same method never redeclare one another
+# (which would not compile in Java).
+import itertools as _itertools
+
+_times_loop_counter = _itertools.count()
+
+
+def _fresh_times_var() -> str:
+    """Return a unique loop-counter name for a PERFORM...TIMES loop."""
+    return f"_times_{next(_times_loop_counter)}"
+
+
+def _negate_condition(java_cond) :
+    """Negate a mapped Java condition for PERFORM...UNTIL (TEST BEFORE).
+
+    COBOL loops WHILE NOT <until-condition>; Java renders while (!(...)).
+    """
+    return JavaUnaryOp(operator="!", operand=java_cond)
+
+
+# ---------------------------------------------------------------------------
+# COBOL file I/O → CobolFileIo.* helpers
+# ---------------------------------------------------------------------------
+# Module-level counter for generated file-I/O scratch variables (READ
+# record buffers, status temporaries).  Reset once per program mapping so
+# generated names stay deterministic for a given program.
+_io_var_counter = _itertools.count()
+
+
+def _reset_file_io_vars() -> None:
+    """Reset the file-I/O scratch-variable counter (per-program determinism)."""
+    global _io_var_counter
+    _io_var_counter = _itertools.count()
+
+
+def _fresh_io_var(prefix: str) -> str:
+    """Unique scratch-variable name, e.g. ``_read_0`` / ``_st_1``."""
+    return f"_{prefix}_{next(_io_var_counter)}"
+
+
+_STDOUT_KEYWORDS = frozenset({
+    "STDOUT", "SYSOUT", "SYSPRINT", "SYS000", "S1", "PRINT",
+})
+
+
+def _find_file_def(
+    program: CobolProgram | None, file_name: str,
+) -> FileDefinition | None:
+    """File definition for ``file_name``, or None when unmatched."""
+    if program is None or not file_name:
+        return None
+    for fd in program.file_definitions:
+        if fd.name == file_name:
+            return fd
+    return None
+
+
+def _resolve_path(fd: FileDefinition | None) -> str | None:
+    """Container path for real file I/O; None for STDOUT/unknown/missing."""
+    if fd is None:
+        return None
+    cp = (fd.container_path or "").upper()
+    if not cp or cp in _STDOUT_KEYWORDS:
+        return None
+    return fd.container_path
+
+
+def _str_lit(value: str) -> JavaLiteral:
+    return JavaLiteral(value=value, java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+
+def _int_lit(value: int) -> JavaLiteral:
+    return JavaLiteral(value=str(value))
+
+
+def _bool_lit(value: bool) -> JavaLiteral:
+    # Renderers quote unknown literals; true/false must stay bare Java    # keywords — both generators special-case untyped true/false/null.
+    return JavaLiteral(value="true" if value else "false")
+
+
+def _cobol_call(method: str, *args: JavaExpression) -> JavaMethodCall:
+    """Static ``CobolFileIo.<method>(...)`` call expression."""
+    return JavaMethodCall(
+        class_name="CobolFileIo",
+        method_name=method,
+        arguments=tuple(args),
+        is_static=True,
+    )
+
+
+def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
+    """Data item by COBOL name (WORKING-STORAGE first, then FD records)."""
+    if program is None or not name:
+        return None
+    for item in program.working_storage:
+        if item.name == name:
+            return item
+    for fd in program.file_definitions:
+        for item in fd.record_items:
+            if item.name == name:
+                return item
+    return None
+
+
+def _record_layout(fd: FileDefinition | None) -> list[tuple[str, int, bool, bool]]:
+    """(java_name, width, is_numeric, is_long) per elementary record item.
+
+    Widths follow COBOL DISPLAY semantics: alphanumeric = PIC length,
+    numeric = format width.  Items keep FD declaration order — the same
+    order GnuCOBOL writes into the record area.  ``is_long`` mirrors
+    ``map_pic_to_java_type`` (pic_length > 9 → long).
+    """
+    if fd is None:
+        return []
+    layout: list[tuple[str, int, bool, bool]] = []
+    for item in fd.record_items:
+        if item.is_condition_name or item.is_group:
+            continue
+        width = item.format_width if item.is_numeric else item.pic_length
+        if width <= 0:
+            continue
+        is_long = item.is_numeric and item.pic_length > 9
+        layout.append((item.name.replace("-", "_"), width, item.is_numeric, is_long))
+    return layout
+
+
+def _record_total_width(fd: FileDefinition | None) -> int:
+    """Total record width in bytes/characters (sum of item widths)."""
+    return sum(width for _, width, _, _ in _record_layout(fd))
+
+
+def _key_field_item(
+    fd: FileDefinition | None, program: CobolProgram | None,
+) -> DataItem | None:
+    """RECORD KEY data item (record area first, then WORKING-STORAGE)."""
+    if fd is None or fd.record_key is None:
+        return None
+    key_name = fd.record_key.field_name
+    for item in fd.record_items:
+        if item.name == key_name:
+            return item
+    if program is not None:
+        for item in program.working_storage:
+            if item.name == key_name:
+                return item
+    return None
+
+
+def _key_len(fd: FileDefinition | None, program: CobolProgram | None) -> int:
+    """Primary-key byte width (0 = sequential / no key)."""
+    item = _key_field_item(fd, program)
+    if item is None:
+        return 0
+    return item.format_width if item.is_numeric else item.pic_length
+
+
+def _key_expr(
+    stmt_key: str, fd: FileDefinition | None, program: CobolProgram | None,
+) -> JavaExpression:
+    """Key value: explicit READ/START KEY clause, else record-key field."""
+    if stmt_key:
+        return map_cobol_expr_to_java(stmt_key)
+    item = _key_field_item(fd, program)
+    if item is not None:
+        return JavaVariableRef(name=item.name.replace("-", "_"))
+    if fd is not None and fd.relative_key:
+        return JavaVariableRef(name=fd.relative_key.replace("-", "_"))
+    return _int_lit(0)
+
+
+def _is_relative(fd: FileDefinition | None) -> bool:
+    """True when the file uses COBOL RELATIVE organization (RRN-addressed)."""
+    if fd is None:
+        return False
+    org = fd.organization
+    value = org.value if hasattr(org, "value") else str(org)
+    return str(value).upper() == "RELATIVE"
+
+
+def _open_key_len(fd: FileDefinition | None, program: CobolProgram | None) -> int:
+    """keyLen passed to CobolFileIo.open: -1 selects relative RRN mode."""
+    if _is_relative(fd):
+        return -1
+    return _key_len(fd, program)
+
+
+def _status_target(fd: FileDefinition | None, program: CobolProgram | None) -> str:
+    """Java name of the declared FILE STATUS field ('' when undeclared)."""
+    if fd is None or program is None or not fd.file_status_field:
+        return ""
+    fsj = fd.file_status_field.replace("-", "_")
+    names = {item.name.replace("-", "_") for item in program.working_storage}
+    for fd2 in program.file_definitions:
+        names.update(i.name.replace("-", "_") for i in fd2.record_items)
+    return fsj if fsj in names else ""
+
+
+def _status_eq(status_var: str, code: str) -> JavaExpression:
+    """``"code".equals(status)`` — identity-safe String comparison."""
+    return JavaMethodCall(
+        object_ref=_str_lit(code),
+        method_name="equals",
+        arguments=(JavaVariableRef(name=status_var),),
+    )
+
+
+def _bind_status(
+    result: list[JavaStatement],
+    status_var: str,
+    call: JavaMethodCall,
+    need_expr: bool = False,
+) -> str:
+    """Bind a status-returning CobolFileIo call.
+
+    Assigns to the declared FILE STATUS field when available; otherwise
+    keeps the value in a fresh scratch variable (when a branch needs it)
+    or discards it.  Returns the variable usable in conditions ('').
+    """
+    if status_var:
+        result.append(JavaAssignment(target=status_var, expression=call))
+        return status_var
+    if need_expr:
+        tmp = _fresh_io_var("st")
+        result.append(JavaLocalVarDecl(
+            java_type=JavaType(basic_type=JavaBasicType.STRING),
+            name=tmp,
+            initializer=call,
+        ))
+        return tmp
+    result.append(JavaMethodCallStatement(call=call))
+    return ""
+
+
+def _status_branch(
+    result: list[JavaStatement],
+    status_var: str,
+    code: str,
+    fail_body,
+    ok_body,
+    program=None,
+    called_programs=None,
+) -> None:
+    """Emit the INVALID KEY / NOT INVALID KEY branch on a status code.
+
+    ``fail_body`` (INVALID KEY scope) runs when status == code;
+    ``ok_body`` (NOT INVALID KEY scope) runs otherwise.  Exactly one of
+    the two bodies may be present; both may be empty (no branch emitted).
+    COBOL body statements are mapped to Java before being placed in the
+    branch (raw COBOL IR would render as an empty JavaIf body).
+    """
+    def _map(body) -> tuple[JavaStatement, ...]:
+        return tuple(
+            j
+            for s in body
+            for j in map_cobol_statement(s, program, called_programs)
+        )
+
+    fail = _map(fail_body)
+    ok = _map(ok_body)
+    if fail and ok:
+        result.append(JavaIf(
+            condition=_status_eq(status_var, code),
+            then_body=fail,
+            else_body=ok,
+        ))
+    elif fail:
+        result.append(JavaIf(
+            condition=_status_eq(status_var, code),
+            then_body=fail,
+            else_body=(),
+        ))
+    elif ok:
+        result.append(JavaIf(
+            condition=_negate_condition(_status_eq(status_var, code)),
+            then_body=ok,
+            else_body=(),
+        ))
+
+
+def _assembly_expression(
+    fd: FileDefinition | None, content_var: str,
+) -> JavaExpression | None:
+    """Padded fixed-length record image for WRITE/REWRITE.
+
+    Concatenates each record item padded to its DISPLAY width (spaces for
+    alphanumeric, leading zeros for numeric) — byte-identical to the
+    record area GnuCOBOL writes.  Falls back to the record variable when
+    the FD carries no layout.
+    """
+    layout = _record_layout(fd)
+    if layout:
+        parts: list[JavaExpression] = []
+        for name, width, numeric, _is_long in layout:
+            val: JavaExpression = JavaVariableRef(name=name)
+            if numeric:
+                val = JavaMethodCall(
+                    class_name="String",
+                    method_name="valueOf",
+                    arguments=(val,),
+                    is_static=True,
+                )
+            parts.append(_cobol_call("pad", val, _int_lit(width), _bool_lit(numeric)))
+        if len(parts) == 1:
+            return parts[0]
+        return JavaStringConcat(parts=tuple(parts))
+    if content_var:
+        return JavaVariableRef(name=content_var)
+    return None
+
+
+def _disassembly_statements(
+    fd: FileDefinition | None, read_var: str,
+) -> list[JavaStatement]:
+    """Split a read record image back into the FD record fields.
+
+    The image is padded to the full record width first so short lines
+    never break ``substring``; numeric fields are trimmed then parsed
+    into int/long exactly as ``map_pic_to_java_type`` typed them.
+    """
+    layout = _record_layout(fd)
+    if not layout:
+        return []
+    total = sum(width for _, width, _, _ in layout)
+    padded = _cobol_call(
+        "pad", JavaVariableRef(name=read_var), _int_lit(total), _bool_lit(False),
+    )
+    stmts: list[JavaStatement] = []
+    offset = 0
+    for name, width, numeric, is_long in layout:
+        window = JavaMethodCall(
+            object_ref=padded,
+            method_name="substring",
+            arguments=(_int_lit(offset), _int_lit(offset + width)),
+        )
+        if numeric:
+            expr: JavaExpression = JavaMethodCall(
+                class_name="Long" if is_long else "Integer",
+                method_name="parseLong" if is_long else "parseInt",
+                arguments=(
+                    JavaMethodCall(object_ref=window, method_name="trim", arguments=()),
+                ),
+                is_static=True,
+            )
+        else:
+            expr = window
+        stmts.append(JavaAssignment(target=name, expression=expr))
+        offset += width
+    return stmts
+
+
+def _into_statement(
+    into_field: str, read_var: str, program: CobolProgram | None,
+) -> JavaStatement | None:
+    """READ INTO: MOVE the record image into the receiving field."""
+    if not into_field:
+        return None
+    target = into_field.replace("-", "_")
+    item = _find_data_item(program, into_field)
+    ref = JavaVariableRef(name=read_var)
+    if item is None:
+        return JavaAssignment(target=target, expression=ref)
+    if item.is_numeric:
+        is_long = item.pic_length > 9
+        return JavaAssignment(
+            target=target,
+            expression=JavaMethodCall(
+                class_name="Long" if is_long else "Integer",
+                method_name="parseLong" if is_long else "parseInt",
+                arguments=(
+                    JavaMethodCall(object_ref=ref, method_name="trim", arguments=()),
+                ),
+                is_static=True,
+            ),
+        )
+    if item.pic_length > 0:
+        return JavaAssignment(
+            target=target,
+            expression=_cobol_call("pad", ref, _int_lit(item.pic_length), _bool_lit(False)),
+        )
+    return JavaAssignment(target=target, expression=ref)
+
+def map_cobol_expr_to_java(expr: str) -> JavaExpression:
+    """Map a COBOL expression string to a Java expression.
+
+    Handles:
+    - Field references (DASH_UNDERSCORE conversion)
+    - Literals
+    - Arithmetic operators (+, -, *, /)
+    """
+    import re as _re
+    expr = expr.strip()
+
+    # Literal
+    if expr.startswith("'") and expr.endswith("'"):
+        return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
+    if expr.startswith('"') and expr.endswith('"'):
+        return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
+
+    # Check if it's a simple number
+    if expr.replace(".", "").replace("-", "").isdigit():
+        return JavaLiteral(value=expr, java_type=JavaType(basic_type=JavaBasicType.INT))
+
+    # Try to parse binary expressions: left OP right (operators must have spaces)
+    binary_match = _re.match(
+        r'^([\w][\w-]*)\s+(\+|\-|\*|/)\s+([\w][\w-]*)$',
+        expr,
+    )
+    if binary_match:
+        left_str = binary_match.group(1).strip()
+        op = binary_match.group(2).strip()
+        right_str = binary_match.group(3).strip()
+
+        left: JavaExpression
+        if left_str.replace(".", "").replace("-", "").isdigit():
+            left = JavaLiteral(value=left_str, java_type=JavaType(basic_type=JavaBasicType.INT))
+        else:
+            left = JavaVariableRef(name=left_str.replace("-", "_"))
+
+        right: JavaExpression
+        if right_str.replace(".", "").replace("-", "").isdigit():
+            right = JavaLiteral(value=right_str, java_type=JavaType(basic_type=JavaBasicType.INT))
+        else:
+            right = JavaVariableRef(name=right_str.replace("-", "_"))
+
+        return JavaBinaryOp(left=left, operator=op, right=right)
+
+    # Field reference (single name)
+    java_name = expr.replace("-", "_")
+    return JavaVariableRef(name=java_name)
+
+
+
+
+def map_cobol_condition_to_java(condition: str | Condition, field_items=None) -> JavaExpression:
+    """Map a COBOL condition while preserving the parser semantic tree."""
+    if isinstance(condition, Condition):
+        def expression(expr) -> JavaExpression:
+            return _map_cobol_expression_to_java(expr, field_items or {})
+
+        def structured(node: Condition) -> JavaExpression:
+            if isinstance(node, Comparison):
+                return JavaBinaryOp(
+                    left=expression(node.left),
+                    operator={"=": "==", "<>": "!="}.get(node.operator, node.operator),
+                    right=expression(node.right),
+                )
+            if isinstance(node, LogicalCondition):
+                return JavaBinaryOp(
+                    left=structured(node.left),
+                    operator="&&" if node.operator == "AND" else "||",
+                    right=structured(node.right),
+                )
+            if isinstance(node, NegatedCondition):
+                return JavaUnaryOp(operator="!", operand=structured(node.condition))
+            if isinstance(node, BooleanCondition):
+                field = expression(node.field)
+                if node.is_negated:
+                    return JavaUnaryOp(operator="!", operand=field)
+                return JavaBinaryOp(
+                    left=field,
+                    operator="!=",
+                    right=JavaLiteral(value="0"),
+                )
+            raise TypeError(f"Unsupported structured COBOL condition: {type(node).__name__}")
+
+        return structured(condition)
+
+    condition = condition.strip()
+    import re as _re
+
+    if condition == "OTHER" or condition.endswith(" = OTHER") or condition.endswith("== OTHER"):
+        return JavaLiteral(value="true")
+
+    thru_match = _re.match(
+        r'^(\w[\w-]*)\s*==\s*(\d+)\s+THRU\s+(\d+)$',
+        condition.replace("-", "_").replace(" = ", " == ").strip(),
+    )
+    if thru_match:
+        subject = thru_match.group(1).replace("-", "_")
+        low = thru_match.group(2)
+        high = thru_match.group(3)
+        return JavaBinaryOp(
+            left=JavaBinaryOp(
+                left=JavaVariableRef(name=subject),
+                operator=">=",
+                right=JavaLiteral(value=low),
+            ),
+            operator="&&",
+            right=JavaBinaryOp(
+                left=JavaVariableRef(name=subject),
+                operator="<=",
+                right=JavaLiteral(value=high),
+            ),
+        )
+
+    condition = condition.replace(" IS NOT ", " != ")
+    condition = condition.replace(" IS ", " == ")
+    condition = condition.replace(" <> ", " != ")
+    condition = _replace_bare_equals(condition)
+    condition = condition.replace(" AND ", " && ")
+    condition = condition.replace(" OR ", " || ")
+    condition = condition.replace("NOT ", "!")
+
+    parts = condition.split()
+    result_parts = []
+    for part in parts:
+        if part in ("==", "!=", "&&", "||", "(", ")", "!", ">=", "<=", ">", "<"):
+            result_parts.append(part)
+        elif len(part) >= 2 and part.startswith("'") and part.endswith("'"):
+            inner = part[1:-1].replace('"', '\\"')
+            result_parts.append(f'"{inner}"')
+        elif part.startswith("'") or part.startswith('"'):
+            result_parts.append(part)
+        elif part.replace(".", "").replace("-", "").isdigit():
+            result_parts.append(part)
+        else:
+            result_parts.append(part.replace("-", "_"))
+
+    condition_str = " ".join(result_parts)
+    binary_match = _re.match(r'^(\w+)\s*(==|!=|>=|<=|>|<)\s*(\w+)$', condition_str)
+    if binary_match:
+        left_name, op, right_str = binary_match.groups()
+        left_expr = JavaLiteral(value=left_name) if left_name.replace(".", "").replace("-", "").isdigit() else JavaVariableRef(name=left_name)
+        right_expr = JavaLiteral(value=right_str) if right_str.replace(".", "").replace("-", "").isdigit() else JavaVariableRef(name=right_str)
+        return JavaBinaryOp(left=left_expr, operator=op, right=right_expr)
+    return JavaLiteral(value=condition_str)
+
+def _replace_bare_equals(condition: str) -> str:
+    """Replace COBOL bare `=` with Java `==`, quote-aware.
+
+    Leaves `==`, `>=`, `<=`, `!=` untouched and never rewrites `=`
+    inside single/double-quoted literals (e.g. ``WS-G = 'A=B'``).
+    """
+    import re as _re
+    # Split into quoted and unquoted segments; only rewrite unquoted ones.
+    parts = _re.split(r"('[^']*'|\"[^\"]*\")", condition)
+    for i in range(0, len(parts), 2):
+        parts[i] = _re.sub(r'(?<![<>!=])=(?!=)', ' == ', parts[i])
+    return "".join(parts)
+
+
+def _build_for_condition(var_name: str, until_condition: str) -> JavaExpression:
+    """Build a for-loop condition expression from a COBOL UNTIL condition.
+
+    COBOL: PERFORM VARYING ... UNTIL condition  =  loop WHILE NOT condition.
+    So:    UNTIL var > N  →  var <= N
+           UNTIL var >= N →  var < N
+           UNTIL var < N  →  var >= N
+    """
+    import re as _re
+    until_condition = until_condition.strip()
+    if until_condition == "TRUE":
+        return JavaLiteral(value="true")
+
+    # Try to parse: var > value  →  var <= value
+    m = _re.match(r'(\w[\w-]*)\s*>\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator="<=",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Try to parse: var >= value  →  var < value
+    m = _re.match(r'(\w[\w-]*)\s*>=\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator="<",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Try to parse: var < value  →  var >= value
+    m = _re.match(r'(\w[\w-]*)\s*<\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator=">=",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Try to parse: var <= value  →  var > value
+    m = _re.match(r'(\w[\w-]*)\s*<=\s*(\d+)', until_condition)
+    if m:
+        subject = m.group(1).replace("-", "_")
+        stop_val = m.group(2)
+        return JavaBinaryOp(
+            left=JavaVariableRef(name=subject),
+            operator=">",
+            right=JavaLiteral(value=stop_val),
+        )
+
+    # Fallback: map the condition as a Java expression
+    return map_cobol_condition_to_java(until_condition)
+
+
+def _is_plain_reference(arg: str) -> bool:
+    """Whether a CALL USING argument is a plain data-item reference.
+
+    Only plain references can receive BY REFERENCE write-back
+    (``WS-X = Callee.LS``). Literals and compound expressions have no
+    caller-side storage — matching COBOL, where a BY REFERENCE literal
+    is passed through a temporary whose modification is discarded.
+    """
+    import re as _re
+    return _re.match(r"^[A-Za-z][\w-]*$", (arg or "").strip()) is not None
+
+
+def _expand_thru_range(stmt, program) -> list[str]:
+    """Expand PERFORM <first> THRU <last> to the paragraph names in range.
+
+    Returns the paragraph names from <first> through <last> inclusive, in
+    source order. When the program context is unavailable or an endpoint
+    is unknown, returns just the named paragraph so generation still fails
+    closed (unknown method → compile error) instead of silently skipping.
+    """
+    first = (stmt.paragraph_name or "").strip()
+    last = (stmt.thru_target or "").strip()
+    if program is not None:
+        names = [para.name for para in program.paragraphs]
+        if first in names and last in names:
+            lo = names.index(first)
+            hi = names.index(last)
+            if lo <= hi:
+                return names[lo:hi + 1]
+    return [first] if first else []
+
+
+def map_cobol_statement(
+    stmt: Statement,
+    program: CobolProgram | None = None,
+    called_programs: dict[str, CobolProgram] | None = None,
+) -> list[JavaStatement]:
+    """Map a single COBOL statement to one or more Java statements.
+
+    Args:
+        stmt: The COBOL IR statement to map.
+        program: The enclosing CobolProgram — used for field format-width
+            lookups and file-definition resolution.
+        called_programs: Optional map of program-id → CobolProgram for
+            all programs in the application.  Used to resolve the correct
+            entry-point method when generating inter-program CALL IR.
+    """
+    result: list[JavaStatement] = []
+
+    # Build DISPLAY format metadata from COBOL data items.
+    field_format_widths = {}
+    field_items = {}
+    if program is not None:
+        for item in program.working_storage:
+            field_items[item.name.replace("-", "_")] = item
+            if item.is_numeric and item.format_width > 0:
+                field_format_widths[item.name.replace("-", "_")] = item.format_width
+        for fd in program.file_definitions:
+            for item in fd.record_items:
+                field_items[item.name.replace("-", "_")] = item
+                if item.is_numeric and item.format_width > 0:
+                    field_format_widths[item.name.replace("-", "_")] = item.format_width
+
+    if isinstance(stmt, MoveStatement):
+        source = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        # The IR stores every destination in ``targets`` (primary first) and
+        # mirrors the primary one into ``target``. Emitting ``target`` and
+        # then iterating the full tuple would duplicate the primary
+        # assignment, so ``targets`` is the authoritative list.
+        move_targets = stmt.targets or ((stmt.target,) if stmt.target else ())
+        for move_target in move_targets:
+            result.append(JavaAssignment(
+                target=move_target.replace("-", "_"),
+                expression=source,
+            ))
+
+    elif isinstance(stmt, AddStatement):
+        # ADD A TO B GIVING C → C = A + B  (C receives result, B unchanged)
+        # ADD A TO B           → B = A + B  (in-place)
+        target = stmt.giving_target.replace("-", "_") if stmt.giving_target else stmt.target.replace("-", "_")
+        source_a = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        source_b = (
+            _map_cobol_expression_to_java(stmt.target_ref, field_items)
+            if stmt.target_ref is not None
+            else JavaVariableRef(name=stmt.target.replace("-", "_"))
+        )
+        if stmt.giving_target:
+            result.append(JavaAssignment(
+                target=target,
+                expression=_coerce_assignment_expression(
+                    _map_numeric_binary_expression(
+                        source_a,
+                        "+",
+                        source_b,
+                        field_items,
+                    ),
+                    field_items.get(target),
+                ),
+            ))
+        else:
+            result.append(JavaAssignment(
+                target=target,
+                expression=_map_numeric_binary_expression(
+                    source_b,
+                    "+",
+                    source_a,
+                    field_items,
+                ),
+            ))
+
+    elif isinstance(stmt, SubtractStatement):
+        # SUBTRACT A FROM B GIVING C → C = B - A
+        # SUBTRACT A FROM B           → B = B - A (in-place)
+        # SUBTRACT A B C FROM D GIVING E → E = D - A - B - C (multi-source)
+        # SUBTRACT A B C FROM D           → D = D - A - B - C (multi-source, in-place)
+        target = stmt.to_field.replace("-", "_") if stmt.to_field else stmt.from_field.replace("-", "_")
+        # Determine all subtrahends: use sources tuple if present, else single source
+        sources = stmt.sources if stmt.sources else (stmt.source,)
+        java_sources = [
+            (
+                _map_cobol_expression_to_java(stmt.source_expr, field_items)
+                if stmt.source_expr is not None and s == stmt.source and len(sources) == 1
+                else map_cobol_expr_to_java(s)
+            )
+            for s in sources
+        ]
+        # Build chained subtraction: ((minuend - s1) - s2) - ...
+        expr: JavaExpression = (
+            _map_cobol_expression_to_java(stmt.from_ref, field_items)
+            if stmt.from_ref is not None
+            else JavaVariableRef(name=stmt.from_field.replace("-", "_"))
+        )
+        for src in java_sources:
+            expr = JavaBinaryOp(left=expr, operator="-", right=src)
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(expr, field_items.get(target)),
+        ))
+
+    elif isinstance(stmt, MultiplyStatement):
+        # MULTIPLY A BY B GIVING C → C = A * B
+        # MULTIPLY A BY B           → B = A * B (in-place, B receives result, A unchanged)
+        # The left operand is always the source (A, multiplier)
+        # If GIVING is present, target=C, multiplicand=B (both unchanged after)
+        # If no GIVING, target=B (multiplicand gets updated in-place)
+        if stmt.target:
+            target = stmt.target.replace("-", "_")
+        else:
+            target = stmt.multiplicand.replace("-", "_")
+        source = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        multiplicand = (
+            _map_cobol_expression_to_java(stmt.multiplicand_ref, field_items)
+            if stmt.multiplicand_ref is not None
+            else JavaVariableRef(name=stmt.multiplicand.replace("-", "_"))
+        )
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(
+                JavaBinaryOp(left=source, operator="*", right=multiplicand),
+                field_items.get(target),
+            ),
+        ))
+
+    elif isinstance(stmt, DivideStatement):
+        target = stmt.target.replace("-", "_")
+        source = (
+            _map_cobol_expression_to_java(stmt.source_expr, field_items)
+            if stmt.source_expr is not None
+            else map_cobol_expr_to_java(stmt.source)
+        )
+        divisor = (
+            _map_cobol_expression_to_java(stmt.divisor_expr, field_items)
+            if stmt.divisor_expr is not None
+            else map_cobol_expr_to_java(stmt.divisor)
+        )
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(
+                JavaBinaryOp(left=source, operator="/", right=divisor),
+                field_items.get(target),
+            ),
+        ))
+        # REMAINDER target = source % divisor
+        if stmt.remainder:
+            remainder_target = stmt.remainder.replace("-", "_")
+            result.append(JavaAssignment(
+                target=remainder_target,
+                expression=JavaBinaryOp(left=source, operator="%", right=divisor),
+            ))
+
+    elif isinstance(stmt, ComputeStatement):
+        target = stmt.target.replace("-", "_")
+        # Prefer the structured expression produced by the parser so chained
+        # arithmetic and nested expressions preserve their real operator tree.
+        target_item = field_items.get(target)
+        from engine.transformation.ir import BinaryExpression
+        decimal_expression = stmt.expression_expr is not None and (
+            _expression_is_decimal(stmt.expression_expr, field_items) or _is_decimal_item(target_item)
+        )
+        if (decimal_expression and isinstance(stmt.expression_expr, BinaryExpression)
+                and stmt.expression_expr.operator == "/"):
+            if target_item is None or not target_item.is_numeric:
+                raise ValueError("UNSUPPORTED_NUMERIC_SEMANTIC: COMPUTE division requires declared target precision")
+            expression = JavaMethodCall(
+                object_ref=_map_cobol_expression_to_java(stmt.expression_expr.left, field_items, True),
+                method_name="divide",
+                arguments=(
+                    _map_cobol_expression_to_java(stmt.expression_expr.right, field_items, True),
+                    JavaLiteral(value=str(target_item.decimal_places)),
+                    JavaVariableRef(name="RoundingMode.DOWN"),
+                ),
+            )
+        else:
+            expression = (
+                _map_cobol_expression_to_java(stmt.expression_expr, field_items, decimal_expression)
+                if stmt.expression_expr is not None
+                else map_cobol_expr_to_java(stmt.expression)
+            )
+        if decimal_expression and target_item is not None and target_item.is_numeric and not _is_decimal_item(target_item):
+            expression = JavaMethodCall(
+                object_ref=expression,
+                method_name="longValue" if target_item.pic_length > 9 else "intValue",
+                arguments=(),
+            )
+        result.append(JavaAssignment(
+            target=target,
+            expression=_coerce_assignment_expression(expression, field_items.get(target)),
+        ))
+
+    elif isinstance(stmt, DisplayStatement):
+        parts: list[JavaExpression] = []
+        for part in stmt.parts:
+            is_quoted = (
+                (part.startswith("'") and part.endswith("'"))
+                or (part.startswith('"') and part.endswith('"'))
+            )
+            if is_quoted:
+                # COBOL string literal: strip quotes → Java String literal
+                inner = part[1:-1]
+                if inner:
+                    parts.append(JavaLiteral(
+                        value=inner,
+                        java_type=JavaType(basic_type=JavaBasicType.STRING),
+                    ))
+            else:
+                java_name = part.replace("-", "_")
+                var_ref = JavaVariableRef(name=java_name)
+                item = field_items.get(java_name)
+                if java_name in field_format_widths:
+                    width = field_format_widths[java_name]
+                    format_spec = JavaLiteral(value="%0{}d".format(width))
+                    if item is not None and item.decimal_places > 0:
+                        display_value = JavaMethodCall(
+                            object_ref=var_ref,
+                            method_name="movePointRight",
+                            arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                        )
+                        display_value = JavaMethodCall(
+                            object_ref=display_value,
+                            method_name="longValueExact",
+                            arguments=(),
+                        )
+                        formatted_value = JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, display_value),
+                            is_static=True,
+                        )
+                        integer_width = width - item.decimal_places
+                        parts.append(JavaStringConcat(parts=(
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(
+                                    JavaLiteral(value="0"),
+                                    JavaLiteral(value=str(integer_width)),
+                                ),
+                            ),
+                            JavaLiteral(
+                                value=".",
+                                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                            ),
+                            JavaMethodCall(
+                                object_ref=formatted_value,
+                                method_name="substring",
+                                arguments=(JavaLiteral(value=str(integer_width)),),
+                            ),
+                        )))
+                    else:
+                        parts.append(JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, var_ref),
+                            is_static=True,
+                        ))
+                else:
+                    # COBOL PIC X fields have fixed character width. Java
+                    # Strings are variable-length, so DISPLAY must reproduce
+                    # the field's storage width rather than silently trimming
+                    # trailing spaces from the observable output.
+                    if item is not None and not item.is_numeric and item.format_width > 0:
+                        width = item.format_width
+                        format_spec = JavaLiteral(value="%-{}s".format(width))
+                        padded = JavaMethodCall(
+                            class_name="String",
+                            method_name="format",
+                            arguments=(format_spec, var_ref),
+                            is_static=True,
+                        )
+                        parts.append(JavaMethodCall(
+                            object_ref=padded,
+                            method_name="substring",
+                            arguments=(JavaLiteral(value="0"), JavaLiteral(value=str(width))),
+                        ))
+                    else:
+                        parts.append(var_ref)
+        if parts:
+            concat = JavaStringConcat(parts=tuple(parts))
+            # out.println(...) or System.err.println(...) based on destination
+            is_stderr = stmt.destination == "STDERR"
+            if is_stderr:
+                result.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        object_ref=JavaVariableRef(name="System.err"),
+                        method_name="println",
+                        arguments=(concat,),
+                    )
+                ))
+            else:
+                result.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        object_ref=JavaVariableRef(name="System.out"),
+                        method_name="println",
+                        arguments=(concat,),
+                    )
+                ))
+
+    elif isinstance(stmt, EvaluateStatement):
+        # EVALUATE remains canonical in COBOL IR; lower each WHEN arm
+        # deterministically into an ordered Java if/else chain.
+        def map_arm(index: int) -> list:
+            if index >= len(stmt.arms):
+                return []
+
+            arm = stmt.arms[index]
+            body: list = []
+            for nested in arm.body:
+                body.extend(map_cobol_statement(nested, program))
+
+            if arm.other:
+                return body
+
+            conditions = [
+                map_cobol_condition_to_java(condition)
+                for condition in arm.conditions
+            ]
+            if not conditions:
+                return map_arm(index + 1)
+
+            condition = conditions[0]
+            for next_condition in conditions[1:]:
+                condition = JavaBinaryOp(
+                    left=condition,
+                    operator="||",
+                    right=next_condition,
+                )
+
+            else_body = map_arm(index + 1)
+            return [
+                JavaIf(
+                    condition=condition,
+                    then_body=tuple(body),
+                    else_body=tuple(else_body),
+                )
+            ]
+
+        result.extend(map_arm(0))
+
+    elif isinstance(stmt, IfStatement):
+        condition = map_cobol_condition_to_java(
+            stmt.structured_condition if stmt.structured_condition is not None else stmt.condition
+        )
+        then_body = []
+        for s in stmt.then_body:
+            then_body.extend(map_cobol_statement(s, program))
+        else_body = []
+        for s in stmt.else_body:
+            else_body.extend(map_cobol_statement(s, program))
+        result.append(JavaIf(
+            condition=condition,
+            then_body=tuple(then_body),
+            else_body=tuple(else_body),
+        ))
+
+    elif isinstance(stmt, GoToStatement):
+        # GO TO → comment (control flow not directly mappable)
+        result.append(JavaComment(text=f"// GO TO {stmt.target}"))
+
+    elif isinstance(stmt, StopRunStatement):
+        result.append(JavaReturn())
+
+    elif isinstance(stmt, ReadStatement):
+        # READ file [NEXT] [KEY IS k] [INTO w] / AT END / NOT AT END /
+        # INVALID KEY / NOT INVALID KEY — exactly one CobolFileIo read:
+        #
+        #   String _read_N = CobolFileIo.readNext(path);      // cursor/next
+        #   String _read_N = CobolFileIo.readKey(path, k);    // keyed/random
+        #   if (_read_N != null) {                         // record read
+        #       [fs = "00";] [record disassembly;] [INTO;] [ok bodies]
+        #   } else {
+        #       [fs = "10"/"23";] [AT END / INVALID KEY bodies]
+        #   }
+        #
+        # Keyed reads fail with status 23 (INVALID KEY); cursor reads
+        # fail with status 10 (AT END).  Status is assigned only when a
+        # declared FILE STATUS field exists.  The record area is only
+        # (re)populated on success — matching COBOL AT END semantics.
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        status_var = _status_target(fd, program)
+        has_at_end = bool(stmt.at_end_body or stmt.not_at_end_body)
+        has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+
+        if path is None:
+            # STDOUT/unmatched destination: no real record to read —
+            # preserve legacy behaviour by inlining the success bodies.
+            result.append(JavaComment(
+                text=f"// READ {stmt.file_name}: no file path; success bodies inlined",
+            ))
+            for s in stmt.not_at_end_body:
+                result.extend(map_cobol_statement(s, program, called_programs))
+            for s in stmt.not_invalid_key_body:
+                result.extend(map_cobol_statement(s, program, called_programs))
+        else:
+            # Indexed random READ (no NEXT) uses the current record-key field.
+            # READ NEXT / sequential uses the cursor. Relative uses RRN.
+            relative_read = _is_relative(fd) and not stmt.read_next
+            if not stmt.key and not relative_read and not stmt.read_next:
+                if fd is not None and fd.record_key is not None:
+                    key_item = _key_field_item(fd, program)
+                    if key_item is not None:
+                        stmt_key_for_read = key_item.name
+                    else:
+                        stmt_key_for_read = ""
+                else:
+                    stmt_key_for_read = ""
+            else:
+                stmt_key_for_read = stmt.key
+
+            keyed = bool(stmt_key_for_read) or (
+                has_inv and not has_at_end
+                and fd is not None and fd.record_key is not None
+                and not stmt.read_next
+            )
+            read_var = _fresh_io_var("read")
+            if relative_read:
+                call = _cobol_call(
+                    "readRelative", _str_lit(path), _key_expr("", fd, program),
+                )
+            elif keyed:
+                call = _cobol_call(
+                    "readKey", _str_lit(path),
+                    _key_expr(stmt_key_for_read, fd, program),
+                )
+            else:
+                call = _cobol_call("readNext", _str_lit(path))
+            result.append(JavaLocalVarDecl(
+                java_type=JavaType(basic_type=JavaBasicType.STRING),
+                name=read_var,
+                initializer=call,
+            ))
+
+            # Success branch: status + record disassembly + INTO + bodies.
+            then_body: list[JavaStatement] = []
+            if status_var:
+                then_body.append(JavaAssignment(
+                    target=status_var, expression=_str_lit("00"),
+                ))
+            then_body.extend(_disassembly_statements(fd, read_var))
+            into_stmt = _into_statement(stmt.into_field, read_var, program)
+            if into_stmt is not None:
+                then_body.append(into_stmt)
+            for s in stmt.not_invalid_key_body:
+                then_body.extend(map_cobol_statement(s, program, called_programs))
+            for s in stmt.not_at_end_body:
+                then_body.extend(map_cobol_statement(s, program, called_programs))
+
+            # Failure branch: status + AT END / INVALID KEY bodies.
+            # Relative random READ and keyed READ both signal INVALID KEY (23);
+            # sequential cursor READ signals AT END (10).
+            fail_status = "23" if (keyed or relative_read) else "10"
+            else_body: list[JavaStatement] = []
+            if status_var or has_at_end or has_inv:
+                if status_var:
+                    else_body.append(JavaAssignment(
+                        target=status_var, expression=_str_lit(fail_status),
+                    ))
+                for s in stmt.at_end_body:
+                    else_body.extend(map_cobol_statement(s, program, called_programs))
+                for s in stmt.invalid_key_body:
+                    else_body.extend(map_cobol_statement(s, program, called_programs))
+
+            if then_body or else_body:
+                result.append(JavaIf(
+                    condition=JavaBinaryOp(
+                        left=JavaVariableRef(name=read_var),
+                        operator="!=",
+                        right=JavaLiteral(value="null"),
+                    ),
+                    then_body=tuple(then_body),
+                    else_body=tuple(else_body),
+                ))
+
+    elif isinstance(stmt, WriteStatement):
+        # WRITE record [FROM field] [INVALID KEY ...].
+        #
+        # Destination semantics:
+        #   * STDOUT/SYSOUT/SYS* (or unmatched file) → System.out.println
+        #   * real file path → CobolFileIo.write(path, recordImage, keyLen)
+        #
+        # Record image: WRITE … FROM field uses the field as-is; otherwise
+        # the FD record items are assembled field-by-field padded to their
+        # DISPLAY widths — byte-identical to the COBOL record area.
+        # keyLen > 0 selects the indexed path (dup key → status 22, which
+        # is what runs the INVALID KEY scope).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        content_var = (stmt.from_field or stmt.record_name).replace("-", "_")
+
+        if path is None:
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    object_ref=JavaVariableRef(name="System.out"),
+                    method_name="println",
+                    arguments=(JavaVariableRef(name=content_var),),
+                )
+            ))
+        else:
+            rec_expr = _assembly_expression(fd, content_var)
+            if rec_expr is None:
+                rec_expr = JavaVariableRef(name=content_var)
+            if _is_relative(fd):
+                # RELATIVE: third arg is the current RRN (relative key field).
+                rrn_expr = _key_expr("", fd, program)
+                call = _cobol_call("write", _str_lit(path), rec_expr, rrn_expr)
+            else:
+                call = _cobol_call(
+                    "write", _str_lit(path), rec_expr, _int_lit(_key_len(fd, program)),
+                )
+            has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+            status_var = _bind_status(
+                result, _status_target(fd, program), call, need_expr=has_inv,
+            )
+            if has_inv:
+                _status_branch(
+                    result, status_var, "22",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
+
+    elif isinstance(stmt, OpenStatement):
+        # OPEN mode file → CobolFileIo.open(path, mode, keyLen).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        if path is None:
+            result.append(JavaComment(
+                text=f"// OPEN {stmt.mode} {stmt.file_name}",
+            ))
+        else:
+            call = _cobol_call(
+                "open", _str_lit(path), _str_lit(stmt.mode),
+                _int_lit(_open_key_len(fd, program)),
+            )
+            _bind_status(result, _status_target(fd, program), call)
+
+    elif isinstance(stmt, CloseStatement):
+        # CLOSE file → CobolFileIo.close(path) (flush + persist index).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        if path is None:
+            result.append(JavaComment(text=f"// CLOSE {stmt.file_name}"))
+        else:
+            _bind_status(
+                result, _status_target(fd, program),
+                _cobol_call("close", _str_lit(path)),
+            )
+
+    elif isinstance(stmt, StartStatement):
+        # START file KEY IS [rel] key → position the indexed cursor.
+        # INVALID KEY runs when no record satisfies the relation (23).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        if path is None:
+            result.append(JavaComment(text=f"// START {stmt.file_name}"))
+        else:
+            op = stmt.operator or "="
+            call = _cobol_call(
+                "start", _str_lit(path), _str_lit(op),
+                _key_expr(stmt.key, fd, program),
+            )
+            has_bodies = bool(
+                stmt.invalid_key_body or stmt.not_invalid_key_body
+            )
+            status_var = _bind_status(
+                result, _status_target(fd, program), call, need_expr=has_bodies,
+            )
+            if has_bodies:
+                _status_branch(
+                    result, status_var, "23",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
+
+    elif isinstance(stmt, RewriteStatement):
+        # REWRITE record — indexed replace via CobolFileIo.rewrite.
+        # Sequential REWRITE is not supported by CobolFileIo and fails
+        # closed with status 23 (observable, never silently skipped).
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        content_var = (stmt.from_field or stmt.record_name).replace("-", "_")
+        has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+        status_field = _status_target(fd, program)
+        if path is None:
+            result.append(JavaComment(text=f"// REWRITE {stmt.file_name}"))
+        else:
+            key_len = _key_len(fd, program)
+            if _is_relative(fd):
+                # RELATIVE REWRITE: replace the record at the current RRN.
+                rrn_expr = _key_expr("", fd, program)
+                rec_expr = _assembly_expression(fd, content_var)
+                if rec_expr is None:
+                    rec_expr = JavaVariableRef(name=content_var)
+                call = _cobol_call("rewrite", _str_lit(path), rec_expr, rrn_expr)
+                cond_status = _bind_status(
+                    result, status_field, call, need_expr=has_inv,
+                )
+            elif key_len <= 0:
+                result.append(JavaComment(
+                    text=f"// REWRITE {stmt.file_name}: sequential REWRITE "
+                    "unsupported by CobolFileIo",
+                ))
+                if status_field:
+                    cond_status = status_field
+                    result.append(JavaAssignment(
+                        target=status_field, expression=_str_lit("23"),
+                    ))
+                elif has_inv:
+                    cond_status = _fresh_io_var("st")
+                    result.append(JavaLocalVarDecl(
+                        java_type=JavaType(basic_type=JavaBasicType.STRING),
+                        name=cond_status,
+                        initializer=_str_lit("23"),
+                    ))
+                else:
+                    cond_status = ""
+            else:
+                rec_expr = _assembly_expression(fd, content_var)
+                if rec_expr is None:
+                    rec_expr = JavaVariableRef(name=content_var)
+                call = _cobol_call(
+                    "rewrite", _str_lit(path), rec_expr, _int_lit(key_len),
+                )
+                cond_status = _bind_status(
+                    result, status_field, call, need_expr=has_inv,
+                )
+            if has_inv:
+                _status_branch(
+                    result, cond_status, "23",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
+
+    elif isinstance(stmt, DeleteStatement):
+        # DELETE file record by primary key → CobolFileIo.delete.
+        # RELATIVE → CobolFileIo.deleteRelative(path, RRN).
+        # Missing key → status 23 runs the INVALID KEY scope.
+        fd = _find_file_def(program, stmt.file_name)
+        path = _resolve_path(fd)
+        has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
+        if path is None:
+            result.append(JavaComment(text=f"// DELETE {stmt.file_name}"))
+        else:
+            if _is_relative(fd):
+                rrn_expr = _key_expr("", fd, program)
+                call = _cobol_call("deleteRelative", _str_lit(path), rrn_expr)
+            else:
+                call = _cobol_call(
+                    "delete", _str_lit(path), _key_expr("", fd, program),
+                    _int_lit(_key_len(fd, program)),
+                )
+            status_var = _bind_status(
+                result, _status_target(fd, program), call, need_expr=has_inv,
+            )
+            if has_inv:
+                _status_branch(
+                    result, status_var, "23",
+                    fail_body=stmt.invalid_key_body,
+                    ok_body=stmt.not_invalid_key_body,
+                    program=program,
+                    called_programs=called_programs,
+                )
+
+    elif isinstance(stmt, StringStatement):
+        # STRING → concatenation assignment.
+        # Structured expressions preserve literal quoting (Literal →
+        # quoted Java string, never a bare identifier); raw parts carry
+        # COBOL quoting (e.g. '"SUBTRACT"') and are parsed the same way.
+        if stmt.target:
+            target = stmt.target.replace("-", "_")
+            parts_exprs: list[JavaExpression] = []
+            if stmt.structured_parts:
+                for part in stmt.structured_parts:
+                    parts_exprs.append(_map_cobol_expression_to_java(part))
+            else:
+                for part in stmt.parts:
+                    parts_exprs.append(map_cobol_expr_to_java(part))
+            if parts_exprs:
+                result.append(JavaAssignment(
+                    target=target,
+                    expression=JavaStringConcat(parts=tuple(parts_exprs)),
+                ))
+
+    elif isinstance(stmt, UnstringStatement):
+        # UNSTRING → split operation (handled at higher level)
+        result.append(JavaComment(text=f"// UNSTRING {stmt.source}"))
+
+    elif isinstance(stmt, PerformStatement):
+        # Check for VARYING form
+        if stmt.until_condition and stmt.until_condition.startswith("VARYING "):
+            # PERFORM VARYING var FROM init BY step UNTIL condition [inline-body]
+            # Parse: "VARYING WS-LOOP-CNT FROM 1 BY 1 UNTIL WS-LOOP-CNT > 5"
+            parts = stmt.until_condition.split(" FROM ")
+            if len(parts) >= 2:
+                var_part = parts[0].replace("VARYING ", "").strip()
+                rest = parts[1]
+                by_until = rest.split(" UNTIL ")
+                init_and_by = by_until[0].strip() if by_until else "1"
+                until_part = by_until[1].strip() if len(by_until) > 1 else "TRUE"
+
+                # Parse init and BY from "1 BY 1"
+                init_val = "1"
+                by_val = "1"
+                if " BY " in init_and_by:
+                    ib_parts = init_and_by.split(" BY ")
+                    init_val = ib_parts[0].strip()
+                    by_val = ib_parts[1].strip()
+                else:
+                    init_val = init_and_by.strip()
+
+                # Build condition expression using map_cobol_condition_to_java
+                condition_expr = map_cobol_condition_to_java(
+                    f"{var_part} < {until_part}" if "<" not in until_part and ">" not in until_part
+                    else until_part.replace(var_part, var_part.replace("-", "_"))
+                )
+                # Build proper loop condition: var < stop_value (for > cases)
+                var_jname = var_part.replace("-", "_")
+                cond_java = _build_for_condition(var_jname, until_part)
+
+                # Generate for loop body: use inline body or paragraph call
+                body_stmts: list[JavaStatement] = []
+                if stmt.body:
+                    for s in stmt.body:
+                        body_stmts.extend(map_cobol_statement(s, program))
+                elif stmt.paragraph_name:
+                    body_stmts.append(JavaMethodCallStatement(
+                        call=JavaMethodCall(
+                            method_name=_to_java_method_name(stmt.paragraph_name),
+                            arguments=(),
+                        )
+                    ))
+
+                result.append(JavaFor(
+                    init=JavaLocalVarDecl(
+                        java_type=JavaType(basic_type=JavaBasicType.INT),
+                        name=var_jname,
+                        initializer=JavaLiteral(value=init_val),
+                    ),
+                    condition=cond_java,
+                    update=JavaAssignment(
+                        target=var_jname,
+                        expression=JavaBinaryOp(
+                            left=JavaVariableRef(name=var_jname),
+                            operator="+",
+                            right=JavaLiteral(value=by_val),
+                        ),
+                    ),
+                    body=tuple(body_stmts),
+                ))
+            else:
+                if stmt.body:
+                    body_stmts = []
+                    for s in stmt.body:
+                        body_stmts.extend(map_cobol_statement(s, program))
+                    result.append(JavaBlock(statements=tuple(body_stmts)))
+                elif stmt.paragraph_name:
+                    result.append(JavaMethodCallStatement(
+                        call=JavaMethodCall(
+                            method_name=_to_java_method_name(stmt.paragraph_name),
+                            arguments=(),
+                        )
+                    ))
+        elif stmt.until_condition and stmt.until_condition.startswith("TIMES="):
+            # PERFORM <para> <n> TIMES  (out-of-line) or
+            # PERFORM <n> TIMES ... END-PERFORM (inline).
+            # COBOL executes the body exactly n times; a zero/negative
+            # count executes zero times — the Java for-loop matches this.
+            times_val = stmt.until_condition.replace("TIMES=", "").strip()
+            if times_val.lstrip("-").isdigit():
+                count_expr = JavaLiteral(value=times_val)
+            else:
+                # Field reference count: PERFORM PARA WS-K TIMES.
+                count_expr = JavaVariableRef(name=times_val.replace("-", "_"))
+            loop_var = _fresh_times_var()
+            body_stmts: list[JavaStatement] = []
+            if stmt.body:
+                for s in stmt.body:
+                    body_stmts.extend(map_cobol_statement(s, program))
+            elif stmt.paragraph_name:
+                body_stmts.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        method_name=_to_java_method_name(stmt.paragraph_name),
+                        arguments=(),
+                    )
+                ))
+            result.append(JavaFor(
+                init=JavaLocalVarDecl(
+                    java_type=JavaType(basic_type=JavaBasicType.INT),
+                    name=loop_var,
+                    initializer=JavaLiteral(value="0"),
+                ),
+                condition=JavaBinaryOp(
+                    left=JavaVariableRef(name=loop_var),
+                    operator="<",
+                    right=count_expr,
+                ),
+                update=JavaAssignment(
+                    target=loop_var,
+                    expression=JavaBinaryOp(
+                        left=JavaVariableRef(name=loop_var),
+                        operator="+",
+                        right=JavaLiteral(value="1"),
+                    ),
+                ),
+                body=tuple(body_stmts),
+            ))
+        elif stmt.until_condition:
+            # PERFORM <para> UNTIL <cond> (out-of-line TEST-BEFORE loop) or
+            # PERFORM UNTIL <cond> ... END-PERFORM (inline loop).
+            # COBOL checks the condition BEFORE each iteration, including
+            # the first (zero iterations when already true) — exactly the
+            # semantics of Java while (!(cond)).
+            java_cond = map_cobol_condition_to_java(stmt.until_condition)
+            loop_body: list[JavaStatement] = []
+            if stmt.body:
+                for s in stmt.body:
+                    loop_body.extend(map_cobol_statement(s, program))
+            elif stmt.paragraph_name:
+                loop_body.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        method_name=_to_java_method_name(stmt.paragraph_name),
+                        arguments=(),
+                    )
+                ))
+            result.append(JavaWhile(
+                condition=_negate_condition(java_cond),
+                body=tuple(loop_body),
+            ))
+        elif stmt.thru_target:
+            # PERFORM <first> THRU <last> — execute every paragraph from
+            # <first> through <last> inclusive, in source order.
+            for target in _expand_thru_range(stmt, program):
+                result.append(JavaMethodCallStatement(
+                    call=JavaMethodCall(
+                        method_name=_to_java_method_name(target),
+                        arguments=(),
+                    )
+                ))
+        else:
+            # Simple PERFORM → method call
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    method_name=_to_java_method_name(stmt.paragraph_name),
+                    arguments=(),
+                )
+            ))
+
+    elif isinstance(stmt, CallStatement):
+        # CALL program-name [USING parameters] — static inter-program call.
+        #
+        # Parameter passing uses value-result through the callee's static
+        # linkage fields (COBOL LINKAGE SECTION items become static fields
+        # of the generated class):
+        #   1. sync-in:  Callee.LS = <caller arg>   (all modes)
+        #   2. call:     Callee.MAIN_LOGIC()
+        #   3. sync-out: <caller arg> = Callee.LS   (BY REFERENCE only,
+        #      and only when the argument is a plain data-item reference)
+        #
+        # This preserves observable COBOL mutation semantics despite Java
+        # pass-by-value: BY REFERENCE writes flow back to the caller, while
+        # BY CONTENT / BY VALUE writes stay local to the callee.
+        #
+        # Entry-point resolution (generic rule, no fixture-specific logic):
+        #   * Callee with LINKAGE SECTION + arity match → value-result
+        #     sequence above with entry MAIN_LOGIC.
+        #   * Callee without LINKAGE → entry is its first paragraph.
+        #   * Unknown callee (unresolved CALL) or arity mismatch → legacy
+        #     static call with arguments, which fails closed at Java compile
+        #     time instead of silently skipping the call.
+        #   * Dynamic CALL (unquoted data-item target) never matches a static
+        #     program-id and therefore always takes the fail-closed path.
+        target_id = _normalise_program_id(stmt.program_name)
+        # A quoted CALL target (CALL 'SUBP') is a static literal; an
+        # unquoted target (CALL WS-PGM) is a dynamic data-item reference
+        # whose runtime value cannot be resolved statically. Dynamic CALLs
+        # must never take the value-result path — they fail closed below.
+        #
+        # The parser stores the target with quotes already stripped
+        # (CALL 'SUBP' → program_name='SUBP'), so inspecting the first
+        # character cannot distinguish the two forms. CallStatement
+        # records the distinction in ``is_dynamic``; that is authoritative.
+        raw_target = (stmt.program_name or "").strip()
+        is_static_target = bool(raw_target) and not stmt.is_dynamic
+        callee_linkage: list[str] = []
+        if is_static_target and called_programs is not None:
+            callee = called_programs.get(target_id)
+            if callee is not None and callee.linkage_section:
+                callee_linkage = [
+                    item.name.replace("-", "_")
+                    for item in callee.linkage_section
+                ]
+
+        class_name = _to_java_class_name(target_id)
+        if (
+            is_static_target
+            and callee_linkage
+            and len(stmt.arguments) == len(callee_linkage)
+            and len(stmt.arguments) > 0
+        ):
+            modes = list(stmt.passing_modes) or ["REFERENCE"] * len(stmt.arguments)
+            # 1. sync-in (all modes, positional: USING order ↔ LINKAGE order)
+            for arg, link in zip(stmt.arguments, callee_linkage):
+                result.append(JavaAssignment(
+                    target=f"{class_name}.{link}",
+                    expression=map_cobol_expr_to_java(arg),
+                ))
+            # 2. call
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    class_name=class_name,
+                    method_name="MAIN_LOGIC",
+                    arguments=(),
+                    is_static=True,
+                )
+            ))
+            # 3. sync-out (BY REFERENCE data items only)
+            for arg, link, mode in zip(stmt.arguments, callee_linkage, modes):
+                if mode.upper() == "REFERENCE" and _is_plain_reference(arg):
+                    result.append(JavaAssignment(
+                        target=arg.replace("-", "_"),
+                        expression=JavaVariableRef(name=f"{class_name}.{link}"),
+                    ))
+        else:
+            call_args = []
+            for arg in stmt.arguments:
+                call_args.append(map_cobol_expr_to_java(arg.replace("-", "_")))
+
+            # Resolve entry method. Dynamic targets never resolve: even when
+            # a program-id textually matches, the CALL dispatches on a
+            # runtime value, so a static edge would be unsound.
+            entry_method = "MAIN_LOGIC"  # default
+            if is_static_target and called_programs is not None:
+                callee = called_programs.get(target_id)
+                if callee is not None:
+                    if callee.linkage_section:
+                        entry_method = "MAIN_LOGIC"
+                    elif callee.paragraphs:
+                        # First paragraph becomes the Java method entry
+                        entry_method = _to_java_method_name(callee.paragraphs[0].name)
+                    else:
+                        entry_method = "MAIN_LOGIC"
+
+            result.append(JavaMethodCallStatement(
+                call=JavaMethodCall(
+                    class_name=class_name,
+                    method_name=entry_method,
+                    arguments=tuple(call_args),
+                    is_static=True,
+                )
+            ))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# COBOL program → Java class mapping
+# ---------------------------------------------------------------------------
+
+def map_cobol_data_items_to_fields(
+    items: tuple[DataItem, ...],
+    source_provenance: dict[str, object] | None = None,
+) -> tuple[JavaField, ...]:
+    """Map COBOL WORKING-STORAGE items to Java fields."""
+    fields: list[JavaField] = []
+    for item in items:
+        java_type = map_pic_to_java_type(item)
+        java_name = item.name.replace("-", "_")
+        default = map_pic_to_java_default(item)
+        initializer = JavaLiteral(value=default)
+        if _is_decimal_item(item):
+            if "." in default:
+                initializer = _decimal_value_initializer(
+                    default,
+                    item.decimal_places,
+                )
+            else:
+                initializer = _big_decimal_value(
+                    JavaLiteral(
+                        value=default,
+                        java_type=JavaType(basic_type=JavaBasicType.INT),
+                    )
+                )
+                initializer = JavaMethodCall(
+                    object_ref=initializer,
+                    method_name="movePointLeft",
+                    arguments=(JavaLiteral(value=str(item.decimal_places)),),
+                )
+        fields.append(JavaField(
+            java_type=java_type,
+            name=java_name,
+            initializer=initializer,
+            is_static=True,
+            format_width=item.format_width if item.is_numeric else 0,
+            decimal_places=item.decimal_places if item.is_numeric else 0,
+            source_provenance=(
+                source_provenance.get(item.name.upper())
+                if source_provenance is not None
+                else FieldProvenance(source=item.provenance, field_name=item.name)
+            ),
+        ))
+    return tuple(fields)
+
+
+def map_cobol_paragraph_to_method(
+    para: Paragraph,
+    program: CobolProgram,
+    called_programs: dict[str, CobolProgram] | None = None,
+) -> JavaMethod:
+    """Map a COBOL paragraph to a Java method."""
+    body_stmts: list[JavaStatement] = []
+    for stmt in para.statements:
+        body_stmts.extend(map_cobol_statement(stmt, program, called_programs))
+
+    return JavaMethod(
+        name=_to_java_method_name(para.name),
+        return_type=JavaType(basic_type=JavaBasicType.VOID),
+        parameters=(),
+        body_statements=tuple(body_stmts),
+        is_static=True,
+        modifiers=("public", "static"),
+        # Paragraphs may contain CALLs (whose entries declare checked
+        # exceptions); propagating throws keeps every caller compilable.
+        exceptions=("Exception",),
+    )
+
+
+def map_cobol_program_to_java(
+    program: CobolProgram,
+    called_programs: dict[str, CobolProgram] | None = None,
+) -> JavaProgram:
     """Map a complete COBOL program to a JavaProgram.
 
     Populates all Java IR structures including decision-mode metadata.
     All values are derived from COBOL IR — not invented.
+
+    Args:
+        program: The COBOL program IR to map.
+        called_programs: Optional map of all programs in the application,
+            used to resolve inter-program CALL entry points generically.
     """
-    # Map fields
-    fields = map_cobol_data_items_to_fields(program.working_storage)
+    # Deterministic file-I/O scratch names (_read_0, _st_1, ...) for
+    # this program regardless of what was mapped earlier in this process.
+    _reset_file_io_vars()
+
+    # Map fields — working-storage + file section records.
+    # File section 01-level record items need to be class members so that
+    # MOVE … TO record-name / WRITE record-name sequences compile correctly.
+    # LINKAGE SECTION items also become static fields: CALL USING passes
+    # parameters by value-result through these fields (sync-in before the
+    # call, sync-out after for BY REFERENCE), which is what preserves
+    # COBOL mutation semantics under Java pass-by-value.
+    file_record_items: list = []
+    for fd in program.file_definitions:
+        file_record_items.extend(fd.record_items)
+    all_data_items = tuple(file_record_items) + program.working_storage
+
+    # Carry canonical input provenance into the target field model.
+    # A field is safe to bind only when exactly one input mapping owns it.
+    # Multiple candidate mappings remain unresolved rather than selecting an
+    # arbitrary record or relying on OPEN statement order.
+    input_candidates: dict[str, list[FieldProvenance]] = {}
+    for mapping in program.input_record_mappings:
+        for provenance in mapping.field_provenance:
+            input_candidates.setdefault(provenance.field_name.upper(), []).append(
+                provenance
+            )
+    input_provenance = {
+        name: candidates[0]
+        for name, candidates in input_candidates.items()
+        if len(candidates) == 1
+    }
+
+    fields = map_cobol_data_items_to_fields(all_data_items, input_provenance)
+    if program.linkage_section:
+        existing = {f.name for f in fields}
+        for link_field in map_cobol_data_items_to_fields(program.linkage_section):
+            if link_field.name not in existing:
+                fields = fields + (link_field,)
+                existing.add(link_field.name)
 
     # Map methods from paragraphs
     methods: list[JavaMethod] = []
     for para in program.paragraphs:
-        methods.append(map_cobol_paragraph_to_method(para, program))
+        methods.append(map_cobol_paragraph_to_method(para, program, called_programs))
 
-    # Add main method
+    has_linkage = bool(program.linkage_section)
+
+    # Main method: inline the DRIVER (first) paragraph only.
+    #
+    # Rationale: every paragraph also becomes a callable Java method for
+    # PERFORM targets. Inlining all paragraphs would (a) execute PERFORMed
+    # paragraphs twice (once via the call, once via fall-through) and
+    # (b) place unreachable statements after a mid-file STOP RUN, which
+    # does not compile in Java. The driver-first rule matches the
+    # single-paragraph baseline exactly and gives correct COBOL STOP-RUN
+    # termination for multi-paragraph programs. Implicit fall-through
+    # across paragraphs (no STOP RUN, no PERFORM) is NOT reproduced and
+    # is classified PARTIAL by the capability analyzer.
+    driver_paragraphs = program.paragraphs[:1]
     main_body: list[JavaStatement] = []
-    for para in program.paragraphs:
-        for stmt in para.statements:
-            main_body.extend(map_cobol_statement(stmt, program))
+    if has_linkage:
+        # Standalone entry: run the parameterless business method against
+        # the default field values (inter-program callers sync real values
+        # through the static linkage fields before calling MAIN_LOGIC).
+        main_body.append(JavaMethodCallStatement(call=JavaMethodCall(
+            method_name="MAIN_LOGIC",
+            arguments=(),
+        )))
+    else:
+        # No linkage - invoke the mapped driver paragraph instead of inlining
+        # its statements. Each paragraph already has its own Java method;
+        # inlining here would execute the same COBOL statements twice in the
+        # generated class (once in the paragraph method and once in main).
+        if driver_paragraphs:
+            main_body.append(JavaMethodCallStatement(call=JavaMethodCall(
+                method_name=_to_java_method_name(driver_paragraphs[0].name),
+                arguments=(),
+            )))
 
     methods.append(JavaMethod(
         name="main",
@@ -480,6 +4043,24 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
         exceptions=("Exception",),
     ))
 
+    # Business method for LINKAGE programs: parameterless entry operating
+    # on the static linkage fields (driver paragraph only, same rationale
+    # as main above). Callers sync values in/out around the call.
+    if has_linkage:
+        business_body: list[JavaStatement] = []
+        for para in driver_paragraphs:
+            for stmt in para.statements:
+                business_body.extend(map_cobol_statement(stmt, program, called_programs))
+        methods.append(JavaMethod(
+            name="MAIN_LOGIC",
+            return_type=JavaType(basic_type=JavaBasicType.VOID),
+            parameters=(),
+            body_statements=tuple(business_body),
+            is_static=True,
+            modifiers=("public", "static"),
+            exceptions=("Exception",),
+        ))
+
     # Build class
     java_class = JavaClass(
         name=_to_java_class_name(program.program_id),
@@ -494,6 +4075,11 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
             "java.util.LinkedHashMap",
             "java.util.List",
             "java.util.Map",
+            *(
+                ("java.math.BigDecimal", "java.math.RoundingMode")
+                if any(field.java_type.class_name == "BigDecimal" for field in fields)
+                else ()
+            ),
         ),
     )
 
@@ -511,6 +4097,7 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
             code=sc.code,
             label=sc.label,
             counter_name=_label_to_counter_name(sc.label),
+            field_name=sc.field_name.replace("-", "_"),
         )
         for sc in program.status_codes
     )
@@ -526,16 +4113,32 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
     )
 
     # Summary fields → JavaSummaryField
-    ws_lookup = {item.name: item for item in program.working_storage}
-    summary_fields = tuple(
-        JavaSummaryField(
+    ws_lookup = {
+        item.name.replace("-", "_"): item
+        for item in program.working_storage
+    }
+    summary_fields_list = []
+    for field in program.summary_fields:
+        source_field = ""
+        for para in program.paragraphs:
+            for stmt in para.statements:
+                if isinstance(stmt, DisplayStatement) and len(stmt.parts) >= 2:
+                    label = stmt.parts[0].strip("'\\\"").rstrip("=")
+                    if label == field and not (
+                        stmt.parts[1].startswith("'") or stmt.parts[1].startswith('"')
+                    ):
+                        source_field = stmt.parts[1].replace("-", "_")
+                        break
+            if source_field:
+                break
+        source_item = ws_lookup.get(source_field)
+        summary_fields_list.append(JavaSummaryField(
             field_name=field,
             java_var_name=_cobol_field_to_java_var(field),
-            format_width=ws_lookup[field].format_width if field in ws_lookup else 0,
-            is_numeric=ws_lookup[field].is_numeric if field in ws_lookup else True,
-        )
-        for field in program.summary_fields
-    )
+            format_width=source_item.format_width if source_item is not None else 0,
+            is_numeric=source_item.is_numeric if source_item is not None else True,
+        ))
+    summary_fields = tuple(summary_fields_list)
 
     # Match outcomes → JavaMatchOutcome
     match_outcomes: tuple[JavaMatchOutcome, ...] = ()
@@ -572,6 +4175,7 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
                 fd.field_name for fd in program.output_formats[1].record_format.fields
             )
 
+        outcome_field_name = _derive_outcome_field_name(program)
         report_config = JavaReportConfig(
             header=program.report_header,
             report_file_name=report_file_name,
@@ -580,17 +4184,36 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
             output_fields=summary_fields,
             report_format_fields=report_format_fields,
             output_format_fields=output_format_fields,
+            outcome_field_name=outcome_field_name,
         )
 
     # Determine generation mode from capabilities
     caps = _derive_generation_mode(program)
+    default_status_label = _derive_default_status_label(program)
 
-    # Input record fields (from first InputRecordMapping)
+    # Input record fields must correspond to the first READ/INPUT file,
+    # not the first UNSTRING encountered in source order. A program may
+    # load auxiliary input files before its primary record (e.g. payments
+    # before claims), so source-order selection can bind the wrong record
+    # layout and silently leave the decision fields at their defaults.
     input_record_fields: tuple[str, ...] = ()
-    if program.input_record_mappings:
-        input_record_fields = tuple(
-            f.replace("-", "_") for f in program.input_record_mappings[0].fields
-        )
+    primary_input_file = next(
+        (
+            fd.name
+            for fd in program.file_definitions
+            if any(
+                stmt.file_name == fd.name and stmt.mode.upper() == "INPUT"
+                for stmt in program.open_statements
+            )
+        ),
+        "",
+    )
+    for mapping in program.input_record_mappings:
+        if mapping.file_name == primary_input_file:
+            input_record_fields = tuple(
+                f.replace("-", "_") for f in mapping.fields
+            )
+            break
 
     return JavaProgram(
         program_id=program.program_id,
@@ -605,6 +4228,8 @@ def map_cobol_program_to_java(program: CobolProgram) -> JavaProgram:
         match_outcomes=match_outcomes,
         generation_mode=caps,
         input_record_fields=input_record_fields,
+        default_status_label=default_status_label,
+        default_status_counter_name=_label_to_counter_name(default_status_label) if default_status_label else "",
         copybooks=program.copybooks,
         calls=program.called_programs,
         entry_points=program.entry_points,
@@ -712,9 +4337,14 @@ def map_cobol_programs_to_application(
 
     program_ids = {p.program_id for p in programs}
 
+    # Build program-id → CobolProgram lookup so CALL entry-point resolution
+    # can inspect callee LINKAGE SECTION without a second pass.
+    program_map: dict[str, CobolProgram] = {p.program_id: p for p in programs}
+
     for prog in programs:
-        java_prog = map_cobol_program_to_java(prog)
+        java_prog = map_cobol_program_to_java(prog, called_programs=program_map)
         java_programs.append(java_prog)
+
 
         # Map CALL dependencies with resolution status
         for called in prog.called_programs:
@@ -764,6 +4394,30 @@ def map_cobol_programs_to_application(
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
+def _normalise_program_id(name: str) -> str:
+    """Normalise a CALL target to a canonical COBOL program-id.
+
+    Strips quotes, trailing periods and whitespace; uppercases.
+    ("'CLAIMS'." -> "CLAIMS").
+    """
+    return (name or "").strip().strip("'\"").rstrip(".").strip().upper()
+
+
+def _to_java_method_name(cobol_name: str) -> str:
+    """COBOL paragraph name → legal Java method name.
+
+    Hyphens become underscores; a leading digit (classic ``0000-MAIN`` /
+    ``1000-READ`` section numbering) gets a ``p`` prefix because Java
+    identifiers may not start with a digit. Must be applied identically at
+    the method definition and at every PERFORM / THRU / CALL call site so
+    targets always resolve to the generated method.
+    """
+    java_name = (cobol_name or "").strip().replace("-", "_").replace(" ", "_")
+    if java_name and java_name[0].isdigit():
+        java_name = "p" + java_name
+    return java_name
+
 
 def _to_java_class_name(cobol_name: str) -> str:
     """Convert COBOL program name to Java class name."""

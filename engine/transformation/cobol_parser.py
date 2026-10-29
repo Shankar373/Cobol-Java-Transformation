@@ -18,11 +18,12 @@ Unsupported constructs will raise CobolParseError.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, NoReturn
 
-from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
+from engine.transformation.diagnostics import Diagnostic, DiagnosticCode, DiagnosticCollector, DiagnosticLevel
 from engine.transformation.ir import (
     AddStatement,
+    CallStatement,
     BinaryExpression,
     BooleanCondition,
     CobolProgram,
@@ -30,6 +31,8 @@ from engine.transformation.ir import (
     Condition,
     DataItem,
     DisplayStatement,
+    EvaluateStatement,
+    EvaluateWhen,
     DivideStatement,
     Expression,
     FileAccessMode,
@@ -57,15 +60,25 @@ from engine.transformation.ir import (
     StatusCodeMapping,
     StopRunStatement,
     StringStatement,
+    SubtractStatement,
+    MultiplyStatement,
     ThresholdRule,
     UnaryExpression,
     UnstringStatement,
     WriteStatement,
+    SourceProvenance,
+    bind_program_semantics,
 )
 
 
 class CobolParseError(Exception):
     """Raised when COBOL source contains unsupported or invalid syntax."""
+
+    def __init__(self, message: str, diagnostics: tuple[Diagnostic, ...] = (),
+                 code: DiagnosticCode = DiagnosticCode.SYNTAX_ERROR) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
+        self.code = code
 
 
 def _clean_line(line: str) -> str:
@@ -130,22 +143,65 @@ class CobolParser:
     def __init__(self, diagnostics: DiagnosticCollector | None = None) -> None:
         self._diagnostics = diagnostics or DiagnosticCollector()
         self._unsupported_statements: list[str] = []
+        self._source_name: str = ""
+        self._source_line_numbers: list[int] = []
 
-    def parse(self, source: str) -> CobolProgram:
-        """Parse COBOL source text into a CobolProgram IR."""
+    def parse(self, source: str, source_name: str = "") -> CobolProgram:
+        """Return a valid model or raise CobolParseError with structured diagnostics.
+
+        Only diagnostics from this invocation determine its outcome; a failed
+        earlier invocation must not poison subsequent valid input.
+        """
+        first_diagnostic = len(self._diagnostics.all)
+        self._source_name = source_name
+        try:
+            program = self._parse_source(source, source_name)
+        except (CobolParseError, ValueError, IndexError) as exc:
+            current = self._diagnostics.all[first_diagnostic:]
+            if not any(d.level == DiagnosticLevel.ERROR for d in current):
+                code = exc.code if isinstance(exc, CobolParseError) else DiagnosticCode.SYNTAX_ERROR
+                self._diagnostics.error(code, str(exc),
+                                        location=source_name or "source input")
+            raise CobolParseError(str(exc), self._diagnostics.all[first_diagnostic:]) from exc
+        current = self._diagnostics.all[first_diagnostic:]
+        errors = [d for d in current if d.level == DiagnosticLevel.ERROR]
+        if errors:
+            raise CobolParseError("; ".join(d.message for d in errors), current)
+        return program
+
+    def _syntax_error(self, message: str, line_index: int,
+                      code: DiagnosticCode = DiagnosticCode.SYNTAX_ERROR) -> NoReturn:
+        line = (self._source_line_numbers[line_index]
+                if line_index < len(self._source_line_numbers) else line_index + 1)
+        self._diagnostics.error(code, message,
+                                location=f"{self._source_name or 'source'}:{line}")
+        raise CobolParseError(message)
+
+    def _parse_source(self, source: str, source_name: str) -> CobolProgram:
+        """Build the model; the public boundary rejects any recorded errors."""
         lines = source.split("\n")
-        # Remove comments and empty lines
+        self._source_name = source_name
+        self._source_line_numbers = []
         code_lines = []
-        for line in lines:
+        for source_line_number, line in enumerate(lines, start=1):
             cleaned = _strip_area_prefix(line)
             if cleaned and not cleaned.startswith("*"):
+                without_literals = re.sub(r'''"(?:[^"]|"")*"|'(?:[^']|'')*'|\*>.*$''', "", cleaned)
+                if '"' in without_literals or "'" in without_literals:
+                    self._diagnostics.error(DiagnosticCode.SYNTAX_ERROR,
+                                            "Unterminated quoted literal",
+                                            location=f"{source_name or 'source'}:{source_line_number}")
+                    raise CobolParseError("Unterminated quoted literal")
                 code_lines.append(cleaned)
+                self._source_line_numbers.append(source_line_number)
 
         # Parse divisions
         program_id = self._parse_program_id(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
         working_storage = self._parse_working_storage(code_lines)
+        linkage_section = self._parse_linkage_section(code_lines)
+        using_parameters = self._parse_procedure_using(code_lines)
         paragraphs = self._parse_procedure_division(code_lines)
         threshold_rules = self._extract_threshold_rules(code_lines)
 
@@ -160,10 +216,16 @@ class CobolParser:
         # Extract output record formats (generic — no domain-specific prefix)
         output_formats = self._extract_output_formats(code_lines) if has_status else []
 
-        # Merge file definitions with record items from FILE SECTION
+        # Merge FILE-CONTROL metadata with FILE SECTION record definitions.
+        # A valid FD may exist without a SELECT in the input being parsed, so
+        # FILE SECTION records must not be discarded merely because there is
+        # no matching FILE-CONTROL definition.
         file_section_map = {fd.name: fd for fd in file_section}
         merged_files = []
+        merged_names: set[str] = set()
+
         for fd in file_defs:
+            merged_names.add(fd.name)
             if fd.name in file_section_map:
                 fsd = file_section_map[fd.name]
                 merged_files.append(FileDefinition(
@@ -182,6 +244,21 @@ class CobolParser:
                 ))
             else:
                 merged_files.append(fd)
+
+        # Preserve FILE SECTION-only definitions as first-class file records.
+        merged_files.extend(
+            fsd for name, fsd in file_section_map.items()
+            if name not in merged_names
+        )
+
+        # Bind source coordinates to data declarations before semantic binding.
+        working_storage = self._attach_data_provenance(working_storage, code_lines)
+        linkage_section = self._attach_data_provenance(linkage_section, code_lines)
+        from dataclasses import replace
+        merged_files = [
+            replace(fd, record_items=tuple(self._attach_data_provenance(list(fd.record_items), code_lines)))
+            for fd in merged_files
+        ]
 
         # Extract input record mappings from UNSTRING statements
         input_record_mappings = self._extract_input_record_mappings(
@@ -209,7 +286,12 @@ class CobolParser:
             match_outcome_labels=tuple(match_labels),
             summary_fields=tuple(summary_fields),
             report_header=report_header,
+            linkage_section=tuple(linkage_section),
+            using_parameters=tuple(using_parameters),
         )
+
+        # Bind source types/provenance into the same IR consumed downstream.
+        program = bind_program_semantics(program)
 
         # Validate that input contains a recognizable COBOL structure
         self._validate_program_structure(program, source)
@@ -222,20 +304,24 @@ class CobolParser:
         This prevents completely invalid or empty input from being treated
         as a successful transformation.
         """
-        has_structure = (
-            program.program_id != "UNKNOWN"
-            or len(program.file_definitions) > 0
-            or len(program.working_storage) > 0
-            or len(program.paragraphs) > 0
-        )
-
-        if not has_structure:
+        code = "\n".join(line.strip() for line in source.splitlines()
+                         if not line.lstrip().startswith("*"))
+        if program.program_id == "UNKNOWN":
             self._diagnostics.error(
                 DiagnosticCode.PARSE_ERROR,
                 "Input contains no valid transformable COBOL program structure. "
                 "Expected IDENTIFICATION DIVISION with PROGRAM-ID.",
-                location="source input",
+                location=self._source_name or "source input",
             )
+        if not re.search(r"(?im)^\s*(?:IDENTIFICATION|ID)\s+DIVISION\s*\.", code):
+            self._diagnostics.error(DiagnosticCode.PARSE_ERROR,
+                                    "Missing IDENTIFICATION DIVISION", location=self._source_name or "source input")
+        if not re.search(r"(?im)^\s*PROCEDURE\s+DIVISION\b", code):
+            self._diagnostics.error(DiagnosticCode.PARSE_ERROR,
+                                    "Missing PROCEDURE DIVISION", location=self._source_name or "source input")
+        if len(re.findall(r"(?im)^\s*PROGRAM-ID\.", code)) != 1:
+            self._diagnostics.error(DiagnosticCode.PARSE_ERROR,
+                                    "Expected exactly one PROGRAM-ID per source unit", location=self._source_name or "source input")
 
     def _parse_program_id(self, lines: list[str]) -> str:
         """Extract PROGRAM-ID from IDENTIFICATION DIVISION."""
@@ -375,67 +461,186 @@ class CobolParser:
 
         return file_defs
 
+    def _attach_data_provenance(
+        self,
+        items: list[DataItem],
+        code_lines: list[str],
+    ) -> list[DataItem]:
+        """Attach original source coordinates to parsed data items."""
+        from dataclasses import replace
+
+        def attach(item: DataItem) -> DataItem:
+            line_index = next(
+                (
+                    index
+                    for index, line in enumerate(code_lines)
+                    if re.match(
+                        rf"^\s*0*{item.level}\s+{re.escape(item.name)}(?:\s|\.|$)",
+                        line,
+                        re.IGNORECASE,
+                    )
+                ),
+                None,
+            )
+            children = tuple(attach(child) for child in item.children)
+            provenance = item.provenance
+            if line_index is not None:
+                provenance = SourceProvenance(
+                    source_name=self._source_name,
+                    line=self._source_line_numbers[line_index],
+                    construct="DATA_ITEM",
+                )
+            return replace(item, provenance=provenance, children=children)
+
+        return [attach(item) for item in items]
+
     def _parse_file_section(self, lines: list[str]) -> list[FileDefinition]:
-        """Parse FILE SECTION to extract record definitions."""
+        """Parse FILE SECTION record definitions into canonical data hierarchy."""
         in_file_section = False
         file_defs: list[FileDefinition] = []
         current_fd: str | None = None
-        current_record: str | None = None
-        current_items: list[DataItem] = []
+        current_data_lines: list[str] = []
+
+        def flush_file() -> None:
+            nonlocal current_fd, current_data_lines
+            if not current_fd:
+                return
+            parsed = self.parse_data_description_lines(current_data_lines)
+            record_name = parsed[0].name if parsed else ""
+            file_defs.append(FileDefinition(
+                name=current_fd,
+                container_path="",
+                record_name=record_name,
+                record_items=tuple(parsed),
+            ))
+            current_data_lines = []
 
         for line in lines:
             upper = line.upper().strip()
             if upper == "FILE SECTION.":
                 in_file_section = True
                 continue
-            if in_file_section:
-                if upper.startswith("FD "):
-                    if current_fd and current_record:
-                        file_defs.append(FileDefinition(
-                            name=current_fd,
-                            container_path="",
-                            record_name=current_record,
-                            record_items=tuple(current_items),
-                        ))
-                    parts = line.strip().split()
-                    current_fd = parts[1].rstrip(".") if len(parts) >= 2 else None
-                    current_record = None
-                    current_items = []
-                elif current_fd and upper.startswith("01 "):
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        current_record = parts[1].rstrip(".")
-                        pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                        if pic_match:
-                            pic_type, pic_length = _parse_pic(pic_match.group(1))
-                            current_items.append(DataItem(
-                                name=current_record,
-                                pic_type=pic_type,
-                                pic_length=pic_length,
-                            ))
-                elif current_fd and re.match(r"\d{2}\s+", upper):
-                    # Handle sub-level items (05, 10, 15, etc.)
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        item_name = parts[1].rstrip(".")
-                        pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                        if pic_match:
-                            pic_type, pic_length = _parse_pic(pic_match.group(1))
-                            current_items.append(DataItem(
-                                name=item_name,
-                                pic_type=pic_type,
-                                pic_length=pic_length,
-                            ))
-                elif upper.startswith(("WORKING-STORAGE", "PROCEDURE")):
-                    if current_fd and current_record:
-                        file_defs.append(FileDefinition(
-                            name=current_fd,
-                            container_path="",
-                            record_name=current_record,
-                            record_items=tuple(current_items),
-                        ))
-                    break
+            if not in_file_section:
+                continue
+
+            if upper.startswith("FD "):
+                flush_file()
+                parts = line.strip().split()
+                current_fd = parts[1].rstrip(".") if len(parts) >= 2 else None
+                current_data_lines = []
+                continue
+
+            if upper.startswith(("WORKING-STORAGE", "LINKAGE", "LOCAL-STORAGE", "PROCEDURE")):
+                flush_file()
+                current_fd = None
+                break
+
+            if current_fd and re.match(r"\d{2}\s+", upper):
+                current_data_lines.append(line)
+
+        flush_file()
         return file_defs
+
+    def parse_data_description_lines(self, lines: list[str]) -> list[DataItem]:
+        """Parse COBOL data-description entries for WORKING-STORAGE, LINKAGE or COPYBOOKs."""
+        parsed = []
+        for raw in lines:
+            stripped = raw.strip()
+            if not stripped or stripped.startswith(("*", "/")):
+                continue
+            m = re.match(r"^(\d{1,2})\s+([A-Z0-9][\w-]*)\b(.*)$", stripped, re.IGNORECASE)
+            if not m:
+                continue
+            level, name, rest = int(m.group(1)), m.group(2).rstrip("."), m.group(3)
+            pic = re.search(r"\bPIC(?:TURE)?\s+([A-Z0-9()V+\-]+)", rest, re.IGNORECASE)
+            if pic:
+                pic_type, pic_length, decimals, signed = self._parse_pic_details(pic.group(1))
+            else:
+                pic_type, pic_length, decimals, signed = PicType.ALPHANUMERIC, 0, 0, False
+            usage = self._parse_usage(rest)
+            value_m = re.search(r"\bVALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
+            occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
+            redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
+            parsed.append((level, DataItem(
+                name=name, level=level, pic_type=pic_type, pic_length=pic_length,
+                decimal_places=decimals,
+                signed=signed,
+                usage=usage,
+                value=value_m.group(1).strip().rstrip(".") if value_m else None,
+                occurs=int(occurs_m.group(1)) if occurs_m else None,
+                redefines=redef_m.group(1).rstrip(".") if redef_m else None,
+            )))
+        roots = []
+        stack = []
+        def replace_node(root, target, replacement):
+            if root is target:
+                return replacement
+            if not root.children:
+                return root
+            children = tuple(replacement if c is target else replace_node(c, target, replacement) for c in root.children)
+            return DataItem(name=root.name, level=root.level, pic_type=root.pic_type,
+                            pic_length=root.pic_length, decimal_places=root.decimal_places,
+                            value=root.value, occurs=root.occurs, redefines=root.redefines,
+                            signed=root.signed, usage=root.usage, provenance=root.provenance,
+                            children=children)
+        for level, item in parsed:
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            if not stack:
+                roots.append(item)
+            else:
+                parent_level, parent = stack[-1]
+                updated = DataItem(name=parent.name, level=parent.level, pic_type=parent.pic_type,
+                                   pic_length=parent.pic_length, decimal_places=parent.decimal_places,
+                                   value=parent.value, occurs=parent.occurs, redefines=parent.redefines,
+                                   signed=parent.signed, usage=parent.usage, provenance=parent.provenance,
+                                   children=parent.children + (item,))
+                roots = [replace_node(r, parent, updated) for r in roots]
+                stack[-1] = (parent_level, updated)
+            stack.append((level, item))
+        return roots
+
+    def _parse_usage(self, declaration: str) -> str:
+        """Extract the canonical COBOL storage usage from a data declaration."""
+        match = re.search(
+            r"\bUSAGE\s+(?:IS\s+)?(DISPLAY|COMP-3|COMP-2|COMP-1|COMP-4|COMP-5|COMP|BINARY)\b",
+            declaration,
+            re.IGNORECASE,
+        )
+        if match:
+            usage = match.group(1).upper()
+            return "BINARY" if usage == "BINARY" else usage
+        # COBOL permits shorthand USAGE clauses such as "COMP-3" without
+        # the USAGE keyword.
+        shorthand = re.search(r"\b(COMP-3|COMP-2|COMP-1|COMP-4|COMP-5|COMP)\b", declaration, re.IGNORECASE)
+        return shorthand.group(1).upper() if shorthand else "DISPLAY"
+
+    def _parse_pic_details(self, pic_str: str) -> tuple[PicType, int, int, bool]:
+        pic = pic_str.strip().rstrip(".").upper()
+        signed = pic.startswith("S")
+        if signed:
+            pic = pic[1:]
+        if "V" in pic:
+            left, right = pic.split("V", 1)
+            typ, left_len = _parse_pic(left)
+            right_len = len(re.findall(r"9", right))
+            return typ, left_len + right_len, right_len, signed
+        typ, length = _parse_pic(pic)
+        return typ, length, 0, signed
+
+    def _parse_linkage_section(self, lines: list[str]) -> list[DataItem]:
+        start = next((i + 1 for i, line in enumerate(lines) if "LINKAGE SECTION" in line.upper()), None)
+        if start is None:
+            return []
+        end = next((i for i in range(start, len(lines)) if "PROCEDURE DIVISION" in lines[i].upper()), len(lines))
+        return self.parse_data_description_lines(lines[start:end])
+
+    def _parse_procedure_using(self, lines: list[str]) -> list[str]:
+        for line in lines:
+            m = re.search(r"PROCEDURE DIVISION\s+USING\s+(.+)", line, re.IGNORECASE)
+            if m:
+                return [token.rstrip(".") for token in m.group(1).split()]
+        return []
 
     def _parse_working_storage(self, lines: list[str]) -> list[DataItem]:
         """Parse WORKING-STORAGE SECTION to extract data items."""
@@ -465,11 +670,14 @@ class CobolParser:
 
                 # Check for PIC clause
                 pic_match = re.search(r"PIC\s+(\S+)", line, re.IGNORECASE)
-                value_match = re.search(r"VALUE\s+(.+?)(?:\s+|$|\.|,)", line, re.IGNORECASE)
+                value_match = re.search(r"VALUE\s+([+-]?\d+(?:\.\d+)?)\.?(?:\s|$)", line, re.IGNORECASE)
+                if value_match is None:
+                    value_match = re.search(r"VALUE\s+(.+?)(?:\s+|$|\.|,)", line, re.IGNORECASE)
                 occurs_match = re.search(r"OCCURS\s+(\d+)", line, re.IGNORECASE)
 
                 if pic_match:
-                    pic_type, pic_length = _parse_pic(pic_match.group(1))
+                    pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
+                    usage = self._parse_usage(line)
                     value = value_match.group(1).strip().rstrip(".") if value_match else None
                     occurs = int(occurs_match.group(1)) if occurs_match else None
 
@@ -479,6 +687,9 @@ class CobolParser:
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
+                            signed=signed,
+                            usage=usage,
                             value=value,
                         ))
                     else:
@@ -487,6 +698,9 @@ class CobolParser:
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
+                            signed=signed,
+                            usage=usage,
                             value=value,
                             occurs=occurs,
                         ))
@@ -500,11 +714,14 @@ class CobolParser:
                 elif level == 10 and current_group_name:
                     # Level 10 under a group — children
                     if pic_match:
-                        pic_type, pic_length = _parse_pic(pic_match.group(1))
+                        pic_type, pic_length, decimal_places, signed = self._parse_pic_details(pic_match.group(1))
                         current_group_children.append(DataItem(
                             name=item_name,
                             pic_type=pic_type,
                             pic_length=pic_length,
+                            decimal_places=decimal_places,
+                            signed=signed,
+                            usage=usage,
                         ))
 
         return items
@@ -516,7 +733,7 @@ class CobolParser:
         1. First pass: collect all paragraph names
         2. Second pass: parse statements with knowledge of all paragraph names
         """
-        # First pass: collect all paragraph names
+        # First pass: collect all paragraph names (exclude scope terminators)
         paragraph_names: set[str] = set()
         for line in lines:
             upper = line.upper().strip()
@@ -524,7 +741,9 @@ class CobolParser:
                 continue
             para_match = re.match(r"([A-Z0-9][\w-]*)\.", line.strip())
             if para_match and "PIC" not in upper and "VALUE" not in upper:
-                paragraph_names.add(para_match.group(1))
+                name = para_match.group(1)
+                if not name.upper().startswith("END-"):
+                    paragraph_names.add(name)
 
         # Second pass: parse with knowledge of all paragraph names
         in_procedure = False
@@ -552,20 +771,33 @@ class CobolParser:
                 continue
 
             # Check for paragraph name (ends with period, no PIC/VALUE/etc.)
+            if re.fullmatch(r"(?:MOVE|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|OPEN|READ|WRITE|CALL|DISPLAY|IF|PERFORM|STRING|UNSTRING)\.?", upper):
+                self._syntax_error("Missing required statement operands", i)
+            # Scope terminators (END-PERFORM., END-EVALUATE., ...) are NOT
+            # paragraph names — treating them as such splits STOP RUN out of
+            # the driver paragraph and triggers false fall-through flags.
             para_match = re.match(r"([A-Z0-9][\w-]*)\.", line.strip())
             if para_match and "PIC" not in upper and "VALUE" not in upper:
-                # Save previous paragraph
-                if current_paragraph:
-                    paragraphs.append(Paragraph(
-                        name=current_paragraph,
-                        statements=tuple(current_statements),
-                    ))
-                current_paragraph = para_match.group(1)
-                current_statements = []
-                i += 1
-                continue
+                name = para_match.group(1)
+                if not name.upper().startswith("END-"):
+                    # Save previous paragraph
+                    if current_paragraph:
+                        paragraphs.append(Paragraph(
+                            name=current_paragraph,
+                            statements=tuple(current_statements),
+                        ))
+                    current_paragraph = name
+                    current_statements = []
+                    i += 1
+                    continue
 
-            # Parse statements within the current paragraph
+            # Parse statements within the current paragraph. If the source
+            # has no named paragraph, create one only when the first real
+            # statement is encountered; this avoids an empty synthetic
+            # paragraph before a normal named paragraph.
+            if current_paragraph is None:
+                current_paragraph = "MAIN"
+                current_statements = []
             if current_paragraph:
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:
@@ -584,6 +816,25 @@ class CobolParser:
         return paragraphs
 
     def _parse_statement(self, lines: list[str], start: int) -> tuple[Any, int]:
+        if re.fullmatch(r"(?:MOVE|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|OPEN|READ|WRITE|CALL|DISPLAY|IF|PERFORM|STRING|UNSTRING)\.?", lines[start].strip(), re.IGNORECASE):
+            self._syntax_error("Missing required statement operands", start)
+        statement, next_index = self._parse_statement_impl(lines, start)
+        required = {
+            "OpenStatement": ("file_name",), "ReadStatement": ("file_name",),
+            "WriteStatement": ("record_name",), "MoveStatement": ("source", "target"),
+            "AddStatement": ("source", "target"), "SubtractStatement": ("source", "from_field"),
+            "MultiplyStatement": ("source", "multiplicand"),
+            "DivideStatement": ("source", "divisor", "target"),
+            "ComputeStatement": ("target", "expression"), "CallStatement": ("program_name",),
+            "GoToStatement": ("target",), "UnstringStatement": ("source", "targets"),
+            "StringStatement": ("parts", "target"),
+        }
+        for field in required.get(type(statement).__name__, ()):
+            if not getattr(statement, field):
+                self._syntax_error(f"Malformed {type(statement).__name__}: missing {field}", start)
+        return statement, next_index
+
+    def _parse_statement_impl(self, lines: list[str], start: int) -> tuple[Any, int]:
         """Parse a single statement starting at the given line index."""
         line = lines[start].strip()
         upper = line.upper()
@@ -608,6 +859,18 @@ class CobolParser:
         if upper.startswith("ADD "):
             return self._parse_add(lines, start)
 
+        # SUBTRACT
+        if upper.startswith("SUBTRACT "):
+            return self._parse_subtract(lines, start)
+
+        # MULTIPLY
+        if upper.startswith("MULTIPLY "):
+            return self._parse_multiply(lines, start)
+
+        # CALL
+        if upper.startswith("CALL "):
+            return self._parse_call(lines, start)
+
         # DIVIDE
         if upper.startswith("DIVIDE "):
             return self._parse_divide(lines, start)
@@ -615,6 +878,10 @@ class CobolParser:
         # COMPUTE
         if upper.startswith("COMPUTE "):
             return self._parse_compute(lines, start)
+
+        # EVALUATE
+        if upper.startswith("EVALUATE "):
+            return self._parse_evaluate(lines, start)
 
         # IF
         if upper.startswith("IF "):
@@ -654,20 +921,13 @@ class CobolParser:
         return None, start + 1
 
     def _parse_open(self, lines: list[str], start: int) -> tuple[OpenStatement, int]:
-        """Parse OPEN INPUT/OUTPUT statement."""
+        """Preserve the declared OPEN mode and required file operand."""
         line = lines[start].strip()
-        upper = line.upper()
-
-        if "INPUT" in upper:
-            mode = "INPUT"
-        elif "OUTPUT" in upper:
-            mode = "OUTPUT"
-        else:
-            mode = "INPUT"
-
-        # Extract file name
-        match = re.search(r"OPEN\s+(?:INPUT|OUTPUT)\s+(\S+)", line, re.IGNORECASE)
-        file_name = match.group(1).rstrip(".") if match else ""
+        match = re.match(r"OPEN\s+(INPUT|OUTPUT|I-O|EXTEND)\s+(\S+)", line, re.IGNORECASE)
+        if not match:
+            self._syntax_error("Malformed OPEN: expected mode and file name", start)
+        mode = match.group(1).upper()
+        file_name = match.group(2).rstrip(".")
 
         return OpenStatement(mode=mode, file_name=file_name), start + 1
 
@@ -701,7 +961,6 @@ class CobolParser:
                 i += 1
                 continue
             if u.startswith("END-READ"):
-                print(f"DEBUG _parse_read: Found END-READ at i={i}, line={lines[i].strip()[:60]}")
                 i += 1
                 break
 
@@ -736,38 +995,128 @@ class CobolParser:
         return WriteStatement(record_name=record_name, file_name=file_name), start + 1
 
     def _parse_move(self, lines: list[str], start: int) -> tuple[MoveStatement, int]:
-        """Parse MOVE source TO target statement."""
+        """Parse MOVE source TO target, including a continued TO clause."""
         line = lines[start].strip()
+        next_index = start + 1
 
-        match = re.search(r"MOVE\s+(.+?)\s+TO\s+(\S+)", line, re.IGNORECASE)
+        # COBOL permits the MOVE source and TO target on separate physical
+        # lines. Join only the unambiguous continuation form so the parser
+        # preserves the semantic MOVE instead of emitting an empty statement.
+        if not line.endswith(".") and not re.search(r"\s+TO\s+", line, re.IGNORECASE) and next_index < len(lines):
+            next_line = lines[next_index].strip()
+            if re.match(r"^TO\s+\S+", next_line, re.IGNORECASE):
+                line = f"{line} {next_line}"
+                next_index += 1
+
+        match = re.search(r"MOVE\s+(.+?)\s+TO\s+(.+?)(?:\.)?$", line, re.IGNORECASE)
         if match:
-            source = match.group(1).strip().rstrip(".")
-            target = match.group(2).strip().rstrip(".")
+            source = match.group(1).strip()
+            targets = tuple(t.rstrip(".") for t in match.group(2).split() if t.strip())
+            target = targets[0] if targets else ""
             return MoveStatement(
                 source=source,
                 target=target,
+                targets=targets,
                 source_expr=self._build_expression(source),
-                target_ref=FieldReference(name=target),
-            ), start + 1
+                target_ref=FieldReference(name=target) if target else None,
+            ), next_index
 
-        return MoveStatement(source="", target=""), start + 1
+        self._syntax_error("Malformed MOVE: expected source TO target", start)
 
     def _parse_add(self, lines: list[str], start: int) -> tuple[AddStatement, int]:
         """Parse ADD source TO target statement."""
         line = lines[start].strip()
+        next_index = start + 1
+        if not line.endswith(".") and not re.search(r"\s+TO\s+", line, re.IGNORECASE) and next_index < len(lines):
+            continuation = lines[next_index].strip()
+            if re.match(r"TO\s+\S+", continuation, re.IGNORECASE):
+                line += " " + continuation
+                next_index += 1
 
-        match = re.search(r"ADD\s+(.+?)\s+TO\s+(\S+)", line, re.IGNORECASE)
+        match = re.search(
+            r"ADD\s+(.+?)\s+TO\s+(\S+?)(?:\s+GIVING\s+(\S+))?\.?$",
+            line,
+            re.IGNORECASE,
+        )
         if match:
             source = match.group(1).strip().rstrip(".")
             target = match.group(2).strip().rstrip(".")
+            giving_target = (match.group(3) or "").strip().rstrip(".") or None
             return AddStatement(
                 source=source,
                 target=target,
+                giving_target=giving_target,
                 source_expr=self._build_expression(source),
                 target_ref=FieldReference(name=target),
-            ), start + 1
+            ), next_index
 
-        return AddStatement(source="", target=""), start + 1
+        self._syntax_error("Malformed ADD: expected source TO target", start)
+
+    def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
+        """Parse SUBTRACT source FROM field [GIVING target]."""
+        line = lines[start].strip()
+        match = re.search(r"SUBTRACT\s+(\S+)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
+        if not match:
+            self._syntax_error("Malformed SUBTRACT: expected source FROM target", start)
+        source = match.group(1).rstrip(".")
+        from_field = match.group(2).rstrip(".")
+        to_field = match.group(3).rstrip(".") if match.group(3) else None
+        return SubtractStatement(
+            source=source,
+            from_field=from_field,
+            to_field=to_field,
+            source_expr=self._build_expression(source),
+            from_ref=FieldReference(name=from_field),
+            to_ref=FieldReference(name=to_field) if to_field else None,
+        ), start + 1
+
+    def _parse_multiply(self, lines: list[str], start: int) -> tuple[MultiplyStatement, int]:
+        """Parse MULTIPLY source BY field [GIVING target]."""
+        line = lines[start].strip()
+        match = re.search(r"MULTIPLY\s+(\S+)\s+BY\s+(\S+)(?:\s+GIVING\s+(\S+))?", line, re.IGNORECASE)
+        if not match:
+            self._syntax_error("Malformed MULTIPLY: expected source BY target", start)
+        source = match.group(1).rstrip(".")
+        multiplicand = match.group(2).rstrip(".")
+        target = match.group(3).rstrip(".") if match.group(3) else None
+        return MultiplyStatement(
+            source=source,
+            multiplicand=multiplicand,
+            target=target,
+            source_expr=self._build_expression(source),
+            multiplicand_ref=FieldReference(name=multiplicand),
+            target_ref=FieldReference(name=target) if target else None,
+        ), start + 1
+
+    def _parse_call(self, lines: list[str], start: int) -> tuple[CallStatement, int]:
+        """Parse CALL literal/identifier USING arguments, including continuations."""
+        i = start
+        parts = [lines[i].strip()]
+        while i + 1 < len(lines) and not parts[-1].rstrip().endswith("."):
+            i += 1
+            parts.append(lines[i].strip())
+        text = " ".join(parts).rstrip(".").strip()
+        match = re.match(r"CALL\s+(?:'([^']+)'|\"([^\"]+)\"|(\S+))(?:\s+USING\s+(.+))?$", text, re.IGNORECASE)
+        if not match:
+            self._syntax_error("Malformed CALL: expected a target and optional USING arguments", start)
+        program_name = next((g for g in match.groups()[:3] if g), "")
+        using = match.group(4) or ""
+        tokens = using.split()
+        arguments=[]
+        modes=[]
+        current_mode="REFERENCE"
+        j=0
+        while j < len(tokens):
+            tok=tokens[j].upper()
+            if tok == "BY" and j + 1 < len(tokens):
+                current_mode=tokens[j+1].upper()
+                j += 2
+                continue
+            arguments.append(tokens[j].rstrip(","))
+            modes.append(current_mode)
+            j += 1
+        is_dynamic = not bool(match.group(1) or match.group(2))
+        return CallStatement(program_name=program_name, arguments=tuple(arguments), passing_modes=tuple(modes), is_dynamic=is_dynamic), i + 1
 
     def _parse_divide(self, lines: list[str], start: int) -> tuple[DivideStatement, int]:
         """Parse DIVIDE source BY divisor GIVING target [REMAINDER rem] statement."""
@@ -793,13 +1142,28 @@ class CobolParser:
                 target_ref=FieldReference(name=target),
             ), start + 1
 
-        return DivideStatement(source="", divisor="", target=""), start + 1
+        if re.fullmatch(r"DIVIDE\s+\S+\s+INTO\s+\S+(?:\s+GIVING\s+\S+)?\.?", line, re.IGNORECASE):
+            self._syntax_error("DIVIDE INTO is not supported by this parser", start,
+                               DiagnosticCode.UNSUPPORTED_CONSTRUCT)
+        self._syntax_error("Malformed DIVIDE: expected required operands", start)
 
     def _parse_compute(self, lines: list[str], start: int) -> tuple['ComputeStatement', int]:
         """Parse COMPUTE target = expression."""
         from engine.transformation.ir import ComputeStatement
 
         line = lines[start].strip()
+        next_index = start + 1
+        if line.endswith("=") and next_index < len(lines):
+            continuation = lines[next_index].strip()
+            # A continued expression contains operands/operators, never another
+            # statement. Do not swallow a following statement to fill an operand.
+            if re.fullmatch(r"[\w\s()+*/.\-]+", continuation) and not re.match(
+                r"(?:MOVE|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|DISPLAY|STOP|CALL|"
+                r"PERFORM|IF|ELSE|END-|WHEN|OPEN|CLOSE|READ|WRITE|GO\s+TO)\b",
+                continuation, re.IGNORECASE,
+            ):
+                line += " " + continuation
+                next_index += 1
 
         match = re.search(r"COMPUTE\s+(\S+)\s*=\s*(.+?)\.?\s*$", line, re.IGNORECASE)
         if match:
@@ -810,9 +1174,98 @@ class CobolParser:
                 expression=expression,
                 target_ref=FieldReference(name=target),
                 expression_expr=self._build_expression(expression),
-            ), start + 1
+            ), next_index
 
-        return ComputeStatement(target="", expression=""), start + 1
+        self._syntax_error("Malformed COMPUTE: expected target = expression", start)
+
+    def _parse_evaluate(self, lines: list[str], start: int) -> tuple[EvaluateStatement, int]:
+        """Parse a single-subject EVALUATE into canonical WHEN arms.
+
+        This supported subset preserves selector, WHEN predicates, WHEN
+        OTHER, and branch bodies structurally. Multi-subject ALSO forms are
+        rejected rather than being flattened into an incorrect condition.
+        """
+        subject_text = lines[start].strip()[len("EVALUATE "):].rstrip(".").strip()
+        subject = self._build_expression(subject_text)
+        arms: list[EvaluateWhen] = []
+        i = start + 1
+
+        while i < len(lines):
+            u = lines[i].strip().upper()
+            if u.startswith("END-EVALUATE"):
+                i += 1
+                break
+            if not u.startswith("WHEN "):
+                i += 1
+                continue
+
+            spec = lines[i].strip()[len("WHEN "):].rstrip(".").strip()
+            when_line = i
+            i += 1
+            body: list[Any] = []
+            while i < len(lines) and not lines[i].strip().upper().startswith(("WHEN ", "END-EVALUATE")):
+                stmt, new_i = self._parse_statement(lines, i)
+                if stmt is not None:
+                    body.append(stmt)
+                i = max(new_i, i + 1)
+
+            provenance = SourceProvenance(
+                source_name=self._source_name,
+                line=self._source_line_numbers[when_line] if when_line < len(self._source_line_numbers) else when_line + 1,
+                construct="WHEN",
+            )
+
+            if spec.upper() == "OTHER":
+                arms.append(EvaluateWhen(
+                    body=tuple(body),
+                    other=True,
+                    provenance=provenance,
+                ))
+                continue
+
+            if re.search(r"\bALSO\b", spec, re.IGNORECASE):
+                raise CobolParseError(
+                    "Unsupported multi-subject EVALUATE WHEN ALSO form; "
+                    "semantic conditions would otherwise be lossy",
+                    code=DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                )
+
+            tokens = spec.split()
+            conditions: list[Condition] = []
+            upper_tokens = [token.upper() for token in tokens]
+            if "THRU" in upper_tokens:
+                if len(tokens) != 3 or upper_tokens[1] != "THRU":
+                    raise CobolParseError(f"Unsupported EVALUATE WHEN range: {spec}")
+                lower = self._build_expression(tokens[0])
+                upper = self._build_expression(tokens[2])
+                conditions.append(LogicalCondition(
+                    left=Comparison(subject, ">=", lower),
+                    operator="AND",
+                    right=Comparison(subject, "<=", upper),
+                ))
+            else:
+                for token in tokens:
+                    conditions.append(Comparison(
+                        left=subject,
+                        operator="=",
+                        right=self._build_expression(token),
+                    ))
+
+            arms.append(EvaluateWhen(
+                conditions=tuple(conditions),
+                body=tuple(body),
+                provenance=provenance,
+            ))
+
+        return EvaluateStatement(
+            subject=subject,
+            arms=tuple(arms),
+            provenance=SourceProvenance(
+                source_name=self._source_name,
+                line=self._source_line_numbers[start] if start < len(self._source_line_numbers) else start + 1,
+                construct="EVALUATE",
+            ),
+        ), i
 
     def _parse_if(self, lines: list[str], start: int) -> tuple[IfStatement, int]:
         """Parse IF condition THEN ... ELSE ... END-IF."""
@@ -827,68 +1280,151 @@ class CobolParser:
         then_body: list[Any] = []
         else_body: list[Any] = []
         current_section = "then"
+        terminated = False
 
         i = start + 1
-        depth = 1
-
-        while i < len(lines) and depth > 0:
+        while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
 
-            if u.startswith("ELSE") and depth == 1:
+            if u.startswith("ELSE"):
                 current_section = "else"
                 i += 1
                 continue
-            if u.startswith("END-IF"):
-                depth -= 1
-                if depth == 0:
-                    i += 1
-                    break
-            if u.startswith("IF "):
-                depth += 1
 
-            if current_section == "then":
-                stmt, i = self._parse_statement(lines, i)
-                if stmt is not None:
-                    then_body.append(stmt)
-            elif current_section == "else":
-                stmt, i = self._parse_statement(lines, i)
-                if stmt is not None:
-                    else_body.append(stmt)
-            else:
+            if u.startswith("END-IF"):
+                terminated = True
                 i += 1
+                break
+
+            # Nested IF statements parse themselves through their own END-IF.
+            # Treat the resulting IfStatement as one child so the outer ELSE
+            # and END-IF remain scoped to this IF only.
+            stmt, new_i = self._parse_statement(lines, i)
+            if stmt is not None:
+                if current_section == "then":
+                    then_body.append(stmt)
+                else:
+                    else_body.append(stmt)
+            i = max(new_i, i + 1)
+            if lines[i - 1].rstrip().endswith("."):
+                terminated = True
+                break
+
+        if not condition or not terminated:
+            self._syntax_error("Incomplete IF: expected condition and END-IF or terminating period", start)
 
         return IfStatement(
             condition=condition,
             then_body=tuple(then_body),
             else_body=tuple(else_body),
             structured_condition=self._build_condition(condition),
+            provenance=SourceProvenance(
+                source_name=self._source_name,
+                line=self._source_line_numbers[start] if start < len(self._source_line_numbers) else start + 1,
+                construct="IF",
+            ),
         ), i
 
     def _parse_perform(self, lines: list[str], start: int) -> tuple[PerformStatement, int]:
-        """Parse PERFORM paragraph UNTIL condition or PERFORM paragraph."""
-        line = lines[start].strip()
+        """Parse paragraph, inline, TIMES, UNTIL, VARYING and THRU PERFORM forms."""
+        line = lines[start].strip().rstrip(".")
+        upper = line.upper()
 
-        match = re.search(
-            r"PERFORM\s+(\S+)\s+UNTIL\s+(.+?)(?:\s*\.?\s*$)",
-            line, re.IGNORECASE,
-        )
-        if match:
-            paragraph_name = match.group(1)
-            until_condition = match.group(2).strip().rstrip(".")
-            return PerformStatement(
-                paragraph_name=paragraph_name,
-                until_condition=until_condition,
-                structured_condition=self._build_condition(until_condition),
-            ), start + 1
+        # WITH TEST AFTER / WITH TEST BEFORE (strip before form matching)
+        test_after = False
+        test_m = re.search(r"\bWITH\s+TEST\s+(AFTER|BEFORE)\b", line, re.IGNORECASE)
+        if test_m:
+            test_after = test_m.group(1).upper() == "AFTER"
+            line = re.sub(
+                r"\bWITH\s+TEST\s+(?:AFTER|BEFORE)\b\s*", "", line,
+                flags=re.IGNORECASE,
+            ).strip()
+            upper = line.upper()
 
-        match = re.search(r"PERFORM\s+(\S+)", line, re.IGNORECASE)
-        if match:
-            return PerformStatement(
-                paragraph_name=match.group(1).rstrip("."),
-            ), start + 1
+        inline = upper.startswith("PERFORM UNTIL ") or upper.startswith("PERFORM VARYING ") or bool(re.match(r"PERFORM\s+\d+\s+TIMES$", upper)) or bool(re.match(r"PERFORM\s+WITH\s+TEST", upper))
+        # After stripping WITH TEST, inline forms may start with PERFORM UNTIL/VARYING/TIMES
+        if not inline and upper.startswith("PERFORM "):
+            rest = upper[len("PERFORM "):]
+            inline = (
+                rest.startswith("UNTIL ")
+                or rest.startswith("VARYING ")
+                or bool(re.match(r"\d+\s+TIMES$", rest))
+                or bool(re.match(r"\d+\s+TIMES", rest))
+            )
+        if inline:
+            # COBOL permits the VARYING header to continue onto the next
+            # source line before the UNTIL phrase. Consume only that header
+            # continuation; the statements after UNTIL remain the loop body.
+            header_line = line
+            body_start = start + 1
+            if upper.startswith("PERFORM VARYING ") and " UNTIL " not in upper:
+                j = start + 1
+                while j < len(lines):
+                    continuation = lines[j].strip()
+                    if not continuation:
+                        j += 1
+                        continue
+                    header_line += " " + continuation.rstrip(".")
+                    j += 1
+                    if continuation.upper().startswith("UNTIL ") or " UNTIL " in continuation.upper():
+                        body_start = j
+                        break
+                line = header_line
+                upper = line.upper()
 
-        return PerformStatement(paragraph_name=""), start + 1
+            if " UNTIL " in upper:
+                condition_text = line.split(" UNTIL ", 1)[1].strip()
+                structured_condition = self._build_condition(condition_text)
+                # Preserve the complete VARYING header in the legacy
+                # until_condition field; the Java mapper uses it to
+                # reconstruct the loop initializer/update/termination.
+                suffix = (
+                    line[len("PERFORM "):].strip()
+                    if upper.startswith("PERFORM VARYING ")
+                    else condition_text
+                )
+            else:
+                suffix = line[len("PERFORM "):].strip()
+                structured_condition = None
+                if re.search(r"\s+TIMES$", upper):
+                    suffix = f"TIMES={suffix[: -len('TIMES')].strip()}"
+            body = []
+            i = body_start
+            while i < len(lines):
+                if lines[i].strip().upper().startswith("END-PERFORM"):
+                    return PerformStatement(paragraph_name="", until_condition=suffix,
+                                            structured_condition=structured_condition,
+                                            body=tuple(body), test_after=test_after), i + 1
+                stmt, new_i = self._parse_statement(lines, i)
+                if stmt is not None:
+                    body.append(stmt)
+                i = max(new_i, i + 1)
+            self._syntax_error("Incomplete inline PERFORM: missing END-PERFORM", start)
+        m = re.match(r"PERFORM\s+([\w-]+)\s+THRU\s+([\w-]+)$", line, re.IGNORECASE)
+        if m:
+            return PerformStatement(paragraph_name=m.group(1), thru_target=m.group(2),
+                                    test_after=test_after), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)\s+(.+?)\s+TIMES$", line, re.IGNORECASE)
+        if m:
+            return PerformStatement(paragraph_name=m.group(1),
+                                    until_condition=f"TIMES={m.group(2).strip()}",
+                                    test_after=test_after), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)\s+VARYING\s+(.+)$", line, re.IGNORECASE)
+        if m:
+            suffix = "VARYING " + m.group(2).strip()
+            return PerformStatement(paragraph_name=m.group(1), until_condition=suffix,
+                                    test_after=test_after), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)\s+UNTIL\s+(.+)$", line, re.IGNORECASE)
+        if m:
+            cond = m.group(2).strip()
+            return PerformStatement(paragraph_name=m.group(1), until_condition=cond,
+                                    structured_condition=self._build_condition(cond),
+                                    test_after=test_after), start + 1
+        m = re.match(r"PERFORM\s+([\w-]+)$", line, re.IGNORECASE)
+        if m:
+            return PerformStatement(paragraph_name=m.group(1), test_after=test_after), start + 1
+        self._syntax_error("Unsupported or malformed PERFORM", start)
 
     def _parse_unstring(self, lines: list[str], start: int) -> tuple[UnstringStatement, int]:
         """Parse UNSTRING source DELIMITED BY delimiter INTO targets."""
@@ -970,7 +1506,12 @@ class CobolParser:
         return StringStatement(parts=tuple(parts), target=target), i
 
     def _parse_display(self, lines: list[str], start: int) -> tuple[DisplayStatement, int]:
-        """Parse DISPLAY parts UPON destination."""
+        """Parse DISPLAY parts UPON destination.
+
+        Continuation lines are only consumed while the statement is open.
+        A DISPLAY that already ends with '.' is complete on that line —
+        otherwise the following CALL/PERFORM/EVALUATE would be swallowed.
+        """
         line = lines[start].strip()
         upper = line.upper()
 
@@ -983,13 +1524,28 @@ class CobolParser:
         parts: list[str] = []
         if parts_match:
             parts_str = parts_match.group(1).strip()
-            for token in re.findall(r'"([^"]+)"|([A-Z][\w-]*)', parts_str, re.IGNORECASE):
+            for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*)', parts_str, re.IGNORECASE):
                 if token[0]:
                     parts.append(f'"{token[0]}"')
                 elif token[1]:
-                    parts.append(token[1])
+                    parts.append(f"'{token[1]}'")
+                elif token[2]:
+                    parts.append(token[2])
 
-        # Check for continuation lines
+        # Statement already terminated on the opening line — do not continue.
+        if line.endswith("."):
+            return DisplayStatement(parts=tuple(parts), destination=destination), start + 1
+
+        # Keywords that open a new statement (or close a scope) — never
+        # DISPLAY continuation. Missing CALL/PERFORM/EVALUATE here was the
+        # root cause of swallowed CALL statements.
+        break_prefixes = (
+            "END-", "ELSE", "IF", "MOVE", "DISPLAY", "WRITE", "STOP RUN",
+            "CLOSE", "GO TO", "CALL", "PERFORM", "EVALUATE", "ADD",
+            "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE", "READ", "OPEN",
+            "STRING", "UNSTRING", "SET", "INITIALIZE", "WHEN",
+        )
+
         i = start + 1
         while i < len(lines):
             l = lines[i].strip()
@@ -998,15 +1554,19 @@ class CobolParser:
                 destination = "STDERR" if "STDERR" in u else "STDOUT"
                 i += 1
                 continue
-            if (u.startswith(("END-IF", "ELSE", "IF", "MOVE", "DISPLAY",
-                    "WRITE", "STOP RUN", "CLOSE", "GO TO"))):
+            if u.startswith(break_prefixes):
                 break
             if l and not u.startswith("*") and not u.startswith("END-"):
-                for token in re.findall(r'"([^"]+)"|([A-Z][\w-]*)', l, re.IGNORECASE):
+                for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*)', l, re.IGNORECASE):
                     if token[0]:
                         parts.append(f'"{token[0]}"')
                     elif token[1]:
-                        parts.append(token[1])
+                        parts.append(f"'{token[1]}'")
+                    elif token[2]:
+                        parts.append(token[2])
+            if l.endswith("."):
+                i += 1
+                break
             i += 1
 
         return DisplayStatement(parts=tuple(parts), destination=destination), i
@@ -1234,6 +1794,42 @@ class CobolParser:
         Handles continuation lines where MOVE and TO are on separate lines.
         """
         labels: list[str] = []
+
+        # Prefer the semantic lookup match flag and its decision block. The
+        # older source-order scan can encounter ordinary status assignments
+        # before the lookup outcomes and misclassify them as paid/partial/
+        # unpaid labels.
+        lookup = self._extract_lookup_operation(lines)
+        if lookup and lookup.match_found_field:
+            match_field = re.escape(lookup.match_found_field)
+            for i, raw_line in enumerate(lines):
+                if not re.search(
+                    rf"IF\s+{match_field}\s*=\s*['\"]Y['\"]",
+                    raw_line,
+                    re.IGNORECASE,
+                ):
+                    continue
+                depth = 0
+                block_labels: list[str] = []
+                for block_line in lines[i:]:
+                    upper = block_line.upper().strip()
+                    if re.match(r"IF\s+", upper):
+                        depth += 1
+                    for move in re.finditer(
+                        r"MOVE\s+['\"]([^'\"]+)['\"]\s+TO\s+\S+",
+                        block_line,
+                        re.IGNORECASE,
+                    ):
+                        label = move.group(1)
+                        if len(label) > 1 and label not in block_labels:
+                            block_labels.append(label)
+                    if re.search(r"END-IF", upper):
+                        depth -= len(re.findall(r"END-IF", upper))
+                        if depth <= 0:
+                            break
+                if block_labels:
+                    return block_labels
+
         in_lookup_section = False
 
         # First pass: join continuation lines
@@ -1363,21 +1959,38 @@ class CobolParser:
     def _extract_output_formats(self, lines: list[str]) -> list[OutputFormat]:
         """Extract all output record formats from STRING ... INTO statements.
 
-        Finds ALL STRING INTO <record> patterns and extracts their formats.
-        No domain-specific prefix detection — purely pattern-based.
+        STRING statements may span multiple physical source lines, so
+        discovery uses the same logical-block representation as
+        ``_extract_record_format``. No domain-specific prefix detection
+        is used; record names come only from parsed STRING ... INTO structure.
         """
-        # Find all STRING INTO record names
-        record_names: list[str] = []
-        for line in lines:
-            upper = line.upper()
-            if "STRING " in upper and "INTO " in upper:
-                match = re.search(r"INTO\s+(\S+)", line, re.IGNORECASE)
-                if match:
-                    name = match.group(1).rstrip(".")
-                    if name not in record_names:
-                        record_names.append(name)
+        # Join multiline STRING ... END-STRING blocks before discovering
+        # target records. This preserves output metadata when STRING and
+        # INTO occur on different physical source lines.
+        joined_blocks: list[str] = []
+        i = 0
+        while i < len(lines):
+            stripped = lines[i].strip()
+            if stripped.upper().startswith("STRING"):
+                block = stripped
+                i += 1
+                while i < len(lines):
+                    next_stripped = lines[i].strip()
+                    block += " " + next_stripped
+                    if "END-STRING" in next_stripped.upper():
+                        break
+                    i += 1
+                joined_blocks.append(block)
+            i += 1
 
-        # Extract record format for each found record
+        record_names: list[str] = []
+        for block in joined_blocks:
+            match = re.search(r"INTO\s+(\S+)", block, re.IGNORECASE)
+            if match:
+                name = match.group(1).rstrip(".")
+                if name not in record_names:
+                    record_names.append(name)
+
         formats: list[OutputFormat] = []
         for name in record_names:
             fmt = self._extract_record_format(lines, name)
@@ -1580,6 +2193,22 @@ class CobolParser:
         """
         text = text.strip()
 
+        # Strip one balanced outer pair so parenthesized expressions retain
+        # their structured AST instead of becoming a raw field reference.
+        if text.startswith("(") and text.endswith(")"):
+            depth = 0
+            matching = True
+            for i, char in enumerate(text):
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                if depth == 0 and i < len(text) - 1:
+                    matching = False
+                    break
+            if matching:
+                return self._build_expression(text[1:-1])
+
         # Check for string literal
         if (text.startswith("'") and text.endswith("'")) or \
            (text.startswith('"') and text.endswith('"')):
@@ -1602,38 +2231,60 @@ class CobolParser:
             operand = self._build_expression(text[1:])
             return UnaryExpression(operator="-", operand=operand)
 
-        # Check for binary operators (simplified - handles single level)
-        # Priority: AND, OR, then comparison, then arithmetic
+        # Build by precedence, selecting the rightmost top-level operator
+        # at each level so arithmetic remains left-associative.
         for op in ["AND", "OR"]:
-            pos = self._find_binary_operator(text, op)
+            pos = self._find_rightmost_binary_operator(text, op)
             if pos is not None:
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
 
         for op in ["<>", ">=", "<=", "=", ">", "<"]:
-            pos = self._find_binary_operator(text, op)
+            pos = self._find_rightmost_binary_operator(text, op)
             if pos is not None:
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
 
-        for op in ["+", "-"]:
-            pos = self._find_binary_operator(text, op)
-            if pos is not None:
-                left = self._build_expression(text[:pos])
-                right = self._build_expression(text[pos + len(op):])
-                return BinaryExpression(left=left, operator=op, right=right)
-
-        for op in ["*", "/"]:
-            pos = self._find_binary_operator(text, op)
-            if pos is not None:
+        # For operators at the same precedence level, choose the
+        # rightmost occurrence so the resulting tree is left-associative:
+        # A - B - C => (A - B) - C and A * B / C => (A * B) / C.
+        for operators in (("+", "-"), ("*", "/")):
+            candidates = [
+                (self._find_rightmost_binary_operator(text, op), op)
+                for op in operators
+            ]
+            candidates = [(pos, op) for pos, op in candidates if pos is not None]
+            if candidates:
+                pos, op = max(candidates, key=lambda item: item[0])
                 left = self._build_expression(text[:pos])
                 right = self._build_expression(text[pos + len(op):])
                 return BinaryExpression(left=left, operator=op, right=right)
 
         # Default: field reference
         return FieldReference(name=text)
+
+    def _find_rightmost_binary_operator(self, text: str, op: str) -> int | None:
+        """Find the rightmost top-level binary operator, respecting parentheses."""
+        depth = 0
+        pos = None
+        i = 0
+        while i < len(text):
+            if text[i] == '(':
+                depth += 1
+            elif text[i] == ')':
+                depth -= 1
+            elif depth == 0 and text[i:i + len(op)].upper() == op.upper():
+                before_ok = i == 0 or not text[i - 1].isalnum()
+                after_pos = i + len(op)
+                after_ok = after_pos >= len(text) or not text[after_pos].isalnum()
+                if before_ok and after_ok:
+                    pos = i
+                    i += len(op)
+                    continue
+            i += 1
+        return pos
 
     def _find_binary_operator(self, text: str, op: str) -> int | None:
         """Find the position of a binary operator in text, respecting parentheses."""
@@ -1688,7 +2339,7 @@ class CobolParser:
             return NegatedCondition(condition=inner)
 
         # Check for AND/OR (at top level)
-        for op in ["AND", "OR"]:
+        for op in ["OR", "AND"]:
             pos = self._find_binary_operator(text, op)
             if pos is not None:
                 left = self._build_condition(text[:pos])

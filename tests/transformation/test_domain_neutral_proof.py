@@ -65,7 +65,7 @@ class TestCaseA_PicDerivedFormatting:
         assert not item.is_decimal
 
     def test_pic_9_6_v99_width(self):
-        item = DataItem(name="FIELD-C", pic_type=PicType.NUMERIC, pic_length=6, decimal_places=2)
+        item = DataItem(name="FIELD-C", pic_type=PicType.NUMERIC, pic_length=8, decimal_places=2)
         assert item.format_width == 8
         assert item.is_decimal
 
@@ -402,9 +402,9 @@ class TestMutationMatrix:
         assert item1.format_width != item2.format_width
 
     def test_decimal_places_mutation(self):
-        """Adding decimal places changes format_width and is_decimal."""
+        """Adding fractional PIC positions changes total precision and is_decimal."""
         item1 = DataItem(name="X", pic_type=PicType.NUMERIC, pic_length=6)
-        item2 = DataItem(name="X", pic_type=PicType.NUMERIC, pic_length=6, decimal_places=2)
+        item2 = DataItem(name="X", pic_type=PicType.NUMERIC, pic_length=8, decimal_places=2)
         assert item1.format_width != item2.format_width
         assert not item1.is_decimal
         assert item2.is_decimal

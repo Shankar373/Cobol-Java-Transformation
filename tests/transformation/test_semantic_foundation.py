@@ -1,827 +1,430 @@
-"""Tests for Task 6: COBOL Semantic Foundation.
-
-Verifies:
-- IR construction tests (structured expressions and conditions)
-- Domain-neutral tests
-- Lexical false-positive tests
-- Mutation tests
-- Negative tests
-- Determinism tests
-"""
-
-from __future__ import annotations
-
-import hashlib
-
-import pytest
+"""Regression tests for the canonical semantic foundation."""
 
 from engine.transformation.cobol_parser import CobolParser
-from engine.transformation.ir import (
-    AddStatement,
-    BinaryExpression,
-    BooleanCondition,
-    CobolProgram,
-    Comparison,
-    Condition,
-    DataItem,
-    DisplayStatement,
-    DivideStatement,
-    Expression,
-    FieldReference,
-    FileDefinition,
-    IfStatement,
-    Literal,
-    LogicalCondition,
-    MoveStatement,
-    NegatedCondition,
-    Paragraph,
-    PerformStatement,
-    PicType,
-    ReadStatement,
-    StopRunStatement,
-    StringStatement,
-    UnaryExpression,
-    UnstringStatement,
-    WriteStatement,
-    derive_capabilities,
-)
-from engine.transformation.java_generator import JavaGenerator
+from engine.transformation.cobol_to_java_mapping import map_cobol_program_to_java
+from engine.transformation.ir import BinaryExpression, CobolType, DecisionNode, EvaluateStatement, FieldReference, IfStatement, InputRecordMapping, PicType
 
 
-# ============================================================
-# A. IR Construction Tests
-# ============================================================
-
-class TestExpressionIR:
-    """Verify structured expression IR construction."""
-
-    def test_literal_numeric(self):
-        """Numeric literal becomes Literal with is_numeric=True."""
-        lit = Literal(value="42", is_numeric=True)
-        assert lit.value == "42"
-        assert lit.is_numeric is True
-
-    def test_literal_string(self):
-        """String literal becomes Literal with is_numeric=False."""
-        lit = Literal(value="HELLO", is_numeric=False)
-        assert lit.value == "HELLO"
-        assert lit.is_numeric is False
-
-    def test_field_reference(self):
-        """Field name becomes FieldReference."""
-        ref = FieldReference(name="CUSTOMER-ID")
-        assert ref.name == "CUSTOMER-ID"
-
-    def test_binary_expression(self):
-        """Binary operation becomes BinaryExpression."""
-        expr = BinaryExpression(
-            left=FieldReference(name="A"),
-            operator="+",
-            right=Literal(value="10", is_numeric=True),
-        )
-        assert expr.left.name == "A"
-        assert expr.operator == "+"
-        assert expr.right.value == "10"
-
-    def test_unary_expression(self):
-        """Unary NOT becomes UnaryExpression."""
-        expr = UnaryExpression(
-            operator="NOT",
-            operand=FieldReference(name="flag"),
-        )
-        assert expr.operator == "NOT"
-        assert expr.operand.name == "flag"
-
-    def test_nested_binary_expression(self):
-        """Nested binary operations create tree structure."""
-        expr = BinaryExpression(
-            left=BinaryExpression(
-                left=FieldReference(name="A"),
-                operator="+",
-                right=FieldReference(name="B"),
-            ),
-            operator="*",
-            right=Literal(value="2", is_numeric=True),
-        )
-        assert expr.left.left.name == "A"
-        assert expr.left.operator == "+"
-        assert expr.left.right.name == "B"
-        assert expr.operator == "*"
-        assert expr.right.value == "2"
-
-
-class TestConditionIR:
-    """Verify structured condition IR construction."""
-
-    def test_comparison(self):
-        """Comparison becomes Comparison condition."""
-        cond = Comparison(
-            left=FieldReference(name="AMOUNT"),
-            operator=">",
-            right=Literal(value="1000", is_numeric=True),
-        )
-        assert cond.left.name == "AMOUNT"
-        assert cond.operator == ">"
-        assert cond.right.value == "1000"
-
-    def test_logical_and(self):
-        """AND combination becomes LogicalCondition."""
-        cond = LogicalCondition(
-            left=Comparison(
-                left=FieldReference(name="A"),
-                operator=">",
-                right=Literal(value="1", is_numeric=True),
-            ),
-            operator="AND",
-            right=Comparison(
-                left=FieldReference(name="B"),
-                operator="<",
-                right=Literal(value="10", is_numeric=True),
-            ),
-        )
-        assert cond.operator == "AND"
-        assert cond.left.operator == ">"
-        assert cond.right.operator == "<"
-
-    def test_logical_or(self):
-        """OR combination becomes LogicalCondition."""
-        cond = LogicalCondition(
-            left=Comparison(
-                left=FieldReference(name="X"),
-                operator="=",
-                right=Literal(value="Y"),
-            ),
-            operator="OR",
-            right=Comparison(
-                left=FieldReference(name="Z"),
-                operator="=",
-                right=Literal(value="N"),
-            ),
-        )
-        assert cond.operator == "OR"
-
-    def test_negated_condition(self):
-        """NOT condition becomes NegatedCondition."""
-        cond = NegatedCondition(
-            condition=Comparison(
-                left=FieldReference(name="A"),
-                operator=">",
-                right=FieldReference(name="B"),
-            )
-        )
-        assert cond.condition.operator == ">"
-
-    def test_boolean_condition(self):
-        """Boolean field becomes BooleanCondition."""
-        cond = BooleanCondition(field=FieldReference(name="flag"))
-        assert cond.field.name == "flag"
-        assert cond.is_negated is False
-
-
-class TestParserExpressionBuilding:
-    """Verify parser builds structured expressions from COBOL text."""
-
-    def test_build_literal(self):
-        """Parser builds Literal from numeric text."""
-        parser = CobolParser()
-        expr = parser._build_expression("42")
-        assert isinstance(expr, Literal)
-        assert expr.value == "42"
-        assert expr.is_numeric is True
-
-    def test_build_field_reference(self):
-        """Parser builds FieldReference from field name."""
-        parser = CobolParser()
-        expr = parser._build_expression("CUSTOMER-ID")
-        assert isinstance(expr, FieldReference)
-        assert expr.name == "CUSTOMER-ID"
-
-    def test_build_binary_add(self):
-        """Parser builds BinaryExpression for addition."""
-        parser = CobolParser()
-        expr = parser._build_expression("A + B")
-        assert isinstance(expr, BinaryExpression)
-        assert expr.left.name == "A"
-        assert expr.operator == "+"
-        assert expr.right.name == "B"
-
-    def test_build_unary_not(self):
-        """Parser builds UnaryExpression for NOT."""
-        parser = CobolParser()
-        expr = parser._build_expression("NOT flag")
-        assert isinstance(expr, UnaryExpression)
-        assert expr.operator == "NOT"
-        assert expr.operand.name == "flag"
-
-    def test_build_comparison(self):
-        """Parser builds Comparison from comparison text."""
-        parser = CobolParser()
-        cond = parser._build_condition("AMOUNT > 1000")
-        assert isinstance(cond, Comparison)
-        assert cond.left.name == "AMOUNT"
-        assert cond.operator == ">"
-        assert cond.right.value == "1000"
-
-    def test_build_logical_and(self):
-        """Parser builds LogicalCondition for AND."""
-        parser = CobolParser()
-        cond = parser._build_condition("A > 1 AND B < 10")
-        assert isinstance(cond, LogicalCondition)
-        assert cond.operator == "AND"
-        assert cond.left.operator == ">"
-        assert cond.right.operator == "<"
-
-    def test_build_negated(self):
-        """Parser builds NegatedCondition for NOT."""
-        parser = CobolParser()
-        cond = parser._build_condition("NOT (X = Y)")
-        assert isinstance(cond, NegatedCondition)
-        assert cond.condition.operator == "="
-
-
-class TestParserStructuredIR:
-    """Verify parser populates structured IR fields."""
-
-    def test_move_has_structured_source(self):
-        """MOVE statement gets structured source expression."""
-        parser = CobolParser()
-        cobol = """\
+def test_data_item_has_canonical_type_and_provenance():
+    source = """\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. TEST.
+       PROGRAM-ID. TYPES.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-AMOUNT PIC 9(5)V99.
        PROCEDURE DIVISION.
        MAIN.
-           MOVE 100 TO LIMIT.
-           STOP RUN."""
-        program = parser.parse(cobol)
-        stmt = program.paragraphs[0].statements[0]
-        assert isinstance(stmt, MoveStatement)
-        assert stmt.source == "100"
-        assert stmt.source_expr is not None
-        assert isinstance(stmt.source_expr, Literal)
-        assert stmt.target_ref is not None
-        assert stmt.target_ref.name == "LIMIT"
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="types.cob")
+    item = next(i for i in program.working_storage if i.name == "WS-AMOUNT")
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, False, "DISPLAY")
+    assert item.provenance.source_name == "types.cob"
+    assert item.provenance.line == 5
 
-    def test_if_has_structured_condition(self):
-        """IF statement gets structured condition."""
-        parser = CobolParser()
-        cobol = """\
+
+def test_signed_pic_preserves_canonical_signed_type():
+    source = """\\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. TEST.
+       PROGRAM-ID. SIGNEDTYPE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-BALANCE PIC S9(5)V99.
        PROCEDURE DIVISION.
        MAIN.
-           IF AMOUNT > 1000
-               DISPLAY "HIGH"
-           END-IF.
-           STOP RUN."""
-        program = parser.parse(cobol)
-        stmt = program.paragraphs[0].statements[0]
-        assert isinstance(stmt, IfStatement)
-        assert stmt.structured_condition is not None
-        assert isinstance(stmt.structured_condition, Comparison)
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="signed-type.cob")
+    item = next(i for i in program.working_storage if i.name == "WS-BALANCE")
 
-    def test_perform_has_structured_condition(self):
-        """PERFORM UNTIL gets structured condition."""
-        parser = CobolParser()
-        cobol = """\
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.semantic_type.signed is True
+    assert item.provenance.source_name == "signed-type.cob"
+
+
+def test_file_record_preserves_canonical_pic_metadata():
+    source = """\\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. TEST.
+       PROGRAM-ID. FILETYPE.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC S9(5)V99.
+       WORKING-STORAGE SECTION.
+       01 WS-AMOUNT PIC S9(5)V99.
        PROCEDURE DIVISION.
        MAIN.
-           PERFORM PROCESS-DATA UNTIL WS-EOF = 'Y'.
-           STOP RUN."""
-        program = parser.parse(cobol)
-        stmt = program.paragraphs[0].statements[0]
-        assert isinstance(stmt, PerformStatement)
-        assert stmt.structured_condition is not None
-        assert isinstance(stmt.structured_condition, Comparison)
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="filetype.cob")
+    item = program.file_definitions[0].record_items[0]
+
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.provenance.source_name == "filetype.cob"
+    assert item.level == 1
 
 
-# ============================================================
-# B. Domain-Neutral Tests
-# ============================================================
-
-class TestDomainNeutralEquivalence:
-    """Verify equivalent COBOL semantics produce equivalent IR."""
-
-    def test_account_vs_order_equivalence(self):
-        """ACCOUNT-PROCESSOR and ORDER-PROCESSOR with same structure produce same capabilities."""
-        def make_account():
-            return CobolProgram(
-                program_id="ACCOUNT-PROCESSOR",
-                file_definitions=(
-                    FileDefinition(name="ACCOUNT-FILE", container_path="/app/input/accounts.dat", record_name="ACCOUNT-REC"),
-                ),
-                paragraphs=(
-                    Paragraph(name="MAIN", statements=(
-                        ReadStatement(
-                            file_name="ACCOUNT-FILE", record_name="ACCOUNT-REC",
-                            at_end_body=(),
-                            not_at_end_body=(
-                                IfStatement(
-                                    condition="BALANCE > LIMIT",
-                                    then_body=(MoveStatement(source="HIGH", target="CATEGORY"),),
-                                    else_body=(MoveStatement(source="NORMAL", target="CATEGORY"),),
-                                ),
-                                DisplayStatement(parts=("CATEGORY",), destination="STDOUT"),
-                            ),
-                        ),
-                    )),
-                ),
-            )
-
-        def make_order():
-            return CobolProgram(
-                program_id="ORDER-PROCESSOR",
-                file_definitions=(
-                    FileDefinition(name="ORDER-FILE", container_path="/app/input/orders.dat", record_name="ORDER-REC"),
-                ),
-                paragraphs=(
-                    Paragraph(name="MAIN", statements=(
-                        ReadStatement(
-                            file_name="ORDER-FILE", record_name="ORDER-REC",
-                            at_end_body=(),
-                            not_at_end_body=(
-                                IfStatement(
-                                    condition="AMOUNT > LIMIT",
-                                    then_body=(MoveStatement(source="LARGE", target="SIZE"),),
-                                    else_body=(MoveStatement(source="SMALL", target="SIZE"),),
-                                ),
-                                DisplayStatement(parts=("SIZE",), destination="STDOUT"),
-                            ),
-                        ),
-                    )),
-                ),
-            )
-
-        account = make_account()
-        order = make_order()
-
-        caps_a = derive_capabilities(account)
-        caps_b = derive_capabilities(order)
-
-        assert caps_a == caps_b
-        assert caps_a.decision is True
-        assert caps_a.file_input is True
-        assert caps_a.display is True
-        assert caps_a.assignment is True
-
-    def test_customer_processor_equivalence(self):
-        """CUSTOMER-PROCESSOR with same structure as ACCOUNT produces same capabilities."""
-        customer = CobolProgram(
-            program_id="CUSTOMER-PROCESSOR",
-            file_definitions=(
-                FileDefinition(name="CUSTOMER-FILE", container_path="/app/input/customers.dat", record_name="CUSTOMER-REC"),
-            ),
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    ReadStatement(
-                        file_name="CUSTOMER-FILE", record_name="CUSTOMER-REC",
-                        at_end_body=(),
-                        not_at_end_body=(
-                            IfStatement(
-                                condition="BALANCE > LIMIT",
-                                then_body=(MoveStatement(source="HIGH", target="CATEGORY"),),
-                                else_body=(MoveStatement(source="NORMAL", target="CATEGORY"),),
-                            ),
-                            DisplayStatement(parts=("CATEGORY",), destination="STDOUT"),
-                        ),
-                    ),
-                )),
-            ),
-        )
-
-        account = CobolProgram(
-            program_id="ACCOUNT-PROCESSOR",
-            file_definitions=(
-                FileDefinition(name="ACCOUNT-FILE", container_path="/app/input/accounts.dat", record_name="ACCOUNT-REC"),
-            ),
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    ReadStatement(
-                        file_name="ACCOUNT-FILE", record_name="ACCOUNT-REC",
-                        at_end_body=(),
-                        not_at_end_body=(
-                            IfStatement(
-                                condition="BALANCE > LIMIT",
-                                then_body=(MoveStatement(source="HIGH", target="CATEGORY"),),
-                                else_body=(MoveStatement(source="NORMAL", target="CATEGORY"),),
-                            ),
-                            DisplayStatement(parts=("CATEGORY",), destination="STDOUT"),
-                        ),
-                    ),
-                )),
-            ),
-        )
-
-        caps_c = derive_capabilities(customer)
-        caps_a = derive_capabilities(account)
-
-        assert caps_c == caps_a
-
-
-# ============================================================
-# C. Lexical False-Positive Tests
-# ============================================================
-
-class TestLexicalFalsePositives:
-    """Verify domain names in identifiers do NOT activate semantics."""
-
-    def test_claim_name_no_decision(self):
-        """CLAIM in program name does not activate decision capability."""
-        program = CobolProgram(
-            program_id="CLAIM-PROCESSOR",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    DisplayStatement(parts=("Hello",), destination="STDOUT"),
-                )),
-            ),
-        )
-        caps = derive_capabilities(program)
-        assert caps.decision is False
-        assert caps.lookup is False
-        assert caps.record_output is False
-        assert caps.summary_output is False
-
-    def test_settlement_name_no_semantics(self):
-        """SETTLEMENT in program name does not activate any capability."""
-        program = CobolProgram(
-            program_id="SETTLEMENT-PROCESSOR",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    MoveStatement(source="A", target="B"),
-                )),
-            ),
-        )
-        caps = derive_capabilities(program)
-        assert caps.decision is False
-        assert caps.lookup is False
-
-    def test_payment_name_no_lookup(self):
-        """PAYMENT in program name does not activate lookup capability."""
-        program = CobolProgram(
-            program_id="PAYMENT-PROCESSOR",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    DisplayStatement(parts=("X",), destination="STDOUT"),
-                )),
-            ),
-        )
-        caps = derive_capabilities(program)
-        assert caps.lookup is False
-
-    def test_account_name_no_special_mode(self):
-        """ACCOUNT in program name does not activate special mode."""
-        program = CobolProgram(
-            program_id="ACCOUNT-PROCESSOR",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    DisplayStatement(parts=("X",), destination="STDOUT"),
-                )),
-            ),
-        )
-        caps = derive_capabilities(program)
-        assert caps.decision is False
-
-    def test_order_name_no_special_mode(self):
-        """ORDER in program name does not activate special mode."""
-        program = CobolProgram(
-            program_id="ORDER-PROCESSOR",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    DisplayStatement(parts=("X",), destination="STDOUT"),
-                )),
-            ),
-        )
-        caps = derive_capabilities(program)
-        assert caps.decision is False
-
-
-# ============================================================
-# D. Mutation Tests
-# ============================================================
-
-class TestMutationMatrix:
-    """Verify mutations produce correct IR changes."""
-
-    def test_threshold_value_mutation(self):
-        """Changing threshold value changes IR but not capability."""
-        program_a = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    IfStatement(
-                        condition="AMOUNT < 500",
-                        then_body=(MoveStatement(source="LOW", target="RESULT"),),
-                        else_body=(),
-                    ),
-                )),
-            ),
-        )
-        program_b = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    IfStatement(
-                        condition="AMOUNT < 5000",
-                        then_body=(MoveStatement(source="LOW", target="RESULT"),),
-                        else_body=(),
-                    ),
-                )),
-            ),
-        )
-
-        caps_a = derive_capabilities(program_a)
-        caps_b = derive_capabilities(program_b)
-
-        assert caps_a.decision == caps_b.decision
-        assert program_a.paragraphs[0].statements[0].condition != \
-               program_b.paragraphs[0].statements[0].condition
-
-    def test_field_name_mutation(self):
-        """Changing field name changes IR but not capability."""
-        program_a = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    IfStatement(
-                        condition="A > 100",
-                        then_body=(MoveStatement(source="HIGH", target="RESULT"),),
-                        else_body=(),
-                    ),
-                )),
-            ),
-        )
-        program_b = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    IfStatement(
-                        condition="B > 100",
-                        then_body=(MoveStatement(source="HIGH", target="RESULT"),),
-                        else_body=(),
-                    ),
-                )),
-            ),
-        )
-
-        caps_a = derive_capabilities(program_a)
-        caps_b = derive_capabilities(program_b)
-
-        assert caps_a.decision == caps_b.decision
-        assert program_a.paragraphs[0].statements[0].condition != \
-               program_b.paragraphs[0].statements[0].condition
-
-    def test_operator_mutation(self):
-        """Changing operator changes IR but not capability."""
-        program_a = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    IfStatement(
-                        condition="A > 100",
-                        then_body=(MoveStatement(source="HIGH", target="RESULT"),),
-                        else_body=(),
-                    ),
-                )),
-            ),
-        )
-        program_b = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    IfStatement(
-                        condition="A >= 100",
-                        then_body=(MoveStatement(source="HIGH", target="RESULT"),),
-                        else_body=(),
-                    ),
-                )),
-            ),
-        )
-
-        caps_a = derive_capabilities(program_a)
-        caps_b = derive_capabilities(program_b)
-
-        assert caps_a.decision == caps_b.decision
-
-    def test_if_removal_removes_decision(self):
-        """Removing IF statement removes decision capability."""
-        program_with = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    IfStatement(
-                        condition="A = B",
-                        then_body=(MoveStatement(source="X", target="Y"),),
-                        else_body=(),
-                    ),
-                )),
-            ),
-        )
-        program_without = CobolProgram(
-            program_id="TEST",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    DisplayStatement(parts=("X",), destination="STDOUT"),
-                )),
-            ),
-        )
-
-        caps_with = derive_capabilities(program_with)
-        caps_without = derive_capabilities(program_without)
-
-        assert caps_with.decision is True
-        assert caps_without.decision is False
-
-    def test_literal_mutation_changes_ir(self):
-        """Changing literal value changes structured IR."""
-        parser = CobolParser()
-        expr_a = parser._build_expression("100")
-        expr_b = parser._build_expression("200")
-
-        assert expr_a.value != expr_b.value
-
-
-# ============================================================
-# E. Negative Tests
-# ============================================================
-
-class TestNegative:
-    """Verify edge cases and limitations."""
-
-    def test_empty_program_has_no_capabilities(self):
-        """Empty program has no capabilities."""
-        program = CobolProgram(program_id="EMPTY")
-        caps = derive_capabilities(program)
-        assert caps.decision is False
-        assert caps.lookup is False
-        assert caps.assignment is False
-
-    def test_display_only_no_decision(self):
-        """DISPLAY-only program has no decision capability."""
-        program = CobolProgram(
-            program_id="DISPLAY-ONLY",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    DisplayStatement(parts=("Hello",), destination="STDOUT"),
-                )),
-            ),
-        )
-        caps = derive_capabilities(program)
-        assert caps.decision is False
-
-    def test_move_only_no_decision(self):
-        """MOVE-only program has no decision capability."""
-        program = CobolProgram(
-            program_id="MOVE-ONLY",
-            paragraphs=(
-                Paragraph(name="MAIN", statements=(
-                    MoveStatement(source="A", target="B"),
-                )),
-            ),
-        )
-        caps = derive_capabilities(program)
-        assert caps.decision is False
-        assert caps.assignment is True
-
-
-# ============================================================
-# F. Determinism Tests
-# ============================================================
-
-class TestDeterminism:
-    """Verify deterministic generation."""
-
-    def test_same_source_same_ir(self):
-        """Same COBOL source produces identical IR."""
-        parser = CobolParser()
-        cobol = """\
+def test_comp3_usage_preserves_canonical_storage_metadata_across_data_paths():
+    source = """\\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. TEST.
+       PROGRAM-ID. USAGETYPE.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC S9(5)V99 COMP-3.
+       WORKING-STORAGE SECTION.
+       01 WS-AMOUNT PIC S9(5)V99 USAGE COMP-3.
        PROCEDURE DIVISION.
        MAIN.
-           MOVE 100 TO LIMIT.
-           DISPLAY "DONE".
-           STOP RUN."""
-        program1 = parser.parse(cobol)
-        program2 = parser.parse(cobol)
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="usage.cob")
 
-        assert program1.paragraphs[0].statements[0].source == \
-               program2.paragraphs[0].statements[0].source
-        assert program1.paragraphs[0].statements[0].target == \
-               program2.paragraphs[0].statements[0].target
+    file_item = program.file_definitions[0].record_items[0]
+    working_item = next(
+        item for item in program.working_storage if item.name == "WS-AMOUNT"
+    )
 
-    def test_same_source_same_java(self):
-        """Same COBOL source produces identical Java."""
-        parser = CobolParser()
-        gen = JavaGenerator()
-        cobol = """\
+    assert file_item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "COMP-3")
+    assert working_item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "COMP-3")
+    assert file_item.provenance.source_name == "usage.cob"
+    assert working_item.provenance.source_name == "usage.cob"
+
+
+def test_file_record_child_preserves_level_and_canonical_pic_metadata():
+    source = """\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. TEST.
+       PROGRAM-ID. FILEGROUP.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC.
+           05 INPUT-AMOUNT PIC S9(5)V99.
+       WORKING-STORAGE SECTION.
        PROCEDURE DIVISION.
-           MOVE 100 TO LIMIT.
-           DISPLAY "DONE".
-           STOP RUN."""
+       MAIN.
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="filegroup.cob")
+    record = program.file_definitions[0].record_items[0]
+    item = record.children[0]
 
-        hashes = []
-        for _ in range(3):
-            program = parser.parse(cobol)
-            files = gen.generate(program)
-            h = hashlib.md5(files[0].source_code.encode()).hexdigest()
-            hashes.append(h)
-
-        assert len(set(hashes)) == 1
-
-    def test_workload_determinism(self):
-        """Workload produces deterministic output."""
-        from pathlib import Path
-        parser = CobolParser()
-        gen = JavaGenerator()
-        cobol = Path("fixtures/workload-claims/cobol/CLAIMS.cob").read_text()
-
-        hashes = []
-        for _ in range(3):
-            program = parser.parse(cobol)
-            files = gen.generate(program)
-            h = hashlib.md5(files[0].source_code.encode()).hexdigest()
-            hashes.append(h)
-
-        assert len(set(hashes)) == 1
+    assert record.name == "INPUT-REC"
+    assert record.level == 1
+    assert item.name == "INPUT-AMOUNT"
+    assert item.level == 5
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.provenance.source_name == "filegroup.cob"
+    assert item.provenance.line == 7
 
 
-# ============================================================
-# G. DataItem Hierarchy Tests
-# ============================================================
 
-class TestDataItemHierarchy:
-    """Verify DataItem hierarchy support."""
-
-    def test_dataitem_level(self):
-        """DataItem supports level numbers."""
-        item = DataItem(name="CUSTOMER-ID", level=5, pic_type=PicType.ALPHANUMERIC, pic_length=10)
-        assert item.level == 5
-        assert item.is_elementary is True
-        assert item.is_group is False
-
-    def test_dataitem_group(self):
-        """DataItem with children is a group."""
-        child1 = DataItem(name="ID", level=10, pic_type=PicType.ALPHANUMERIC, pic_length=5)
-        child2 = DataItem(name="NAME", level=10, pic_type=PicType.ALPHANUMERIC, pic_length=20)
-        group = DataItem(name="RECORD", level=1, children=(child1, child2))
-        assert group.is_group is True
-        assert group.is_elementary is False
-        assert len(group.children) == 2
-
-    def test_dataitem_88_level(self):
-        """88-level is a condition name."""
-        item = DataItem(name="HIGH-FLAG", level=88, value="Y")
-        assert item.is_condition_name is True
-
-    def test_dataitem_occurs(self):
-        """DataItem with OCCURS is a table."""
-        item = DataItem(name="TABLE-ARRAY", level=5, pic_type=PicType.NUMERIC, pic_length=5, occurs=10)
-        assert item.is_table is True
-
-    def test_dataitem_redefines(self):
-        """DataItem supports REDEFINES."""
-        item = DataItem(name="ALT-RECORD", level=1, redefines="MAIN-RECORD")
-        assert item.redefines == "MAIN-RECORD"
-
-
-# ============================================================
-# H. Forensic Search Tests
-# ============================================================
-
-class TestForensicSearch:
-    """Verify no domain coupling in architecture."""
-
-    def test_no_decisionlogic_class(self):
-        """DecisionLogic class must not exist."""
-        with pytest.raises(ImportError):
-            from engine.transformation.ir import DecisionLogic
-
-    def test_no_settlementlogic_class(self):
-        """SettlementLogic class must not exist."""
-        with pytest.raises(ImportError):
-            from engine.transformation.ir import SettlementLogic
-
-    def test_no_paymentlookup_class(self):
-        """PaymentLookup class must not exist."""
-        with pytest.raises(ImportError):
-            from engine.transformation.ir import PaymentLookup
-
-    def test_no_settlement_logic_field(self):
-        """CobolProgram must not have settlement_logic field."""
-        program = CobolProgram(program_id="TEST")
-        assert not hasattr(program, 'settlement_logic')
-
-    def test_parser_no_decisionlogic(self):
-        """Parser must not construct DecisionLogic."""
-        parser = CobolParser()
-        cobol = """\
+def test_file_control_metadata_merges_with_record_schema():
+    source = """\\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. TEST.
+       PROGRAM-ID. FILEMERGE.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT INPUT-FILE ASSIGN TO "input.dat".
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC S9(5)V99.
+       WORKING-STORAGE SECTION.
        PROCEDURE DIVISION.
-           MOVE 100 TO LIMIT.
-           STOP RUN."""
-        program = parser.parse(cobol)
-        assert not hasattr(program, 'settlement_logic')
+       MAIN.
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="filemerge.cob")
+    file_def = program.file_definitions[0]
+    item = file_def.record_items[0]
+
+    assert file_def.name == "INPUT-FILE"
+    assert file_def.container_path == "input.dat"
+    assert item.name == "INPUT-REC"
+    assert item.semantic_type == CobolType(PicType.NUMERIC, 7, 2, True, "DISPLAY")
+    assert item.provenance.source_name == "filemerge.cob"
+
+
+
+def test_evaluate_preserves_structured_when_and_other_branches():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EVALUATESEM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 STATUS PIC 9(2).
+       01 RESULT PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           EVALUATE STATUS
+               WHEN 1
+                   MOVE 'ONE' TO RESULT
+               WHEN 2 THRU 3
+                   MOVE 'TWO-THREE' TO RESULT
+               WHEN OTHER
+                   MOVE 'OTHER' TO RESULT
+           END-EVALUATE
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="evaluate.cob")
+    evaluate = next(
+        statement
+        for statement in program.paragraphs[0].statements
+        if isinstance(statement, EvaluateStatement)
+    )
+
+    assert evaluate.provenance.source_name == "evaluate.cob"
+    assert len(evaluate.arms) == 3
+    assert evaluate.arms[0].conditions[0].right.value == "1"
+    assert evaluate.arms[1].conditions[0].operator == "AND"
+    assert evaluate.arms[2].other is True
+
+    java_program = map_cobol_program_to_java(program)
+    java_ifs = [
+        statement
+        for method in java_program.java_class.methods
+        if method.name == "MAIN"
+        for statement in method.body_statements
+        if statement.__class__.__name__ == "JavaIf"
+    ]
+    assert len(java_ifs) == 1
+    assert java_ifs[0].else_body
+
+
+def test_nested_if_exposes_structural_decision_tree_and_default_branch():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DECISION.
+       PROCEDURE DIVISION.
+       MAIN.
+           IF STATUS = 'R'
+               MOVE 'REJECTED' TO RESULT
+           ELSE
+               IF STATUS = 'P'
+                   MOVE 'PENDING' TO RESULT
+               ELSE
+                   IF AMOUNT < 500
+                       MOVE 'REJECTED' TO RESULT
+                   ELSE
+                       MOVE 'APPROVED' TO RESULT
+                   END-IF
+               END-IF
+           END-IF
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="decision.cob")
+    outer = next(s for s in program.paragraphs[0].statements if isinstance(s, IfStatement))
+    tree = outer.decision_tree
+    assert isinstance(tree, DecisionNode)
+    assert tree.explicit_else
+    nested = next(s for s in tree.else_body if isinstance(s, IfStatement))
+    nested2 = next(s for s in nested.else_body if isinstance(s, IfStatement))
+    default_move = nested2.else_body[0]
+    assert default_move.source == "'APPROVED'"
+    assert default_move.target == "RESULT"
+    assert outer.provenance.line == 5
+
+
+
+def test_nested_read_decision_preserves_default_outcome_for_mapping():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. NESTEDDECISION.
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC X(20).
+       WORKING-STORAGE SECTION.
+       01 STATUS PIC X(1).
+       01 AMOUNT PIC 9(5).
+       01 RESULT PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           READ INPUT-FILE
+               NOT AT END
+                   IF STATUS = 'R'
+                       MOVE 'REJECTED' TO RESULT
+                   ELSE
+                       IF AMOUNT < 500
+                           MOVE 'REJECTED' TO RESULT
+                       ELSE
+                           MOVE 'APPROVED' TO RESULT
+                       END-IF
+                   END-IF
+           END-READ
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="nested-decision.cob")
+    java_program = map_cobol_program_to_java(program)
+    assert java_program.default_status_label == "APPROVED"
+
+
+def test_expression_reference_is_bound_to_source_type_and_provenance():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EXPR.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-AMOUNT PIC 9(5).
+       PROCEDURE DIVISION.
+       MAIN.
+           COMPUTE WS-AMOUNT = WS-AMOUNT * 2 / 4
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="expr.cob")
+    stmt = program.paragraphs[0].statements[0]
+    expr = stmt.expression_expr
+    assert isinstance(expr, BinaryExpression)
+    assert expr.operator == "/"
+    assert isinstance(expr.left, BinaryExpression)
+    assert expr.left.operator == "*"
+    ref = expr.left.left
+    assert isinstance(ref, FieldReference)
+    assert ref.semantic_type is not None
+    assert ref.semantic_type.pic_type == PicType.NUMERIC
+    assert ref.provenance is not None
+    assert ref.provenance.field_name == "WS-AMOUNT"
+
+
+def test_input_mapping_exposes_field_provenance_shape():
+    mapping = InputRecordMapping("CLAIM-REC", "CLAIMS-FILE", "|", ("ID", "STATUS", "AMOUNT"))
+    assert mapping.field_provenance == ()
+
+
+def test_mapping_uses_structured_numeric_else_branch_for_default():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GENERIC.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 STATUS PIC X(1).
+       01 AMOUNT PIC 9(5).
+       01 RESULT PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           IF STATUS = 'R'
+               MOVE 'REJECTED' TO RESULT
+           ELSE
+               IF STATUS = 'P'
+                   MOVE 'PENDING' TO RESULT
+               ELSE
+                   IF AMOUNT < 500
+                       MOVE 'REJECTED' TO RESULT
+                   ELSE
+                       MOVE 'APPROVED' TO RESULT
+                   END-IF
+               END-IF
+           END-IF
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="generic.cob")
+    java_program = map_cobol_program_to_java(program)
+    assert java_program.default_status_label == "APPROVED"
+
+
+def test_structured_condition_mapping_preserves_logical_tree():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CONDITION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 A PIC 9(3).
+       01 B PIC 9(3).
+       01 C PIC 9(3).
+       01 RESULT PIC X(1).
+       PROCEDURE DIVISION.
+       MAIN.
+           IF A > 1 AND B < 10 OR NOT C = 0
+               MOVE 'Y' TO RESULT
+           ELSE
+               MOVE 'N' TO RESULT
+           END-IF
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="condition.cob")
+    java_program = map_cobol_program_to_java(program)
+    java_class = java_program.java_class
+    statement = next(
+        statement
+        for method in java_class.methods
+        for statement in method.body_statements
+        if getattr(statement, "condition", None) is not None
+    )
+    condition = statement.condition
+    assert condition.operator == "||"
+    assert condition.left.operator == "&&"
+    assert condition.right.operator == "!"
+
+
+def test_mapping_prefers_structured_expression_over_raw_expression_text():
+    source = """\\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EXPRESSION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 A PIC 9(3).
+       01 B PIC 9(3).
+       01 RESULT PIC 9(3).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE (A + B) TO RESULT
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="expression.cob")
+    java_program = map_cobol_program_to_java(program)
+    assignment = next(
+        statement
+        for method in java_program.java_class.methods
+        for statement in method.body_statements
+        if getattr(statement, "target", "") == "RESULT"
+    )
+    assert assignment.expression.__class__.__name__ == "JavaBinaryOp"
+    assert assignment.expression.operator == "+"
+    assert assignment.expression.left.name == "A"
+    assert assignment.expression.right.name == "B"
+
+
+def test_input_field_provenance_survives_ir_to_java_mapping():
+    source = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INPUTPROV.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT INFILE ASSIGN TO "input.dat".
+       DATA DIVISION.
+       FILE SECTION.
+       FD INFILE.
+       01 IN-REC PIC X(20).
+       WORKING-STORAGE SECTION.
+       01 WS-ID PIC X(5).
+       PROCEDURE DIVISION.
+       MAIN.
+           UNSTRING IN-REC DELIMITED BY "|" INTO WS-ID
+           MOVE WS-ID TO WS-ID
+           STOP RUN.
+"""
+    program = CobolParser().parse(source, source_name="inputprov.cob")
+    mapping = program.input_record_mappings[0]
+    assert mapping.field_provenance[0].file_name == "INFILE"
+    assert mapping.field_provenance[0].record_name == "IN-REC"
+    assert mapping.field_provenance[0].field_name == "WS-ID"
+    assert mapping.field_provenance[0].input_position == 0
+
+    move = next(
+        statement
+        for statement in program.paragraphs[0].statements
+        if getattr(statement, "target", "") == "WS-ID"
+    )
+    assert move.source_expr.provenance.file_name == "INFILE"
+    assert move.source_expr.provenance.record_name == "IN-REC"
+    assert move.source_expr.provenance.input_position == 0
+
+    java_program = map_cobol_program_to_java(program)
+    java_field = next(field for field in java_program.java_class.fields if field.name == "WS_ID")
+    assert java_field.source_provenance is not None
+    assert java_field.source_provenance.file_name == "INFILE"
+    assert java_field.source_provenance.record_name == "IN-REC"
+    assert java_field.source_provenance.input_position == 0
