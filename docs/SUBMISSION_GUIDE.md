@@ -4,7 +4,7 @@
 > (`codex/universal-core`, 2026-10-21). This guide is written against that
 > exact tree and its exact-SHA CI results — except §7 (security posture) and
 > the backlog-row count, refreshed 2026-10-26 for the production-readiness
-> batch (BL-139..BL-147); CI status for changes after `49821ad` is recorded
+> batch (BL-146..BL-154); CI status for changes after `49821ad` is recorded
 > in `opencode.md`, never asserted here. It links to the repository's
 > existing authoritative documents instead of restating them (Master README
 > §78 authority hierarchy). Live state is tracked in `opencode.md`; defects
@@ -156,7 +156,7 @@ machine-readably, in `docs/cobol_coverage_registry.json`, summarized in
 **Present and enforced:** optional constant-time bearer-token auth
 (`CONTROL_PLANE_API_TOKEN`; unset = auth off = documented dev default;
 `CONTROL_PLANE_ENV=production` fails closed at startup without a token of at
-least 32 characters — BL-099/BL-136/BL-144), bounded request/file bodies and
+least 32 characters — BL-099/BL-136/BL-151), bounded request/file bodies and
 file-count caps, ZIP traversal + zip-bomb ratio guards (BL-097, BL-103),
 case-fold collision checks (BL-102), security headers, typed fail-closed
 errors, container sandboxing (`--network none`, memory/CPU/pids limits,
@@ -166,15 +166,15 @@ export (409 until `APPROVED`), generated-artifact seals (changed bytes, a
 modified file set, or a legacy `generated_seal NULL` row all fail closed at
 approval/download — BL-137), CORS preflights that pass auth so the
 documented cross-origin deployment works with a token set (GET/POST stay
-fully authenticated; no grant without configured origins — BL-142),
+fully authenticated; no grant without configured origins — BL-149),
 readiness probing (`GET /ready` answers 503 when database, workspace or
-staging is unusable; `/health` stays liveness-only — BL-140), structured
+staging is unusable; `/health` stays liveness-only — BL-147), structured
 JSON logging with `X-Request-Id` correlation and run lifecycle events, the
-token intentionally never a log field (BL-141), a frontend build guard that
-refuses to bundle `VITE_CONTROL_PLANE_API_TOKEN` (BL-144), a pre-deploy
-configuration preflight in `start-production.sh` (BL-145), and self-verifying
+token intentionally never a log field (BL-148), a frontend build guard that
+refuses to bundle `VITE_CONTROL_PLANE_API_TOKEN` (BL-151), a pre-deploy
+configuration preflight in `start-production.sh` (BL-152), and self-verifying
 backups (`backup.sh` fails unless `verify_backup.py` confirms the copy
-restores — BL-147).
+restores — BL-154).
 
 **Deferred by explicit owner decision (documented, never claimed):** D-7 TTL
 staleness + rate limiting (BL-113/114), D-8 cancellation/retry (BL-115), D-9

@@ -1,7 +1,10 @@
-# Design Proposal: Trusted Evidence Signing (L.3.7)
+# Design Proposal: Trusted Evidence Signing (L.3.7) — SUPERSEDED
 
-**Status:** Proposal only — NOT implemented. The current seal remains a
-tamper-evidence self-seal (see `api/artifact_seal.py`).
+**Status:** SUPERSEDED by `docs/decisions/L3_7_TRUSTED_SIGNING_DECISION_RECORD.md`
+(2026-10-29). Retained for historical context only. The decision record is the
+authoritative source for fail-closed requirements, key custody, and production
+policy. Section 4.1's "unsigned mode if unset" applies to **development only**;
+production fails closed without a signing key.
 **Audit reference:** `docs/AUDIT_4_COMMITS.md` §6 (L.3.7), `docs/FILE_LEVEL_AUDIT.md` L.3.7.
 **Date:** 2026-10-29
 

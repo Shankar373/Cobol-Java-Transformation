@@ -671,3 +671,7 @@ class TestShippedFixturesUnaffected:
         for statement in evaluates:
             for node in _arms(statement):
                 assert node.then_body or node.else_body, node.condition
+
+def test_malformed_compute_classified_unsupported(tmp_path):
+    for body in ("COMPUTE WS-A = A +", "COMPUTE WS-A = (A + B", "COMPUTE WS-A = A + @"):
+        assert _classify_via_discovery(tmp_path, "mal", body) == "UNSUPPORTED", body

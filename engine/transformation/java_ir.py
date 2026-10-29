@@ -122,6 +122,19 @@ class JavaVariableRef(JavaExpression):
 
 
 @dataclass(frozen=True)
+class JavaUnsupportedExpression(JavaExpression):
+    """An expression that the deterministic mapper cannot safely lower.
+
+    This node preserves the original COBOL text and a stable diagnostic
+    reason. Generators must reject it rather than emitting a guessed Java
+    identifier or placeholder that could be mistaken for a valid mapping.
+    """
+
+    source_expression: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class JavaBinaryOp(JavaExpression):
     """A binary operation."""
     left: JavaExpression

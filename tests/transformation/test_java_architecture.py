@@ -1036,4 +1036,5 @@ class TestDeterminism:
             JavaDependency(source="A", target="B", dependency_type=JavaDependencyType.METHOD_CALL),
         ]
         for t in types_to_hash:
-            _ = hash(t)  # should not raise
+            h = hash(t)  # should not raise
+            assert isinstance(h, int)

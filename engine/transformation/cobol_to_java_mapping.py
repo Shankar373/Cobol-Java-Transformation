@@ -122,6 +122,7 @@ from engine.transformation.java_ir import (
     JavaTransactionBoundary,
     JavaType,
     JavaUnaryOp,
+    JavaUnsupportedExpression,
     JavaVariableRef,
     JavaWhile,
 )
@@ -313,6 +314,17 @@ def _reference_expression(name: str) -> JavaExpression:
         expression = JavaArrayAccess(array=expression, index=index)
     return expression
 
+
+def _is_valid_cobol_reference_name(name: str) -> bool:
+    """Whether ``name`` is a plausible COBOL data reference (not malformed)."""
+    import re as _re
+
+    text = (name or "").strip()
+    if not text:
+        return False
+    parts = split_cobol_reference(text)
+    base = parts[0] if parts is not None else text
+    return bool(_re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", base))
 
 def _effective_dimensions(items) -> dict[str, tuple[int, ...]]:
     """Map each data item to its OCCURS dimension chain (outermost first).
@@ -1292,15 +1304,15 @@ def _into_statement(
     return JavaAssignment(target=target, expression=ref)
 
 def map_cobol_expr_to_java(expr: str) -> JavaExpression:
-    """Map a COBOL expression string to a Java expression.
+    """Map a COBOL arithmetic expression string to a Java expression.
 
-    Handles:
-    - Field references (DASH_UNDERSCORE conversion)
-    - Literals
-    - Figurative constants (ZERO / SPACES / ALL "x" / ...)
-    - Arithmetic operators (+, -, *, /)
+    Supports identifiers, numeric literals, figurative constants, parentheses,
+    unary minus, and standard arithmetic precedence (+, -, *, /).  Multi-
+    operator expressions remain structured JavaBinaryOp trees so semantic
+    overflow/scale checks see the full tree.
     """
     import re as _re
+
     expr = expr.strip()
 
     # Literal
@@ -1309,46 +1321,148 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     if expr.startswith('"') and expr.endswith('"'):
         return JavaLiteral(value=expr[1:-1], java_type=JavaType(basic_type=JavaBasicType.STRING))
 
-    # Figurative constants are reserved words with a fixed value.  Without
-    # this they fall through to the field-reference branch below and become
-    # an undeclared Java variable (`A = ZERO;`), which does not compile.
-    # NOTE: do not name this local `figurative` — that would shadow the
-    # module-level import used by figurative_constant_to_java.
+    # Figurative constants are reserved words with a fixed value.
     parsed_figurative = parse_figurative_constant(expr)
     if parsed_figurative is not None:
         return figurative_constant_to_java(*parsed_figurative)
 
-    # Check if it's a simple number
+    # Simple numeric literal.
     if is_numeric_literal(expr):
         return _numeric_java_literal(expr)
 
-    # Try to parse binary expressions: left OP right (operators must have spaces)
-    _operand_pattern = r"[\w][\w-]*(?:\([^()]*\))?"
-    binary_match = _re.match(
-        rf"^({_operand_pattern})\s+(\+|\-|\*|/)\s+({_operand_pattern})$",
-        expr,
+    # Tokenize.
+    tokens = _tokenize_cobol_expr(expr)
+    if tokens is None or not tokens:
+        return _unsupported_arithmetic_expression(expr)
+
+    # Single identifier (possibly subscripted) handled by reference path.
+    if len(tokens) == 1 and isinstance(tokens[0], tuple):
+        return _reference_expression(tokens[0][1])
+
+    try:
+        node, pos = _parse_cobol_expr_tokens(tokens, 0)
+        if pos != len(tokens):
+            return _unsupported_arithmetic_expression(expr)
+        return node
+    except Exception:
+        return _unsupported_arithmetic_expression(expr)
+
+
+def _unsupported_arithmetic_expression(source_expression: str) -> JavaExpression:
+    """Preserve malformed or unsupported arithmetic as a structured, fail-closed diagnostic.
+
+    The generated Java must not compile, so no wrong value can be produced
+    silently.  Keeping the original source text makes the failure diagnosable.
+    """
+    return JavaUnsupportedExpression(
+        source_expression=source_expression,
+        reason="Malformed or unsupported COBOL arithmetic expression",
     )
-    if binary_match:
-        left_str = binary_match.group(1).strip()
-        op = binary_match.group(2).strip()
-        right_str = binary_match.group(3).strip()
 
-        left: JavaExpression
-        if is_numeric_literal(left_str):
-            left = _numeric_java_literal(left_str)
+def _tokenize_cobol_expr(expr: str):
+    import re as _re
+    tokens = []
+    i = 0
+    n = len(expr)
+    while i < n:
+        ch = expr[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch in "()":
+            tokens.append(ch)
+            i += 1
+            continue
+        if ch in "+-*/":
+            tokens.append(ch)
+            i += 1
+            continue
+        if ch.isdigit() or ch == ".":
+            j = i
+            while j < n and (expr[j].isdigit() or expr[j] == "."):
+                j += 1
+            tokens.append(("NUM", expr[i:j]))
+            i = j
+            continue
+        if ch.isalpha() or ch == "_":
+            j = i
+            while j < n and (expr[j].isalnum() or expr[j] in "_-"):
+                j += 1
+            tokens.append(("ID", expr[i:j]))
+            i = j
+            continue
+        return None
+    return tokens
+
+
+def _parse_cobol_expr_tokens(tokens, pos):
+    node, pos = _parse_cobol_term(tokens, pos)
+    while pos < len(tokens) and tokens[pos] in ("+", "-"):
+        op = tokens[pos]
+        pos += 1
+        rhs, pos = _parse_cobol_term(tokens, pos)
+        node = JavaBinaryOp(left=node, operator=op, right=rhs)
+    return node, pos
+
+
+def _parse_cobol_term(tokens, pos):
+    node, pos = _parse_cobol_factor(tokens, pos)
+    while pos < len(tokens) and tokens[pos] in ("*", "/"):
+        op = tokens[pos]
+        pos += 1
+        rhs, pos = _parse_cobol_factor(tokens, pos)
+        node = JavaBinaryOp(left=node, operator=op, right=rhs)
+    return node, pos
+
+
+def _parse_cobol_factor(tokens, pos):
+    if pos < len(tokens) and tokens[pos] == "-":
+        pos += 1
+        operand, pos = _parse_cobol_factor(tokens, pos)
+        return JavaUnaryOp(operator="-", operand=operand), pos
+    if pos < len(tokens) and tokens[pos] == "+":
+        pos += 1
+        return _parse_cobol_factor(tokens, pos)
+    return _parse_cobol_primary(tokens, pos)
+
+
+def _parse_cobol_primary(tokens, pos):
+    if pos >= len(tokens):
+        raise ValueError("unexpected end")
+    tok = tokens[pos]
+    if tok == "(":
+        pos += 1
+        node, pos = _parse_cobol_expr_tokens(tokens, pos)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            raise ValueError("missing )")
+        pos += 1
+        return node, pos
+    if isinstance(tok, tuple):
+        kind, text = tok
+        pos += 1
+        if kind == "NUM":
+            if not is_numeric_literal(text):
+                raise ValueError("bad number")
+            node = _numeric_java_literal(text)
         else:
-            left = _reference_expression(left_str)
-
-        right: JavaExpression
-        if is_numeric_literal(right_str):
-            right = _numeric_java_literal(right_str)
-        else:
-            right = _reference_expression(right_str)
-
-        return JavaBinaryOp(left=left, operator=op, right=right)
-
-    # Field reference (single name, possibly subscripted)
-    return _reference_expression(expr)
+            # ID: may be subscripted
+            if pos < len(tokens) and tokens[pos] == "(":
+                pos += 1
+                sub, pos = _parse_cobol_expr_tokens(tokens, pos)
+                if pos >= len(tokens) or tokens[pos] != ")":
+                    raise ValueError("missing subscript )")
+                pos += 1
+                base = JavaVariableRef(name=text.replace("-", "_"))
+                index = JavaBinaryOp(left=sub, operator="-", right=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)))
+                node = JavaArrayAccess(array=base, index=index)
+            else:
+                if is_numeric_literal(text):
+                    node = _numeric_java_literal(text)
+                else:
+                    node = _reference_expression(text)
+        # handle figurative? only single token already handled earlier; skip
+        return node, pos
+    raise ValueError("unexpected token")
 
 
 def figurative_constant_to_java(kind: str, fill: str | None = None) -> JavaExpression:
@@ -1663,10 +1777,11 @@ def _apply_numeric_receiver_semantics(
     magnitude is applied only when the receiver is unsigned *and* the
     expression is not provably non-negative.
     """
+    if isinstance(expression, JavaUnsupportedExpression):
+        return expression
     item = _find_data_item(program, target)
     if item is None or not item.is_numeric:
         return expression
-
     scaled = _scale_numeric_receiver(expression, item, program, rounded)
     if item.signed or not _expression_can_be_negative(expression, program):
         return scaled
@@ -1795,18 +1910,35 @@ def _map_cobol_expression_to_java(expr) -> JavaExpression:
             expr.kind, parsed_text[1] if parsed_text is not None else None
         )
     if isinstance(expr, _cobol_ir.FieldReference):
-        return _reference_expression(expr.name)
+        name = (expr.name or "").strip()
+        if not name or not _is_valid_cobol_reference_name(name):
+            return JavaUnsupportedExpression(
+                source_expression=name or str(expr),
+                reason="Malformed or unsupported COBOL arithmetic expression",
+            )
+        return _reference_expression(name)
     if isinstance(expr, _cobol_ir.BinaryExpression):
-        return JavaBinaryOp(
-            left=_map_cobol_expression_to_java(expr.left),
-            operator=expr.operator,
-            right=_map_cobol_expression_to_java(expr.right),
-        )
+        left = _map_cobol_expression_to_java(expr.left)
+        right = _map_cobol_expression_to_java(expr.right)
+        if isinstance(left, JavaUnsupportedExpression) or isinstance(right, JavaUnsupportedExpression):
+            return JavaUnsupportedExpression(
+                source_expression=f"{expr.left} {expr.operator} {expr.right}",
+                reason="Malformed or unsupported COBOL arithmetic expression",
+            )
+        if expr.operator not in ("+", "-", "*", "/", "AND", "OR", "=", "<", ">", "<=", ">=", "<>"):
+            return JavaUnsupportedExpression(
+                source_expression=f"{expr.left} {expr.operator} {expr.right}",
+                reason="Malformed or unsupported COBOL arithmetic expression",
+            )
+        return JavaBinaryOp(left=left, operator=expr.operator, right=right)
     if isinstance(expr, _cobol_ir.UnaryExpression):
-        return JavaUnaryOp(
-            operator=expr.operator,
-            operand=_map_cobol_expression_to_java(expr.operand),
-        )
+        operand = _map_cobol_expression_to_java(expr.operand)
+        if isinstance(operand, JavaUnsupportedExpression):
+            return JavaUnsupportedExpression(
+                source_expression=f"{expr.operator} {expr.operand}",
+                reason="Malformed or unsupported COBOL arithmetic expression",
+            )
+        return JavaUnaryOp(operator=expr.operator, operand=operand)
     if isinstance(expr, _cobol_ir.IntrinsicCall):
         # `**` and `FUNCTION MIN(...)` have no certified Java
         # mapping, so the parser raises UNSUPPORTED_CONSTRUCT and the program
@@ -2325,6 +2457,12 @@ def map_cobol_condition_to_java(
     """
     if condition_names is None and program is not None:
         condition_names = condition_name_specs(program)
+    original_condition = (condition or "").strip()
+    if not original_condition:
+        return JavaUnsupportedExpression(
+            source_expression=original_condition,
+            reason="Malformed or unsupported COBOL condition",
+        )
     if condition_names:
         expanded = expand_condition_names(condition, condition_names)
         if expanded is not None:
@@ -2517,8 +2655,12 @@ def map_cobol_condition_to_java(
             op, left_name, left_expr, right_str, right_expr, program
         )
 
+    if _condition_is_malformed(original_condition, condition_str):
+        return JavaUnsupportedExpression(
+            source_expression=original_condition,
+            reason="Malformed or unsupported COBOL condition",
+        )
     return JavaLiteral(value=_expand_figurative_in_condition(condition_str))
-
 
 def _expand_figurative_in_condition(condition: str) -> str:
     """Rewrite figurative comparisons in a rendered condition string.
@@ -2565,6 +2707,179 @@ def _replace_bare_equals(condition: str) -> str:
     for i in range(0, len(parts), 2):
         parts[i] = _re.sub(r'(?<![<>!=])=(?!=)', ' == ', parts[i])
     return "".join(parts)
+
+
+def _tokenize_condition_for_validation(text: str):
+    """Tokenize a rendered condition for structural validation.
+
+    Returns a list of token strings, or ``None`` when an obviously invalid
+    character is encountered.
+    """
+    tokens = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i].isspace():
+            i += 1
+            continue
+        matched = False
+        for op in ("==", "!=", ">=", "<=", "&&", "||"):
+            if text.startswith(op, i):
+                tokens.append(op)
+                i += len(op)
+                matched = True
+                break
+        if matched:
+            continue
+        ch = text[i]
+        if ch in "()<>=!+-*/[]":
+            tokens.append(ch)
+            i += 1
+            continue
+        if ch == "\"" or ch == "'":
+            quote = ch
+            j = i + 1
+            while j < n and text[j] != quote:
+                j += 1
+            if j >= n:
+                return None
+            tokens.append("STR")
+            i = j + 1
+            continue
+        if ch.isalnum() or ch == "_" or ch == "-":
+            j = i
+            while j < n and (text[j].isalnum() or text[j] in "_-"):
+                j += 1
+            tokens.append("IDENT")
+            i = j
+            continue
+        if ch == ".":
+            j = i
+            while j < n and (text[j].isdigit() or text[j] == "."):
+                j += 1
+            tokens.append("NUM")
+            i = j
+            continue
+        return None
+    return tokens
+
+
+def _parse_condition_tokens(tokens, pos):
+    """Recursive-descent condition parser. Returns new position or raises."""
+    # or
+    pos = _parse_cond_and(tokens, pos)
+    while pos < len(tokens) and tokens[pos] == "||":
+        pos += 1
+        pos = _parse_cond_and(tokens, pos)
+    return pos
+
+
+def _parse_cond_and(tokens, pos):
+    pos = _parse_cond_not(tokens, pos)
+    while pos < len(tokens) and tokens[pos] == "&&":
+        pos += 1
+        pos = _parse_cond_not(tokens, pos)
+    return pos
+
+
+def _parse_cond_not(tokens, pos):
+    if pos < len(tokens) and tokens[pos] == "!":
+        pos += 1
+        return _parse_cond_not(tokens, pos)
+    return _parse_cond_rel(tokens, pos)
+
+
+def _parse_cond_rel(tokens, pos):
+    pos = _parse_cond_add(tokens, pos)
+    if pos < len(tokens) and tokens[pos] in ("==", "!=", ">=", "<=", ">", "<"):
+        pos += 1
+        pos = _parse_cond_add(tokens, pos)
+    return pos
+
+
+def _parse_cond_add(tokens, pos):
+    pos = _parse_cond_mul(tokens, pos)
+    while pos < len(tokens) and tokens[pos] in ("+", "-"):
+        pos += 1
+        pos = _parse_cond_mul(tokens, pos)
+    return pos
+
+
+def _parse_cond_mul(tokens, pos):
+    pos = _parse_cond_primary(tokens, pos)
+    while pos < len(tokens) and tokens[pos] in ("*", "/"):
+        pos += 1
+        pos = _parse_cond_primary(tokens, pos)
+    return pos
+
+
+def _parse_cond_primary(tokens, pos):
+    if pos >= len(tokens):
+        raise ValueError("unexpected end")
+    if tokens[pos] == "(":
+        pos += 1
+        pos = _parse_condition_tokens(tokens, pos)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            raise ValueError("missing )")
+        pos += 1
+        return pos
+    if tokens[pos] in ("IDENT", "NUM", "STR"):
+        pos += 1
+        # Optional subscript/index brackets.
+        while pos < len(tokens) and tokens[pos] == "[":
+            pos += 1
+            pos = _parse_condition_tokens(tokens, pos)
+            if pos >= len(tokens) or tokens[pos] != "]":
+                raise ValueError("missing ]")
+            pos += 1
+        return pos
+    raise ValueError("unexpected token")
+
+
+def _condition_is_malformed(original: str, rendered: str) -> bool:
+    """Whether a COBOL condition is obviously malformed/invalid."""
+    import re as _re
+
+    text = (original or "").strip()
+    if not text:
+        return True
+    # Balanced parentheses are required.
+    depth = 0
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return True
+    if depth != 0:
+        return True
+    # Reject obviously invalid tokens.
+    if any(ch in text for ch in ("@", "#", "$", "%")):
+        return True
+    rendered_text = (rendered or "").strip()
+    if not rendered_text:
+        return True
+    binary_operators = ("==", "!=", "&&", "||", ">=", "<=", ">", "<", "+", "-", "*", "/")
+    for op in binary_operators:
+        if rendered_text.startswith(op) or rendered_text.endswith(op):
+            return True
+    if _re.search(
+        r"(==|!=|&&|\|\||>=|<=|>|<|!|\+|-|\*|/)\s*(==|!=|&&|\|\||>=|<=|>|<|!|\+|-|\*|/)",
+        rendered_text,
+    ):
+        return True
+    # Structural validation of the rendered condition.
+    tokens = _tokenize_condition_for_validation(rendered_text)
+    if tokens is None:
+        return True
+    try:
+        pos = _parse_condition_tokens(tokens, 0)
+    except ValueError:
+        return True
+    if pos != len(tokens):
+        return True
+    return False
 
 
 def _build_for_condition(
@@ -2956,6 +3271,11 @@ def map_cobol_statement(
             if stmt.expression_expr is not None
             else map_cobol_expr_to_java(stmt.expression)
         )
+        if isinstance(expression, JavaUnsupportedExpression):
+            expression = JavaUnsupportedExpression(
+                source_expression=stmt.expression,
+                reason=expression.reason,
+            )
         result.append(JavaAssignment(
             target=target,
             expression=_apply_numeric_receiver_semantics(expression, target, program, stmt.rounded),

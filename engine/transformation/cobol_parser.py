@@ -2210,6 +2210,10 @@ class CobolParser:
                 i = max(new_i, i + 1)
             arms.append((spec, tuple(body)))
         def cond(spec):
+            if subject.strip().upper() == "TRUE":
+                # EVALUATE TRUE treats each WHEN clause as a Boolean
+                # condition rather than an equality against the subject.
+                return spec.strip()
             if spec.upper() == "OTHER":
                 return "OTHER"
             # `WHEN a ALSO b ALSO c` lists alternative values.  ALSO
@@ -3470,6 +3474,23 @@ class CobolParser:
         This is a simplified parser for the demonstrated subset.
         """
         text = text.strip()
+
+        # Parenthesised sub-expression: strip a single matching outer pair
+        # so `(A + B) * C` lowers as BinaryExpression rather than a bogus
+        # FieldReference named "(A + B)".
+        if len(text) >= 2 and text.startswith("(") and text.endswith(")"):
+            depth = 0
+            matching = True
+            for idx, ch in enumerate(text):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0 and idx < len(text) - 1:
+                        matching = False
+                        break
+            if matching and depth == 0:
+                return self._build_expression(text[1:-1])
 
         # Check for string literal
         if (text.startswith("'") and text.endswith("'")) or \

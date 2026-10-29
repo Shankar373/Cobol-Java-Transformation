@@ -718,11 +718,19 @@ class AcceptStatement:
 class InitializeStatement:
     """INITIALIZE field1 [field2 ...] — set each field to its type default.
 
-    Alphanumeric fields (PIC X) are set to spaces; numeric fields (PIC 9)
-    are set to zero.  Only the plain (no REPLACING) form is certified.
+    Plain form (certified): alphanumeric targets are set to spaces,
+    numeric targets to a typed zero, and group targets are expanded
+    recursively to their elementary subordinates by category (FILLER and
+    88-level condition-names are skipped; GnuCOBOL 3.1.2 oracle-pinned).
+
+    ``ALL TO VALUE`` and ``REPLACING`` clauses are recorded on the
+    statement so the lowering can fail closed deliberately — their
+    keyword tokens are not targets.
     """
 
     targets: tuple[str, ...] = ()
+    all_to_value: bool = False
+    replacing: str = ""
 
 
 # Union type for all statements

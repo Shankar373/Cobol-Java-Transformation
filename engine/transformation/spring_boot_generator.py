@@ -687,8 +687,13 @@ public class {class_name} {{
             JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaUnaryOp,
             JavaMethodCall, JavaStringConcat, JavaCast, JavaNewObject,
             JavaTernary, JavaArrayAccess, JavaNewArray,
-            JavaFilledArray, JavaBasicType,
+            JavaFilledArray, JavaBasicType, JavaUnsupportedExpression,
         )
+        if isinstance(expr, JavaUnsupportedExpression):
+            raise ValueError(
+                "UNSUPPORTED_COBOL_EXPRESSION: "
+                f"{expr.reason}; source={expr.source_expression!r}"
+            )
         if isinstance(expr, JavaLiteral):
             if expr.value == "null" and not expr.java_type:
                 return "null"

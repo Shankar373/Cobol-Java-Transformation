@@ -347,3 +347,38 @@ def test_shipped_comp_fixture_byte_identical_to_gnucobol(tmp_path, fixture):
     java_dir.mkdir(exist_ok=True)
     generated = _run_generated_java(java_dir, source)
     assert generated == oracle, (generated, oracle)
+# ---------------------------------------------------------------------------
+# Structured arithmetic differential proof (multi-op, precedence, parens)
+# ---------------------------------------------------------------------------
+
+_STRUCTURED_ARITH_PROGRAM = textwrap.dedent(
+    """\
+    IDENTIFICATION DIVISION.
+    PROGRAM-ID. STRUCARITH.
+    DATA DIVISION.
+    WORKING-STORAGE SECTION.
+    01 A PIC 9(4) VALUE 10.
+    01 B PIC 9(4) VALUE 3.
+    01 C PIC 9(4) VALUE 2.
+    01 R PIC 9(8) VALUE 0.
+    PROCEDURE DIVISION.
+    MAIN.
+        COMPUTE R = A + B * C - 4 / 2.
+        DISPLAY R.
+        COMPUTE R = (A + B) * C.
+        DISPLAY R.
+        STOP RUN.
+    """
+)
+
+
+@needs_docker
+def test_structured_arithmetic_byte_identical_to_gnucobol(tmp_path):
+    """Multi-operator COMPUTE with precedence and parentheses matches GnuCOBOL."""
+    oracle = _run_gnucobol(tmp_path, "strucarith.cob", _STRUCTURED_ARITH_PROGRAM)
+    assert oracle == ["00000014", "00000026"], oracle
+
+    java_dir = tmp_path / "java"
+    java_dir.mkdir(exist_ok=True)
+    generated = _run_generated_java(java_dir, _STRUCTURED_ARITH_PROGRAM)
+    assert generated == oracle, (generated, oracle)

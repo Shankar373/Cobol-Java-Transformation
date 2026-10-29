@@ -53,10 +53,10 @@ testing and mutation proof should be expanded.
 Control-plane persistence now uses versioned JSON payloads (no pickle) with seal checks,
 a fail-closed lifecycle state machine with single-flight revalidation, bounded and
 optionally token-authenticated API endpoints, and startup reconciliation of interrupted
-runs. The 2026-10-26 readiness batch added a durable workspace root (BL-139), a `/ready`
-readiness probe (BL-140), structured logging with request/run correlation (BL-141),
-bounded-retry terminal writes (BL-143) and a 32-character production token floor
-(BL-144). Still open for production: a durable job queue with resume across restarts,
+runs. The 2026-10-26 readiness batch added a durable workspace root (BL-146), a `/ready`
+readiness probe (BL-147), structured logging with request/run correlation (BL-148),
+bounded-retry terminal writes (BL-150) and a 32-character production token floor
+(BL-151). Still open for production: a durable job queue with resume across restarts,
 per-client rate limiting, retention/TTL, audit logging, external secret management for
 `CONTROL_PLANE_API_TOKEN` (the token is an env-var deployment control, not a user/role
 model), TLS and egress policy at the deployment boundary, and multi-node coordination
@@ -133,29 +133,32 @@ Docker backend/oracle path, so those reports are not current project state.
   explicitly `--deselect`s its single API-layer test (needs pydantic; still
   enforced by the backend job's whole-suite run).
 
-### Production-readiness batch (BL-139..BL-147) — SHIPPED 2026-10-26
-- **Durable workspace root** (BL-139): `CONTROL_PLANE_WORKSPACE_DIR`, pinned to
+### Production-readiness batch (BL-146..BL-154) — SHIPPED 2026-10-26
+> Filed as BL-139..BL-147 in the 2026-10-26 working tree; renumbered 2026-10-28
+> to BL-146..BL-154 when the concurrent file-level audit batch claimed the
+> BL-139..BL-145 ids in the register.
+- **Durable workspace root** (BL-146): `CONTROL_PLANE_WORKSPACE_DIR`, pinned to
   the `control-plane-work` volume in compose/Dockerfile — uploads and generated
   apps now survive restarts, backups and restores (previously written to a
   `/app/tmp` tmpfs the volume never saw).
-- **Readiness probe** (BL-140): `GET /ready` returns 503 when database,
+- **Readiness probe** (BL-147): `GET /ready` returns 503 when database,
   workspace or sandbox staging is unusable (Docker reported but non-gating),
   wired into the compose healthcheck, image `HEALTHCHECK`, nginx and
   `verify-production.sh`; `/health` stays liveness-only.
-- **Structured logging** (BL-141/BL-143): `CONTROL_PLANE_LOG_LEVEL` /
+- **Structured logging** (BL-148/BL-150): `CONTROL_PLANE_LOG_LEVEL` /
   `CONTROL_PLANE_LOG_FORMAT` (JSON in production), `X-Request-Id` correlation,
   one access line per request (method/path/status/duration — never tokens) and
   run lifecycle events; terminal writes retry boundedly and log failure loudly.
-- **Secrets handling** (BL-144): production rejects tokens under 32 characters
+- **Secrets handling** (BL-151): production rejects tokens under 32 characters
   at startup, and `npm run build` fails if `VITE_CONTROL_PLANE_API_TOKEN` would
   be inlined into public assets (`ALLOW_BUNDLED_API_TOKEN=1` acknowledges with a
   warning).
-- **Deployment validation** (BL-145/BL-146): `start-production.sh` preflights
+- **Deployment validation** (BL-152/BL-153): `start-production.sh` preflights
   `docker info` + `docker compose config --quiet` before `up`;
   `verify-production.sh` derives the api container id from compose; all six
   shell scripts corrected CRLF to LF with `.gitattributes` enforcement and a
   contract suite (they were unrunnable on Linux, and CI never executes `.sh`).
-- **Backup verification** (BL-147): `backup.sh` now fails unless
+- **Backup verification** (BL-154): `backup.sh` now fails unless
   `scripts/backup/verify_backup.py` confirms the SQLite copy opens, passes
   `integrity_check` and holds a non-newer schema, and the workspaces archive is
   a non-empty gzip tar.

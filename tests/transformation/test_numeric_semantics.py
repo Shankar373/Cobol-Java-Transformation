@@ -606,3 +606,168 @@ def test_parsed_decimal_pic_length_and_format_width_are_consistent():
     assert count.pic_length == 3
     assert count.format_width == 3
     assert count.integer_digits == 3
+
+# ---------------------------------------------------------------------------
+# Fail-closed arithmetic expression mapping
+# ---------------------------------------------------------------------------
+
+def test_malformed_arithmetic_is_preserved_as_structured_unsupported_expression():
+    from engine.transformation.java_ir import JavaUnsupportedExpression
+
+    for expr in ("A +", "A ** B", "(A + B", "A + @"):
+        mapped = map_cobol_expr_to_java(expr)
+        assert isinstance(mapped, JavaUnsupportedExpression), (expr, mapped)
+        assert mapped.source_expression == expr
+        assert "unsupported" in mapped.reason.lower()
+
+
+def test_valid_arithmetic_maps_to_java_binary_op():
+    from engine.transformation.java_ir import JavaBinaryOp, JavaVariableRef
+
+    expr = map_cobol_expr_to_java("A + B")
+    assert isinstance(expr, JavaBinaryOp)
+    assert expr.operator == "+"
+    assert isinstance(expr.left, JavaVariableRef) and expr.left.name == "A"
+    assert isinstance(expr.right, JavaVariableRef) and expr.right.name == "B"
+
+    expr2 = map_cobol_expr_to_java("TOTAL-AMOUNT + TAX-AMOUNT")
+    assert isinstance(expr2, JavaBinaryOp)
+    assert expr2.left.name == "TOTAL_AMOUNT"
+    assert expr2.right.name == "TAX_AMOUNT"
+
+
+def test_hyphenated_cobol_name_is_not_misread_as_subtraction():
+    from engine.transformation.java_ir import JavaBinaryOp, JavaVariableRef
+
+    hyphenated_name = map_cobol_expr_to_java("A-B")
+    spaced_subtraction = map_cobol_expr_to_java("A - B")
+
+    assert isinstance(hyphenated_name, JavaVariableRef)
+    assert hyphenated_name.name == "A_B"
+    assert isinstance(spaced_subtraction, JavaBinaryOp)
+    assert spaced_subtraction.operator == "-"
+
+
+@pytest.mark.parametrize("generator_module", [
+    "engine.transformation.java_generator",
+    "engine.transformation.spring_boot_generator",
+])
+def test_generators_reject_unsupported_expression_with_source_diagnostic(generator_module):
+    import importlib
+
+    from engine.transformation.java_ir import JavaUnsupportedExpression
+
+    module = importlib.import_module(generator_module)
+    generator_class = (
+        module.JavaGenerator if hasattr(module, "JavaGenerator")
+        else module.SpringBootGenerator
+    )
+    generator = generator_class()
+    expression = JavaUnsupportedExpression(
+        source_expression="A +",
+        reason="Malformed or unsupported COBOL arithmetic expression",
+    )
+    with pytest.raises(ValueError, match=r"UNSUPPORTED_COBOL_EXPRESSION.*A \+"):
+        generator._expr_to_string(expression)
+
+
+def test_java_application_generation_fails_for_unsupported_expression():
+    from engine.transformation.java_ir import (
+        JavaApplication,
+        JavaAssignment,
+        JavaClass,
+        JavaMethod,
+        JavaProgram,
+        JavaUnsupportedExpression,
+    )
+
+    application = JavaApplication(
+        application_id="UNSUPPORTED_EXPR",
+        programs=(
+            JavaProgram(
+                program_id="UNSUPPORTED_EXPR",
+                java_class=JavaClass(
+                    name="UnsupportedExpr",
+                    methods=(
+                        JavaMethod(
+                            name="run",
+                            body_statements=(
+                                JavaAssignment(
+                                    target="value",
+                                    expression=JavaUnsupportedExpression(
+                                        source_expression="A +",
+                                        reason="Malformed or unsupported COBOL arithmetic expression",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="UNSUPPORTED_COBOL_EXPRESSION"):
+        JavaGenerator().generate_from_java(application)
+
+
+def test_application_generation_reports_failure_for_malformed_cobol_expression():
+    from engine.transformation.application_generator import ApplicationGenerator
+    from engine.transformation.ir import (
+        CobolApplication,
+        CobolProgram,
+        CobolProgramUnit,
+        ComputeStatement,
+        DataItem,
+        Paragraph,
+        PicType,
+    )
+
+    program = CobolProgram(
+        program_id="UNSUPPORTED_EXPR",
+        working_storage=(DataItem(name="A", pic_type=PicType.NUMERIC, pic_length=3),),
+        paragraphs=(
+            Paragraph(
+                name="MAIN",
+                statements=(ComputeStatement(target="A", expression="A +"),),
+            ),
+        ),
+    )
+    application = CobolApplication(
+        application_id="UNSUPPORTED_EXPR",
+        programs=(
+            CobolProgramUnit(
+                program_id="UNSUPPORTED_EXPR",
+                source_path="UNSUPPORTED_EXPR.cob",
+                program=program,
+            ),
+        ),
+    )
+
+    result = ApplicationGenerator().generate(application)
+    assert result.success is False
+    assert any("UNSUPPORTED_COBOL_EXPRESSION" in error for error in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed COBOL condition mapping
+# ---------------------------------------------------------------------------
+
+def test_malformed_conditions_fail_closed():
+    from engine.transformation.cobol_to_java_mapping import map_cobol_condition_to_java
+    from engine.transformation.java_ir import JavaUnsupportedExpression
+
+    for cond in ("", "   ", "A =", "= B", "A + @", "(A + B"):
+        mapped = map_cobol_condition_to_java(cond)
+        assert isinstance(mapped, JavaUnsupportedExpression), (cond, mapped)
+        assert mapped.source_expression == cond.strip()
+
+
+def test_valid_conditions_still_map():
+    from engine.transformation.cobol_to_java_mapping import map_cobol_condition_to_java
+    from engine.transformation.java_ir import JavaBinaryOp, JavaLiteral
+
+    simple = map_cobol_condition_to_java("A > 0")
+    assert isinstance(simple, JavaBinaryOp)
+    complex_cond = map_cobol_condition_to_java("A >= 1 OR C = SPACES")
+    assert isinstance(complex_cond, JavaLiteral)

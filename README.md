@@ -99,7 +99,7 @@ RUN_DOCKER_TESTS=1 python -m pytest -q tests/test_e2e.py
 
 ```bash
 python -m pytest -q tests/test_silent_loss_registry.py tests/test_ingestion_diagnostics.py   # 18 passed
-python tools/check_backlog_table.py           # OK: 147 register rows
+python tools/check_backlog_table.py           # OK: 155 register rows
 cd frontend && npm test                       # vitest suite (166 passed)
 cd frontend && npm run lint                   # tsc --noEmit
 cd frontend && npm run build                  # tsc -b && vite build && bundle-secret guard

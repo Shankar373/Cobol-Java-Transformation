@@ -412,7 +412,13 @@ class CapabilityAnalyzer:
         construct can never be hidden by an outer supported statement.
         """
         from engine.transformation.ir import (
+            AddStatement,
+            ComputeStatement,
             DeleteStatement,
+            DivideStatement,
+            MoveStatement,
+            MultiplyStatement,
+            SubtractStatement,
             IfStatement,
             OpenStatement,
             PerformStatement,
@@ -557,6 +563,157 @@ class CapabilityAnalyzer:
         def _walk(stmt) -> None:
             name = type(stmt).__name__
             _note_ir(name, stmt)
+
+            # A COMPUTE whose arithmetic expression cannot be lowered safely
+            # must not be reported as SUPPORTED: the mapper now fails closed
+            # for malformed/unsupported arithmetic, so the capability verdict
+            # has to reflect that instead of trusting the statement class.
+            if isinstance(stmt, ComputeStatement):
+                from engine.transformation.cobol_to_java_mapping import (
+                    _map_cobol_expression_to_java,
+                    map_cobol_expr_to_java,
+                )
+                from engine.transformation.java_ir import JavaUnsupportedExpression
+
+                expr_ir = getattr(stmt, "expression_expr", None)
+                mapped_expr = (
+                    _map_cobol_expression_to_java(expr_ir)
+                    if expr_ir is not None
+                    else map_cobol_expr_to_java(stmt.expression)
+                )
+                if isinstance(mapped_expr, JavaUnsupportedExpression):
+                    findings.append((
+                        "COMPUTE",
+                        CapabilityLevel.UNSUPPORTED,
+                        "Malformed or unsupported arithmetic expression in COMPUTE",
+                    ))
+
+            # Arithmetic statements whose expressions cannot be lowered safely
+            # must not be reported as SUPPORTED.  The mapper fails closed for
+            # malformed/unsupported arithmetic, so the capability verdict has to
+            # reflect that instead of trusting the statement class.
+            from engine.transformation.cobol_to_java_mapping import (
+                map_cobol_expr_to_java,
+                _map_cobol_expression_to_java,
+            )
+            from engine.transformation.java_ir import JavaUnsupportedExpression
+
+            if isinstance(stmt, MoveStatement):
+                mapped_expr = (
+                    _map_cobol_expression_to_java(getattr(stmt, "source_expr", None))
+                    if getattr(stmt, "source_expr", None) is not None
+                    else map_cobol_expr_to_java(stmt.source)
+                )
+                if isinstance(mapped_expr, JavaUnsupportedExpression):
+                    findings.append((
+                        "MOVE",
+                        CapabilityLevel.UNSUPPORTED,
+                        "Malformed or unsupported expression in MOVE",
+                    ))
+
+            if isinstance(stmt, AddStatement):
+                mapped_expr = (
+                    _map_cobol_expression_to_java(getattr(stmt, "source_expr", None))
+                    if getattr(stmt, "source_expr", None) is not None
+                    else map_cobol_expr_to_java(stmt.source)
+                )
+                if isinstance(mapped_expr, JavaUnsupportedExpression):
+                    findings.append((
+                        "ADD",
+                        CapabilityLevel.UNSUPPORTED,
+                        "Malformed or unsupported expression in ADD",
+                    ))
+
+            if isinstance(stmt, SubtractStatement):
+                if getattr(stmt, "source_expr", None) is not None:
+                    mapped_expr = _map_cobol_expression_to_java(stmt.source_expr)
+                    if isinstance(mapped_expr, JavaUnsupportedExpression):
+                        findings.append((
+                            "SUBTRACT",
+                            CapabilityLevel.UNSUPPORTED,
+                            "Malformed or unsupported expression in SUBTRACT",
+                        ))
+                else:
+                    for src in (getattr(stmt, "sources", None) or (stmt.source,)):
+                        mapped_expr = map_cobol_expr_to_java(src)
+                        if isinstance(mapped_expr, JavaUnsupportedExpression):
+                            findings.append((
+                                "SUBTRACT",
+                                CapabilityLevel.UNSUPPORTED,
+                                "Malformed or unsupported expression in SUBTRACT",
+                            ))
+                            break
+
+            if isinstance(stmt, MultiplyStatement):
+                mapped_sources = []
+                if getattr(stmt, "source_expr", None) is not None:
+                    mapped_sources.append(_map_cobol_expression_to_java(stmt.source_expr))
+                else:
+                    mapped_sources.append(map_cobol_expr_to_java(stmt.source))
+                mapped_sources.append(map_cobol_expr_to_java(stmt.multiplicand))
+                for mapped_expr in mapped_sources:
+                    if isinstance(mapped_expr, JavaUnsupportedExpression):
+                        findings.append((
+                            "MULTIPLY",
+                            CapabilityLevel.UNSUPPORTED,
+                            "Malformed or unsupported expression in MULTIPLY",
+                        ))
+                        break
+
+            if isinstance(stmt, DivideStatement):
+                mapped_sources = []
+                if getattr(stmt, "source_expr", None) is not None:
+                    mapped_sources.append(_map_cobol_expression_to_java(stmt.source_expr))
+                else:
+                    mapped_sources.append(map_cobol_expr_to_java(stmt.source))
+                if getattr(stmt, "divisor_expr", None) is not None:
+                    mapped_sources.append(_map_cobol_expression_to_java(stmt.divisor_expr))
+                else:
+                    mapped_sources.append(map_cobol_expr_to_java(stmt.divisor))
+                for mapped_expr in mapped_sources:
+                    if isinstance(mapped_expr, JavaUnsupportedExpression):
+                        findings.append((
+                            "DIVIDE",
+                            CapabilityLevel.UNSUPPORTED,
+                            "Malformed or unsupported expression in DIVIDE",
+                        ))
+                        break
+
+            if isinstance(stmt, IfStatement):
+                from engine.transformation.cobol_to_java_mapping import (
+                    map_cobol_condition_to_java,
+                )
+                from engine.transformation.java_ir import JavaUnsupportedExpression
+
+                mapped_condition = map_cobol_condition_to_java(
+                    stmt.condition, program=program
+                )
+                if isinstance(mapped_condition, JavaUnsupportedExpression):
+                    findings.append((
+                        "IF/ELSE",
+                        CapabilityLevel.UNSUPPORTED,
+                        "Malformed or unsupported condition in IF",
+                    ))
+
+            if isinstance(stmt, PerformStatement) and stmt.until_condition:
+                from engine.transformation.cobol_to_java_mapping import (
+                    map_cobol_condition_to_java,
+                )
+                from engine.transformation.java_ir import JavaUnsupportedExpression
+
+                until_text = stmt.until_condition.strip()
+                if until_text.startswith("VARYING "):
+                    parts = until_text.split(" UNTIL ")
+                    until_text = parts[1].strip() if len(parts) > 1 else "TRUE"
+                mapped_condition = map_cobol_condition_to_java(
+                    until_text, program=program
+                )
+                if isinstance(mapped_condition, JavaUnsupportedExpression):
+                    findings.append((
+                        "PERFORM",
+                        CapabilityLevel.UNSUPPORTED,
+                        "Malformed or unsupported condition in PERFORM",
+                    ))
 
             # ROUNDED is a flag carried on the arithmetic statement itself, not
             # a statement class.  Read it from IR so the verdict is backed by
