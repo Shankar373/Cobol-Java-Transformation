@@ -38,8 +38,16 @@ check "sandbox image gnucobol present" docker image inspect gnucobol-ocesql:late
 check "sandbox image maven present" docker image inspect maven-offline-springboot:latest
 check "sandbox image java runtime present" docker image inspect eclipse-temurin:21-jdk
 check "sandbox runs with --network none" docker run --rm --network none gnucobol-ocesql:latest cobc --version
-check "api auth enforced (401 without token)" \
-  bash -c "! curl -fsS --max-time 10 -o /dev/null https://127.0.0.1:${PORT}/applications"
+# BL-145/L.3.4: `! curl -fsS` passed on ANY curl failure — a down backend
+# (connection refused), a 500, or a 403 all satisfied it, so this gate could
+# declare "auth enforced" while the API was broken or wide open. Assert the
+# response is exactly 401 Unauthorized, not merely "some error".
+API_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://127.0.0.1:${PORT}/applications" || true)"
+if [ "$API_CODE" = "401" ]; then
+  echo "PASS: api auth enforced (401 without token)"
+else
+  echo "FAIL: api auth enforced (expected HTTP 401 without token, got ${API_CODE:-no-response})"; FAIL=1
+fi
 
 # --- R1: host-visible sandbox staging --------------------------------------
 # The engine stages Docker bind sources under /app/sandbox-staging and the

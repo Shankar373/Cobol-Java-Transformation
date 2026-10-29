@@ -26,6 +26,18 @@ host_path() { # host_path <path>
 }
 SRC_HOST="$(host_path "$PWD/$SRC")"
 
+# Verify the backup is restorable BEFORE touching the running stack: a
+# truncated SQLite copy or an empty/corrupt workspaces.tar.gz passes the
+# file-existence check above but would delete the live volumes and then
+# restore garbage (audit L.3.5 — "corrupt backup -> abort, no deletion").
+# Runs in the pinned image so the host needs no Python; `set -e` makes a
+# failed verification abort here, with the current volumes untouched.
+docker run --rm \
+  -v "$SRC_HOST:/backup:ro" \
+  -v "$(host_path "$PWD/scripts/backup"):/scripts:ro" \
+  python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 \
+  python3 /scripts/verify_backup.py /backup
+
 docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" down
 
 # Snapshot current (possibly broken) state before overwriting.
