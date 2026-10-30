@@ -33,10 +33,11 @@
 - Fix: emit JavaDoWhile when `stmt.test_after` is True.
 - Tests: perform tests pass.
 
-### R-7 (P1): Verdict unavailability masked by `all()`
+### R-7 (P1): Verdict unavailability masking — REVERTED
 - File: `engine/verdict/derivation.py` `_check_for_unavailable`.
-- Fix: changed `all()` to `any()` for both oracle and candidate sides.
-- Tests: verdict tests pass.
+- Attempted fix (all() -> any()) was too aggressive: mutation tests expect FAILED,
+  not UNAVAILABLE, for wrong-output candidates. Reverted to all().
+- The masking concern is documented as an open P2 (J-9) for a more nuanced fix.
 
 ### R-8 (P2): Host Java timeout discards partial stdout
 - File: `engine/candidate/java_adapter.py`.
