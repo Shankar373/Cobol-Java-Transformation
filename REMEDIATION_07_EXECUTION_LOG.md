@@ -48,10 +48,14 @@
 - Fix: capture partial stdout from TimeoutExpired exception.
 - Tests: compileall passes.
 
-### R-10 (P2): Oracle accepts local Image ID as identity
+### R-10 (P2): Oracle accepts local Image ID as identity — REVERTED
 - File: `engine/oracle/docker_adapter.py` `_resolve_image_identity`.
-- Fix: require repo-digest identity (fail closed).
-- Tests: oracle tests pass.
+- Attempted fix (require repo-digest) caused 20+ CI failures because the
+  gnucobol-ocesql image is built locally in CI (no registry RepoDigest).
+- Reverted to original behavior (accept local Image ID). The candidate runtime
+  still requires RepoDigest (it pulls a digest-pinned image).
+- Proper fix requires owner decision: pin the gnucobol image by digest in CI
+  or publish it to a registry. Documented as owner-dependent (Dk-6).
 
 ### R-11 (P2): Nondeterministic candidate manifest file ordering
 - File: `engine/pipeline.py` `_build_candidate_manifest`.
