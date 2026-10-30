@@ -11,9 +11,16 @@
 | 6 | Product implementation | (no new code this session beyond verification) | n/a | n/a | Deferred |
 | 7 | Final validation | transformation 2204, integration 421, frontend 172 | see assessment | f94ec30 | Complete |
 | 8 | Release certification | FINAL_RELEASE_READINESS_ASSESSMENT.md | n/a | f94ec30 | Complete |
+| P0 | Continuation baseline | FINAL_CONTINUATION_BASELINE.md | n/a | pending | Complete |
+| P1 | L.6.1 reconciliation | L6_1_CANDIDATE_RECONCILIATION.md | 173 reproducible candidates | pending | Complete |
+| P2 | Head validation | FINAL_HEAD_VALIDATION_REPORT.md | 4540 passed, 9 skipped, 1 failed; 555 subdir; 415 integration | pending | Complete |
+| P3 | WSL/CI root cause | WSL_CI_FAILURE_ROOT_CAUSE.md | 1 environment-specific failure reproduced | pending | Complete |
+| P10 | Final report | MASTER_FINAL_EXECUTION_REPORT.md | n/a | pending | Complete |
 
 ## Notes
 
 - Remote CI pending (commits not pushed).
 - Owner-dependent signing and license remain blockers.
 - Universal COBOL compatibility not claimed.
+- OCESQL runtime image lacks RepoDigest; 6 integration failures are environment/provenance blockers.
+- No destructive Git operations were performed.
