@@ -300,7 +300,7 @@ class VerdictDeriver:
         ]
         if not oracle_executions:
             return VerdictState.UNAVAILABLE
-        if any(e.termination_status in oracle_unavailable_statuses for e in oracle_executions):
+        if all(e.termination_status in oracle_unavailable_statuses for e in oracle_executions):
             return VerdictState.UNAVAILABLE
 
         # Check if candidate execution succeeded
@@ -310,7 +310,7 @@ class VerdictDeriver:
         ]
         if not candidate_executions:
             return VerdictState.UNAVAILABLE
-        if any(e.termination_status in candidate_unavailable_statuses for e in candidate_executions):
+        if all(e.termination_status in candidate_unavailable_statuses for e in candidate_executions):
             return VerdictState.UNAVAILABLE
 
         return None
