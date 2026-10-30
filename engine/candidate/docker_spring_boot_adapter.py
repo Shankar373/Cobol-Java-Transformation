@@ -641,7 +641,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     exit_code = proc.returncode
                     termination = "normal" if exit_code == 0 else "nonzero_exit"
 
-                except subprocess.TimeoutExpired:
+                except subprocess.TimeoutExpired as exc:
                     if proc is not None:
                         try:
                             proc.kill()
@@ -649,7 +649,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                         except Exception:
                             pass
 
-                    stdout = proc.stdout if proc else b""
+                    stdout = exc.stdout if getattr(exc, "stdout", None) is not None else b""
 
                     _cleanup_removed, cleanup_detail = self._cleanup_container(
                         container_name

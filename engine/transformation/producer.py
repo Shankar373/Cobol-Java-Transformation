@@ -28,7 +28,7 @@ from pathlib import Path
 
 from engine.transformation.cobol_parser import CobolParseError, CobolParser
 from engine.transformation.contracts import Diagnostic as ContractDiagnostic
-from engine.transformation.diagnostics import to_contract_diagnostic
+from engine.transformation.diagnostics import DiagnosticCode, to_contract_diagnostic
 from engine.transformation.ir import CobolProgram
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator
 
@@ -122,6 +122,24 @@ class TransformationProducer:
                 return TransformationResult(
                     success=False,
                     errors=error_messages,
+                    diagnostics=parser_diagnostics,
+                    producer_identity="cobol-to-java-transformer",
+                    producer_version="1.0.0",
+                    transformation_timestamp=timestamp,
+                )
+
+            # Fail closed when the parser recorded UNSUPPORTED_CONSTRUCT
+            # diagnostics: these are parser-level warnings, but reporting
+            # success=True for untransformable constructs is a false-success
+            # vector (non-negotiable rule 5/6).
+            unsupported = tuple(
+                d for d in self._parser.diagnostics.all
+                if d.code == DiagnosticCode.UNSUPPORTED_CONSTRUCT
+            )
+            if unsupported:
+                return TransformationResult(
+                    success=False,
+                    errors=tuple(d.message for d in unsupported),
                     diagnostics=parser_diagnostics,
                     producer_identity="cobol-to-java-transformer",
                     producer_version="1.0.0",

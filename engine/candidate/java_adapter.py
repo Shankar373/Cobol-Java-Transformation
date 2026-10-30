@@ -197,7 +197,7 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             proc = subprocess.run(
                 java_cmd,
                 capture_output=True,
-                input=input_data,
+                input=input_data if input_data is not None else b"",
                 timeout=_EXEC_TIMEOUT_SECONDS,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
@@ -208,10 +208,12 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             exit_code = proc.returncode
             termination = "normal" if exit_code == 0 else "nonzero_exit"
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             end_time = datetime.now(timezone.utc)
-            stdout = b""
-            stderr = b"Java execution timeout"
+            stdout = exc.stdout if exc.stdout is not None else b""
+            stderr = exc.stderr if exc.stderr is not None else b"Java execution timeout"
+            if not stderr:
+                stderr = b"Java execution timeout"
             exit_code = None
             termination = "timeout"
 

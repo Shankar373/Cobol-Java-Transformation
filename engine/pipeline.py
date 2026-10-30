@@ -237,7 +237,7 @@ class VerticalSlicePipeline:
         candidate_path = Path(self._config.java_candidate_path)
         generated_files = {}
         if candidate_path.is_dir():
-            for f in candidate_path.rglob("*.java"):
+            for f in sorted(candidate_path.rglob("*.java")):
                 rel = f.relative_to(candidate_path)
                 file_hash = ContentHash.from_bytes(f.read_bytes())
                 generated_files[str(rel)] = str(file_hash)

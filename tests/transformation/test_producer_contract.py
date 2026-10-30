@@ -198,16 +198,14 @@ class TestTransformationNegative:
         # COMPUTE is now fully supported, no UNSUPPORTED_CONSTRUCT
         assert "UNSUPPORTED_CONSTRUCT" not in codes
 
-    def test_claims_cobol_returns_partial(self):
-        """TEST E: valid Claims COBOL + unsupported constructs -> PARTIAL."""
+    def test_claims_cobol_returns_success(self):
+        """CLAIMS COBOL is now fully supported (PERFORM UNTIL handled) -> SUCCESS."""
         from pathlib import Path
         producer = InternalNativeJavaProducer()
         cobol = Path("fixtures/workload-claims/cobol/CLAIMS.cob").read_text()
         result = producer.transform(cobol, program_id="CLAIMS")
-        assert result.status == TransformationStatus.PARTIAL
-        assert len(result.diagnostics) > 0
-        codes = [d.code for d in result.diagnostics]
-        assert "UNSUPPORTED_CONSTRUCT" in codes
+        assert result.status == TransformationStatus.SUCCESS
+        assert len(result.generated_files) > 0
 
     def test_valid_minimal_cobol_returns_success(self):
         """TEST F: valid fully supported minimal COBOL -> SUCCESS."""

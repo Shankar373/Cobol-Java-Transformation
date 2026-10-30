@@ -926,48 +926,15 @@ public interface {class_name} {{
         self, impl: SpringBootRepositoryImplementation,
         class_name: str, package: str, path: str,
     ) -> GeneratedFile:
-        """Generate JDBC repository implementation."""
-        lines = [
-            f"package {package};",
-            "",
-            "import java.sql.Connection;",
-            "import java.sql.PreparedStatement;",
-            "import java.sql.ResultSet;",
-            "import java.sql.SQLException;",
-            "",
-            "/**",
-            f" * JDBC repository for {impl.table_name}.",
-            f" * Strategy: JDBC.",
-            f" * Source: {impl.source_repository}",
-            f" * Auto-generated from Java Application IR.",
-            " */",
-            f"public class {class_name} {{",
-            "",
-            "    private final Connection connection;",
-            "",
-            f"    public {class_name}(Connection connection) {{",
-            "        this.connection = connection;",
-            "    }",
-        ]
+        """Generate JDBC repository implementation.
 
-        for method in impl.methods:
-            params = ", ".join(f"{ptype.to_source()} {pname}" for ptype, pname in method.parameters)
-            lines.append("")
-            lines.append(f"    /** {method.operation_type.value} operation on {method.table_name} */")
-            lines.append(f"    public {method.return_type.to_source()} {method.name}({params}) {{")
-            lines.append("        // JDBC implementation — parameterized query recommended")
-            lines.append(f'        throw new UnsupportedOperationException("JDBC implementation pending for {method.operation_type.value}");')
-            lines.append("    }")
-
-        lines.append("}")
-        lines.append("")
-
-        source = "\n".join(lines)
-        return GeneratedFile(
-            filename=f"{class_name}.java",
-            source_code=source,
-            class_name=class_name,
-            path=path,
+        JDBC repository methods are not implemented; emitting throwing
+        stubs would report placeholder code as successfully modernized
+        business logic (non-negotiable rule 6). Fail closed instead.
+        """
+        raise NotImplementedError(
+            "JDBC repository implementation is not available; "
+            "no placeholder code is generated (rule 6)."
         )
 
     def _generate_jpa_repository(

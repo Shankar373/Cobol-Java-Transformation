@@ -1989,7 +1989,10 @@ public class {class_name} {{
             return "\n".join(lines)
 
         if type(stmt).__name__ == "GoToStatement":
-            return f"        // GO TO {stmt.target} (not implemented)"
+            raise NotImplementedError(
+                "GO TO has no semantic Java control-flow mapping; "
+                "no placeholder code is generated (rule 6)."
+            )
 
         if type(stmt).__name__ == "StopRunStatement":
             return None

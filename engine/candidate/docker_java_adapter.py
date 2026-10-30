@@ -514,7 +514,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     exit_code = proc.returncode
                     termination = "normal" if exit_code == 0 else "nonzero_exit"
 
-                except subprocess.TimeoutExpired:
+                except subprocess.TimeoutExpired as exc:
                     # Step 1: Kill the docker client process
                     if proc is not None:
                         try:
@@ -523,7 +523,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                         except Exception:
                             pass
 
-                    stdout = proc.stdout if proc else b""
+                    stdout = exc.stdout if getattr(exc, "stdout", None) is not None else b""
 
                     # Step 2: Explicitly stop and remove the container
                     # Do NOT rely on --rm alone — proc.kill() kills the client

@@ -80,7 +80,10 @@ class DockerOracleAdapter(OracleAdapter):
         fail closed.
         """
         observation = resolve_docker_image_identity(self._config.image)
-        if not observation.is_complete:
+        # Fail closed: only a registry RepoDigest (not a local Image ID)
+        # counts as an immutable identity, matching the candidate runtime
+        # contract (image_provenance.require_repo_digest=True).
+        if not observation.is_complete or observation.identity_kind != "repo-digest":
             return "", ""
         run_ref = observation.identity
         return run_ref, self._digest_of(run_ref)

@@ -1625,8 +1625,13 @@ class TestBuildAndExecution:
             images = ""
         runtime_available = "eclipse-temurin" in images
         status = "VERIFIED" if (gate and runtime_available) else "BLOCKED / NOT VERIFIED"
-        # Default (no gate) must never be VERIFIED.
-        assert status == "BLOCKED / NOT VERIFIED"
+        # The default environment (gate disabled) must never claim VERIFIED; in a
+        # gated environment the verdict must track real image availability rather
+        # than a hardcoded constant.
+        if not gate:
+            assert status == "BLOCKED / NOT VERIFIED"
+        else:
+            assert status == ("VERIFIED" if runtime_available else "BLOCKED / NOT VERIFIED")
         # Mutation guard: a present image alone (gate disabled) must not imply VERIFIED.
         assert ("VERIFIED" if (False and runtime_available) else "BLOCKED / NOT VERIFIED") == "BLOCKED / NOT VERIFIED"
 

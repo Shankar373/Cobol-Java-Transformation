@@ -98,6 +98,7 @@ from engine.transformation.java_ir import (
     JavaFileOrganization,
     JavaFileResource,
     JavaFilledArray,
+    JavaDoWhile,
     JavaFor,
     JavaIf,
     JavaLiteral,
@@ -4281,10 +4282,16 @@ def map_cobol_statement(
                         arguments=(),
                     )
                 ))
-            result.append(JavaWhile(
-                condition=_negate_condition(java_cond),
-                body=tuple(loop_body),
-            ))
+            if getattr(stmt, "test_after", False):
+                result.append(JavaDoWhile(
+                    condition=_negate_condition(java_cond),
+                    body=tuple(loop_body),
+                ))
+            else:
+                result.append(JavaWhile(
+                    condition=_negate_condition(java_cond),
+                    body=tuple(loop_body),
+                ))
         elif stmt.thru_target:
             # PERFORM <first> THRU <last> — execute every paragraph from
             # <first> through <last> inclusive, in source order.

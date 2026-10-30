@@ -1051,7 +1051,10 @@ class CobolParser:
         if "V" in pic:
             left, right = pic.split("V", 1)
             typ, left_len = _parse_pic(left)
-            right_len = len(re.findall(r"9", right))
+            right_len = 0
+            for m in re.finditer(r"9(?:\((\d+)\))?", right):
+                n = m.group(1)
+                right_len += int(n) if n else 1
             return typ, left_len + right_len, right_len
         typ, length = _parse_pic(pic)
         return typ, length, 0
@@ -2364,6 +2367,18 @@ class CobolParser:
         upper = line.upper()
 
         header_end = start + 1
+        # Out-of-line PERFORM <para> UNTIL <cond> may have the UNTIL on a
+        # following line (common COBOL layout). Consume it as a header
+        # continuation so it is not mis-parsed as a standalone statement.
+        if re.match(r"PERFORM\s+[\w-]+\s*$", upper) and header_end < len(lines):
+            while header_end < len(lines):
+                nxt = lines[header_end].strip()
+                if re.match(r"(UNTIL|OR)\b", nxt, re.IGNORECASE):
+                    line += " " + nxt.rstrip(".")
+                    upper = line.upper()
+                    header_end += 1
+                else:
+                    break
         if re.match(r"PERFORM\s+VARYING\b", upper):
             # FROM/BY/UNTIL may continue a VARYING header on later lines.
             # Consuming them as body statements loses the stopping condition.
@@ -2441,13 +2456,13 @@ class CobolParser:
         if m:
             suffix = "VARYING " + m.group(2).strip()
             return PerformStatement(paragraph_name=m.group(1), until_condition=suffix,
-                                    test_after=test_after), start + 1
+                                    test_after=test_after), header_end
         m = re.match(r"PERFORM\s+([\w-]+)\s+UNTIL\s+(.+)$", line, re.IGNORECASE)
         if m:
             cond = m.group(2).strip()
             return PerformStatement(paragraph_name=m.group(1), until_condition=cond,
                                     structured_condition=self._build_condition(cond),
-                                    test_after=test_after), start + 1
+                                    test_after=test_after), header_end
         m = re.match(r"PERFORM\s+([\w-]+)$", line, re.IGNORECASE)
         if m:
             return PerformStatement(paragraph_name=m.group(1), test_after=test_after), start + 1

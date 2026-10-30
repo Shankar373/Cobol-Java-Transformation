@@ -189,6 +189,10 @@ target/
 *.sqlite
 *.sqlite3
 *.db
+*.db-wal
+*.db-shm
+# Test artifacts (generated; not committed)
+test-artifacts/
 
 # Secrets
 *.pem
