@@ -697,7 +697,7 @@ class CobolParser:
                 )
             # REPLACE is now implemented as a preprocessor; only diagnose
             # when it survives preprocessing (i.e. non-pseudo-text operands).
-            pass
+            # (no-op: retained for readability; dead `pass` removed)
 
     def _validate_program_structure(self, program: CobolProgram, source: str) -> None:
         """Emit PARSE_ERROR if input contains no valid COBOL program structure.

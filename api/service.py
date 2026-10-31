@@ -681,6 +681,26 @@ class Service:
         has no source (400), its certification contract cannot be resolved
         (400) or the job limit is reached (429).
         """
+        # Security (A-2): uploaded Java candidates are an internal/test-only
+        # execution path. Never honour the flag in a production deployment,
+        # even if a caller supplies it, to prevent arbitrary code execution
+        # through a user-uploaded JAR/class tree.
+        if use_uploaded_candidate:
+            try:
+                from api.app import production_environment_active
+
+                _prod = production_environment_active()
+            except Exception:  # pragma: no cover - defensive fallback
+                _prod = (
+                    os.environ.get("CONTROL_PLANE_ENV", "").strip().lower()
+                    == "production"
+                )
+            if _prod:
+                raise ServiceError(
+                    "Uploaded Java candidate execution is disabled in "
+                    "production deployments"
+                )
+
         app = self.get_application(app_id)
 
         if app.cobol_source_path is None:

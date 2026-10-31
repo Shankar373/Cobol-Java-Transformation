@@ -529,3 +529,33 @@ class TestErrorBodiesAreClientSafe:
         assert len(detail) <= 500
         assert "Traceback" not in detail
         assert str(Path(__file__).parent) not in detail
+
+
+def test_uploaded_candidate_disabled_in_production(monkeypatch):
+    """A-2: uploaded Java candidate execution must be rejected in production."""
+    monkeypatch.setenv("CONTROL_PLANE_ENV", "production")
+    monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", "x" * 40)
+    headers = {"Authorization": "Bearer " + "x" * 40}
+
+    resp = client.post("/applications", json={"name": "prod-gate-a2", "workload_id": "wl-upload-safety"}, headers=headers)
+    assert resp.status_code == 201, resp.text
+    app_id = resp.json()["id"]
+
+    client.post(
+        "/applications/" + app_id + "/upload",
+        files=[("files", ("A.cob", io.BytesIO(b"       IDENTIFICATION DIVISION."), "text/plain"))],
+        headers=headers,
+    )
+    client.post(
+        "/applications/" + app_id + "/candidate",
+        files=[("files", ("Up.java", io.BytesIO(b"public class Up {}"), "text/plain"))],
+        headers=headers,
+    )
+
+    resp = client.post(
+        "/applications/" + app_id + "/modernize",
+        json={"use_uploaded_candidate": True},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "disabled in production" in resp.json()["detail"].lower()
