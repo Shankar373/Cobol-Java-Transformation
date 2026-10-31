@@ -11,6 +11,11 @@
 - Transformation suite: 2204 passed, 4 skipped (Docker-gated)
 - Capability-truth subset: 355 passed
 
-## Remote CI
-- Push and exact-SHA CI verification pending after commit/push.
-- Docker-gated backend-oracle job not run locally (blocked by environment). Classified BLOCKED, not PASS.
+## Remote CI (exact SHA c2d6eb2165dab4a18625be597d42dd9ecb14d6d9)
+- Run #678 (SystemaOps CI): https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/41166429050
+- Capability truth gate: SUCCESS
+- Phase 1 ingestion diagnostics: SUCCESS
+- Frontend tests/TS/build: SUCCESS
+- Backend and COBOL/Java Docker tests: IN_PROGRESS (test step running) at time of report.
+- Supply chain workflow: IN_PROGRESS for same SHA.
+- Docker-gated backend-oracle job not run locally (blocked by environment). Classified BLOCKED locally, not PASS.
