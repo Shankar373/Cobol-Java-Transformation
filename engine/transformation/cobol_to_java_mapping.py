@@ -3089,6 +3089,17 @@ def map_cobol_statement(
     """
     result: list[JavaStatement] = []
 
+    # Fail closed for constructs the mapper does not implement (J-3).  Raising
+    # here prevents a false-success transform where unsupported statements
+    # would otherwise be silently omitted from the generated Java.
+    from engine.transformation.ir import PerformTimesStatement, SqlStatement
+    if isinstance(stmt, (PerformTimesStatement, SqlStatement)):
+        raise NotImplementedError(
+            f"{type(stmt).__name__} has no Java mapping; "
+            "construct is classified UNSUPPORTED and must not be "
+            "silently omitted (rule 6)."
+        )
+
     # Build the DISPLAY format lookup if program provided.  Each numeric
     # item maps to the String.format specifier that reproduces GnuCOBOL's
     # output for that PIC (digit field, zero fill, sign column, scale).
