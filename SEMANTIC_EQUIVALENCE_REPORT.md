@@ -11,4 +11,4 @@ PASS / FAIL / INCONCLUSIVE / BLOCKED / NOT_APPLICABLE. Unavailable oracle execut
 - Verdict derivation: engine/verdict/derivation.py.
 
 ## This execution
-No changes to verdict derivation. J-9 remains open pending truth-table analysis.
+J-9 fixed: unavailable detection now uses any() for mixed execution states; regression tests in tests/verdict/test_j9_mixed_states.py (5 passed). VERIFIED never returned when any required execution is unavailable.
