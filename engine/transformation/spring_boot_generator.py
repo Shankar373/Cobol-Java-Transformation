@@ -32,7 +32,10 @@ from dataclasses import dataclass
 # still numeric literals and must never be quoted as Strings.
 _JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
 
-from engine.transformation.control_flow import RUN_UNIT_ENTRY_METHOD
+from engine.transformation.control_flow import (
+    RUN_UNIT_ENTRY_METHOD,
+    RUN_UNIT_EXIT_STATUS_METHOD,
+)
 from engine.transformation.spring_boot_ir import (
     DataAccessStrategy,
     FileAccessStrategy,
@@ -310,6 +313,10 @@ class SpringBootGenerator:
             service_params = []
             service_assignments = []
             service_calls = []
+            # The process exits with the run unit's exit status
+            # (RETURN-CODE & 0xFF) when the single entry service reports
+            # one; otherwise 0, as before.
+            exit_status = "0"
 
             for i, svc in enumerate(active):
                 field_name = svc.name[0].lower() + svc.name[1:] if svc.name else f"service{i}"
@@ -327,6 +334,10 @@ class SpringBootGenerator:
                     )
                     params = ", ".join(f"new {ptype.to_source()}()" if hasattr(ptype, 'to_source') else str(ptype) for ptype, pname in method.parameters)
                     service_calls.append(f"            {field_name}.{method.name}({params});")
+                if len(active) == 1 and any(
+                    m.name == RUN_UNIT_EXIT_STATUS_METHOD for m in svc.methods
+                ):
+                    exit_status = f"{field_name}.{RUN_UNIT_EXIT_STATUS_METHOD}()"
 
             fields_block = "\n".join(service_fields) if service_fields else ""
             params_block = ",\n            ".join(service_params) if service_params else ""
@@ -374,7 +385,7 @@ public class {class_name} {{
     public CommandLineRunner runner() {{
         return args -> {{
 {calls_block}
-            System.exit(0);
+            System.exit({exit_status});
         }};
     }}
 }}

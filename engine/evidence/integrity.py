@@ -487,13 +487,16 @@ class EvidenceIntegrityValidator:
     # ------------------------------------------------------------------
 
     def _validate_exit_status_completeness(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """If candidate has nonzero_exit, EXIT_STATUS must be present
-        in both artifact and comparison evidence."""
+        """If candidate has nonzero_exit, or the oracle ended with a
+        program return code, EXIT_STATUS must be present in both artifact
+        and comparison evidence: the exit status is then the behaviour
+        being certified."""
         violations: list[IntegrityViolation] = []
 
         # Check if any candidate execution has nonzero_exit
         has_nonzero_candidate = any(
             e.runtime_id.startswith("candidate") and e.termination_status == "nonzero_exit"
+            or e.runtime_id.startswith("oracle") and e.termination_status == "return_code"
             for e in manifest.execution_evidence
         )
 

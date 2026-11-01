@@ -32,6 +32,7 @@ from engine.transformation import figurative
 from engine.transformation.source_format import unquote_literal
 from engine.transformation.control_flow import (
     RUN_UNIT_ENTRY_METHOD,
+    RUN_UNIT_EXIT_STATUS_METHOD,
     fall_through_chain,
     walk_statements,
 )
@@ -5340,6 +5341,10 @@ def map_cobol_program_to_java(
             _main_entry_context = False
         return body + list(chain_calls)
 
+    # The parser declares RETURN-CODE only for a program that uses it.
+    has_return_code = any(
+        item.name.upper() == "RETURN-CODE" for item in program.working_storage
+    )
     main_body: list[JavaStatement] = []
     if has_linkage:
         # Standalone entry: run the parameterless business method against
@@ -5356,6 +5361,11 @@ def map_cobol_program_to_java(
             method_name=RUN_UNIT_ENTRY_METHOD,
             arguments=(),
         )))
+        if has_return_code:
+            main_body.append(JavaMethodCallStatement(call=JavaMethodCall(
+                method_name="System.exit",
+                arguments=(JavaMethodCall(method_name=RUN_UNIT_EXIT_STATUS_METHOD),),
+            )))
 
     methods.append(JavaMethod(
         name="main",
@@ -5401,6 +5411,21 @@ def map_cobol_program_to_java(
         modifiers=("public", "static"),
         exceptions=("Exception",),
     ))
+    if has_return_code:
+        # GnuCOBOL exits with the low byte of RETURN-CODE (300 -> 44,
+        # -1 -> 255), however the run unit ends.
+        methods.append(JavaMethod(
+            name=RUN_UNIT_EXIT_STATUS_METHOD,
+            return_type=JavaType(basic_type=JavaBasicType.INT),
+            parameters=(),
+            body_statements=(JavaReturn(expression=JavaBinaryOp(
+                left=JavaVariableRef(name="RETURN_CODE"),
+                operator="&",
+                right=JavaLiteral(value="255"),
+            )),),
+            is_static=True,
+            modifiers=("public", "static"),
+        ))
 
     # Build class
     java_class = JavaClass(

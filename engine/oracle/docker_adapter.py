@@ -44,7 +44,34 @@ from engine.oracle.adapter import (
     OracleExecutionResult,
 )
 from engine.source_hash import compute_source_tree_hash
-from engine.transformation.source_format import detect_source_format
+from engine.transformation.source_format import code_mentions, detect_source_format
+
+
+def classify_oracle_termination(
+    exit_code: int,
+    compile_exit: str | None,
+    stderr: bytes,
+    uses_return_code: bool,
+) -> str:
+    """Termination status of an oracle run.
+
+    A nonzero exit is the program's own result — ``"return_code"``,
+    compared exactly through EXIT_STATUS like any other behaviour — only
+    when the source compiled, the program sets the RETURN-CODE register
+    (GnuCOBOL exits with its low byte) and libcob reported no runtime
+    error (``libcob: error: ...``, exit 1).  Anything else is
+    ``"nonzero_exit"``: the reference failed and cannot be ground truth.
+    """
+    if exit_code == 0:
+        return "normal"
+    if (
+        compile_exit is not None
+        and compile_exit.strip() == "0"
+        and uses_return_code
+        and b"libcob: " not in stderr
+    ):
+        return "return_code"
+    return "nonzero_exit"
 
 
 class DockerOracleAdapter(OracleAdapter):
@@ -598,6 +625,21 @@ class DockerOracleAdapter(OracleAdapter):
                 generated_files.update(collect_generated_files(
                     output_dir, workspace_dir, ("src", "output", "compilation", "input"),
                 ))
+                if termination == "nonzero_exit":
+                    termination = classify_oracle_termination(
+                        exit_code,
+                        (compilation_diagnostics or {}).get("exit_code"),
+                        stderr,
+                        any(
+                            code_mentions(
+                                (Path(tmpdir) / "src" / name).read_text(
+                                    encoding="utf-8", errors="replace"
+                                ),
+                                "RETURN-CODE",
+                            )
+                            for name in [main_file, *link_modules]
+                        ),
+                    )
 
             end_time = datetime.now(timezone.utc)
             source_hash_after = self._compute_source_hash(source_path)

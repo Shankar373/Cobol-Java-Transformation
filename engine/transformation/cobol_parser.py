@@ -32,6 +32,7 @@ from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
     fall_through_chain,
     performed_paragraphs,
+    walk_statements,
 )
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
 from engine.transformation.group_storage import (
@@ -44,6 +45,7 @@ from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.redefines import build_redefines_plan, write_targets
 from engine.transformation.semantic_capability import canonical_usage
 from engine.transformation.source_format import (
+    code_mentions,
     compiler_visible_text,
     reference_format_errors,
     unquote_literal,
@@ -664,6 +666,9 @@ class CobolParser:
         linkage_section = self._parse_linkage_section(code_lines)
         using_parameters = self._parse_procedure_using(code_lines)
         paragraphs = self._parse_procedure_division(code_lines)
+        working_storage = self._with_return_code_register(
+            source, working_storage, linkage_section, using_parameters, paragraphs,
+        )
         threshold_rules = self._extract_threshold_rules(code_lines)
 
         # Extract generic semantic IR directly (no domain-shaped container)
@@ -1053,6 +1058,42 @@ class CobolParser:
             literal = m.group(3) if m.group(2) else None
             found.append((m.group(1).upper(), literal, m.group(0).split(None, 2)[-1]))
         return found
+
+    def _with_return_code_register(
+        self, source, working_storage, linkage_section, using_parameters, paragraphs,
+    ):
+        """Declare the RETURN-CODE special register for a program that uses it.
+
+        GnuCOBOL 3.1.2 (``tests/test_return_code.py``): the register
+        displays and computes like ``PIC S9(9)`` starting at zero, so it is
+        declared as exactly that item; the run unit's exit status is
+        ``RETURN-CODE & 0xFF``.  GnuCOBOL also hands the register across
+        CALL (a caller sees its callee's value), which the generated Java
+        does not model, so a program that CALLs or is CALLed (LINKAGE /
+        PROCEDURE DIVISION USING) fails closed instead.
+        """
+        if not code_mentions(source, "RETURN-CODE"):
+            return working_storage
+        if any(item.name.upper() == "RETURN-CODE" for item in working_storage):
+            return working_storage
+        calls = any(
+            isinstance(stmt, CallStatement)
+            for paragraph in paragraphs
+            for stmt in walk_statements(paragraph.statements)
+        )
+        if calls or linkage_section or using_parameters:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "RETURN-CODE in a program that CALLs or is CALLed: GnuCOBOL "
+                "passes the register across CALL, which the generated Java "
+                "does not model",
+                location="RETURN-CODE",
+            )
+            return working_storage
+        register = self.parse_data_description_lines(
+            ["01 RETURN-CODE PIC S9(9) VALUE 0."]
+        )
+        return [*working_storage, *register]
 
     def _validate_file_organizations(self, lines: list[str]) -> None:
         """Fail closed on record-sequential files.

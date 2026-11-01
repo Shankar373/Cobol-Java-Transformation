@@ -142,6 +142,12 @@ difference "COBOL source does not compile on the oracle (cobc exit N)"
 rather than "Required infrastructure unavailable"
 (`tests/verdict/test_oracle_compile_failure_reason.py`).
 
+A nonzero oracle exit is reference behaviour (`return_code`, compared
+exactly through EXIT_STATUS, which the integrity check then requires) only
+when the source compiled, the program uses the RETURN-CODE register and
+libcob reported no runtime error; any other nonzero oracle exit stays
+`UNAVAILABLE` (`tests/test_return_code.py`).
+
 ## Verdict / evidence consistency at retrieval
 
 `Service._check_evidence_verdict_consistency` runs on every

@@ -39,6 +39,13 @@ RUN_UNIT_TERMINATORS = (StopRunStatement, GobackStatement)
 #: paragraph name, so it never collides with a paragraph method.
 RUN_UNIT_ENTRY_METHOD = "RUN_UNIT$ENTRY"
 
+#: Static method returning the run unit's process exit status
+#: (``RETURN-CODE & 0xFF``), generated only for a program that uses the
+#: RETURN-CODE register.  Every host (``main``, the Spring Boot runner)
+#: exits with it after the run-unit entry returns; a program without it
+#: exits 0, as before.
+RUN_UNIT_EXIT_STATUS_METHOD = "RUN_UNIT$EXIT_STATUS"
+
 _THRU = re.compile(r"\bTHR(?:OUGH|U)\s+([A-Z0-9][\w-]*)", re.IGNORECASE)
 
 

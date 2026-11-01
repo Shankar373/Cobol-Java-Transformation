@@ -11,6 +11,8 @@ or sequence numbers in columns 73-80).
 
 from __future__ import annotations
 
+import re
+
 #: Last column of the fixed-format program text area (Area B ends here).
 FIXED_FORMAT_TEXT_END = 72
 
@@ -111,6 +113,20 @@ def _fold_continuations(text: str) -> tuple[list[str], list[str]]:
             lines[last_code] = continued.rstrip() + resumed
         lines[number] = ""
     return lines, errors
+
+
+def code_mentions(text: str, word: str) -> bool:
+    """True when ``word`` occurs as a COBOL word in program code — not inside
+    a literal, a comment line or an inline ``*>`` comment.  ``text`` is read
+    the way the compiler reads it (:func:`compiler_visible_text`)."""
+    pattern = re.compile(r"(?<![\w-])" + re.escape(word) + r"(?![\w-])", re.IGNORECASE)
+    for line in compiler_visible_text(text).split("\n"):
+        if _line_is_comment(line):
+            continue
+        code = re.sub(r"\"[^\"]*\"|'[^']*'", "''", line).split("*>", 1)[0]
+        if pattern.search(code):
+            return True
+    return False
 
 
 def unquote_literal(text: str) -> str:

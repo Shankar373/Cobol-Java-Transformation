@@ -283,8 +283,12 @@ class VerdictDeriver:
     def _check_for_unavailable(self, manifest: EvidenceManifest) -> VerdictState | None:
         """Check for unavailable infrastructure.
 
-        For the oracle: any non-"normal" status means the reference failed
-        and cannot be used as ground truth. This includes nonzero_exit.
+        For the oracle: any status other than "normal" or "return_code"
+        means the reference failed and cannot be used as ground truth. This
+        includes nonzero_exit.  "return_code" is a nonzero exit the program
+        set itself through RETURN-CODE (see
+        ``engine.oracle.docker_adapter.classify_oracle_termination``); it is
+        compared through EXIT_STATUS like any other behaviour.
 
         For the candidate: only "error" and "timeout" indicate infrastructure
         unavailability. A nonzero_exit means the program ran but failed
@@ -356,9 +360,14 @@ class VerdictDeriver:
 
         executed_checks = len(manifest.comparison_evidence)
         skipped_count = 0  # V1: no skipping
+        # Executions that could not serve as evidence.  A program's own
+        # exit status (oracle "return_code", or a candidate that ran and
+        # exited nonzero) is behaviour, compared through EXIT_STATUS.
         unavailable_count = sum(
             1 for e in manifest.execution_evidence
-            if e.termination_status != "normal"
+            if e.termination_status in ("error", "timeout")
+            or e.runtime_id.startswith("oracle")
+            and e.termination_status == "nonzero_exit"
         )
 
         return Verdict(

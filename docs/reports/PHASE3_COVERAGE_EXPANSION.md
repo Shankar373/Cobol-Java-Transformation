@@ -71,3 +71,23 @@ MATCH) and **AGREE** in the independent re-check (direct `cobc` vs direct
 Regression: generated Java for all 48 Phase 2 applications is
 byte-identical to `f930db5` (34 generate, 14 refused, unchanged); no
 existing fixture used these constructs.
+
+### 3.2 RETURN-CODE and exit status (increment 2)
+
+GnuCOBOL behaviour measured first: the register displays as
+`+000000004`, computes like `PIC S9(9)`, and the process exits with
+`RETURN-CODE & 0xFF` however the run unit ends (300 → 44, -1 → 255); a
+libcob runtime error writes `libcob: error:` and exits 1.
+
+| Layer | Change |
+|---|---|
+| Parser | declares the register (`01 RETURN-CODE PIC S9(9) VALUE 0`) for a program that uses it; fails closed when the program CALLs or is CALLed |
+| Mapper / hosts | `RUN_UNIT$EXIT_STATUS()` (`RETURN_CODE & 255`); `main` and the Spring Boot runner exit with it — programs without the register are byte-identical |
+| Oracle | `classify_oracle_termination`: a nonzero exit is `return_code` only when the compile succeeded, the source uses RETURN-CODE and no libcob error was reported; otherwise `nonzero_exit` (UNAVAILABLE, as before) |
+| Integrity / verdict | an oracle `return_code` requires EXIT_STATUS evidence and comparison; `unavailable_count` counts only executions that could not serve as evidence |
+
+Application: `fixtures/workload-batch-rc` (validation job step ending
+with RC 4) — **VERIFIED** through the API (stdout, EXIT_STATUS 4,
+`TXNS.DAT` MATCH) and **AGREE** in the independent re-check (both sides
+exit 4).  Generated Java for the 48 Phase 2 applications is unchanged
+versus `4bcc514`.
