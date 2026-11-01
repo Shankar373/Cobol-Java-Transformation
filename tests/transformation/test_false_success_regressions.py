@@ -52,6 +52,14 @@ def _bare(paragraphs: str) -> str:
     )
 
 
+def _tagged(source: str) -> str:
+    """Fixed-format source with an identification tag in columns 73-80."""
+    return "".join(
+        f"{line.ljust(72)}SEQ{number:05d}\n"
+        for number, line in enumerate(source.splitlines(), start=1)
+    )
+
+
 _GROUP = (
     "       01 WS-G.\n          05 WS-G1 PIC X(2) VALUE 'AB'.\n"
     "          05 WS-G2 PIC X(2) VALUE 'CD'."
@@ -177,6 +185,83 @@ EXPECTED_STDOUT: dict[str, tuple[str, str, str]] = {
               "           DISPLAY WS-C.\n       P3.\n           DISPLAY 'END'.\n           STOP RUN.\n"),
         "", "001\n002\nEND\n",
     ),
+    # --- PERFORM header continued on following lines; separator period on
+    # its own line (both used to fail closed as unparsed statements)
+    "perform_varying_header_on_continuation_lines": (
+        "       IDENTIFICATION DIVISION.\n"
+        "       PROGRAM-ID. PROBE.\n"
+        "       DATA DIVISION.\n"
+        "       WORKING-STORAGE SECTION.\n"
+        "       01 WS-I PIC 9(2) VALUE 0.\n"
+        "       01 WS-T PIC 9(3) VALUE 0.\n"
+        "       PROCEDURE DIVISION.\n"
+        "       MAIN-PARA.\n"
+        "           PERFORM ADD-ONE\n"
+        "               VARYING WS-I FROM 1 BY 2\n"
+        "               UNTIL WS-I > 7\n"
+        "           DISPLAY WS-T\n"
+        "           IF WS-T > 5\n"
+        "               DISPLAY 'BIG'\n"
+        "           END-IF\n"
+        "           .\n"
+        "           DISPLAY 'DONE'.\n"
+        "           STOP RUN.\n"
+        "       ADD-ONE.\n"
+        "           ADD WS-I TO WS-T.\n",
+        "", "016\nBIG\nDONE\n",
+    ),
+    # --- SUBTRACT with several subtrahends (used to fail closed as unparsed)
+    "subtract_multi_source_in_place": (
+        _prog("       01 WS-A PIC 9(3) VALUE 10.\n       01 WS-B PIC 9(3) VALUE 25.\n"
+              "       01 WS-C PIC 9(3) VALUE 100.",
+              "           SUBTRACT WS-A WS-B FROM WS-C.\n           DISPLAY WS-C."),
+        "", "065\n",
+    ),
+    "subtract_multi_source_with_literal_giving": (
+        _prog("       01 WS-A PIC 9(3) VALUE 10.\n       01 WS-B PIC 9(3) VALUE 25.\n"
+              "       01 WS-C PIC 9(3) VALUE 100.\n       01 WS-D PIC 9(3) VALUE 0.",
+              "           SUBTRACT WS-A WS-B 5 FROM WS-C GIVING WS-D.\n"
+              "           DISPLAY WS-C ' ' WS-D."),
+        "", "100 060\n",
+    ),
+    "subtract_from_literal_minuend_giving": (
+        _prog("       01 WS-A PIC 9(3) VALUE 10.\n       01 WS-B PIC 9(3) VALUE 25.\n"
+              "       01 WS-R PIC 9(3) VALUE 0.",
+              "           SUBTRACT WS-A WS-B FROM 200 GIVING WS-R.\n           DISPLAY WS-R."),
+        "", "165\n",
+    ),
+    "subtract_multi_source_decimal_truncation_and_rounded": (
+        _prog("       01 WS-A PIC 9V99 VALUE 1.25.\n       01 WS-B PIC 9V99 VALUE 0.50.\n"
+              "       01 WS-C PIC 9(2)V9 VALUE 10.0.\n       01 WS-D PIC 9(2) VALUE 0.",
+              "           SUBTRACT WS-A WS-B FROM WS-C.\n           DISPLAY WS-C.\n"
+              "           SUBTRACT WS-A WS-B FROM 20.9 GIVING WS-D ROUNDED.\n"
+              "           DISPLAY WS-D."),
+        "", "08.2\n19\n",
+    ),
+    "subtract_multi_source_signed_and_unsigned_receivers": (
+        _prog("       01 WS-A PIC 9(3) VALUE 50.\n       01 WS-B PIC 9(3) VALUE 70.\n"
+              "       01 WS-C PIC S9(3) VALUE 100.\n       01 WS-U PIC 9(3) VALUE 100.",
+              "           SUBTRACT WS-A, WS-B FROM WS-C.\n           DISPLAY WS-C.\n"
+              "           SUBTRACT WS-A WS-B FROM WS-U.\n           DISPLAY WS-U."),
+        "", "-020\n020\n",
+    ),
+    # --- clause keywords inside a VALUE literal are literal text (found by
+    # the Phase 2 end-to-end run: workload_inventory's report header)
+    "value_literal_containing_clause_keywords": (
+        _prog("       01 WS-H PIC X(30) VALUE\n           \"QTY  PRICE   VALUE\".\n"
+              "       01 WS-K PIC X(20) VALUE \"PIC 9 OCCURS 3\".",
+              "           DISPLAY '[' WS-H ']'.\n           DISPLAY '[' WS-K ']'."),
+        "", "[QTY  PRICE   VALUE            ]\n[PIC 9 OCCURS 3      ]\n",
+    ),
+    # --- fixed format: columns 73-80 are not program text
+    "identification_area_columns_73_to_80_ignored": (
+        _tagged(_prog(
+            "       01 WS-A PIC X(4) VALUE 'AB'.\n       01 WS-B PIC 9(3) VALUE 7.",
+            "           DISPLAY 'TAGGED' WS-A WS-B.\n           ADD 5 TO WS-B.\n"
+            "           DISPLAY WS-B.",
+        )),
+        "", "TAGGEDAB  007\n012\n",
+    ),
     "exit_program_in_main_program_is_no_op": (
         _bare("       P1.\n           DISPLAY 'A'.\n           IF WS-C = 0\n              EXIT PROGRAM\n"
               "           END-IF.\n           DISPLAY 'B'.\n           STOP RUN.\n"),
@@ -284,6 +369,34 @@ EXPECTED_FAIL_CLOSED: dict[str, tuple[str, str]] = {
     "duplicate_data_name": (
         _prog(_GROUP + "\n       01 WS-H.\n          05 WS-G1 PIC X(2).", "           DISPLAY WS-G1."),
         "declared more than once",
+    ),
+    # SUBTRACT forms outside the parsed subset stay refused.
+    "subtract_into_several_receivers": (
+        _prog("       01 WS-A PIC 9(3) VALUE 1.\n       01 WS-B PIC 9(3) VALUE 5.\n"
+              "       01 WS-C PIC 9(3) VALUE 9.",
+              "           SUBTRACT WS-A FROM WS-B WS-C.\n           DISPLAY WS-B WS-C."),
+        "Statement did not parse into IR: SUBTRACT",
+    ),
+    "subtract_literal_minuend_without_giving": (
+        _prog("       01 WS-A PIC 9(3) VALUE 1.", "           SUBTRACT WS-A FROM 5.\n"
+              "           DISPLAY WS-A."),
+        "Statement did not parse into IR: SUBTRACT",
+    ),
+    # GnuCOBOL 3.1.2 rejects this source ("PROCEDURE DIVISION header
+    # missing"); the section scanners used to translate it anyway.
+    "working_storage_after_linkage": (
+        "       IDENTIFICATION DIVISION.\n"
+        "       PROGRAM-ID. PROBE.\n"
+        "       DATA DIVISION.\n"
+        "       LINKAGE SECTION.\n"
+        "       01 LS-A PIC 9(4).\n"
+        "       WORKING-STORAGE SECTION.\n"
+        "       01 WS-T PIC 9(4) VALUE 0.\n"
+        "       PROCEDURE DIVISION USING LS-A.\n"
+        "       MAIN-PARA.\n"
+        "           DISPLAY WS-T.\n"
+        "           GOBACK.\n",
+        "WORKING-STORAGE SECTION is out of order",
     ),
 }
 

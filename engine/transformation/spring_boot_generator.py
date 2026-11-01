@@ -32,6 +32,7 @@ from dataclasses import dataclass
 # still numeric literals and must never be quoted as Strings.
 _JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
 
+from engine.transformation.control_flow import RUN_UNIT_ENTRY_METHOD
 from engine.transformation.spring_boot_ir import (
     DataAccessStrategy,
     FileAccessStrategy,
@@ -315,9 +316,15 @@ class SpringBootGenerator:
                 service_fields.append(f"    private final {svc.name} {field_name};")
                 service_params.append(f"{svc.name} {field_name}")
                 service_assignments.append(f"        this.{field_name} = {field_name};")
-                # Call the first method of each active service
+                # Enter each active service the way COBOL enters a program
+                # that was not CALLed: the run-unit entry (driver paragraph
+                # plus its fall-through chain).  Services without one (JCL
+                # job services) keep their first method.
                 if svc.methods:
-                    method = svc.methods[0]
+                    method = next(
+                        (m for m in svc.methods if m.name == RUN_UNIT_ENTRY_METHOD),
+                        svc.methods[0],
+                    )
                     params = ", ".join(f"new {ptype.to_source()}()" if hasattr(ptype, 'to_source') else str(ptype) for ptype, pname in method.parameters)
                     service_calls.append(f"            {field_name}.{method.name}({params});")
 

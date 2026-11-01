@@ -69,6 +69,7 @@ from engine.transformation.copybook_resolver import (
     resolve_copybook,
 )
 from engine.transformation.ir import CobolProgram, DataItem
+from engine.transformation.source_format import compiler_visible_text
 
 INTEGRATION = __doc__
 
@@ -464,7 +465,7 @@ def _strip_sequence_numbers(text: str) -> str:
     Free-format lines (no six-digit prefix) are returned unchanged.
     """
     out: list[str] = []
-    for line in text.split("\n"):
+    for line in compiler_visible_text(text).split("\n"):
         cleaned = line.lstrip() if len(line) > 6 else line
         m = _FIXED_FORMAT_LINE.match(cleaned)
         if m and m.group(2) in ("*", "/"):

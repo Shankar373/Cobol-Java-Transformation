@@ -1294,6 +1294,9 @@ class Service:
             java_entrypoint=entrypoint,
             workload=workload_def,
             use_docker_java=True,
+            # Same resolution the Spring Boot assembly used, so the oracle
+            # runs the program the candidate enters (or refuses).
+            oracle_entry_program=self._resolve_entry_program(app) or None,
         )
 
         phase_to_stage = {

@@ -239,7 +239,7 @@ class TestGeneratedCallProject:
         entry_src = (
             project / "src/main/java/com/generated/app/Application.java"
         ).read_text(encoding="utf-8")
-        assert "main.MAIN_PARA();" in entry_src
+        assert "main.RUN_UNIT$ENTRY();" in entry_src
         # ClaimsService is reached through the CALL, never independently.
         assert "claims." not in entry_src.lower().replace("claims claims", "")
 

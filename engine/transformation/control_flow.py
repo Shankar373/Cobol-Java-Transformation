@@ -33,6 +33,12 @@ from engine.transformation.ir import (
 #: Statements that end the run unit when executed by the main program.
 RUN_UNIT_TERMINATORS = (StopRunStatement, GobackStatement)
 
+#: Static method that runs a program as the entry of a run unit (driver
+#: paragraph, then its fall-through chain) for hosts that do not call
+#: ``main`` (the Spring Boot runner).  ``$`` cannot occur in a COBOL
+#: paragraph name, so it never collides with a paragraph method.
+RUN_UNIT_ENTRY_METHOD = "RUN_UNIT$ENTRY"
+
 _THRU = re.compile(r"\bTHR(?:OUGH|U)\s+([A-Z0-9][\w-]*)", re.IGNORECASE)
 
 

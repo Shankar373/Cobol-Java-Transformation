@@ -1,0 +1,21 @@
+IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAINPROG.
+       AUTHOR. MULTI-PROG DEMO.
+       
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-INPUT-A        PIC 9(4) VALUE 10.
+       01  WS-INPUT-B        PIC 9(4) VALUE 5.
+       01  WS-RESULT         PIC 9(6) VALUE 0.
+       
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           DISPLAY "MAIN PROGRAM STARTED".
+           DISPLAY "INPUT A=" WS-INPUT-A.
+           DISPLAY "INPUT B=" WS-INPUT-B.
+           
+           CALL "CALCULATE" USING WS-INPUT-A, WS-INPUT-B, WS-RESULT.
+           
+           DISPLAY "RESULT FROM SUBROUTINE=" WS-RESULT.
+           
+           STOP RUN.

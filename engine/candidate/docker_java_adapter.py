@@ -41,6 +41,7 @@ from engine.execution.container_hardening import (
     prepare_host_tree,
 )
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
+from engine.execution.workspace_files import collect_generated_files
 
 # ---------------------------------------------------------------------------
 # Structured sandbox evidence
@@ -548,12 +549,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     exit_code = None
                     termination = "error"
 
-                generated_files: dict[str, bytes] = {}
-                if output_dir.is_dir():
-                    for f in sorted(output_dir.rglob("*")):
-                        if f.is_file():
-                            rel = f.name
-                            generated_files[rel] = f.read_bytes()
+                generated_files: dict[str, bytes] = collect_generated_files(
+                    output_dir, workspace_dir, ("classes", "output", "input"),
+                )
 
                 end_time = datetime.now(timezone.utc)
 

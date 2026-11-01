@@ -185,6 +185,50 @@ class TestCapabilityClassification:
         assert programs[0].level is CapabilityLevel.SUPPORTED
 
 
+def _level_of(ws: str, procedure: str = "    STOP RUN.\n") -> CapabilityLevel:
+    from engine.transformation.ir import CobolApplication, CobolProgramUnit
+
+    src = _MINIMAL.format(ws=ws).replace("    STOP RUN.\n", procedure)
+    unit = CobolProgramUnit(
+        program_id="USAGE-TEST",
+        source_path="MAIN.cob",
+        program=CobolParser().parse(src),
+        source_text=src,
+    )
+    report = CapabilityAnalyzer(docker_available=True).analyze(
+        CobolApplication(application_id="TEST", programs=(unit,))
+    )
+    return next(c for c in report.components if c.component_type == "PROGRAM").level
+
+
+class TestUnreferencedUsageItem:
+    """A COMP item that nothing references cannot expose its byte encoding."""
+
+    def test_unreferenced_standalone_comp_is_supported(self) -> None:
+        assert _level_of("01 WS-RRN PIC 9(4) COMP.") is CapabilityLevel.SUPPORTED
+
+    def test_referenced_comp_stays_partial(self) -> None:
+        level = _level_of(
+            "01 WS-RRN PIC 9(4) COMP.",
+            "    ADD 1 TO WS-RRN.\n    DISPLAY WS-RRN.\n    STOP RUN.\n",
+        )
+        assert level is CapabilityLevel.PARTIAL
+
+    def test_comp_inside_group_stays_partial(self) -> None:
+        level = _level_of("01 WS-G.\n   05 WS-RRN PIC 9(4) COMP.")
+        assert level is CapabilityLevel.PARTIAL
+
+    def test_redefined_comp_stays_partial(self) -> None:
+        level = _level_of(
+            "01 WS-RRN PIC 9(4) COMP.\n01 WS-X REDEFINES WS-RRN PIC X(2)."
+        )
+        assert level is CapabilityLevel.PARTIAL
+
+    def test_copy_in_program_keeps_partial(self) -> None:
+        level = _level_of("01 WS-RRN PIC 9(4) COMP.\nCOPY EXTRA.")
+        assert level is not CapabilityLevel.SUPPORTED
+
+
 class TestRegistryAndCanonicalUsage:
     def test_registry_keys_partial(self) -> None:
         for key in ("COMP", "COMP-1", "COMP-2", "COMP-3", "COMP-5"):

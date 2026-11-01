@@ -630,15 +630,18 @@ class TestCapabilityVerdicts:
 class TestShippedFixturesUnaffected:
     """Shipped fixtures must not change verdict because of this fix.
 
-    `workload_inventory` was ALREADY UNSUPPORTED before this work (its
-    `PERFORM VARYING` continuation lines are diagnosed as unparsed), verified
-    by running the baseline commit `c312eb9` in a detached worktree. Asserting
-    SUPPORTED there would encode a claim the repository has never made.
+    `workload_inventory` was UNSUPPORTED before Phase 2 (its `PERFORM VARYING`
+    continuation lines were diagnosed as unparsed; baseline `c312eb9`).  Phase 2
+    (2026-11-01) parses continued PERFORM headers and keyword-bearing VALUE
+    literals, and the fixture is now SUPPORTED with oracle proof: the full API
+    run is VERIFIED (stdout, exit status, stderr and both written files MATCH
+    GnuCOBOL 3.1.2) and an independent harness (direct ``cobc`` + ``java -jar``,
+    every file in the working directory) agrees byte-for-byte.
     """
 
     @pytest.mark.parametrize(
         ("fixture", "expected"),
-        [("workload-evaluate", "SUPPORTED"), ("workload_inventory", "UNSUPPORTED")],
+        [("workload-evaluate", "SUPPORTED"), ("workload_inventory", "SUPPORTED")],
     )
     def test_fixture_verdict_is_unchanged(self, fixture, expected):
         path = Path(__file__).resolve().parents[2] / "fixtures" / fixture / "cobol"

@@ -204,7 +204,7 @@ class VerdictDeriver:
             return self._create_verdict(
                 state=unavailable_state,
                 manifest=manifest,
-                differences=("Required infrastructure unavailable",),
+                differences=(self._unavailable_reason(manifest),),
             )
 
         # Step 3: Check for unsupported artifacts
@@ -314,6 +314,25 @@ class VerdictDeriver:
             return VerdictState.UNAVAILABLE
 
         return None
+
+    @staticmethod
+    def _unavailable_reason(manifest: EvidenceManifest) -> str:
+        """Name why the reference is unusable when the evidence says so.
+
+        A COBOL source the oracle compiler rejects is not an infrastructure
+        outage: the recorded cobc exit status distinguishes the two.
+        """
+        for e in manifest.execution_evidence:
+            if not e.runtime_id.startswith("oracle"):
+                continue
+            diagnostics = e.compilation_diagnostics or {}
+            status = str(diagnostics.get("exit_code", "")).strip()
+            if status and status != "0":
+                return (
+                    "COBOL source does not compile on the oracle "
+                    f"(cobc exit {status}); no reference behaviour exists"
+                )
+        return "Required infrastructure unavailable"
 
     def _check_for_unsupported(self, manifest: EvidenceManifest) -> VerdictState | None:
         """Check for unsupported artifact types."""

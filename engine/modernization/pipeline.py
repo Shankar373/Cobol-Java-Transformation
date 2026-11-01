@@ -316,6 +316,28 @@ class UniversalModernizationPipeline:
             if c.component_type == "PROGRAM"
             and c.action.name == "SKIP"
         )
+        # A CALL the plan cannot dispatch (unresolved or dynamic target)
+        # blocks generation too: the caller's Java would otherwise build and
+        # then fail, or misbehave, only at run time.
+        skipped_calls = tuple(
+            c.component_id
+            for c in plan.components
+            if c.component_type == "CALL" and c.action.name == "SKIP"
+        )
+        if skipped_calls and not skipped_programs:
+            report.generation_errors = (
+                "Transformation plan contains non-transformable CALLs: "
+                + ", ".join(skipped_calls),
+            )
+            report.limitations = (
+                "Transformation blocked by capability plan",
+                *tuple(
+                    c.reason
+                    for c in plan.components
+                    if c.component_id in skipped_calls and c.reason
+                ),
+            )
+            return report
         if skipped_programs:
             report.generation_errors = (
                 "Transformation plan contains non-transformable programs: "
