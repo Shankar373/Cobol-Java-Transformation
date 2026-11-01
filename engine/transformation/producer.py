@@ -49,6 +49,15 @@ _COPY_STATEMENT = re.compile(
 _FAIL_CLOSED_SYMBOL = re.compile(r"\bUNSUPPORTED_[A-Z_]+\$[\w$]*")
 
 
+def fail_closed_symbols(java_source: str) -> list[str]:
+    """Sorted fail-closed mapper symbols present in generated Java.
+
+    The single definition shared by every generation path (producer and
+    modernization pipeline), so they refuse exactly the same output.
+    """
+    return sorted(set(_FAIL_CLOSED_SYMBOL.findall(java_source)))
+
+
 @dataclass(frozen=True)
 class TransformationResult:
     """Result of a COBOL-to-Java transformation."""
@@ -185,7 +194,7 @@ class TransformationProducer:
             fail_closed = sorted({
                 symbol
                 for generated in generated_files
-                for symbol in _FAIL_CLOSED_SYMBOL.findall(generated.source_code)
+                for symbol in fail_closed_symbols(generated.source_code)
             })
             if fail_closed:
                 return TransformationResult(

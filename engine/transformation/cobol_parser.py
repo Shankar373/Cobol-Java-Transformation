@@ -25,7 +25,7 @@ Unsupported constructs will raise CobolParseError.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from engine.transformation.control_flow import (
@@ -442,6 +442,14 @@ def _parse_pic(pic_str: str) -> tuple[PicType, int]:
         except (ValueError, IndexError):
             pass
     raise CobolParseError(f"Unsupported PIC clause: {pic_str}")
+
+
+# ``SELECT [OPTIONAL] file ASSIGN [TO] ('lit' | "lit" | word)``.
+_SELECT_ASSIGN = re.compile(
+    r"\bSELECT\s+(?:OPTIONAL\s+)?([\w-]+)\s+ASSIGN\s+(?:TO\s+)?"
+    r"(?:([\"'])(.*?)\2|([\w-]+))",
+    re.IGNORECASE,
+)
 
 
 class CobolParser:
@@ -1002,6 +1010,37 @@ class CobolParser:
                 else:
                     section = rank
 
+    @staticmethod
+    def _file_control_text(lines: list[str]) -> str:
+        """FILE-CONTROL paragraph as one string (clauses may span lines)."""
+        collected: list[str] = []
+        inside = False
+        for line in lines:
+            upper = line.upper().strip()
+            if "FILE-CONTROL" in upper:
+                inside = True
+                continue
+            if inside:
+                if upper.startswith(("DATA DIVISION", "PROCEDURE DIVISION",
+                                     "I-O-CONTROL")):
+                    break
+                collected.append(line.strip())
+        return " ".join(collected)
+
+    @classmethod
+    def _select_assignments(cls, lines: list[str]) -> list[tuple[str, str | None, str]]:
+        """``(file, literal path or None, ASSIGN target text)`` per SELECT.
+
+        Accepts what GnuCOBOL accepts: ``'...'`` or ``"..."``, an optional
+        ``TO``, and clauses continued on following lines.  A target that is
+        not a literal (a data name or a device word) yields ``None``.
+        """
+        found: list[tuple[str, str | None, str]] = []
+        for m in _SELECT_ASSIGN.finditer(cls._file_control_text(lines)):
+            literal = m.group(3) if m.group(2) else None
+            found.append((m.group(1).upper(), literal, m.group(0).split(None, 2)[-1]))
+        return found
+
     def _validate_file_organizations(self, lines: list[str]) -> None:
         """Fail closed on record-sequential files.
 
@@ -1117,11 +1156,6 @@ class CobolParser:
                         current_relative_key = ""
                         current_status = ""
 
-                if "ASSIGN TO" in upper:
-                    match = re.search(r'ASSIGN TO\s*"([^"]+)"', line, re.IGNORECASE)
-                    if match:
-                        current_path = match.group(1)
-
                 # ORGANIZATION IS
                 if "ORGANIZATION" in upper:
                     if "INDEXED" in upper:
@@ -1200,7 +1234,21 @@ class CobolParser:
                         ))
                     break
 
-        return file_defs
+        paths = {}
+        for name, literal, target in self._select_assignments(lines):
+            paths[name] = literal
+            if literal is None:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"File {name} has no literal file name ({target}): only "
+                    "ASSIGN to a quoted file name is certified; a data-name or "
+                    "device assignment has no oracle-proven Java binding",
+                    location=name,
+                )
+        return [
+            replace(fd, container_path=paths.get(fd.name.upper()) or "")
+            for fd in file_defs
+        ]
 
     def _parse_file_section(self, lines: list[str]) -> list[FileDefinition]:
         """Parse FILE SECTION to extract record definitions."""

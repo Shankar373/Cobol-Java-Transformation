@@ -780,6 +780,14 @@ def _accept_fail_closed_symbol(*reasons: str) -> str:
     return "UNSUPPORTED_ACCEPT$" + "$".join(reasons)
 
 
+def _file_fail_closed_symbol(*reasons: str) -> str:
+    """Java identifier naming a file operation with no file to act on.
+
+    Same fail-closed contract as :func:`_string_fail_closed_symbol`.
+    """
+    return "UNSUPPORTED_FILE$" + "$".join(reasons)
+
+
 def _initialize_fail_closed_symbol(*reasons: str) -> str:
     """Java identifier naming an INITIALIZE form with no certified mapping.
 
@@ -4129,15 +4137,15 @@ def map_cobol_statement(
         has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
 
         if path is None:
-            # STDOUT/unmatched destination: no real record to read —
-            # preserve legacy behaviour by inlining the success bodies.
-            result.append(JavaComment(
-                text=f"// READ {stmt.file_name}: no file path; success bodies inlined",
-            ))
-            for s in stmt.not_at_end_body:
-                result.extend(map_cobol_statement(s, program, called_programs))
-            for s in stmt.not_invalid_key_body:
-                result.extend(map_cobol_statement(s, program, called_programs))
+            # No file behind the name (console literal, unmatched file):
+            # there is no record to read, and running the NOT AT END body
+            # unconditionally would invent one.  Fail closed.
+            result.append(JavaMethodCallStatement(call=JavaMethodCall(
+                method_name=_file_fail_closed_symbol(
+                    "READ", stmt.file_name.replace("-", "_") or "MISSING"
+                ),
+                arguments=(),
+            )))
         else:
             # Indexed random READ (no NEXT) uses the current record-key field.
             # READ NEXT / sequential uses the cursor. Relative uses RRN.

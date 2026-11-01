@@ -28,6 +28,7 @@ This module reuses ALL existing components:
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from engine.modernization.transformation_plan import (
 from engine.transformation.application_discovery import ApplicationDiscovery
 from engine.transformation.application_generator import ApplicationGenerator
 from engine.transformation.ir import CobolApplication
+from engine.transformation.producer import fail_closed_symbols
 from engine.transformation.runtime_adapters import (
     RuntimeTargetConfig,
     get_runtime_adapter,
@@ -407,6 +409,26 @@ class UniversalModernizationPipeline:
                 f"Assembly failed: {e}",
             )
             report.limitations = (f"Assembly failed: {e}",)
+            return report
+        # The mapper marks constructs it cannot lower with unresolvable
+        # ``UNSUPPORTED_*$`` identifiers.  The producer refuses such output;
+        # this path must too, or the project is "generated" and only javac
+        # (or nothing) notices.
+        fail_closed = sorted({
+            symbol
+            for java_file in Path(outcome.project_dir).rglob("*.java")
+            for symbol in fail_closed_symbols(java_file.read_text(encoding="utf-8"))
+        })
+        if fail_closed:
+            shutil.rmtree(outcome.project_dir, ignore_errors=True)
+            report.generation_success = False
+            report.generated_project_dir = ""
+            report.generated_entrypoint = ""
+            report.generation_errors = tuple(
+                f"Unsupported construct in generated Java: {symbol}"
+                for symbol in fail_closed
+            )
+            report.limitations = ("Transformation failed",) + report.generation_errors
             return report
         if progress:
             progress("ASSEMBLY_COMPLETED")
