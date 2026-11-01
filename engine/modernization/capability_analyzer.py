@@ -17,8 +17,8 @@ independent evidence channels per program:
                       IF branches, inline PERFORM bodies and file handlers)
     2. Source scan  — what the COBOL source actually contains, which is what
                       catches constructs CobolParser silently drops
-    3. Structure    — unresolved PERFORM THRU, implicit paragraph
-                      fall-through, uncaptured OPEN targets, unmapped IR
+    3. Structure    — unresolved PERFORM THRU,
+                      uncaptured OPEN targets, unmapped IR
                       statement classes
 
 The analyzer is a pure function over the discovered application graph and the
@@ -199,6 +199,26 @@ def _iter_program_data_items(program) -> list:
         for item in getattr(fd, "record_items", ()) or ():
             found.extend(_iter_data_item_tree(item))
     return found
+
+
+def _is_unreferenced_standalone_item(program, item, source_text: str) -> bool:
+    """True when a data item provably cannot affect observable behaviour.
+
+    Only a standalone WORKING-STORAGE item (level 01/77, no children, no
+    REDEFINES) whose name occurs exactly once in the program source — its
+    own declaration — qualifies: nothing reads, writes, redefines or
+    contains it, so its USAGE byte encoding is never observed.  Any COPY or
+    REPLACE could reference the name out of sight, so their presence
+    disqualifies every item.
+    """
+    if item.level not in (1, 77) or item.children or item.redefines:
+        return False
+    if not any(ws is item for ws in getattr(program, "working_storage", ()) or ()):
+        return False
+    if re.search(r"(?<![\w-])(?:COPY|REPLACE)(?![\w-])", source_text, re.IGNORECASE):
+        return False
+    pattern = r"(?<![\w-])" + re.escape(item.name) + r"(?![\w-])"
+    return len(re.findall(pattern, source_text, re.IGNORECASE)) == 1
 
 
 def _scan_copy_replacing(source_text: str) -> "list[tuple[str, CapabilityLevel, str]]":
@@ -425,7 +445,6 @@ class CapabilityAnalyzer:
             ReadStatement,
             RewriteStatement,
             StartStatement,
-            StopRunStatement,
             WriteStatement,
         )
 
@@ -815,20 +834,13 @@ class CapabilityAnalyzer:
                     "has no alternate-index lowering",
                 ))
 
-        # Implicit fall-through reliance: the single-program generator's
-        # ``main`` runs the fall-through chain, but the Spring Boot
-        # application runner enters a service through its driver (first)
-        # paragraph method only; a multi-paragraph program whose driver does
-        # not terminate (no top-level STOP RUN) relies on fall-through into
-        # the next paragraph, which that path does not reproduce.
-        if len(program.paragraphs) > 1:
-            driver_stmts = program.paragraphs[0].statements
-            if not any(isinstance(s, StopRunStatement) for s in driver_stmts):
-                findings.append((
-                    "paragraph fall-through",
-                    CapabilityLevel.PARTIAL,
-                    "implicit paragraph fall-through",
-                ))
+        # Implicit paragraph fall-through is reproduced on every generation
+        # target: plain Java / Jakarta EE run the class ``main`` and the
+        # Spring Boot runner calls ``RUN_UNIT$ENTRY``, both of which run the
+        # driver paragraph and then its fall-through chain (oracle-pinned:
+        # tests/transformation/test_false_success_regressions.py and
+        # tests/integration/test_spring_entry_semantics.py).  Placements the
+        # chain cannot honour fail closed in the parser.
 
         # Source evidence: constructs present in COBOL that produced no IR.
         ir_construct_keys = {
@@ -877,6 +889,8 @@ class CapabilityAnalyzer:
         usage_items: dict[str, list[str]] = {}
         for item in _iter_program_data_items(program):
             if not item.usage:
+                continue
+            if _is_unreferenced_standalone_item(program, item, unit.source_text or ""):
                 continue
             usage_key = USAGE_TO_CONSTRUCT.get(item.usage, "USAGE")
             usage_items.setdefault(usage_key, []).append(f"{item.name} ({item.usage})")

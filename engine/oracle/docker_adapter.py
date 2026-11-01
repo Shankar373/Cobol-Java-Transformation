@@ -37,12 +37,14 @@ from engine.execution.container_hardening import (
     prepare_host_tree,
 )
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
+from engine.execution.workspace_files import collect_generated_files
 from engine.oracle.adapter import (
     OracleAdapter,
     OracleAdapterConfig,
     OracleExecutionResult,
 )
 from engine.source_hash import compute_source_tree_hash
+from engine.transformation.source_format import detect_source_format
 
 
 class DockerOracleAdapter(OracleAdapter):
@@ -174,9 +176,15 @@ class DockerOracleAdapter(OracleAdapter):
         links the separate modules with a single multi-file command.
 
         Entry resolution order:
-          1. explicit entry_program (PROGRAM-ID, then filename match);
-          2. main.cob/main.cbl filename convention (case-insensitive);
-          3. legacy first-glob fallback.
+          1. explicit entry_program (PROGRAM-ID, then filename match); an
+             explicit entry that matches no module selects nothing;
+          2. a single module;
+          3. main.cob/main.cbl filename convention (case-insensitive);
+          4. the single module whose PROGRAM-ID no other module CALLs.
+
+        Anything else is ambiguous and selects nothing (fail closed): the
+        oracle must run the same program the candidate enters, so it never
+        guesses by file order.
         """
         # .cob takes precedence over .cbl (legacy glob order), each sorted.
         modules: list[str] = []
@@ -194,23 +202,56 @@ class DockerOracleAdapter(OracleAdapter):
 
         wanted = (entry_program or "").strip().strip("'\"").upper()
         if wanted:
-            for name in modules:
-                if cls._read_program_id(source_dir / name) == wanted:
-                    others = [m for m in modules if m != name]
-                    return name, others
+            by_id = [
+                name for name in modules
+                if cls._read_program_id(source_dir / name) == wanted
+            ]
+            if len(by_id) == 1:
+                others = [m for m in modules if m != by_id[0]]
+                return by_id[0], others
+            if by_id:
+                return None, modules
             for name in modules:
                 if name.lower() == wanted.lower() or Path(name).stem.upper() == wanted:
                     others = [m for m in modules if m != name]
                     return name, others
+            return None, modules
+
+        if len(modules) == 1:
+            return modules[0], []
 
         for name in modules:
             if name.lower() in cls.ENTRY_MODULE_MARKERS:
                 others = [m for m in modules if m != name]
                 return name, others
 
-        # Legacy fallback: first module wins (historical glob behaviour
-        # restricted to a deterministic sorted order).
-        return modules[0], modules[1:]
+        called: set[str] = set()
+        for name in modules:
+            called.update(cls._read_static_call_targets(source_dir / name))
+        roots = [
+            name for name in modules
+            if cls._read_program_id(source_dir / name) not in called
+        ]
+        if len(roots) == 1:
+            others = [m for m in modules if m != roots[0]]
+            return roots[0], others
+        return None, modules
+
+    @staticmethod
+    def _read_static_call_targets(source_file: Path) -> set[str]:
+        """Literal ``CALL 'X'`` targets, for entry selection only."""
+        try:
+            text = source_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return set()
+        return {
+            m.group(1).upper()
+            for m in re.finditer(
+                r"\bCALL\s+['\"]([A-Za-z0-9][A-Za-z0-9_-]*)['\"]",
+                text,
+                re.IGNORECASE,
+            )
+        }
 
     # --- Source format detection -----------------------------------------
     #
@@ -221,38 +262,13 @@ class DockerOracleAdapter(OracleAdapter):
     # Sources are NEVER rewritten or normalised.
 
     @staticmethod
-    def _line_is_comment(line: str) -> bool:
-        """True for fixed- or free-format comment lines."""
-        if line.startswith("*") or line.startswith("/"):
-            return True
-        if len(line) > 6 and line[6] in "*/":
-            return True
-        return line.lstrip().startswith("*>")
-
-    @classmethod
-    def detect_source_format(cls, text: str) -> str:
+    def detect_source_format(text: str) -> str:
         """Classify COBOL source text as ``"free"`` or ``"fixed"``.
 
-        An explicit ``>>SOURCE FORMAT`` directive takes precedence. In its
-        absence fixed format is assumed unless a code line places a
-        non-digit, non-space character in the sequence area (columns 1-6):
-        that is impossible in fixed format and is characteristic of free
-        format, where code may begin at column 1.
+        Shared with the parser (``engine.transformation.source_format``) so
+        the translated text is exactly the text the oracle compiles.
         """
-        for raw in text.splitlines():
-            upper = raw.strip().upper()
-            if upper.startswith(">>SOURCE") and "FORMAT" in upper:
-                if "FREE" in upper:
-                    return "free"
-                if "FIXED" in upper:
-                    return "fixed"
-        for raw in text.splitlines():
-            line = raw.rstrip("\r\n")
-            if not line.strip() or cls._line_is_comment(line):
-                continue
-            if any(ch not in "0123456789 " for ch in line[:6]):
-                return "free"
-        return "fixed"
+        return detect_source_format(text)
 
     @classmethod
     def _module_source_format(cls, source_dir: Path, module: str) -> str:
@@ -397,6 +413,35 @@ class DockerOracleAdapter(OracleAdapter):
                 if main_file is None:
                     main_file, link_modules = self.select_modules(
                         Path(tmpdir, "src"), entry_program=entry_program
+                    )
+
+                if main_file is None and link_modules:
+                    # Modules exist but no entry can be proven: refuse
+                    # rather than run a program the candidate does not.
+                    end_time = datetime.now(timezone.utc)
+                    reason = (
+                        f"Entry program {entry_program!r} matches no COBOL module"
+                        if (entry_program or "").strip()
+                        else "Entry program is ambiguous across COBOL modules"
+                    )
+                    return OracleExecutionResult(
+                        execution_id=execution_id,
+                        run_id=run_id,
+                        oracle_id=self._config.oracle_id,
+                        status=AdapterStatus.FAILED,
+                        exit_code=None,
+                        stdout=b"",
+                        stderr=(
+                            f"{reason}: {', '.join(link_modules)}; "
+                            "refusing to select one by file order"
+                        ).encode(),
+                        start_time=start_time.isoformat(),
+                        end_time=end_time.isoformat(),
+                        termination_status="error",
+                        timeout_applied=False,
+                        source_tree_hash_before=source_hash_before,
+                        source_tree_hash_after=source_hash_before,
+                        image_digest=digest,
                     )
 
                 if main_file is None:
@@ -550,11 +595,9 @@ class DockerOracleAdapter(OracleAdapter):
                             (diagnostics_dir / "stderr").read_bytes()
                         ).decode("ascii"),
                     }
-                if output_dir.is_dir():
-                    for f in sorted(output_dir.rglob("*")):
-                        if f.is_file():
-                            rel = f.name
-                            generated_files[rel] = f.read_bytes()
+                generated_files.update(collect_generated_files(
+                    output_dir, workspace_dir, ("src", "output", "compilation", "input"),
+                ))
 
             end_time = datetime.now(timezone.utc)
             source_hash_after = self._compute_source_hash(source_path)

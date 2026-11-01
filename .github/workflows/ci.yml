@@ -39,7 +39,8 @@ jobs:
           # that imports api.service, which requires pydantic. This gate
           # deliberately installs pytest only (BL-012 - no hidden runtime-stack
           # coupling), so that single test is deselected here and remains
-          # enforced by the backend job, which runs the full suite.
+          # enforced by the backend job, which runs the full suite. The same
+          # applies to tests/test_oracle_entry_binding.py::TestServiceResolvesEntry.
           python -m pytest -q \
             tests/transformation/test_capability_registry_reconciliation.py \
             tests/transformation/test_capability_walker_depth.py \
@@ -63,6 +64,12 @@ jobs:
             tests/transformation/test_perform_lowercase.py \
             tests/transformation/test_false_success_regressions.py \
             tests/test_comparison_contract_strength.py \
+            tests/test_oracle_entry_binding.py \
+            tests/test_stderr_contract.py \
+            tests/test_workspace_file_contract.py \
+            tests/verdict/test_oracle_compile_failure_reason.py \
+            tests/transformation/test_line_sequential_and_string_numeric.py \
+            tests/transformation/test_unresolved_call_blocks_generation.py \
             tests/comparators/test_fixed_record_trailing_partial.py \
             tests/test_phase10_p0_bl053_seal_recheck.py \
             tests/test_phase10_p0_integrated_proof_gate.py \
@@ -102,7 +109,7 @@ jobs:
             tests/transformation/test_call_capability_fail_closed.py \
             tests/transformation/test_cics_multiline_parsing.py \
             tests/transformation/test_modernization_planner.py \
-            --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded
+            --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded             --deselect tests/test_oracle_entry_binding.py::TestServiceResolvesEntry
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

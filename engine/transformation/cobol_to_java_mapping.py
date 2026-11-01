@@ -29,7 +29,11 @@ from __future__ import annotations
 import re
 
 from engine.transformation import figurative
-from engine.transformation.control_flow import fall_through_chain, walk_statements
+from engine.transformation.control_flow import (
+    RUN_UNIT_ENTRY_METHOD,
+    fall_through_chain,
+    walk_statements,
+)
 from engine.transformation.figurative import figurative_to_width, parse_figurative_constant
 from engine.transformation.group_storage import (
     GroupLayout,
@@ -51,6 +55,7 @@ from engine.transformation.ir import (
     DisplayStatement,
     DivideStatement,
     FileDefinition,
+    FileOrganization,
     GoToStatement,
     IfStatement,
     MoveStatement,
@@ -1134,6 +1139,54 @@ def _numeric_display_items(program: CobolProgram) -> list[DataItem]:
         and item.pic_length > 0
         and not _substantive_children(item)
     ]
+
+
+def _string_source_text(
+    name: str | None,
+    expression: JavaExpression,
+    program: CobolProgram | None,
+) -> JavaExpression:
+    """A STRING sending item as the characters COBOL stores for it.
+
+    STRING copies the sending item's storage, not its DISPLAY rendering:
+    an unsigned DISPLAY numeric is its zero-filled digit string at full PIC
+    width with no decimal point (oracle: ``PIC 99`` value 3 contributes
+    ``03``; ``PIC 9V99`` value 1.25 contributes ``125``).  A signed item
+    carries its sign in an overpunched digit and a COMP item is binary, so
+    both fail closed instead of contributing the Java number's text.
+    """
+    if not name or program is None:
+        return expression
+    reference = split_cobol_reference(name)
+    item = _find_data_item(program, reference[0] if reference else name)
+    if item is None or not item.is_numeric or not item.is_elementary:
+        return expression
+    if item.signed or item.usage:
+        return JavaUnsupportedExpression(
+            source_expression=f"STRING ... {name}",
+            reason="signed or non-DISPLAY numeric STRING source: stored "
+                   "sign/byte encoding is not certified",
+        )
+    digits: JavaExpression = expression
+    if item.decimal_places > 0:
+        digits = JavaMethodCall(
+            object_ref=JavaMethodCall(
+                object_ref=expression,
+                method_name="movePointRight",
+                arguments=(JavaLiteral(
+                    value=str(item.decimal_places),
+                    java_type=JavaType(basic_type=JavaBasicType.INT),
+                ),),
+            ),
+            method_name="toBigInteger",
+            arguments=(),
+        )
+    return JavaMethodCall(
+        class_name="String",
+        method_name="format",
+        arguments=(JavaLiteral(value=f"%0{item.pic_length}d"), digits),
+        is_static=True,
+    )
 
 
 def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaExpression:
@@ -3628,8 +3681,13 @@ def map_cobol_statement(
         # Determine all subtrahends: use sources tuple if present, else single source
         sources = stmt.sources if stmt.sources else (stmt.source,)
         java_sources = [map_cobol_expr_to_java(s) for s in sources]
-        # Build chained subtraction: ((minuend - s1) - s2) - ...
-        expr: JavaExpression = _reference_expression(stmt.from_field)
+        # Build chained subtraction: ((minuend - s1) - s2) - ...  A literal
+        # minuend (legal only with GIVING) lowers like any numeric literal.
+        expr: JavaExpression = (
+            map_cobol_expr_to_java(stmt.from_field)
+            if re.fullmatch(r"[+-]?\d*\.?\d+", (stmt.from_field or "").strip())
+            else _reference_expression(stmt.from_field)
+        )
         for src in java_sources:
             expr = JavaBinaryOp(left=expr, operator="-", right=src)
         result.append(JavaAssignment(
@@ -4192,6 +4250,19 @@ def map_cobol_statement(
                 # RELATIVE: third arg is the current RRN (relative key field).
                 rrn_expr = _key_expr("", fd, program)
                 call = _cobol_call("write", _str_lit(path), rec_expr, rrn_expr)
+            elif fd is not None and fd.organization == FileOrganization.SEQUENTIAL:
+                # LINE SEQUENTIAL (the only sequential organisation the
+                # parser admits): GnuCOBOL drops trailing spaces from the
+                # record — spaces only, not other whitespace.
+                call = _cobol_call(
+                    "write", _str_lit(path),
+                    JavaMethodCall(
+                        object_ref=rec_expr,
+                        method_name="replaceFirst",
+                        arguments=(_str_lit(" +$"), _str_lit("")),
+                    ),
+                    _int_lit(0),
+                )
             else:
                 call = _cobol_call(
                     "write", _str_lit(path), rec_expr, _int_lit(_key_len(fd, program)),
@@ -4367,10 +4438,16 @@ def map_cobol_statement(
             sources: list[JavaExpression] = []
             if stmt.structured_parts:
                 for part in stmt.structured_parts:
-                    sources.append(_map_cobol_expression_to_java(part))
+                    sources.append(_string_source_text(
+                        getattr(part, "name", None),
+                        _map_cobol_expression_to_java(part),
+                        program,
+                    ))
             else:
                 for part in stmt.parts:
-                    sources.append(map_cobol_expr_to_java(part))
+                    sources.append(_string_source_text(
+                        part, map_cobol_expr_to_java(part), program,
+                    ))
             if sources:
                 delims: list = list(stmt.delimiter_exprs)
                 if not delims:
@@ -5236,6 +5313,24 @@ def map_cobol_program_to_java(
         ))
         for para in fall_through_chain(program.paragraphs)[1:]
     )
+    # Run-unit entry for hosts that do not call ``main`` (the Spring Boot
+    # runner): the driver lowered exactly as in ``main`` for a program that
+    # was not CALLed, then the fall-through chain.
+    # Lowered afresh per method so generated locals stay unique per class.
+    def _entry_body() -> list[JavaStatement]:
+        global _main_entry_context
+        _main_entry_context = True
+        try:
+            body: list[JavaStatement] = [
+                lowered
+                for para in driver_paragraphs
+                for stmt in para.statements
+                for lowered in map_cobol_statement(stmt, program, called_programs)
+            ]
+        finally:
+            _main_entry_context = False
+        return body + list(chain_calls)
+
     main_body: list[JavaStatement] = []
     if has_linkage:
         # Standalone entry: run the parameterless business method against
@@ -5246,16 +5341,12 @@ def map_cobol_program_to_java(
             arguments=(),
         )))
     else:
-        # No linkage - inline the driver paragraph statements
-        global _main_entry_context
-        _main_entry_context = True
-        try:
-            for para in driver_paragraphs:
-                for stmt in para.statements:
-                    main_body.extend(map_cobol_statement(stmt, program, called_programs))
-        finally:
-            _main_entry_context = False
-        main_body.extend(chain_calls)
+        # No linkage - run the run-unit entry (one body, so main and every
+        # other host execute the same lowered code).
+        main_body.append(JavaMethodCallStatement(call=JavaMethodCall(
+            method_name=RUN_UNIT_ENTRY_METHOD,
+            arguments=(),
+        )))
 
     methods.append(JavaMethod(
         name="main",
@@ -5291,6 +5382,16 @@ def map_cobol_program_to_java(
             modifiers=("public", "static"),
             exceptions=("Exception",),
         ))
+
+    methods.append(JavaMethod(
+        name=RUN_UNIT_ENTRY_METHOD,
+        return_type=JavaType(basic_type=JavaBasicType.VOID),
+        parameters=(),
+        body_statements=tuple(_entry_body()),
+        is_static=True,
+        modifiers=("public", "static"),
+        exceptions=("Exception",),
+    ))
 
     # Build class
     java_class = JavaClass(

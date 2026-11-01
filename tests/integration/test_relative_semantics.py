@@ -6,7 +6,8 @@ Tests the relative workload which exercises:
 - STDOUT, STDERR, EXIT_STATUS artifact comparison
 
 Required scenarios:
-1. Correct candidate -> VERIFIED
+1. Correct candidate -> PARTIAL: every stream matches; the RELATIVE
+   file image (REL.DAT) is an emulation and is INCONCLUSIVE, never VERIFIED
 2. Each mutation -> FAILED (false-PASS defense)
 3. Evidence verification
 4. Determinism proof
@@ -79,12 +80,19 @@ def _relative_workload() -> WorkloadDefinition:
 
 
 class TestRelativeValidCandidate:
-    def test_correct_candidate_verified(self):
+    def test_correct_candidate_matches_but_file_image_is_inconclusive(self):
         config = _make_config(JAVA_CANDIDATE, "RelativeDump", _relative_workload())
         pipeline = VerticalSlicePipeline(config)
         result = pipeline.run()
-        assert result.verdict.state.value == "VERIFIED", (
-            f"Expected VERIFIED, got {result.verdict.state.value}: {result.verdict.reason}"
+        results = {c.comparison_id: c.result for c in result.comparison_evidence}
+        inconclusive = {k for k, v in results.items() if v == "INCONCLUSIVE"}
+        assert inconclusive, results
+        assert all(
+            k.startswith("comp-generated-file:workspace/REL.DAT") for k in inconclusive
+        ), results
+        assert all(v in ("MATCH", "INCONCLUSIVE") for v in results.values()), results
+        assert result.verdict.state.value == "PARTIAL", (
+            f"Expected PARTIAL, got {result.verdict.state.value}: {results}"
         )
 
 

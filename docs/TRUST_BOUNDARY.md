@@ -108,9 +108,20 @@ Contract: `tests/test_phase12_p4_bl091_approval_workflow.py::TestApprovalRequire
 
 `engine/pipeline.py` compares, for every run:
 
-* the declared contract (default: `STDOUT` + `EXIT_STATUS`);
-* **every file either execution wrote**, declared or not, byte-exactly; a
-  file only one side produced is a `MISMATCH` (never an empty match);
+* the **same entry program** on both sides: the service passes the program
+  the generated application enters (`PipelineConfig.oracle_entry_program`)
+  and the oracle refuses an unknown or ambiguous entry instead of selecting a
+  module by file order (Phase 2);
+* the declared contract (default: `STDOUT` + `EXIT_STATUS`), plus `STDERR`
+  whenever the COBOL source writes to the error device (`UPON STDERR` /
+  `SYSERR`) and the contract does not already declare it;
+* **every file either execution wrote**, declared or not, byte-exactly — in
+  `/workspace/output` (keyed by name) and anywhere in the working directory
+  (keyed `workspace/<path>`, `engine/execution/workspace_files.py`); a file
+  only one side produced is a `MISMATCH` (never an empty match).  The
+  on-disk image of an INDEXED/RELATIVE file is the exception: the Java
+  organisation is an emulation, so it is recorded as an `INCONCLUSIVE`
+  comparison and the run is `PARTIAL`, never `VERIFIED`;
 * no implicit normalization: comparators apply `crlf_to_lf` only when a
   workload declares it, and the policy is recorded in
   `normalization_applied` (the legacy path and the comparator default used
@@ -122,7 +133,14 @@ Contract: `tests/test_phase12_p4_bl091_approval_workflow.py::TestApprovalRequire
   `UNSUPPORTED`, never `VERIFIED`.  Database-state capture does not exist;
   until it does, database effects are unproven by construction.
 
-Contract: `tests/test_comparison_contract_strength.py`.
+Contract: `tests/test_comparison_contract_strength.py`,
+`tests/test_oracle_entry_binding.py`, `tests/test_stderr_contract.py`,
+`tests/test_workspace_file_contract.py`.
+
+A COBOL source the oracle compiler rejects yields `UNAVAILABLE` with the
+difference "COBOL source does not compile on the oracle (cobc exit N)"
+rather than "Required infrastructure unavailable"
+(`tests/verdict/test_oracle_compile_failure_reason.py`).
 
 ## Verdict / evidence consistency at retrieval
 

@@ -113,9 +113,52 @@ class TestModuleSelection:
     def test_cob_precedence_over_cbl(self, tmp_path: Path) -> None:
         (tmp_path / "B.cbl").write_text(HELLO_COB, encoding="utf-8")
         (tmp_path / "A.cob").write_text(HELLO_COB, encoding="utf-8")
-        entry, others = DockerOracleAdapter.select_modules(tmp_path)
+        entry, others = DockerOracleAdapter.select_modules(
+            tmp_path, entry_program="A"
+        )
         assert entry == "A.cob"
         assert others == ["B.cbl"]
+
+    def test_uncalled_root_selects_entry(self, tmp_path: Path) -> None:
+        # No main.* marker: the single program nothing CALLs is the entry,
+        # even though it sorts after its callee.
+        (tmp_path / "ZDRIVER.cob").write_text(
+            MAIN_COB.replace("PROGRAM-ID. MAIN.", "PROGRAM-ID. ZDRIVER."),
+            encoding="utf-8",
+        )
+        (tmp_path / "CLAIMS.cob").write_text(CLAIMS_COB, encoding="utf-8")
+        (tmp_path / "COMMON.cpy").write_text(COMMON_CPY, encoding="utf-8")
+        entry, others = DockerOracleAdapter.select_modules(tmp_path)
+        assert entry == "ZDRIVER.cob"
+        assert others == ["CLAIMS.cob"]
+
+    def test_ambiguous_entry_selects_nothing(self, tmp_path: Path) -> None:
+        # Two uncalled programs and no marker: never pick by file order.
+        (tmp_path / "A.cob").write_text(HELLO_COB, encoding="utf-8")
+        (tmp_path / "B.cob").write_text(
+            HELLO_COB.replace("PROGRAM-ID. HELLO.", "PROGRAM-ID. OTHER."),
+            encoding="utf-8",
+        )
+        entry, others = DockerOracleAdapter.select_modules(tmp_path)
+        assert entry is None
+        assert others == ["A.cob", "B.cob"]
+
+    def test_duplicate_program_id_selects_nothing(self, tmp_path: Path) -> None:
+        (tmp_path / "A.cob").write_text(HELLO_COB, encoding="utf-8")
+        (tmp_path / "B.cob").write_text(HELLO_COB, encoding="utf-8")
+        entry, others = DockerOracleAdapter.select_modules(
+            tmp_path, entry_program="HELLO"
+        )
+        assert entry is None
+        assert others == ["A.cob", "B.cob"]
+
+    def test_unknown_explicit_entry_selects_nothing(self, tmp_path: Path) -> None:
+        _write_multi(tmp_path)
+        entry, others = DockerOracleAdapter.select_modules(
+            tmp_path, entry_program="NOSUCH"
+        )
+        assert entry is None
+        assert others == ["CLAIMS.cob", "MAIN.cob"]
 
 
 # ---------------------------------------------------------------------------

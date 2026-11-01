@@ -36,18 +36,39 @@ Still open, all fail closed today (no false VERIFIED path known):
 - **Real shared group storage:** groups are lowered as views; OCCURS,
   REDEFINES, COMP, signed/scaled leaves, reference modification and group
   operands of STRING/UNSTRING/INSPECT/READ/WRITE/CALL are refused.
-- **Spring Boot application path entry:** the runner calls the entry service's
-  driver paragraph method, so fall-through reliance stays PARTIAL and an
-  `EXIT PROGRAM` in the entry program returns instead of continuing; the
-  runtime differential reports such a run FAILED (never VERIFIED).
+- ~~**Spring Boot application path entry**~~ — fixed in Phase 2: the runner
+  calls `RUN_UNIT$ENTRY` (fall-through chain, EXIT PROGRAM no-op), oracle-pinned
+  through the Maven build in `tests/integration/test_spring_entry_semantics.py`.
 - **Run-unit control flow beyond the fall-through chain:** STOP RUN/GOBACK in
   PERFORMed or nested positions, STOP RUN in CALLed programs, procedure
   SECTIONs, GO TO.
 - **Qualified data names (`OF`/`IN`):** duplicated names are refused.
 - **ON SIZE ERROR, `WITH NO ADVANCING`, level 66, JUSTIFIED, BLANK WHEN ZERO,
   COPY in the single-source producer:** refused with named diagnostics.
-- **STDERR is not part of the default contract**; GnuCOBOL runtime messages
-  and JVM diagnostics differ by design.
+- **STDERR** is compared only when the source writes to it (`UPON STDERR` /
+  `SYSERR`); otherwise GnuCOBOL runtime messages and JVM diagnostics differ by
+  design and are not compared.
+
+### Application end-to-end validation (Phase 2, 2026-11-01)
+Every `fixtures/*/cobol` application was run through the real API (ZIP
+ingest → discovery → generation → Docker build → execution → GnuCOBOL
+differential) and every VERIFIED result was re-checked by an independent
+harness (direct `cobc` and `java -jar`, every file in the working directory).
+Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
+- **Indexed/relative file images are not compared** (Java organisation is an
+  emulation) — such runs are PARTIAL until a record-level comparison exists.
+- **Record SEQUENTIAL files** (no LINE, or no ORGANIZATION clause) fail closed.
+- **Signed / COMP numeric STRING sources** fail closed (stored encoding).
+- **Referenced COMP / COMP-3 items** keep programs PARTIAL (`workload-comp`,
+  `workload-comp3`, `workload-relative`, `workload-relative-file`).
+- **OCCURS whole-record references, REDEFINES numeric reinterpretation**
+  (`workload-occurs`, `workload-redefines`) and **CALL BY VALUE**
+  (`workload-by-value`, GnuCOBOL 3.1.2 implementation unfinished) stay refused.
+- **Undefined data names** are not resolved by the parser: a program GnuCOBOL
+  rejects (e.g. a name cut at column 72) still fails, but at Java compile time.
+- **Plain Java entry selection** falls back to the first program when no entry
+  is given, while the oracle requires an unambiguous entry; the service always
+  passes the resolved entry, but the two rules should be unified.
 
 ### P0 area — Capability truth can drift
 Capability classifications are manually maintained and can become inconsistent with parser,

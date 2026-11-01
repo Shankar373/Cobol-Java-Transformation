@@ -43,6 +43,7 @@ from engine.transformation.group_storage import (
 from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.redefines import build_redefines_plan, write_targets
 from engine.transformation.semantic_capability import canonical_usage
+from engine.transformation.source_format import compiler_visible_text
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -391,6 +392,17 @@ def _parse_usage_clause(rest: str) -> str | None:
     return canonical_usage(match.group(0))
 
 
+def _mask_literal_contents(text: str) -> str:
+    """``text`` with every character inside a quoted literal replaced by
+    ``_``; quotes and length are kept, so match offsets map back to ``text``.
+    """
+    return re.sub(
+        r"([\"'])((?:(?!\1).)*)\1",
+        lambda m: m.group(1) + "_" * len(m.group(2)) + m.group(1),
+        text,
+    )
+
+
 def _strip_area_prefix(line: str) -> str:
     """Strip COBOL area prefix (first 6 chars of identification + 2 of area A)."""
     if len(line) <= 6:
@@ -550,7 +562,8 @@ class CobolParser:
         self._diagnostics.clear()
         self._unsupported_statements = []
         self._record_owner = {}
-        lines = source.split("\n")
+        # Fixed format: the compiler never sees columns 73+, so neither may we.
+        lines = compiler_visible_text(source).split("\n")
         # Remove comments and empty lines
         code_lines = []
         for line in lines:
@@ -581,11 +594,28 @@ class CobolParser:
         # the same logical header (without rewriting the original source).
         logical_lines = []
         for line in code_lines:
+            if logical_lines and line.strip() == ".":
+                # A separator period on its own line ends the sentence exactly
+                # as if written at the end of the previous line.
+                if not logical_lines[-1].rstrip().endswith("."):
+                    logical_lines[-1] = logical_lines[-1].rstrip() + "."
+                continue
             if logical_lines and (
                 re.match(r"^(MOVE|ADD)\b", logical_lines[-1], re.IGNORECASE)
                 and re.match(r"^TO\b", line, re.IGNORECASE)
                 or re.match(r"^IF\b", logical_lines[-1], re.IGNORECASE)
                 and re.match(r"^(?:=|<>|<=|>=|<|>|AND\b|OR\b)", line, re.IGNORECASE)
+                # PERFORM header phrases written on continuation lines.
+                or re.match(r"^PERFORM\b", logical_lines[-1], re.IGNORECASE)
+                and not logical_lines[-1].rstrip().endswith(".")
+                and (
+                    re.match(r"^(?:VARYING|UNTIL|AFTER|WITH\s+TEST)\b", line, re.IGNORECASE)
+                    # condition continued inside a joined UNTIL phrase
+                    or re.search(r"\bUNTIL\b", logical_lines[-1], re.IGNORECASE)
+                    and re.match(
+                        r"^(?:AND|OR|=|<>|<=|>=|<|>)(?![\w-])", line, re.IGNORECASE
+                    )
+                )
             ):
                 logical_lines[-1] += " " + line
             else:
@@ -596,6 +626,8 @@ class CobolParser:
         # the program does, so the parser names them explicitly the moment it
         # sees them instead of dropping them without a trace.
         self._emit_unsupported_section_and_directive_diagnostics(code_lines)
+        self._validate_division_order(code_lines)
+        self._validate_file_organizations(code_lines)
         program_id = self._parse_program_id(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
@@ -914,6 +946,93 @@ class CobolParser:
             # when it survives preprocessing (i.e. non-pseudo-text operands).
             # (no-op: retained for readability; dead `pass` removed)
 
+    _DIVISION_RANK = {
+        "IDENTIFICATION": 0, "ID": 0, "ENVIRONMENT": 1, "DATA": 2, "PROCEDURE": 3,
+    }
+    _DATA_SECTION_RANK = {
+        "FILE": 0, "WORKING-STORAGE": 1, "LOCAL-STORAGE": 2, "LINKAGE": 3,
+        "REPORT": 4, "SCREEN": 5,
+    }
+
+    def _validate_division_order(self, lines: list[str]) -> None:
+        """Fail closed on divisions or DATA DIVISION sections out of order.
+
+        GnuCOBOL rejects such a program outright (e.g. WORKING-STORAGE after
+        LINKAGE: "PROCEDURE DIVISION header missing"), while the section
+        scanners here locate each header by text and would translate it, so
+        the Java would claim behaviour for a program that does not exist.
+        Each IDENTIFICATION DIVISION starts a new program and resets order.
+        """
+        division = -1
+        section = -1
+        for number, line in enumerate(lines, start=1):
+            m = re.match(
+                r"^(IDENTIFICATION|ID|ENVIRONMENT|DATA|PROCEDURE)\s+DIVISION\b",
+                line, re.IGNORECASE,
+            )
+            if m:
+                rank = self._DIVISION_RANK[m.group(1).upper()]
+                if rank == 0:
+                    division, section = 0, -1
+                elif rank <= division:
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"{m.group(1).upper()} DIVISION is out of order or "
+                        "repeated: the oracle compiler rejects this program",
+                        location=f"line {number}",
+                    )
+                else:
+                    division = rank
+                continue
+            m = re.match(
+                r"^(FILE|WORKING-STORAGE|LOCAL-STORAGE|LINKAGE|REPORT|SCREEN)"
+                r"\s+SECTION\b",
+                line, re.IGNORECASE,
+            )
+            if m:
+                rank = self._DATA_SECTION_RANK[m.group(1).upper()]
+                if rank <= section or division == self._DIVISION_RANK["PROCEDURE"]:
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"{m.group(1).upper()} SECTION is out of order or "
+                        "repeated in the DATA DIVISION: the oracle compiler "
+                        "rejects this program",
+                        location=f"line {number}",
+                    )
+                else:
+                    section = rank
+
+    def _validate_file_organizations(self, lines: list[str]) -> None:
+        """Fail closed on record-sequential files.
+
+        The generated file runtime implements LINE SEQUENTIAL (one record
+        per line, trailing spaces removed on WRITE).  ORGANIZATION
+        SEQUENTIAL — explicit, or the default when no ORGANIZATION clause is
+        given — is fixed-length records with no line terminator in GnuCOBOL,
+        which that runtime does not reproduce.  Only files assigned to a
+        literal name are checked; device assignments are not files.
+        """
+        text = " ".join(lines)
+        for m in re.finditer(
+            r"\bSELECT\s+(?:OPTIONAL\s+)?([\w-]+)\s+ASSIGN\s+(?:TO\s+)?"
+            r"([\"'][^\"']+[\"'])([^.]*)\.",
+            text, re.IGNORECASE,
+        ):
+            organization = re.search(
+                r"\bORGANI[SZ]ATION\s+(?:IS\s+)?(LINE\s+SEQUENTIAL|SEQUENTIAL|"
+                r"INDEXED|RELATIVE)\b",
+                m.group(3), re.IGNORECASE,
+            )
+            kind = organization.group(1).upper() if organization else "SEQUENTIAL"
+            if kind == "SEQUENTIAL":
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"File {m.group(1).upper()} is record SEQUENTIAL: "
+                    "fixed-length record files without line terminators are "
+                    "not certified (only LINE SEQUENTIAL is)",
+                    location=m.group(1).upper(),
+                )
+
     def _validate_program_structure(self, program: CobolProgram, source: str) -> None:
         """Emit PARSE_ERROR if input contains no valid COBOL program structure.
 
@@ -1120,7 +1239,7 @@ class CobolParser:
                             )
                             tail = line.strip().split(None, 2)
                             rest = tail[2] if len(tail) > 2 else ""
-                            usage = _parse_usage_clause(rest)
+                            usage = _parse_usage_clause(_mask_literal_contents(rest))
                             self._note_usage(current_record, usage)
                             current_items.append(DataItem(
                                 name=current_record,
@@ -1142,7 +1261,7 @@ class CobolParser:
                             )
                             tail = line.strip().split(None, 2)
                             rest = tail[2] if len(tail) > 2 else ""
-                            usage = _parse_usage_clause(rest)
+                            usage = _parse_usage_clause(_mask_literal_contents(rest))
                             self._note_usage(item_name, usage)
                             current_items.append(DataItem(
                                 name=item_name,
@@ -1171,6 +1290,10 @@ class CobolParser:
             if not m:
                 continue
             level, name, rest = int(m.group(1)), m.group(2).rstrip("."), m.group(3)
+            # Clause keywords are searched with literal contents blanked
+            # (same length), so a VALUE literal containing "VALUE", "PIC",
+            # "OCCURS" ... is never read as a clause.
+            clauses = _mask_literal_contents(rest)
             if level == 66:
                 self._diagnostics.warning(
                     DiagnosticCode.UNSUPPORTED_CONSTRUCT,
@@ -1182,27 +1305,27 @@ class CobolParser:
                 ("JUSTIFIED", r"\bJUST(?:IFIED)?\b"),
                 ("BLANK WHEN ZERO", r"\bBLANK\s+(?:WHEN\s+)?ZEROE?S?\b"),
             ):
-                if re.search(pattern, rest, re.IGNORECASE):
+                if re.search(pattern, clauses, re.IGNORECASE):
                     self._diagnostics.warning(
                         DiagnosticCode.UNSUPPORTED_CONSTRUCT,
                         f"{clause} clause on {name} changes stored/displayed "
                         "content and has no certified lowering",
                         location=name,
                     )
-            pic = re.search(r"\bPIC(?:TURE)?\s+([A-Z0-9()V+\-]+)", rest, re.IGNORECASE)
+            pic = re.search(r"\bPIC(?:TURE)?\s+([A-Z0-9()V+\-]+)", clauses, re.IGNORECASE)
             if pic:
                 pic_type, pic_length, decimals = self._parse_pic_details(pic.group(1))
             else:
                 pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
-            value_m = re.search(r"(?:^|\s)VALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", rest, re.IGNORECASE)
-            occurs_m = re.search(r"\bOCCURS\s+(\d+)", rest, re.IGNORECASE)
+            value_m = re.search(r"(?:^|\s)VALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", clauses, re.IGNORECASE)
+            occurs_m = re.search(r"\bOCCURS\s+(\d+)", clauses, re.IGNORECASE)
             odo_m = re.search(
                 r"\bOCCURS\s+(\d+)(?:\s+TO\s+(\d+))?\s+TIMES\s+DEPENDING\s+ON\s+([A-Z0-9][\w-]*)",
-                rest,
+                clauses,
                 re.IGNORECASE,
             )
-            redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", rest, re.IGNORECASE)
-            usage = _parse_usage_clause(rest)
+            redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", clauses, re.IGNORECASE)
+            usage = _parse_usage_clause(clauses)
             self._note_usage(name, usage)
             occurs_depending_on: str | None = None
             occurs: int | None = int(occurs_m.group(1)) if occurs_m else None
@@ -1220,7 +1343,10 @@ class CobolParser:
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
                 signed=self._pic_is_signed(pic.group(1)) if pic else False,
-                value=value_m.group(1).strip().rstrip(".") if value_m else None,
+                value=(
+                    rest[value_m.start(1):value_m.end(1)].strip().rstrip(".")
+                    if value_m else None
+                ),
                 occurs=occurs,
                 occurs_depending_on=occurs_depending_on,
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
@@ -2149,18 +2275,37 @@ class CobolParser:
         return AddStatement(source="", target=""), end
 
     def _parse_subtract(self, lines: list[str], start: int) -> tuple[SubtractStatement, int]:
-        """Parse SUBTRACT source FROM field [GIVING target]."""
+        """Parse SUBTRACT source... FROM field [GIVING target] [ROUNDED].
+
+        Several subtrahends (``SUBTRACT A B 5 FROM C``, commas allowed) are
+        all subtracted from the single minuend.  A literal minuend is valid
+        COBOL only with GIVING; without it the minuend is the receiver.
+        Several receivers, ON SIZE ERROR and any other phrase stay unparsed.
+        """
         line, end = self._join_arithmetic_continuation(lines, start)
         line = line.strip().rstrip(".").strip()
         match = re.search(
-            r"SUBTRACT\s+(\S+)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
+            r"SUBTRACT\s+(.+?)\s+FROM\s+(\S+)(?:\s+GIVING\s+(\S+))?(?:\s+ROUNDED)?\s*$",
             line,
             re.IGNORECASE,
         )
-        if not match:
+        operand = r"(?:[A-Za-z0-9][\w-]*(?:\([^()\s]+\))?|[+-]?\d*\.?\d+)"
+        sources = (
+            tuple(t for t in re.split(r"[\s,]+", match.group(1).strip()) if t)
+            if match else ()
+        )
+        if (
+            not match
+            or not sources
+            or not all(re.fullmatch(operand, s) for s in sources)
+            or any(s.upper() in ("FROM", "GIVING", "ROUNDED") for s in sources)
+            or not re.fullmatch(operand, match.group(2))
+            or match.group(3) is None
+            and re.fullmatch(r"[+-]?\d*\.?\d+", match.group(2))
+        ):
             self._emit_unparsed("SUBTRACT", lines[start])
             return SubtractStatement(source="", from_field=""), end
-        source = match.group(1).rstrip(".")
+        source = sources[0]
         from_field = match.group(2).rstrip(".")
         to_field = match.group(3).rstrip(".") if match.group(3) else None
         rounded = bool(re.search(r"\sROUNDED(?:\s*\.|\s*)$", line, re.IGNORECASE))
@@ -2171,6 +2316,7 @@ class CobolParser:
             source_expr=self._build_expression(source),
             from_ref=FieldReference(name=from_field),
             to_ref=FieldReference(name=to_field) if to_field else None,
+            sources=sources if len(sources) > 1 else (),
             rounded=rounded,
         ), end
 

@@ -107,6 +107,9 @@ class PipelineConfig:
     java_path: str = "java"
     timeout_seconds: int = 30
     use_docker_java: bool = True
+    # COBOL PROGRAM-ID the candidate enters.  When set, the oracle runs that
+    # program (or refuses) instead of selecting an entry on its own.
+    oracle_entry_program: str | None = None
 
 
 @dataclass
@@ -375,7 +378,20 @@ class VerticalSlicePipeline:
         candidate_artifacts_list: list[CapturedArtifact] = []
         comparison_evidence: list[ComparisonEvidence] = []
 
-        for artifact_def in workload.artifacts:
+        artifacts = tuple(workload.artifacts)
+        if (
+            not any(a.artifact_type == "STDERR" for a in artifacts)
+            and self._source_writes_stderr()
+        ):
+            # The program writes to standard error itself, so stderr is an
+            # observable effect even when the contract does not declare it.
+            artifacts += (WorkloadArtifact(
+                logical_name="stderr",
+                artifact_type="STDERR",
+                comparator_id="stderr-exact",
+            ),)
+
+        for artifact_def in artifacts:
             # Extract content
             oracle_content = self._extract_artifact_content(
                 artifact_def.artifact_type, artifact_def.output_path, oracle_result
@@ -460,7 +476,34 @@ class VerticalSlicePipeline:
                 "No comparator registered for artifact_type='TEXT_FILE': "
                 "undeclared generated files cannot be compared"
             )
+        emulated = self._emulated_file_image_names(undeclared)
         for name in undeclared:
+            if name in emulated:
+                artifact_def = WorkloadArtifact(
+                    logical_name=f"generated-file:{name}",
+                    artifact_type="TEXT_FILE",
+                    comparator_id="text-file-exact",
+                    output_path=name,
+                )
+                oracle_ca = self._capture_artifact(
+                    "TEXT_FILE", name, oracle_result.execution_id,
+                    oracle_generated.get(name), artifact_def.logical_name, "ORACLE",
+                )
+                candidate_ca = self._capture_artifact(
+                    "TEXT_FILE", name, candidate_result.execution_id,
+                    candidate_generated.get(name), artifact_def.logical_name,
+                    "CANDIDATE",
+                )
+                oracle_artifacts_list.append(oracle_ca)
+                candidate_artifacts_list.append(candidate_ca)
+                comparison_evidence.append(self._inconclusive_comparison(
+                    run_id, artifact_def, oracle_ca, candidate_ca,
+                    text_comparator.comparator_id,
+                    f"{name}: on-disk image of an INDEXED/RELATIVE file; the "
+                    "Java file organisation is an emulation, so its bytes are "
+                    "not comparable and its record content is not compared",
+                ))
+                continue
             artifact_def = WorkloadArtifact(
                 logical_name=f"generated-file:{name}",
                 artifact_type="TEXT_FILE",
@@ -675,6 +718,73 @@ class VerticalSlicePipeline:
         ),
     )
 
+    #: DISPLAY ... UPON STDERR/SYSERR, or a SPECIAL-NAMES mnemonic for the
+    #: error device that DISPLAY ... UPON <mnemonic> can then target.
+    _STDERR_WRITE_PATTERN = re.compile(
+        r"\bUPON\s+(?:STDERR|SYSERR)\b|\b(?:STDERR|SYSERR)\s+IS\b",
+        re.IGNORECASE,
+    )
+
+    _KEYED_FILE_SELECT = re.compile(
+        r"\bSELECT\s+[\w-]+\s+ASSIGN\s+(?:TO\s+)?[\"']([^\"']+)[\"']([^.]*)\.",
+        re.IGNORECASE,
+    )
+
+    def _emulated_file_image_names(self, names: list[str]) -> set[str]:
+        """Generated files that are INDEXED/RELATIVE file images.
+
+        Matched by the ASSIGN literal of a SELECT whose ORGANIZATION is
+        INDEXED or RELATIVE: the file itself or a companion sharing its name
+        plus an extension (``IDX.DAT.idx``).
+        """
+        keyed: set[str] = set()
+        for text in self._source_texts():
+            for m in self._KEYED_FILE_SELECT.finditer(text):
+                if re.search(
+                    r"\bORGANI[SZ]ATION\s+(?:IS\s+)?(?:INDEXED|RELATIVE)\b",
+                    m.group(2), re.IGNORECASE,
+                ):
+                    keyed.add(m.group(1).rsplit("/", 1)[-1])
+        return {
+            name for name in names
+            if any(
+                (base := name.rsplit("/", 1)[-1]) == k or base.startswith(k + ".")
+                for k in keyed
+            )
+        }
+
+    @staticmethod
+    def _inconclusive_comparison(
+        run_id: RunId,
+        artifact_def: WorkloadArtifact,
+        oracle_ca: CapturedArtifact,
+        candidate_ca: CapturedArtifact,
+        comparator: object,
+        difference: str,
+    ) -> ComparisonEvidence:
+        """INCONCLUSIVE evidence bound to the artifact type's comparator."""
+        return ComparisonEvidence(
+            comparison_id=f"comp-{artifact_def.logical_name}-{run_id.value}",
+            run_id=run_id,
+            comparator_id=comparator.comparator_id,
+            comparator_version=comparator.version,
+            oracle_artifact_id=oracle_ca.artifact.artifact_id,
+            candidate_artifact_id=candidate_ca.artifact.artifact_id,
+            artifact_type=artifact_def.artifact_type,
+            result="INCONCLUSIVE",
+            normalization_applied=(),
+            differences=(difference,),
+            field_level_results=(),
+            content_hash=ContentHash.from_string(json.dumps({
+                "result": "INCONCLUSIVE", "differences": [difference],
+            }, sort_keys=True)),
+        )
+
+    def _source_writes_stderr(self) -> bool:
+        return any(
+            self._STDERR_WRITE_PATTERN.search(text) for text in self._source_texts()
+        )
+
     def _source_texts(self) -> list[str]:
         """COBOL source text with comment lines and inline comments blanked."""
         source_path = Path(self._config.cobol_source_path)
@@ -768,11 +878,15 @@ class VerticalSlicePipeline:
 
         if progress is not None:
             progress("EXECUTING_ORACLE")
+        oracle_kwargs = {}
+        if self._config.oracle_entry_program:
+            oracle_kwargs["entry_program"] = self._config.oracle_entry_program
         oracle_result = self._oracle_adapter.execute(
             run_id=run_id,
             source_path=self._config.cobol_source_path,
             input_data=controlled_input,
             input_files=input_files,
+            **oracle_kwargs,
         )
         oracle_evidence = oracle_result.to_execution_evidence()
 
