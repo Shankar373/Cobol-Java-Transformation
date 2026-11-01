@@ -41,6 +41,12 @@ from engine.candidate.docker_java_adapter import (
     DockerJavaConfig,
 )
 from engine.candidate.java_adapter import RealJavaCandidateAdapter
+from engine.comparators.indexed_records import (
+    UnreadableImage,
+    bdb_btree_records,
+    canonical_records,
+    emulated_index_records,
+)
 from engine.comparators.framework import (
     ComparatorRegistry,
     create_default_registry,
@@ -477,7 +483,14 @@ class VerticalSlicePipeline:
                 "undeclared generated files cannot be compared"
             )
         emulated = self._emulated_file_image_names(undeclared)
+        records_compared = self._compare_indexed_records(
+            run_id, emulated, oracle_generated, candidate_generated,
+            oracle_result, candidate_result, text_comparator,
+            oracle_artifacts_list, candidate_artifacts_list, comparison_evidence,
+        )
         for name in undeclared:
+            if name in records_compared:
+                continue
             if name in emulated:
                 artifact_def = WorkloadArtifact(
                     logical_name=f"generated-file:{name}",
@@ -730,6 +743,19 @@ class VerticalSlicePipeline:
         re.IGNORECASE,
     )
 
+    def _keyed_file_names(self, organizations: str = "INDEXED|RELATIVE") -> set[str]:
+        """ASSIGN literals (base names) of SELECTs with one of
+        ``organizations`` (a regex alternation)."""
+        keyed: set[str] = set()
+        for text in self._source_texts():
+            for m in self._KEYED_FILE_SELECT.finditer(text):
+                if re.search(
+                    rf"\bORGANI[SZ]ATION\s+(?:IS\s+)?(?:{organizations})\b",
+                    m.group(2), re.IGNORECASE,
+                ):
+                    keyed.add(m.group(1).rsplit("/", 1)[-1])
+        return keyed
+
     def _emulated_file_image_names(self, names: list[str]) -> set[str]:
         """Generated files that are INDEXED/RELATIVE file images.
 
@@ -737,14 +763,7 @@ class VerticalSlicePipeline:
         INDEXED or RELATIVE: the file itself or a companion sharing its name
         plus an extension (``IDX.DAT.idx``).
         """
-        keyed: set[str] = set()
-        for text in self._source_texts():
-            for m in self._KEYED_FILE_SELECT.finditer(text):
-                if re.search(
-                    r"\bORGANI[SZ]ATION\s+(?:IS\s+)?(?:INDEXED|RELATIVE)\b",
-                    m.group(2), re.IGNORECASE,
-                ):
-                    keyed.add(m.group(1).rsplit("/", 1)[-1])
+        keyed = self._keyed_file_names()
         return {
             name for name in names
             if any(
@@ -752,6 +771,72 @@ class VerticalSlicePipeline:
                 for k in keyed
             )
         }
+
+    def _compare_indexed_records(
+        self, run_id, emulated, oracle_generated, candidate_generated,
+        oracle_result, candidate_result, text_comparator,
+        oracle_artifacts, candidate_artifacts, comparisons,
+    ) -> set[str]:
+        """Compare INDEXED files by their records; return the images handled.
+
+        The oracle leaves ``<file>`` (GnuCOBOL's Berkeley DB B-tree), the
+        generated runtime ``<file>.idx`` (its emulation).  When each image
+        is on its own side only and both decode
+        (``engine.comparators.indexed_records``), their records — what a
+        COBOL program reading the file sees, in key order — are compared
+        byte-exactly as one ``<file>#records`` artifact; the physical images
+        are not compared (their hashes stay in the execution evidence).  Any
+        other case is left to the INCONCLUSIVE path.
+        """
+        indexed = self._indexed_file_names()
+        handled: set[str] = set()
+        for name in sorted(emulated):
+            image = name + ".idx"
+            if (
+                name.rsplit("/", 1)[-1] not in indexed
+                or name not in oracle_generated or name in candidate_generated
+                or image not in candidate_generated or image in oracle_generated
+            ):
+                continue
+            try:
+                oracle_records = bdb_btree_records(oracle_generated[name])
+                candidate_records = emulated_index_records(candidate_generated[image])
+            except UnreadableImage:
+                continue
+            output_path = f"{name}#records"
+            artifact_def = WorkloadArtifact(
+                logical_name=f"generated-file:{output_path}",
+                artifact_type="TEXT_FILE",
+                comparator_id="text-file-exact",
+                output_path=output_path,
+                failure=_ONE_SIDED_FILE_IS_MISMATCH,
+            )
+            oracle_ca = self._capture_artifact(
+                "TEXT_FILE", output_path, oracle_result.execution_id,
+                canonical_records(oracle_records), artifact_def.logical_name, "ORACLE",
+            )
+            candidate_ca = self._capture_artifact(
+                "TEXT_FILE", output_path, candidate_result.execution_id,
+                canonical_records(candidate_records), artifact_def.logical_name,
+                "CANDIDATE",
+            )
+            oracle_artifacts.append(oracle_ca)
+            candidate_artifacts.append(candidate_ca)
+            comp_result = text_comparator.compare(
+                oracle_ca.artifact, oracle_ca.content,
+                candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=(),
+                ordering="SEQUENTIAL",
+                failure_policy=artifact_def.failure,
+            )
+            comparisons.append(self._make_comparison_evidence(
+                run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
+            ))
+            handled |= {name, image}
+        return handled
+
+    def _indexed_file_names(self) -> set[str]:
+        return self._keyed_file_names("INDEXED")
 
     @staticmethod
     def _inconclusive_comparison(

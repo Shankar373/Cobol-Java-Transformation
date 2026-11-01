@@ -42,6 +42,7 @@ matrix, and the 2026-11-01 architecture audit
    STRING sources.
 3. **Files** — record-level comparison of INDEXED/RELATIVE files (turns the
    6 PARTIAL apps into VERIFIED when equal); record SEQUENTIAL files.
+   *INDEXED done, §3.3; RELATIVE and record SEQUENTIAL open.*
 4. **Multi-runtime** — end-to-end API lanes for plain Java and Jakarta EE
    with GnuCOBOL proof, then a runtime-adapter port for the entry/host
    shape and additional runtimes (Quarkus, Micronaut, Open Liberty), each
@@ -91,3 +92,50 @@ with RC 4) — **VERIFIED** through the API (stdout, EXIT_STATUS 4,
 `TXNS.DAT` MATCH) and **AGREE** in the independent re-check (both sides
 exit 4).  Generated Java for the 48 Phase 2 applications is unchanged
 versus `4bcc514`.
+
+### 3.3 INDEXED files compared by records (increment 3)
+
+GnuCOBOL 3.1.2 keeps an INDEXED file as a Berkeley DB B-tree; the
+generated runtime keeps `<file>.idx` (a `K<keylen>` line, then
+`key\x01data` per record, in key order).  The images can never be
+byte-equal, so until now every program writing an INDEXED file was
+PARTIAL however well it behaved.
+
+| Layer | Change |
+|---|---|
+| Reader | `engine/comparators/indexed_records.py`: walks the B-tree from the metadata root (internal → leaf pages) and returns the live records in key order; refuses (`UnreadableImage`) anything it does not certify — wrong magic/version/page size, encryption, unknown page type, overflow or duplicate items, out-of-page offsets, truncation. Shares nothing with the COBOL parser or the generated runtime |
+| Pipeline | `_compare_indexed_records`: when the oracle left `<file>` and the candidate `<file>.idx` (each on its own side only) and both decode, one TEXT_FILE artifact `generated-file:<file>#records` (one `hex\tprintable` line per record) is compared byte-exactly; otherwise the image keeps the INCONCLUSIVE path (PARTIAL) |
+| RELATIVE | unchanged — INCONCLUSIVE/PARTIAL: the Java emulation keeps RELATIVE records in memory and writes no image, so there is nothing to compare |
+| Independent re-check | `verify_independent.py` decodes the B-tree differently (linear scan of every leaf page, then sort by key) and records the decoded records of both sides |
+
+Reader proof: on `MANY.DAT` (400 descending-key writes, every 7th
+deleted, every 5th rewritten — a multi-level tree) the reader returns
+exactly GnuCOBOL's own sequential READ NEXT (343 records); the Docker test
+regenerates the image and checks again.  On fresh oracle images of all six
+applications below, the platform reader and the independent reader return
+identical records (those images are single-leaf; multi-level trees are
+covered by `MANY.DAT`).
+
+Negative cases (`tests/test_indexed_record_comparison.py`, real pipeline,
+stub executions): a changed, missing, extra or reordered record →
+`#records` MISMATCH → **FAILED**; an overflow image (`BIG.DAT`), an image
+on one side only, or a RELATIVE file → INCONCLUSIVE, never VERIFIED;
+malformed headers/pages/emulations are refused by the readers.
+
+Applications (all previously PARTIAL), each run alone through the API and
+then alone through the independent re-check:
+
+| Application | API verdict | STDOUT / EXIT / `#records` | Records (both sides) | Independent |
+|---|---|---|---|---|
+| workload-delete | **VERIFIED** | MATCH / MATCH (0) / MATCH | 1 | AGREE |
+| workload-indexed | **VERIFIED** | MATCH / MATCH (0) / MATCH | 2 | AGREE |
+| workload-indexed-file | **VERIFIED** | MATCH / MATCH (0) / MATCH | 2 | AGREE |
+| workload-indexed-rewrite-delete-start | **VERIFIED** | MATCH / MATCH (0) / MATCH | 2 | AGREE |
+| workload-rewrite | **VERIFIED** | MATCH / MATCH (0) / MATCH | 2 | AGREE |
+| workload-start-invalidkey | **VERIFIED** | MATCH / MATCH (0) / MATCH | 2 | AGREE |
+
+The independent records (hex) of each side are in
+`evidence/phase3/independent_verification.jsonl`.  The two RELATIVE
+fixtures (`workload-relative`, `workload-relative-file`) are still
+refused at generation for their referenced COMP/COMP-3 items, exactly as
+in Phase 2; they produce no verdict.

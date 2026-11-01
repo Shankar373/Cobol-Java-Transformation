@@ -119,9 +119,20 @@ Contract: `tests/test_phase12_p4_bl091_approval_workflow.py::TestApprovalRequire
   `/workspace/output` (keyed by name) and anywhere in the working directory
   (keyed `workspace/<path>`, `engine/execution/workspace_files.py`); a file
   only one side produced is a `MISMATCH` (never an empty match).  The
-  on-disk image of an INDEXED/RELATIVE file is the exception: the Java
-  organisation is an emulation, so it is recorded as an `INCONCLUSIVE`
-  comparison and the run is `PARTIAL`, never `VERIFIED`;
+  on-disk image of an INDEXED/RELATIVE file is the exception, because the
+  Java organisation is an emulation whose bytes can never equal GnuCOBOL's:
+  * **INDEXED** — the file is certified by its **records**: GnuCOBOL's
+    Berkeley DB B-tree is read page by page on the host
+    (`engine/comparators/indexed_records.py`, no use of the COBOL parser or
+    the generated runtime), the Java emulation `<file>.idx` is decoded, and
+    the two record lists (what a COBOL program reading the file sees, in key
+    order) are compared byte-exactly as one `<file>#records` artifact.  The
+    physical images are not compared; their hashes stay in the execution
+    evidence.  An image the reader does not certify (overflow or duplicate
+    items, encryption, unknown or malformed pages) keeps the old rule below;
+  * **RELATIVE**, or an undecodable INDEXED image — recorded as an
+    `INCONCLUSIVE` comparison, so the run is `PARTIAL`, never `VERIFIED`
+    (`tests/test_indexed_record_comparison.py`);
 * no implicit normalization: comparators apply `crlf_to_lf` only when a
   workload declares it, and the policy is recorded in
   `normalization_applied` (the legacy path and the comparator default used

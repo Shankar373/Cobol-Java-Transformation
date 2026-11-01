@@ -127,11 +127,14 @@ scenarios plus gate invariants). Per-workload runtime-proof status lives in
   order). Files a program leaves in its working directory are collected on both
   sides as `workspace/<path>` and compared byte-exactly, like `/workspace/output`
   files. stderr is compared whenever the source writes to it (`UPON STDERR`/`SYSERR`).
-- **Indexed/relative file images are not compared.** The Java organisation is an
-  emulation (`<file>.idx`), so its on-disk image is recorded as an INCONCLUSIVE
-  comparison and the run is **PARTIAL**, not VERIFIED — even when stdout, FILE
-  STATUS and exit status match. A record-level (logical content) comparison is
-  required before such runs can be VERIFIED.
+- **INDEXED files are compared by records; RELATIVE images are not compared.**
+  (Phase 3) The physical images differ by construction (Berkeley DB B-tree vs the
+  Java emulation `<file>.idx`), so an INDEXED file is certified by its record
+  content, read from GnuCOBOL's B-tree independently of the parser
+  (`engine/comparators/indexed_records.py`; checked against GnuCOBOL's own
+  sequential read of a 343-record multi-level tree). Overflow/duplicate items or
+  any unrecognised page keep the image INCONCLUSIVE (PARTIAL). RELATIVE files are
+  still INCONCLUSIVE: the Java emulation keeps them in memory only.
 - **Dynamic / unresolved CALL blocks generation.** A CALL the plan marks SKIP
   (`CALL WS-NAME`, unresolved target) stops generation before any Java is emitted.
 - `CALL ... BY CONTENT` is `SUPPORTED` for plain data-item arguments, proven byte-identical

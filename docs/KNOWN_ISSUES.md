@@ -55,8 +55,10 @@ ingest → discovery → generation → Docker build → execution → GnuCOBOL
 differential) and every VERIFIED result was re-checked by an independent
 harness (direct `cobc` and `java -jar`, every file in the working directory).
 Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
-- **Indexed/relative file images are not compared** (Java organisation is an
-  emulation) — such runs are PARTIAL until a record-level comparison exists.
+- ~~**Indexed/relative file images are not compared**~~ — INDEXED files are
+  compared by records since Phase 3 (`tests/test_indexed_record_comparison.py`);
+  **RELATIVE file images** are still INCONCLUSIVE (PARTIAL): the Java emulation
+  keeps RELATIVE files in memory and writes no image.
 - **Record SEQUENTIAL files** (no LINE, or no ORGANIZATION clause) fail closed.
 - **Signed / COMP numeric STRING sources** fail closed (stored encoding).
 - **Referenced COMP / COMP-3 items** keep programs PARTIAL (`workload-comp`,

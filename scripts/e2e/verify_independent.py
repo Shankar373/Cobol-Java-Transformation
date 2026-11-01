@@ -71,11 +71,64 @@ def is_free(text: str) -> bool:
     return False
 
 
-def snapshot(root: Path) -> dict[str, str]:
-    return {
-        f.relative_to(root).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
-        for f in sorted(root.rglob("*")) if f.is_file()
-    }
+def _bdb_records(image: bytes) -> list[bytes] | None:
+    """Records of a Berkeley DB B-tree (GnuCOBOL INDEXED file), or None.
+
+    Deliberately not the platform's algorithm: every leaf page is scanned
+    linearly and the live key/data pairs are sorted by key, instead of
+    walking the tree from its root.  Anything but plain items -> None.
+    """
+    if len(image) < 512 or image[12:16] != b"\x62\x31\x05\x00":
+        return None
+    size = int.from_bytes(image[20:24], "little")
+    if size < 512 or len(image) % size:
+        return None
+    pairs = []
+    for start in range(size, len(image), size):
+        page = image[start:start + size]
+        if page[25] != 5:  # leaf
+            continue
+        count = int.from_bytes(page[20:22], "little")
+        offs = [int.from_bytes(page[26 + 2 * i:28 + 2 * i], "little") for i in range(count)]
+        for k, d in zip(offs[::2], offs[1::2]):
+            if page[k + 2] & 0x80 or page[d + 2] & 0x80:
+                continue  # deleted
+            if page[k + 2] != 1 or page[d + 2] != 1:
+                return None
+            key = page[k + 3:k + 3 + int.from_bytes(page[k:k + 2], "little")]
+            data = page[d + 3:d + 3 + int.from_bytes(page[d:d + 2], "little")]
+            pairs.append((key, data))
+    return [data for _, data in sorted(pairs)]
+
+
+def _emulated_records(image: bytes) -> list[bytes] | None:
+    """Records of the generated Java INDEXED emulation, or None."""
+    lines = image.split(b"\n")
+    if not re.fullmatch(rb"K\d+", lines[0]) or lines[-1] != b"":
+        return None
+    return [line.replace(b"\x01", b"", 1) for line in lines[1:-1]]
+
+
+def snapshot(root: Path, decoded: dict | None = None) -> dict[str, str]:
+    """Hash of every file; an INDEXED file is represented by its records
+    (GnuCOBOL's Berkeley DB image ``X`` and the Java emulation ``X.idx``
+    both become ``X#records``), since the two physical formats differ.
+    The decoded records (hex) go to ``decoded`` when given, as evidence."""
+    out = {}
+    for f in sorted(root.rglob("*")):
+        if not f.is_file():
+            continue
+        name, data = f.relative_to(root).as_posix(), f.read_bytes()
+        records = _bdb_records(data)
+        if records is None and name.endswith(".idx"):
+            records = _emulated_records(data)
+            name = name[:-4] if records is not None else name
+        if records is not None:
+            name, data = name + "#records", b"\n".join(r.hex().encode() for r in records)
+            if decoded is not None:
+                decoded[name] = [r.hex() for r in records]
+        out[name] = hashlib.sha256(data).hexdigest()
+    return out
 
 
 def run_cobol(cobol_dir: Path, work: Path) -> dict:
@@ -94,8 +147,9 @@ def run_cobol(cobol_dir: Path, work: Path) -> dict:
     p = docker(["run", "--rm", "-i", "--network", "none",
                 "-v", f"{src.as_posix()}:/src", "-v", f"{run.as_posix()}:/workspace",
                 "--workdir", "/workspace", ORACLE, "sh", "-c", script])
+    records: dict = {}
     return {"stdout": p.stdout, "stderr": p.stderr, "exit": p.returncode,
-            "files": snapshot(run)}
+            "files": snapshot(run, records), "records": records}
 
 
 def run_java(project: Path, work: Path) -> dict:
@@ -116,14 +170,15 @@ def run_java(project: Path, work: Path) -> dict:
     p = docker(["run", "--rm", "-i", "--network", "none",
                 "-v", f"{run.as_posix()}:/workspace", "-v", f"{jars.as_posix()}:/jars:ro",
                 "--workdir", "/workspace", JRE, "sh", "-c", f"java -jar /jars/{jar}"])
+    records: dict = {}
     return {"stdout": p.stdout, "stderr": p.stderr, "exit": p.returncode,
-            "files": snapshot(run)}
+            "files": snapshot(run, records), "records": records}
 
 
 def _summary(side: dict) -> dict:
     return {"stdout": side["stdout"].decode(errors="replace")[:600],
             "stderr": side["stderr"].decode(errors="replace")[:300],
-            "exit": side["exit"], "files": side["files"]}
+            "exit": side["exit"], "files": side["files"], "records": side["records"]}
 
 
 def main() -> None:
