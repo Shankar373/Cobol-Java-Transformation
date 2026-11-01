@@ -324,8 +324,11 @@ class TestMutatedGeneratedCandidate:
         )
         source = service.read_text(encoding="utf-8")
         original = "VALUE-TWO---"
-        assert source.count(original) == 1, (
-            "mutation anchor must occur exactly once in the generated code"
+        # One COBOL MOVE, lowered twice: in the paragraph method (PERFORM
+        # target) and inlined in the run-unit entry (STOP RUN semantics).
+        # Mutate every lowering so the executed path is mutated.
+        assert source.count(original) == 2, (
+            "mutation anchor must occur once per lowering of the MOVE"
         )
         service.write_text(
             source.replace(original, "VALUE-TWX---"), encoding="utf-8"

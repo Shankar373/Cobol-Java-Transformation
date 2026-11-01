@@ -5341,8 +5341,12 @@ def map_cobol_program_to_java(
             arguments=(),
         )))
     else:
-        # No linkage - inline the driver paragraph statements
-        main_body.extend(_entry_body())
+        # No linkage - run the run-unit entry (one body, so main and every
+        # other host execute the same lowered code).
+        main_body.append(JavaMethodCallStatement(call=JavaMethodCall(
+            method_name=RUN_UNIT_ENTRY_METHOD,
+            arguments=(),
+        )))
 
     methods.append(JavaMethod(
         name="main",
