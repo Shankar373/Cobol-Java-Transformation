@@ -39,7 +39,8 @@ jobs:
           # that imports api.service, which requires pydantic. This gate
           # deliberately installs pytest only (BL-012 - no hidden runtime-stack
           # coupling), so that single test is deselected here and remains
-          # enforced by the backend job, which runs the full suite.
+          # enforced by the backend job, which runs the full suite. The same
+          # applies to tests/test_oracle_entry_binding.py::TestServiceResolvesEntry.
           python -m pytest -q \
             tests/transformation/test_capability_registry_reconciliation.py \
             tests/transformation/test_capability_walker_depth.py \
@@ -108,7 +109,7 @@ jobs:
             tests/transformation/test_call_capability_fail_closed.py \
             tests/transformation/test_cics_multiline_parsing.py \
             tests/transformation/test_modernization_planner.py \
-            --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded
+            --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded             --deselect tests/test_oracle_entry_binding.py::TestServiceResolvesEntry
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics

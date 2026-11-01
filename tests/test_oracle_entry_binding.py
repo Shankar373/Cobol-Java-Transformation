@@ -14,7 +14,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.service import Service
 from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
 from tests.test_comparison_contract_strength import _Candidate, _Oracle
@@ -83,6 +82,13 @@ class TestPipelinePassesEntry:
 
 
 class TestServiceResolvesEntry:
+    # api.service needs pydantic; imported lazily so the pytest-only
+    # capability gate can still collect this module (it deselects this class).
+    @staticmethod
+    def _service():
+        from api.service import Service
+        return Service.__new__(Service)
+
     @staticmethod
     def _app(src: Path, declared: str = "Main"):
         return SimpleNamespace(
@@ -93,7 +99,7 @@ class TestServiceResolvesEntry:
     def test_uncalled_root_is_resolved(self, tmp_path):
         (tmp_path / "ZDRIVER.cob").write_text(_DRIVER, encoding="utf-8")
         (tmp_path / "CALLEE.cob").write_text(_CALLEE, encoding="utf-8")
-        svc = Service.__new__(Service)
+        svc = self._service()
         assert svc._resolve_entry_program(self._app(tmp_path)) == "ZDRIVER"
 
     def test_validation_config_carries_resolved_entry(self, tmp_path, monkeypatch):
@@ -109,7 +115,7 @@ class TestServiceResolvesEntry:
             raise _Stop
 
         monkeypatch.setattr("api.service.VerticalSlicePipeline", _fake_pipeline)
-        svc = Service.__new__(Service)
+        svc = self._service()
         run = SimpleNamespace(certification_contract=None)
         with pytest.raises(_Stop):
             svc._run_validation(self._app(tmp_path), run, tmp_path, "Main", None)
