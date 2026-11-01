@@ -25,6 +25,7 @@ from api.models import RunStage
 from api.service import Service
 from api.store import Store
 from tests.common import make_stub_verdict
+from tests.verified_run_support import seed_verified_api_run
 
 client = TestClient(app)
 
@@ -235,6 +236,7 @@ class TestGeneratedProvenance:
         assert _wait_terminal(run_id)["stage"] == "COMPLETED"
 
         # BL-091 (D-1): export requires customer approval.
+        seed_verified_api_run(run_id)
         approve = client.post(
             f"/runs/{run_id}/approval",
             json={"decision": "APPROVED", "approver": "qa"},

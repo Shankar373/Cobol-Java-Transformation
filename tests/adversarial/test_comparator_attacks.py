@@ -130,9 +130,15 @@ class TestStdoutComparatorAttacks:
         result = self.comp.compare(
             self.oracle, b"A\r\nB",
             self.cand, b"A\nB",
+            normalization_policy=("crlf_to_lf",),
         )
         assert result.result.value == "MATCH"
         assert "crlf_to_lf" in result.normalization_applied
+
+    def test_no_normalization_unless_declared(self):
+        result = self.comp.compare(self.oracle, b"A\r\nB", self.cand, b"A\nB")
+        assert result.result.value == "MISMATCH"
+        assert result.normalization_applied == ()
 
     def test_only_trailing_cr_not_normalized(self):
         """Trailing CR without LF is NOT normalized."""
@@ -160,7 +166,10 @@ class TestStderrComparatorAttacks:
         assert result.result.value == "MISMATCH"
 
     def test_crlf_normalization(self):
-        result = self.comp.compare(self.oracle, b"X\r\nY", self.cand, b"X\nY")
+        result = self.comp.compare(
+            self.oracle, b"X\r\nY", self.cand, b"X\nY",
+            normalization_policy=("crlf_to_lf",),
+        )
         assert result.result.value == "MATCH"
 
 
@@ -232,7 +241,10 @@ class TestTextFileComparatorAttacks:
         assert result.result.value == "MISMATCH"
 
     def test_crlf_normalization(self):
-        result = self.comp.compare(self.oracle, b"A\r\nB", self.cand, b"A\nB")
+        result = self.comp.compare(
+            self.oracle, b"A\r\nB", self.cand, b"A\nB",
+            normalization_policy=("crlf_to_lf",),
+        )
         assert result.result.value == "MATCH"
 
 

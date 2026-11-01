@@ -42,6 +42,7 @@ from api.artifact_seal import (
 from api.errors import ConflictError, ServiceError
 from api.models import RunStage
 from api.store import RunRecord, Store
+from tests.verified_run_support import seed_verified_api_run
 
 client = TestClient(app)
 
@@ -112,6 +113,7 @@ def _seal(run_id: str, target: Path) -> None:
 
 
 def _approve(run_id: str):
+    seed_verified_api_run(run_id)
     return client.post(
         f"/runs/{run_id}/approval",
         json={"decision": "APPROVED", "approver": "qa"},

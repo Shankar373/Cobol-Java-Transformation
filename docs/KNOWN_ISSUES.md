@@ -25,6 +25,30 @@ Lifecycle/persistence/API security hardening has since been applied on top of th
 > carried decision **D-6** (COMP/COMP-3 certification). This section and `opencode.md` must
 > quote the same set — the register is the priority authority.
 
+### False-success baseline (2026-11-01, branch `fix/false-success-baseline`)
+A 41-program differential corpus run against GnuCOBOL 3.1.2 found 28 false
+successes at `b79f348` (translation reported success, Java behaved
+differently).  After this batch: 0 false successes — 33 byte-identical,
+8 fail closed.  Report: `docs/reports/FALSE_SUCCESS_BASELINE_2026-11-01.md`.
+Still open, all fail closed today (no false VERIFIED path known):
+- **Database state capture:** no comparator observes database effects;
+  programs with non-declarative `EXEC SQL` / `EXEC DLI` derive `UNSUPPORTED`.
+- **Real shared group storage:** groups are lowered as views; OCCURS,
+  REDEFINES, COMP, signed/scaled leaves, reference modification and group
+  operands of STRING/UNSTRING/INSPECT/READ/WRITE/CALL are refused.
+- **Spring Boot application path entry:** the runner calls the entry service's
+  driver paragraph method, so fall-through reliance stays PARTIAL and an
+  `EXIT PROGRAM` in the entry program returns instead of continuing; the
+  runtime differential reports such a run FAILED (never VERIFIED).
+- **Run-unit control flow beyond the fall-through chain:** STOP RUN/GOBACK in
+  PERFORMed or nested positions, STOP RUN in CALLed programs, procedure
+  SECTIONs, GO TO.
+- **Qualified data names (`OF`/`IN`):** duplicated names are refused.
+- **ON SIZE ERROR, `WITH NO ADVANCING`, level 66, JUSTIFIED, BLANK WHEN ZERO,
+  COPY in the single-source producer:** refused with named diagnostics.
+- **STDERR is not part of the default contract**; GnuCOBOL runtime messages
+  and JVM diagnostics differ by design.
+
 ### P0 area — Capability truth can drift
 Capability classifications are manually maintained and can become inconsistent with parser,
 IR, mapper, generator and runtime evidence. Contradictory classifications must be eliminated.

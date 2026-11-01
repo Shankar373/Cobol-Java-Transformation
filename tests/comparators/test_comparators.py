@@ -93,9 +93,20 @@ class TestStdoutComparator:
         comparator = StdoutComparator()
         oracle = make_artifact(artifact_type="STDOUT")
         candidate = make_artifact(artifact_id="art-002", artifact_type="STDOUT", producer_role="CANDIDATE")
-        result = comparator.compare(oracle, b"hello\r\n", candidate, b"hello\n")
+        result = comparator.compare(
+            oracle, b"hello\r\n", candidate, b"hello\n",
+            normalization_policy=("crlf_to_lf",),
+        )
         assert result.result == ComparisonResult.MATCH
         assert "crlf_to_lf" in result.normalization_applied
+
+    def test_no_implicit_normalization(self):
+        comparator = StdoutComparator()
+        oracle = make_artifact(artifact_type="STDOUT")
+        candidate = make_artifact(artifact_id="art-002", artifact_type="STDOUT", producer_role="CANDIDATE")
+        result = comparator.compare(oracle, b"hello\r\n", candidate, b"hello\n")
+        assert result.result == ComparisonResult.MISMATCH
+        assert result.normalization_applied == ()
 
 
 # ---------------------------------------------------------------------------

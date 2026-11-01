@@ -61,6 +61,8 @@ jobs:
             tests/transformation/test_call_name_case_normalization.py \
             tests/transformation/test_producer_diagnostics_contract.py \
             tests/transformation/test_perform_lowercase.py \
+            tests/transformation/test_false_success_regressions.py \
+            tests/test_comparison_contract_strength.py \
             tests/comparators/test_fixed_record_trailing_partial.py \
             tests/test_phase10_p0_bl053_seal_recheck.py \
             tests/test_phase10_p0_integrated_proof_gate.py \

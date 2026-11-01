@@ -28,6 +28,8 @@ This is an implementation and evidence matrix, not a language-completeness claim
 |---|---:|---:|---:|---|
 | DISPLAY | Yes | Yes | Tested subset | Supported subset |
 | STOP RUN | Yes | Yes | Tested | Supported subset |
+| Paragraph fall-through / STOP RUN / GOBACK / EXIT PROGRAM (2026-11-01) | Yes | Yes (`main` runs the driver paragraph, then calls each following paragraph until one with a top-level STOP RUN/GOBACK — `engine/transformation/control_flow.py`) | Oracle-pinned vs GnuCOBOL 3.1.2 (`tests/transformation/test_false_success_regressions.py`: fall-through with/without STOP RUN, after PERFORM, EXIT PROGRAM no-op in an uncalled program) | Supported subset in the single-program generator. The Spring Boot application path still enters a service through its driver paragraph, so the capability analyzer keeps classifying fall-through reliance PARTIAL there. Fail closed (`UNSUPPORTED_CONSTRUCT`): STOP RUN/GOBACK/EXIT PROGRAM in a non-driver paragraph unless it is the last top-level statement of the chain's final paragraph and no PERFORM reaches that paragraph; STOP RUN anywhere in a CALLed program; CALL of a program without LINKAGE whose own body falls through; procedure-division SECTIONs |
+| Group items (2026-11-01) | Yes | Yes, as views (`engine/transformation/group_storage.py`): DISPLAY of a group and MOVE group → `PIC X` field read the leaves' characters in order; MOVE literal / printable figurative / `PIC X` field / group → group writes the leaves | Oracle-pinned vs GnuCOBOL 3.1.2 (fillers, nested groups, numeric leaves, truncation/padding) | Supported subset: leaves are DISPLAY-usage `PIC X(n)` or unsigned integer `PIC 9(1..18)`, `FILLER PIC X` with a literal/figurative VALUE; MOVE *into* a group needs every leaf to be a named `PIC X`. Fail closed: OCCURS, REDEFINES, USAGE COMP/…, signed or scaled leaves, reference modification, numeric source/receiver, overlapping groups, group operands of STRING/UNSTRING/INSPECT/READ/WRITE/CALL/…, duplicated data names (qualification is not lowered) |
 | MOVE | Yes | Yes | Tested; figurative-fill semantics (`ALL <pattern>`, `ZEROS` on `PIC X`, `VALUE ALL …`) verified byte-identical vs. GnuCOBOL 3.1.2 (BL-030, 11/11) | Supported subset |
 | ADD/SUBTRACT/MULTIPLY | Yes | Yes | Tested | Supported subset |
 | DIVIDE/COMPUTE | Yes | Yes | Targeted | Supported subset; precision edges remain. `COMPUTE … ON SIZE ERROR` is removed from the expression and named by an `UNSUPPORTED_CONSTRUCT` diagnostic (never silently evaluated as part of the expression; `test_compute_size_error_diagnostic.py`) |
@@ -85,7 +87,10 @@ dependency-specific requirement: at least one `TEXT_FILE`/`FIXED_RECORD` artifac
 compared in this run and every compared file artifact MATCHed
 (`FILE_ARTIFACT_TYPES` in `integrated_proof.py`). A run certified on stdout/exit status
 alone therefore leaves its file dependencies PARTIAL and the application
-NOT_VERIFIED — a workload-level verdict never cohort-promotes a file dependency
+NOT_VERIFIED — a workload-level verdict never cohort-promotes a file dependency.
+Since 2026-11-01 the pipeline compares every file either execution writes, even
+under the default contract, so a file-writing program normally carries that
+evidence; the binding rule itself is unchanged
 (audit EV-006/R9; regression: `tests/test_file_dependency_proof_binding.py`,
 `tests/integration/test_file_write_read_runtime_proof.py::TestDefaultContractRun`).
 `PROGRAM`/`CALL`/`COPYBOOK`/`PARAMETER` remain workload-scope: their only behavioural

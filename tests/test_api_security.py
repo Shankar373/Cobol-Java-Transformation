@@ -31,6 +31,7 @@ from api.app import app
 from api.errors import ServiceError
 from api.service import Service
 from api.store import Store
+from tests.verified_run_support import seed_verified_api_run
 
 client = TestClient(app)
 
@@ -493,6 +494,7 @@ class TestUnknownResourcesAre404:
 
         # BL-091 (D-1): export requires customer approval; the 404 below is
         # the artifact contract, observed after approval.
+        seed_verified_api_run(run_id)
         approve = client.post(
             f"/runs/{run_id}/approval",
             json={"decision": "APPROVED", "approver": "qa"},

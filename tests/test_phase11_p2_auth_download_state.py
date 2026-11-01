@@ -34,6 +34,7 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.service import Service
 from api.store import Store
+from tests.verified_run_support import seed_verified_api_run
 
 client = TestClient(app)
 
@@ -206,6 +207,7 @@ def _seed_run_with_generated_files(
     svc._store.set_generated_seal(run_id, compute_generated_seal(gen_dir))
     # BL-091 (D-1): export requires customer approval; these cap tests
     # exercise the 413/200 artifact contracts, which sit behind the gate.
+    seed_verified_api_run(run_id)
     approve = client.post(
         f"/runs/{run_id}/approval",
         json={"decision": "APPROVED", "approver": "qa"},
@@ -267,6 +269,7 @@ class TestDownloadIsCapped:
 
         # BL-091 (D-1): approval first — the 404 below is the artifact
         # contract observed after approval, not the approval gate.
+        seed_verified_api_run(run_id)
         approve = client.post(
             f"/runs/{run_id}/approval",
             json={"decision": "APPROVED", "approver": "qa"},

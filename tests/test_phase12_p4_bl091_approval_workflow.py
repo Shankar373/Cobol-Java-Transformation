@@ -37,6 +37,8 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.service import Service
 from api.store import ApplicationRecord, RunRecord, Store
+from engine.domain.identities import VerdictState
+from tests.verified_run_support import seed_verified_api_run
 
 client = TestClient(app)
 
@@ -61,8 +63,13 @@ def _create_app(name: str, workload_id: str = "wl-bl091") -> str:
     return resp.json()["id"]
 
 
-def _start_run(app_id: str) -> str:
-    """Upload a source file and start a run with the worker stubbed out."""
+def _start_run(app_id: str, *, verified: bool = True) -> str:
+    """Upload a source file and start a run with the worker stubbed out.
+
+    APPROVED requires a VERIFIED verdict, so by default the stubbed run
+    gets one derived through the real validated path; ``verified=False``
+    leaves the run without any verdict.
+    """
     upload = client.post(
         f"/applications/{app_id}/upload",
         files=[("files", ("A.cob", io.BytesIO(b"A"), "text/plain"))],
@@ -74,7 +81,10 @@ def _start_run(app_id: str) -> str:
         mp.setattr(_Service, "_modernize_background", lambda *a, **k: None)
         resp = client.post(f"/applications/{app_id}/modernize")
     assert resp.status_code == 202, resp.text
-    return resp.json()["run_id"]
+    run_id = resp.json()["run_id"]
+    if verified:
+        seed_verified_api_run(run_id)
+    return run_id
 
 
 def _seed_generated(run_id: str, files: list[tuple[str, bytes]]) -> Path:
@@ -125,6 +135,8 @@ def _make_terminal(run_id: str) -> None:
     store: Store = app_mod._service._store
     rec = store.get_run(run_id)
     assert rec is not None
+    if rec.stage == rec.stage.__class__.COMPLETED:
+        return
     rec.stage = rec.stage.__class__.COMPLETED
     store.update_run(rec)
 
@@ -341,6 +353,68 @@ class TestPerRunIsolationAndReset:
         # The stale approval no longer unlocks export.
         dl = client.get(f"/runs/{run_id}/download")
         assert dl.status_code == 409, dl.text
+
+
+# ---------------------------------------------------------------------------
+# Approval requires a VERIFIED verdict
+# ---------------------------------------------------------------------------
+
+
+class TestApprovalRequiresVerified:
+    """APPROVED is refused unless equivalence was proven (VERIFIED)."""
+
+    def test_run_without_verdict_cannot_be_approved(self):
+        app_id = _create_app("bl091-no-verdict")
+        run_id = _start_run(app_id, verified=False)
+        _seed_generated(run_id, [("Main.java", b"class Main {}")])
+
+        resp = _decide(run_id, "APPROVED")
+
+        assert resp.status_code == 409, resp.text
+        assert "requires VERIFIED" in resp.json()["detail"]
+        assert _get_approval(run_id).json()["state"] == "PENDING"
+        assert client.get(f"/runs/{run_id}/download").status_code == 409
+
+    def test_failed_verdict_cannot_be_approved(self):
+        app_id = _create_app("bl091-failed-verdict")
+        run_id = _start_run(app_id, verified=False)
+        seed_verified_api_run(run_id, state=VerdictState.FAILED)
+        _seed_generated(run_id, [("Main.java", b"class Main {}")])
+
+        resp = _decide(run_id, "APPROVED")
+
+        assert resp.status_code == 409, resp.text
+        assert "FAILED" in resp.json()["detail"]
+        assert _get_approval(run_id).json()["state"] == "PENDING"
+
+    def test_verified_verdict_detached_from_evidence_cannot_be_approved(self):
+        import dataclasses
+
+        import api.app as app_mod
+
+        app_id = _create_app("bl091-detached-verdict")
+        run_id = _start_run(app_id)
+        _seed_generated(run_id, [("Main.java", b"class Main {}")])
+        store: Store = app_mod._service._store
+        rec = store.get_run(run_id)
+        rec.verdict = dataclasses.replace(
+            rec.verdict, evidence_manifest_hash="sha256:" + "0" * 64
+        )
+        store.update_run(rec)
+
+        resp = _decide(run_id, "APPROVED")
+
+        assert resp.status_code != 200, resp.text
+        assert _get_approval(run_id).json()["state"] == "PENDING"
+
+    def test_unverified_run_can_still_be_rejected(self):
+        app_id = _create_app("bl091-reject-unverified")
+        run_id = _start_run(app_id, verified=False)
+
+        resp = _decide(run_id, "REJECTED", reason="no equivalence proof")
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["state"] == "REJECTED"
 
 
 # ---------------------------------------------------------------------------

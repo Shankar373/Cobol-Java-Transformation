@@ -188,8 +188,12 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             entrypoint_class = manifest.entrypoint
             entrypoint_class = entrypoint_class.removesuffix(".java")
 
+            # The oracle runs on Linux and ends records with LF.  Comparison
+            # is byte-exact (no implicit CRLF folding), so the host JVM must
+            # not inject the host platform's separator (CRLF on Windows).
             java_cmd = [
                 self._java_path,
+                "-Dline.separator=\n",
                 "-cp", compiled_path,
                 entrypoint_class,
             ]

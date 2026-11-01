@@ -175,6 +175,11 @@ class TypedComparator(ABC):
     def _normalize(self, content: bytes, normalizations: tuple[str, ...]) -> bytes:
         """Apply normalizations to content.
 
+        Comparison is byte-exact unless the caller passes an explicit
+        policy: there is no implicit default normalization, so CRLF folding
+        happens only where a workload declares it (and is then recorded in
+        ``normalization_applied``).
+
         Fail-closed: a normalization that is not implemented is rejected
         rather than silently skipped, so a mis-declared policy can never
         weaken a comparison without being noticed.
@@ -245,7 +250,7 @@ class StdoutComparator(TypedComparator):
         if missing is not None:
             return missing
         assert candidate_content is not None
-        normalizations = normalization_policy if normalization_policy is not None else ("crlf_to_lf",)
+        normalizations = tuple(normalization_policy or ())
         oracle_normalized = self._apply_ordering(self._normalize(oracle_content, normalizations), ordering)
         candidate_normalized = self._apply_ordering(self._normalize(candidate_content, normalizations), ordering)
 
@@ -302,7 +307,7 @@ class StderrComparator(TypedComparator):
         if missing is not None:
             return missing
         assert candidate_content is not None
-        normalizations = normalization_policy if normalization_policy is not None else ("crlf_to_lf",)
+        normalizations = tuple(normalization_policy or ())
         oracle_normalized = self._apply_ordering(self._normalize(oracle_content, normalizations), ordering)
         candidate_normalized = self._apply_ordering(self._normalize(candidate_content, normalizations), ordering)
 
@@ -430,7 +435,7 @@ class TextFileComparator(TypedComparator):
         if missing is not None:
             return missing
         assert candidate_content is not None
-        normalizations = normalization_policy if normalization_policy is not None else ("crlf_to_lf",)
+        normalizations = tuple(normalization_policy or ())
         oracle_normalized = self._apply_ordering(self._normalize(oracle_content, normalizations), ordering)
         candidate_normalized = self._apply_ordering(self._normalize(candidate_content, normalizations), ordering)
 

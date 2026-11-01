@@ -171,8 +171,15 @@ class TestNewlineVariations:
         self.cand = _art("cand", "STDOUT", "CANDIDATE", b"")
 
     def test_crlf_to_lf(self):
-        r = self.comp.compare(self.ora, b"A\r\nB", self.cand, b"A\nB")
+        r = self.comp.compare(
+            self.ora, b"A\r\nB", self.cand, b"A\nB",
+            normalization_policy=("crlf_to_lf",),
+        )
         assert r.result.value == "MATCH"
+
+    def test_no_normalization_unless_declared(self):
+        r = self.comp.compare(self.ora, b"A\r\nB", self.cand, b"A\nB")
+        assert r.result.value == "MISMATCH"
 
     def test_lone_cr_not_normalized(self):
         r = self.comp.compare(self.ora, b"A\rB", self.cand, b"AB")
@@ -181,7 +188,10 @@ class TestNewlineVariations:
     def test_lf_to_crlf_direction(self):
         """CRLF→LF normalization is one-directional. Oracle has LF, candidate has CRLF.
         After normalization: oracle='A\\nB', candidate='A\\nB' → MATCH."""
-        r = self.comp.compare(self.ora, b"A\nB", self.cand, b"A\r\nB")
+        r = self.comp.compare(
+            self.ora, b"A\nB", self.cand, b"A\r\nB",
+            normalization_policy=("crlf_to_lf",),
+        )
         assert r.result.value == "MATCH"
 
 

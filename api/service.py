@@ -58,6 +58,7 @@ from pathlib import Path
 from api.artifact_seal import compute_generated_seal, verify_generated_seal
 from api.errors import (
     BusyError,
+    ConflictError,
     NotFoundError,
     PersistenceCorruptionError,
     ServiceError,
@@ -1489,9 +1490,24 @@ class Service:
         must never sign off on bytes substituted after execution.  A
         REJECTED decision is always allowed — rejecting a run whose
         bundle is broken or missing has to keep working.
+
+        APPROVED is also refused (HTTP 409) unless the run carries a
+        VERIFIED verdict that hash-matches integrity-valid evidence: a
+        customer can only sign off on behaviour that was proven equivalent
+        to the COBOL oracle, never on a FAILED, PARTIAL, UNPROVEN,
+        UNAVAILABLE, UNSUPPORTED or missing verdict.
         """
         if decision == "APPROVED":
             run = self.get_run(run_id)
+            state = run.verdict.state if run.verdict is not None else None
+            if state != VerdictState.VERIFIED:
+                shown = state.value if state is not None else "no verdict"
+                raise ConflictError(
+                    f"Run {run_id!r} cannot be approved: verdict is"
+                    f" {shown}, approval requires VERIFIED"
+                )
+            self._check_evidence_verdict_consistency(run)
+            self._require_valid_evidence(run)
             app = self.get_application(run.application_id)
             if app.generated_app_path is not None:
                 verify_generated_seal(app.generated_app_path, run.generated_seal)

@@ -10,13 +10,14 @@ GnuCOBOL oracle image + offline Maven build + pinned JRE image):
    oracle, generates Spring Boot from the same COBOL, builds it in Docker,
    executes both, and compares all four artifacts.
 
-2. **Real-evidence cohort check (EV-006/R9).** A run certified under the
-   API's *default* contract (STDOUT + EXIT_STATUS only) must not mark the
-   FILE dependencies PROVEN, and must not certify the application — even
-   though the runtime verdict itself is honestly VERIFIED for what it
-   compared.  ``TestDefaultContractRun`` pins that with live pipeline
-   evidence (the unit-level binding is covered in
-   ``tests/test_file_dependency_proof_binding.py``).
+2. **Real-evidence cohort check (EV-006/R9).** FILE dependencies are PROVEN
+   only by file comparison evidence in the run itself, never by a
+   workload-level verdict (unit-level binding:
+   ``tests/test_file_dependency_proof_binding.py``).  Since 2026-11-01 the
+   pipeline compares every file either execution writes, so a run under
+   the API's *default* contract (which declares only STDOUT + EXIT_STATUS)
+   still carries byte-exact evidence for the written file;
+   ``TestDefaultContractRun`` pins that with live pipeline evidence.
 
 3. **Negative lane (task: deliberate behavioural mismatch).** A mutated
    *generated* candidate must fail the comparison, and the FILE dependency
@@ -230,7 +231,7 @@ class TestDeclaredContractProof:
 
 
 # ---------------------------------------------------------------------------
-# 2. Default contract (STDOUT+EXIT_STATUS): verdict verified, files not proven
+# 2. Default contract (STDOUT+EXIT_STATUS declared): written files still compared
 # ---------------------------------------------------------------------------
 
 
@@ -238,10 +239,10 @@ class TestDeclaredContractProof:
 class TestDefaultContractRun:
     """The cohort-promotion regression, with live evidence.
 
-    The API's default contract compares stdout and exit status only.  A
-    file-writing program will honestly reach a VERIFIED *runtime* verdict
-    for what it compared — but the FILE dependencies were never compared,
-    so they must stay unproven and the application must not be certified.
+    The API's default contract declares stdout and exit status only.  The
+    file the program writes is nevertheless compared byte-exactly (every
+    generated file is), so FILE dependencies are proven by evidence from
+    this run — not promoted from the workload-level verdict.
     """
 
     @pytest.fixture(scope="class")
@@ -260,30 +261,36 @@ class TestDefaultContractRun:
             run.result.verdict.state
         )
 
-    def test_no_file_artifact_was_compared(self, run):
-        compared = {c.artifact_type for c in run.result.comparison_evidence}
-        assert compared == {"STDOUT", "EXIT_STATUS"}, compared
-        assert not any(
-            t in {"TEXT_FILE", "FIXED_RECORD"}
-            for (t, _) in run.evidence.artifact_results
-        )
+    def test_written_file_is_compared_byte_exactly(self, run):
+        # The contract declares no file, yet every file either execution
+        # wrote is compared (2026-11-01): undeclared output is evidence too.
+        files = [
+            c for c in run.result.comparison_evidence
+            if c.artifact_type in {"TEXT_FILE", "FIXED_RECORD"}
+        ]
+        assert files, "the program writes a sequential file"
+        for comparison in files:
+            assert comparison.result == "MATCH", comparison
+            assert comparison.normalization_applied == (), comparison
 
-    def test_file_dependencies_are_not_proven(self, run):
+    def test_file_dependencies_are_proven_by_file_evidence(self, run):
+        # Proof comes from the file comparison in *this* run, never from the
+        # workload-level verdict alone (EV-006/R9 binding, unit-pinned in
+        # tests/test_file_dependency_proof_binding.py).
         file_entries = [
             e for e in run.proof.dependency_ledger
             if e.kind is DependencyKind.FILE
         ]
         assert file_entries, "the workload declares two sequential files"
+        assert any(
+            t in {"TEXT_FILE", "FIXED_RECORD"} and r == "MATCH"
+            for (t, r) in run.evidence.artifact_results
+        )
         for entry in file_entries:
-            assert entry.proof_state is not ProofState.PROVEN, (
-                "FILE dependency cohort-promoted without file comparison "
-                f"evidence: {entry}"
-            )
-            assert entry.proof_state is ProofState.PARTIAL, entry
-            assert "file artifact" in entry.reason, entry.reason
+            assert entry.proof_state is ProofState.PROVEN, entry
 
-    def test_application_is_not_certified(self, run):
-        assert run.proof.central_status is CentralStatus.NOT_VERIFIED, (
+    def test_application_is_certified_on_compared_evidence(self, run):
+        assert run.proof.central_status is CentralStatus.VERIFIED, (
             run.proof.to_dict()
         )
 

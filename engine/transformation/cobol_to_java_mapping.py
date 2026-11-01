@@ -29,7 +29,17 @@ from __future__ import annotations
 import re
 
 from engine.transformation import figurative
+from engine.transformation.control_flow import fall_through_chain, walk_statements
 from engine.transformation.figurative import figurative_to_width, parse_figurative_constant
+from engine.transformation.group_storage import (
+    GroupLayout,
+    find_item,
+    group_layout,
+    group_move_problem,
+    group_reference_problem,
+    is_group,
+    printable_fill,
+)
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -430,6 +440,10 @@ from dataclasses import dataclass, replace as _dc_replace
 
 _times_loop_counter = _itertools.count()
 
+# True while statements are lowered straight into ``main`` (the program was
+# not CALLed); EXIT PROGRAM has no effect there.
+_main_entry_context = False
+
 
 def _fresh_times_var() -> str:
     """Return a unique loop-counter name for a PERFORM...TIMES loop."""
@@ -454,9 +468,15 @@ _io_var_counter = _itertools.count()
 
 
 def _reset_file_io_vars() -> None:
-    """Reset the file-I/O scratch-variable counter (per-program determinism)."""
-    global _io_var_counter
+    """Reset the generated-name counters (per-program determinism).
+
+    Both the file-I/O scratch counter and the PERFORM ... TIMES loop counter
+    restart for every program, so the same COBOL source always yields the
+    same Java no matter how many programs this process mapped before.
+    """
+    global _io_var_counter, _times_loop_counter
     _io_var_counter = _itertools.count()
+    _times_loop_counter = _itertools.count()
 
 
 def _fresh_io_var(prefix: str) -> str:
@@ -497,6 +517,113 @@ def _str_lit(value: str) -> JavaLiteral:
 
 def _int_lit(value: int) -> JavaLiteral:
     return JavaLiteral(value=str(value))
+
+
+def _group_items(program) -> tuple:
+    """Data items whose groups are lowered as views (WORKING-STORAGE/LINKAGE)."""
+    if program is None:
+        return ()
+    return (*program.working_storage, *program.linkage_section)
+
+
+def _named_group(program, ref: str):
+    """The group item ``ref`` names, or None for anything else."""
+    name = str(ref or "").split("(", 1)[0].strip().rstrip(".")
+    item = find_item(_group_items(program), name) if name else None
+    return item if item is not None and is_group(item) else None
+
+
+def _group_view_expression(layout: GroupLayout) -> JavaExpression:
+    """The group's characters: one ``String.format`` over its leaves.
+
+    PIC X leaves are padded/truncated to their width, unsigned PIC 9 leaves
+    zero-filled to their digit count and FILLER characters are constants of
+    the format string, so the result is exactly the group's DISPLAY bytes.
+    """
+    spec: list[str] = []
+    args: list[JavaExpression] = []
+    for leaf in layout.leaves:
+        if leaf.constant is not None:
+            spec.append(leaf.constant.replace("%", "%%"))
+        elif leaf.numeric:
+            spec.append(f"%0{leaf.length}d")
+            args.append(JavaVariableRef(name=cobol_reference_to_java_source(leaf.name)))
+        else:
+            spec.append(f"%-{leaf.length}.{leaf.length}s")
+            args.append(JavaVariableRef(name=cobol_reference_to_java_source(leaf.name)))
+    return JavaMethodCall(
+        class_name="String", method_name="format", is_static=True,
+        arguments=(_str_lit("".join(spec)), *args),
+    )
+
+
+def _group_move_statements(source: str, target: str, program) -> list[JavaStatement] | None:
+    """Lower a MOVE that reads or writes a group, or None when none does.
+
+    Supported forms come from ``engine.transformation.group_storage``; any
+    other group MOVE lowers to an unsupported expression (the parser has
+    already reported it), never to the unrelated Java group field.
+    """
+    target_group = _named_group(program, target)
+    source_group = _named_group(program, source)
+    if target_group is None and source_group is None:
+        return None
+    items = _group_items(program)
+    problem = group_move_problem(items, source, target)
+    if problem:
+        return [JavaAssignment(
+            target=cobol_reference_to_java_source(target),
+            expression=JavaUnsupportedExpression(
+                source_expression=f"MOVE {source} TO {target}",
+                reason=problem,
+            ),
+        )]
+    if target_group is None:
+        # Group read into an elementary PIC X receiver: alphanumeric move.
+        layout = group_layout(items, source_group.name)[0]
+        width = _find_data_item(program, target).pic_length
+        return [JavaAssignment(
+            target=cobol_reference_to_java_source(target),
+            expression=JavaMethodCall(
+                class_name="String", method_name="format", is_static=True,
+                arguments=(_str_lit(f"%-{width}.{width}s"), _group_view_expression(layout)),
+            ),
+        )]
+    layout = group_layout(items, target_group.name)[0]
+    width = layout.length
+    text = source.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        constant = text[1:-1][:width].ljust(width)
+    else:
+        constant = printable_fill(text, width)
+    if constant is not None:
+        return [
+            JavaAssignment(
+                target=cobol_reference_to_java_source(leaf.name),
+                expression=_str_lit(constant[leaf.offset:leaf.offset + leaf.length]),
+            )
+            for leaf in layout.leaves
+        ]
+    if source_group is not None:
+        value: JavaExpression = _group_view_expression(
+            group_layout(items, source_group.name)[0]
+        )
+    else:
+        value = JavaVariableRef(name=cobol_reference_to_java_source(source))
+    padded = JavaMethodCall(
+        class_name="String", method_name="format", is_static=True,
+        arguments=(_str_lit(f"%-{width}.{width}s"), value),
+    )
+    return [
+        JavaAssignment(
+            target=cobol_reference_to_java_source(leaf.name),
+            expression=JavaMethodCall(
+                object_ref=padded, method_name="substring",
+                arguments=(_int_lit(leaf.offset), _int_lit(leaf.offset + leaf.length)),
+            ),
+        )
+        for leaf in layout.leaves
+    ]
 
 
 def _bool_lit(value: bool) -> JavaLiteral:
@@ -1856,13 +1983,43 @@ def _scale_numeric_receiver(
                 ),
             )
         return scaled
-    if not _expression_requires_fractional_type(expression, program):
+    integer_digits = max(0, item.integer_digits)
+    bound = 10 ** integer_digits if integer_digits > 0 else None
+    exact_intermediates = (
+        _expression_contains_division(expression)
+        if rounded
+        else _expression_has_nested_division(expression)
+    )
+    if not _expression_requires_fractional_type(
+        expression, program
+    ) and not exact_intermediates:
         # Keep ordinary integral operations native, but make a potentially
         # overflowing expression fail explicitly instead of silently wrapping.
-        return _protect_integral_overflow(expression, item, program)
+        # A lone top-level integer division truncates toward zero exactly as
+        # COBOL does, so it stays native too.
+        native = _protect_integral_overflow(expression, item, program)
+        if bound is None or _expression_fits_digits(expression, integer_digits, program):
+            return native
+        # COBOL picture overflow is silent high-order truncation (oracle:
+        # ``ADD 999 TO PIC 9(3)`` holding 5 stores ``004``); Java ``%`` keeps
+        # the dividend's sign, matching the signed-receiver rule.
+        return JavaBinaryOp(
+            left=native,
+            operator="%",
+            right=JavaLiteral(
+                value=f"{bound}{'L' if item.pic_length > 9 else ''}",
+                java_type=JavaType(
+                    basic_type=JavaBasicType.LONG
+                    if item.pic_length > 9
+                    else JavaBasicType.INT
+                ),
+            ),
+        )
 
-    # Mixed fractional expression → integral receiver: scale to zero
-    # decimals first (COBOL truncation), then narrow exactly.
+    # Fractional or dividing expression → integral receiver.  COBOL keeps
+    # intermediate precision (oracle: ``COMPUTE R = 7 / 2 * 2`` stores 7, and
+    # ``ROUNDED`` of ``7 / 2`` stores 4), so evaluate exactly in BigDecimal,
+    # scale to zero decimals, truncate high-order digits, then narrow.
     expression = _promote_numeric_expression_to_decimal(expression, program)
     scaled = JavaMethodCall(
         object_ref=expression,
@@ -1872,8 +2029,79 @@ def _scale_numeric_receiver(
             JavaVariableRef(name=rounding_mode),
         ),
     )
+    if bound is not None:
+        scaled = JavaMethodCall(
+            object_ref=scaled,
+            method_name="remainder",
+            arguments=(
+                JavaMethodCall(
+                    class_name="java.math.BigDecimal",
+                    method_name="valueOf",
+                    arguments=(
+                        JavaLiteral(
+                            value=f"{bound}L",
+                            java_type=JavaType(basic_type=JavaBasicType.LONG),
+                        ),
+                    ),
+                    is_static=True,
+                ),
+            ),
+        )
     narrow_method = "longValueExact" if item.pic_length > 9 else "intValueExact"
     return JavaMethodCall(object_ref=scaled, method_name=narrow_method, arguments=())
+
+
+def _expression_has_nested_division(expr: JavaExpression) -> bool:
+    """Whether a division sits below the root (its truncation would leak)."""
+    if isinstance(expr, JavaBinaryOp):
+        return _expression_contains_division(expr.left) or _expression_contains_division(
+            expr.right
+        )
+    if isinstance(expr, JavaUnaryOp):
+        return _expression_contains_division(expr.operand)
+    return False
+
+
+def _expression_fits_digits(
+    expr: JavaExpression,
+    digits: int,
+    program: CobolProgram | None,
+) -> bool:
+    """Whether every value of an integral expression fits ``digits`` digits.
+
+    Only literals, single field references (no wider than the receiver) and
+    a root division whose dividend fits qualify; everything else may carry
+    into a high-order digit and needs the truncation.
+    """
+    if isinstance(expr, JavaLiteral):
+        value = expr.value.strip().lstrip("+-").rstrip("Ll")
+        return value.isdigit() and len(value.lstrip("0") or "0") <= digits
+    if isinstance(expr, JavaVariableRef):
+        source = _find_data_item(program, expr.name)
+        return bool(
+            source is not None
+            and source.is_numeric
+            and source.decimal_places == 0
+            and 0 < source.pic_length <= digits
+        )
+    if isinstance(expr, JavaUnaryOp) and expr.operator == "-":
+        return _expression_fits_digits(expr.operand, digits, program)
+    if isinstance(expr, JavaBinaryOp) and expr.operator == "/":
+        return _expression_fits_digits(expr.left, digits, program)
+    return False
+
+
+def _expression_contains_division(expr: JavaExpression) -> bool:
+    """Return whether an arithmetic tree divides (needs exact intermediates)."""
+    if isinstance(expr, JavaBinaryOp):
+        return (
+            expr.operator == "/"
+            or _expression_contains_division(expr.left)
+            or _expression_contains_division(expr.right)
+        )
+    if isinstance(expr, JavaUnaryOp):
+        return _expression_contains_division(expr.operand)
+    return False
 
 
 def _map_cobol_expression_to_java(expr) -> JavaExpression:
@@ -2443,6 +2671,148 @@ def _decimalized_comparison(
     )
 
 
+_RELATIONAL_TEXT = re.compile(
+    r"=|<|>|\b(?:EQUAL|GREATER|LESS|NUMERIC|ALPHABETIC|POSITIVE|NEGATIVE|ZERO|ZEROS|ZEROES)\b",
+    re.IGNORECASE,
+)
+
+
+def _split_top_level(condition: str, keyword: str) -> list[str]:
+    """Split ``condition`` on a top-level ``AND``/``OR`` (outside quotes/parens)."""
+    parts: list[str] = []
+    depth = 0
+    quote: str | None = None
+    start = 0
+    i = 0
+    upper = condition.upper()
+    token = f" {keyword} "
+    while i < len(condition):
+        ch = condition[i]
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and upper.startswith(token, i):
+            parts.append(condition[start:i].strip())
+            i += len(token)
+            start = i
+            continue
+        i += 1
+    parts.append(condition[start:].strip())
+    return parts
+
+
+def _strip_enclosing_parens(text: str) -> str:
+    """Remove parentheses that wrap the whole condition."""
+    text = text.strip()
+    while text.startswith("(") and text.endswith(")"):
+        depth = 0
+        quote: str | None = None
+        for i, ch in enumerate(text):
+            if quote:
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"'):
+                quote = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and i != len(text) - 1:
+                    return text
+        text = text[1:-1].strip()
+    return text
+
+
+def _alphanumeric_item(program: CobolProgram | None, token: str) -> DataItem | None:
+    """Alphanumeric data item named by ``token`` (COBOL or Java spelling)."""
+    item = _find_data_item(program, token)
+    if item is not None and item.is_alphanumeric:
+        return item
+    return None
+
+
+def _involves_alphanumeric(condition: str, program: CobolProgram | None) -> bool:
+    """Whether a condition text compares any alphanumeric operand."""
+    if "'" in condition or '"' in condition:
+        return True
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]*", condition):
+        if _alphanumeric_item(program, token) is not None:
+            return True
+    return False
+
+
+def _alphanumeric_comparison(
+    op: str,
+    left_token: str,
+    right_token: str,
+    program: CobolProgram | None,
+) -> JavaExpression | None:
+    """COBOL alphanumeric relation: both operands space-padded to equal length.
+
+    Returns ``None`` when neither operand is alphanumeric (numeric lane).
+    Oracle (GnuCOBOL 3.1.2): ``PIC X(5) VALUE 'YES'`` equals ``'YES'``; a
+    ``>``/``<`` relation compares the padded values in the native (ASCII)
+    collating sequence.  Group items have no faithful String value in the
+    generated Java and fail closed.
+    """
+
+    def classify(token: str):
+        if token.startswith('"') and token.endswith('"') and len(token) >= 2:
+            text = token[1:-1].replace('\\"', '"')
+            return ("literal", text, len(text))
+        item = _find_data_item(program, token)
+        if item is None:
+            return ("unknown", token, 0)
+        if _substantive_children(item):
+            return ("group", token, 0)
+        if item.is_alphanumeric and item.pic_length > 0:
+            return ("field", token, item.pic_length)
+        return ("numeric", token, 0)
+
+    left = classify(left_token)
+    right = classify(right_token)
+    kinds = {left[0], right[0]}
+    if not kinds & {"literal", "field", "group"}:
+        return None
+    if kinds & {"group", "numeric", "unknown"}:
+        return JavaUnsupportedExpression(
+            source_expression=f"{left_token} {op} {right_token}",
+            reason=(
+                "alphanumeric comparison with a group, numeric or unresolved "
+                "operand is not certified"
+            ),
+        )
+    width = max(left[2], right[2], 1)
+
+    def padded(operand) -> JavaExpression:
+        kind, text, _ = operand
+        if kind == "literal":
+            return _str_lit(text.ljust(width))
+        return JavaMethodCall(
+            class_name="String",
+            method_name="format",
+            is_static=True,
+            arguments=(_str_lit(f"%-{width}s"), JavaVariableRef(name=text)),
+        )
+
+    left_expr = padded(left)
+    right_expr = padded(right)
+    if op in ("==", "!="):
+        equals = JavaMethodCall(object_ref=left_expr, method_name="equals", arguments=(right_expr,))
+        return equals if op == "==" else JavaUnaryOp(operator="!", operand=equals)
+    return JavaBinaryOp(
+        left=JavaMethodCall(object_ref=left_expr, method_name="compareTo", arguments=(right_expr,)),
+        operator=op,
+        right=_int_lit(0),
+    )
+
+
 def map_cobol_condition_to_java(
     condition: str,
     condition_names: dict[str, ConditionNameSpec] | None = None,
@@ -2470,6 +2840,39 @@ def map_cobol_condition_to_java(
             return expanded
     condition = condition.strip()
     import re as _re
+
+    # Compound conditions over alphanumeric operands are mapped atom by atom
+    # so every relation gets the padded-comparison semantics; the textual
+    # fallback below would render Java String identity (``==``) instead.
+    if program is not None and _involves_alphanumeric(condition, program):
+        unwrapped = _strip_enclosing_parens(condition)
+        for keyword, java_op in (("OR", "||"), ("AND", "&&")):
+            atoms = _split_top_level(unwrapped, keyword)
+            if len(atoms) > 1:
+                mapped: JavaExpression | None = None
+                for atom in atoms:
+                    if not _RELATIONAL_TEXT.search(atom) and not (
+                        condition_names
+                        and expand_condition_names(atom, condition_names) is not None
+                    ):
+                        # Abbreviated combined relation (``A = 'X' OR 'Y'``).
+                        return JavaUnsupportedExpression(
+                            source_expression=original_condition,
+                            reason="abbreviated combined relation condition is not certified",
+                        )
+                    term = map_cobol_condition_to_java(atom, condition_names, program)
+                    mapped = term if mapped is None else JavaBinaryOp(
+                        left=mapped, operator=java_op, right=term
+                    )
+                return mapped
+        negated = re.match(r"(?i)^NOT\s+(\(.*\))$", unwrapped)
+        if negated:
+            return JavaUnaryOp(
+                operator="!",
+                operand=map_cobol_condition_to_java(negated.group(1), condition_names, program),
+            )
+        if unwrapped != condition:
+            return map_cobol_condition_to_java(unwrapped, condition_names, program)
 
     # Figurative constants are substituted FIRST, before any operator
     # rewriting and before the DASH_UNDERSCORE rewrite below.  Rewriting first
@@ -2629,6 +3032,11 @@ def map_cobol_condition_to_java(
                 arguments=(),
             )
             return is_empty if op == "==" else JavaUnaryOp(operator="!", operand=is_empty)
+
+        if program is not None:
+            alphanumeric = _alphanumeric_comparison(op, left_name, right_str, program)
+            if alphanumeric is not None:
+                return alphanumeric
 
         # COBOL ``=`` on alphanumeric operands is content equality.  Java
         # ``==`` compares String identity, so a MOVE-built field never equals
@@ -3123,6 +3531,10 @@ def map_cobol_statement(
         # assignment, so ``targets`` is the authoritative list.
         move_targets = stmt.targets or ((stmt.target,) if stmt.target else ())
         for move_target in move_targets:
+            group_statements = _group_move_statements(stmt.source, move_target, program)
+            if group_statements is not None:
+                result.extend(group_statements)
+                continue
             expression = source
             item = _find_data_item(program, move_target)
             if item is not None and item.is_numeric and _is_numeric_expression(expression, program):
@@ -3263,17 +3675,42 @@ def map_cobol_statement(
                 stmt.rounded,
             ),
         ))
-        # REMAINDER target = source % divisor
+        # REMAINDER = dividend - (stored truncated quotient * divisor), not
+        # ``dividend % divisor`` (oracle: 7 / 3 GIVING PIC 9V99 leaves
+        # REMAINDER 0.01, not 1.00).  The stored quotient equals the
+        # truncated quotient only without ROUNDED, and only while the
+        # dividend/divisor are not themselves the quotient receiver.
         if stmt.remainder:
             remainder_target = cobol_reference_to_java_source(stmt.remainder)
-            result.append(JavaAssignment(
-                target=remainder_target,
-                expression=_apply_numeric_receiver_semantics(
-                    JavaBinaryOp(left=source, operator="%", right=divisor),
+            operand_names = {
+                str(stmt.source).strip().upper(),
+                str(stmt.divisor).strip().upper(),
+            }
+            if stmt.rounded or str(stmt.target).strip().upper() in operand_names:
+                remainder_expression: JavaExpression = JavaUnsupportedExpression(
+                    source_expression=f"DIVIDE ... REMAINDER {stmt.remainder}",
+                    reason=(
+                        "REMAINDER with ROUNDED or with an overlapping quotient "
+                        "receiver is not certified"
+                    ),
+                )
+            else:
+                remainder_expression = _apply_numeric_receiver_semantics(
+                    JavaBinaryOp(
+                        left=source,
+                        operator="-",
+                        right=JavaBinaryOp(
+                            left=_reference_expression(stmt.target),
+                            operator="*",
+                            right=divisor,
+                        ),
+                    ),
                     remainder_target,
                     program,
-                    stmt.rounded,
-                ),
+                )
+            result.append(JavaAssignment(
+                target=remainder_target,
+                expression=remainder_expression,
             ))
 
     elif isinstance(stmt, ComputeStatement):
@@ -3336,6 +3773,18 @@ def map_cobol_statement(
                     parts.append(JavaLiteral(
                         value=inner,
                         java_type=JavaType(basic_type=JavaBasicType.STRING),
+                    ))
+            elif _named_group(program, part) is not None:
+                # A group displays as its leaves' characters, in order.
+                problem = group_reference_problem(_group_items(program), part)
+                if problem is None:
+                    layout = group_layout(
+                        _group_items(program), _named_group(program, part).name
+                    )[0]
+                    parts.append(_group_view_expression(layout))
+                else:
+                    parts.append(JavaUnsupportedExpression(
+                        source_expression=f"DISPLAY {part}", reason=problem,
                     ))
             else:
                 reference = split_cobol_reference(part)
@@ -3422,8 +3871,15 @@ def map_cobol_statement(
 
     elif isinstance(stmt, ExitProgramStatement):
         # EXIT PROGRAM returns control to the caller — a Java return from the
-        # generated program body.
-        result.append(JavaReturn())
+        # generated program body.  In ``main`` the program was not CALLed,
+        # and there EXIT PROGRAM has no effect (oracle: GnuCOBOL 3.1.2 runs
+        # the next statement), so it lowers to nothing.
+        if _main_entry_context:
+            result.append(JavaComment(
+                text="// EXIT PROGRAM: no effect in a program that was not CALLed"
+            ))
+        else:
+            result.append(JavaReturn())
 
     elif isinstance(stmt, GobackStatement):
         # GOBACK returns control to the caller — a Java return from the
@@ -4177,14 +4633,27 @@ def map_cobol_statement(
                 else:
                     init_val = init_and_by.strip()
 
-                # Build condition expression using map_cobol_condition_to_java
-                condition_expr = map_cobol_condition_to_java(
-                    f"{var_part} < {until_part}" if "<" not in until_part and ">" not in until_part
-                    else until_part.replace(var_part, var_part.replace("-", "_"))
-                )
-                # Build proper loop condition: var < stop_value (for > cases)
                 var_jname = var_part.replace("-", "_")
-                cond_java = _build_for_condition(var_jname, until_part, program)
+                # The UNTIL text is a full COBOL condition: map it like any
+                # PERFORM UNTIL (a prefix match dropped ``OR``/``AND`` terms).
+                cond_java = _negate_condition(
+                    map_cobol_condition_to_java(until_part, program=program)
+                )
+                var_item = _find_data_item(program, var_part)
+                varying_problem = None
+                if " AFTER " in f" {until_part.upper()} ":
+                    varying_problem = "PERFORM VARYING ... AFTER is not certified"
+                elif (
+                    var_item is None
+                    or not var_item.is_numeric
+                    or var_item.decimal_places > 0
+                    or var_item.pic_length > 9
+                    or "(" in var_part
+                ):
+                    varying_problem = (
+                        "PERFORM VARYING control item must be a declared "
+                        "unsubscripted integer PIC 9(1..9) field"
+                    )
 
                 # Generate for loop body: use inline body or paragraph call
                 body_stmts: list[JavaStatement] = []
@@ -4199,11 +4668,22 @@ def map_cobol_statement(
                         )
                     ))
 
+                # The control item is the COBOL field itself, never a loop
+                # local: its value after the loop (oracle: ``UNTIL WS-R > 3``
+                # leaves 004) and inside PERFORMed paragraphs must be the
+                # field's.
+                init_expression: JavaExpression = (
+                    JavaUnsupportedExpression(
+                        source_expression=stmt.until_condition,
+                        reason=varying_problem,
+                    )
+                    if varying_problem
+                    else map_cobol_expr_to_java(init_val)
+                )
                 result.append(JavaFor(
-                    init=JavaLocalVarDecl(
-                        java_type=JavaType(basic_type=JavaBasicType.INT),
-                        name=var_jname,
-                        initializer=JavaLiteral(value=init_val),
+                    init=JavaAssignment(
+                        target=var_jname,
+                        expression=init_expression,
                     ),
                     condition=cond_java,
                     update=JavaAssignment(
@@ -4211,7 +4691,7 @@ def map_cobol_statement(
                         expression=JavaBinaryOp(
                             left=JavaVariableRef(name=var_jname),
                             operator="+",
-                            right=JavaLiteral(value=by_val),
+                            right=map_cobol_expr_to_java(by_val),
                         ),
                     ),
                     body=tuple(body_stmts),
@@ -4235,16 +4715,36 @@ def map_cobol_statement(
             # COBOL executes the body exactly n times; a zero/negative
             # count executes zero times — the Java for-loop matches this.
             times_val = stmt.until_condition.replace("TIMES=", "").strip()
+            # ``PERFORM P1 THRU P2 n TIMES`` reaches the mapper as
+            # ``TIMES=THRU P2 n``: run the whole range n times.
+            thru_times = re.fullmatch(r"THRU\s+(\S+)\s+(\S+)", times_val, re.IGNORECASE)
+            times_stmt = stmt
+            if thru_times:
+                times_stmt = _dc_replace(stmt, thru_target=thru_times.group(1))
+                times_val = thru_times.group(2)
             if times_val.lstrip("-").isdigit():
                 count_expr = JavaLiteral(value=times_val)
-            else:
+            elif _is_valid_cobol_reference_name(times_val):
                 # Field reference count: PERFORM PARA WS-K TIMES.
                 count_expr = JavaVariableRef(name=times_val.replace("-", "_"))
+            else:
+                count_expr = JavaUnsupportedExpression(
+                    source_expression=stmt.until_condition,
+                    reason="PERFORM ... TIMES count is not a literal or field",
+                )
             loop_var = _fresh_times_var()
             body_stmts: list[JavaStatement] = []
             if stmt.body:
                 for s in stmt.body:
                     body_stmts.extend(map_cobol_statement(s, program, called_programs))
+            elif times_stmt.thru_target:
+                for target in _expand_thru_range(times_stmt, program):
+                    body_stmts.append(JavaMethodCallStatement(
+                        call=JavaMethodCall(
+                            method_name=_paragraph_method_name(program, target),
+                            arguments=(),
+                        )
+                    ))
             elif stmt.paragraph_name:
                 body_stmts.append(JavaMethodCallStatement(
                     call=JavaMethodCall(
@@ -4406,9 +4906,25 @@ def map_cobol_statement(
             # a program-id textually matches, the CALL dispatches on a
             # runtime value, so a static edge would be unsound.
             entry_method = "MAIN_LOGIC"  # default
+            callee_problem = None
             if is_static_target and called_programs is not None:
                 callee = called_programs.get(target_id)
                 if callee is not None:
+                    # STOP RUN in a CALLed program ends the whole run unit,
+                    # but the Java entry only returns to this caller.  A
+                    # callee entered through its first paragraph method
+                    # would also skip that program's fall-through chain.
+                    if any(
+                        isinstance(s, StopRunStatement)
+                        for para in callee.paragraphs
+                        for s in walk_statements(para.statements)
+                    ):
+                        callee_problem = "STOP_RUN_IN_CALLED_PROGRAM"
+                    elif (
+                        not callee.linkage_section
+                        and len(fall_through_chain(callee.paragraphs)) > 1
+                    ):
+                        callee_problem = "CALLED_PROGRAM_FALL_THROUGH"
                     if callee.linkage_section:
                         entry_method = "MAIN_LOGIC"
                     elif callee.paragraphs:
@@ -4425,6 +4941,15 @@ def map_cobol_statement(
                     is_static=True,
                 )
             ))
+            if callee_problem is not None:
+                # Fail closed: an unresolvable symbol makes javac (and the
+                # producer's fail-closed scan) name the unproven call.
+                result.append(JavaAssignment(
+                    target=class_name + "_CALL",
+                    expression=JavaVariableRef(
+                        name=f"UNSUPPORTED_CALL${callee_problem}"
+                    ),
+                ))
 
         # RETURNING has no certified lowering: the returned value would be
         # silently discarded.  Emit an unresolvable symbol so javac names the
@@ -4693,18 +5218,24 @@ def map_cobol_program_to_java(
 
     has_linkage = bool(program.linkage_section)
 
-    # Main method: inline the DRIVER (first) paragraph only.
+    # Main method: inline the DRIVER (first) paragraph, then call the rest of
+    # the fall-through chain in source order.
     #
-    # Rationale: every paragraph also becomes a callable Java method for
-    # PERFORM targets. Inlining all paragraphs would (a) execute PERFORMed
-    # paragraphs twice (once via the call, once via fall-through) and
-    # (b) place unreachable statements after a mid-file STOP RUN, which
-    # does not compile in Java. The driver-first rule matches the
-    # single-paragraph baseline exactly and gives correct COBOL STOP-RUN
-    # termination for multi-paragraph programs. Implicit fall-through
-    # across paragraphs (no STOP RUN, no PERFORM) is NOT reproduced and
-    # is classified PARTIAL by the capability analyzer.
+    # Every paragraph also becomes a callable Java method for PERFORM
+    # targets, so only the driver is inlined: a STOP RUN in it is a real
+    # ``return`` from ``main``.  When the driver does not end the run, COBOL
+    # falls through into the following paragraphs until one ends it; those
+    # run as method calls.  A terminator that a method call cannot honour
+    # (nested, not last, or in a PERFORMed paragraph) is reported by the
+    # parser's control-flow check, so such a program is never supported.
     driver_paragraphs = program.paragraphs[:1]
+    chain_calls = tuple(
+        JavaMethodCallStatement(call=JavaMethodCall(
+            method_name=_paragraph_method_name(program, para.name),
+            arguments=(),
+        ))
+        for para in fall_through_chain(program.paragraphs)[1:]
+    )
     main_body: list[JavaStatement] = []
     if has_linkage:
         # Standalone entry: run the parameterless business method against
@@ -4716,9 +5247,15 @@ def map_cobol_program_to_java(
         )))
     else:
         # No linkage - inline the driver paragraph statements
-        for para in driver_paragraphs:
-            for stmt in para.statements:
-                main_body.extend(map_cobol_statement(stmt, program, called_programs))
+        global _main_entry_context
+        _main_entry_context = True
+        try:
+            for para in driver_paragraphs:
+                for stmt in para.statements:
+                    main_body.extend(map_cobol_statement(stmt, program, called_programs))
+        finally:
+            _main_entry_context = False
+        main_body.extend(chain_calls)
 
     methods.append(JavaMethod(
         name="main",
@@ -4744,6 +5281,7 @@ def map_cobol_program_to_java(
         for para in driver_paragraphs:
             for stmt in para.statements:
                 business_body.extend(map_cobol_statement(stmt, program, called_programs))
+        business_body.extend(chain_calls)
         methods.append(JavaMethod(
             name="MAIN_LOGIC",
             return_type=JavaType(basic_type=JavaBasicType.VOID),

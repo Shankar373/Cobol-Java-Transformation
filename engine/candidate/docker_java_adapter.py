@@ -477,9 +477,11 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 if input_files:
                     prepare_host_tree(input_dir, writable=False)
 
-                # Docker command: execute inside container
+                # Docker command: execute inside container.  ``-i`` +
+                # ``input=`` deliver exactly the controlled stdin the evidence
+                # manifest hashes (empty when none was declared).
                 docker_cmd = [
-                    "docker", "run", "--rm",
+                    "docker", "run", "--rm", "-i",
                     *container_run_hardening_flags("java-exec"),
                     "--name", container_name,
                     "--network", "none",
@@ -505,6 +507,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 try:
                     proc = subprocess.run(
                         docker_cmd,
+                        input=input_data or b"",
                         capture_output=True,
                         timeout=self._config.timeout_seconds + 5,
                         creationflags=_flags,

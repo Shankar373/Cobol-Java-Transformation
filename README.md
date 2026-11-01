@@ -120,9 +120,10 @@ cd frontend && npm run build                  # tsc -b && vite build && bundle-s
 - *Sequential full-suite Docker runs on WSL2 show intermittent failures under
   load:* known environment limitation (BL-010); run the affected tests in
   isolation, and treat Linux CI as the authoritative Docker result.
-- *Download button disabled / HTTP 409:* three designed causes: export
+- *Download button disabled / HTTP 409:* four designed causes: export
   requires customer approval (BL-091; submit `APPROVED` in the approval
-  panel first); artifacts whose bytes no longer match their generated seal
+  panel first); approval itself requires a `VERIFIED` verdict bound to
+  integrity-valid evidence, so an unverified run can only be rejected; artifacts whose bytes no longer match their generated seal
   fail closed with 409 instead of serving tampered content; and a
   revalidation requested while one is already in flight answers 409.
 - *401 from the API:* a `CONTROL_PLANE_API_TOKEN` is set; enter the token in

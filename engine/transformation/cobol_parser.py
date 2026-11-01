@@ -28,7 +28,18 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from engine.transformation.control_flow import (
+    RUN_UNIT_TERMINATORS,
+    fall_through_chain,
+    performed_paragraphs,
+)
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
+from engine.transformation.group_storage import (
+    group_move_problem,
+    group_reference_problem,
+    is_group,
+    iter_data_items,
+)
 from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.redefines import build_redefines_plan, write_targets
 from engine.transformation.semantic_capability import canonical_usage
@@ -71,6 +82,7 @@ from engine.transformation.ir import (
     OutputFormat,
     Paragraph,
     PerformStatement,
+    PerformTimesStatement,
     PicType,
     ReadStatement,
     RecordFormat,
@@ -92,6 +104,65 @@ from engine.transformation.ir import (
 
 class CobolParseError(Exception):
     """Raised when COBOL source contains unsupported or invalid syntax."""
+
+
+# Reserved words that can never be a data-name operand: seeing one where an
+# operand is expected means a clause or a second statement was mis-captured.
+_STATEMENT_WORDS = frozenset({
+    "ACCEPT", "ADD", "ADVANCING", "CALL", "CLOSE", "COMPUTE", "CONTINUE",
+    "DELETE", "DISPLAY", "DIVIDE", "ELSE", "EVALUATE", "EXIT", "GO", "GOBACK",
+    "IF", "INITIALIZE", "INSPECT", "MOVE", "MULTIPLY", "NO", "OPEN", "PERFORM",
+    "READ", "REWRITE", "SEARCH", "SET", "START", "STOP", "STRING", "SUBTRACT",
+    "UNSTRING", "WITH", "WRITE",
+})
+
+_DATA_REFERENCE = re.compile(r"[A-Z0-9][\w-]*(?:\s*\([^()]*\))?", re.IGNORECASE)
+
+
+#: Statements whose group operands are certified (MOVE/DISPLAY, checked
+#: separately) or fail closed in the mapper (conditions, ACCEPT); INITIALIZE
+#: of a group initializes its leaves (oracle-checked).
+_GROUP_SAFE_STATEMENTS = (
+    InitializeStatement,
+    IfStatement,
+    PerformStatement,
+    PerformTimesStatement,
+    AcceptStatement,
+)
+
+_OPERAND_TOKEN = re.compile(r"[A-Z0-9][A-Z0-9-]*", re.IGNORECASE)
+
+
+def _operand_tokens(stmt) -> set[str]:
+    """Upper-case words in a statement's own fields (nested bodies excluded)."""
+    tokens: set[str] = set()
+
+    def collect(value) -> None:
+        if isinstance(value, str):
+            tokens.update(t.upper() for t in _OPERAND_TOKEN.findall(value))
+        elif isinstance(value, (tuple, list)):
+            for v in value:
+                collect(v)
+        elif hasattr(value, "__dataclass_fields__") and not type(value).__name__.endswith(
+            "Statement"
+        ):
+            for v in vars(value).values():
+                collect(v)
+
+    for value in vars(stmt).values():
+        collect(value)
+    return tokens
+
+
+def _walk_statements(statements):
+    """Yield every statement in a body, recursing into all nested bodies."""
+    for stmt in statements:
+        yield stmt
+        for value in getattr(stmt, "__dict__", {}).values():
+            if isinstance(value, (tuple, list)):
+                nested = [v for v in value if hasattr(v, "__dataclass_fields__")]
+                if nested:
+                    yield from _walk_statements(nested)
 
 
 # A statement's own closing delimiter (or a stand-alone paragraph/section
@@ -609,8 +680,152 @@ class CobolParser:
         # Validate that input contains a recognizable COBOL structure
         self._validate_program_structure(program, source)
         self._validate_redefines(program)
+        self._validate_control_flow(program)
+        self._validate_group_references(program)
+        self._validate_unique_data_names(program)
 
         return program
+
+    def _validate_group_references(self, program: CobolProgram) -> None:
+        """Fail closed on MOVE/DISPLAY of a group outside the certified views.
+
+        A group and its subordinate items are lowered to independent Java
+        fields, so a group is only expressible as a view over its leaves
+        (``engine.transformation.group_storage``): reading it as the
+        concatenation of DISPLAY-usage PIC X / unsigned PIC 9 leaves, and
+        MOVE into it when every leaf is a named PIC X field.  Anything else
+        (oracle: ``MOVE 'WXYZ' TO WS-G`` with numeric or OCCURS leaves) is
+        reported.  File records are excluded: their layout is
+        assembled/disassembled by the file-I/O lowering.
+        """
+        items = (*program.working_storage, *program.linkage_section)
+        groups = {
+            item.name.upper() for item in iter_data_items(items) if is_group(item)
+        }
+        if not groups:
+            return
+
+        def base(ref: str) -> str:
+            return str(ref or "").split("(", 1)[0].strip().rstrip(".").upper()
+
+        for para in program.paragraphs:
+            for stmt in _walk_statements(para.statements):
+                problems: list[tuple[str, str]] = []
+                if isinstance(stmt, MoveStatement):
+                    for target in stmt.targets or (stmt.target,):
+                        if base(stmt.source) in groups or base(target) in groups:
+                            problem = group_move_problem(items, stmt.source, target)
+                            if problem:
+                                problems.append(("MOVE", problem))
+                elif isinstance(stmt, DisplayStatement):
+                    for part in stmt.parts:
+                        if base(part) in groups:
+                            problem = group_reference_problem(items, part)
+                            if problem:
+                                problems.append(("DISPLAY", problem))
+                elif not isinstance(stmt, _GROUP_SAFE_STATEMENTS):
+                    # Every other verb reads or writes the unrelated Java
+                    # group field (oracle: STRING/UNSTRING INTO a group
+                    # filled its leaves; the Java left them untouched).
+                    hit = sorted(_operand_tokens(stmt) & groups)
+                    if hit:
+                        verb = type(stmt).__name__.removesuffix("Statement").upper()
+                        problems.append((verb, f"group item {hit[0]} as an operand"))
+                for verb, problem in problems:
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"{verb} references group item: {problem}; group "
+                        "storage shared with subordinate items is not lowered",
+                        location=para.name,
+                    )
+
+    def _validate_unique_data_names(self, program: CobolProgram) -> None:
+        """Fail closed on a data name declared more than once.
+
+        Every data item becomes one Java field named after it, so two items
+        sharing a name collapse into one field and qualification (``OF`` /
+        ``IN``) is not lowered.  GnuCOBOL rejects an unqualified reference
+        to such a name; the Java silently used one of them.  LINKAGE items
+        mirrored into WORKING-STORAGE by this parser are not duplicates.
+        """
+        linkage = list(iter_data_items(program.linkage_section))
+        linkage_names = {i.name.upper() for i in linkage}
+        declared = [
+            i.name.upper()
+            for i in iter_data_items(program.working_storage)
+            if i.name.upper() not in linkage_names
+        ] + [i.name.upper() for i in linkage]
+        seen: set[str] = set()
+        for name in declared:
+            if name == "FILLER":
+                continue
+            if name in seen:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"Data name {name} is declared more than once: qualified "
+                    "names (OF/IN) are not lowered",
+                    location=name,
+                )
+            seen.add(name)
+
+    def _validate_control_flow(self, program: CobolProgram) -> None:
+        """Fail closed on run-unit control flow the Java lowering cannot express.
+
+        ``main`` runs the driver paragraph and then the rest of the
+        fall-through chain (``engine.transformation.control_flow``), so
+        implicit fall-through is reproduced.  What is still unprovable:
+
+        - STOP RUN / GOBACK / EXIT PROGRAM in a non-driver paragraph, unless
+          it is a top-level STOP RUN/GOBACK closing the final paragraph of
+          the chain and no PERFORM reaches that paragraph: anywhere else it
+          lowers to a ``return`` from the paragraph method, so a PERFORMing
+          caller (or the rest of the chain) keeps running statements COBOL
+          never executes.
+        - STOP RUN / GOBACK in a driver paragraph that is itself PERFORMed.
+        """
+        terminal = (StopRunStatement, GobackStatement, ExitProgramStatement)
+        verbs = {
+            StopRunStatement: "STOP RUN",
+            GobackStatement: "GOBACK",
+            ExitProgramStatement: "EXIT PROGRAM",
+        }
+        paragraphs = program.paragraphs
+        if not paragraphs:
+            return
+        chain = fall_through_chain(paragraphs)
+        performed = performed_paragraphs(paragraphs)
+        driver = paragraphs[0]
+        if driver.name.upper() in performed:
+            for stmt in _walk_statements(driver.statements):
+                if isinstance(stmt, RUN_UNIT_TERMINATORS):
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"{verbs[type(stmt)]} inside driver paragraph "
+                        f"{driver.name}, which is also PERFORMed: the "
+                        "PERFORMed copy only returns from the paragraph method",
+                        location=driver.name,
+                    )
+                    break
+        for para in paragraphs[1:]:
+            closes_chain = (
+                para is chain[-1]
+                and para.name.upper() not in performed
+                and bool(para.statements)
+                and isinstance(para.statements[-1], RUN_UNIT_TERMINATORS)
+            )
+            for stmt in _walk_statements(para.statements):
+                if not isinstance(stmt, terminal):
+                    continue
+                if closes_chain and stmt is para.statements[-1]:
+                    continue
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"{verbs[type(stmt)]} inside non-driver paragraph "
+                    f"{para.name} ends the run unit in COBOL but only returns "
+                    "from the paragraph method in Java",
+                    location=para.name,
+                )
+                break
 
     def _validate_redefines(self, program: CobolProgram) -> None:
         """Name every REDEFINES the deterministic lane cannot certify.
@@ -951,14 +1166,29 @@ class CobolParser:
     def parse_data_description_lines(self, lines: list[str]) -> list[DataItem]:
         """Parse COBOL data-description entries for WORKING-STORAGE, LINKAGE or COPYBOOKs."""
         parsed = []
-        for raw in lines:
-            stripped = raw.strip()
-            if not stripped or stripped.startswith(("*", "/")):
-                continue
+        for stripped in self._data_description_entries(lines):
             m = re.match(r"^(\d{1,2})\s+([A-Z0-9][\w-]*)\b(.*)$", stripped, re.IGNORECASE)
             if not m:
                 continue
             level, name, rest = int(m.group(1)), m.group(2).rstrip("."), m.group(3)
+            if level == 66:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"Level-66 RENAMES entry {name} has no certified lowering",
+                    location=name,
+                )
+                continue
+            for clause, pattern in (
+                ("JUSTIFIED", r"\bJUST(?:IFIED)?\b"),
+                ("BLANK WHEN ZERO", r"\bBLANK\s+(?:WHEN\s+)?ZEROE?S?\b"),
+            ):
+                if re.search(pattern, rest, re.IGNORECASE):
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"{clause} clause on {name} changes stored/displayed "
+                        "content and has no certified lowering",
+                        location=name,
+                    )
             pic = re.search(r"\bPIC(?:TURE)?\s+([A-Z0-9()V+\-]+)", rest, re.IGNORECASE)
             if pic:
                 pic_type, pic_length, decimals = self._parse_pic_details(pic.group(1))
@@ -1038,6 +1268,29 @@ class CobolParser:
             )
 
         return [freeze(root) for root in roots]
+
+    @staticmethod
+    def _data_description_entries(lines: list[str]) -> list[str]:
+        """Join physical lines into whole data-description entries.
+
+        An entry runs from its level number to its terminating period, so a
+        clause on a continuation line (``01 WS-A`` / ``PIC 9(3) VALUE 5.``)
+        belongs to the entry instead of being dropped (oracle: the PIC was
+        lost and the field became an alphanumeric String).
+        """
+        entries: list[str] = []
+        open_entry = False
+        for raw in lines:
+            stripped = raw.strip()
+            if not stripped or stripped.startswith(("*", "/")):
+                continue
+            starts_entry = re.match(r"^\d{1,2}\s+\S", stripped) is not None
+            if not starts_entry and open_entry and entries:
+                entries[-1] = f"{entries[-1]} {stripped}"
+            else:
+                entries.append(stripped)
+            open_entry = not entries[-1].rstrip().endswith(".")
+        return entries
 
     @staticmethod
     def _pic_is_signed(pic_str: str) -> bool:
@@ -1846,7 +2099,16 @@ class CobolParser:
         match = re.search(r"MOVE\s+(.+?)\s+TO\s+(.+?)(?:\.)?$", line, re.IGNORECASE)
         if match:
             source = match.group(1).strip()
-            targets = tuple(t.rstrip(".") for t in match.group(2).split() if t.strip())
+            targets = tuple(t.rstrip(".,") for t in match.group(2).split() if t.strip(" ,"))
+            if any(
+                t.upper() in _STATEMENT_WORDS or not _DATA_REFERENCE.fullmatch(t)
+                for t in targets
+            ):
+                # A second statement on the same line without a separating
+                # period (``MOVE 'AB' TO WS-J DISPLAY WS-J``) used to become
+                # extra MOVE receivers named DISPLAY / WS-J.
+                self._emit_unparsed("MOVE", lines[start])
+                return MoveStatement(source="", target=""), end
             target = targets[0] if targets else ""
             return MoveStatement(
                 source=source,
@@ -2044,6 +2306,9 @@ class CobolParser:
             divisor = match.group(2).strip().rstrip(".")
             target = match.group(3).strip().rstrip(".")
             remainder = match.group(4).strip().rstrip(".") if match.group(4) else ""
+            if self._divide_has_trailing_clause(line, match.end()):
+                self._emit_unparsed("DIVIDE", lines[start])
+                return DivideStatement(source="", divisor="", target=""), end
             rounded = bool(re.search(r"\sROUNDED(?:\s+REMAINDER\b|\s*\.|\s*)", line, re.IGNORECASE))
             return DivideStatement(
                 source=source,
@@ -2074,6 +2339,9 @@ class CobolParser:
                 else numerator
             )
             remainder = into_match.group(4).strip().rstrip(".") if into_match.group(4) else ""
+            if self._divide_has_trailing_clause(line, into_match.end()):
+                self._emit_unparsed("DIVIDE", lines[start])
+                return DivideStatement(source="", divisor="", target=""), end
             rounded = bool(re.search(r"\sROUNDED(?:\s+REMAINDER\b|\s*\.|\s*)", line, re.IGNORECASE))
             return DivideStatement(
                 source=numerator,
@@ -2088,6 +2356,20 @@ class CobolParser:
 
         self._emit_unparsed("DIVIDE", lines[start])
         return DivideStatement(source="", divisor="", target=""), end
+
+    @staticmethod
+    def _divide_has_trailing_clause(line: str, matched_end: int) -> bool:
+        """Return whether text the DIVIDE pattern did not consume remains.
+
+        The DIVIDE regexes are not end-anchored: ``ON SIZE ERROR`` / ``NOT ON
+        SIZE ERROR`` (and any other trailing phrase) used to be dropped
+        together with its imperative statement, so a quotient overflow
+        produced a silently wrong value instead of a diagnostic.
+        """
+        rest = line[matched_end:].strip().rstrip(".").strip()
+        rest = re.sub(r"(?i)^ROUNDED\b", "", rest).strip()
+        rest = re.sub(r"(?i)\bEND-DIVIDE$", "", rest).strip()
+        return bool(rest)
 
     def _parse_compute(self, lines: list[str], start: int) -> tuple['ComputeStatement', int]:
         """Parse COMPUTE target = expression."""
@@ -2869,6 +3151,7 @@ class CobolParser:
         parts: list[str] = []
         if parts_match:
             parts_str = parts_match.group(1).strip()
+            self._check_display_operands(parts_str, lines[start])
             for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*(?:\s*\([^()]*\))?)', parts_str, re.IGNORECASE):
                 if token[0]:
                     parts.append(f'"{token[0]}"')
@@ -2908,6 +3191,7 @@ class CobolParser:
             if u.startswith(break_prefixes):
                 break
             if l and not u.startswith("*") and not u.startswith("END-"):
+                self._check_display_operands(l, lines[i])
                 for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*(?:\s*\([^()]*\))?)', l, re.IGNORECASE):
                     if token[0]:
                         parts.append(f'"{token[0]}"')
@@ -2921,6 +3205,22 @@ class CobolParser:
             i += 1
 
         return DisplayStatement(parts=tuple(parts), destination=destination), i
+
+    def _check_display_operands(self, text: str, line: str) -> None:
+        """Fail closed when DISPLAY text holds anything but literals/data-names.
+
+        The operand tokenizer keeps only quoted literals and identifiers, so
+        numeric literals were dropped and ``WITH NO ADVANCING`` (or a second
+        statement on the line) became bogus data-name operands.
+        """
+        body = re.sub(r"(?i)\s+UPON\s+\S+\s*\.?\s*$", "", text.strip()).rstrip(".")
+        leftover = re.sub(r'"[^"]*"|\'[^\']*\'', " ", body)
+        words = re.findall(r"[A-Z][\w-]*(?:\s*\([^()]*\))?", leftover, re.IGNORECASE)
+        residue = re.sub(r"[A-Z][\w-]*(?:\s*\([^()]*\))?", " ", leftover, flags=re.IGNORECASE)
+        if residue.replace(",", " ").strip() or any(
+            w.split("(", 1)[0].strip().upper() in _STATEMENT_WORDS for w in words
+        ):
+            self._emit_unparsed("DISPLAY", line)
 
     def _parse_set(self, lines: list[str], start: int) -> tuple[Statement | None, int]:
         """Parse ``SET <condition-name> TO TRUE`` into IR.

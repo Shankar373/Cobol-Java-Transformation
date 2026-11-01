@@ -384,7 +384,7 @@ class TestCapabilityTruth:
         code = _generate(_program("COMPUTE WS-NUM = ZERO * 2."))
         # The constant becomes the numeric literal 0 in place, so the
         # expression evaluates identically; no reserved word survives.
-        assert "WS_NUM = (0 * 2);" in code
+        assert "WS_NUM = ((0 * 2) % " in code
         assert "ZERO" not in code
 
     def test_source_only_figurative_does_not_silently_pass(self):

@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -78,7 +79,12 @@ from engine.verification.business_invariants import (
     InvariantObservation,
     build_report,
 )
-from engine.workload import WorkloadDefinition
+from engine.contracts.models import FailurePolicy
+from engine.workload import WorkloadArtifact, WorkloadDefinition
+
+#: Generated files are compared under this policy: a file that only one
+#: execution produced is a behavioural difference, never "unavailable".
+_ONE_SIDED_FILE_IS_MISMATCH = FailurePolicy(on_missing="FAILED")
 
 
 @dataclass(frozen=True)
@@ -436,6 +442,54 @@ class VerticalSlicePipeline:
                 run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
             ))
 
+        # Every file either execution wrote is an observable effect.  Files
+        # the declaration does not name are still compared byte-exactly (no
+        # normalization), and a file produced on only one side is a MISMATCH:
+        # an undeclared output must never be silently ignored.
+        declared_paths = {
+            a.output_path for a in workload.artifacts if a.output_path
+        }
+        oracle_generated = getattr(oracle_result, "generated_files", None) or {}
+        candidate_generated = getattr(candidate_result, "generated_files", None) or {}
+        undeclared = sorted(
+            (set(oracle_generated) | set(candidate_generated)) - declared_paths
+        )
+        text_comparator = self._registry.get("TEXT_FILE")
+        if undeclared and text_comparator is None:
+            raise ValueError(
+                "No comparator registered for artifact_type='TEXT_FILE': "
+                "undeclared generated files cannot be compared"
+            )
+        for name in undeclared:
+            artifact_def = WorkloadArtifact(
+                logical_name=f"generated-file:{name}",
+                artifact_type="TEXT_FILE",
+                comparator_id="text-file-exact",
+                output_path=name,
+                failure=_ONE_SIDED_FILE_IS_MISMATCH,
+            )
+            oracle_ca = self._capture_artifact(
+                "TEXT_FILE", name, oracle_result.execution_id,
+                oracle_generated.get(name), artifact_def.logical_name, "ORACLE",
+            )
+            candidate_ca = self._capture_artifact(
+                "TEXT_FILE", name, candidate_result.execution_id,
+                candidate_generated.get(name), artifact_def.logical_name,
+                "CANDIDATE",
+            )
+            oracle_artifacts_list.append(oracle_ca)
+            candidate_artifacts_list.append(candidate_ca)
+            comp_result = text_comparator.compare(
+                oracle_ca.artifact, oracle_ca.content,
+                candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=(),
+                ordering="SEQUENTIAL",
+                failure_policy=artifact_def.failure,
+            )
+            comparison_evidence.append(self._make_comparison_evidence(
+                run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
+            ))
+
         # Business invariants are derived artifacts, evaluated independently
         # against each execution. They run through the same registry, capture,
         # comparison, integrity and verdict gates as observed artifacts: a
@@ -587,6 +641,111 @@ class VerticalSlicePipeline:
                 hasher.update(f.read_bytes())
         return ContentHash(digest=hasher.hexdigest())
 
+    #: Side-effect channels the comparators cannot observe, keyed by the
+    #: unsupported artifact type recorded for them.  Declarative EXEC SQL
+    #: statements (INCLUDE, DECLARE, WHENEVER, declare sections) touch no
+    #: database and are not counted.
+    _UNOBSERVED_EFFECT_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
+        (
+            "DATABASE_STATE",
+            "database-state",
+            re.compile(
+                r"\bEXEC\s+SQL\s+(?!INCLUDE\b|DECLARE\b|WHENEVER\b|"
+                r"BEGIN\s+DECLARE\b|END\s+DECLARE\b)\w",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "DATABASE_STATE",
+            "database-state",
+            re.compile(
+                r"\bEXEC\s+DLI\b|\bCALL\s+['\"](?:CBLTDLI|AIBTDLI)['\"]",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "TRANSACTION_EFFECTS",
+            "transaction-effects",
+            re.compile(r"\bEXEC\s+CICS\b", re.IGNORECASE),
+        ),
+        (
+            "MESSAGE_QUEUE_EFFECTS",
+            "message-queue-effects",
+            re.compile(r"\bCALL\s+['\"]MQ[A-Z]+['\"]", re.IGNORECASE),
+        ),
+    )
+
+    def _source_texts(self) -> list[str]:
+        """COBOL source text with comment lines and inline comments blanked."""
+        source_path = Path(self._config.cobol_source_path)
+        if source_path.is_file():
+            files = [source_path]
+        elif source_path.is_dir():
+            files = [f for f in sorted(source_path.rglob("*")) if f.is_file()]
+        else:
+            files = []
+        texts = []
+        for f in files:
+            lines = f.read_bytes().decode("latin-1").splitlines()
+            texts.append("\n".join(
+                "" if len(line) > 6 and line[6] in "*/" else line.split("*>", 1)[0]
+                for line in lines
+            ))
+        return texts
+
+    def _unobserved_effect_evidence(
+        self,
+        run_id: RunId,
+        workload_id: WorkloadId,
+        oracle_execution_id: ExecutionId,
+        candidate_execution_id: ExecutionId,
+    ) -> tuple[tuple[ArtifactEvidence, ...], tuple[ComparisonEvidence, ...]]:
+        """Unsupported-artifact evidence for effects no comparator observes.
+
+        Each channel found in the source yields a content-free marker per
+        execution plus an INCONCLUSIVE comparison binding the pair, so the
+        evidence stays integrity-valid and derivation reports UNSUPPORTED.
+        """
+        texts = self._source_texts()
+        channels: dict[str, str] = {}
+        for artifact_type, logical_name, pattern in self._UNOBSERVED_EFFECT_PATTERNS:
+            if any(pattern.search(text) for text in texts):
+                channels[artifact_type] = logical_name
+        artifacts: list[ArtifactEvidence] = []
+        comparisons: list[ComparisonEvidence] = []
+        for artifact_type, logical_name in sorted(channels.items()):
+            oracle_marker = self._capturer.capture_missing(
+                oracle_execution_id, artifact_type, logical_name, "ORACLE",
+                status="UNOBSERVED",
+            )
+            candidate_marker = self._capturer.capture_missing(
+                candidate_execution_id, artifact_type, logical_name, "CANDIDATE",
+                status="UNOBSERVED",
+            )
+            artifacts += [oracle_marker.to_evidence(), candidate_marker.to_evidence()]
+            difference = (
+                f"{artifact_type}: the program has {logical_name} that no"
+                " comparator observes; equivalence of those effects is unproven"
+            )
+            comparisons.append(ComparisonEvidence(
+                comparison_id=f"comp-{logical_name}-{run_id.value}",
+                run_id=run_id,
+                comparator_id="unobserved-effect",
+                comparator_version="1.0.0",
+                oracle_artifact_id=oracle_marker.artifact.artifact_id,
+                candidate_artifact_id=candidate_marker.artifact.artifact_id,
+                artifact_type=artifact_type,
+                result="INCONCLUSIVE",
+                normalization_applied=(),
+                differences=(difference,),
+                field_level_results=(),
+                content_hash=ContentHash.from_string(json.dumps({
+                    "result": "INCONCLUSIVE", "differences": [difference],
+                }, sort_keys=True)),
+                workload_id=workload_id,
+            ))
+        return tuple(artifacts), tuple(comparisons)
+
     def run(
         self,
         controlled_input: bytes | None = None,
@@ -688,6 +847,15 @@ class VerticalSlicePipeline:
         comparison_evidence = tuple(
             replace(c, workload_id=workload_id) for c in comparison_evidence
         )
+        # Effects no comparator can observe (database, transaction monitor,
+        # message queue) are recorded as unsupported artifacts so the verdict
+        # can never certify a program whose side effects were not compared.
+        effect_artifacts, effect_comparisons = self._unobserved_effect_evidence(
+            run_id, workload_id,
+            oracle_result.execution_id, candidate_result.execution_id,
+        )
+        artifact_evidence = tuple(artifact_evidence) + effect_artifacts
+        comparison_evidence = comparison_evidence + effect_comparisons
 
         environment_identities = (
             EnvironmentIdentity(
@@ -819,26 +987,22 @@ class VerticalSlicePipeline:
         candidate_file_artifacts: dict[str, CapturedArtifact] = {}
 
         for name in all_generated_names:
-            oracle_content = oracle_generated.get(name, b"")
-            candidate_content = candidate_generated.get(name, b"")
+            # A file produced on only one side stays missing (never an empty
+            # file), so the comparator reports it instead of matching b"".
+            oracle_content = oracle_generated.get(name)
+            candidate_content = candidate_generated.get(name)
 
             is_fixed = name.endswith((".dat", ".rec"))
             logical = name.rsplit(".", 1)[0] if "." in name else name
-
-            if is_fixed:
-                oa = self._capturer.capture_fixed_record(
-                    oracle_result.execution_id, oracle_content, logical, "ORACLE"
-                )
-                ca = self._capturer.capture_fixed_record(
-                    candidate_result.execution_id, candidate_content, logical, "CANDIDATE"
-                )
-            else:
-                oa = self._capturer.capture_text_file_from_bytes(
-                    oracle_result.execution_id, oracle_content, logical, "ORACLE"
-                )
-                ca = self._capturer.capture_text_file_from_bytes(
-                    candidate_result.execution_id, candidate_content, logical, "CANDIDATE"
-                )
+            artifact_type = "FIXED_RECORD" if is_fixed else "TEXT_FILE"
+            oa = self._capture_artifact(
+                artifact_type, name, oracle_result.execution_id,
+                oracle_content, logical, "ORACLE",
+            )
+            ca = self._capture_artifact(
+                artifact_type, name, candidate_result.execution_id,
+                candidate_content, logical, "CANDIDATE",
+            )
 
             oracle_artifacts_list.append(oa)
             candidate_artifacts_list.append(ca)
@@ -855,6 +1019,7 @@ class VerticalSlicePipeline:
             oracle_stdout_artifact.content,
             candidate_stdout_artifact.artifact,
             candidate_stdout_artifact.content,
+            normalization_policy=(),
         )
         comparison_evidence.append(ComparisonEvidence(
             comparison_id=f"comp-stdout-{run_id.value}",
@@ -905,6 +1070,7 @@ class VerticalSlicePipeline:
             oracle_stderr_artifact.content,
             candidate_stderr_artifact.artifact,
             candidate_stderr_artifact.content,
+            normalization_policy=(),
         )
         comparison_evidence.append(ComparisonEvidence(
             comparison_id=f"comp-stderr-{run_id.value}",
@@ -933,6 +1099,8 @@ class VerticalSlicePipeline:
             comparator = FixedRecordComparator() if is_fixed else TextFileComparator()
             comp_result = comparator.compare(
                 oa.artifact, oa.content, ca.artifact, ca.content,
+                normalization_policy=(),
+                failure_policy=_ONE_SIDED_FILE_IS_MISMATCH,
             )
             comparison_evidence.append(ComparisonEvidence(
                 comparison_id=f"comp-{artifact_type.lower()}-{name}-{run_id.value}",

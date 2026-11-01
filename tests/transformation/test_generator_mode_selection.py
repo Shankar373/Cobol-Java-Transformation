@@ -48,6 +48,14 @@ def _make_program(
     summary_fields: tuple = (),
     report_header: str = "",
 ) -> CobolProgram:
+    # The IF conditions compare STATUS to one-character literals; an
+    # undeclared operand has no PIC width for COBOL's space-padded
+    # comparison and now fails closed, so the synthetic programs declare it.
+    if not working_storage:
+        working_storage = (
+            DataItem(name="STATUS", pic_type=PicType.ALPHANUMERIC, pic_length=1),
+            DataItem(name="RESULT", pic_type=PicType.ALPHANUMERIC, pic_length=10),
+        )
     return CobolProgram(
         program_id=program_id,
         file_definitions=file_definitions,

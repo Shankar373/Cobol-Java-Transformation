@@ -93,6 +93,37 @@ fact — an attacker who can rewrite the database can rewrite the seal too.
 This protects the far likelier case: filesystem substitution of the
 artifact between execution, approval and export.
 
+## Approval requires a VERIFIED verdict (2026-11-01)
+
+`Service.set_run_approval` refuses an `APPROVED` decision with HTTP 409
+unless the run carries a `VERIFIED` verdict, that verdict hash-matches the
+run's evidence manifest (`_check_evidence_verdict_consistency`) and the
+manifest passes integrity validation (`_require_valid_evidence`).  A run
+with no verdict, or a `FAILED` / `PARTIAL` / `UNPROVEN` / `UNAVAILABLE` /
+`UNSUPPORTED` / `ERROR` verdict, can be `REJECTED` but never approved, so
+export (which requires `APPROVED`) is only reachable for proven behaviour.
+Contract: `tests/test_phase12_p4_bl091_approval_workflow.py::TestApprovalRequiresVerified`.
+
+## What a VERIFIED comparison covers (2026-11-01)
+
+`engine/pipeline.py` compares, for every run:
+
+* the declared contract (default: `STDOUT` + `EXIT_STATUS`);
+* **every file either execution wrote**, declared or not, byte-exactly; a
+  file only one side produced is a `MISMATCH` (never an empty match);
+* no implicit normalization: comparators apply `crlf_to_lf` only when a
+  workload declares it, and the policy is recorded in
+  `normalization_applied` (the legacy path and the comparator default used
+  to fold CRLF silently);
+* effects no comparator can observe — non-declarative `EXEC SQL`,
+  `EXEC DLI` / `CALL 'CBLTDLI'`, `EXEC CICS`, `CALL 'MQ…'` — are recorded
+  as `DATABASE_STATE` / `TRANSACTION_EFFECTS` / `MESSAGE_QUEUE_EFFECTS`
+  marker artifacts with an `INCONCLUSIVE` comparison, so derivation yields
+  `UNSUPPORTED`, never `VERIFIED`.  Database-state capture does not exist;
+  until it does, database effects are unproven by construction.
+
+Contract: `tests/test_comparison_contract_strength.py`.
+
 ## Verdict / evidence consistency at retrieval
 
 `Service._check_evidence_verdict_consistency` runs on every

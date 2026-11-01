@@ -815,10 +815,12 @@ class CapabilityAnalyzer:
                     "has no alternate-index lowering",
                 ))
 
-        # Implicit fall-through reliance: the generator executes the driver
-        # (first) paragraph; a multi-paragraph program whose driver does not
-        # terminate (no top-level STOP RUN) relies on fall-through into the
-        # next paragraph, which is not reproduced.
+        # Implicit fall-through reliance: the single-program generator's
+        # ``main`` runs the fall-through chain, but the Spring Boot
+        # application runner enters a service through its driver (first)
+        # paragraph method only; a multi-paragraph program whose driver does
+        # not terminate (no top-level STOP RUN) relies on fall-through into
+        # the next paragraph, which that path does not reproduce.
         if len(program.paragraphs) > 1:
             driver_stmts = program.paragraphs[0].statements
             if not any(isinstance(s, StopRunStatement) for s in driver_stmts):

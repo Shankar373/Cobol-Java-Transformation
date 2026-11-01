@@ -126,8 +126,8 @@ class TestArithmeticMutation:
         java2 = result2.generated_files[0].source_code
 
         assert java1 != java2
-        assert "WS_RESULT += 50;" in java1 or "WS_RESULT = (WS_RESULT + 50)" in java1
-        assert "WS_RESULT += 75;" in java2 or "WS_RESULT = (WS_RESULT + 75)" in java2
+        assert "WS_RESULT += 50;" in java1 or "WS_RESULT = ((WS_RESULT + 50) % " in java1
+        assert "WS_RESULT += 75;" in java2 or "WS_RESULT = ((WS_RESULT + 75) % " in java2
 
     def test_add_25_to_10(self):
         producer = InternalNativeJavaProducer()
@@ -139,8 +139,8 @@ class TestArithmeticMutation:
         java2 = result2.generated_files[0].source_code
 
         assert java1 != java2
-        assert "WS_COUNTER += 25;" in java1 or "WS_COUNTER = (WS_COUNTER + 25)" in java1
-        assert "WS_COUNTER += 10;" in java2 or "WS_COUNTER = (WS_COUNTER + 10)" in java2
+        assert "WS_COUNTER += 25;" in java1 or "WS_COUNTER = ((WS_COUNTER + 25) % " in java1
+        assert "WS_COUNTER += 10;" in java2 or "WS_COUNTER = ((WS_COUNTER + 10) % " in java2
 
 
 class TestOutputMutation:

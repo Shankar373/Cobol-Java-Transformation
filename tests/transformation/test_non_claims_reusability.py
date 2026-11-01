@@ -155,9 +155,9 @@ class TestNonClaimsReusability:
         # MOVE 100 TO WS-RESULT
         assert "WS_RESULT = 100;" in java_code
         # ADD 50 TO WS-RESULT → WS_RESULT += 50 or WS_RESULT = (WS_RESULT + 50)
-        assert "WS_RESULT += 50;" in java_code or "WS_RESULT = (WS_RESULT + 50)" in java_code
+        assert "WS_RESULT += 50;" in java_code or "WS_RESULT = ((WS_RESULT + 50) % " in java_code
         # ADD 25 TO WS-COUNTER → WS_COUNTER += 25 or WS_COUNTER = (WS_COUNTER + 25)
-        assert "WS_COUNTER += 25;" in java_code or "WS_COUNTER = (WS_COUNTER + 25)" in java_code
+        assert "WS_COUNTER += 25;" in java_code or "WS_COUNTER = ((WS_COUNTER + 25) % " in java_code
 
     def test_simple_calc_if_else(self, cobol_source: str):
         """Generated Java has IF/ELSE for condition."""

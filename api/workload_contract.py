@@ -16,6 +16,12 @@ comparator binding. The API resolves it explicitly for every validation:
    ``default:stdout-exit-status`` so clients can see which contract a run was
    certified against instead of a hidden hard-coded assumption.
 
+Whatever the contract, the pipeline additionally compares every file either
+execution wrote (byte-exact; a one-sided file is a MISMATCH) and marks
+database / transaction-monitor / message-queue effects it cannot observe as
+UNSUPPORTED evidence (``engine/pipeline.py``), so the contract id names the
+declared artifacts, not the whole comparison surface.
+
 Fail-closed rules:
 
 * a declared workload that needs staged *inputs* is rejected — the API does

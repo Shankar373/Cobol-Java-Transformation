@@ -36,8 +36,12 @@ def _magnitude_wrapper(expr):
     ``005``), so the generator wraps a subtraction whose operands are not
     provably non-negative.  The operator assertions below still inspect the
     arithmetic underneath that wrapper.
+
+    It also unwraps the high-order truncation ``(... % 10**n)`` applied to an
+    integer receiver whose result can outgrow its PIC (oracle: ``ADD 999 TO
+    PIC 9(3)`` holding 5 stores ``004``).
     """
-    from engine.transformation.java_ir import JavaMethodCall
+    from engine.transformation.java_ir import JavaBinaryOp, JavaMethodCall
 
     if (
         isinstance(expr, JavaMethodCall)
@@ -46,7 +50,9 @@ def _magnitude_wrapper(expr):
         and expr.method_name == "abs"
         and len(expr.arguments) == 1
     ):
-        return expr.arguments[0]
+        expr = expr.arguments[0]
+    if isinstance(expr, JavaBinaryOp) and expr.operator == "%":
+        expr = expr.left
     return expr
 
 
@@ -390,7 +396,7 @@ MAIN.
         stmts = [s for s in java.java_class.methods[0].body_statements
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
-        expr = stmts[0].expression
+        expr = _magnitude_wrapper(stmts[0].expression)
         assert expr.class_name == "Math"
         assert expr.method_name == "multiplyExact"
         assert len(expr.arguments) == 2
@@ -415,7 +421,7 @@ MAIN.
         stmts = [s for s in java.java_class.methods[0].body_statements
                  if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(stmts) == 1
-        expr = stmts[0].expression
+        expr = _magnitude_wrapper(stmts[0].expression)
         assert expr.class_name == "Math"
         assert expr.method_name == "multiplyExact"
         assert len(expr.arguments) == 2
@@ -473,12 +479,12 @@ MAIN.
         stmts = [s for s in java.java_class.methods[0].body_statements
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
-        expr = stmts[0].expression
+        expr = _magnitude_wrapper(stmts[0].expression)
         assert expr.operator == "/"
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
         assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
 
-    def test_remainder_produces_modulo(self):
+    def test_remainder_uses_stored_quotient(self):
         cobol = """\
 >>SOURCE FORMAT FREE
 IDENTIFICATION DIVISION.
@@ -498,8 +504,19 @@ MAIN.
         remainder_stmts = [s for s in java.java_class.methods[0].body_statements
                           if hasattr(s, 'target') and s.target == 'WS_R']
         assert len(remainder_stmts) == 1
-        expr = remainder_stmts[0].expression
-        assert expr.operator == "%"
+        # COBOL REMAINDER = dividend - (stored quotient * divisor), not a
+        # Java ``%`` (oracle: 7 / 3 GIVING PIC 9V99 leaves REMAINDER 0.01).
+        # Both operations may be overflow-guarded (Math.*Exact).
+        def binary(node):
+            exact = {"subtractExact": "-", "multiplyExact": "*"}
+            if getattr(node, "method_name", None) in exact:
+                return exact[node.method_name], node.arguments[0], node.arguments[1]
+            return node.operator, node.left, node.right
+
+        op, dividend, product = binary(_magnitude_wrapper(remainder_stmts[0].expression))
+        assert (op, dividend.name) == ("-", "WS_A")
+        op, quotient, divisor = binary(product)
+        assert (op, quotient.name, divisor.name) == ("*", "WS_C", "WS_B")
 
     def test_both_operands_unchanged_after_giving(self):
         """GIVING must not mutate A or B."""
@@ -711,7 +728,7 @@ MAIN.
         java = self._parse_and_map(cobol)
         assignment = self._get_assignment(java, "WS_C")
         assert assignment is not None
-        expr = assignment.expression
+        expr = _magnitude_wrapper(assignment.expression)
         assert expr.class_name == "Math"
         assert expr.method_name == "multiplyExact"
         assert len(expr.arguments) == 2
@@ -737,7 +754,7 @@ MAIN.
         java = self._parse_and_map(cobol)
         assignment = self._get_assignment(java, "WS_C")
         assert assignment is not None
-        expr = assignment.expression
+        expr = _magnitude_wrapper(assignment.expression)
         assert expr.operator == "/"
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
         assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
