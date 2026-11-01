@@ -119,6 +119,16 @@ fail-closed, columns 73-80, continued PERFORM header + separator period,
 keyword-bearing VALUE literals, section order), `test_usage_capability.py`
 (unreferenced COMP), `test_oracle_multiprogram.py` (entry selection).
 
+### Acceptance (exact-SHA CI)
+
+`6050335` — CI run 41331289314, all jobs green: backend + full Docker lane
+**4,767 passed, 0 failed, 0 skipped**; capability-truth gate 1,001 passed;
+frontend 172 passed; supply chain green.  Two follow-ups were needed after
+the first push: the pytest-only gate could not import pydantic
+(`57fc673`), and three pre-Phase-2 Docker tests still expected the old
+behaviour (`6050335`: one lowered run-unit body; indexed/relative now
+PARTIAL by design).
+
 ## 6. Open (Phase 3 candidates)
 
 - Record-level comparison of INDEXED/RELATIVE files (would let the 6 PARTIAL
