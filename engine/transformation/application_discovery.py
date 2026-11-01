@@ -52,6 +52,7 @@ from engine.transformation.ir import (
     normalize_cobol_name,
 )
 from engine.transformation.diagnostics import DiagnosticCode
+from engine.transformation.source_format import compiler_visible_text
 
 # ---------------------------------------------------------------------------
 # File-operation scanning patterns.
@@ -103,6 +104,12 @@ def _scan_call_copy(source: str) -> list[tuple[str, str, int]]:
     Comment lines are blanked offset-preservingly first; string literals and
     ``*>`` inline comments that are not the verb's own operand are consumed
     whole by the scanner's alternation (data, never statements).
+
+    ``source`` must be compiler-visible text (``compiler_visible_text``):
+    the literal alternation pairs quotes, which only works once continued
+    literals are folded and doubled-quote escapes are re-delimited — on raw
+    text one continued literal shifts every later pairing, so literal text
+    reads as code and real statements read as literals.
     """
     masked = _COBOL_COMMENT_LINE_FULL.sub(lambda m: " " * len(m.group(0)), source)
     found: list[tuple[str, str, int]] = []
@@ -406,6 +413,8 @@ class ApplicationDiscovery:
         phantom edge.  USING-argument handling is unchanged.
         """
         calls: list[ProgramCall] = []
+        # Scan and slice the same canonical text (offsets index into it).
+        source = compiler_visible_text(source)
 
         for verb, operand, end in _scan_call_copy(source):
             if verb != "CALL":
@@ -456,7 +465,7 @@ class ApplicationDiscovery:
         """
         copybooks: list[CopybookReference] = []
 
-        for verb, operand, _end in _scan_call_copy(source):
+        for verb, operand, _end in _scan_call_copy(compiler_visible_text(source)):
             if verb != "COPY":
                 continue
             copybook_name = operand.rstrip(".")

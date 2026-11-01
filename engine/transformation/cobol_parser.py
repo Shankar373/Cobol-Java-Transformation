@@ -43,7 +43,11 @@ from engine.transformation.group_storage import (
 from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.redefines import build_redefines_plan, write_targets
 from engine.transformation.semantic_capability import canonical_usage
-from engine.transformation.source_format import compiler_visible_text
+from engine.transformation.source_format import (
+    compiler_visible_text,
+    reference_format_errors,
+    unquote_literal,
+)
 from engine.transformation.ir import (
     AddStatement,
     CallStatement,
@@ -570,6 +574,15 @@ class CobolParser:
         self._diagnostics.clear()
         self._unsupported_statements = []
         self._record_owner = {}
+        # Text that cannot be read faithfully (a continuation line that
+        # continues nothing or resumes an open literal without a quote; a
+        # literal holding both quote characters) is refused: never guess.
+        for problem in reference_format_errors(source):
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"Source cannot be read faithfully: {problem}",
+                location=problem.split(":", 1)[0],
+            )
         # Fixed format: the compiler never sees columns 73+, so neither may we.
         lines = compiler_visible_text(source).split("\n")
         # Remove comments and empty lines
@@ -3959,7 +3972,7 @@ class CobolParser:
             mappings.append(InputRecordMapping(
                 record_name=parts.source,
                 file_name=file_name,
-                delimiter=parts.delimiter.strip("'\""),
+                delimiter=unquote_literal(parts.delimiter),
                 fields=parts.targets,
             ))
 

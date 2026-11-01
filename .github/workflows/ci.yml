@@ -71,6 +71,8 @@ jobs:
             tests/transformation/test_line_sequential_and_string_numeric.py \
             tests/transformation/test_unresolved_call_blocks_generation.py \
             tests/transformation/test_assign_clause_forms.py \
+            tests/transformation/test_fixed_format_continuation.py \
+            tests/transformation/test_literal_quote_escapes.py \
             tests/comparators/test_fixed_record_trailing_partial.py \
             tests/test_phase10_p0_bl053_seal_recheck.py \
             tests/test_phase10_p0_integrated_proof_gate.py \

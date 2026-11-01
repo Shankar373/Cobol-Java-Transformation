@@ -29,6 +29,7 @@ from __future__ import annotations
 import re
 
 from engine.transformation import figurative
+from engine.transformation.source_format import unquote_literal
 from engine.transformation.control_flow import (
     RUN_UNIT_ENTRY_METHOD,
     fall_through_chain,
@@ -246,12 +247,12 @@ def map_pic_to_java_default(item: DataItem) -> str:
                 # ``LOW-VALUE``/``HIGH-VALUE`` contain control bytes, so the
                 # literal must be escaped or ``javac`` rejects it.
                 return '"' + _java_quote(value) + '"'
-        value = item.value.strip(chr(39) + chr(34)) if item.value else ""
+        value = unquote_literal(item.value) if item.value else ""
         if item.value and item.value.upper() in ("SPACE", "SPACES"):
             value = ""
         return '"' + _java_quote(value[:item.pic_length].ljust(item.pic_length)) + '"'
     if item.value:
-        return f'"{item.value.strip(chr(39) + chr(34))}"'
+        return '"' + _java_quote(unquote_literal(item.value)) + '"'
     return '""'
 
 
