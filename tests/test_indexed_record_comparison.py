@@ -8,7 +8,8 @@ records from each image — the oracle's straight from the Berkeley DB pages,
 with no use of the COBOL parser or the generated runtime — and compares
 them byte-exactly in key order.  An image the reader does not certify
 (overflow or duplicate items, encryption, an unknown page type, anything
-malformed) keeps the old INCONCLUSIVE result; RELATIVE files are unchanged.
+malformed) keeps the old INCONCLUSIVE result.  RELATIVE files are compared
+by (RRN, record) since increment 5: ``tests/test_relative_record_comparison.py``.
 
 Test data (``tests/data/indexed_bdb``) was produced by GnuCOBOL 3.1.2:
 ``MANY.DAT`` by ``MANY.cob`` (400 writes in descending key order, every 7th

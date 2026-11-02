@@ -42,7 +42,7 @@ matrix, and the 2026-11-01 architecture audit
    STRING sources.  *RETURN-CODE done, §3.2; COMP/COMP-3 by value, §3.4.*
 3. **Files** — record-level comparison of INDEXED/RELATIVE files (turns the
    6 PARTIAL apps into VERIFIED when equal); record SEQUENTIAL files.
-   *INDEXED done, §3.3; RELATIVE and record SEQUENTIAL open.*
+   *INDEXED done, §3.3; RELATIVE, §3.5; record SEQUENTIAL open.*
 4. **Multi-runtime** — end-to-end API lanes for plain Java and Jakarta EE
    with GnuCOBOL proof, then a runtime-adapter port for the entry/host
    shape and additional runtimes (Quarkus, Micronaut, Open Liberty), each
@@ -191,3 +191,48 @@ PARTIAL" now pin the byte-level cases (`test_usage_capability.py`).
 Found and left refused (named diagnostics, recorded in KNOWN_ISSUES):
 ON SIZE ERROR, signed literals in conditions (`> -1`), a figurative
 constant in a numeric comparison (`> ZERO`).
+
+### 3.5 RELATIVE files compared by records; file OPEN statuses (increment 5)
+
+Measured on GnuCOBOL 3.1.2 first (`tests/data/relative/RELPROBE.cob`):
+a RELATIVE file is one slot per RRN — an 8-byte little-endian record size
+plus the whole record area, RRN `n` at `(n - 1) * (8 + length)`; never-
+written and DELETEd slots have size 0 (DELETE keeps the old bytes); the
+file ends at the last slot.  GnuCOBOL's own READ NEXT over a file with
+gaps, a DELETE and REWRITEs (`RELREAD.cob`) lists exactly the live slots.
+
+| Layer | Change |
+|---|---|
+| Reader | `gnucobol_relative_records`: the record length is not in the image, so it is inferred — exactly one length must make every slot's size 0 or that length, with a live slot; anything else (no live record, ambiguous layout, truncation) is refused. `emulated_relative_records` reads the Java `.rel` |
+| Pipeline | `_compare_file_records` (was INDEXED-only): RELATIVE images compared as (RRN, record) lines in one `<file>#records` artifact — a record in the wrong slot is a MISMATCH |
+| Java runtime | RELATIVE records persisted to `<file>.rel` after every change (they lived in memory only) |
+| Independent re-check | its own RELATIVE reader (`struct.iter_unpack` over every candidate layout), RELATIVE files named from the source by its own regex |
+
+Found while auditing the runtime against the oracle, and fixed (each pinned):
+
+| Java runtime before | GnuCOBOL 3.1.2 | Now |
+|---|---|---|
+| WRITE onto an occupied RRN overwrote it, status 00 | INVALID KEY, status 22, record kept | 22, record kept |
+| OPEN INPUT / I-O / EXTEND of a missing RELATIVE or INDEXED file: 00 (empty file) | 35 | 35 |
+| OPEN INPUT of a missing sequential file: 23; EXTEND created it | 35 | 35 |
+| `SELECT OPTIONAL` accepted and ignored (silent loss) | missing file opens with 05, reads empty | fails closed (UNSUPPORTED_CONSTRUCT) |
+
+Applications through the API, each then independently re-checked.  The
+runtime change touches every program with files, so every file
+application was re-run on the final template:
+
+| Application | Before | Now | Independent |
+|---|---|---|---|
+| workload-relative | PARTIAL (RELATIVE image INCONCLUSIVE) | **VERIFIED** (`REL.DAT#records` MATCH) | AGREE |
+| workload-relative-file | PARTIAL (same) | **VERIFIED** (`RELFILE.DAT#records` MATCH; RRN 1 deleted) | AGREE |
+| 11 other file applications (copybook-file-multi, delete, file-write-read, indexed, indexed-file, indexed-rewrite-delete-start, integrated, payroll, rewrite, start-invalidkey, inventory) | VERIFIED | **VERIFIED** | AGREE |
+| workload-studentproc | UNAVAILABLE | UNAVAILABLE — unchanged: GnuCOBOL rejects the source | — |
+
+Regression: only the generated `CobolFileIo.java` changed, in exactly those
+14 applications; all other generated Java is byte-identical to `83b9df6`.
+A runtime test that pinned the old `23` for a missing file now pins `35`
+(`test_file_invalid_key_lane.py`).
+
+Still INCONCLUSIVE (PARTIAL), by design: a RELATIVE image with no live
+record or an ambiguous layout; a file a program reads without creating it
+in the same run.

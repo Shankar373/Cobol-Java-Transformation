@@ -132,14 +132,19 @@ scenarios plus gate invariants). Per-workload runtime-proof status lives in
   order). Files a program leaves in its working directory are collected on both
   sides as `workspace/<path>` and compared byte-exactly, like `/workspace/output`
   files. stderr is compared whenever the source writes to it (`UPON STDERR`/`SYSERR`).
-- **INDEXED files are compared by records; RELATIVE images are not compared.**
+- **INDEXED and RELATIVE files are compared by records.**
   (Phase 3) The physical images differ by construction (Berkeley DB B-tree vs the
   Java emulation `<file>.idx`), so an INDEXED file is certified by its record
   content, read from GnuCOBOL's B-tree independently of the parser
   (`engine/comparators/indexed_records.py`; checked against GnuCOBOL's own
   sequential read of a 343-record multi-level tree). Overflow/duplicate items or
-  any unrecognised page keep the image INCONCLUSIVE (PARTIAL). RELATIVE files are
-  still INCONCLUSIVE: the Java emulation keeps them in memory only.
+  any unrecognised page keep the image INCONCLUSIVE (PARTIAL). RELATIVE files
+  (Phase 3, increment 5): the Java emulation persists `<file>.rel`, and (RRN,
+  record) pairs are compared with GnuCOBOL's slot file (reader checked against
+  GnuCOBOL's own READ NEXT over gaps, DELETE and REWRITE,
+  `tests/test_relative_record_comparison.py`); an image whose slot layout is not
+  unambiguous — e.g. every record DELETEd — stays INCONCLUSIVE. WRITE onto an
+  occupied RRN is status 22 in the Java runtime as in GnuCOBOL (it overwrote).
 - **Dynamic / unresolved CALL blocks generation.** A CALL the plan marks SKIP
   (`CALL WS-NAME`, unresolved target) stops generation before any Java is emitted.
 - `CALL ... BY CONTENT` is `SUPPORTED` for plain data-item arguments, proven byte-identical

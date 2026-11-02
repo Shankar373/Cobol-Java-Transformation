@@ -1333,6 +1333,15 @@ class CobolParser:
                         ))
                     break
 
+        for m in re.finditer(r"\bSELECT\s+OPTIONAL\s+([\w-]+)",
+                             self._file_control_text(lines), re.IGNORECASE):
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"SELECT OPTIONAL {m.group(1).upper()}: opening a missing optional "
+                "file (status 05, read as empty) is not modelled by the "
+                "generated runtime",
+                location=m.group(1).upper(),
+            )
         paths = {}
         for name, literal, target in self._select_assignments(lines):
             paths[name] = literal

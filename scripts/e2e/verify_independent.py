@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -109,11 +110,52 @@ def _emulated_records(image: bytes) -> list[bytes] | None:
     return [line.replace(b"\x01", b"", 1) for line in lines[1:-1]]
 
 
-def snapshot(root: Path, decoded: dict | None = None) -> dict[str, str]:
-    """Hash of every file; an INDEXED file is represented by its records
-    (GnuCOBOL's Berkeley DB image ``X`` and the Java emulation ``X.idx``
-    both become ``X#records``), since the two physical formats differ.
-    The decoded records (hex) go to ``decoded`` when given, as evidence."""
+def _relative_records(image: bytes) -> list[bytes] | None:
+    """``b"<rrn>:" + record`` per live slot of a GnuCOBOL RELATIVE file, or None.
+
+    Not the platform's algorithm: every slot layout is unpacked with
+    ``struct.iter_unpack`` and kept only if each slot is empty or exactly
+    full; exactly one layout must survive with a live slot.
+    """
+    found = []
+    for length in range(1, len(image)):
+        if len(image) % (8 + length):
+            continue
+        slots = list(struct.iter_unpack(f"<Q{length}s", image))
+        if all(size in (0, length) for size, _ in slots) and any(slots[i][0] for i in range(len(slots))):
+            found.append([b"%d:" % (i + 1) + data for i, (size, data) in enumerate(slots) if size])
+    return found[0] if len(found) == 1 else None
+
+
+def _emulated_relative(image: bytes) -> list[bytes] | None:
+    """``b"<rrn>:" + record`` of the generated Java RELATIVE emulation, or None."""
+    lines = image.split(b"\n")
+    if lines[0] != b"R" or lines[-1] != b"":
+        return None
+    return [line.replace(b"\x01", b":", 1) for line in lines[1:-1]]
+
+
+def relative_files(cobol_dir: Path) -> frozenset[str]:
+    """Upper-case ASSIGN literals of the RELATIVE SELECTs in the sources."""
+    names = set()
+    for f in cobol_dir.iterdir():
+        if f.suffix.lower() not in (".cob", ".cbl"):
+            continue
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r"SELECT\s.*?ASSIGN\s+(?:TO\s+)?['\"]([^'\"]+)['\"](.*?)\.(?:\s|$)",
+                             text, re.I | re.S):
+            if re.search(r"ORGANI[SZ]ATION\s+(?:IS\s+)?RELATIVE", m.group(2), re.I):
+                names.add(m.group(1).upper())
+    return frozenset(names)
+
+
+def snapshot(root: Path, decoded: dict | None = None,
+             relative: frozenset[str] = frozenset()) -> dict[str, str]:
+    """Hash of every file; an INDEXED or RELATIVE file is represented by its
+    records (GnuCOBOL's image ``X`` and the Java emulation ``X.idx`` /
+    ``X.rel`` all become ``X#records``), since the physical formats differ;
+    ``relative`` names the oracle files declared RELATIVE.  The decoded
+    records (hex) go to ``decoded`` when given, as evidence."""
     out = {}
     for f in sorted(root.rglob("*")):
         if not f.is_file():
@@ -123,6 +165,14 @@ def snapshot(root: Path, decoded: dict | None = None) -> dict[str, str]:
         if records is None and name.endswith(".idx"):
             records = _emulated_records(data)
             name = name[:-4] if records is not None else name
+        elif records is None and name.endswith(".rel"):
+            records = _emulated_relative(data)
+            name = name[:-4] if records is not None else name
+        elif records is None and (
+            name.upper() in relative or name.rsplit("/", 1)[-1].upper() in
+            {r.rsplit("/", 1)[-1] for r in relative}
+        ):
+            records = _relative_records(data)
         if records is not None:
             name, data = name + "#records", b"\n".join(r.hex().encode() for r in records)
             if decoded is not None:
@@ -149,7 +199,8 @@ def run_cobol(cobol_dir: Path, work: Path) -> dict:
                 "--workdir", "/workspace", ORACLE, "sh", "-c", script])
     records: dict = {}
     return {"stdout": p.stdout, "stderr": p.stderr, "exit": p.returncode,
-            "files": snapshot(run, records), "records": records}
+            "files": snapshot(run, records, relative_files(cobol_dir)),
+            "records": records}
 
 
 def run_java(project: Path, work: Path) -> dict:

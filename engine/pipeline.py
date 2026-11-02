@@ -45,7 +45,10 @@ from engine.comparators.indexed_records import (
     UnreadableImage,
     bdb_btree_records,
     canonical_records,
+    canonical_relative_records,
     emulated_index_records,
+    emulated_relative_records,
+    gnucobol_relative_records,
 )
 from engine.comparators.framework import (
     ComparatorRegistry,
@@ -483,7 +486,7 @@ class VerticalSlicePipeline:
                 "undeclared generated files cannot be compared"
             )
         emulated = self._emulated_file_image_names(undeclared)
-        records_compared = self._compare_indexed_records(
+        records_compared = self._compare_file_records(
             run_id, emulated, oracle_generated, candidate_generated,
             oracle_result, candidate_result, text_comparator,
             oracle_artifacts_list, candidate_artifacts_list, comparison_evidence,
@@ -772,35 +775,45 @@ class VerticalSlicePipeline:
             )
         }
 
-    def _compare_indexed_records(
+    def _compare_file_records(
         self, run_id, emulated, oracle_generated, candidate_generated,
         oracle_result, candidate_result, text_comparator,
         oracle_artifacts, candidate_artifacts, comparisons,
     ) -> set[str]:
-        """Compare INDEXED files by their records; return the images handled.
+        """Compare INDEXED/RELATIVE files by their records; return the
+        images handled.
 
-        The oracle leaves ``<file>`` (GnuCOBOL's Berkeley DB B-tree), the
-        generated runtime ``<file>.idx`` (its emulation).  When each image
-        is on its own side only and both decode
-        (``engine.comparators.indexed_records``), their records — what a
-        COBOL program reading the file sees, in key order — are compared
-        byte-exactly as one ``<file>#records`` artifact; the physical images
-        are not compared (their hashes stay in the execution evidence).  Any
-        other case is left to the INCONCLUSIVE path.
+        The oracle leaves ``<file>`` (GnuCOBOL's Berkeley DB B-tree, or its
+        RELATIVE slot file), the generated runtime ``<file>.idx`` /
+        ``<file>.rel`` (its emulation).  When each image is on its own side
+        only and both decode (``engine.comparators.indexed_records``), their
+        records — what a COBOL program reading the file sees: in key order,
+        or by RRN — are compared byte-exactly as one ``<file>#records``
+        artifact; the physical images are not compared (their hashes stay
+        in the execution evidence).  Any other case is left to the
+        INCONCLUSIVE path.
         """
-        indexed = self._indexed_file_names()
+        readers = (
+            (self._keyed_file_names("INDEXED"), ".idx", bdb_btree_records,
+             emulated_index_records, canonical_records),
+            (self._keyed_file_names("RELATIVE"), ".rel", gnucobol_relative_records,
+             emulated_relative_records, canonical_relative_records),
+        )
         handled: set[str] = set()
         for name in sorted(emulated):
-            image = name + ".idx"
+            matching = [r for r in readers if name.rsplit("/", 1)[-1] in r[0]]
+            if len(matching) != 1:
+                continue
+            _, suffix, read_oracle, read_candidate, canonical = matching[0]
+            image = name + suffix
             if (
-                name.rsplit("/", 1)[-1] not in indexed
-                or name not in oracle_generated or name in candidate_generated
+                name not in oracle_generated or name in candidate_generated
                 or image not in candidate_generated or image in oracle_generated
             ):
                 continue
             try:
-                oracle_records = bdb_btree_records(oracle_generated[name])
-                candidate_records = emulated_index_records(candidate_generated[image])
+                oracle_records = read_oracle(oracle_generated[name])
+                candidate_records = read_candidate(candidate_generated[image])
             except UnreadableImage:
                 continue
             output_path = f"{name}#records"
@@ -813,11 +826,11 @@ class VerticalSlicePipeline:
             )
             oracle_ca = self._capture_artifact(
                 "TEXT_FILE", output_path, oracle_result.execution_id,
-                canonical_records(oracle_records), artifact_def.logical_name, "ORACLE",
+                canonical(oracle_records), artifact_def.logical_name, "ORACLE",
             )
             candidate_ca = self._capture_artifact(
                 "TEXT_FILE", output_path, candidate_result.execution_id,
-                canonical_records(candidate_records), artifact_def.logical_name,
+                canonical(candidate_records), artifact_def.logical_name,
                 "CANDIDATE",
             )
             oracle_artifacts.append(oracle_ca)
@@ -834,9 +847,6 @@ class VerticalSlicePipeline:
             ))
             handled |= {name, image}
         return handled
-
-    def _indexed_file_names(self) -> set[str]:
-        return self._keyed_file_names("INDEXED")
 
     @staticmethod
     def _inconclusive_comparison(

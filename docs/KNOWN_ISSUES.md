@@ -60,9 +60,16 @@ harness (direct `cobc` and `java -jar`, every file in the working directory).
 Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
 - ~~**Indexed/relative file images are not compared**~~ — INDEXED files are
   compared by records since Phase 3 (`tests/test_indexed_record_comparison.py`);
-  **RELATIVE file images** are still INCONCLUSIVE (PARTIAL): the Java emulation
-  keeps RELATIVE files in memory and writes no image.
+  RELATIVE files by (RRN, record) since increment 5
+  (`tests/test_relative_record_comparison.py`).  Still INCONCLUSIVE (PARTIAL):
+  a RELATIVE image with no live record or an ambiguous slot layout, and any
+  INDEXED/RELATIVE file the program reads without creating it in the same
+  run (the Java emulation does not load an existing image).
 - **Record SEQUENTIAL files** (no LINE, or no ORGANIZATION clause) fail closed.
+- **`SELECT OPTIONAL`** fails closed (increment 5): a missing optional file
+  opens with status 05 and reads empty, which the generated runtime does not
+  model; it was silently ignored before.  A missing non-optional file opens
+  with status 35 in both runtimes.
 - **Signed / COMP numeric STRING sources** fail closed (stored encoding).
 - ~~**Referenced COMP / COMP-3 items** keep programs PARTIAL~~ — since Phase 3
   a standalone COMP/BINARY/COMP-3/PACKED-DECIMAL item used only by value is
@@ -71,7 +78,7 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   statement can see as bytes (CALL USING, reference modification,
   STRING/INSPECT, LENGTH OF, REDEFINES, inside a group), and COMP-5,
   COMP-1, COMP-2.  `workload-relative`/`workload-relative-file` now generate
-  and are PARTIAL only for their RELATIVE file image.
+  and, since increment 5, are VERIFIED.
 - **MOVE alphanumeric → numeric** is certified for digit-only content; any
   other content (spaces, signs, letters — GnuCOBOL applies rules not
   reproduced) stops the Java run with `NumberFormatException`, so the run

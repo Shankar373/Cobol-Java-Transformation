@@ -129,10 +129,17 @@ Contract: `tests/test_phase12_p4_bl091_approval_workflow.py::TestApprovalRequire
     order) are compared byte-exactly as one `<file>#records` artifact.  The
     physical images are not compared; their hashes stay in the execution
     evidence.  An image the reader does not certify (overflow or duplicate
-    items, encryption, unknown or malformed pages) keeps the old rule below;
-  * **RELATIVE**, or an undecodable INDEXED image — recorded as an
-    `INCONCLUSIVE` comparison, so the run is `PARTIAL`, never `VERIFIED`
-    (`tests/test_indexed_record_comparison.py`);
+    items, encryption, unknown or malformed pages) keeps the rule below;
+  * **RELATIVE** — certified by its **(RRN, record) pairs**: GnuCOBOL's slot
+    file (an 8-byte size and the record area per RRN) is decoded on the
+    host, the record length inferred only when exactly one slot layout fits
+    with a live slot, and compared byte-exactly with the Java emulation
+    `<file>.rel` as one `<file>#records` artifact (a record in the wrong
+    slot is a `MISMATCH`);
+  * an image either reader refuses (or an emulation missing on the Java
+    side) — recorded as an `INCONCLUSIVE` comparison, so the run is
+    `PARTIAL`, never `VERIFIED` (`tests/test_indexed_record_comparison.py`,
+    `tests/test_relative_record_comparison.py`);
 * no implicit normalization: comparators apply `crlf_to_lf` only when a
   workload declares it, and the policy is recorded in
   `normalization_applied` (the legacy path and the comparator default used

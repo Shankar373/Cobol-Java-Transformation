@@ -11,10 +11,14 @@ Design:
   semantics: ``WRITE`` emits ``record + newline``, ``READ`` returns one
   record per call, EOF is ``null`` (AT END).
 - Indexed files (``keyLen > 0``) emulate a primary-key index with a
-  deterministic side file ``<path>.idx`` (content is never compared by the
-  verification harness; only STDOUT/EXIT_STATUS statuses are).  Records are
-  keyed on the first ``keyLen`` bytes of the record area, matching the
-  ``RECORD KEY IS`` field when it starts at offset 0.
+  deterministic side file ``<path>.idx``.  Records are keyed on the first
+  ``keyLen`` bytes of the record area, matching the ``RECORD KEY IS`` field
+  when it starts at offset 0.
+- Relative files (``keyLen < 0``) keep records by RRN and persist them to
+  ``<path>.rel`` after every change; WRITE onto an occupied RRN is ``22``
+  (GnuCOBOL 3.1.2).
+- The verification pipeline compares both side files with the oracle's
+  files by their records (``engine/comparators/indexed_records.py``).
 - COBOL FILE STATUS semantics: each operation returns a 2-char status
   (``00`` ok, ``10`` AT END, ``22`` dup key, ``23`` not-found/not-open) that
   generated code assigns to the declared ``FILE STATUS IS`` field.
@@ -42,10 +46,18 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 if (mode.equalsIgnoreCase("OUTPUT")) {
                     REL.put(path, new java.util.TreeMap<>());
                     new java.io.File(path).delete();
+                    persistRelative(path);
                 } else if (!REL.containsKey(path)) {
-                    REL.put(path, new java.util.TreeMap<>());
+                    return "35";
                 }
                 return "00";
+            }
+            // INPUT / I-O / EXTEND of a file that does not exist: status 35
+            // (file not found) for every organization.
+            if (!mode.equalsIgnoreCase("OUTPUT")
+                    && !(keyLen > 0 && IDX.containsKey(path))
+                    && !new java.io.File(keyLen > 0 ? path + ".idx" : path).exists()) {
+                return "35";
             }
             if (mode.equalsIgnoreCase("OUTPUT")) {
                 if (keyLen > 0) {
@@ -62,9 +74,6 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 if (keyLen > 0) {
                     ensureIndex(path, keyLen);
                     return "00";
-                }
-                if (!new java.io.File(path).exists()) {
-                    return "23";
                 }
                 IN.put(path, new java.io.BufferedReader(new java.io.FileReader(path)));
                 return "00";
@@ -109,7 +118,11 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         try {
             java.util.TreeMap<Integer, String> rel = REL.get(path);
             if (rel != null && !IDX.containsKey(path)) {
+                if (rel.containsKey(keyLenOrRrn)) {
+                    return "22";
+                }
                 rel.put(keyLenOrRrn, rec == null ? "" : rec);
+                persistRelative(path);
                 return "00";
             }
             int keyLen = keyLenOrRrn;
@@ -223,6 +236,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                     return "23";
                 }
                 rel.put(keyLenOrRrn, rec == null ? "" : rec);
+                persistRelative(path);
                 return "00";
             }
             int keyLen = keyLenOrRrn;
@@ -263,6 +277,11 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             return "23";
         }
         m.remove(rrn);
+        try {
+            persistRelative(path);
+        } catch (Exception e) {
+            return "30";
+        }
         return "00";
     }
 
@@ -340,6 +359,18 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 w.newLine();
             }
         }
+    }
+
+    /** The RELATIVE emulation image ``<path>.rel``: an ``R`` line, then one
+     *  ``rrn U+0001 record`` line per live record in RRN order. */
+    private static void persistRelative(String path) throws Exception {
+        StringBuilder image = new StringBuilder("R\\n");
+        for (java.util.Map.Entry<Integer, String> e : REL.get(path).entrySet()) {
+            image.append(e.getKey()).append('\\u0001').append(e.getValue()).append('\\n');
+        }
+        java.nio.file.Files.write(
+            java.nio.file.Paths.get(path + ".rel"),
+            image.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static String readNextCursor(String path) {

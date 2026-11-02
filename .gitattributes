@@ -9,3 +9,4 @@
 # GnuCOBOL (Berkeley DB) INDEXED file images used as test evidence: raw
 # bytes, never line-ending converted (tests/test_indexed_record_comparison.py).
 tests/data/indexed_bdb/*.DAT binary
+tests/data/relative/*.DAT binary

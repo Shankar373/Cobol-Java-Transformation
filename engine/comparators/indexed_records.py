@@ -1,4 +1,4 @@
-"""Logical records of INDEXED files, read from each side's on-disk image.
+"""Logical records of INDEXED and RELATIVE files, read from each side's image.
 
 GnuCOBOL 3.1.2 (the oracle image's ``cobc --info``: "indexed file handler:
 BDB") stores an INDEXED file as a Berkeley DB B-tree; the generated Java
@@ -24,6 +24,15 @@ Berkeley DB B-tree layout used (little-endian, database format 9):
   (4), record count (4), key bytes;
 * leaf page (type 5) items alternate key, data: length (2), type (1),
   bytes.  Item type 1 is plain data; bit 0x80 marks a deleted item.
+
+RELATIVE files (GnuCOBOL 3.1.2 on x86-64, measured): one slot per RRN, RRN
+``n`` at offset ``(n - 1) * (8 + record length)``; a slot is an 8-byte
+little-endian record size followed by the whole record area.  Size 0 marks
+an empty slot (never written, or DELETEd — the old bytes stay), a live
+fixed-length record has size = record length.  The image does not state
+the record length, so it is inferred: exactly one length must make every
+slot's size 0 or that length, with at least one live slot; anything else
+is refused.  An empty image is a file with no records.
 """
 
 from __future__ import annotations
@@ -147,3 +156,53 @@ def canonical_records(records: list[bytes]) -> bytes:
         shown = "".join(chr(b) if 32 <= b < 127 else "." for b in record)
         lines.append(f"{record.hex()}\t{shown}\n")
     return "".join(lines).encode("ascii")
+
+
+def gnucobol_relative_records(image: bytes) -> list[tuple[int, bytes]]:
+    """(RRN, record) of every live slot of a GnuCOBOL RELATIVE file."""
+    if not image:
+        return []
+    layouts = []
+    for length in range(1, len(image) - 7):
+        slot = 8 + length
+        if len(image) % slot:
+            continue
+        sizes = [struct.unpack_from("<Q", image, at)[0] for at in range(0, len(image), slot)]
+        if all(size in (0, length) for size in sizes) and length in sizes:
+            layouts.append((slot, sizes))
+    if len(layouts) != 1:
+        raise UnreadableImage(
+            "no RELATIVE slot layout fits the image" if not layouts
+            else "several RELATIVE slot layouts fit the image"
+        )
+    slot, sizes = layouts[0]
+    return [
+        (index + 1, bytes(image[index * slot + 8:index * slot + 8 + size]))
+        for index, size in enumerate(sizes)
+        if size
+    ]
+
+
+def emulated_relative_records(image: bytes) -> list[tuple[int, bytes]]:
+    """(RRN, record) of the generated Java runtime's RELATIVE emulation
+    (``CobolFileIo.persistRelative``): an ``R`` line, then one
+    ``rrn \\x01 record`` line per record in RRN order."""
+    lines = image.decode("utf-8").split("\n")
+    if lines[0] != "R" or lines[-1] != "":
+        raise UnreadableImage("not a generated RELATIVE emulation file")
+    records: list[tuple[int, bytes]] = []
+    for line in lines[1:-1]:
+        rrn, sep, record = line.partition("\x01")
+        if not sep or not rrn.isdigit() or int(rrn) < 1:
+            raise UnreadableImage("malformed emulation record line")
+        if records and int(rrn) <= records[-1][0]:
+            raise UnreadableImage("emulation records out of RRN order")
+        records.append((int(rrn), record.encode("utf-8")))
+    return records
+
+
+def canonical_relative_records(records: list[tuple[int, bytes]]) -> bytes:
+    """``canonical_records`` with each line prefixed by its RRN and a tab:
+    a record in the wrong slot differs as much as a different record."""
+    lines = canonical_records([record for _, record in records]).decode("ascii").splitlines(True)
+    return "".join(f"{rrn}\t{line}" for (rrn, _), line in zip(records, lines)).encode("ascii")

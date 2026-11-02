@@ -506,7 +506,7 @@ MAIN-PARA.
 # Runtime proof — the shipped CobolFileIo template on a real JVM.
 # NOT VSAM equivalence: proves the documented status/cursor contract of the
 # TreeMap-backed emulation only (00 ok / 22 duplicate / 23 not-found /
-# null at EOF-or-missing).
+# 35 missing file / null at EOF-or-missing).
 # ---------------------------------------------------------------------------
 
 _DRIVER = r"""
@@ -562,7 +562,9 @@ public class FileIoProof {
         check("seqRead", CobolFileIo.read(seq), "LINE-1");
         check("seqEof", CobolFileIo.read(seq), null);
         check("seqClose2", CobolFileIo.close(seq), "00");
-        check("missingOpen", CobolFileIo.open(base + "/nope.dat", "INPUT", 0), "23");
+        // A missing file is 35 (file not found), not 23: GnuCOBOL 3.1.2 pin in
+        // tests/test_relative_record_comparison.py::test_missing_file_pin.
+        check("missingOpen", CobolFileIo.open(base + "/nope.dat", "INPUT", 0), "35");
 
         if (failures > 0) {
             System.out.println("FAILURES=" + failures);
