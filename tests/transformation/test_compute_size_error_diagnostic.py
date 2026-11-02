@@ -7,13 +7,14 @@ diagnostic named the loss.  The statement is still classified SUPPORTED by the
 mapper (it is a ComputeStatement), so the verdict could claim support for
 overflow semantics it never implemented.
 
-Contract pinned here:
+Contract pinned here (since Phase 3 increment 8 the clause is lowered —
+semantics oracle-pinned in ``tests/test_size_error.py``):
 
-* the clause is removed from the expression and named by an
-  ``UNSUPPORTED_CONSTRUCT`` diagnostic;
+* the clause never stays inside the expression: it is removed from it and
+  its statements become ``size_error_body`` — never silently dropped;
 * the certified COMPUTE form stays diagnostic-free;
-* the real discovery + analyzer path never reports SUPPORTED for a program
-  that uses the clause.
+* the real discovery + analyzer path classifies the program from the
+  parsed clause (SUPPORTED), not from a stray source match.
 """
 
 from __future__ import annotations
@@ -56,20 +57,23 @@ def _size_error_messages(parser: CobolParser) -> list[str]:
 
 
 class TestSizeErrorIsNamed:
-    def test_upper_case_form_is_diagnosed_and_removed(self) -> None:
+    def test_upper_case_form_is_removed_and_attached(self) -> None:
         parser, statements = _parse(
             '    COMPUTE WS-C = WS-A + WS-B ON SIZE ERROR DISPLAY "E".\n'
         )
         computes = [s for s in statements if isinstance(s, ComputeStatement)]
         assert len(computes) == 1
         assert "SIZE ERROR" not in computes[0].expression.upper()
-        assert _size_error_messages(parser)
+        assert [s.parts for s in computes[0].size_error_body] == [('"E"',)]
+        assert not _size_error_messages(parser)
 
-    def test_lower_case_form_is_diagnosed(self) -> None:
-        parser, _ = _parse(
+    def test_lower_case_form_is_attached(self) -> None:
+        parser, statements = _parse(
             '    compute ws-c = ws-a + ws-b on size error display "e".\n'
         )
-        assert _size_error_messages(parser)
+        computes = [s for s in statements if isinstance(s, ComputeStatement)]
+        assert [s.parts for s in computes[0].size_error_body] == [('"e"',)]
+        assert not _size_error_messages(parser)
 
     def test_certified_compute_stays_quiet(self) -> None:
         parser, statements = _parse("    COMPUTE WS-C = WS-A + WS-B.\n")
@@ -80,7 +84,7 @@ class TestSizeErrorIsNamed:
 
 
 class TestVerdictNeverSupportsSizeError:
-    def test_program_is_not_supported(self, tmp_path: Path) -> None:
+    def test_program_is_classified_from_the_parsed_clause(self, tmp_path: Path) -> None:
         src_dir = tmp_path / "cobol"
         src_dir.mkdir(parents=True, exist_ok=True)
         (src_dir / "tst.cbl").write_text(
@@ -93,7 +97,7 @@ class TestVerdictNeverSupportsSizeError:
         report = CapabilityAnalyzer(docker_available=True).analyze(app)
         programs = [c for c in report.components if c.component_type == "PROGRAM"]
         assert len(programs) == 1
-        assert programs[0].level is not CapabilityLevel.SUPPORTED
+        assert programs[0].level is CapabilityLevel.SUPPORTED, programs[0].reason
 
     def test_plain_compute_stays_supported(self, tmp_path: Path) -> None:
         src_dir = tmp_path / "cobol"

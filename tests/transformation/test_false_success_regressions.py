@@ -75,6 +75,14 @@ EXPECTED_STDOUT: dict[str, tuple[str, str, str]] = {
         _prog("       01 WS-N PIC S9(3).", "           MOVE 1234 TO WS-N.\n           DISPLAY WS-N."),
         "", "+234\n",
     ),
+    # ON SIZE ERROR (Phase 3, increment 8): 450 does not fit PIC 9, so the
+    # receiver keeps its value and the phrase runs.  It used to be refused
+    # (and before that was success=True with wrong behaviour).
+    "divide_on_size_error": (
+        _prog("       01 WS-A PIC 9(3) VALUE 900.\n       01 WS-Q PIC 9.",
+              "           DIVIDE WS-A BY 2 GIVING WS-Q ON SIZE ERROR DISPLAY 'ERR'.\n           DISPLAY WS-Q."),
+        "", "ERR\n0\n",
+    ),
     "multiply_truncation": (
         _prog("       01 WS-R PIC 9(2) VALUE 50.", "           MULTIPLY 3 BY WS-R.\n           DISPLAY WS-R."),
         "", "50\n",
@@ -305,11 +313,6 @@ EXPECTED_STDOUT: dict[str, tuple[str, str, str]] = {
 # name -> (COBOL source, diagnostic substring).  Each was translated with
 # success=True and wrong behaviour; the deterministic lane now refuses it.
 EXPECTED_FAIL_CLOSED: dict[str, tuple[str, str]] = {
-    "divide_on_size_error": (
-        _prog("       01 WS-A PIC 9(3) VALUE 900.\n       01 WS-Q PIC 9.",
-              "           DIVIDE WS-A BY 2 GIVING WS-Q ON SIZE ERROR DISPLAY 'ERR'.\n           DISPLAY WS-Q."),
-        "DIVIDE",
-    ),
     "stop_run_in_performed_paragraph": (
         _prog("       01 WS-B PIC 9 VALUE 1.", "           PERFORM P9.\n           DISPLAY 'AFTER'.",
               "       P9.\n           DISPLAY 'IN'.\n           STOP RUN.\n"),

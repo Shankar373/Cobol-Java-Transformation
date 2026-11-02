@@ -134,7 +134,7 @@ class CapabilityReport:
 _LINKAGE_WALK_ATTRS = (
     "body", "then_body", "else_body",
     "at_end_body", "not_at_end_body", "invalid_key_body",
-    "not_invalid_key_body",
+    "not_invalid_key_body", "size_error_body", "not_size_error_body",
 )
 
 # CALL passing mode -> registry key.  Only the write-losing modes are tracked;
@@ -833,6 +833,12 @@ class CapabilityAnalyzer:
                 ir_flag_keys.add("ROUNDED")
                 entry = CONSTRUCT_REGISTRY["ROUNDED"]
                 findings.append(("ROUNDED", entry.level, entry.evidence))
+            # [NOT] ON SIZE ERROR: classified from the parsed bodies, so a
+            # phrase the parser did not attach stays source-only (refused).
+            if getattr(stmt, "size_error_body", ()) or getattr(stmt, "not_size_error_body", ()):
+                ir_flag_keys.add("SIZE ERROR")
+                entry = CONSTRUCT_REGISTRY["SIZE ERROR"]
+                findings.append(("SIZE ERROR", entry.level, entry.evidence))
 
             _walk_expression(stmt)
 
@@ -868,6 +874,11 @@ class CapabilityAnalyzer:
                 for attr in ("invalid_key_body", "not_invalid_key_body"):
                     for nested in getattr(stmt, attr, ()) or ():
                         _walk(nested)
+            # [NOT] ON SIZE ERROR bodies of the arithmetic verbs: every
+            # statement inside is classified like any other.
+            for attr in ("size_error_body", "not_size_error_body"):
+                for nested in getattr(stmt, attr, ()) or ():
+                    _walk(nested)
 
             if isinstance(stmt, OpenStatement) and not stmt.file_name:
                 findings.append((

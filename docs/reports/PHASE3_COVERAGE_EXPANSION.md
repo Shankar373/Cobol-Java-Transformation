@@ -302,3 +302,42 @@ earlier Phase 3 applications is byte-identical to `cf0b12d`.
 Left refused: ordering against an alphanumeric ZERO (`A > ZERO` on PIC X);
 an IF/ELSE written on one source line (named diagnostic; found while
 building the probe).
+
+### 3.8 ON SIZE ERROR (increment 8)
+
+Measured on GnuCOBOL 3.1.2 first (12 cases, `tests/test_size_error.py`):
+a result needing more integer digits than the receiver — after ROUNDED —
+is a size error, and so is a zero divisor; the receiver keeps its value
+and the SIZE ERROR body runs.  Truncated fraction digits are not a size
+error, nor is a negative result stored (as its magnitude) in an unsigned
+receiver.  Without the phrase, a zero divisor leaves the receiver unchanged
+too — the generated Java throws instead (KNOWN_ISSUES; the run fails, never
+verifies).
+
+| Layer | Change |
+|---|---|
+| IR | `size_error_body` / `not_size_error_body` on ADD, SUBTRACT, MULTIPLY, DIVIDE, COMPUTE; every statement walker (parser, analyzer, mapper) visits them |
+| Parser | `_parse_with_size_error`: the verb parser sees the header only; bodies collected inline, on following lines, up to `END-<verb>` or the period |
+| Mapper | `_emit_arithmetic`: zero-divisor test, exact BigDecimal result, magnitude bound 10^integer-digits, store or keep; without the phrase the output is byte-identical to before |
+| Analyzer | `SIZE ERROR` classified from the parsed bodies (SUPPORTED); a phrase the parser did not attach stays source-only (UNSUPPORTED) |
+
+The shared clause collector (also used by READ/WRITE/REWRITE/START/DELETE)
+had four defects, found while testing inline forms and fixed:
+
+| Before | Now |
+|---|---|
+| `READ F AT END … NOT AT END … END-READ` on one line put both bodies under AT END, with no diagnostic | each body under its own clause |
+| a body statement followed by the terminator on the same line (`DISPLAY 'K' END-READ`) swallowed the terminator; the scope ran into the following statements | the terminator closes the clause |
+| a clause header line that also carried the terminator (`AT END DISPLAY 'E' END-READ`) was re-read as a statement — the program was refused ("Skipped unsupported statement") | the line belongs to the verb |
+| a DISPLAY in an ON SIZE ERROR body read the next `NOT ON SIZE ERROR` line as four operands | clause headers end a DISPLAY |
+
+Application: `fixtures/workload-interest-accrual` (COMPUTE ROUNDED capped
+by ON SIZE ERROR, DIVIDE by zero terms, NOT ON SIZE ERROR bodies, a
+saturating accumulator in a period-terminated sentence) — **VERIFIED**
+through the API and **AGREE** in the independent re-check.
+
+Regression: generated Java for all 48 Phase 2 applications and the five
+earlier Phase 3 applications is byte-identical to `84d92d4`.  Tests that
+pinned "SIZE ERROR is refused" now pin the attached bodies; the
+`divide_on_size_error` false-success case moved from "fails closed" to
+"supported", with GnuCOBOL's output (`ERR`, `0`).

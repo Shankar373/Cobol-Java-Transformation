@@ -291,7 +291,14 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "lowered to a Java return from the current method",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "SIZE ERROR": _unsupported("SIZE ERROR handling is not yet represented in the arithmetic IR"),
+    "SIZE ERROR": _supported(
+        "[NOT] ON SIZE ERROR on ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE is parsed into "
+        "the arithmetic IR bodies; a zero divisor or a result needing more "
+        "integer digits than the receiver leaves it unchanged and runs the "
+        "SIZE ERROR body (GnuCOBOL 3.1.2, tests/test_size_error.py).  A phrase "
+        "the parser did not attach to a statement is source-only and refused",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     # External utilities and system services are detection-first classified —
     # the first step of the verification ladder (Detected -> Classified) only.
     # No IR, no mapper, no utility runner, no equivalence claim: the evidence

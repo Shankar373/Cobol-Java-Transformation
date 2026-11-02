@@ -746,6 +746,111 @@ def _numeric_as_alphanumeric(
     )
 
 
+def _division_divisors(expr: JavaExpression) -> list[JavaExpression]:
+    """Right operands of every ``/`` in an arithmetic expression tree."""
+    found: list[JavaExpression] = []
+    if isinstance(expr, JavaBinaryOp):
+        if expr.operator == "/":
+            found.append(expr.right)
+        found += _division_divisors(expr.left) + _division_divisors(expr.right)
+    elif isinstance(expr, JavaUnaryOp):
+        found += _division_divisors(expr.operand)
+    return found
+
+
+def _emit_arithmetic(result, stmt, target: str, raw: JavaExpression, program,
+                     called_programs=None) -> None:
+    """Store an arithmetic result, honouring ``[NOT] ON SIZE ERROR``.
+
+    Without the phrase: the receiver semantics as always.  With it
+    (GnuCOBOL 3.1.2, ``tests/test_size_error.py``): a zero divisor, or a
+    result whose magnitude after scaling (DOWN, or HALF_UP when ROUNDED)
+    needs more integer digits than the receiver has, leaves the receiver
+    unchanged and runs the SIZE ERROR body; otherwise the result is stored
+    (its magnitude, for an unsigned receiver) and the NOT ON SIZE ERROR body
+    runs.  Truncated fraction digits are not a size error.
+    """
+    if not (stmt.size_error_body or stmt.not_size_error_body):
+        result.append(JavaAssignment(
+            target=target,
+            expression=_apply_numeric_receiver_semantics(raw, target, program, stmt.rounded),
+        ))
+        return
+    item = _find_data_item(program, target)
+    if item is None or not item.is_numeric or isinstance(raw, JavaUnsupportedExpression):
+        result.append(JavaAssignment(
+            target=target,
+            expression=JavaUnsupportedExpression(
+                source_expression=f"{type(stmt).__name__} ... ON SIZE ERROR",
+                reason="SIZE ERROR needs a numeric receiver and a lowered expression",
+            ),
+        ))
+        return
+    decimal = JavaType(basic_type=JavaBasicType.DECIMAL)
+    flag = _fresh_io_var("size")
+    exact = _fresh_io_var("exact")
+    zero_tests: list[JavaExpression] = []
+    for divisor in _division_divisors(raw):
+        if _expression_requires_fractional_type(divisor, program):
+            zero_tests.append(JavaBinaryOp(
+                left=JavaMethodCall(
+                    object_ref=_promote_numeric_expression_to_decimal(divisor, program),
+                    method_name="signum",
+                ),
+                operator="==", right=JavaLiteral(value="0"),
+            ))
+        else:
+            zero_tests.append(JavaBinaryOp(left=divisor, operator="==", right=JavaLiteral(value="0")))
+    zero: JavaExpression = JavaLiteral(value="false")
+    for test in zero_tests:
+        zero = test if zero == JavaLiteral(value="false") else JavaBinaryOp(
+            left=zero, operator="||", right=test,
+        )
+    result.append(JavaLocalVarDecl(
+        java_type=JavaType(basic_type=JavaBasicType.BOOLEAN), name=flag, initializer=zero,
+    ))
+    result.append(JavaLocalVarDecl(java_type=decimal, name=exact, initializer=JavaLiteral(value="null")))
+    mode = "java.math.RoundingMode.HALF_UP" if stmt.rounded else "java.math.RoundingMode.DOWN"
+    bound = str(10 ** max(0, item.integer_digits))
+    result.append(JavaIf(
+        condition=JavaUnaryOp(operator="!", operand=JavaVariableRef(name=flag)),
+        then_body=(
+            JavaAssignment(target=exact, expression=JavaMethodCall(
+                object_ref=_promote_numeric_expression_to_decimal(raw, program),
+                method_name="setScale",
+                arguments=(JavaLiteral(value=str(item.decimal_places)), JavaVariableRef(name=mode)),
+            )),
+            JavaAssignment(target=flag, expression=JavaBinaryOp(
+                left=JavaMethodCall(
+                    object_ref=JavaMethodCall(object_ref=JavaVariableRef(name=exact), method_name="abs"),
+                    method_name="compareTo",
+                    arguments=(JavaLiteral(value=bound, java_type=decimal),),
+                ),
+                operator=">=", right=JavaLiteral(value="0"),
+            )),
+        ),
+    ))
+    stored: JavaExpression = JavaVariableRef(name=exact)
+    if not item.signed:
+        stored = JavaMethodCall(object_ref=stored, method_name="abs")
+    if item.decimal_places == 0:
+        stored = JavaMethodCall(
+            object_ref=stored,
+            method_name="longValueExact" if item.pic_length > 9 else "intValueExact",
+        )
+    on_error: list[JavaStatement] = []
+    for s in stmt.size_error_body:
+        on_error.extend(map_cobol_statement(s, program, called_programs))
+    on_success: list[JavaStatement] = [JavaAssignment(target=target, expression=stored)]
+    for s in stmt.not_size_error_body:
+        on_success.extend(map_cobol_statement(s, program, called_programs))
+    result.append(JavaIf(
+        condition=JavaVariableRef(name=flag),
+        then_body=tuple(on_error),
+        else_body=tuple(on_success),
+    ))
+
+
 def _write_from_characters(source: str, program, fd=None) -> JavaExpression:
     """Characters ``WRITE … FROM source`` moves into the record area.
 
@@ -3948,25 +4053,17 @@ def map_cobol_statement(
         source_a = map_cobol_expr_to_java(stmt.source)
         source_b = _reference_expression(stmt.target)
         if stmt.giving_target:
-            result.append(JavaAssignment(
-                target=target,
-                expression=_apply_numeric_receiver_semantics(
-                    JavaBinaryOp(left=source_a, operator="+", right=source_b),
-                    target,
-                    program,
-                    stmt.rounded,
-                ),
-            ))
+            _emit_arithmetic(
+                result, stmt, target,
+                JavaBinaryOp(left=source_a, operator="+", right=source_b),
+                program, called_programs,
+            )
         else:
-            result.append(JavaAssignment(
-                target=target,
-                expression=_apply_numeric_receiver_semantics(
-                    JavaBinaryOp(left=source_b, operator="+", right=source_a),
-                    target,
-                    program,
-                    stmt.rounded,
-                ),
-            ))
+            _emit_arithmetic(
+                result, stmt, target,
+                JavaBinaryOp(left=source_b, operator="+", right=source_a),
+                program, called_programs,
+            )
 
     elif isinstance(stmt, SubtractStatement):
         # SUBTRACT A FROM B GIVING C → C = B - A
@@ -3988,10 +4085,7 @@ def map_cobol_statement(
         )
         for src in java_sources:
             expr = JavaBinaryOp(left=expr, operator="-", right=src)
-        result.append(JavaAssignment(
-            target=target,
-            expression=_apply_numeric_receiver_semantics(expr, target, program, stmt.rounded),
-        ))
+        _emit_arithmetic(result, stmt, target, expr, program, called_programs)
 
     elif isinstance(stmt, MultiplyStatement):
         # MULTIPLY A BY B GIVING C → C = A * B
@@ -4004,33 +4098,34 @@ def map_cobol_statement(
         else:
             target = cobol_reference_to_java_source(stmt.multiplicand)
         source = map_cobol_expr_to_java(stmt.source)
-        result.append(JavaAssignment(
-            target=target,
-            expression=_apply_numeric_receiver_semantics(
-                JavaBinaryOp(
-                    left=source,
-                    operator="*",
-                    right=_reference_expression(stmt.multiplicand),
-                ),
-                target,
-                program,
-                stmt.rounded,
+        _emit_arithmetic(
+            result, stmt, target,
+            JavaBinaryOp(
+                left=source,
+                operator="*",
+                right=_reference_expression(stmt.multiplicand),
             ),
-        ))
+            program, called_programs,
+        )
 
     elif isinstance(stmt, DivideStatement):
         target = cobol_reference_to_java_source(stmt.target)
         source = map_cobol_expr_to_java(stmt.source)
         divisor = map_cobol_expr_to_java(stmt.divisor)
-        result.append(JavaAssignment(
-            target=target,
-            expression=_apply_numeric_receiver_semantics(
-                JavaBinaryOp(left=source, operator="/", right=divisor),
-                target,
-                program,
-                stmt.rounded,
-            ),
-        ))
+        if stmt.remainder and (stmt.size_error_body or stmt.not_size_error_body):
+            result.append(JavaAssignment(
+                target=target,
+                expression=JavaUnsupportedExpression(
+                    source_expression=f"DIVIDE ... REMAINDER {stmt.remainder} ON SIZE ERROR",
+                    reason="SIZE ERROR with REMAINDER is not certified",
+                ),
+            ))
+            return result
+        _emit_arithmetic(
+            result, stmt, target,
+            JavaBinaryOp(left=source, operator="/", right=divisor),
+            program, called_programs,
+        )
         # REMAINDER = dividend - (stored truncated quotient * divisor), not
         # ``dividend % divisor`` (oracle: 7 / 3 GIVING PIC 9V99 leaves
         # REMAINDER 0.01, not 1.00).  The stored quotient equals the
@@ -4081,10 +4176,7 @@ def map_cobol_statement(
                 source_expression=stmt.expression,
                 reason=expression.reason,
             )
-        result.append(JavaAssignment(
-            target=target,
-            expression=_apply_numeric_receiver_semantics(expression, target, program, stmt.rounded),
-        ))
+        _emit_arithmetic(result, stmt, target, expression, program, called_programs)
 
     elif isinstance(stmt, SetConditionStatement):
         # SET <condition-name> TO TRUE assigns the conditional variable the
@@ -5782,7 +5874,8 @@ def map_cobol_program_to_java(
         for statement in statements:
             yield statement
             for attr in ("body", "then_body", "else_body", "at_end_body",
-                         "not_at_end_body", "invalid_key_body", "not_invalid_key_body"):
+                         "not_at_end_body", "invalid_key_body", "not_invalid_key_body",
+                         "size_error_body", "not_size_error_body"):
                 yield from walk(getattr(statement, attr, ()))
 
     counter_labels = {

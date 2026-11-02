@@ -20,6 +20,10 @@ The contract locked here, mirroring the ADD/SUBTRACT/DIVIDE rule:
 * the verdict path (real discovery + analyzer) never reports SUPPORTED
   for a program whose MULTIPLY failed to parse.
 
+Since Phase 3 increment 8 the ``ON SIZE ERROR`` form is certified
+(``tests/test_size_error.py``): it parses into a full node whose
+``size_error_body`` holds the clause — still never an empty node.
+
 Dependency-free on purpose: this file is part of the capability-truth gate
 (``.github/workflows/ci.yml``) and must run with pytest alone.
 """
@@ -98,19 +102,22 @@ class TestStandardFormsFailClosedWithDiagnostic:
         parser, _ = _parse("    MULTIPLY WS-A BY WS-B GIVING WS-C, WS-A.\n")
         assert "UNSUPPORTED_CONSTRUCT" in _diag_codes(parser)
 
-    def test_on_size_error_form_is_diagnosed(self):
-        parser, _ = _parse(
+    def test_on_size_error_form_is_parsed_with_its_body(self):
+        parser, statements = _parse(
             '    MULTIPLY WS-A BY WS-B ON SIZE ERROR DISPLAY "E".\n'
         )
-        assert "UNSUPPORTED_CONSTRUCT" in _diag_codes(parser)
-        messages = [d.message for d in parser.diagnostics.all]
-        assert any("MULTIPLY" in m for m in messages)
+        assert "UNSUPPORTED_CONSTRUCT" not in _diag_codes(parser)
+        multiply = next(s for s in statements if isinstance(s, MultiplyStatement))
+        assert (multiply.source, multiply.multiplicand) == ("WS-A", "WS-B")
+        assert [s.parts for s in multiply.size_error_body] == [('"E"',)]
 
-    def test_lowercase_on_size_error_form_is_diagnosed(self):
-        parser, _ = _parse(
+    def test_lowercase_on_size_error_form_is_parsed(self):
+        parser, statements = _parse(
             '    multiply ws-a by ws-b on size error display "E".\n'
         )
-        assert "UNSUPPORTED_CONSTRUCT" in _diag_codes(parser)
+        assert "UNSUPPORTED_CONSTRUCT" not in _diag_codes(parser)
+        multiply = next(s for s in statements if isinstance(s, MultiplyStatement))
+        assert multiply.source and multiply.size_error_body
 
     def test_no_diagnostic_free_empty_multiply_node(self):
         """Property: an empty MULTIPLY node can never exist without a
@@ -120,7 +127,6 @@ class TestStandardFormsFailClosedWithDiagnostic:
         for proc in (
             "    MULTIPLY WS-A BY WS-B, WS-C.\n",
             "    MULTIPLY WS-A BY WS-B GIVING WS-C, WS-A.\n",
-            '    MULTIPLY WS-A BY WS-B ON SIZE ERROR DISPLAY "E".\n',
         ):
             parser, statements = _parse(proc)
             for s in statements:
@@ -137,12 +143,12 @@ class TestStandardFormsFailClosedWithDiagnostic:
 class TestVerdictNeverSupportsUnparsedMultiply:
     """The real discovery + analyzer path must not report SUPPORTED."""
 
-    def test_on_size_error_program_is_not_supported(self, tmp_path: Path):
+    def test_unparsed_multiply_program_is_not_supported(self, tmp_path: Path):
         src_dir = tmp_path / "cobol"
         src_dir.mkdir(parents=True, exist_ok=True)
         (src_dir / "tst.cbl").write_text(
             HEADER
-            + '    MULTIPLY WS-A BY WS-B ON SIZE ERROR DISPLAY "E".\n'
+            + "    MULTIPLY WS-A BY WS-B, WS-C.\n"
             "    STOP RUN.\n",
             encoding="utf-8",
         )

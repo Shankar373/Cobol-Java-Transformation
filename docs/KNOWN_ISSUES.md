@@ -46,8 +46,15 @@ Still open, all fail closed today (no false VERIFIED path known):
   PERFORMed or nested positions, STOP RUN in CALLed programs, procedure
   SECTIONs, GO TO.
 - **Qualified data names (`OF`/`IN`):** duplicated names are refused.
-- **ON SIZE ERROR, `WITH NO ADVANCING`, level 66, JUSTIFIED, BLANK WHEN ZERO,
-  COPY in the single-source producer:** refused with named diagnostics.
+- **`WITH NO ADVANCING`, level 66, JUSTIFIED, BLANK WHEN ZERO, COPY in the
+  single-source producer:** refused with named diagnostics.  ~~ON SIZE
+  ERROR~~ is lowered since Phase 3 increment 8 (`tests/test_size_error.py`)
+  for single-receiver ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE; with several
+  receivers or with DIVIDE … REMAINDER it is still refused.
+- **Division by zero without ON SIZE ERROR**: GnuCOBOL 3.1.2 leaves the
+  receiver unchanged and continues; the generated Java throws
+  `ArithmeticException` (the run fails, it never verifies).  Not yet
+  reproduced.
 - **STDERR** is compared only when the source writes to it (`UPON STDERR` /
   `SYSERR`); otherwise GnuCOBOL runtime messages and JVM diagnostics differ by
   design and are not compared.

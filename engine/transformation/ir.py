@@ -487,6 +487,12 @@ class AddStatement:
     target_ref: FieldReference | None = None  # structured target reference
     giving_target: str | None = None  # ADD ... GIVING result
     rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -500,6 +506,12 @@ class SubtractStatement:
     to_ref: FieldReference | None = None
     sources: tuple[str, ...] = ()  # multi-source SUBTRACT A B C FROM D
     rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -512,6 +524,12 @@ class MultiplyStatement:
     multiplicand_ref: FieldReference | None = None
     target_ref: FieldReference | None = None
     rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -541,6 +559,12 @@ class DivideStatement:
     divisor_expr: Expression | None = None
     target_ref: FieldReference | None = None
     rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -554,6 +578,12 @@ class ComputeStatement:
     target_ref: FieldReference | None = None
     expression_expr: Expression | None = None
     rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)

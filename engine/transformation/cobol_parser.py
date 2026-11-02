@@ -976,6 +976,8 @@ class CobolParser:
                     "not_at_end_body",
                     "invalid_key_body",
                     "not_invalid_key_body",
+                    "size_error_body",
+                    "not_size_error_body",
                 ):
                     nested = getattr(stmt, attr, None)
                     if nested:
@@ -1899,17 +1901,15 @@ class CobolParser:
         if upper.startswith("MOVE "):
             return self._parse_move(lines, start)
 
-        # ADD
+        # ADD / SUBTRACT / MULTIPLY, with optional [NOT] ON SIZE ERROR
         if upper.startswith("ADD "):
-            return self._parse_add(lines, start)
+            return self._parse_with_size_error(self._parse_add, "ADD", lines, start)
 
-        # SUBTRACT
         if upper.startswith("SUBTRACT "):
-            return self._parse_subtract(lines, start)
+            return self._parse_with_size_error(self._parse_subtract, "SUBTRACT", lines, start)
 
-        # MULTIPLY
         if upper.startswith("MULTIPLY "):
-            return self._parse_multiply(lines, start)
+            return self._parse_with_size_error(self._parse_multiply, "MULTIPLY", lines, start)
 
         # CALL — a bare "CALL" line is the first line of a multi-line CALL
         # statement (target/USING on following lines); it must reach
@@ -1918,13 +1918,12 @@ class CobolParser:
         if upper.startswith("CALL ") or upper == "CALL":
             return self._parse_call(lines, start)
 
-        # DIVIDE
+        # DIVIDE / COMPUTE, with optional [NOT] ON SIZE ERROR
         if upper.startswith("DIVIDE "):
-            return self._parse_divide(lines, start)
+            return self._parse_with_size_error(self._parse_divide, "DIVIDE", lines, start)
 
-        # COMPUTE
         if upper.startswith("COMPUTE "):
-            return self._parse_compute(lines, start)
+            return self._parse_with_size_error(self._parse_compute, "COMPUTE", lines, start)
 
         # EVALUATE
         if upper.startswith("EVALUATE "):
@@ -2051,6 +2050,12 @@ class CobolParser:
         ("at_end", re.compile(r"\bAT\s+END\b", re.IGNORECASE)),
         ("not_invalid", re.compile(r"\bNOT\s+INVALID\s+KEY\b", re.IGNORECASE)),
         ("invalid", re.compile(r"\bINVALID\s+KEY\b", re.IGNORECASE)),
+        # Arithmetic verbs.  The positive form must not match inside
+        # ``NOT ON SIZE ERROR`` (both may sit on one line).
+        ("not_size_error", re.compile(r"\bNOT\s+(?:ON\s+)?SIZE\s+ERROR\b", re.IGNORECASE)),
+        ("size_error", re.compile(
+            r"(?<![\w-])(?<!NOT )(?<!NOT ON )(?:ON\s+)?SIZE\s+ERROR\b", re.IGNORECASE,
+        )),
     )
 
     # Quoted-literal mask for clause-header scanning.  Body statements such
@@ -2097,9 +2102,12 @@ class CobolParser:
         line0 = lines[start].strip()
 
         def _header_at(text: str) -> tuple[str, re.Match[str]] | None:
+            # On a following line a clause header opens the line; a header
+            # word later in a line belongs to another statement (``ADD 1 TO
+            # X SIZE ERROR ...`` is a new ADD, not a clause of this verb).
             masked = self._mask_quoted(text)
             for name, pattern in headers:
-                match = pattern.search(masked)
+                match = pattern.match(masked)
                 if match:
                     return name, match
             return None
@@ -2127,7 +2135,15 @@ class CobolParser:
         for name, pattern in headers:
             for match in pattern.finditer(masked_line0):
                 ordered.append((match.start(), name, match))
-        ordered.sort(key=lambda item: item[0])
+        ordered.sort(key=lambda item: (item[0], -item[2].end()))
+        # A header inside another header's span is part of it: ``AT END``
+        # inside ``NOT AT END`` (the NOT branch used to be read as AT END).
+        kept: list[tuple[int, str, re.Match[str]]] = []
+        for entry in ordered:
+            if kept and entry[0] < kept[-1][2].end():
+                continue
+            kept.append(entry)
+        ordered = kept
         current_section: str | None = None
         closed = False
         if ordered:
@@ -2168,9 +2184,12 @@ class CobolParser:
                 if tail.strip().strip("."):
                     _feed(name, tail)
                 if saw_end or raw.rstrip().endswith("."):
-                    # A period ends the sentence and with it the clause
-                    # (COBOL scope rule); the scope terminator itself is left
-                    # for the dispatcher so no statement is swallowed.
+                    # A period, or this verb's terminator after the clause
+                    # body, ends the clause on this very line: the line is
+                    # consumed.  (Left to the dispatcher it was re-read as a
+                    # statement — ``AT END DISPLAY 'E' END-READ`` reported
+                    # "Skipped unsupported statement" and refused the program.)
+                    i += 1
                     closed = True
                     break
                 i += 1
@@ -2179,6 +2198,17 @@ class CobolParser:
             if current_section is None:
                 # No clause header yet: the verb statement already ended on a
                 # previous line.  Stop instead of consuming this statement.
+                break
+
+            # This verb's own scope terminator after a body statement on the
+            # same line (``DISPLAY 'K' END-ADD``) closes the clause: parsed
+            # whole, the statement swallowed the terminator as an operand and
+            # the scope ran on into the following statements.
+            body, saw_end = _cut_end(raw)
+            if saw_end and body.strip() and not upper.startswith(verb_label.split()[0].upper()):
+                _feed(current_section, body)
+                i += 1
+                closed = True
                 break
 
             stmt, i = self._parse_statement(lines, i)
@@ -2436,6 +2466,41 @@ class CobolParser:
             invalid_key_body=tuple(sections["invalid"]),
             not_invalid_key_body=tuple(sections["not_invalid"]),
         ), next_index
+
+    _SIZE_ERROR_CLAUSES = ("size_error", "not_size_error")
+
+    def _parse_with_size_error(self, parse, verb: str, lines: list[str], start: int):
+        """Parse an arithmetic verb and its ``[NOT] ON SIZE ERROR`` bodies.
+
+        Without the phrase the verb parser runs unchanged.  With it, the verb
+        parser sees only the statement header (the text before the first
+        phrase) and the bodies are collected like file-verb clauses — inline
+        or on following lines, up to ``END-<verb>`` or the period
+        (``_collect_file_clauses``, which reports an unclosed clause).
+        """
+        joined, after = self._join_arithmetic_continuation(lines, start)
+        headers = [
+            pattern for name, pattern in self._FILE_CLAUSE_HEADERS
+            if name in self._SIZE_ERROR_CLAUSES
+        ]
+        inline = any(pattern.search(self._mask_quoted(joined)) for pattern in headers)
+        following = after < len(lines) and any(
+            pattern.match(self._mask_quoted(lines[after].strip())) for pattern in headers
+        )
+        if not inline and not following:
+            return parse(lines, start)
+        header = self._verb_header_text(joined, self._SIZE_ERROR_CLAUSES).rstrip()
+        stmt, _ = parse([header], 0)
+        synthetic = [joined, *lines[after:]]
+        sections, consumed = self._collect_file_clauses(
+            synthetic, 0, self._SIZE_ERROR_CLAUSES, (f"END-{verb}",), verb,
+        )
+        stmt = replace(
+            stmt,
+            size_error_body=tuple(sections["size_error"]),
+            not_size_error_body=tuple(sections["not_size_error"]),
+        )
+        return stmt, after + consumed - 1
 
     def _join_arithmetic_continuation(
         self, lines: list[str], start: int
@@ -3589,6 +3654,9 @@ class CobolParser:
             "STRING", "UNSTRING", "SET", "INITIALIZE", "WHEN",
             "AT END", "NOT AT END", "INVALID KEY", "NOT INVALID KEY",
             "START", "REWRITE", "DELETE",
+            # Arithmetic clause headers: a DISPLAY in an ON SIZE ERROR body
+            # read the next `NOT ON SIZE ERROR` line as four operands.
+            "ON SIZE ERROR", "NOT ON SIZE ERROR", "SIZE ERROR", "NOT SIZE ERROR",
         )
 
         i = start + 1
