@@ -1,5 +1,8 @@
 # Phase 5 — Final Certification
 
+**Certified on `feff105`** (2026-11-03): corpus certification run 41503841435,
+CI 41503841507 (5,137 backend tests), supply chain 41503841784 — all green.
+
 Date 2026-11-02, branch `feat/phase3-coverage`, certified code = Phase 4
 acceptance `32cf586` plus the Phase 5 corrections in this push (claims,
 release scripts, docs, tests — no change to generation or verification
@@ -20,23 +23,26 @@ comparison with GnuCOBOL), then every VERIFIED result re-checked by
 (direct `cobc` vs direct `mvn package` + `java -jar`, comparing stdout,
 stderr, exit code and every file left behind).
 
-Local runs on the final code (developer host):
+**Certification of record — CI, exact commit `feff105`
+(`.github/workflows/certification.yml`, run 41503841435):** images built
+from the repository on a clean runner, the whole corpus through the API,
+every VERIFIED application re-checked by the independent verifier,
+`scripts/e2e/certify_corpus.py` comparing every verdict with the accepted
+evidence.
 
-| Runtime | VERIFIED | Refused (named reason) | UNAVAILABLE | FAILED | Independent re-check | Same verdicts as accepted Phase 3 evidence |
+| Runtime | VERIFIED | Refused (named reason) | UNAVAILABLE | FAILED | Independent re-check | Verdicts vs accepted evidence |
 |---|---|---|---|---|---|---|
-| `spring_boot` | 44 | 9 | 1 | 0 | 44 / 44 AGREE | yes, every application |
-| `plain_java` | 44 | 9 | 1 | 0 | in CI (below) | yes, every application |
+| `spring_boot` | 44 | 9 | 1 | 0 | 44 / 44 AGREE | identical, every application |
+| `plain_java` | 44 | 9 | 1 | 0 | 44 / 44 AGREE | identical, every application |
+| `quarkus` | 44 | 9 | 1 | 0 | 44 / 44 AGREE | identical, every application |
+| `micronaut` | 44 | 9 | 1 | 0 | 44 / 44 AGREE | identical, every application |
 
-Evidence: `docs/reports/evidence/phase5/certification_corpus_spring_boot*.jsonl`.
+176 / 176 independent re-checks AGREE. Evidence (no host paths):
+`docs/reports/evidence/phase5/certification_corpus_<runtime>.jsonl`,
+`…_independent.jsonl`, `certification_summary_<runtime>.txt`. Earlier local
+runs on the developer host gave the same verdicts for `spring_boot` (44/44
+AGREE) and `plain_java`.
 
-All four runtimes are certified on the exact pushed commit by the new
-`.github/workflows/certification.yml` (one parallel job per runtime: images
-built from the repository, the whole corpus through the API, every VERIFIED
-result re-checked independently, `scripts/e2e/certify_corpus.py` fails on any
-verdict change or any re-check that does not AGREE). The run and its results
-are recorded in §8. Running it in CI rather than on the developer host is
-deliberate: the evidence is tied to an exact SHA and to images built in a
-clean environment.
 The ten non-VERIFIED applications are each accounted for in
 `PHASE3_COVERAGE_EXPANSION.md` §4 (CALL BY VALUE, WORKING-STORAGE after
 LINKAGE ×3, dynamic CALL, EXEC CICS, EXEC SQL, duplicate PROGRAM-ID, a
@@ -79,7 +85,7 @@ generation.
 | CI capability-truth gate (pytest only, local) | 1,271 passed, 80 skipped, 3 deselected |
 | Docker lane (Phase 5 areas: certification oracle pins, security, REPLACE/UNSTRING, shell contracts, deployment; local) | 150 passed, 2 skipped (symlink unit tests need Linux) |
 | Performance (`tests/test_phase5_performance.py`) | passed (both budgets) |
-| Exact-SHA CI (`ci.yml`, `supply-chain.yml`, `certification.yml`) | §8 |
+| Exact-SHA CI (`ci.yml`, `supply-chain.yml`, `certification.yml`) | all green on `feff105` (§8) |
 
 ## 5. Performance
 
@@ -134,5 +140,25 @@ already compliant — BL-143). Two transient Maven Central errors (a 502 and an
 unreadable descriptor) failed the Quarkus image build; image builds now
 retry (`scripts/ci/build-image.sh`).
 
-The certification of record is the re-run on the fixed commit, recorded
-below in a follow-up commit.
+Two further defects surfaced on the way, both caught by the certification
+check itself and fixed before the run of record:
+
+- `a3a3721` (run 41501118476): the verifier's cleanup still raised inside
+  `TemporaryDirectory` on Linux (Micronaut job) — cleanup is now best effort
+  in a hardened container and can never abort a re-check.
+- `a3a3721`: Spring Boot refused `workload-add-giving-verified`
+  ("non-transformable programs") because the run's first `docker info` timed
+  out on a daemon busy after the image builds and the plan classified the
+  Docker infrastructure UNAVAILABLE (reproduced locally). Fail-safe, but
+  timing-dependent: the service now retries the probe
+  (`docker_cli.docker_available_with_retry`, 3 attempts) and a daemon that
+  stays down is still UNAVAILABLE.
+
+| Workflow on `feff105` | Run | Result |
+|---|---|---|
+| Corpus certification (4 runtimes) | 41503841435 | all four CERTIFIED (above) |
+| Supply chain (pip-audit, npm audit, SBOMs, manifest, image scan) | 41503841784 | green |
+| SystemaOps CI (gate, ingestion, backend + Docker, frontend) | 41503841507 | green — 5,137 backend tests passed |
+
+The final documentation commit (this report) is verified by its own
+exact-SHA CI; certification is not re-run for it because it changes no code.

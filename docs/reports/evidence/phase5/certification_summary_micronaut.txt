@@ -1,0 +1,1 @@
+micronaut: 54 apps {'None': 9, 'UNAVAILABLE': 1, 'VERIFIED': 44}; independent AGREE 44/44; CERTIFIED
