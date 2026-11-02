@@ -4,8 +4,8 @@
 
 > **Status:** AUTHORITATIVE (approved via ADR-0002 + ADR-0006 / PD-02 + PD-03).
 > Contract version: **1.0**. Implementation is a later phase.
-> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../decisions/PHASE1B_OWNER_APPROVALS.md)
-> → [ADR-0002, ADR-0006](../decisions/ADR-0001_0004.md) → this contract.
+> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../docs/decisions/PHASE1B_OWNER_APPROVALS.md)
+> → [ADR-0002, ADR-0006](../docs/decisions/ADR-0001_0004.md) → this contract.
 
 ---
 

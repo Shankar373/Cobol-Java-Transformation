@@ -1,5 +1,7 @@
 # FINAL_RELEASE_READINESS_REPORT
 
+> **HISTORICAL REPORT (labeled 2026-11-02, Phase 5):** evidence of the repository state at its own recorded commit/date only, not a current status claim. Current certification and release verdict: `docs/reports/PHASE5_FINAL_CERTIFICATION.md` and `docs/reports/PHASE5_RELEASE_READINESS.md`.
+
 - Report date: 2026-10-31
 - Branch: codex/universal-core
 

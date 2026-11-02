@@ -406,7 +406,7 @@ class TestSupplyChainConfiguration:
     def test_installs_require_hashes(self):
         assert "--require-hashes -r /app/requirements.lock" in (
             REPO / "Dockerfile.production").read_text(encoding="utf-8")
-        for wf in ("ci.yml", "supply-chain.yml"):
+        for wf in sorted(p.name for p in (REPO / ".github/workflows").glob("*.yml")):
             text = (REPO / ".github/workflows" / wf).read_text(encoding="utf-8")
             for line in text.splitlines():
                 if "pip install" in line and "requirements.lock" in line:
@@ -417,7 +417,7 @@ class TestSupplyChainConfiguration:
     def test_checkouts_do_not_persist_credentials(self):
         import yaml
 
-        for wf in ("ci.yml", "supply-chain.yml"):
+        for wf in sorted(p.name for p in (REPO / ".github/workflows").glob("*.yml")):
             data = yaml.safe_load((REPO / ".github/workflows" / wf).read_text(encoding="utf-8"))
             for job in data["jobs"].values():
                 for step in job["steps"]:
@@ -451,6 +451,18 @@ class TestDeploymentConfiguration:
         text = (REPO / "docker-compose.production.yml").read_text(encoding="utf-8")
         assert "${DOCKER_GID:-0}" not in text
         assert "${DOCKER_GID:?" in text
+
+    def test_every_compose_entry_point_resolves_docker_gid(self):
+        # Compose interpolates the required DOCKER_GID on every command
+        # (config/ps/up/down): a script that calls compose without resolving
+        # it aborts - rollback and restore did (Phase 5 audit).
+        for script in sorted((REPO / "scripts").rglob("*.sh")):
+            if script.name == "lib-docker-gid.sh":
+                continue  # the helper itself
+            text = script.read_text(encoding="utf-8")
+            if "docker compose" in text and "docker-compose.production.yml" in text:
+                assert "resolve_docker_gid" in text, script.name
+                assert text.index("resolve_docker_gid") < text.index("docker compose"), script.name
 
     def test_nginx_rate_limits_writes(self):
         text = (REPO / "deployment/nginx/systemaops.conf").read_text(encoding="utf-8")

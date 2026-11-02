@@ -34,4 +34,3 @@ Reclassified: NOT vacuous; no repair needed.
 ## Status
 Inventory is NOT complete: 189 candidates remain unreviewed. No mass mechanical rewrite performed.
 Production readiness remains NO.
-PY

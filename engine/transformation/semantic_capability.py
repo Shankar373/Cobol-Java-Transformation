@@ -169,11 +169,12 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "UNSTRING DELIMITED BY <literal> INTO targets is mapped to a Java "
         "String.split with per-receiver PIC-width padding/truncation; byte-"
         "identical to GnuCOBOL 3.1.2 for the certified subset "
-        "(tests/integration/test_unstring_oracle_proof.py). WITH POINTER and "
-        "TALLYING IN are now also implemented and oracle-proven. ON OVERFLOW, "
-        "VARYING IN, DELIMITER IN, COUNT IN, ALL and multiple delimiters "
-        "still fail closed with an UNSUPPORTED_CONSTRUCT diagnostic naming "
-        "the clause (test_unstring_clause_diagnostics.py)",
+        "(tests/integration/test_unstring_oracle_proof.py). WITH POINTER, "
+        "TALLYING IN, ON OVERFLOW, VARYING IN, DELIMITER IN, COUNT IN, ALL "
+        "and multiple delimiters fail closed with an UNSUPPORTED_CONSTRUCT "
+        "diagnostic naming the clause (test_unstring_clause_diagnostics.py; "
+        "re-probed against GnuCOBOL 2026-11-02: POINTER/TALLYING generation "
+        "is refused, never approximated)",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "DISPLAY": _supported("DISPLAY is mapped to deterministic output semantics"),
@@ -376,9 +377,14 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "Java lane: no IR node, no mapper and no re-entrant runtime semantics; "
         "classified UNSUPPORTED by detection, never transformed"
     ),
-    "REPLACE": _supported(
+    # PARTIAL, not SUPPORTED (Phase 5 certification, 2026-11-02): no GnuCOBOL
+    # proof exists, and a GnuCOBOL probe with two pseudo-text pairs
+    # (tests/data/phase5/REPL.cob) failed generation - only the first pair
+    # was applied. Generation fails closed; the claim must not exceed that.
+    "REPLACE": _partial(
         "REPLACE ==old== BY ==new== is applied as a source preprocessor before "
-        "parsing; only pseudo-text operands are supported",
+        "parsing (pseudo-text operands only); no GnuCOBOL proof, and a "
+        "two-pair REPLACE fails generation (only the first pair is applied)",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     # Figurative constants (ZERO / SPACES / QUOTES / LOW-VALUE / HIGH-VALUE /

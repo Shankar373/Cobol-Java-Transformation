@@ -238,4 +238,3 @@ Note: the earlier reconciliation reported 189 candidates at SHA 2650b02. The cur
 | 171 | tests/unit/test_identities.py | 270 | test_all_five_contract_types_are_accepted | loop-only | ACCEPTABLE |
 | 172 | tests/verdict/test_verdict_trust_boundary.py | 249 | test_zero_comparisons_yield_unproven_when_validation_passes | conditional-only | ACCEPTABLE |
 | 173 | tests/verification/test_runtime_catalog.py | 210 | test_discovery_without_observations_cannot_claim_readiness | loop-only | ACCEPTABLE |
-EOF

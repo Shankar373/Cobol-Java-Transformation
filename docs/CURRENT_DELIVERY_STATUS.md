@@ -1,5 +1,15 @@
 # Current Delivery Status
 
+> **Current truth (2026-11-02, Phase 5 certification):** Phase 3 accepted on `7e1a0d1`,
+> Phase 4 accepted on `32cf586`. The 54-application corpus gives 44 VERIFIED on each of
+> the four proven runtimes (`spring_boot`, `plain_java`, `quarkus`, `micronaut` command
+> mode), 9 refused by name, 1 UNAVAILABLE (GnuCOBOL rejects the source); every VERIFIED
+> result is independently re-checked (AGREE). Application servers are not supported.
+> This is a certified *subset*, not universal COBOL compatibility, and the product is
+> not certified for production use (owner-dependent gaps:
+> `docs/reports/PHASE5_RELEASE_READINESS.md`). Certification evidence:
+> `docs/reports/PHASE5_FINAL_CERTIFICATION.md`. Older baselines below are dated history.
+
 > **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
 > below are a *dated snapshot* of the state when this document was written, not a
 > live pointer. The current verified commit, its CI run IDs and their conclusions are

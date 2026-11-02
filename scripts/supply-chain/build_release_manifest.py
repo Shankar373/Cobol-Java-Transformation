@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import sys
@@ -37,6 +38,11 @@ def read_text(path: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except OSError:
         return None
+
+
+def product_version() -> str:
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', read_text(ROOT / "engine" / "__init__.py") or "")
+    return match.group(1) if match else "UNKNOWN"
 
 
 def parse_lock(text: str) -> list[str]:
@@ -151,6 +157,11 @@ def main() -> int:
         "schemaVersion": 1,
         "generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "gitSha": git_sha(),
+        # Phase 5: tie the manifest to what is released. The product version
+        # is the single engine.__version__ (also the API and frontend
+        # version); IMAGE_TAG is the tag the release build used (unset in CI).
+        "productVersion": product_version(),
+        "imageTag": os.environ.get("IMAGE_TAG", "") or "UNSET",
         "python": {
             "versionPin": python_version_pin(),
             "lockFile": "requirements.lock",

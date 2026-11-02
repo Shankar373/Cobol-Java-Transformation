@@ -6,8 +6,8 @@
 > LLM-integration-owner co-approval** (PD-04 is a joint decision — platform half
 > approved, co-approval PENDING). Contract version: **1.0**. Implementation is a later
 > phase. Authority chain:
-> [PHASE1B_OWNER_APPROVALS.md](../decisions/PHASE1B_OWNER_APPROVALS.md) →
-> [Phase-1 report PD-04](../decisions/PHASE1_DECISION_REPORT.md) → this contract.
+> [PHASE1B_OWNER_APPROVALS.md](../docs/decisions/PHASE1B_OWNER_APPROVALS.md) →
+> [Phase-1 report PD-04](../docs/decisions/PHASE1_DECISION_REPORT.md) → this contract.
 
 ---
 

@@ -6,8 +6,8 @@
 > LLM-integration-owner co-approval** (PD-05 joint decision — platform half approved,
 > co-approval PENDING). Contract version: **1.0**. Implementation of the producer is
 > OUT OF SCOPE (DR-26): this document defines only the boundary interface.
-> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../decisions/PHASE1B_OWNER_APPROVALS.md)
-> → [Phase-1 report PD-05](../decisions/PHASE1_DECISION_REPORT.md) → this contract.
+> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../docs/decisions/PHASE1B_OWNER_APPROVALS.md)
+> → [Phase-1 report PD-05](../docs/decisions/PHASE1_DECISION_REPORT.md) → this contract.
 
 ---
 

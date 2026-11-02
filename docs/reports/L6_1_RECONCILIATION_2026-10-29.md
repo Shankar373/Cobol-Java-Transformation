@@ -25,4 +25,3 @@ review of surrounding test/helper/setup. No mass mechanical rewrites.
 ## Remaining open
 - 48 conditional-only and 142 loop-only candidates not individually reviewed; classified as mostly meaningful (Category B/C) pending targeted review.
 - No production-readiness claim change.
-PY

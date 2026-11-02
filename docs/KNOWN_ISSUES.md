@@ -25,6 +25,28 @@ Lifecycle/persistence/API security hardening has since been applied on top of th
 > carried decision **D-6** (COMP/COMP-3 certification). This section and `opencode.md` must
 > quote the same set — the register is the priority authority.
 
+### Phase 5 certification findings (2026-11-02)
+Certification (`docs/reports/PHASE5_FINAL_CERTIFICATION.md`) re-proved every
+SUPPORTED construct against GnuCOBOL (`tests/test_phase5_certification.py`) and
+found two over-claims, both fail-closed in generation (no false VERIFIED):
+- **REPLACE** was registry-SUPPORTED without GnuCOBOL proof; a two-pair
+  `REPLACE` fails generation (only the first pair is applied). Lowered to
+  PARTIAL. Programs containing REPLACE were and stay UNSUPPORTED.
+- **UNSTRING WITH POINTER / TALLYING IN** were described as "implemented and
+  oracle-proven"; generation refuses both. Evidence text corrected; GnuCOBOL's
+  output is pinned for a future implementation.
+- **Unit oracle only** (no certified corpus application exercises them):
+  ACCEPT, UNSTRING, PERFORM … TIMES, REDEFINES digit views — proven by
+  oracle-pinned tests, not by an end-to-end application.
+- **Release:** making `DOCKER_GID` required (Phase 4) broke `rollback.sh`,
+  `restore.sh` and a standalone `verify-production.sh` (compose interpolates it
+  on every command); fixed by `scripts/deploy/lib-docker-gid.sh`, sourced by all
+  four entry points (guard test). Rebuilding a reused image tag destroys the
+  rollback target — PRODUCTION.md now builds a new tag per release.
+- **Performance:** first deterministic budgets (`tests/test_phase5_performance.py`:
+  corpus generation, API read latency). Docker build/execution time is
+  host-dependent and reported, not asserted.
+
 ### False-success baseline (2026-11-01, branch `fix/false-success-baseline`)
 A 41-program differential corpus run against GnuCOBOL 3.1.2 found 28 false
 successes at `b79f348` (translation reported success, Java behaved

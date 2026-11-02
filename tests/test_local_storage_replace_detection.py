@@ -119,15 +119,17 @@ class TestRegistryClassification:
     def test_replace_registry_entry_fails_closed(self) -> None:
         """REPLACE keeps a two-level verdict (preprocessor landed 2026-10-28).
 
-        ``level`` is SUPPORTED because pseudo-text REPLACE is now applied as a
-        source preprocessor before parsing.  A source-only instance must still
+        ``level`` is PARTIAL (Phase 5, 2026-11-02): pseudo-text REPLACE is
+        applied as a source preprocessor before parsing, but there is no
+        GnuCOBOL proof and a two-pair REPLACE fails generation, so it may not
+        be claimed SUPPORTED.  A source-only instance must still
         fail closed: the analyzer's source-scan path and the copybook verdict
         both gate on ``effective_source_level``, so a program containing
         REPLACE can never be reported SUPPORTED (pinned end-to-end by
         ``TestCapabilityVerdicts.test_replace_program_is_never_reported_supported``).
         """
         entry = CONSTRUCT_REGISTRY["REPLACE"]
-        assert entry.level is CapabilityLevel.SUPPORTED, entry
+        assert entry.level is CapabilityLevel.PARTIAL, entry
         assert entry.effective_source_level is CapabilityLevel.UNSUPPORTED, entry
 
 

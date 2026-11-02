@@ -104,6 +104,6 @@ FastAPI owns orchestration/state retrieval; React presents state. The frontend i
 the semantic authority.
 
 Remaining production gaps: a durable job queue with resume (restarts fail interrupted
-runs rather than re-queue them), retention/TTL policies, per-client rate limiting,
+runs rather than re-queue them), retention/TTL policies, per-user/per-token rate limiting (per-client-address limits exist at nginx since Phase 4),
 audit logging, external secret management for the API token, TLS/egress policy at the
 deployment boundary, and multi-node coordination (SQLite is single-node).

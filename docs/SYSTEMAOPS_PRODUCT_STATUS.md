@@ -1,5 +1,15 @@
 # SystemaOps Product Status
 
+> **Current truth (2026-11-02, Phase 5 certification):** Phase 3 accepted on `7e1a0d1`,
+> Phase 4 accepted on `32cf586`. The 54-application corpus gives 44 VERIFIED on each of
+> the four proven runtimes (`spring_boot`, `plain_java`, `quarkus`, `micronaut` command
+> mode), 9 refused by name, 1 UNAVAILABLE (GnuCOBOL rejects the source); every VERIFIED
+> result is independently re-checked (AGREE). Application servers are not supported.
+> This is a certified *subset*, not universal COBOL compatibility, and the product is
+> not certified for production use (owner-dependent gaps:
+> `docs/reports/PHASE5_RELEASE_READINESS.md`). Certification evidence:
+> `docs/reports/PHASE5_FINAL_CERTIFICATION.md`. Older baselines below are dated history.
+
 > **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
 > below are a *dated snapshot* of the state when this document was written, not a
 > live pointer. The current verified commit, its CI run IDs and their conclusions are
@@ -195,13 +205,14 @@ Supported subset, with runtime evidence where noted (see
 - Numeric arithmetic precision beyond IEEE-754 double representable range.
 - DIVIDE/COMPUTE precision edges.
 - CALL/lifecycle proof for broader multi-program, cyclic, and EXIT PROGRAM
-  edges (an evidence-coverage gap only; GOBACK itself is UNSUPPORTED as a
-  transform target and appears only in §17).
+  edges (an evidence-coverage gap only). GOBACK is SUPPORTED within the
+  paragraph fall-through rules (2026-11-01; `CAPABILITY_MATRIX.md`).
 - Comparator coverage for every artifact type.
 
 ## 17. Unsupported capabilities
 
-- GO TO Java mapping (emitted as comment), GOBACK as transform target.
+- GO TO Java mapping (emitted as comment); GOBACK outside the driver /
+  fall-through chain rules (non-final paragraph, CALLed program).
   `INVALID KEY` / `START` / `REWRITE` / `DELETE` are SUPPORTED at IR/mapper
   level but have **no source-only fallback**: when no IR node is produced they
   fail closed to source-level UNSUPPORTED.
@@ -211,8 +222,11 @@ Supported subset, with runtime evidence where noted (see
   definition), and no VSAM file-image equivalence exists.
 - JCL/CICS/DB2 runtime equivalence (modeled only; no runtime lane).
 - Dynamic, unresolved, cyclic, or arity-mismatched CALL (fail closed).
-- EXEC SQL / EXEC CICS, SORT, MERGE, ACCEPT, INITIALIZE, INSPECT, SEARCH, SET,
-  ALTER, NEXT SENTENCE, SIZE ERROR — no deterministic Java mapping.
+- EXEC SQL / EXEC CICS, SORT, MERGE, INSPECT, SEARCH, SET (other than
+  `SET <condition> TO TRUE`), ALTER, NEXT SENTENCE — no deterministic Java
+  mapping. (ACCEPT from standard input, INITIALIZE and ON SIZE ERROR with one
+  receiver became SUPPORTED with GnuCOBOL proof later — see
+  `docs/CAPABILITY_MATRIX.md`; this section predates them.)
 
 ## 18. Known limitations
 

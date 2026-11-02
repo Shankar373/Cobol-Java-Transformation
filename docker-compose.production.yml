@@ -14,7 +14,8 @@
 #
 # Usage:
 #   cp .env.production.example .env.production   # fill in secrets, never commit
-#   docker compose -f docker-compose.production.yml --env-file .env.production up -d --build
+#   ENV_FILE=.env.production ./scripts/deploy/start-production.sh   # preflights token, TLS,
+#   # DOCKER_GID and staging before `compose up`; do not call compose up directly
 #   ./scripts/deploy/verify-production.sh
 
 name: systemaops-production

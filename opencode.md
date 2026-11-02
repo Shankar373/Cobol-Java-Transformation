@@ -8,6 +8,17 @@
 > every older statement that it "remains UNSUPPORTED/blocked at FILE-CONTROL"
 > is historical and is annotated in place.
 
+## 2026-11-02 — Phases 3, 4 accepted; Phase 5 certification (branch `feat/phase3-coverage`)
+
+- Phase 3 accepted `7e1a0d1` (CI 41445001799): COBOL coverage increments 1–11, four proven
+  runtimes, 44/54 VERIFIED each, 176/176 independent AGREE (`docs/reports/PHASE3_COVERAGE_EXPANSION.md`).
+- Phase 4 accepted `32cf586` (CI 41473111446, supply chain 41473111346): security and
+  production-readiness hardening (`docs/reports/PHASE4_SECURITY_PRODUCTION_READINESS.md`).
+- Phase 5: final certification (`docs/reports/PHASE5_FINAL_CERTIFICATION.md`) and release
+  readiness (`docs/reports/PHASE5_RELEASE_READINESS.md`).
+- Open P0: none known. Open owner decisions: identity/RBAC, artifact signing, LICENSE,
+  framework upgrades (J1/J3), retention/encryption, monitoring, version/tag scheme.
+
 ## Session: File-level audit reconciliation + fail-closed remediation BL-139…BL-145 (2026-10-27, working tree on HEAD `cb89b46`, **uncommitted — no push/merge without authorization**)
 
 Baseline captured before any edit: branch `codex/universal-core`, HEAD

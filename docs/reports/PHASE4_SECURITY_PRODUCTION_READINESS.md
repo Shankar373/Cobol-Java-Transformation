@@ -1,5 +1,12 @@
 # Phase 4 — Security and Production Readiness
 
+> Scope: a hardening report. It does not certify the product for production
+> use; the owner-dependent items in §2 remain open.
+
+**Phase 4 accepted 2026-11-02** on `32cf586` (CI run 41473111446: 5,080 backend
+tests; supply-chain run 41473111346), after `5cabbb9` (CI 41468080026, supply
+chain 41468080031).
+
 Branch `feat/phase3-coverage`, started 2026-11-02 after Phase 3 was accepted
 (`7e1a0d1`, CI run 41445001799). Method: Audit → Plan → Implement → Test →
 Verify → Document → Commit → Push → exact-SHA CI. Deterministic, no LLM; no
@@ -110,7 +117,7 @@ belongs to the same decision.
 | Repository-wide audit across all listed areas, findings prioritised | met (§1, §2) |
 | Every safely actionable fix implemented in one consolidated change | met (§2 "Fixed") |
 | No security check bypassed or weakened | met — existing gates unchanged; the new image scan is additive and report-only by stated reason |
-| Focused tests per fix; full security, regression, integration and Docker suites | see the push |
+| Focused tests per fix; full security, regression, integration and Docker suites | met (CI 41468080026 / 41473111446; local hermetic, gate and Docker-lane runs §3) |
 | Documentation updated | met (§2 #16) |
 | Owner-dependent blockers documented honestly | met (§2 "Accepted, deferred or owner-dependent") |
-| Exact-SHA CI green | see the push |
+| Exact-SHA CI green | met (`5cabbb9`, `32cf586`) |

@@ -329,3 +329,7 @@ release risk (see §9).
   rebuilding those images (`DEPENDENCY_AUDIT.md:143` records the same gap).
 * The production image ran under Docker Desktop on Windows; a Linux host may
   differ in socket ownership.
+
+## Superseded items (note added 2026-11-02, Phase 5)
+
+Closed since this gate: R2 (starlette CVE — 1.3.1 pinned), R7 (`requirements.lock` installed, now with `--require-hashes`), R9 (Docker CLI checksum in `Dockerfile.production`), advisory-only scans (pip-audit/npm audit gate CI), and the `${DOCKER_GID:-0}` root-group default (now required, resolved by `scripts/deploy/lib-docker-gid.sh`). See `docs/reports/PHASE4_SECURITY_PRODUCTION_READINESS.md`.

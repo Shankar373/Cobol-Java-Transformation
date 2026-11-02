@@ -1,0 +1,22 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PTIMES.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-N        PIC 9(2) VALUE 3.
+       01  WS-COUNT    PIC 9(3) VALUE 0.
+       01  WS-ZERO     PIC 9(2) VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           PERFORM BUMP 4 TIMES
+           DISPLAY "LITERAL " WS-COUNT
+           PERFORM BUMP WS-N TIMES
+           DISPLAY "FIELD " WS-COUNT
+           PERFORM BUMP WS-ZERO TIMES
+           DISPLAY "ZERO " WS-COUNT
+           PERFORM 2 TIMES
+               ADD 10 TO WS-COUNT
+           END-PERFORM
+           DISPLAY "INLINE " WS-COUNT
+           STOP RUN.
+       BUMP.
+           ADD 1 TO WS-COUNT.

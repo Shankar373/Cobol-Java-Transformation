@@ -234,8 +234,8 @@ rebases performed.
 3. Runtime-digest rotation (`4d06…` → current) — engine-scope decision
    with provenance-evidence updates.
 4. `pip-audit` local NOT VERIFIED (sandbox network) — CI run required.
-5. Hash-pinned (`--require-hashes`) installs and image-signature
-   (cosign) verification are future steps; current pins are digest/`==`
-   level.
-6. Consider failing CI on new critical/high once baselines are clean;
-   today scans are advisory-only by design.
+5. ~~Hash-pinned (`--require-hashes`) installs~~ done in Phase 4 (see the
+   update at the top); image-signature (cosign) verification is still a
+   future step (owner: key custody).
+6. ~~Consider failing CI on new critical/high~~ pip-audit and npm audit gate
+   CI since E-C; the Phase 4 image scan is report-only by stated reason.

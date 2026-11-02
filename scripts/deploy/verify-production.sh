@@ -17,6 +17,9 @@ check() { # check <label> <command...>
   if "$@" >/dev/null 2>&1; then echo "PASS: $label"; else echo "FAIL: $label"; FAIL=1; fi
 }
 
+# shellcheck source=scripts/deploy/lib-docker-gid.sh
+source ./scripts/deploy/lib-docker-gid.sh
+resolve_docker_gid "$ENV_FILE"
 check "compose config renders" docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" config
 # Derive the api container from compose instead of hardcoding the
 # project-name-dependent id (systemaops-production-api-1): a renamed

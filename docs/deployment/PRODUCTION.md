@@ -5,7 +5,7 @@
 ```
 Internet
   ↓ :443 only (no :80 listener)
-nginx 1.27-alpine — TLS termination, body limits, static frontend (/app/)
+nginx 1.27-alpine — TLS termination, body limits, per-client rate limits (429), static frontend (/app/)
   ↓ http://api:8000 (compose network `edge`)
 SystemaOps API — uvicorn, 1 worker, non-root (uid 10001)
   ├─→ SQLite: /app/data/control-plane.db (named volume, single-writer)
@@ -172,7 +172,10 @@ compose topology, Vite `base`).
 
 ```bash
 cp .env.production.example .env.production   # fill secrets; never commit
-./scripts/deploy/build-production.sh production
+(cd frontend && npm ci && npm run build)      # verify-production.sh checks frontend/dist
+TAG="$(git describe --tags --always)"         # a NEW tag per release - never reuse one:
+./scripts/deploy/build-production.sh "$TAG"   # rebuilding a tag destroys the rollback target
+# set IMAGE_TAG=$TAG in .env.production, then:
 ENV_FILE=.env.production ./scripts/deploy/start-production.sh
 ./scripts/deploy/rollback.sh <PREVIOUS_TAG>   # data volumes untouched
 ```

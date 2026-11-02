@@ -121,6 +121,7 @@ jobs:
             tests/test_external_dependency_edges.py \
             tests/test_runtime_adapter_architecture.py \
             tests/test_framework_runtimes.py \
+            tests/test_phase5_certification.py \
             tests/test_shell_script_contracts.py \
             tests/test_docker_capability_truth.py \
             tests/transformation/test_call_capability_fail_closed.py \

@@ -8,6 +8,9 @@ cd "$(dirname "$0")/../.."
 
 TAG="${1:?Usage: rollback.sh <PREVIOUS_TAG> [.env.production]}"
 ENV_FILE="${2:-.env.production}"
+# shellcheck source=scripts/deploy/lib-docker-gid.sh
+source ./scripts/deploy/lib-docker-gid.sh
+resolve_docker_gid "$ENV_FILE"
 
 # Compose resolves `--env-file` entries over the shell environment, so an
 # `export IMAGE_TAG=...` is silently overridden when the env file itself

@@ -9,6 +9,9 @@ cd "$(dirname "$0")/../.."
 
 SRC="${1:?Usage: restore.sh <BACKUP_DIR> [.env.production]}"
 ENV_FILE="${2:-.env.production}"
+# shellcheck source=scripts/deploy/lib-docker-gid.sh
+source ./scripts/deploy/lib-docker-gid.sh
+resolve_docker_gid "$ENV_FILE"
 if [ ! -f "$SRC/control-plane.db" ] || [ ! -f "$SRC/workspaces.tar.gz" ]; then
   echo "FATAL: $SRC is not a complete backup (need control-plane.db + workspaces.tar.gz)." >&2
   exit 1

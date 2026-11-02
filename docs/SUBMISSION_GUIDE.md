@@ -57,7 +57,7 @@ Full verified commands, expected outputs, and troubleshooting live in
 **`README.md` → "Quick Start (verified)"**. In short:
 
 ```bash
-python -m pip install -r requirements.lock
+python -m pip install --require-hashes -r requirements.lock
 python -m uvicorn api.app:app --port 8000        # backend, auth off by default
 
 cd frontend && npm ci && npm run dev              # SPA on http://localhost:5173
@@ -195,7 +195,7 @@ docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:late
 python scripts/record_docker_image_provenance.py
 
 # 1. backend
-python -m pip install -r requirements.lock
+python -m pip install --require-hashes -r requirements.lock
 python -m uvicorn api.app:app --port 8000
 
 # 2. run the verified E2E in a second terminal
@@ -236,7 +236,7 @@ report it explicitly and the run fails closed; nothing is silently accepted
 | Can a verdict be wrong-but-green? | The single `VERIFIED` site (`engine/verdict/derivation.py:265`) sits behind evidence-integrity validation and a hash-locked consistency check; build failures cannot masquerade as execution evidence; missing evidence yields non-`VERIFIED` states. |
 | How do you prove the Java matches the COBOL? | Independent execution: GnuCOBOL in Docker (digest-pinned) vs the candidate in a network-isolated container, declared artifacts compared by explicit comparator contracts, under a sealed evidence manifest. |
 | Why is download gated? | Customer approval workflow (BL-091, D-1): export returns 409 until `APPROVED`; every UI entry point is disabled with an explanatory label (BL-119). |
-| Production-ready? | No — honestly documented: `docs/KNOWN_ISSUES.md` + §70 gaps (durable queue, rate limits, RBAC/audit, TLS, multi-node) with owner-approved deferrals D-7…D-11. |
+| Production-ready? | No — honestly documented: `docs/KNOWN_ISSUES.md` + §70 gaps (durable queue, per-user rate limits, RBAC, TLS, multi-node) with owner-approved deferrals D-7…D-11. |
 | Where is CI green? | Dated baseline: exact SHA `49821ad`: 4/4 workflow runs green (links in §5). The current verified commit and its runs live in `opencode.md` — this row is a 2026-10-21 snapshot, never a live pointer (BL-009). |
 | What happens without Docker? | Docker lanes report `UNAVAILABLE` and the run fails closed — never a fake pass (`RUN_DOCKER_TESTS=1` without Docker fails, rather than skips). |
 
