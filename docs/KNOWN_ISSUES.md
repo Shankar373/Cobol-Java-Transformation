@@ -157,13 +157,18 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   server runtime).  Application servers (a Jakarta EE server, WildFly, Open
   Liberty, Payara, TomEE) are **not supported**: deferred by decision, the
   names are refused as unknown targets.
-- **Stale local image provenance** reports FAILED, not UNAVAILABLE: when the
-  Maven image is rebuilt locally without re-running
-  `scripts/record_docker_image_provenance.py`, the candidate lane correctly
-  refuses the image ("Docker or Maven image not available"), but the run's
-  verdict is FAILED (the oracle is compared against a candidate that was
-  never built) instead of UNAVAILABLE.
-  Fail-safe (never VERIFIED); CI records provenance after each image build.
+- **Infrastructure failures are ERROR, not UNAVAILABLE** (audit B4, fixed
+  2026-11-03 from FAILED): a candidate build that could not run at all (no
+  Docker, build image unavailable or its identity changed - e.g. a locally
+  rebuilt Maven image without re-running
+  `scripts/record_docker_image_provenance.py`) is now recorded as an
+  infrastructure `error` and derives ERROR; it used to be compared as the
+  program's nonzero exit and derive FAILED. The derivation's error check
+  precedes its UNAVAILABLE check (`engine/verdict/derivation.py`, a
+  do-not-regress area, left unchanged). Still open: Docker's own exit codes
+  125/126/127 at run time are classified as the program's nonzero exit -
+  a COBOL program can legitimately end with RETURN-CODE 125..127, so the
+  exit code alone cannot tell them apart.
 - **Undefined data names** are not resolved by the parser: a program GnuCOBOL
   rejects (e.g. a name cut at column 72) still fails, but at Java compile time.
 - **Plain Java entry selection** falls back to the first program when no entry

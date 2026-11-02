@@ -350,6 +350,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 success=False,
                 class_files={},
                 compilation_errors=("Docker or Maven image not available",),
+                infrastructure_error=True,
             )
 
         start_time = datetime.now(timezone.utc)
@@ -361,6 +362,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 success=False,
                 class_files={},
                 compilation_errors=(build_ref_error,),
+                infrastructure_error=True,
                 compilation_time_ms=int(
                     (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                 ),

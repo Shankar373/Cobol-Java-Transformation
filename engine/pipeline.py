@@ -1012,16 +1012,20 @@ class VerticalSlicePipeline:
                     input_files=input_files,
                 )
         else:
+            # A build that could not run (infrastructure) is an execution
+            # error -> UNAVAILABLE; a build that ran and failed is the
+            # program's fault -> compared as a nonzero exit -> FAILED.
+            infrastructure = getattr(compilation, "infrastructure_error", False)
             candidate_result = CandidateExecutionResult(
                 execution_id=ExecutionId(value=f"candidate-{run_id.value}-compile-fail"),
                 run_id=run_id,
                 status=AdapterStatus.FAILED,
-                exit_code=1,
+                exit_code=None if infrastructure else 1,
                 stdout=b"",
                 stderr="; ".join(compilation.compilation_errors).encode(),
                 start_time=datetime.now(timezone.utc).isoformat(),
                 end_time=datetime.now(timezone.utc).isoformat(),
-                termination_status="nonzero_exit",
+                termination_status="error" if infrastructure else "nonzero_exit",
                 timeout_applied=False,
             )
 

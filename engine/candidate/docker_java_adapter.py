@@ -259,6 +259,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 success=False,
                 class_files={},
                 compilation_errors=("Docker or Java image not available",),
+                infrastructure_error=True,
             )
 
         start_time = datetime.now(timezone.utc)

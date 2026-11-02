@@ -111,6 +111,12 @@ class CompilationResult:
     class_files: dict[str, bytes]  # path -> bytecode
     compilation_errors: tuple[str, ...] = ()
     compilation_time_ms: int = 0
+    # True when the build could not run at all (no Docker, build image
+    # unavailable or its identity changed) - an infrastructure failure, not
+    # a property of the generated program. The pipeline then records the
+    # candidate as an execution ``error`` (verdict UNAVAILABLE) instead of a
+    # nonzero exit compared against the oracle (verdict FAILED) - audit B4.
+    infrastructure_error: bool = False
 
 
 @dataclass(frozen=True)

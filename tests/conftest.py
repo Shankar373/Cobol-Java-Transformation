@@ -15,6 +15,7 @@ Two lanes, chosen only by ``RUN_DOCKER_TESTS``:
 from __future__ import annotations
 
 import os
+import re
 import warnings
 from pathlib import Path
 
@@ -79,4 +80,32 @@ def pytest_collection_modifyitems(config, items):
                 "tests/docker_lane.txt entries match no collected test: "
                 + ", ".join(stale)
             )
+        )
+
+
+# Audit B1: on the Docker lane a missing daemon, image or JDK must fail, not
+# skip. About 54 tests guard themselves with their own skipif/skip ("Docker
+# not available", "javac/java not on PATH", ...) and would otherwise turn a
+# broken CI image into a green run with fewer tests. One rule for all of them:
+# with RUN_DOCKER_TESTS=1, such a skip is reported as a failure.
+_INFRASTRUCTURE_SKIP = re.compile(
+    r"docker|image|java|jdk|temurin|daemon", re.IGNORECASE
+)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    if not _DOCKER_LANE:
+        return
+    report = outcome.get_result()
+    if not report.skipped or hasattr(report, "wasxfail"):
+        return
+    longrepr = report.longrepr
+    reason = longrepr[2] if isinstance(longrepr, tuple) and len(longrepr) == 3 else str(longrepr)
+    if _INFRASTRUCTURE_SKIP.search(reason or ""):
+        report.outcome = "failed"
+        report.longrepr = (
+            "Docker lane (RUN_DOCKER_TESTS=1) requires this test to run, but it "
+            f"skipped for missing infrastructure: {reason}"
         )

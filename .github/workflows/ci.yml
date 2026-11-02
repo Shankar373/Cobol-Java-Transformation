@@ -44,90 +44,12 @@ jobs:
           # coupling), so that single test is deselected here and remains
           # enforced by the backend job, which runs the full suite. The same
           # applies to tests/test_oracle_entry_binding.py::TestServiceResolvesEntry.
-          python -m pytest -q \
-            tests/transformation/test_capability_registry_reconciliation.py \
-            tests/transformation/test_capability_walker_depth.py \
-            tests/transformation/test_producer_capability_consistency.py \
-            tests/transformation/test_usage_capability.py \
-            tests/transformation/test_structural_capability.py \
-            tests/transformation/test_rounded_capability.py \
-            tests/transformation/test_figurative_constants.py \
-            tests/transformation/test_figurative_fill_semantics.py \
-            tests/transformation/test_scoped_construct_statements.py \
-            tests/transformation/test_negated_conditions.py \
-            tests/transformation/test_string_delimited_semantics.py \
-            tests/transformation/test_string_period_termination.py \
-            tests/transformation/test_multiply_diagnostic.py \
-            tests/transformation/test_rewrite_binding.py \
-            tests/transformation/test_spring_model_emission_unique.py \
-            tests/transformation/test_file_io_main_body_rendering.py \
-            tests/transformation/test_planner_missing_component_fail_closed.py \
-            tests/transformation/test_call_name_case_normalization.py \
-            tests/transformation/test_producer_diagnostics_contract.py \
-            tests/transformation/test_perform_lowercase.py \
-            tests/transformation/test_false_success_regressions.py \
-            tests/test_comparison_contract_strength.py \
-            tests/test_oracle_entry_binding.py \
-            tests/test_stderr_contract.py \
-            tests/test_workspace_file_contract.py \
-            tests/verdict/test_oracle_compile_failure_reason.py \
-            tests/transformation/test_line_sequential_and_string_numeric.py \
-            tests/transformation/test_unresolved_call_blocks_generation.py \
-            tests/transformation/test_assign_clause_forms.py \
-            tests/transformation/test_fixed_format_continuation.py \
-            tests/transformation/test_literal_quote_escapes.py \
-            tests/test_return_code.py \
-            tests/test_indexed_record_comparison.py \
-            tests/test_binary_usage_values.py \
-            tests/test_relative_record_comparison.py \
-            tests/test_record_sequential_files.py \
-            tests/test_condition_operands.py \
-            tests/test_size_error.py \
-            tests/test_redefines_digit_views.py \
-            tests/test_occurs_elements.py \
-            tests/test_signed_storage_text.py \
-            tests/comparators/test_fixed_record_trailing_partial.py \
-            tests/test_phase10_p0_bl053_seal_recheck.py \
-            tests/test_phase10_p0_integrated_proof_gate.py \
-            tests/test_phase10_p1_platform_ledger_edges.py \
-            tests/test_phase10_p2_gate_hardening.py \
-            tests/test_silent_loss_registry.py \
-            tests/test_nested_copybook_materialization.py \
-            tests/test_copy_replacing_materialization.py \
-            tests/test_copybook_resolution_capability.py \
-            tests/test_phantom_dependency_masking.py \
-            tests/test_copybook_search_path_parity.py \
-            tests/test_copybook_capability_transitivity.py \
-            tests/test_copybook_decode_fail_closed.py \
-            tests/test_call_statement_parsing.py \
-            tests/test_call_resolution_truth.py \
-            tests/test_goto_diagnostic.py \
-            tests/transformation/test_jcl_multi_job_parsing.py \
-            tests/transformation/test_jcl_job_level_dd.py \
-            tests/transformation/test_jcl_cobol_file_linking.py \
-            tests/transformation/test_jcl_dd_parameter_fidelity.py \
-            tests/transformation/test_jcl_step_order_parity.py \
-            tests/transformation/test_jcl_discovery_matching.py \
-            tests/test_jcl_lane_hygiene.py \
-            tests/test_jcl_build_environment.py \
-            tests/transformation/test_sql_predicate_fidelity.py \
-            tests/transformation/test_sql_unsupported_statement_diagnostics.py \
-            tests/transformation/test_sql_clause_fidelity.py \
-            tests/test_db2_unmapped_error_statuses.py \
-            tests/test_db2_cursor_host_variable_lifecycle.py \
-            tests/test_ims_mq_detection.py \
-            tests/test_bl058_working_storage_group_hierarchy.py \
-            tests/test_utilities_vsam_detection.py \
-            tests/test_external_dependency_edges.py \
-            tests/test_runtime_adapter_architecture.py \
-            tests/test_framework_runtimes.py \
-            tests/test_phase5_certification.py \
-            tests/test_shell_script_contracts.py \
-            tests/test_docker_capability_truth.py \
-            tests/transformation/test_call_capability_fail_closed.py \
-            tests/transformation/test_cics_multiline_parsing.py \
-            tests/transformation/test_modernization_planner.py \
-            --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded             --deselect tests/test_oracle_entry_binding.py::TestServiceResolvesEntry
+          # The list lives in tests/capability_truth.txt (audit B3).
+          python -m pytest -q $(grep -v '^#' tests/capability_truth.txt | grep -v '^$')
+      - name: Dependency map is current
+        # tools/dependency_map.py --check fails when docs/audits/DEPENDENCY_MAP.md
+        # no longer matches the import graph (audit B3; it had gone stale).
+        run: python tools/dependency_map.py --check
 
   phase1-ingestion:
     name: Phase 1 ingestion diagnostics
@@ -147,6 +69,34 @@ jobs:
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Run Phase 1 ingestion tests
         run: python -m pytest -q tests/test_ingestion_diagnostics.py
+
+  backend-hermetic:
+    # Audit B2: the whole suite without Docker (RUN_DOCKER_TESTS unset), as a
+    # developer runs it. Catches hermetic-only regressions the Docker lane
+    # hides, and - with PytestWarning as an error - a stale entry in
+    # tests/docker_lane.txt (conftest warns when an entry matches no test).
+    name: Backend hermetic suite (no Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+      - name: Run the suite without Docker
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q -W error::pytest.PytestWarning tests
 
   backend-oracle:
     name: Backend and COBOL/Java Docker tests

@@ -404,3 +404,52 @@ class TestA8PlanBlocksWhatAnalysisRefuses:
 
         with pytest.raises(NotImplementedError, match="has no Java mapping"):
             map_cobol_statement(PerformTimesStatement(paragraph_name="P1"))
+
+
+# ---------------------------------------------------------------------------
+# B4: an infrastructure failure is UNAVAILABLE, never the program's FAILED
+# ---------------------------------------------------------------------------
+
+class TestB4InfrastructureIsNotProgramFailure:
+    def test_unavailable_build_image_is_flagged_infrastructure(self):
+        from engine.candidate.docker_spring_boot_adapter import (
+            CandidateManifest, DockerSpringBootCandidateAdapter, DockerSpringBootConfig)
+        from engine.domain.identities import AdapterStatus
+
+        adapter = object.__new__(DockerSpringBootCandidateAdapter)
+        adapter._status = AdapterStatus.UNAVAILABLE
+        adapter._config = DockerSpringBootConfig()
+        result = adapter.compile(".", CandidateManifest(
+            candidate_id="b4", workload_id="b4", source_hash="x",
+            generated_files={"pom.xml": "x"}, entrypoint="Main"))
+        assert result.success is False and result.infrastructure_error is True
+
+    @pytest.mark.docker
+    def test_a_build_that_could_not_run_derives_unavailable(self, tmp_path):
+        from engine.candidate.adapter import CompilationResult
+        from engine.candidate.maven_adapter import MavenProjectCandidateAdapter
+        from engine.pipeline import PipelineConfig, VerticalSlicePipeline
+
+        class NoBuildImage(MavenProjectCandidateAdapter):
+            def compile(self, candidate_path, manifest):
+                return CompilationResult(success=False, class_files={},
+                                         compilation_errors=("Docker or Maven image not available",),
+                                         infrastructure_error=True)
+
+        project = tmp_path / "java"
+        project.mkdir()
+        (project / "pom.xml").write_text("<project/>", encoding="utf-8")
+        result = VerticalSlicePipeline(PipelineConfig(
+            workload_id="wl-b4", cobol_source_path=str(_FIXTURES / "workload-minimal" / "cobol"),
+            java_candidate_path=str(project), java_entrypoint="Main", use_docker_java=True,
+        ), candidate_adapter=NoBuildImage()).run()
+        # Was FAILED: the build that never ran was recorded as the program's
+        # nonzero exit and compared against the oracle. Now the candidate
+        # execution is an infrastructure ``error``, which the derivation
+        # reports as ERROR (its error check precedes the UNAVAILABLE check;
+        # derivation.py is left untouched) - never the program's FAILED.
+        assert result.verdict.state.value in ("ERROR", "UNAVAILABLE"), result.verdict.state
+        assert result.verdict.state.value != "FAILED"
+        candidate = [e for e in result.evidence_manifest.execution_evidence
+                     if e.runtime_id.startswith("candidate")]
+        assert candidate and all(e.termination_status == "error" for e in candidate)
