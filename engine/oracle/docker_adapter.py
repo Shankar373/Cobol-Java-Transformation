@@ -193,6 +193,41 @@ class DockerOracleAdapter(OracleAdapter):
         return match.group(1).upper() if match else ""
 
     @classmethod
+    def module_directory(cls, source_dir: Path) -> tuple[Path | None, list[str]]:
+        """Directory whose top-level COBOL modules the oracle compiles.
+
+        Uploaded workspaces keep the ZIP's layout (``app/MAIN.cob``,
+        ``cobol/MAIN.cob``) while discovery and generation search the whole
+        tree, so an oracle that looked only at ``source_dir`` reported "No
+        COBOL source file found" for every nested application and the run
+        could never be compared. Returns ``source_dir`` when it holds
+        modules itself (unchanged behaviour); otherwise the single nested
+        directory holding every PROGRAM-ID source. Programs spread across
+        several directories return (None, [their relative paths]) and are
+        refused rather than one directory being picked by order.
+        """
+        if any(
+            f.is_file() and f.suffix.lower() in cls.COBOL_SUFFIXES
+            for f in source_dir.iterdir()
+        ):
+            return source_dir, []
+        programs = sorted(
+            (
+                f for f in source_dir.rglob("*")
+                if f.is_file()
+                and f.suffix.lower() in cls.COBOL_SUFFIXES
+                and cls._read_program_id(f)
+            ),
+            key=lambda f: f.relative_to(source_dir).as_posix().lower(),
+        )
+        directories = {f.parent for f in programs}
+        if len(directories) == 1:
+            return directories.pop(), []
+        if not directories:
+            return source_dir, []
+        return None, [f.relative_to(source_dir).as_posix() for f in programs]
+
+    @classmethod
     def select_modules(
         cls,
         source_dir: Path,
@@ -438,11 +473,43 @@ class DockerOracleAdapter(OracleAdapter):
                     shutil.copytree(str(cobol_source), str(dest))
                     container_src = "/workspace/src"
 
+                module_dir = Path(tmpdir, "src")
+                compile_dir = container_src
                 main_file = cobol_source.name if cobol_source.is_file() else None
                 link_modules: list[str] = []
+                spread: list[str] = []
                 if main_file is None:
-                    main_file, link_modules = self.select_modules(
-                        Path(tmpdir, "src"), entry_program=entry_program
+                    found_dir, spread = self.module_directory(module_dir)
+                    if found_dir is not None:
+                        relative_dir = found_dir.relative_to(module_dir).as_posix()
+                        if relative_dir != ".":
+                            compile_dir = f"{container_src}/{relative_dir}"
+                        module_dir = found_dir
+                        main_file, link_modules = self.select_modules(
+                            module_dir, entry_program=entry_program
+                        )
+
+                if spread:
+                    end_time = datetime.now(timezone.utc)
+                    return OracleExecutionResult(
+                        execution_id=execution_id,
+                        run_id=run_id,
+                        oracle_id=self._config.oracle_id,
+                        status=AdapterStatus.FAILED,
+                        exit_code=None,
+                        stdout=b"",
+                        stderr=(
+                            "COBOL programs span several directories: "
+                            f"{', '.join(spread)}; refusing to select one "
+                            "directory by order"
+                        ).encode(),
+                        start_time=start_time.isoformat(),
+                        end_time=end_time.isoformat(),
+                        termination_status="error",
+                        timeout_applied=False,
+                        source_tree_hash_before=source_hash_before,
+                        source_tree_hash_after=source_hash_before,
+                        image_digest=digest,
                     )
 
                 if main_file is None and link_modules:
@@ -517,10 +584,10 @@ class DockerOracleAdapter(OracleAdapter):
                     shlex.quote(name) for name in [main_file, *link_modules]
                 )
                 format_flag = self._compile_format_flag(
-                    Path(tmpdir, "src"), [main_file, *link_modules]
+                    module_dir, [main_file, *link_modules]
                 )
                 compile_cmd = (
-                    f"cd {container_src} && "
+                    f"cd {shlex.quote(compile_dir)} && "
                     f"cobc -x {format_flag}{compile_units} -o /tmp/oracle_prog "
                     f">/workspace/compilation/stdout 2>/workspace/compilation/stderr; "
                     f"compile_status=$?; "

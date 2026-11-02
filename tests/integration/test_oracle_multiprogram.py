@@ -161,6 +161,48 @@ class TestModuleSelection:
         assert others == ["CLAIMS.cob", "MAIN.cob"]
 
 
+class TestModuleDirectory:
+    """Uploaded ZIPs keep their layout; the oracle must find nested programs.
+
+    Before this, ``app/MAIN.cob`` or ``cobol/MAIN.cob`` uploads ran the
+    oracle on the workspace root, which has no top-level module, so every
+    such run ended "No COBOL source file found" and UNAVAILABLE.
+    """
+
+    def test_top_level_modules_keep_root(self, tmp_path: Path) -> None:
+        _write_multi(tmp_path)
+        (tmp_path / "nested").mkdir()
+        (tmp_path / "nested" / "OTHER.cob").write_text(HELLO_COB, encoding="utf-8")
+        assert DockerOracleAdapter.module_directory(tmp_path) == (tmp_path, [])
+
+    def test_single_nested_directory_is_used(self, tmp_path: Path) -> None:
+        app = tmp_path / "cobol"
+        app.mkdir()
+        _write_multi(app)
+        (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+        assert DockerOracleAdapter.module_directory(tmp_path) == (app, [])
+        assert DockerOracleAdapter.select_modules(app) == ("MAIN.cob", ["CLAIMS.cob"])
+
+    def test_nested_copybook_cbl_is_not_a_program(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "HELLO.cob").write_text(HELLO_COB, encoding="utf-8")
+        (tmp_path / "copy").mkdir()
+        (tmp_path / "copy" / "REC.cbl").write_text(COMMON_CPY, encoding="utf-8")
+        assert DockerOracleAdapter.module_directory(tmp_path) == (tmp_path / "src", [])
+
+    def test_programs_in_several_directories_are_refused(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            (tmp_path / name).mkdir()
+            (tmp_path / name / "HELLO.cob").write_text(HELLO_COB, encoding="utf-8")
+        assert DockerOracleAdapter.module_directory(tmp_path) == (
+            None, ["a/HELLO.cob", "b/HELLO.cob"],
+        )
+
+    def test_no_programs_keeps_root(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+        assert DockerOracleAdapter.module_directory(tmp_path) == (tmp_path, [])
+
+
 # ---------------------------------------------------------------------------
 # Docker-gated: real multi-program oracle execution
 # ---------------------------------------------------------------------------
@@ -242,6 +284,30 @@ class TestDockerOracleExecution:
             "CALL 'CLAIMS'.", ""
         )
         assert outcome.source_tree_hash_before == outcome.source_tree_hash_after
+
+    def test_nested_upload_layout_runs(self, tmp_path: Path) -> None:
+        from engine.domain.identities import RunId
+
+        app = tmp_path / "my app"
+        app.mkdir()
+        _write_multi(app)
+        (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+        outcome = _make_adapter().execute(RunId(value="run-ora-nested"), str(tmp_path))
+
+        assert outcome.exit_code == 0, outcome.stderr.decode(errors="replace")[:500]
+        assert outcome.stdout.decode(errors="replace").splitlines() == EXPECTED_CHAIN
+
+    def test_spread_programs_fail_closed(self, tmp_path: Path) -> None:
+        from engine.domain.identities import RunId
+
+        for name in ("a", "b"):
+            (tmp_path / name).mkdir()
+            (tmp_path / name / "HELLO.cob").write_text(HELLO_COB, encoding="utf-8")
+        outcome = _make_adapter().execute(RunId(value="run-ora-spread"), str(tmp_path))
+
+        assert outcome.exit_code is None
+        assert outcome.stdout == b""
+        assert b"span several directories" in outcome.stderr
 
     def test_oracle_independent_from_java(self, tmp_path: Path) -> None:
         from engine.domain.identities import RunId
