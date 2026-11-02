@@ -94,9 +94,16 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   other content (spaces, signs, letters — GnuCOBOL applies rules not
   reproduced) stops the Java run with `NumberFormatException`, so the run
   FAILS instead of storing a guessed value.
-- **Found by the Phase 3 binary-values application, refused today:** signed
-  literals in conditions (`IF X > -1`), and a figurative constant in a
-  numeric comparison (`IF X > ZERO`, classified UNKNOWN).
+- ~~**Found by the Phase 3 binary-values application, refused today:** signed
+  literals in conditions, ZERO in a numeric comparison~~ — supported since
+  increment 7, together with sign conditions (`IS [NOT] POSITIVE/NEGATIVE/
+  ZERO`, which used to generate the undeclared Java name `NEGATIVE` while
+  classified SUPPORTED) and decimal literals in conditions
+  (`tests/test_condition_operands.py`).  Still refused: abbreviated combined
+  relations (`A = 1 OR 2`; on numeric items this generated `A == 1 || 2`,
+  which does not compile, while classified SUPPORTED), ordering comparisons
+  against an alphanumeric ZERO (`A > ZERO` on PIC X), and an IF/ELSE
+  written on a single source line (refused with a named diagnostic).
 - **OCCURS whole-record references, REDEFINES numeric reinterpretation**
   (`workload-occurs`, `workload-redefines`) and **CALL BY VALUE**
   (`workload-by-value`, GnuCOBOL 3.1.2 implementation unfinished) stay refused.

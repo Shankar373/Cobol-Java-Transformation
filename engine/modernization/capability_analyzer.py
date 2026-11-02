@@ -632,6 +632,7 @@ class CapabilityAnalyzer:
             which a named-field walk would never reach.
             """
             from engine.transformation.ir import (
+                Condition as _Condition,
                 Expression as _Expression,
                 FigurativeConstant as _FigurativeConstant,
             )
@@ -647,7 +648,10 @@ class CapabilityAnalyzer:
                 if isinstance(current, _FigurativeConstant):
                     ir_flag_keys.add("FIGURATIVE CONSTANT")
                     continue
-                if isinstance(current, _Expression):
+                # Conditions too: ``IF X = ZERO`` holds the constant in a
+                # Comparison, which is a Condition, not an Expression — it
+                # was never reached and every such program read UNKNOWN.
+                if isinstance(current, (_Expression, _Condition)):
                     for f in current.__dataclass_fields__:
                         stack.append(getattr(current, f, None))
                     continue

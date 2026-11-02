@@ -274,3 +274,31 @@ applications, by the two added methods (no line removed); their service
 code is byte-identical to `9111a50`, so nothing calls the new methods.
 All other generated Java is byte-identical.  No fixture used WRITE … FROM
 or ADVANCING.
+
+### 3.7 Condition operands (increment 7)
+
+Audit of every condition form left open by increment 4, each run through
+the analyzer and the generator, then measured on GnuCOBOL 3.1.2:
+
+| Form | Before | GnuCOBOL | Now |
+|---|---|---|---|
+| `X IS NEGATIVE` / `IS POSITIVE` | **SUPPORTED, but** parsed as a condition-name; Java `X == NEGATIVE` (undeclared, did not compile) | algebraic sign; `MOVE -0` is ZERO, not NEGATIVE | relation to ZERO (`sign_conditions.py`, shared by parser and mapper) |
+| `X IS NOT NEGATIVE` | refused | — | `X >= ZERO` |
+| `> -1`, `= +3`, `< -1.25`, `< 1.25`, `-5 < X` | refused (operand matcher accepted only `\w+`) | algebraic | signed/decimal literal operands |
+| `X > ZERO`, `X = ZEROS` (numeric) | generated correctly, classified UNKNOWN | algebraic | SUPPORTED: the analyzer's figurative walk now enters Conditions |
+| `A = ZERO` (PIC X) | refused | every character '0' (`'0000'` yes, `'00 0'` no) | whole-field `'0'` fill |
+| `X = 1 OR 2` (numeric) | **SUPPORTED, but** Java `X == 1 \|\| 2` (did not compile) | abbreviated combined relation | fails closed, as on the alphanumeric path |
+
+Proof: 28 conditions (simple, compound, decimal, negative zero) pinned on
+GnuCOBOL and matched by the generated Java (`tests/test_condition_operands.py`).
+Application: `fixtures/workload-balance-check` (EVALUATE TRUE over sign
+conditions and a signed limit, PERFORM UNTIL … IS ZERO, compound signed
+ranges, a PIC X status against ZERO/ZEROS) — **VERIFIED** through the API
+and **AGREE** in the independent re-check.
+
+Regression: generated Java for all 48 Phase 2 applications and the four
+earlier Phase 3 applications is byte-identical to `cf0b12d`.
+
+Left refused: ordering against an alphanumeric ZERO (`A > ZERO` on PIC X);
+an IF/ELSE written on one source line (named diagnostic; found while
+building the probe).

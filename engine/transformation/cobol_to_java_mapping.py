@@ -37,6 +37,7 @@ from engine.transformation.control_flow import (
     walk_statements,
 )
 from engine.transformation.figurative import figurative_to_width, parse_figurative_constant
+from engine.transformation.sign_conditions import rewrite_sign_conditions
 from engine.transformation.group_storage import (
     GroupLayout,
     file_record_groups,
@@ -2882,6 +2883,11 @@ def expand_condition_names(
     return expression
 
 
+def _is_numeric_literal(token: str) -> bool:
+    """A COBOL numeric literal: optional sign, digits, optional fraction."""
+    return re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", token.strip()) is not None
+
+
 def _operand_is_decimal(token: str, program: CobolProgram | None) -> bool:
     """Whether a condition operand is a COBOL decimal (fixed-point) value.
 
@@ -2892,7 +2898,7 @@ def _operand_is_decimal(token: str, program: CobolProgram | None) -> bool:
     tok = token.strip()
     if not tok or tok.startswith('"') or tok.startswith("'"):
         return False
-    if tok.replace(".", "").replace("-", "").isdigit():
+    if _is_numeric_literal(tok):
         return "." in tok
     item = _find_data_item(program, tok)
     return bool(item and item.is_numeric and item.decimal_places > 0)
@@ -2905,7 +2911,7 @@ def _decimal_compare_operand(
 ) -> JavaExpression:
     """Coerce a condition operand into a BigDecimal-exact comparable form."""
     tok = token.strip()
-    if tok.replace(".", "").replace("-", "").isdigit():
+    if _is_numeric_literal(tok):
         # Any numeric literal is a BigDecimal string constructor; the exact
         # digits (including the scale) survive verbatim.
         return JavaLiteral(
@@ -3126,6 +3132,7 @@ def map_cobol_condition_to_java(
             source_expression=original_condition,
             reason="Malformed or unsupported COBOL condition",
         )
+    condition = rewrite_sign_conditions(condition)
     if condition_names:
         expanded = expand_condition_names(condition, condition_names)
         if expanded is not None:
@@ -3177,6 +3184,13 @@ def map_cobol_condition_to_java(
     # reserved word and fell through to a bare Java identifier.
     # Doing it first also lets `NOT = SPACES` be folded as one comparison
     # rather than leaving the fill literal outside the operator.
+    if program is not None and _involves_alphanumeric(condition, program):
+        # ``A = ZERO`` on an alphanumeric item is a whole-field fill of '0'
+        # characters (oracle: '0000' is ZERO, '00 0' is not), not number 0.
+        condition = re.sub(
+            r"(=\s*)(?:ZEROES|ZEROS|ZERO)(?![\w-])", r"\1ALL '0'",
+            condition, flags=re.IGNORECASE,
+        )
     condition = _substitute_figurative_constants(condition)
     # Fold `NOT <relational>` while the operators are still COBOL-spelled:
     # `A NOT > 3` is `A <= 3`.  Emitting a separate `!` prefix cannot work in
@@ -3274,8 +3288,11 @@ def map_cobol_condition_to_java(
     condition_str = " ".join(result_parts)
 
     # Try to parse simple binary conditions: left OP right
+    # Operands: a data name, a quoted literal, or a numeric literal with an
+    # optional sign and fraction (``> -1``, ``< 1.25``, ``= +3``).
+    operand = r'([+-]?(?:\d+(?:\.\d+)?|\.\d+)|\w+|"(?:[^"\\]|\\.)*")'
     binary_match = _re.match(
-        r'^(\w+|"(?:[^"\\]|\\.)*")\s*(==|!=|>=|<=|>|<)\s*(\w+|"(?:[^"\\]|\\.)*")$',
+        rf'^{operand}\s*(==|!=|>=|<=|>|<)\s*{operand}$',
         condition_str,
     )
     if binary_match:
@@ -3292,8 +3309,10 @@ def map_cobol_condition_to_java(
                 )
             if token.startswith('"') or token.startswith("'"):
                 return JavaLiteral(value=token)
-            if token.replace(".", "").replace("-", "").isdigit():
-                return JavaLiteral(value=token)
+            if _is_numeric_literal(token):
+                # ``+3`` is 3; the renderer quotes literals it does not
+                # recognise as numbers, which a leading ``+`` defeats.
+                return JavaLiteral(value=token.lstrip("+"))
             return JavaVariableRef(name=token)
 
         left_is_fill = _is_figurative_sentinel(left_name)
@@ -3366,6 +3385,21 @@ def map_cobol_condition_to_java(
             source_expression=original_condition,
             reason="Malformed or unsupported COBOL condition",
         )
+    # Abbreviated combined relation (``A = 1 OR 2``): rendered textually it
+    # became ``A == 1 || 2`` (did not compile).  Refused as on the
+    # alphanumeric path.
+    unwrapped = _strip_enclosing_parens(rewrite_sign_conditions(original_condition))
+    for keyword in ("OR", "AND"):
+        atoms = _split_top_level(unwrapped, keyword)
+        if len(atoms) > 1 and any(
+            not _RELATIONAL_TEXT.search(atom)
+            and not (condition_names and expand_condition_names(atom, condition_names) is not None)
+            for atom in atoms
+        ):
+            return JavaUnsupportedExpression(
+                source_expression=original_condition,
+                reason="abbreviated combined relation condition is not certified",
+            )
     return JavaLiteral(value=_expand_figurative_in_condition(condition_str))
 
 def _expand_figurative_in_condition(condition: str) -> str:
@@ -3522,6 +3556,9 @@ def _parse_cond_mul(tokens, pos):
 def _parse_cond_primary(tokens, pos):
     if pos >= len(tokens):
         raise ValueError("unexpected end")
+    if tokens[pos] in ("+", "-"):
+        # Signed operand: ``WS_N > -1``.
+        return _parse_cond_primary(tokens, pos + 1)
     if tokens[pos] == "(":
         pos += 1
         pos = _parse_condition_tokens(tokens, pos)
@@ -3570,8 +3607,11 @@ def _condition_is_malformed(original: str, rendered: str) -> bool:
     for op in binary_operators:
         if rendered_text.startswith(op) or rendered_text.endswith(op):
             return True
+    # Two operators in a row are malformed — except a sign that starts a
+    # numeric literal (``WS_N > -1``).
     if _re.search(
-        r"(==|!=|&&|\|\||>=|<=|>|<|!|\+|-|\*|/)\s*(==|!=|&&|\|\||>=|<=|>|<|!|\+|-|\*|/)",
+        r"(==|!=|&&|\|\||>=|<=|>|<|!|\+|-|\*|/)\s*"
+        r"(==|!=|&&|\|\||>=|<=|>|<|!|\*|/|[+-](?!\d))",
         rendered_text,
     ):
         return True

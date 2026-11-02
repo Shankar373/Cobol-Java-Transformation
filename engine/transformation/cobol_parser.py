@@ -46,6 +46,7 @@ from engine.transformation.group_storage import (
 from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.redefines import build_redefines_plan, write_targets
 from engine.transformation.semantic_capability import canonical_usage
+from engine.transformation.sign_conditions import rewrite_sign_conditions
 from engine.transformation.source_format import (
     code_mentions,
     compiler_visible_text,
@@ -4350,8 +4351,9 @@ class CobolParser:
         - Logical operators: A AND B, X OR Y
         - Negation: NOT (A > B)
         - Parenthesized conditions: (A > B) AND (C < D)
+        - Sign conditions, as relations to zero (``rewrite_sign_conditions``)
         """
-        text = text.strip()
+        text = rewrite_sign_conditions(text.strip())
 
         # Remove outer parentheses if they match
         if text.startswith("(") and text.endswith(")"):
