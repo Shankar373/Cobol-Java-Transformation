@@ -71,14 +71,26 @@ deployments only. The supported path is the runtime override
 
 ## Container isolation and limits
 
-- API: `mem_limit 2g`, `cpus 2.0`, `pids_limit 512`,
+- API: `mem_limit 2g`, `cpus 2.0`, `pids_limit 512`, `cap_drop: ALL`,
   `no-new-privileges:true`, non-root `10001:10001`, `/app/tmp` as
   `noexec,nosuid` tmpfs. (Filesystem is NOT fully read-only because
   SQLite + per-app workspaces live in the container paths backed by named
   volumes — that is why volumes, not overlay, hold state.)
 - Sandbox (per execution, engine code): `--network none`, memory 512m,
-  cpus 1.0, pids 256, hard timeout (default 30s), read-only source
-  mounts, Maven `target/` on `tmpfs`, container removed after run.
+  cpus 1.0, pids 256, `--ulimit fsize=128 MiB` per written file, hard
+  timeout (default 30s), read-only source mounts, Maven `target/` on
+  `tmpfs`, container removed after run. Total disk use of the
+  host-backed staging directory is not capped by the engine: put
+  `SANDBOX_HOST_STAGING_DIR` on its own filesystem or quota (operator).
+- Reading results back (Phase 4): the API reads every file a sandbox left
+  with `lstat` + `O_NOFOLLOW` and fails the run on a symbolic link, a
+  special file, a linked directory, a file over 64 MiB or more than
+  256 MiB in total (`engine/execution/workspace_files.py`). Before this,
+  a program could link `/proc/self/environ` (the API token) or the
+  SQLite database into its output and the API would read it.
+- nginx: `cap_drop: ALL` plus exactly `CHOWN SETUID SETGID
+  NET_BIND_SERVICE`; the TLS key must be readable by root without
+  `DAC_OVERRIDE` (root-owned, or mode 0644).
 - Volumes `systemaops-control-plane-data` / `-work` must be `root`-owned
   host dirs restricted to `0700` (or Docker-managed volumes with default
   root ownership); the in-container uid 10001 must own `/app/data`,
@@ -93,9 +105,17 @@ deployments only. The supported path is the runtime override
   answered 401 *before* `CORSMiddleware` could reply and made the
   allowlist unusable in exactly the configuration that enables it (token
   + allowed origins). A preflight carries no payload; the data-bearing
-  `GET`/`POST` that follows is still fully authenticated. No per-client
-  rate limiting exists (documented gap) — put operational rate limits at
-  your WAF/edge if exposed beyond trusted users.
+  `GET`/`POST` that follows is still fully authenticated. Rate limits
+  (Phase 4, BL-114 defaults — tune per deployment under D-7) are per
+  client address at nginx: 50 requests/s (burst 100) overall and 30
+  POSTs/min (burst 10) — POSTs start uploads, discovery and Docker work;
+  ingest also takes a concurrent-job slot (429 when full).
+  Tune the rates for your clients; put a WAF in front if exposed beyond
+  trusted users. Every 401 is logged as `auth.failed` (method, path,
+  client address, whether a credential was presented — never the
+  credential). `/docs`, `/redoc` and `/openapi.json` are not served when
+  `CONTROL_PLANE_ENV=production`. Anonymous `/ready` callers in
+  production get `ok` per check only (no paths, error text or load).
 - CORS: deny-by-default; the middleware is only added when
   `CONTROL_PLANE_ALLOWED_ORIGINS` is a non-empty comma-separated
   allowlist, and only `GET,POST` (+ `Authorization`, `X-API-Key`,
@@ -104,13 +124,22 @@ deployments only. The supported path is the runtime override
   strict referrer policy, locked-down permissions policy, restrictive
   CSP, `no-store` on API responses. Uploads: bounded request/file/count
   limits enforced before buffering, path traversal + drive-letter
-  rejection, no tracebacks or filesystem paths in error responses.
+  rejection, no tracebacks in error responses. Filesystem paths: in
+  production, absolute paths under the workspace, staging and temp roots
+  are returned as `<server>/...` in application, upload, ingest, run,
+  report and detail responses; an unexpected background exception is
+  reported as its type plus the run id (full text in the server log);
+  discovery messages name files relative to the upload. (Before Phase 4
+  these responses carried absolute server paths and raw exception text.)
 
 ## Temporary storage and logs
 
-- Per-run temp and Maven build output live in container tmpfs/ephemeral
-  layers and are removed with the sandbox container; `/app/tmp` does not
-  survive container replacement by design.
+- Per-run sandbox staging lives under `SANDBOX_STAGING_DIR` (host
+  bind-mounted, removed after each run); Maven `target/` is a tmpfs in
+  the build container; `/app/tmp` does not survive container replacement
+  by design. The generated application bundle is created inside the run's
+  durable output directory under `CONTROL_PLANE_WORKSPACE_DIR` (before
+  Phase 4 it was created in `$TMPDIR` and lost on restart).
 - Logs: `json-file` driver capped at `10m` × 5 files per service to bound
   disk. App logging is configured by `api/logging_config.py`
   (`CONTROL_PLANE_LOG_LEVEL`, `CONTROL_PLANE_LOG_FORMAT`; JSON by default

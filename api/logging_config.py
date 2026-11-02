@@ -164,9 +164,10 @@ class TextFormatter(logging.Formatter):
             if key not in _STANDARD_RECORD_ATTRS and not key.startswith("_")
         ]
         suffix = f" [{' '.join(extras)}]" if extras else ""
-        return (
-            f"{base}{suffix} (request_id={getattr(record, 'request_id', '-')})"
-        )
+        line = f"{base}{suffix} (request_id={getattr(record, 'request_id', '-')})"
+        # One record, one line: client-controlled text (a percent-decoded
+        # path, an exception message) must not forge further log lines.
+        return line.replace("\r", "\\r").replace("\n", "\\n")
 
 
 def _default_format() -> str:

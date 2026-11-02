@@ -27,6 +27,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -34,9 +37,9 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.lock
       - name: Install pinned dependencies
-        run: python -m pip install -r requirements.lock
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Install audit tooling
-        run: python -m pip install "pip-audit>=2.7" "cyclonedx-bom>=7"
+        run: python -m pip install "pip-audit==2.10.1" "cyclonedx-bom==7.6.0"
       - name: pip-audit (requirements.lock)
         id: pip-audit
         run: |
@@ -75,6 +78,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -114,6 +120,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -130,5 +139,61 @@ jobs:
         with:
           name: supply-chain-manifest
           path: test-artifacts/supply-chain/dependency-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+  image-scan:
+    # Phase 4 (2026-11-02): container images and the Java dependency tree.
+    # pip-audit / npm audit cover the Python and npm locks only; this job
+    # scans the three images the platform runs - OS packages, the Python
+    # environment of the API image, and every jar in the offline Maven
+    # repository (Spring Boot, Quarkus, Micronaut trees the generated
+    # applications ship with). REPORT-ONLY: the generated framework versions
+    # (Spring Boot 3.2.5, Quarkus 3.15.1, Micronaut 4.6.3) are past their
+    # support windows and upgrading them is an owner decision with
+    # generator + proof-corpus impact (docs/supply-chain/DEPENDENCY_AUDIT.md
+    # J1/J3); making this a gate belongs to that decision. Findings are
+    # uploaded as artifacts and printed in the log.
+    name: Image + Java dependency scan (Trivy, report-only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # aquasec/trivy:0.58.2 pinned by digest; the vulnerability DB is
+      # downloaded fresh on every run.
+      TRIVY_IMAGE: aquasec/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Build images
+        run: |
+          docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:scan .
+          docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:scan .
+          docker build --pull -f Dockerfile.production -t systemaops-api:scan .
+      - name: Scan images
+        run: |
+          mkdir -p test-artifacts/supply-chain/trivy
+          for image in gnucobol-ocesql:scan maven-offline-springboot:scan systemaops-api:scan; do
+            name="${image%%:*}"
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock:ro \
+              -v trivy-cache:/root/.cache/trivy \
+              -v "$PWD/test-artifacts/supply-chain/trivy:/out" \
+              "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL \
+              --format json --output "/out/${name}.json" "$image"
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock:ro \
+              -v trivy-cache:/root/.cache/trivy \
+              "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL \
+              --skip-db-update --format table "$image" || true
+          done
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: supply-chain-image-scan
+          path: test-artifacts/supply-chain/trivy/**
           if-no-files-found: error
           retention-days: 90

@@ -247,7 +247,11 @@ def ingest_zip(data: bytes, application_id: str) -> Path:
         raise
     except Exception as exc:
         _discard_workspace(workspace)
-        raise IngestionError(f"Failed to extract ZIP: {exc}") from exc
+        # The OS error text names server paths: log it, return the type only.
+        logger.warning("ZIP extraction failed: %s", exc)
+        raise IngestionError(
+            f"Failed to extract ZIP ({type(exc).__name__})"
+        ) from exc
 
     return workspace
 
@@ -261,6 +265,15 @@ def _discard_workspace(workspace: Path) -> None:
     original ``IngestionError``.
     """
     shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _without_root(message: str, root: Path) -> str:
+    """Discovery messages are shown to the client: name files relative to
+    the uploaded tree, never by their server path."""
+    for form in {str(root), root.as_posix(), str(root.resolve())}:
+        message = message.replace(form + "/", "").replace(form + "\\", "")
+        message = message.replace(form, "<upload>")
+    return message
 
 
 def discover_application(workspace: Path, application_id: str) -> DiscoveryResult:
@@ -325,7 +338,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
     except Exception as exc:
         result.discovery_errors.append({
             "stage": "COBOL_DISCOVERY",
-            "message": str(exc),
+            "message": _without_root(str(exc), workspace),
         })
 
     # Discover JCL
@@ -362,7 +375,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
     except Exception as exc:
         result.discovery_errors.append({
             "stage": "JCL_DISCOVERY",
-            "message": str(exc),
+            "message": _without_root(str(exc), workspace),
         })
 
     return result

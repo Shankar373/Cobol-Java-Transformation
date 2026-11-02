@@ -109,6 +109,15 @@ class AssemblyOutcome:
     entrypoint: str
 
 
+def _new_project_dir(prefix: str, output_root: str | Path | None) -> Path:
+    """A fresh, private (0700) project directory under ``output_root``."""
+    if output_root is not None:
+        Path(output_root).mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(
+        prefix=prefix, dir=str(output_root) if output_root is not None else None
+    ))
+
+
 class RuntimeAdapter(ABC):
     """Assembles shared ``JavaApplication`` IR into one runtime target."""
 
@@ -122,7 +131,11 @@ class RuntimeAdapter(ABC):
         copybook_models: Any = (),
         output_prefix: str = "generated-",
         runtime: RuntimeTargetConfig | None = None,
+        output_root: str | Path | None = None,
     ) -> AssemblyOutcome:
+        """``output_root``: directory the project is created in (the
+        pipeline's durable output directory); ``None`` keeps the system
+        temporary directory."""
         runtime = runtime or RuntimeTargetConfig(target_runtime=self.target_runtime)
         return self._assemble(
             java_application,
@@ -130,6 +143,7 @@ class RuntimeAdapter(ABC):
             copybook_models=copybook_models,
             output_prefix=output_prefix,
             runtime=runtime,
+            output_root=output_root,
         )
 
     @abstractmethod
@@ -141,6 +155,7 @@ class RuntimeAdapter(ABC):
         copybook_models: Any,
         output_prefix: str,
         runtime: RuntimeTargetConfig,
+        output_root: str | Path | None = None,
     ) -> AssemblyOutcome: ...
 
 
@@ -157,6 +172,7 @@ class SpringBootRuntimeAdapter(RuntimeAdapter):
         copybook_models: Any,
         output_prefix: str,
         runtime: RuntimeTargetConfig,
+        output_root: str | Path | None = None,
     ) -> AssemblyOutcome:
         from engine.transformation.java_to_spring_mapping import (
             map_java_application_to_spring_boot,
@@ -178,7 +194,7 @@ class SpringBootRuntimeAdapter(RuntimeAdapter):
         if not files:
             raise RuntimeError("Spring Boot generation produced no files")
 
-        project_dir = Path(tempfile.mkdtemp(prefix=output_prefix))
+        project_dir = _new_project_dir(output_prefix, output_root)
         project_dir.mkdir(parents=True, exist_ok=True)
         resolved_root = project_dir.resolve()
         for gen_file in files:
@@ -234,6 +250,7 @@ class PlainJavaRuntimeAdapter(RuntimeAdapter):
         copybook_models: Any,
         output_prefix: str,
         runtime: RuntimeTargetConfig,
+        output_root: str | Path | None = None,
     ) -> AssemblyOutcome:
         from dataclasses import replace
 
@@ -260,7 +277,7 @@ class PlainJavaRuntimeAdapter(RuntimeAdapter):
             )
         entry_class = generator._to_java_class_name(resolved_entry)
 
-        project_dir = Path(tempfile.mkdtemp(prefix=output_prefix))
+        project_dir = _new_project_dir(output_prefix, output_root)
         project_dir.mkdir(parents=True, exist_ok=True)
         resolved_root = project_dir.resolve()
 
@@ -484,11 +501,11 @@ class _FrameworkCommandAdapter(PlainJavaRuntimeAdapter):
     entry_class_name: ClassVar[str]
 
     def _assemble(self, java_application, *, entry_program, copybook_models,
-                  output_prefix, runtime):
+                  output_prefix, runtime, output_root=None):
         outcome = super()._assemble(
             java_application, entry_program=entry_program,
             copybook_models=copybook_models, output_prefix=output_prefix,
-            runtime=runtime,
+            runtime=runtime, output_root=output_root,
         )
         root = outcome.project_dir
         for rel, content in self._framework_files(outcome.entrypoint).items():

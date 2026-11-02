@@ -92,9 +92,10 @@ services:
     # closed at EXECUTING_ORACLE ("oracle image identity is not
     # established"), so the deployed stack can never produce a verdict.
     # DOCKER_GID must match the group owning /var/run/docker.sock on the
-    # host; the default 0 covers the standard root-owned socket.
+    # host. No default: a silent fallback to 0 put the API process in the
+    # root group. start-production.sh detects it (stat -c %g) when unset.
     group_add:
-      - "${DOCKER_GID:-0}"
+      - "${DOCKER_GID:?DOCKER_GID must be the group owning /var/run/docker.sock (stat -c %g /var/run/docker.sock)}"
     networks:
       - edge
       - sandbox-calls
@@ -108,6 +109,10 @@ services:
     tmpfs:
       - /app/tmp:rw,noexec,nosuid,size=1g
     read_only: false # must stay writable: SQLite + per-app workspaces live here
+    # Non-root process that only talks to the daemon socket and writes files
+    # it owns: it needs no Linux capability at all.
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -148,6 +153,16 @@ services:
       - edge
     # Flat mem_limit: enforced without swarm mode.
     mem_limit: 256m
+    # Least privilege for the nginx master (binds :443, then drops to the
+    # nginx user): verified to serve with exactly these four. The TLS key
+    # must be readable by root without DAC_OVERRIDE (root-owned, or 0644).
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
     healthcheck:

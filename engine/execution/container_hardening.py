@@ -48,22 +48,33 @@ CONTAINER_USER: Final[str] = f"{CONTAINER_UID}:{CONTAINER_GID}"
 #: run command is a defect.
 NON_ROOT_EXEMPT_LANES: Final[frozenset[str]] = frozenset()
 
+#: Largest file any workload container may write (RLIMIT_FSIZE, bytes).
+#: Untrusted programs write into host-backed staging mounts; without a cap a
+#: 30-second run can fill the host disk.  Generous for real outputs (Maven
+#: fat jars are tens of MB); the host reads back at most
+#: ``workspace_files.MAX_SANDBOX_FILE_BYTES`` per file anyway.
+CONTAINER_MAX_FILE_BYTES: Final[int] = 128 * 1024 * 1024
+
 
 def container_run_hardening_flags(lane: str) -> list[str]:
     """Return the hardening flags every ``docker run`` must carry.
 
-    Returns ``--security-opt no-new-privileges=true``, ``--cap-drop ALL``
-    and ``--user <uid:gid>`` (unless ``lane`` is listed in
-    :data:`NON_ROOT_EXEMPT_LANES`, which is currently empty and requires a
-    documented justification to extend).
+    Returns ``--security-opt no-new-privileges=true``, ``--cap-drop ALL``,
+    ``--ulimit fsize=<CONTAINER_MAX_FILE_BYTES>`` and ``--user <uid:gid>``
+    (unless ``lane`` is listed in :data:`NON_ROOT_EXEMPT_LANES`, which is
+    currently empty and requires a documented justification to extend).
 
     The returned list is a fresh list; callers may extend it freely.
     """
     if lane in NON_ROOT_EXEMPT_LANES:  # pragma: no cover - no exempt lanes
-        return ["--security-opt", "no-new-privileges=true", "--cap-drop", "ALL"]
+        return [
+            "--security-opt", "no-new-privileges=true", "--cap-drop", "ALL",
+            "--ulimit", f"fsize={CONTAINER_MAX_FILE_BYTES}",
+        ]
     return [
         "--security-opt", "no-new-privileges=true",
         "--cap-drop", "ALL",
+        "--ulimit", f"fsize={CONTAINER_MAX_FILE_BYTES}",
         "--user", CONTAINER_USER,
     ]
 

@@ -52,7 +52,8 @@ WORKDIR /app
 
 # Dependencies first (better layer caching).
 COPY requirements.lock /app/requirements.lock
-RUN pip install --no-cache-dir -r /app/requirements.lock
+# --require-hashes: every wheel must match the sha256 recorded in the lock.
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock
 
 # Application code. Explicit paths only — nothing else enters the image
 # (no tests/, no test-artifacts/, no frontend/, no local data/*.db).
@@ -76,6 +77,13 @@ RUN mkdir -p /app/data /app/workspaces /app/tmp /app/sandbox-staging && \
 # and are captured by scripts/backup/backup.sh; $TMPDIR (/app/tmp tmpfs)
 # stays scratch-only. Unset in development = platform temp dir.
 ENV CONTROL_PLANE_WORKSPACE_DIR=/app/workspaces
+
+# Fail closed by default: this image IS the production API, so running it
+# outside compose (plain `docker run`, Kubernetes) must not silently serve an
+# unauthenticated control plane. With this set the process refuses to start
+# without a CONTROL_PLANE_API_TOKEN of at least 32 characters. Local
+# development runs the API from source, not from this image.
+ENV CONTROL_PLANE_ENV=production
 
 USER 10001:10001
 

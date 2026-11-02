@@ -60,6 +60,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.artifact_seal import read_verified_bundle
@@ -154,10 +155,18 @@ except Exception:
         extra={"event": "startup.reconcile_failed"},
     )
 
+# Interactive docs and the OpenAPI schema are a development aid: a
+# production deployment does not publish its API map (same env test as
+# production_environment_active, which is defined further down).
+_DOCS_ENABLED = os.environ.get("CONTROL_PLANE_ENV", "").strip().lower() != "production"
+
 app = FastAPI(
     title="COBOL-Java Transformation Control Plane",
     version="0.1.0",
     description="Thin orchestration API over the validation engine.",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
 
@@ -329,38 +338,44 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        # HSTS (only effective over HTTPS; harmless over HTTP)
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        # Prevent MIME sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        # Clickjacking protection
-        response.headers["X-Frame-Options"] = "DENY"
-        # XSS protection (legacy but harmless)
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        # Referrer policy
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Permissions policy (restrict powerful features)
-        response.headers["Permissions-Policy"] = (
-            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
-            "magnetometer=(), microphone=(), payment=(), usb=()"
-        )
-        # Content Security Policy (restrictive; adjust if frontend needs inline scripts)
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self'; "
-            "img-src 'self' data:; "
-            "font-src 'self'; "
-            "connect-src 'self'; "
-            "frame-ancestors 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'"
-        )
-        # Cache control for API responses (prevent caching of sensitive data)
-        if request.url.path != "/health":
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
-            response.headers["Pragma"] = "no-cache"
-        return response
+        return _apply_security_headers(request, response)
+
+
+def _apply_security_headers(request: Request, response):
+    """Security headers for one response (also used by the 401 replies,
+    which the auth middleware returns before this middleware runs)."""
+    # HSTS (only effective over HTTPS; harmless over HTTP)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Prevent MIME sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Clickjacking protection
+    response.headers["X-Frame-Options"] = "DENY"
+    # XSS protection (legacy but harmless)
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    # Referrer policy
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Permissions policy (restrict powerful features)
+    response.headers["Permissions-Policy"] = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+    # Content Security Policy (restrictive; adjust if frontend needs inline scripts)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    # Cache control for API responses (prevent caching of sensitive data)
+    if request.url.path != "/health":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 app.add_middleware(_SecurityHeadersMiddleware)
@@ -465,24 +480,51 @@ async def _require_api_token(request: Request, call_next):
             # Fail closed: a production process without a configured token
             # must never serve an unauthenticated request (defence in depth
             # behind verify_production_auth_configuration's startup check).
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Not authenticated"},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            return _unauthorized(request)
         return await call_next(request)
 
+    if not _presented_token_matches(request, token):
+        return _unauthorized(request)
+    return await call_next(request)
+
+
+def _presented_token_matches(request: Request, token: str) -> bool:
     header = request.headers.get("Authorization", "")
     provided = header[7:] if header.startswith("Bearer ") else ""
     if not provided:
         provided = request.headers.get("X-API-Key", "")
-    if not provided or not _token_matches(provided, token):
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "Not authenticated"},
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return await call_next(request)
+    return bool(provided) and _token_matches(provided, token)
+
+
+def _caller_authenticated(request: Request) -> bool:
+    """True when this request would pass the token check of a protected route."""
+    token = _expected_token()
+    if token is None:
+        return not production_environment_active()
+    return _presented_token_matches(request, token)
+
+
+def _unauthorized(request: Request) -> JSONResponse:
+    """401 with the security headers, recorded as an audit event (never the
+    presented credential: only whether one was sent)."""
+    logger.warning(
+        "authentication failed",
+        extra={
+            "event": "auth.failed",
+            "method": request.method,
+            "path": request.url.path,
+            "client": request.client.host if request.client else "",
+            "credential_presented": bool(
+                request.headers.get("Authorization") or request.headers.get("X-API-Key")
+            ),
+        },
+    )
+    response = JSONResponse(
+        status_code=401,
+        content={"detail": "Not authenticated"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    return _apply_security_headers(request, response)
 
 
 @app.middleware("http")
@@ -652,6 +694,46 @@ async def _read_files_bounded(request: Request, files: list[UploadFile]) -> dict
     return contents
 
 
+def _server_roots() -> list[str]:
+    """Server directories whose absolute paths a production client never sees."""
+    import tempfile
+
+    from api.paths import workspace_root
+    from engine.execution.sandbox_paths import get_staging_root
+
+    roots: set[str] = set()
+    for root in (workspace_root(), get_staging_root(), Path(tempfile.gettempdir())):
+        if root is None:
+            continue
+        for form in (str(root), Path(root).as_posix()):
+            if len(form) > 1:
+                roots.add(form.rstrip("/\\"))
+    return sorted(roots, key=len, reverse=True)
+
+
+def _public(value):
+    """Withhold server filesystem layout from responses in production.
+
+    Absolute paths under the workspace, staging or temp roots become
+    ``<server>/<rest>``: the part inside an upload stays readable, the host
+    layout does not.  Development keeps real paths (local tooling such as the
+    e2e harness reads them).  Applied recursively to dicts and lists.
+    """
+    if not production_environment_active():
+        return value
+    if isinstance(value, str):
+        for root in _server_roots():
+            value = value.replace(root, "<server>")
+        return value
+    if isinstance(value, dict):
+        return {k: _public(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_public(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_public(v) for v in value)
+    return value
+
+
 def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
     """Map an internal record to the API response (provenance preserved)."""
     return ApplicationResponse(
@@ -661,9 +743,9 @@ def _to_app_response(rec: ApplicationRecord) -> ApplicationResponse:
         workload_id=rec.workload_id,
         java_entrypoint=rec.java_entrypoint,
         target_runtime=rec.target_runtime,
-        cobol_source_path=rec.cobol_source_path,
-        java_candidate_path=rec.java_candidate_path,
-        generated_app_path=rec.generated_app_path,
+        cobol_source_path=_public(rec.cobol_source_path),
+        java_candidate_path=_public(rec.java_candidate_path),
+        generated_app_path=_public(rec.generated_app_path),
         generated_entrypoint=rec.generated_entrypoint,
         discovered_program_ids=list(rec.discovered_program_ids),
         generated_program_ids=list(rec.generated_program_ids),
@@ -687,7 +769,7 @@ def _to_run_response(rec) -> RunResponse:
         stage=rec.stage,
         created_at=rec.created_at,
         completed_at=rec.completed_at,
-        error=rec.error,
+        error=_public(rec.error),
         verdict_state=_svc().run_verdict_state(rec),
     )
 
@@ -749,12 +831,14 @@ async def upload_cobol_source(
 ) -> UploadResponse:
     """Upload COBOL source files for an application."""
     file_contents = await _read_files_bounded(request, files)
-    _app, count = _svc().upload_cobol_source(app_id, file_contents)
+    _app, count = await run_in_threadpool(
+        _svc().upload_cobol_source, app_id, file_contents
+    )
 
     return UploadResponse(
         application_id=_app.id,
         files_received=count,
-        cobol_source_path=_app.cobol_source_path or "",
+        cobol_source_path=_public(_app.cobol_source_path or ""),
     )
 
 
@@ -766,12 +850,14 @@ async def upload_java_candidate(
 ) -> UploadResponse:
     """Upload Java candidate files for an application."""
     file_contents = await _read_files_bounded(request, files)
-    _app, count = _svc().upload_java_candidate(app_id, file_contents)
+    _app, count = await run_in_threadpool(
+        _svc().upload_java_candidate, app_id, file_contents
+    )
 
     return UploadResponse(
         application_id=_app.id,
         files_received=count,
-        cobol_source_path=_app.java_candidate_path or "",
+        cobol_source_path=_public(_app.java_candidate_path or ""),
     )
 
 
@@ -816,7 +902,10 @@ async def ingest_application(
     ])
     zip_filename = file.filename or "upload.zip"
     try:
-        discovery = _svc().ingest_application(app_id, content, zip_filename)
+        # Off the event loop: extraction + discovery are blocking work.
+        discovery = await run_in_threadpool(
+            _svc().ingest_application, app_id, content, zip_filename
+        )
     except IngestionError as exc:
         # Malformed archive / unreadable source tree: explicit 400.
         # Service-level errors (404/409/...) map through the ApiError handler.
@@ -825,10 +914,10 @@ async def ingest_application(
     app = _svc().get_application(app_id)
     return IngestResponse(
         application_id=app_id,
-        workspace_path=app.cobol_source_path or "",
+        workspace_path=_public(app.cobol_source_path or ""),
         source_file_count=discovery["source_file_count"],
         total_size_bytes=discovery["total_size_bytes"],
-        discovery=discovery,
+        discovery=_public(discovery),
         detected_name=discovery.get("detected_name", ""),
         top_level_entries=discovery.get("top_level_entries", []),
     )
@@ -884,12 +973,12 @@ def get_run_detail(run_id: str) -> RunDetailResponse:
         stage=detail["stage"],
         created_at=detail["created_at"],
         completed_at=detail["completed_at"],
-        error=detail["error"],
+        error=_public(detail["error"]),
         verdict_state=detail["verdict_state"],
-        discovery=detail["discovery"],
+        discovery=_public(detail["discovery"]),
         stage_messages=detail["stage_messages"],
         last_stage=detail.get("last_stage"),
-        generated_files=detail["generated_files"],
+        generated_files=_public(detail["generated_files"]),
     )
 
 
@@ -915,6 +1004,7 @@ def _approval_response(run) -> ApprovalResponse:
         approver=run.approval_approver,
         reason=run.approval_reason,
         decided_at=run.approval_decided_at,
+        history=_svc().approval_history(run.id),
     )
 
 
@@ -1005,7 +1095,7 @@ def get_run_report(run_id: str) -> ModernizationReportResponse:
     return ModernizationReportResponse(
         run_id=run_id,
         application_id=run.application_id,
-        report=report,
+        report=_public(report),
     )
 
 
@@ -1148,6 +1238,16 @@ def download_generated(run_id: str) -> StreamingResponse:
     # Stable product filename derived from the application name (not the
     # workload id, which collides across applications reusing a workload).
     filename = f"{_safe_download_stem(app.name, run.id)}-generated.zip"
+    logger.info(
+        "generated bundle exported",
+        extra={
+            "event": "run.downloaded",
+            "run_id": run.id,
+            "application_id": app.id,
+            "files": len(bundle),
+            "approver": run.approval_approver,
+        },
+    )
     return StreamingResponse(
         buf,
         media_type="application/zip",
@@ -1166,7 +1266,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/ready")
-def ready() -> JSONResponse:
+def ready(request: Request) -> JSONResponse:
     """Readiness probe: can this control plane actually serve writes?
 
     ``/health`` proves only that the process answers. ``/ready`` verifies
@@ -1235,6 +1335,14 @@ def ready() -> JSONResponse:
     checks["jobs"] = {"active": active, "limit": limit, "gating": False}
 
     ready_ok = db_ok and not ws_problems and staging_ok
+    if production_environment_active() and not _caller_authenticated(request):
+        # The probe is unauthenticated: an anonymous production caller gets
+        # the verdict per check, not server paths, error text or load.
+        checks = {
+            name: {"ok": bool(check.get("ok", True))}
+            for name, check in checks.items()
+            if name != "jobs"
+        }
     return JSONResponse(
         status_code=200 if ready_ok else 503,
         content={

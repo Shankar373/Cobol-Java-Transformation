@@ -25,11 +25,13 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 RESULTS = Path(os.environ.get("E2E_IN", "e2e_results.jsonl")).resolve()
@@ -40,10 +42,25 @@ MAVEN = "maven-offline-springboot:latest"
 JRE = "eclipse-temurin:21-jdk"
 
 
+#: Sandbox flags for every container this script starts (its own copy: the
+#: script shares no code with the platform).  The programs are untrusted.
+HARDENING = ["--security-opt", "no-new-privileges=true", "--cap-drop", "ALL",
+             "--user", "10001:10001", "--network", "none",
+             "--memory", "1g", "--cpus", "2", "--pids-limit", "512",
+             "--ulimit", "fsize=134217728"]
+
+
 def docker(args, stdin=b"", timeout=600):
+    """``docker run --rm`` with the sandbox flags; removed on timeout."""
     env = dict(os.environ, MSYS_NO_PATHCONV="1")
-    return subprocess.run(["docker", *args], input=stdin, capture_output=True,
-                          timeout=timeout, env=env)
+    name = f"verify-{uuid.uuid4().hex[:12]}"
+    try:
+        return subprocess.run(
+            ["docker", "run", "--rm", "--name", name, *HARDENING, *args],
+            input=stdin, capture_output=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, env=env)
+        raise
 
 
 def entry_module(cobol_dir: Path) -> tuple[str, list[str]]:
@@ -190,12 +207,14 @@ def run_cobol(cobol_dir: Path, work: Path) -> dict:
     free = all(is_free((cobol_dir / m).read_text(encoding="utf-8", errors="ignore"))
                for m in [entry, *others])
     flag = "-free " if free else ""
-    units = " ".join([entry, *others])
+    units = " ".join(shlex.quote(u) for u in [entry, *others])
     script = (f"cd /src && cobc -x {flag}{units} -o /tmp/p >/dev/null 2>/tmp/cerr; "
               "rc=$?; if [ $rc -ne 0 ]; then cat /tmp/cerr >&2; exit 97; fi; "
               "cd /workspace && /tmp/p")
-    p = docker(["run", "--rm", "-i", "--network", "none",
-                "-v", f"{src.as_posix()}:/src", "-v", f"{run.as_posix()}:/workspace",
+    for d in (run, run / "output"):
+        os.chmod(d, 0o777)  # writable by the container's non-root user
+    p = docker(["-i", "-e", "HOME=/tmp",
+                "-v", f"{src.as_posix()}:/src:ro", "-v", f"{run.as_posix()}:/workspace",
                 "--workdir", "/workspace", ORACLE, "sh", "-c", script])
     records: dict = {}
     return {"stdout": p.stdout, "stderr": p.stderr, "exit": p.returncode,
@@ -208,7 +227,9 @@ def run_java(project: Path, work: Path) -> dict:
     shutil.copytree(project, proj, ignore=shutil.ignore_patterns("target"))
     jars = work / "jars"
     jars.mkdir()
-    b = docker(["run", "--rm", "--network", "none", "-e", "HOME=/tmp",
+    for d in [proj, jars, *[x for x in proj.rglob("*") if x.is_dir()]]:
+        os.chmod(d, 0o777)  # Maven runs as the non-root sandbox user
+    b = docker(["-e", "HOME=/tmp",
                 "-v", f"{proj.as_posix()}:/p", "-v", f"{jars.as_posix()}:/out",
                 "--workdir", "/p", MAVEN, "sh", "-c",
                 "mvn -o -B -q -Dmaven.test.skip=true package && cp target/*.jar /out/"],
@@ -218,9 +239,12 @@ def run_java(project: Path, work: Path) -> dict:
     jar = next(jars.glob("*.jar")).name
     run = work / "jrun"
     (run / "output").mkdir(parents=True)
-    p = docker(["run", "--rm", "-i", "--network", "none",
+    for d in (run, run / "output"):
+        os.chmod(d, 0o777)
+    p = docker(["-i", "-e", "HOME=/tmp",
                 "-v", f"{run.as_posix()}:/workspace", "-v", f"{jars.as_posix()}:/jars:ro",
-                "--workdir", "/workspace", JRE, "sh", "-c", f"java -jar /jars/{jar}"])
+                "--workdir", "/workspace", JRE, "sh", "-c",
+                f"java -jar {shlex.quote('/jars/' + jar)}"])
     records: dict = {}
     return {"stdout": p.stdout, "stderr": p.stderr, "exit": p.returncode,
             "files": snapshot(run, records), "records": records}

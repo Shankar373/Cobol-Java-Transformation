@@ -175,11 +175,18 @@ optionally token-authenticated API endpoints, and startup reconciliation of inte
 runs. The 2026-10-26 readiness batch added a durable workspace root (BL-146), a `/ready`
 readiness probe (BL-147), structured logging with request/run correlation (BL-148),
 bounded-retry terminal writes (BL-150) and a 32-character production token floor
-(BL-151). Still open for production: a durable job queue with resume across restarts,
-per-client rate limiting, retention/TTL, audit logging, external secret management for
-`CONTROL_PLANE_API_TOKEN` (the token is an env-var deployment control, not a user/role
-model), TLS and egress policy at the deployment boundary, and multi-node coordination
-(SQLite is single-node).
+(BL-151). Phase 4 (2026-11-02, `docs/reports/PHASE4_SECURITY_PRODUCTION_READINESS.md`)
+added: sandbox output read without following links (symlink exfiltration closed), the
+generated bundle in the durable workspace, fail-closed production image, per-client rate
+limits at nginx (default values), an append-only approval trail plus `auth.failed` /
+`approval.decided` / `run.downloaded` events, server paths withheld from production
+responses, hash-verified Python installs and a report-only image/Java scan. Still open for
+production: a durable job queue with resume across restarts, retention/TTL and deletion,
+encryption at rest, external secret management for `CONTROL_PLANE_API_TOKEN` (the token is
+an env-var deployment control, not a user/role model — the approver is recorded input, not
+a verified identity, and the trail is append-only but not tamper-evident), artifact
+signing, TLS and egress policy at the deployment boundary, metrics/alerting, and
+multi-node coordination (SQLite is single-node).
 
 ### P1 — Deferred production gaps (owner-approved 2026-10-21)
 The following production requirements are **explicitly deferred** by owner decision;
@@ -189,9 +196,10 @@ they are not claimed to exist and no document may claim them before enforcement:
   recorded but no wall-clock TTL is enforced. Staleness is enforced generation-wise
   only. A TTL policy interacts with clock skew and re-validation flows; the value is
   a policy decision deferred.
-- **Rate limiting (BL-114, D-7 approved):** no request rate limiting exists. The only
-  429 is the concurrency-slot limit. Adding throttling can break legitimate
-  batch/polling clients (the SPA polls every 1.5-2 s); the policy is deferred.
+- **Rate limiting (BL-114, D-7 approved):** Phase 4 added per-client limits at nginx
+  with default values sized for SPA polling (50 r/s burst 100; POST 30/min burst 10;
+  429). The policy values remain the owner's (D-7); there is no per-user or per-token
+  limit, and the API process itself only enforces the concurrency-slot limit.
 - **Cancellation/retry/deadline (BL-115, D-8 approved):** runs execute in daemon
   threads with no cancellation, retry, or whole-run deadline; only per-step Docker
   timeouts exist. Cancellation interacts with evidence integrity (a half-finished
@@ -203,9 +211,10 @@ they are not claimed to exist and no document may claim them before enforcement:
   to materialize or document as analysis-only is deferred.
 - **Enterprise security scope (BL-122, D-9 approved):** RBAC, tenant isolation,
   tamper-evident audit logging, external secret management, TLS/egress control,
-  multi-node coordination, SBOM and vulnerability scanning are documented as
-  future requirements but have no enforcement. The single shared token grants
-  global read/write. Scope is deferred; no document may claim these controls
+  multi-node coordination are documented as future requirements but have no
+  enforcement (SBOMs and vulnerability scanning exist since workstream 5 / Phase 4;
+  the image and Java-tree scan is report-only). The single shared token grants
+  global read/write, including approval and export. Scope is deferred; no document may claim these controls
   exist before enforcement.
 
 ### P1 — Enterprise runtime boundaries

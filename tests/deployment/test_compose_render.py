@@ -36,6 +36,7 @@ def _render_config() -> str | None:
     env.setdefault("CONTROL_PLANE_API_TOKEN", "a" * 32)
     env.setdefault("ENV_FILE", ".env.production.example")
     env.setdefault("HOST_SANDBOX_STAGING_DIR", str(REPO / "tmp" / "staging"))
+    env.setdefault("DOCKER_GID", "999")  # required: no root-group default
     try:
         proc = subprocess.run(
             ["docker", "compose", "-f", str(COMPOSE), "config"],

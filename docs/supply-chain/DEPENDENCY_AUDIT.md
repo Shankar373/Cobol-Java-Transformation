@@ -11,6 +11,46 @@ CURRENT / TARGET / REASON / BENEFIT / BREAKING-CHANGE RISK / TEST RESULT.
 Minimal safe upgrades preferred. Previous TypeScript compiler regressions
 must not be repeated.
 
+## Phase 4 update (2026-11-02) — supersedes the stale facts below
+
+The sections after this one record the 2026-10-08 baseline. Current state:
+
+- **npm:** the 2026-10-08 critical/high set is closed by version —
+  `package.json` now has `vitest ^5.0.3` and `react-router-dom ^7.18.4`;
+  the lockfile no longer contains `tinypool` and resolves vite 6.4.5,
+  esbuild 0.25.12, source-map-js 1.2.2. `npm audit` gates CI (no
+  `continue-on-error`) and passed on `7e1a0d1` (supply-chain run
+  41445001828). §5 "continue-on-error / advisory-only" and §12 items 1
+  and 6 are obsolete.
+- **Python:** `requirements.lock` now carries `--hash=sha256:` for every
+  published file of every pin (`scripts/supply-chain/hash_requirements_lock.py`);
+  CI and `Dockerfile.production` install with `--require-hashes`.
+  `colorama` (Windows-only, marker) added so development installs resolve
+  in hash mode. Audit/SBOM tools in CI are pinned (`pip-audit==2.10.1`,
+  `cyclonedx-bom==7.6.0`, gate `pytest==9.0.3`). §12 item 5 (hashes) done.
+- **Maven:** the offline image precache builds with `-C`
+  (strict checksums: a mismatch fails the build).
+- **Images and Java tree:** new report-only `image-scan` job (Trivy
+  0.58.2 pinned by digest) scans the oracle, offline-Maven and production
+  images — OS packages, Python environment and every jar in the offline
+  repository (Spring Boot / Quarkus / Micronaut trees). Report-only
+  because the generated framework versions are past support (J1, J3) and
+  upgrading them is an owner decision; making the scan a gate belongs to
+  that decision.
+- **J3 (new):** Quarkus 3.15.1 and Micronaut platform 4.6.3 (Phase 3
+  framework targets) are early/old patch levels; generated Micronaut
+  jars are shaded and Spring Boot jars are fat jars, so these
+  dependencies are redistributed with generated applications. Upgrade =
+  generator + precache + full corpus re-proof: owner decision.
+- **CI:** every checkout sets `persist-credentials: false`; actions stay
+  pinned by full commit SHA; `.github/dependabot.yml` proposes pip, npm,
+  actions and Docker base-image updates weekly (never auto-merged).
+- **Still open (owner):** artifact/image signing and provenance
+  attestation (key custody — `docs/decisions/L3_7_TRUSTED_SIGNING_DECISION_RECORD.md`),
+  framework upgrades (J1, J3), runtime digest rotation (J2), a project
+  LICENSE, legal review of the oracle image's Berkeley DB (Sleepycat)
+  licence if that image is ever distributed.
+
 ## 1. Dependency inventory (FACT)
 
 Python (`requirements.txt`, no lockfile before this work):

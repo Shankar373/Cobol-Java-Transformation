@@ -28,6 +28,19 @@ if [ ! -f "${TLS_CERT_PATH:-./deployment/tls/fullchain.pem}" ] || [ ! -f "${TLS_
   exit 1
 fi
 
+# Group owning the daemon socket (compose requires DOCKER_GID; no silent
+# fallback to the root group).
+if [ -z "${DOCKER_GID:-}" ]; then
+  if ! DOCKER_GID="$(stat -c %g /var/run/docker.sock 2>/dev/null)"; then
+    echo "FATAL: DOCKER_GID unset and /var/run/docker.sock not found — set DOCKER_GID in $ENV_FILE." >&2
+    exit 1
+  fi
+fi
+if [ "$DOCKER_GID" = "0" ]; then
+  echo "WARN: DOCKER_GID=0 — the API process joins the root group (socket is root:root)." >&2
+fi
+export DOCKER_GID
+
 # Host-visible sandbox staging (R1 production execution topology).
 # The engine stages Docker bind-mount sources under /app/sandbox-staging in
 # the API container; the host daemon resolves the same directory at

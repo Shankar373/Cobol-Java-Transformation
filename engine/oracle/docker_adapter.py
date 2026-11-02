@@ -37,7 +37,10 @@ from engine.execution.container_hardening import (
     prepare_host_tree,
 )
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
-from engine.execution.workspace_files import collect_generated_files
+from engine.execution.workspace_files import (
+    collect_generated_files,
+    read_sandbox_file,
+)
 from engine.oracle.adapter import (
     OracleAdapter,
     OracleAdapterConfig,
@@ -613,13 +616,16 @@ class DockerOracleAdapter(OracleAdapter):
                 compilation_diagnostics = None
                 if (diagnostics_dir / "exit_code").is_file():
                     import base64
+                    # Written inside the sandbox: read without following links.
                     compilation_diagnostics = {
-                        "exit_code": (diagnostics_dir / "exit_code").read_text(),
+                        "exit_code": read_sandbox_file(
+                            diagnostics_dir / "exit_code"
+                        ).decode(errors="replace"),
                         "stdout_base64": base64.b64encode(
-                            (diagnostics_dir / "stdout").read_bytes()
+                            read_sandbox_file(diagnostics_dir / "stdout")
                         ).decode("ascii"),
                         "stderr_base64": base64.b64encode(
-                            (diagnostics_dir / "stderr").read_bytes()
+                            read_sandbox_file(diagnostics_dir / "stderr")
                         ).decode("ascii"),
                     }
                 generated_files.update(collect_generated_files(

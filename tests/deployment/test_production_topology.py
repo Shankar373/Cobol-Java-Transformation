@@ -64,7 +64,21 @@ class TestSandboxStagingTopology:
         text = _read(COMPOSE)
         assert "privileged: true" not in text
         assert "network_mode:" not in text
-        assert "cap_add" not in text
+        # Every service starts from an empty capability set; only nginx
+        # adds back what its master process needs (fewer than Docker's
+        # default set), and the API adds nothing.
+        assert text.count("cap_drop:\n      - ALL") == 2
+        added = []
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if line.strip() == "cap_add:":
+                for item in lines[i + 1:]:
+                    if not item.strip().startswith("- "):
+                        break
+                    added.append(item.strip()[2:])
+        assert set(added) <= {"CHOWN", "SETUID", "SETGID", "NET_BIND_SERVICE"}, added
+        api_block = text.split("\n  nginx:")[0]
+        assert "cap_add" not in api_block
 
     def test_compose_keeps_network_isolation(self):
         text = _read(COMPOSE)

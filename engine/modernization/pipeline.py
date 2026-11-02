@@ -396,6 +396,9 @@ class UniversalModernizationPipeline:
                 copybook_models=gen_result.copybook_models,
                 output_prefix="pipeline-",
                 runtime=self._config.runtime_config,
+                # Inside the configured output directory: the project is
+                # the durable bundle (sealed, downloaded), never temp scratch.
+                output_root=self._config.output_dir or None,
             )
             report.generated_project_dir = str(outcome.project_dir)
             report.generated_entrypoint = outcome.entrypoint

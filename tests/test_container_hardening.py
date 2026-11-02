@@ -64,6 +64,7 @@ class TestHardeningFlagsContract:
         assert container_run_hardening_flags("oracle") == [
             "--security-opt", "no-new-privileges=true",
             "--cap-drop", "ALL",
+            "--ulimit", "fsize=134217728",
             "--user", "10001:10001",
         ]
 

@@ -43,9 +43,9 @@ def parse_lock(text: str) -> list[str]:
     out: list[str] = []
     for line in (text or "").splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith("#") or line.startswith("--hash"):
             continue
-        out.append(line)
+        out.append(line.rstrip("\\").strip())
     return out
 
 

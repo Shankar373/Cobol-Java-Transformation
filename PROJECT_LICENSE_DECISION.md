@@ -28,7 +28,7 @@ Select one SPDX license for the platform source and generated-artifact terms.
 
 - All direct runtime dependencies are permissive (MIT/Apache/BSD), compatible with all four options.
 - No copyleft (GPL/AGPL) dependencies identified in requirements.txt or frontend package.json.
-- Generated Java bundles incorporate no third-party source beyond standard JDK, so no additional attribution is required for generated artifacts.
+- Generated Java *source* incorporates no third-party source beyond the standard JDK. The generated *runnable jars* bundle framework dependencies (Spring Boot fat jar, Quarkus uber-jar, Micronaut shaded jar — Apache-2.0; `slf4j-nop` — MIT), so a distributed jar must carry their notices (corrected 2026-11-02, Phase 4; see `docs/THIRD_PARTY_NOTICES.md`).
 - If the platform is offered as SaaS, AGPL is not triggered because no AGPL dependency exists.
 
 ## 5. Recommendation

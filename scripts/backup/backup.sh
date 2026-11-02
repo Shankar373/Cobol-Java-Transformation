@@ -11,7 +11,11 @@ cd "$(dirname "$0")/../.."
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST="${1:-./backups/${STAMP}}"
+# Backups hold customer source, generated code and the run database:
+# owner-only from creation (encryption at rest is the operator's storage).
+umask 077
 mkdir -p "$DEST"
+chmod 700 "$DEST"
 
 # Bind sources passed to `docker run -v` must be valid HOST paths. Under
 # WSL (Git bash / WSL distro) the PWD is a /mnt/<drive>/... path that the

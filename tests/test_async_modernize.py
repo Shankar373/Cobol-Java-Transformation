@@ -250,7 +250,11 @@ class TestFailedRun:
         run_id = resp.json()["run_id"]
         body = _wait_for_terminal(run_id, timeout=15)
         assert body["stage"] == "FAILED"
-        assert "mock generation failure" in body["error"]
+        # Phase 4: an unexpected exception reaches the client as its type and
+        # the run id only (its text can carry server paths or tool output);
+        # the full message is in the server log.
+        assert "RuntimeError" in body["error"] and run_id in body["error"]
+        assert "mock generation failure" not in body["error"]
         assert body["completed_at"] is not None
 
 

@@ -17,7 +17,8 @@ ENV_FILE="${2:-.env.production}"
 # it contains the API token. Kept relative to the repo root so both the
 # POSIX shell and the Windows docker.exe resolve it to the same file.
 ROLLBACK_ENV=".env.rollback.$$"
-sed "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" "$ENV_FILE" > "$ROLLBACK_ENV"
+# Owner-only: the copy carries the API token.
+( umask 077; sed "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" "$ENV_FILE" > "$ROLLBACK_ENV" )
 trap 'rm -f "$ROLLBACK_ENV"' EXIT
 
 # --wait: block until the recreated api container is healthy, otherwise

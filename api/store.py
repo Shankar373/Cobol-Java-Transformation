@@ -258,6 +258,17 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 CREATE INDEX IF NOT EXISTS idx_runs_application_id ON runs(application_id);
 CREATE INDEX IF NOT EXISTS idx_applications_name ON applications(name);
+-- Append-only audit trail of approval decisions (the runs.approval_* columns
+-- hold only the latest decision).  Rows are inserted, never updated.
+CREATE TABLE IF NOT EXISTS approval_events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    approver TEXT,
+    reason TEXT,
+    recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_approval_events_run ON approval_events(run_id);
 """
 
 
@@ -711,20 +722,38 @@ class Store:
         if state not in ("APPROVED", "REJECTED"):
             raise ValueError(f"invalid approval decision {state!r}")
         with self._lock:
+            decided_at = _utc_now()
             cursor = self._conn.execute(
                 "UPDATE runs SET approval_state = ?, approval_approver = ?,"
                 " approval_reason = ?, approval_decided_at = ?"
                 " WHERE id = ?",
-                (state, approver, reason, _utc_now(), run_id),
+                (state, approver, reason, decided_at, run_id),
             )
             if cursor.rowcount == 0:
+                self._conn.rollback()
                 raise NotFoundError(f"Run {run_id!r} not found")
+            self._conn.execute(
+                "INSERT INTO approval_events"
+                " (run_id, state, approver, reason, recorded_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (run_id, state, approver, reason, decided_at),
+            )
             self._conn.commit()
             row = self._conn.execute(
                 "SELECT * FROM runs WHERE id = ?", (run_id,)
             ).fetchone()
             assert row is not None  # updated above under the lock
             return self._run_from_row(row)
+
+    def approval_history(self, run_id: str) -> list[dict]:
+        """Every approval decision and reset for a run, oldest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT state, approver, reason, recorded_at"
+                " FROM approval_events WHERE run_id = ? ORDER BY seq",
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def set_generated_seal(self, run_id: str, seal: str) -> None:
         """Persist the sealed bundle evidence for a run (P0).
@@ -799,6 +828,14 @@ class Store:
                     run_id,
                 ),
             )
+            if row["approval_state"] not in (None, "PENDING"):
+                # The reset discards a decision: keep that in the audit trail.
+                self._conn.execute(
+                    "INSERT INTO approval_events"
+                    " (run_id, state, approver, reason, recorded_at)"
+                    " VALUES (?, 'RESET', NULL, ?, ?)",
+                    (run_id, f"revalidation generation {generation}", _utc_now()),
+                )
             self._conn.commit()
             refreshed = self._conn.execute(
                 "SELECT * FROM runs WHERE id = ?", (run_id,)

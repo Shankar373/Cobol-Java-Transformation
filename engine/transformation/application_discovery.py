@@ -29,6 +29,7 @@ Architecture:
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -53,6 +54,8 @@ from engine.transformation.ir import (
 )
 from engine.transformation.diagnostics import DiagnosticCode
 from engine.transformation.source_format import compiler_visible_text
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # File-operation scanning patterns.
@@ -253,7 +256,7 @@ class ApplicationDiscovery:
         except (OSError, UnicodeError) as e:
             # Declared COBOL source that cannot be read or decoded can never
             # be parsed — record it instead of silently shrinking the app.
-            print(f"Warning: Cannot read {cobol_file}: {e}")
+            logger.warning("Cannot read %s: %s", cobol_file.name, e)
             return None, (
                 f"{cobol_file.relative_to(source_root)}: "
                 "COBOL source could not be parsed"
@@ -341,9 +344,9 @@ class ApplicationDiscovery:
             # failures.  Instead, register it with a minimal stub IR and
             # preserve source_text so CapabilityAnalyzer can classify it via
             # source scan as UNSUPPORTED.
-            print(
-                f"Info: {cobol_file} has unsupported construct (will be "
-                f"classified UNSUPPORTED by capability analyzer): {e}"
+            logger.info(
+                "%s has an unsupported construct (classified UNSUPPORTED by"
+                " the capability analyzer): %s", cobol_file.name, e,
             )
             calls = self._extract_calls(source, program_id)
             copybooks = self._extract_copybooks(
@@ -375,7 +378,7 @@ class ApplicationDiscovery:
         except Exception as e:
             # Unexpected internal error — we cannot safely process this file.
             # Record it so discovery reports an incomplete application.
-            print(f"Warning: Unexpected error parsing {cobol_file}: {e}")
+            logger.warning("Unexpected error parsing %s: %s", cobol_file.name, e)
             return None, (
                 f"{cobol_file.relative_to(source_root)}: "
                 "COBOL source could not be parsed"

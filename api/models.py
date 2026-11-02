@@ -53,9 +53,15 @@ class RunStage(str, Enum):
 class ApplicationCreate(BaseModel):
     """Request to register a new application."""
     name: str = Field(..., min_length=1, max_length=256)
-    description: str = ""
+    description: str = Field(default="", max_length=4096)
     workload_id: str = Field(..., min_length=1, max_length=256)
-    java_entrypoint: str = Field(default="Main", min_length=1)
+    # A (possibly qualified) Java class name or a COBOL program id: it
+    # reaches a container command line, so only name characters are
+    # accepted (letters, digits, ``_ $ -``, dot-separated).
+    java_entrypoint: str = Field(
+        default="Main", min_length=1, max_length=256,
+        pattern=r"^[A-Za-z0-9_$][A-Za-z0-9_$-]*(\.[A-Za-z0-9_$][A-Za-z0-9_$-]*)*$",
+    )
     # Runtime target for this application.  Validated fail-closed by the
     # service against SUPPORTED_TARGET_RUNTIMES — unknown values are
     # rejected, never silently defaulted to another target.
@@ -128,17 +134,26 @@ class ApprovalRequest(BaseModel):
     control).
     """
     decision: ApprovalDecision
-    approver: str
+    approver: str = Field(..., min_length=1, max_length=256)
+    reason: str | None = Field(default=None, max_length=4096)
+
+
+class ApprovalEvent(BaseModel):
+    """One entry of a run's append-only approval trail."""
+    state: str  # APPROVED | REJECTED | RESET (revalidation discarded a decision)
+    approver: str | None = None
     reason: str | None = None
+    recorded_at: str
 
 
 class ApprovalResponse(BaseModel):
-    """Current approval record for a run."""
+    """Current approval record for a run, with its full decision trail."""
     run_id: str
     state: str  # PENDING | APPROVED | REJECTED
     approver: str | None = None
     reason: str | None = None
     decided_at: str | None = None
+    history: list[ApprovalEvent] = Field(default_factory=list)
 
 
 class ArtifactMetadata(BaseModel):

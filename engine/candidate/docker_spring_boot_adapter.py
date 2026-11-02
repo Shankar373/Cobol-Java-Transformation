@@ -31,6 +31,7 @@ Security model:
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -62,7 +63,10 @@ from engine.execution.container_hardening import (
     prepare_host_tree,
 )
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
-from engine.execution.workspace_files import collect_generated_files
+from engine.execution.workspace_files import (
+    collect_generated_files,
+    read_sandbox_file,
+)
 
 
 @dataclass(frozen=True)
@@ -444,7 +448,8 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     for jar in jar_files:
                         if jar.name.endswith(".jar") and not jar.name.endswith(".original"):
                             rel = jar.name
-                            jar_bytes = jar.read_bytes()
+                            # Written by the build container: no link follow.
+                            jar_bytes = read_sandbox_file(jar)
                             class_files[rel] = jar_bytes
                             # Write JAR back to candidate_path so execute() can find it
                             target_dir = Path(candidate_path) / "target"
@@ -594,7 +599,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
                 container_name = f"java-{uuid.uuid4().hex[:12]}"
 
-                java_cmd = f"java -jar /workspace/jars/{jar_name}"
+                java_cmd = f"java -jar {shlex.quote('/workspace/jars/' + jar_name)}"
 
                 # Writable base at /workspace: certified indexed/relative
                 # candidates assign RELATIVE file names into the working

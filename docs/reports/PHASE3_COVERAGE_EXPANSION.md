@@ -483,7 +483,7 @@ runs through the API, independent re-check, regression byte-diff and docs:
 | 8 | `0193fb3` | ON SIZE ERROR; clause-collector fixes | green |
 | 9 | `5920bd0` | division by zero without the phrase | green |
 | 10 | `9415bdc`, `648fd05` | §3.10 and §3.11 | green (run 41420935330) |
-| 11 | this push | §3.12 Quarkus and Micronaut | see the push |
+| 11 | `7e1a0d1` | §3.12 Quarkus and Micronaut | green (run 41445001799; 5,035 backend tests) |
 
 **Indexed-file evidence and its limits.** INDEXED files are certified by
 records read from GnuCOBOL's Berkeley DB B-tree independently of the parser;
@@ -528,10 +528,10 @@ other than digits moved to numeric items (the run stops).
 | Full corpus re-run on the final code, every result accounted for | met (four runtimes) |
 | Independent re-check of every VERIFIED application | met (176 / 176 AGREE) |
 | Generated output for unchanged constructs byte-identical | met (per increment) |
-| Hermetic, gate and Docker suites pass; exact-SHA CI green | see the push |
+| Hermetic, gate and Docker suites pass; exact-SHA CI green | met (`7e1a0d1`, run 41445001799, all four jobs; supply chain run 41445001828) |
 | Multi-runtime: more than one runtime proven end to end | met: Spring Boot, plain Java, Quarkus, Micronaut (§3.11, §3.12) |
 | Multi-runtime: application servers (Jakarta EE server, WildFly, Open Liberty) | **deferred by decision** (2026-11-02), documented as not supported and refused by name (§3.12) |
 
 With the runtime scope decided on 2026-11-02 (Quarkus and Micronaut in
-command mode, application servers deferred), every criterion is met once
-the exact-SHA CI of this push is green; Phase 3 closes on that run.
+command mode, application servers deferred), every criterion is met.
+**Phase 3 accepted 2026-11-02** on `7e1a0d1` (CI run 41445001799 green).

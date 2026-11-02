@@ -1,0 +1,26 @@
+# Phase 4 (2026-11-02): pinned dependencies, action SHAs and base-image
+# digests otherwise only change by hand. Dependabot proposes updates as pull
+# requests; nothing is merged automatically - every bump still goes through
+# CI (exact-SHA) and the policy in docs/supply-chain/DEPENDENCY_AUDIT.md.
+# requirements.lock carries --hash entries: regenerate them with
+# scripts/supply-chain/hash_requirements_lock.py when taking a Python bump.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

@@ -17,6 +17,7 @@ Security model:
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -41,7 +42,10 @@ from engine.execution.container_hardening import (
     prepare_host_tree,
 )
 from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
-from engine.execution.workspace_files import collect_generated_files
+from engine.execution.workspace_files import (
+    collect_generated_files,
+    read_sandbox_file,
+)
 
 # ---------------------------------------------------------------------------
 # Structured sandbox evidence
@@ -288,7 +292,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 staged_output.mkdir()
 
                 # Build javac command
-                javac_args = " ".join(java_files)
+                javac_args = " ".join(shlex.quote(name) for name in java_files)
                 compile_cmd = f"javac -d /workspace/classes {javac_args}"
 
                 # Deterministic container name for cleanup tracking
@@ -338,7 +342,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     class_files = {}
                     for f in staged_output.rglob("*.class"):
                         rel = f.relative_to(staged_output)
-                        class_files[str(rel)] = f.read_bytes()
+                        class_files[str(rel)] = read_sandbox_file(f)
 
                     if not class_files:
                         return CompilationResult(
@@ -446,7 +450,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 entrypoint_class = manifest.entrypoint.removesuffix(".java")
 
                 # Java command inside container
-                java_cmd = f"java -cp /workspace/classes {entrypoint_class}"
+                java_cmd = f"java -cp /workspace/classes {shlex.quote(entrypoint_class)}"
 
                 # Output directory (container-local, writable)
                 output_dir = Path(tmpdir) / "output"

@@ -6,8 +6,9 @@ process effective host-level Docker control and is an accepted risk for the
 certified oracle workflow.
 
 Mitigations already in place:
-- API image runs as non-root uid 10001 with `group_add` limited to the socket's
-  group; container hardening flags (`no-new-privileges`, `--cap-drop ALL`) apply
+- API image runs as non-root uid 10001 with `group_add` set to the socket's
+  group (`DOCKER_GID` is required by compose — no root-group default — and
+  detected from the socket by `start-production.sh`), `cap_drop: ALL`; container hardening flags (`no-new-privileges`, `--cap-drop ALL`) apply
   to sandbox containers via `engine/execution/container_hardening.py`.
 - Only the six sandbox image names are invoked; no arbitrary image pull/run is
   exposed through the API.
@@ -21,5 +22,6 @@ If your policy forbids socket mounting:
 
 Never grant the API container `--privileged` or a writable socket on an
 untrusted host. Re-evaluate this decision per deployment; it is a documented
-accepted risk, not a silently enabled default.
-EOF
+accepted risk, not a silently enabled default. A socket proxy that
+allows only `run`/`rm`/`inspect` of the sandbox images is the recommended
+next step (owner/infrastructure decision; not implemented).

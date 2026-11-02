@@ -128,6 +128,24 @@ def _job_limit() -> int:
         return DEFAULT_MAX_CONCURRENT_JOBS
 
 
+def _public_run_error(exc: BaseException, run_id: str) -> str:
+    """The failure text a run record exposes through the API.
+
+    ``ApiError`` messages are written for clients.  Any other exception may
+    carry filesystem paths, Docker/Maven output or command lines, so the
+    client gets its type and the run id only; the full text is in the
+    server log (``logger.exception`` at the call site).
+    """
+    from api.errors import ApiError
+
+    if isinstance(exc, ApiError):
+        return str(exc)
+    return (
+        f"Internal error ({type(exc).__name__}) while processing run "
+        f"{run_id}; details are in the server log"
+    )
+
+
 def _upload_file_limit() -> int:
     raw = os.environ.get("CONTROL_PLANE_MAX_UPLOAD_FILES")
     if raw is None or not raw.strip():
@@ -146,8 +164,14 @@ def _safe_relative_path(name: str) -> Path:
     workspace directory.
     """
     raw = (name or "").replace("\\", "/")
-    if len(raw) >= 2 and raw[1] == ":":
-        raise ServiceError(f"Upload entry {name!r} contains a drive letter")
+    if any(ord(ch) < 32 for ch in raw):
+        # NUL and other control characters are never part of a source file
+        # name; NUL also crashed the filesystem call (500 instead of 400).
+        raise ServiceError(f"Upload entry {name!r} contains a control character")
+    if ":" in raw:
+        # Drive letters, and NTFS alternate data streams (name:stream) on a
+        # Windows host.
+        raise ServiceError(f"Upload entry {name!r} contains a drive letter or ':'")
     parts = [p for p in raw.split("/") if p not in ("", ".")]
     if not parts:
         raise ServiceError(f"Upload entry {name!r} has no usable file name")
@@ -462,6 +486,17 @@ class Service:
         return rec
 
     def ingest_application(self, app_id: str, data: bytes, zip_filename: str = "") -> dict:
+        """Ingest under a job slot: extraction and discovery are CPU and
+        disk heavy, so they count against the concurrent job limit (429
+        when it is reached) like modernize and revalidate."""
+        self._acquire_job_slot()
+        try:
+            return self._ingest_application(app_id, data, zip_filename)
+        finally:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+
+    def _ingest_application(self, app_id: str, data: bytes, zip_filename: str = "") -> dict:
         """Ingest a ZIP archive into an application workspace and run discovery.
 
         Replaces the two-step COBOL upload + Java candidate upload workflow.
@@ -848,7 +883,7 @@ class Service:
                 },
             )
             run.stage = RunStage.FAILED
-            run.error = str(exc)
+            run.error = _public_run_error(exc, run_id)
             run.completed_at = datetime.now(timezone.utc).isoformat()
 
         self._persist_final(run)
@@ -1041,7 +1076,7 @@ class Service:
                 },
             )
             run.stage = RunStage.FAILED
-            run.error = str(exc)
+            run.error = _public_run_error(exc, run_id)
             run.completed_at = datetime.now(timezone.utc).isoformat()
 
         self._persist_final(run)
@@ -1514,9 +1549,26 @@ class Service:
             app = self.get_application(run.application_id)
             if app.generated_app_path is not None:
                 verify_generated_seal(app.generated_app_path, run.generated_seal)
-        return self._store.set_run_approval(
+        record = self._store.set_run_approval(
             run_id, state=decision, approver=approver, reason=reason
         )
+        # Audit event (the approver is recorded input, not a verified
+        # identity; the durable trail is the approval_events table).
+        logger.info(
+            "approval decided",
+            extra={
+                "event": "approval.decided",
+                "run_id": run_id,
+                "decision": decision,
+                "approver": approver,
+            },
+        )
+        return record
+
+    def approval_history(self, run_id: str) -> list[dict]:
+        """Append-only approval trail of a run (decisions and resets)."""
+        self.get_run(run_id)  # 404 for an unknown run
+        return self._store.approval_history(run_id)
 
     def get_artifacts(self, run_id: str) -> list[dict]:
         """Return artifact metadata from the evidence manifest.

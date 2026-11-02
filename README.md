@@ -52,7 +52,7 @@ after the commands.
 #    without that token or with one under 32 characters — startup error
 #    plus 401 on every other route, wired into docker-compose.production.yml
 #    and start-production.sh)
-python -m pip install -r requirements.lock
+python -m pip install --require-hashes -r requirements.lock
 python -m uvicorn api.app:app --port 8000
 
 # 2. Verify it is up
