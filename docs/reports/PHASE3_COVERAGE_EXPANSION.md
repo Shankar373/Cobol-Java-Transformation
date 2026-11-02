@@ -361,3 +361,117 @@ that divide by a data item — `workload-arithmetic`,
 (**VERIFIED**) and re-checked independently (**AGREE**).  All other
 generated Java is byte-identical to `0193fb3`.  Tests that looked for the
 DIVIDE assignment at the top level now look inside the guard.
+
+### 3.10 One-line IF/ELSE, digit REDEFINES, element OCCURS, signed storage (increment 10)
+
+Every item measured on GnuCOBOL 3.1.2 first; probes and pinned outputs in
+`tests/data/phase3/` and the tests named below.
+
+| Item | Before | GnuCOBOL | Now | Proof |
+|---|---|---|---|---|
+| `IF c DISPLAY 'T' ELSE DISPLAY 'F' END-IF` on one line | refused (the DISPLAY took `ELSE` as an operand) | — | inline ELSE branch | `test_condition_operands.py` (one-line variant of the 28-condition probe) |
+| `ELSE stmt END-IF` on one line | **silent**: the END-IF was stripped as a statement terminator and the following statements were read into the ELSE branch (also at HEAD) | — | the END-IF closes the IF | same |
+| REDEFINES of an unsigned DISPLAY integer (`PIC 9(8)` date as `YYYY`/`MM`/`DD`, `PIC X` code with a digit suffix, numeric amount as `PIC X`) | refused (only alphanumeric views at offset 0) | shared bytes; numeric writes zero-filled, truncated | views with offsets and kinds over one byte string; MOVE-only writers; numeric view read only from digits (else the run stops) | `test_redefines_digit_views.py` (11-line probe) |
+| non-digit literal written under a numeric view | refused | compiler-specific decode (`A CDEF`) | refused **by name** at parse (`workload-redefines`) | same |
+| OCCURS tables referenced by element | every OCCURS program PARTIAL | — | SUPPORTED when fixed-size, one-dimensional, DISPLAY elementary, WORKING-STORAGE, always subscripted, enclosing group never named | `test_occurs_elements.py` (13-line probe) |
+| `IF WS-N(2) > WS-N(1)`, `IF WS-NAME(I) = 'X'` | refused (operand matcher took bare names only) | algebraic / padded compare | subscripted operands | same |
+| arithmetic into a table element | **no PIC truncation** (`ADD 10` to 995 in `PIC 9(3)` kept 1005); decimal element did not compile | `005` | receiver semantics apply (the Java receiver spelling resolves to the item) | same |
+| signed DISPLAY STRING sender; signed WRITE FROM into a group record | refused | stored characters, last digit overpunched `'p'+d` when negative (`-3` → `0s`, `-120` → `12p`) | reproduced (`_display_storage_text`); COMP senders still refused | `test_signed_storage_text.py` (23-value table), `test_line_sequential_and_string_numeric.py`, `test_record_sequential_files.py` |
+
+Regression: generated Java for the 48 Phase 2 and six earlier Phase 3
+applications is byte-identical to `5920bd0`, except `workload-occurs`, which
+now generates (and is VERIFIED / AGREE on both runtimes, §3.11).
+
+### 3.11 A second runtime proven end to end: `plain_java`
+
+The runtime adapter registry (`engine/transformation/runtime_adapters.py`)
+already assembled `spring_boot`, `plain_java` and `jakarta_ee` projects from
+the one semantic transform, but only Spring Boot had ever been validated end
+to end.  The e2e harness now takes `E2E_TARGET`; the whole corpus (54
+applications) was run through the API on the final code for both runtimes,
+and every VERIFIED application re-checked independently (direct `cobc` vs
+direct `mvn package` + `java -jar`):
+
+| Runtime | VERIFIED | refused (named reason) | UNAVAILABLE (oracle rejects source) | FAILED | Independent re-check |
+|---|---|---|---|---|---|
+| `spring_boot` | 44 | 9 | 1 | 0 | 44 / 44 AGREE |
+| `plain_java` (no framework) | 44 | 9 | 1 | 0 | 44 / 44 AGREE |
+
+The two runtimes give identical verdicts for every application.  Evidence:
+`evidence/phase3/runtime_corpus_*.jsonl`.  (One re-check was interrupted by
+a harness time slice mid-build and recorded a build error with no output;
+re-run alone it AGREEs.)
+
+`jakarta_ee` is, by the adapter's own documentation, a plain jar under a
+Jakarta-marked pom — no Jakarta EE server runtime — so it is **not** counted
+as a third runtime.  Quarkus, Micronaut, WildFly and Open Liberty have no
+adapter.
+
+## 4. Phase 3 acceptance audit (2026-11-02)
+
+**Coverage increments** — each with GnuCOBOL-measured semantics, oracle
+pins on the Docker lane, generated Java run against the pins, end-to-end
+runs through the API, independent re-check, regression byte-diff and docs:
+
+| # | Commit | Scope | Exact-SHA CI |
+|---|---|---|---|
+| 1 | `4bcc514` | continuation lines, quote escapes | green |
+| 2 | `0e1ffa6` | RETURN-CODE / exit status | green |
+| 3 | `2ebedc4` | INDEXED records | green |
+| 4 | `83b9df6` | COMP/COMP-3 by value; numeric MOVE, overflow, FD record groups | green |
+| 5 | `9111a50` | RELATIVE records; OPEN statuses; OPTIONAL refused | green |
+| 6 | `cf0b12d` | record SEQUENTIAL; WRITE FROM; ADVANCING refused | green |
+| 7 | `84d92d4` | sign conditions, signed/decimal literals, ZERO | green |
+| 8 | `0193fb3` | ON SIZE ERROR; clause-collector fixes | green |
+| 9 | `5920bd0` | division by zero without the phrase | green |
+| 10 | this push | §3.10 and §3.11 | see the push |
+
+**Indexed-file evidence and its limits.** INDEXED files are certified by
+records read from GnuCOBOL's Berkeley DB B-tree independently of the parser;
+the reader equals GnuCOBOL's own sequential read on a 343-record multi-level
+tree (re-derived on the Docker lane) and a second, differently built reader
+(linear leaf scan) agrees on every fixture image.  The fixture images are
+single-leaf; multi-level coverage rests on that one generated tree.
+Overflow/duplicate items, encryption and unknown pages are refused
+(INCONCLUSIVE).  RELATIVE files: slot images with an ambiguous layout or no
+live record stay INCONCLUSIVE.
+
+**Corpus on the final code** (§3.11): 44 / 54 VERIFIED on both runtimes,
+all re-checked AGREE; the other ten are accounted for individually:
+
+| Application | Outcome | Reason |
+|---|---|---|
+| workload-by-value | refused | CALL BY VALUE: GnuCOBOL 3.1.2's implementation is unfinished — no oracle |
+| workload-call-linkage, workload-multiprog, workload-dynamic-call | refused | WORKING-STORAGE after LINKAGE — GnuCOBOL rejects the source |
+| workload-dynamic-call-valid | refused | dynamic CALL (data-name target) has no static dispatch |
+| workload-cics | refused | EXEC CICS |
+| workload-db2 | refused | EXEC SQL |
+| workload-claims | refused | three programs share PROGRAM-ID CLAIMS |
+| workload-redefines | refused | writes non-digit bytes under a numeric REDEFINES view (compiler-specific data) |
+| workload-studentproc | UNAVAILABLE | GnuCOBOL rejects the source (a data name cut at column 72) |
+
+**Unresolved semantic gaps** (all fail closed; KNOWN_ISSUES): CALL BY VALUE;
+dynamic CALL; EXEC SQL / CICS / DLI; COMP-5, COMP-1/COMP-2 and any
+byte-level use of COMP items; multi-dimension / whole-table / INDEXED BY /
+SEARCH / DEPENDING ON tables; REDEFINES of signed, scaled or COMP items and
+nested groups; variable-length record SEQUENTIAL, LINAGE, ADVANCING; OPEN
+I-O / REWRITE on sequential files; SELECT OPTIONAL; ON SIZE ERROR with
+several receivers or REMAINDER; abbreviated combined relations; level 66,
+JUSTIFIED, BLANK WHEN ZERO, WITH NO ADVANCING; qualified names; PIC X content
+other than digits moved to numeric items (the run stops).
+
+**Acceptance criteria:**
+
+| Criterion | Status |
+|---|---|
+| Every new "supported" claim is oracle-backed (pin + Java vs pin) | met |
+| Every unsupported variant fails closed with a named reason | met (no silent drop found by the corpus or the probes; silent defects found on the way are fixed and listed per increment) |
+| Full corpus re-run on the final code, every result accounted for | met (both runtimes) |
+| Independent re-check of every VERIFIED application | met (88 / 88 AGREE) |
+| Generated output for unchanged constructs byte-identical | met (per increment) |
+| Hermetic, gate and Docker suites pass; exact-SHA CI green | see the push |
+| Multi-runtime: more than one runtime proven end to end | met for Spring Boot and plain Java |
+| Multi-runtime: Jakarta EE server, Quarkus, Micronaut, WildFly, Open Liberty | **not met** — no adapter; an application server also needs a decision on how a batch program is started and its output captured |
+
+Phase 3 therefore cannot be declared complete on the multi-runtime goal as
+originally listed; everything else above is met on this push.

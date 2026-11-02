@@ -2,7 +2,12 @@
 
 Usage (Docker required)::
 
-    E2E_OUT=out.jsonl [E2E_APPS=workload-a,workload-b] python scripts/e2e/run_fixture_apps.py
+    E2E_OUT=out.jsonl [E2E_APPS=workload-a,workload-b] [E2E_TARGET=plain_java] \
+        python scripts/e2e/run_fixture_apps.py
+
+``E2E_TARGET`` selects the Java runtime target (default ``spring_boot``;
+see ``engine/transformation/runtime_adapters.py``); it is recorded in
+every result line.
 
 For each ``fixtures/<app>/cobol`` directory: ZIP it -> POST /applications ->
 /ingest -> GET /discovery -> /modernize -> poll -> /verdict, under the
@@ -42,6 +47,7 @@ svc_mod._service = svc
 client = TestClient(app_mod.app)
 
 _SOURCE_SUFFIXES = (".cob", ".cbl", ".cpy", ".jcl", ".txt", ".dat")
+TARGET = os.environ.get("E2E_TARGET", "spring_boot")
 
 
 def _zip(cobol_dir: Path) -> bytes:
@@ -66,7 +72,10 @@ def _await(run_id: str, timeout_s: float = 900.0) -> dict:
 
 def run_app(name: str, cobol_dir: Path) -> dict:
     rec: dict = {"app": name}
-    resp = client.post("/applications", json={"name": f"e2e-{name}", "workload_id": f"e2e-{name}"})
+    rec["target_runtime"] = TARGET
+    resp = client.post("/applications", json={
+        "name": f"e2e-{name}", "workload_id": f"e2e-{name}", "target_runtime": TARGET,
+    })
     app_id = resp.json()["id"]
     resp = client.post(
         f"/applications/{app_id}/ingest",
