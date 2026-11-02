@@ -709,8 +709,15 @@ class Store:
         state: str,
         approver: str,
         reason: str | None,
+        expected_generation: int | None = None,
     ) -> RunRecord:
         """Record an explicit customer decision for a run.
+
+        ``expected_generation`` binds the decision to the validation attempt
+        the caller checked: when a revalidation reset the run in between
+        (``begin_revalidation`` increments ``validation_generation``), the
+        write is refused with :class:`ConflictError` - an approval of
+        attempt N must never land on attempt N+1 (audit A4).
 
         ``state`` must be a decision (``APPROVED`` / ``REJECTED``); PENDING
         is the implicit default and never a decision.  A new decision
@@ -723,15 +730,27 @@ class Store:
             raise ValueError(f"invalid approval decision {state!r}")
         with self._lock:
             decided_at = _utc_now()
-            cursor = self._conn.execute(
+            sql = (
                 "UPDATE runs SET approval_state = ?, approval_approver = ?,"
                 " approval_reason = ?, approval_decided_at = ?"
-                " WHERE id = ?",
-                (state, approver, reason, decided_at, run_id),
+                " WHERE id = ?"
             )
+            params: tuple = (state, approver, reason, decided_at, run_id)
+            if expected_generation is not None:
+                sql += " AND validation_generation = ?"
+                params += (int(expected_generation),)
+            cursor = self._conn.execute(sql, params)
             if cursor.rowcount == 0:
                 self._conn.rollback()
-                raise NotFoundError(f"Run {run_id!r} not found")
+                exists = self._conn.execute(
+                    "SELECT 1 FROM runs WHERE id = ?", (run_id,)
+                ).fetchone()
+                if exists is None:
+                    raise NotFoundError(f"Run {run_id!r} not found")
+                raise ConflictError(
+                    f"Run {run_id!r} was reset by a newer validation attempt"
+                    " after it was checked; the decision was not recorded"
+                )
             self._conn.execute(
                 "INSERT INTO approval_events"
                 " (run_id, state, approver, reason, recorded_at)"

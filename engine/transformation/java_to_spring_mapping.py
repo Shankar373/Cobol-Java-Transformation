@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from engine.transformation.java_ir import (
     JavaApplication,
+    JavaAssignment,
     JavaBasicType,
     JavaBlock,
     JavaClass,
@@ -245,7 +246,7 @@ def _rewrite_service_calls(
     A JavaMethodCallStatement with a class_name matching a known service
     becomes <beanField>.<businessMethod>() so the call executes through
     Spring DI. Unresolvable calls (unknown target, self-call, no business
-    method, declared arguments) become honest comments.
+    method) become UNSUPPORTED_CALL$ symbols (fail closed, audit A6).
     """
     by_key: dict[str, SpringBootService] = {}
     for svc in services:
@@ -275,21 +276,12 @@ def _rewrite_service_calls(
                 # pass through; only unfilled CALL placeholders degrade.
                 if call.method_name:
                     return stmt
-                return JavaComment(
-                    text=f"// CALL {call.class_name} unresolved "
-                    "- external target or unsupported form"
-                )
+                return _unsupported_call(call.class_name, "EXTERNAL")
             if target.name == owner.name:
-                return JavaComment(
-                    text=f"// CALL {call.class_name} unresolved "
-                    "- recursive calls out of scope"
-                )
+                return _unsupported_call(call.class_name, "RECURSIVE")
             target_method = _business_method(target)
             if not target_method:
-                return JavaComment(
-                    text=f"// CALL {call.class_name} unresolved "
-                    "- external target or unsupported signature"
-                )
+                return _unsupported_call(call.class_name, "NO_ENTRY")
             # Pass arguments through for CALL USING
             bean_field = _to_bean_field_name(target.name)
             return JavaMethodCallStatement(
@@ -320,6 +312,30 @@ def _rewrite_service_calls(
                 condition=stmt.condition,
                 update=stmt.update,
                 body=tuple(_rewrite(s, owner) for s in stmt.body),
+            )
+        # Every statement that holds statements (audit A6: a CALL inside
+        # PERFORM WITH TEST AFTER - a JavaDoWhile - was never rewritten).
+        if isinstance(stmt, JavaDoWhile):
+            return JavaDoWhile(
+                condition=stmt.condition,
+                body=tuple(_rewrite(s, owner) for s in stmt.body),
+            )
+        if isinstance(stmt, JavaTryCatch):
+            return JavaTryCatch(
+                try_body=tuple(_rewrite(s, owner) for s in stmt.try_body),
+                catch_type=stmt.catch_type,
+                catch_var=stmt.catch_var,
+                catch_body=tuple(_rewrite(s, owner) for s in stmt.catch_body),
+                finally_body=tuple(_rewrite(s, owner) for s in stmt.finally_body),
+            )
+        if isinstance(stmt, JavaSwitch):
+            return JavaSwitch(
+                expression=stmt.expression,
+                cases=tuple(
+                    (case, tuple(_rewrite(s, owner) for s in body))
+                    for case, body in stmt.cases
+                ),
+                default_body=tuple(_rewrite(s, owner) for s in stmt.default_body),
             )
         return stmt
 
@@ -649,6 +665,20 @@ def _derive_entry_point(
         package=base_package,
         application_name=application.application_id,
         selected_service=selected,
+    )
+
+
+def _unsupported_call(target: str, problem: str) -> JavaStatement:
+    """A CALL the Spring lane cannot wire, as an unresolvable symbol.
+
+    It used to become a comment - the CALL silently vanished from the
+    generated service (audit A6). The ``UNSUPPORTED_CALL$`` symbol is the
+    mapper's own fail-closed form: javac and the producer's fail-closed scan
+    both name it.
+    """
+    return JavaAssignment(
+        target=target.replace("-", "_") + "_CALL",
+        expression=JavaVariableRef(name=f"UNSUPPORTED_CALL${problem}"),
     )
 
 

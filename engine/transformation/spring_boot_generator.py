@@ -298,6 +298,13 @@ class SpringBootGenerator:
         # selection keeps the legacy invoke-every-service behaviour.
         selected = (entry.selected_service or "").strip()
         known = {svc.name for svc in services}
+        if selected and selected not in known:
+            # Fail closed (audit A6): a named entry that matches no service
+            # used to run every service instead.
+            raise ValueError(
+                f"selected service {selected!r} is not one of the generated"
+                f" services: {', '.join(sorted(known)) or 'none'}"
+            )
         active = (
             tuple(svc for svc in services if svc.name == selected)
             if selected and selected in known
@@ -805,7 +812,11 @@ public class {class_name} {{
             true_str = self._expr_to_string(expr.true_expr)
             false_str = self._expr_to_string(expr.false_expr)
             return f"({cond} ? {true_str} : {false_str})"
-        return ""
+        # Fail closed (audit A6): see JavaGenerator._expr_to_string.
+        raise ValueError(
+            "MISSING_REQUIRED_SEMANTIC: no Java rendering for expression "
+            f"{type(expr).__name__}"
+        )
 
     def _method_call_to_string(self, call) -> str:
         """Convert a Java IR method call to a Java source string."""

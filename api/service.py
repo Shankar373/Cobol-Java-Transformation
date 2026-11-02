@@ -1437,8 +1437,25 @@ class Service:
         """
         if run.verdict is None:
             return None
-        cls._check_evidence_verdict_consistency(run)
+        cls._gate_served_verdict(run)
         return str(run.verdict.to_dict().get("state"))
+
+    @classmethod
+    def _gate_served_verdict(cls, run: RunRecord) -> None:
+        """The one gate before any view serves a run's verdict (audit A7).
+
+        Always: the verdict must hash-match its persisted evidence. When the
+        verdict is VERIFIED, the evidence must also pass the integrity
+        validator - the same admission check approval and artifacts apply -
+        so no summary, detail, verdict, comparison or proof view can show a
+        VERIFIED that the artifacts view would refuse. Non-VERIFIED verdicts
+        claim nothing, and their evidence may legitimately be incomplete.
+        """
+        cls._check_evidence_verdict_consistency(run)
+        if (run.verdict is not None
+                and run.verdict.state == VerdictState.VERIFIED
+                and run.evidence_manifest is not None):
+            cls._require_valid_evidence(run)
 
     @staticmethod
     def _check_evidence_verdict_consistency(run: RunRecord) -> None:
@@ -1536,22 +1553,18 @@ class Service:
         to the COBOL oracle, never on a FAILED, PARTIAL, UNPROVEN,
         UNAVAILABLE, UNSUPPORTED or missing verdict.
         """
+        expected_generation = None
         if decision == "APPROVED":
             run = self.get_run(run_id)
-            state = run.verdict.state if run.verdict is not None else None
-            if state != VerdictState.VERIFIED:
-                shown = state.value if state is not None else "no verdict"
-                raise ConflictError(
-                    f"Run {run_id!r} cannot be approved: verdict is"
-                    f" {shown}, approval requires VERIFIED"
-                )
-            self._check_evidence_verdict_consistency(run)
-            self._require_valid_evidence(run)
+            self.require_verified_evidence(run, action="approved")
             app = self.get_application(run.application_id)
             if app.generated_app_path is not None:
                 verify_generated_seal(app.generated_app_path, run.generated_seal)
+            # Bind the write to the attempt just checked (audit A4).
+            expected_generation = run.validation_generation
         record = self._store.set_run_approval(
-            run_id, state=decision, approver=approver, reason=reason
+            run_id, state=decision, approver=approver, reason=reason,
+            expected_generation=expected_generation,
         )
         # Audit event (the approver is recorded input, not a verified
         # identity; the durable trail is the approval_events table).
@@ -1565,6 +1578,24 @@ class Service:
             },
         )
         return record
+
+    def require_verified_evidence(self, run: RunRecord, *, action: str) -> None:
+        """The one gate before a run's bundle is approved or exported.
+
+        VERIFIED verdict, hash-matching its persisted evidence, evidence
+        integrity-valid; ``ConflictError`` (409) otherwise. Export calls it
+        again rather than trusting the approval column: the approved
+        attempt's verdict may no longer be VERIFIED (audit A4).
+        """
+        state = run.verdict.state if run.verdict is not None else None
+        if state != VerdictState.VERIFIED:
+            shown = state.value if state is not None else "no verdict"
+            raise ConflictError(
+                f"Run {run.id!r} cannot be {action}: verdict is"
+                f" {shown}, which requires VERIFIED"
+            )
+        self._check_evidence_verdict_consistency(run)
+        self._require_valid_evidence(run)
 
     def approval_history(self, run_id: str) -> list[dict]:
         """Append-only approval trail of a run (decisions and resets)."""
@@ -1611,7 +1642,7 @@ class Service:
         run = self.get_run(run_id)
         if run.verdict is None:
             raise NotFoundError("No verdict available for this run")
-        self._check_evidence_verdict_consistency(run)
+        self._gate_served_verdict(run)
         data = dict(run.verdict.to_dict())
         engine_run_id = data.get("run_id")
         data["run_id"] = run.id
@@ -1633,7 +1664,7 @@ class Service:
         run = self.get_run(run_id)
         if run.evidence_manifest is None:
             return []
-        self._check_evidence_verdict_consistency(run)
+        self._gate_served_verdict(run)
         return [
             {
                 "comparison_id": c.comparison_id,
@@ -1686,7 +1717,7 @@ class Service:
             return None
 
         # Gate 1: never serve a proof beside an inconsistent pair.
-        self._check_evidence_verdict_consistency(run)
+        self._gate_served_verdict(run)
 
         proof = run_report.get("integrated_proof")
         if proof is not None:

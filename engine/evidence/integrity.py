@@ -400,7 +400,51 @@ class EvidenceIntegrityValidator:
                     expected=f"one of {valid_artifact_ids}",
                     actual=comp_ev.candidate_artifact_id,
                 ))
+            violations.extend(self._comparison_pairing_violations(i, comp_ev, manifest))
 
+        return violations
+
+    @staticmethod
+    def _comparison_pairing_violations(i, comp_ev, manifest) -> list[IntegrityViolation]:
+        """A comparison must pair one ORACLE artifact with one CANDIDATE
+        artifact of its own type, and a MATCH must record no differences.
+
+        Presence alone (above) let an artifact be compared with itself, two
+        oracle artifacts be paired, or a STDOUT comparison point at file
+        artifacts - and still derive VERIFIED (audit A5)."""
+        by_id = {a.artifact.artifact_id: a.artifact for a in manifest.artifact_evidence}
+        oracle = by_id.get(comp_ev.oracle_artifact_id)
+        candidate = by_id.get(comp_ev.candidate_artifact_id)
+        violations: list[IntegrityViolation] = []
+
+        def violation(kind, description, field, expected, actual):
+            violations.append(IntegrityViolation(
+                violation_type=kind, description=f"Comparison [{i}] {description}",
+                field_path=f"comparison_evidence[{i}].{field}",
+                expected=expected, actual=actual,
+            ))
+
+        if comp_ev.oracle_artifact_id == comp_ev.candidate_artifact_id:
+            violation(ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                      "compares an artifact with itself", "candidate_artifact_id",
+                      "an artifact other than the oracle's", comp_ev.candidate_artifact_id)
+        if oracle is not None and oracle.producer_role != "ORACLE":
+            violation(ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                      "oracle side is not an ORACLE artifact", "oracle_artifact_id",
+                      "producer_role ORACLE", oracle.producer_role)
+        if candidate is not None and candidate.producer_role != "CANDIDATE":
+            violation(ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                      "candidate side is not a CANDIDATE artifact", "candidate_artifact_id",
+                      "producer_role CANDIDATE", candidate.producer_role)
+        for side, artifact in (("oracle", oracle), ("candidate", candidate)):
+            if artifact is not None and artifact.artifact_type != comp_ev.artifact_type:
+                violation(ViolationType.COMPARISON_ARTIFACT_MISMATCH,
+                          f"{side} artifact type differs from the comparison's",
+                          f"{side}_artifact_id", comp_ev.artifact_type, artifact.artifact_type)
+        if comp_ev.result == "MATCH" and comp_ev.differences:
+            violation(ViolationType.MALFORMED_EVIDENCE,
+                      "is a MATCH that records differences", "differences",
+                      "no differences for MATCH", f"{len(comp_ev.differences)} difference(s)")
         return violations
 
     # ------------------------------------------------------------------

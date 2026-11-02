@@ -1182,6 +1182,10 @@ def download_generated(run_id: str) -> StreamingResponse:
             " customer must approve this run before download"
             f" (POST /runs/{run_id}/approval)",
         )
+    # Export re-checks the verdict it exports instead of trusting the
+    # approval column alone (audit A4: an approved attempt's verdict can
+    # stop being VERIFIED).
+    _svc().require_verified_evidence(run, action="exported")
     app = _svc().get_application(run.application_id)
 
     java_dir = app.generated_app_path

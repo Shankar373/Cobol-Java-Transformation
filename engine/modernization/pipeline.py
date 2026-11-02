@@ -326,6 +326,35 @@ class UniversalModernizationPipeline:
             for c in plan.components
             if c.component_type == "CALL" and c.action.name == "SKIP"
         )
+        # A copybook the plan cannot transform blocks generation as well:
+        # its consumers would otherwise be generated from a copybook the
+        # capability analysis did not support (audit A8).
+        skipped_copybooks = tuple(
+            c.component_id
+            for c in plan.components
+            if c.component_type == "COPYBOOK" and c.action.name == "SKIP"
+        )
+        if skipped_copybooks and not skipped_programs and not skipped_calls:
+            # Each copybook's reason is an error line of its own: it carries
+            # generation's wording ("Missing COPY target", BL-033 parity).
+            report.generation_errors = (
+                "Transformation plan contains non-transformable copybooks: "
+                + ", ".join(skipped_copybooks),
+                *tuple(
+                    c.reason
+                    for c in plan.components
+                    if c.component_id in skipped_copybooks and c.reason
+                ),
+            )
+            report.limitations = (
+                "Transformation blocked by capability plan",
+                *tuple(
+                    c.reason
+                    for c in plan.components
+                    if c.component_id in skipped_copybooks and c.reason
+                ),
+            )
+            return report
         if skipped_calls and not skipped_programs:
             report.generation_errors = (
                 "Transformation plan contains non-transformable CALLs: "

@@ -1112,7 +1112,12 @@ public class {class_name} {{
             true_str = self._expr_to_string(expr.true_expr)
             false_str = self._expr_to_string(expr.false_expr)
             return f"({cond} ? {true_str} : {false_str})"
-        return ""
+        # Fail closed (audit A6): an unrendered expression must never become
+        # an empty string inside otherwise valid Java.
+        raise ValueError(
+            "MISSING_REQUIRED_SEMANTIC: no Java rendering for expression "
+            f"{type(expr).__name__}"
+        )
 
     def _method_call_to_string(self, call) -> str:
         """Convert a Java IR method call to a Java source string."""

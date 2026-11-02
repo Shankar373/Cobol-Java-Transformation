@@ -447,16 +447,30 @@ def _numeric_java_literal(text: str) -> JavaLiteral:
 import itertools as _itertools
 from dataclasses import dataclass, replace as _dc_replace
 
-_times_loop_counter = _itertools.count()
+import threading as _threading
 
-# True while statements are lowered straight into ``main`` (the program was
-# not CALLed); EXIT PROGRAM has no effect there.
-_main_entry_context = False
+# Mapping state is per thread, never module-global: the API maps programs on
+# several worker threads at once, and a shared flag or counter let one job's
+# state leak into another's generated Java (audit A3: a CALLed program's
+# EXIT PROGRAM lowered as a no-op while another thread lowered an entry
+# program; one thread's reset renumbered another's scratch variables).
+# Mapping is synchronous, so a thread is exactly one mapping job.
+_mapping_state = _threading.local()
+
+
+def _state():
+    if not hasattr(_mapping_state, "io"):
+        _mapping_state.io = _itertools.count()
+        _mapping_state.times = _itertools.count()
+        # True while statements are lowered straight into ``main`` (the
+        # program was not CALLed); EXIT PROGRAM has no effect there.
+        _mapping_state.main_entry = False
+    return _mapping_state
 
 
 def _fresh_times_var() -> str:
     """Return a unique loop-counter name for a PERFORM...TIMES loop."""
-    return f"_times_{next(_times_loop_counter)}"
+    return f"_times_{next(_state().times)}"
 
 
 def _negate_condition(java_cond) :
@@ -470,10 +484,9 @@ def _negate_condition(java_cond) :
 # ---------------------------------------------------------------------------
 # COBOL file I/O → CobolFileIo.* helpers
 # ---------------------------------------------------------------------------
-# Module-level counter for generated file-I/O scratch variables (READ
-# record buffers, status temporaries).  Reset once per program mapping so
-# generated names stay deterministic for a given program.
-_io_var_counter = _itertools.count()
+# Counter for generated file-I/O scratch variables (READ record buffers,
+# status temporaries), per thread (see ``_state``). Reset once per program
+# mapping so generated names stay deterministic for a given program.
 
 
 def _reset_file_io_vars() -> None:
@@ -481,16 +494,16 @@ def _reset_file_io_vars() -> None:
 
     Both the file-I/O scratch counter and the PERFORM ... TIMES loop counter
     restart for every program, so the same COBOL source always yields the
-    same Java no matter how many programs this process mapped before.
+    same Java no matter how many programs this thread mapped before.
     """
-    global _io_var_counter, _times_loop_counter
-    _io_var_counter = _itertools.count()
-    _times_loop_counter = _itertools.count()
+    state = _state()
+    state.io = _itertools.count()
+    state.times = _itertools.count()
 
 
 def _fresh_io_var(prefix: str) -> str:
     """Unique scratch-variable name, e.g. ``_read_0`` / ``_st_1``."""
-    return f"_{prefix}_{next(_io_var_counter)}"
+    return f"_{prefix}_{next(_state().io)}"
 
 
 _STDOUT_KEYWORDS = frozenset({
@@ -4416,7 +4429,7 @@ def map_cobol_statement(
         # generated program body.  In ``main`` the program was not CALLed,
         # and there EXIT PROGRAM has no effect (oracle: GnuCOBOL 3.1.2 runs
         # the next statement), so it lowers to nothing.
-        if _main_entry_context:
+        if _state().main_entry:
             result.append(JavaComment(
                 text="// EXIT PROGRAM: no effect in a program that was not CALLed"
             ))
@@ -5551,6 +5564,13 @@ def map_cobol_statement(
                 ),
             ))
 
+    else:
+        # Fail closed (audit A6/C4): a statement type with no branch used to
+        # return no Java at all - the statement silently vanished.
+        raise NotImplementedError(
+            f"{type(stmt).__name__} has no Java mapping in map_cobol_statement"
+        )
+
     result.extend(_redefines_sync_statements(stmt, program))
     return result
 
@@ -5863,8 +5883,8 @@ def map_cobol_program_to_java(
     # was not CALLed, then the fall-through chain.
     # Lowered afresh per method so generated locals stay unique per class.
     def _entry_body() -> list[JavaStatement]:
-        global _main_entry_context
-        _main_entry_context = True
+        state = _state()
+        state.main_entry = True
         try:
             body: list[JavaStatement] = [
                 lowered
@@ -5873,7 +5893,7 @@ def map_cobol_program_to_java(
                 for lowered in map_cobol_statement(stmt, program, called_programs)
             ]
         finally:
-            _main_entry_context = False
+            state.main_entry = False
         return body + list(chain_calls)
 
     # The parser declares RETURN-CODE only for a program that uses it.

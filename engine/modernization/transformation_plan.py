@@ -190,6 +190,25 @@ class TransformationPlanGenerator:
                     reason=f"Unresolved call target: {edge.target}",
                 ))
 
+        # Every CALL the capability analysis did not classify SUPPORTED -
+        # arity mismatch, cycle, dynamic target, unproven callee - is a plan
+        # entry too. Only UNRESOLVED edges used to reach the plan, so an
+        # arity mismatch or an A->B->A cycle went on to javac or the oracle
+        # instead of being refused here (audit A8).
+        planned_calls = {c.component_id for c in components if c.component_type == "CALL"}
+        for cap in report.components:
+            if (cap.component_type == "CALL"
+                    and cap.level != CapabilityLevel.SUPPORTED
+                    and cap.component_id not in planned_calls):
+                planned_calls.add(cap.component_id)
+                components.append(ComponentPlan(
+                    component_id=cap.component_id,
+                    component_type="CALL",
+                    action=TransformationAction.SKIP,
+                    transformer=TransformerType.SKIP,
+                    reason=f"{cap.level.value}: {cap.reason}",
+                ))
+
         # Resolve entrypoint
         resolved_entry = self._resolve_entrypoint(application, components, entrypoint)
 
