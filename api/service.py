@@ -1179,7 +1179,8 @@ class Service:
         # reflects the real probe (engine.docker_cli) — never a hardcoded
         # True, which would claim runtime availability on Docker-less
         # hosts (reporting capability we do not have).
-        docker_available = docker_cli.check_docker_available()
+        # Retried: one slow probe must not turn into an UNAVAILABLE plan.
+        docker_available = docker_cli.docker_available_with_retry()
 
         pipeline_config = ModernizationConfig(
             source_dir=app.cobol_source_path,

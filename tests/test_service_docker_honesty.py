@@ -116,3 +116,21 @@ class TestDockerAvailabilityIsProbedNotHardcoded:
         """Docker present → True must still flow through (no overcorrection)."""
         captured = _run_generate(service, monkeypatch, probe_result=True)
         assert captured["config"].docker_available is True
+
+
+def test_docker_probe_retries_before_failing_closed(monkeypatch):
+    # One slow `docker info` refused a certified application in CI
+    # (2026-11-03): a transient False is retried; a daemon that stays down
+    # is still reported unavailable.
+    import engine.docker_cli as docker_cli
+
+    answers = iter([False, True])
+    monkeypatch.setattr(docker_cli, "check_docker_available", lambda *a, **k: next(answers))
+    monkeypatch.setattr(docker_cli.time, "sleep", lambda s: None)
+    assert docker_cli.docker_available_with_retry() is True
+
+    calls = []
+    monkeypatch.setattr(docker_cli, "check_docker_available",
+                        lambda *a, **k: calls.append(1) or False)
+    assert docker_cli.docker_available_with_retry(attempts=3) is False
+    assert len(calls) == 3

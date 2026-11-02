@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 
 
 def check_docker_available(subcommand: str = "info", timeout: int = 10) -> bool:
@@ -30,6 +31,23 @@ def check_docker_available(subcommand: str = "info", timeout: int = 10) -> bool:
         # FileNotFoundError.  A probe that errors must fail closed (absent),
         # never propagate — otherwise a half-dead daemon reads as present.
         return False
+
+
+def docker_available_with_retry(attempts: int = 3, delay_seconds: float = 1.0) -> bool:
+    """``check_docker_available`` with retries, for decisions a run depends on.
+
+    A single slow ``docker info`` (a busy daemon right after image builds)
+    made one CI certification run classify the Docker infrastructure
+    UNAVAILABLE and refuse an application it certifies everywhere else
+    (2026-11-03). A daemon that is really down still answers False after
+    the last attempt - fail closed, only less sensitive to timing.
+    """
+    for attempt in range(attempts):
+        if check_docker_available():
+            return True
+        if attempt < attempts - 1:
+            time.sleep(delay_seconds)
+    return False
 
 
 def cleanup_container(container_name: str) -> tuple[bool, str]:

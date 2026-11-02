@@ -213,9 +213,14 @@ class TestModernizationConfigIsFailClosedByDefault:
         from api import service as svc
 
         src = inspect.getsource(svc.Service._generate_application)
-        assert "docker_cli.check_docker_available()" in src, (
+        # The live probe, possibly through its retrying wrapper (which calls
+        # check_docker_available on every attempt, never a constant).
+        assert ("docker_cli.check_docker_available()" in src
+                or "docker_cli.docker_available_with_retry()" in src), (
             "_generate_application must probe Docker via docker_cli"
         )
+        wrapper = inspect.getsource(docker_cli.docker_available_with_retry)
+        assert "check_docker_available()" in wrapper and "return False" in wrapper
         assert "docker_available=True" not in src, (
             "hardcoded docker_available=True re-introduces the P0 capability lie"
         )
