@@ -54,7 +54,10 @@ CASES = [
 ]
 
 
-def _program() -> str:
+def _program(one_line: bool = False) -> str:
+    """The probe; ``one_line`` writes each IF/ELSE/END-IF on one source
+    line (END-IF wrapped when column 72 would be passed) — refused before
+    increment 10, the ELSE was read as a DISPLAY operand."""
     lines = [
         "       IDENTIFICATION DIVISION.",
         "       PROGRAM-ID. CONDS.",
@@ -73,6 +76,16 @@ def _program() -> str:
         if tag == "--":
             lines.append("           MOVE -0 TO WS-Z")
             continue
+        if one_line:
+            text = f"           IF {condition} DISPLAY '{tag} T' ELSE DISPLAY '{tag} F'"
+            if len(text) + 7 <= 72:
+                lines.append(text + " END-IF")
+            elif len(text) <= 72:
+                lines += [text, "           END-IF"]
+            else:  # too long even so: inline THEN, inline ELSE on the next line
+                lines += [f"           IF {condition} DISPLAY '{tag} T'",
+                          f"           ELSE DISPLAY '{tag} F' END-IF"]
+            continue
         lines += [
             f"           IF {condition}",
             f"               DISPLAY '{tag} T'",
@@ -85,6 +98,7 @@ def _program() -> str:
 
 
 SOURCE = _program()
+ONE_LINE_SOURCE = _program(one_line=True)
 EXPECTED = "".join(f"{tag} {truth}\n" for tag, _, truth in CASES if tag != "--")
 
 
@@ -150,12 +164,13 @@ class TestClassificationAndLowering:
         assert TransformationProducer().transform(source, "CONDS").success is False
 
 
-def test_generated_java_matches_oracle(tmp_path: Path) -> None:
+@pytest.mark.parametrize("source", [SOURCE, ONE_LINE_SOURCE], ids=["multi-line", "one-line"])
+def test_generated_java_matches_oracle(source: str, tmp_path: Path) -> None:
     if not (shutil.which("javac") and shutil.which("java")):
         if os.environ.get("RUN_DOCKER_TESTS") == "1":
             pytest.fail("javac/java not on PATH: the Docker lane requires a JDK")
         pytest.skip("javac/java not on PATH")
-    result = TransformationProducer().transform(SOURCE, "CONDS")
+    result = TransformationProducer().transform(source, "CONDS")
     assert result.success is True, result.errors
     for generated in result.generated_files:
         (tmp_path / generated.filename).write_text(generated.source_code, encoding="utf-8")
@@ -174,10 +189,11 @@ def test_generated_java_matches_oracle(tmp_path: Path) -> None:
     assert run.stdout.decode() == EXPECTED
 
 
-def test_oracle_pins(tmp_path: Path) -> None:
+@pytest.mark.parametrize("source", [SOURCE, ONE_LINE_SOURCE], ids=["multi-line", "one-line"])
+def test_oracle_pins(source: str, tmp_path: Path) -> None:
     if os.environ.get("RUN_DOCKER_TESTS") != "1":
         pytest.skip("Docker lane test: set RUN_DOCKER_TESTS=1 to run it")
-    (tmp_path / "CONDS.cob").write_text(SOURCE, encoding="utf-8")
+    (tmp_path / "CONDS.cob").write_text(source, encoding="utf-8")
     os.chmod(tmp_path, 0o777)
     run = subprocess.run(
         ["docker", "run", "--rm", "--network", "none", "-v", f"{tmp_path}:/src",

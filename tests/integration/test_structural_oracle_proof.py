@@ -327,9 +327,11 @@ def test_numeric_redefines_view_fails_closed():
         for d in parser.diagnostics.all
         if d.code is DiagnosticCode.UNSUPPORTED_CONSTRUCT
     ]
-    assert any("numeric" in m for m in messages), messages
-    class_name, source_code = _generate(source)
-    assert "WS_CHAR" not in source_code.split("class ", 1)[1].split(
-        "public static void", 1
-    )[0], source_code
+    # Since Phase 3 increment 10 a digit overlay is certified, so the refusal
+    # is this named diagnostic (non-digit bytes under a numeric view: GnuCOBOL
+    # decodes them compiler-specifically), and the producer fails closed.
+    assert any("non-digit bytes into numeric view WS-NUM" in m for m in messages), messages
+    from engine.transformation.producer import TransformationProducer
+
+    assert TransformationProducer().transform(source, "REDEFN").success is False
 

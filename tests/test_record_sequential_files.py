@@ -230,11 +230,32 @@ class TestWriteClauses:
         assert result.success is False
         assert any("ADVANCING" in e for e in result.errors), result.errors
 
-    def test_write_from_signed_numeric_into_group_fails_closed(self) -> None:
-        source = _WRITE_FROM.replace("PIC 9(5) VALUE 42", "PIC S9(5) VALUE -42")
+    def test_write_from_comp_numeric_into_group_fails_closed(self) -> None:
+        source = _WRITE_FROM.replace("PIC 9(5) VALUE 42", "PIC 9(5) COMP VALUE 42")
         result = _transform(source)
         assert result.success is False
-        assert any("stored encoding" in e for e in result.errors), result.errors
+        assert any("binary encoding" in e for e in result.errors), result.errors
+
+
+#: WRITE FROM a signed item into a group record copies its stored
+#: characters: -42 in S9(5) is ``0004r`` (GnuCOBOL 3.1.2; refused before
+#: Phase 3 increment 10).
+_SIGNED_WRITE_FROM = _WRITE_FROM.replace("PIC 9(5) VALUE 42", "PIC S9(5) VALUE -42")
+_SIGNED_WRITE_FROM_STDOUT = (
+    "[0004|r     ]\n[ABCD|EFGHIJ]\n[XYZ0|07    ]\n[LIT |      ]\n"
+)
+
+
+def test_signed_write_from_matches_oracle(tmp_path: Path) -> None:
+    from tests.oracle_java_helpers import run_generated_java
+
+    assert run_generated_java(_SIGNED_WRITE_FROM, "WFROM", tmp_path) == _SIGNED_WRITE_FROM_STDOUT
+
+
+def test_signed_write_from_oracle_pin(tmp_path: Path) -> None:
+    from tests.oracle_java_helpers import run_gnucobol
+
+    assert run_gnucobol(_SIGNED_WRITE_FROM, "WFROM", tmp_path) == _SIGNED_WRITE_FROM_STDOUT
 
 
 # ---------------------------------------------------------------------------

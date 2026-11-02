@@ -95,9 +95,11 @@ class TestFixtureClassification:
         level = self._fixture_level("workload-redefines")
         assert level is CapabilityLevel.UNSUPPORTED
 
-    def test_occurs_is_partial_with_proven_subset(self) -> None:
-        level = self._fixture_level("workload-occurs")
-        assert level is CapabilityLevel.PARTIAL
+    def test_occurs_by_subscript_is_supported(self) -> None:
+        # Element-only tables are certified since Phase 3 increment 10
+        # (tests/test_occurs_elements.py); whole-table references stay PARTIAL.
+        level = self._fixture_level("workload-occurs", docker=True)
+        assert level is CapabilityLevel.SUPPORTED
 
     def test_level88_supported_with_proof(self) -> None:
         # Docker availability distinguishes "construct supported" from

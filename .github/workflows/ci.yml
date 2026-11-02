@@ -80,6 +80,9 @@ jobs:
             tests/test_record_sequential_files.py \
             tests/test_condition_operands.py \
             tests/test_size_error.py \
+            tests/test_redefines_digit_views.py \
+            tests/test_occurs_elements.py \
+            tests/test_signed_storage_text.py \
             tests/comparators/test_fixed_record_trailing_partial.py \
             tests/test_phase10_p0_bl053_seal_recheck.py \
             tests/test_phase10_p0_integrated_proof_gate.py \

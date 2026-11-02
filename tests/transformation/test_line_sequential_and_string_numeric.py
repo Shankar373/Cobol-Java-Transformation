@@ -130,8 +130,27 @@ def test_record_sequential_file_is_lowered(variant: str) -> None:
     assert "CobolFileIo.writeRecord(" in result.generated_files[0].source_code
 
 
-def test_signed_numeric_string_source_fails_closed() -> None:
-    source = _SOURCE.replace("01 WS-Y PIC 99 VALUE 3.", "01 WS-Y PIC S99 VALUE 3.")
+#: A signed STRING sender contributes its stored characters: -3 in PIC S99
+#: is ``0s`` (last digit overpunched, GnuCOBOL 3.1.2) — refused before
+#: Phase 3 increment 10 (tests/test_signed_storage_text.py).
+_SIGNED_SOURCE = _SOURCE.replace("01 WS-Y PIC 99 VALUE 3.", "01 WS-Y PIC S99 VALUE -3.")
+_SIGNED_STDOUT = "[AL|0s|00600|125               ]\n"
+
+
+def test_signed_numeric_string_source_stores_overpunched_digit(tmp_path: Path) -> None:
+    from tests.oracle_java_helpers import run_generated_java
+
+    assert run_generated_java(_SIGNED_SOURCE, "PROBE", tmp_path) == _SIGNED_STDOUT
+
+
+def test_signed_numeric_string_source_oracle_pin(tmp_path: Path) -> None:
+    from tests.oracle_java_helpers import run_gnucobol
+
+    assert run_gnucobol(_SIGNED_SOURCE, "PROBE", tmp_path) == _SIGNED_STDOUT
+
+
+def test_comp_numeric_string_source_fails_closed() -> None:
+    source = _SOURCE.replace("01 WS-Y PIC 99 VALUE 3.", "01 WS-Y PIC 99 COMP VALUE 3.")
     result = _transform(source)
     assert result.success is False
 

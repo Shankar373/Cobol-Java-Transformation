@@ -88,7 +88,9 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   opens with status 05 and reads empty, which the generated runtime does not
   model; it was silently ignored before.  A missing non-optional file opens
   with status 35 in both runtimes.
-- **Signed / COMP numeric STRING sources** fail closed (stored encoding).
+- ~~**Signed numeric STRING sources** fail closed~~ — reproduced since Phase 3
+  increment 10 (overpunched last digit, `tests/test_signed_storage_text.py`);
+  **COMP STRING sources** still fail closed (binary bytes).
 - ~~**Referenced COMP / COMP-3 items** keep programs PARTIAL~~ — since Phase 3
   a standalone COMP/BINARY/COMP-3/PACKED-DECIMAL item used only by value is
   SUPPORTED (`workload-comp`, `workload-comp3`, `workload-binary-values`
@@ -109,11 +111,23 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   (`tests/test_condition_operands.py`).  Still refused: abbreviated combined
   relations (`A = 1 OR 2`; on numeric items this generated `A == 1 || 2`,
   which does not compile, while classified SUPPORTED), ordering comparisons
-  against an alphanumeric ZERO (`A > ZERO` on PIC X), and an IF/ELSE
-  written on a single source line (refused with a named diagnostic).
-- **OCCURS whole-record references, REDEFINES numeric reinterpretation**
-  (`workload-occurs`, `workload-redefines`) and **CALL BY VALUE**
-  (`workload-by-value`, GnuCOBOL 3.1.2 implementation unfinished) stay refused.
+  against an alphanumeric ZERO (`A > ZERO` on PIC X).  ~~An IF/ELSE on a
+  single source line~~ is lowered since increment 10 (an `ELSE stmt END-IF`
+  line also used to swallow the following statements silently).
+- **Tables and overlays** (Phase 3 increment 10): element-only OCCURS tables
+  and digit REDEFINES overlays are certified (`workload-occurs` VERIFIED;
+  `tests/test_occurs_elements.py`, `tests/test_redefines_digit_views.py`).
+  Still refused: whole-table references, multi-dimension tables, INDEXED BY /
+  SEARCH / DEPENDING ON; REDEFINES of signed, scaled or COMP items, nested
+  groups, and non-digit bytes written under a numeric view
+  (`workload-redefines`: GnuCOBOL decodes them compiler-specifically).  A
+  numeric REDEFINES view whose bytes become non-digits at run time stops
+  the Java run.  **CALL BY VALUE** (`workload-by-value`, GnuCOBOL 3.1.2
+  implementation unfinished) stays refused.
+- **Runtimes**: `spring_boot` and `plain_java` are proven end to end on the
+  whole corpus (Phase 3 §3.11).  `jakarta_ee` is a plain jar under a
+  Jakarta-marked pom (no server runtime); Quarkus, Micronaut, WildFly and
+  Open Liberty have no adapter.
 - **Undefined data names** are not resolved by the parser: a program GnuCOBOL
   rejects (e.g. a name cut at column 72) still fails, but at Java compile time.
 - **Plain Java entry selection** falls back to the first program when no entry

@@ -430,22 +430,25 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     # certified subset, proven against GnuCOBOL 3.1.2; everything outside that
     # subset fails closed with UNSUPPORTED_CONSTRUCT.
     "REDEFINES": _partial(
-        "Elementary alphanumeric DISPLAY views over an elementary alphanumeric "
-        "base are lowered as a shared byte string with synchronised views and "
-        "are byte-identical to GnuCOBOL 3.1.2 "
-        "(tests/integration/test_structural_oracle_proof.py). Numeric views, "
-        "groups, OCCURS, chained REDEFINES, aliases wider than the base and "
-        "non-MOVE writers are reported UNSUPPORTED because GnuCOBOL's numeric "
-        "reinterpretation of overwritten bytes is compiler-specific undefined "
-        "data, not a COBOL semantic"
+        "PIC X / unsigned DISPLAY integer views (and groups of them, leaves at "
+        "their offsets) over an elementary base are lowered as a shared byte "
+        "string with synchronised views, byte-identical to GnuCOBOL 3.1.2 "
+        "(tests/test_redefines_digit_views.py, "
+        "tests/integration/test_structural_oracle_proof.py); a program whose "
+        "overlays are all in that subset is classified SUPPORTED.  Signed, "
+        "scaled or COMP members, nested groups, chained REDEFINES, aliases "
+        "wider than the base, non-MOVE writers and non-digit bytes written "
+        "under a numeric view are reported UNSUPPORTED: GnuCOBOL's numeric "
+        "reinterpretation of such bytes is compiler-specific undefined data"
     ),
     "OCCURS": _partial(
         "Fixed-size OCCURS n TIMES lowers to Java arrays with 1-based to "
-        "0-based subscripts; the shipped table fixture is byte-identical to "
-        "GnuCOBOL 3.1.2 (tests/integration/test_structural_oracle_proof.py). "
-        "OCCURS DEPENDING ON fails closed with UNSUPPORTED_CONSTRUCT, and "
-        "whole-record references to an occurring group are outside the "
-        "certified subset"
+        "0-based subscripts, element receivers keeping their PIC semantics "
+        "(tests/test_occurs_elements.py); a program whose tables are "
+        "one-dimensional DISPLAY elementary WORKING-STORAGE items referenced "
+        "only by subscript is classified SUPPORTED.  OCCURS DEPENDING ON fails "
+        "closed with UNSUPPORTED_CONSTRUCT; whole-table references, group or "
+        "multi-dimension tables, INDEXED BY and KEY clauses stay PARTIAL"
     ),
     "88-LEVEL": _supported(
         "88-level condition names lower to comparisons on their parent "

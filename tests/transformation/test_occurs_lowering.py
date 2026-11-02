@@ -156,7 +156,9 @@ class TestArrayDeclaration:
 class TestSubscriptLowering:
     def test_assignment_uses_zero_based_index(self) -> None:
         source = _source(ELEMENTARY_TABLE)
-        assert "WS_ELEMENT[(WS_INDEX - 1)] = (WS_INDEX * 10);" in source, source
+        # The element keeps its PIC 9(3) receiver semantics (truncation),
+        # since Phase 3 increment 10 (tests/test_occurs_elements.py).
+        assert "WS_ELEMENT[(WS_INDEX - 1)] = ((WS_INDEX * 10) % 1000);" in source, source
 
     def test_expression_uses_zero_based_index(self) -> None:
         source = _source(ELEMENTARY_TABLE)

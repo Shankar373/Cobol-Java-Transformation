@@ -890,10 +890,15 @@ def _write_from_characters(source: str, program, fd=None) -> JavaExpression:
         and (record is None or is_group(record))
         and (sender.signed or sender.decimal_places or sender.usage)
     ):
-        return JavaUnsupportedExpression(
-            source_expression=f"WRITE FROM {text}",
-            reason="a group move of a signed, scaled or non-DISPLAY numeric item "
-            "copies its stored encoding, which is not reproduced",
+        if sender.usage:
+            return JavaUnsupportedExpression(
+                source_expression=f"WRITE FROM {text}",
+                reason="a group move of a non-DISPLAY numeric item copies its "
+                "binary encoding, which is not reproduced",
+            )
+        # A group move copies the stored characters (sign overpunch).
+        return _display_storage_text(
+            sender, JavaVariableRef(name=cobol_reference_to_java_source(text)),
         )
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
         return _str_lit(text[1:-1])
@@ -943,6 +948,11 @@ def _find_data_item(program: CobolProgram | None, name: str) -> DataItem | None:
         return None
     parts = split_cobol_reference(name)
     base = parts[0] if parts is not None else name
+    # The Java spelling of a table element (``WS_N[(I - 1)]``) — what the
+    # arithmetic verbs pass as their receiver.  Unresolved, the element got
+    # no receiver semantics: no PIC truncation, and raw BigDecimal operators
+    # for a decimal table (did not compile).
+    base = base.split("[", 1)[0].strip()
     normalized = base.replace("-", "_").upper()
     for item in program.working_storage:
         if item.name.replace("-", "_").upper() == normalized:
@@ -1443,12 +1453,9 @@ def _string_source_text(
 ) -> JavaExpression:
     """A STRING sending item as the characters COBOL stores for it.
 
-    STRING copies the sending item's storage, not its DISPLAY rendering:
-    an unsigned DISPLAY numeric is its zero-filled digit string at full PIC
-    width with no decimal point (oracle: ``PIC 99`` value 3 contributes
-    ``03``; ``PIC 9V99`` value 1.25 contributes ``125``).  A signed item
-    carries its sign in an overpunched digit and a COMP item is binary, so
-    both fail closed instead of contributing the Java number's text.
+    STRING copies the sending item's storage, not its DISPLAY rendering
+    (``_display_storage_text``).  A COMP (binary) item fails closed instead
+    of contributing the Java number's text.
     """
     if not name or program is None:
         return expression
@@ -1456,17 +1463,38 @@ def _string_source_text(
     item = _find_data_item(program, reference[0] if reference else name)
     if item is None or not item.is_numeric or not item.is_elementary:
         return expression
-    if item.signed or item.usage:
+    if item.usage:
         return JavaUnsupportedExpression(
             source_expression=f"STRING ... {name}",
-            reason="signed or non-DISPLAY numeric STRING source: stored "
-                   "sign/byte encoding is not certified",
+            reason="non-DISPLAY numeric STRING source: stored byte encoding "
+                   "is not certified",
         )
-    digits: JavaExpression = expression
-    if item.decimal_places > 0:
-        digits = JavaMethodCall(
+    return _display_storage_text(item, expression)
+
+
+def _display_storage_text(item: DataItem, expression: JavaExpression) -> JavaExpression:
+    """The characters a DISPLAY numeric item stores (GnuCOBOL 3.1.2).
+
+    Its digits at full PIC width, zero-filled, with no decimal point
+    (``PIC 99`` value 3 is ``03``; ``PIC 9V99`` value 1.25 is ``125``).  A
+    negative signed item overpunches its last digit d as the letter
+    ``'p' + d`` (-42 in ``S9(5)`` is ``0004r``, -12.5 in ``S9(3)V9`` is
+    ``012u``); a positive one, and zero, stores plain digits
+    (``tests/test_signed_storage_text.py``).
+    """
+    decimal = item.decimal_places > 0
+    magnitude: JavaExpression = expression  # unsigned: never negative
+    if item.signed:
+        magnitude = (
+            JavaMethodCall(object_ref=expression, method_name="abs")
+            if decimal
+            else JavaMethodCall(class_name="Math", method_name="abs", is_static=True,
+                                arguments=(expression,))
+        )
+    if decimal:
+        magnitude = JavaMethodCall(
             object_ref=JavaMethodCall(
-                object_ref=expression,
+                object_ref=magnitude,
                 method_name="movePointRight",
                 arguments=(JavaLiteral(
                     value=str(item.decimal_places),
@@ -1476,12 +1504,41 @@ def _string_source_text(
             method_name="toBigInteger",
             arguments=(),
         )
-    return JavaMethodCall(
-        class_name="String",
-        method_name="format",
-        arguments=(JavaLiteral(value=f"%0{item.pic_length}d"), digits),
-        is_static=True,
+    width = item.pic_length
+
+    def digits() -> JavaExpression:
+        return JavaMethodCall(
+            class_name="String",
+            method_name="format",
+            arguments=(JavaLiteral(value=f"%0{width}d"), magnitude),
+            is_static=True,
+        )
+
+    if not item.signed:
+        return digits()
+    negative = JavaBinaryOp(
+        left=JavaMethodCall(object_ref=expression, method_name="signum") if decimal else expression,
+        operator="<",
+        right=_int_lit(0),
     )
+    overpunched = JavaBinaryOp(
+        left=JavaMethodCall(
+            object_ref=digits(), method_name="substring",
+            arguments=(_int_lit(0), _int_lit(width - 1)),
+        ),
+        operator="+",
+        right=JavaMethodCall(
+            object_ref=_str_lit("pqrstuvwxy"),
+            method_name="charAt",
+            arguments=(JavaBinaryOp(
+                left=JavaMethodCall(object_ref=digits(), method_name="charAt",
+                                    arguments=(_int_lit(width - 1),)),
+                operator="-",
+                right=_int_lit(48),
+            ),),
+        ),
+    )
+    return JavaTernary(condition=negative, true_expr=overpunched, false_expr=digits())
 
 
 def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaExpression:
@@ -1971,6 +2028,13 @@ def figurative_constant_to_java(kind: str, fill: str | None = None) -> JavaExpre
     return JavaLiteral(value=char, java_type=JavaType(basic_type=JavaBasicType.STRING))
 
 
+def _array_base_name(expr: JavaExpression) -> str:
+    """Variable name of a reference or of the table an element belongs to."""
+    while isinstance(expr, JavaArrayAccess):
+        expr = expr.array
+    return expr.name if isinstance(expr, JavaVariableRef) else ""
+
+
 def _promote_numeric_expression_to_decimal(
     expr: JavaExpression,
     program: CobolProgram | None,
@@ -2044,8 +2108,9 @@ def _promote_numeric_expression_to_decimal(
                 value=expr.value.rstrip("Ll"),
                 java_type=JavaType(basic_type=JavaBasicType.DECIMAL),
             )
-    if isinstance(expr, JavaVariableRef):
-        item = _find_data_item(program, expr.name)
+    if isinstance(expr, (JavaVariableRef, JavaArrayAccess)):
+        # A table element (array access) is typed like its table item.
+        item = _find_data_item(program, _array_base_name(expr))
         if item is None or not item.is_numeric:
             return JavaMethodCall(
                 class_name="java.math.BigDecimal",
@@ -2081,8 +2146,8 @@ def _expression_requires_fractional_type(
             and expr.java_type.basic_type
             in (JavaBasicType.DOUBLE, JavaBasicType.DECIMAL)
         )
-    if isinstance(expr, JavaVariableRef):
-        item = _find_data_item(program, expr.name)
+    if isinstance(expr, (JavaVariableRef, JavaArrayAccess)):
+        item = _find_data_item(program, _array_base_name(expr))
         return bool(item and item.decimal_places > 0)
     if isinstance(expr, JavaBinaryOp):
         return _expression_requires_fractional_type(expr.left, program) or _expression_requires_fractional_type(expr.right, program)
@@ -3221,7 +3286,7 @@ def _alphanumeric_comparison(
             class_name="String",
             method_name="format",
             is_static=True,
-            arguments=(_str_lit(f"%-{width}s"), JavaVariableRef(name=text)),
+            arguments=(_str_lit(f"%-{width}s"), _reference_expression(text)),
         )
 
     left_expr = padded(left)
@@ -3413,9 +3478,10 @@ def map_cobol_condition_to_java(
     condition_str = " ".join(result_parts)
 
     # Try to parse simple binary conditions: left OP right
-    # Operands: a data name, a quoted literal, or a numeric literal with an
-    # optional sign and fraction (``> -1``, ``< 1.25``, ``= +3``).
-    operand = r'([+-]?(?:\d+(?:\.\d+)?|\.\d+)|\w+|"(?:[^"\\]|\\.)*")'
+    # Operands: a data name (optionally subscripted, ``WS_N(WS_I)``), a
+    # quoted literal, or a numeric literal with an optional sign and fraction
+    # (``> -1``, ``< 1.25``, ``= +3``).
+    operand = r'([+-]?(?:\d+(?:\.\d+)?|\.\d+)|\w+\([^()\s]+\)|\w+|"(?:[^"\\]|\\.)*")'
     binary_match = _re.match(
         rf'^{operand}\s*(==|!=|>=|<=|>|<)\s*{operand}$',
         condition_str,
@@ -3438,6 +3504,9 @@ def map_cobol_condition_to_java(
                 # ``+3`` is 3; the renderer quotes literals it does not
                 # recognise as numbers, which a leading ``+`` defeats.
                 return JavaLiteral(value=token.lstrip("+"))
+            if "(" in token:
+                # A table element: Java array access (1-based subscript).
+                return _reference_expression(token)
             return JavaVariableRef(name=token)
 
         left_is_fill = _is_figurative_sentinel(left_name)
@@ -5535,7 +5604,9 @@ def map_cobol_data_items_to_fields(
             continue
         element_type = map_pic_to_java_type(item)
         view = plan.views.get(item.name.upper())
-        if view is not None:
+        if view is not None and view.numeric:
+            default = str(int(view.initial)) + ("L" if view.length > 9 else "")
+        elif view is not None:
             default = '"' + _java_quote(view.initial) + '"'
         else:
             default = map_pic_to_java_default(item)
@@ -5620,15 +5691,29 @@ def _redefines_sync_statements(
         if view is None or subscripts:
             continue
         buffer_name = f"{view.base.replace('-', '_')}$BYTES"
+        buffer = JavaVariableRef(name=buffer_name)
+        written: JavaExpression = JavaVariableRef(name=view.java_name)
+        if view.numeric:
+            # An unsigned DISPLAY integer's bytes are its zero-filled digits.
+            written = JavaMethodCall(
+                class_name="String", method_name="format", is_static=True,
+                arguments=(_str_lit(f"%0{view.length}d"), written),
+            )
         statements.append(JavaAssignment(
             target=buffer_name,
             expression=JavaBinaryOp(
-                left=JavaVariableRef(name=view.java_name),
+                left=JavaBinaryOp(
+                    left=JavaMethodCall(
+                        object_ref=buffer, method_name="substring",
+                        arguments=(_int_lit(0), _int_lit(view.offset)),
+                    ),
+                    operator="+",
+                    right=written,
+                ),
                 operator="+",
                 right=JavaMethodCall(
-                    object_ref=JavaVariableRef(name=buffer_name),
-                    method_name="substring",
-                    arguments=(JavaLiteral(value=str(view.length)),),
+                    object_ref=buffer, method_name="substring",
+                    arguments=(_int_lit(view.offset + view.length),),
                 ),
             ),
         ))
@@ -5637,17 +5722,35 @@ def _redefines_sync_statements(
                 continue
             if other.name.upper() == base_name.upper():
                 continue
-            statements.append(JavaAssignment(
-                target=other.java_name,
-                expression=JavaMethodCall(
-                    object_ref=JavaVariableRef(name=buffer_name),
-                    method_name="substring",
-                    arguments=(
-                        JavaLiteral(value="0"),
-                        JavaLiteral(value=str(other.length)),
-                    ),
-                ),
-            ))
+            if (
+                other.offset >= view.offset + view.length
+                or view.offset >= other.offset + other.length
+            ):
+                continue  # untouched bytes: nothing to refresh
+            text = JavaMethodCall(
+                object_ref=buffer, method_name="substring",
+                arguments=(_int_lit(other.offset), _int_lit(other.offset + other.length)),
+            )
+            value: JavaExpression = text
+            if other.numeric:
+                # Only digits are a value; other bytes stop the run (never a
+                # guessed number — see engine.transformation.redefines).
+                value = JavaMethodCall(
+                    class_name="Long" if other.length > 9 else "Integer",
+                    method_name="parseLong" if other.length > 9 else "parseInt",
+                    is_static=True,
+                    arguments=(JavaTernary(
+                        condition=JavaMethodCall(
+                            object_ref=text, method_name="matches",
+                            arguments=(_str_lit("[0-9]+"),),
+                        ),
+                        true_expr=text,
+                        false_expr=_str_lit(
+                            f"REDEFINES {other.name}: only digit bytes are a value"
+                        ),
+                    ),),
+                )
+            statements.append(JavaAssignment(target=other.java_name, expression=value))
     return statements
 
 

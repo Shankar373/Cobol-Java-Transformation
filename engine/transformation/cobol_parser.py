@@ -944,6 +944,41 @@ class CobolParser:
                 )
                 break
 
+    @staticmethod
+    def _overlay_literal_problem(plan, target: str, source: str) -> str | None:
+        """Reason a MOVE of a literal/figurative into an alphanumeric overlay
+        view puts non-digit bytes under a numeric view, else None.
+
+        GnuCOBOL decodes such bytes compiler-specifically (``MOVE "ABCDEF"``
+        over a PIC 9(6) displays ``A CDEF``); the generated Java would stop
+        at run time, so the program is refused here, where it is visible.
+        """
+        view = plan.views.get(target)
+        if view is None or view.numeric:
+            return None
+        text = str(source or "").strip()
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+            written = text[1:-1]
+        else:
+            figurative = parse_figurative_constant(text)
+            if figurative is None:
+                return None
+            from engine.transformation.figurative import figurative_to_width
+
+            written = figurative_to_width(figurative[0], figurative[1], view.length) or ""
+        written = written[: view.length].ljust(view.length)
+        for other in plan.views.values():
+            if other.base != view.base or not other.numeric:
+                continue
+            start = max(view.offset, other.offset)
+            end = min(view.offset + view.length, other.offset + other.length)
+            if start < end and not written[start - view.offset:end - view.offset].isdigit():
+                return (
+                    f"writes non-digit bytes into numeric view {other.name} "
+                    "(GnuCOBOL decodes them compiler-specifically)"
+                )
+        return None
+
     def _validate_redefines(self, program: CobolProgram) -> None:
         """Name every REDEFINES the deterministic lane cannot certify.
 
@@ -985,7 +1020,7 @@ class CobolParser:
 
         for para in program.paragraphs:
             for stmt in walk(para.statements):
-                for target in write_targets(stmt):
+                for target in dict.fromkeys(write_targets(stmt)):
                     base = target.split("(", 1)[0].strip().upper()
                     if base not in certified:
                         continue
@@ -996,6 +1031,14 @@ class CobolParser:
                             f"REDEFINES member {target} is written by {verb} "
                             "with no certified overlay sync (only an "
                             "unsubscripted MOVE is certified)",
+                            location=target,
+                        )
+                        continue
+                    problem = self._overlay_literal_problem(plan, base, stmt.source)
+                    if problem:
+                        self._diagnostics.warning(
+                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                            f"MOVE {stmt.source} TO {target}: {problem}",
                             location=target,
                         )
 
@@ -3045,8 +3088,29 @@ class CobolParser:
             inline_then = inline_then[: end_if_match.start()].strip()
             trailing_end_if = True
 
+        # ``IF c DISPLAY 'T' ELSE DISPLAY 'F' END-IF`` on one line: the ELSE
+        # opens the other branch (the DISPLAY used to take ``ELSE`` as an
+        # operand).  Only without a nested IF on the line, where the ELSE
+        # could belong to either IF — that form stays as it was.
+        inline_else: str | None = None
+        masked_then = self._mask_quoted(inline_then)
+        if not re.search(r"(?<![\w-])IF(?![\w-])", masked_then, re.IGNORECASE):
+            else_match = re.search(r"(?<![\w-])ELSE(?![\w-])", masked_then, re.IGNORECASE)
+            if else_match:
+                inline_else = inline_then[else_match.end():].strip()
+                inline_then = inline_then[: else_match.start()].strip()
+
         then_body: list[Any] = []
         else_body: list[Any] = []
+        if inline_else:
+            inlined, unparsed = self._parse_inline_statements(inline_else)
+            else_body.extend(inlined)
+            for lost in unparsed:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"Inline ELSE statement did not parse into IR: {lost[:60]}",
+                    location="ELSE",
+                )
         if inline_then:
             # A nested scope-opening statement keeps its own terminator so it
             # can close itself; `_parse_inline_statements` deliberately does
@@ -3061,13 +3125,14 @@ class CobolParser:
                     location="IF",
                 )
 
-        current_section = "then"
+        current_section = "then" if inline_else is None else "else"
 
         # A period closes a scope opened on its own line: in
         # `IF A > 1 DISPLAY "YES".` the period ends the statement, so the IF
         # body is only what was written inline. Without this the scan below
         # would keep consuming following statements (STOP RUN) into the body.
-        self_closed_by_period = bool(inline_then) and inline_then.rstrip().endswith(".")
+        last_inline = inline_then if inline_else is None else inline_else
+        self_closed_by_period = bool(last_inline) and last_inline.rstrip().endswith(".")
 
         i = start + 1
         while i < len(lines):
@@ -3082,10 +3147,29 @@ class CobolParser:
                 # `ELSE` may carry its statement inline
                 # (`ELSE MOVE 9 TO WS-B`).  Skipping the whole line dropped
                 # that statement with no diagnostic.
-                after_else = u[len("ELSE"):].strip()
-                inline_else = after_else if after_else not in ("", "END-IF") else ""
+                after_else = l[len("ELSE"):].strip()
+                # ``ELSE DISPLAY 'F' END-IF``: that END-IF closes this IF.
+                # Left in the text it was stripped as a statement terminator
+                # and the following statements were read into the ELSE body.
+                closes = False
+                if not re.search(r"(?<![\w-])IF(?![\w-])", self._mask_quoted(after_else), re.IGNORECASE):
+                    own_end = re.search(r"\s*END-IF\s*\.?\s*$", after_else, re.IGNORECASE)
+                    if own_end and own_end.start() > 0:
+                        after_else = after_else[: own_end.start()].strip()
+                        closes = True
+                inline_else = after_else if after_else.upper() not in ("", "END-IF") else ""
                 current_section = "else"
                 i += 1
+                if closes:
+                    inlined, unparsed = self._parse_inline_statements(inline_else)
+                    else_body.extend(inlined)
+                    for lost in unparsed:
+                        self._diagnostics.warning(
+                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                            f"Inline ELSE statement did not parse into IR: {lost[:60]}",
+                            location="ELSE",
+                        )
+                    break
                 if inline_else and not re.match(r"^END-IF\b", inline_else, re.IGNORECASE):
                     inlined, unparsed = self._parse_inline_statements(inline_else)
                     else_body.extend(inlined)

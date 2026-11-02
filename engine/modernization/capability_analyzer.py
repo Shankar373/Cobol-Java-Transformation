@@ -307,6 +307,96 @@ def _is_value_only_item(program, item, source_text: str) -> bool:
     return True
 
 
+def _procedure_tokens(source_text: str) -> list[str] | None:
+    """Upper-case tokens of the PROCEDURE DIVISION as the compiler reads it
+    (comments and literal contents masked), or None without one."""
+    from engine.transformation.cobol_parser import _mask_literal_contents
+    from engine.transformation.copybook_model import _mask_comments
+    from engine.transformation.source_format import compiler_visible_text
+
+    text = _mask_literal_contents(_mask_comments(compiler_visible_text(source_text))).upper()
+    split = re.search(r"(?<![\w-])PROCEDURE\s+DIVISION(?![\w-])", text)
+    if split is None:
+        return None
+    return re.findall(r"[A-Z0-9][A-Z0-9-]*|\S", text[split.end():])
+
+
+def _certified_data_construct(key: str, program, data_text: str, source_text: str) -> str | None:
+    """Evidence that a data-division construct is inside its certified
+    subset for this program (SUPPORTED), or None (registry level applies).
+
+    REDEFINES: every REDEFINES clause belongs to a WORKING-STORAGE item and
+    the overlay plan certifies all of them (``engine.transformation.
+    redefines``: PIC X / unsigned DISPLAY integer views and groups of them,
+    MOVE-only writers — the parser reports everything else).
+
+    OCCURS: every table is a fixed-size, one-dimensional, DISPLAY elementary
+    WORKING-STORAGE item, always referenced with a subscript, inside groups
+    the procedure never names (a whole-table reference would expose the
+    record layout); no DEPENDING ON, INDEXED BY or KEY clauses.
+    """
+    from engine.transformation.group_storage import iter_data_items
+    from engine.transformation.redefines import build_redefines_plan
+
+    working = list(iter_data_items(getattr(program, "working_storage", ()) or ()))
+    clauses = len(re.findall(rf"(?<![\w-]){key}(?![\w-])", data_text, re.IGNORECASE))
+    if key == "REDEFINES":
+        plan = build_redefines_plan(program.working_storage)
+        if plan.views and not plan.problems and clauses == sum(1 for i in working if i.redefines):
+            return (
+                "REDEFINES overlays in this program are inside the certified "
+                "subset: PIC X / unsigned DISPLAY integer views (and groups of "
+                "them) over an elementary base, MOVE-only writers, lowered as a "
+                "shared byte string (GnuCOBOL 3.1.2: tests/test_redefines_digit_views.py)"
+            )
+        return None
+    if key == "OCCURS":
+        if re.search(r"(?<![\w-])(?:DEPENDING|INDEXED|ASCENDING|DESCENDING)(?![\w-])",
+                     data_text, re.IGNORECASE):
+            return None
+        tables = [i for i in working if i.occurs]
+        if not tables or clauses != len(tables):
+            return None
+        if any(t.children or t.usage or t.redefines or t.occurs_depending_on for t in tables):
+            return None
+        redefined = {i.redefines.upper() for i in working if i.redefines}
+        parents: dict[int, object] = {}
+
+        def link(nodes, parent=None):
+            for node in nodes:
+                parents[id(node)] = parent
+                link(node.children, node)
+
+        # From the 01/77 roots only: ``working_storage`` also lists every
+        # subordinate at the top level, which would reset its parent.
+        link([i for i in program.working_storage if i.level in (1, 77)])
+        hidden: set[str] = set()
+        for table in tables:
+            if table.name.upper() in redefined:
+                return None
+            ancestor = parents.get(id(table))
+            while ancestor is not None:
+                if ancestor.occurs:
+                    return None
+                hidden.add(ancestor.name.upper())
+                ancestor = parents.get(id(ancestor))
+        tokens = _procedure_tokens(source_text)
+        if tokens is None:
+            return None
+        names = {t.name.upper() for t in tables}
+        for index, token in enumerate(tokens):
+            if token in hidden:
+                return None
+            if token in names and (index + 1 >= len(tokens) or tokens[index + 1] != "("):
+                return None
+        return (
+            "OCCURS tables in this program are fixed-size, one-dimensional "
+            "DISPLAY elementary items referenced only by subscript (Java "
+            "arrays, 1-based subscripts; GnuCOBOL 3.1.2: tests/test_occurs_elements.py)"
+        )
+    return None
+
+
 def _scan_copy_replacing(source_text: str) -> "list[tuple[str, CapabilityLevel, str]]":
     """Classify COPY ... REPLACING clauses the materialization lane cannot apply.
 
@@ -1047,6 +1137,10 @@ class CapabilityAnalyzer:
                 if key not in data_detected or key in ir_flag_keys:
                     continue
                 entry = CONSTRUCT_REGISTRY[key]
+                certified = _certified_data_construct(key, program, data_text, unit.source_text or "")
+                if certified is not None:
+                    findings.append((key, CapabilityLevel.SUPPORTED, certified))
+                    continue
                 if key in file_control_keys:
                     findings.append((
                         key,
