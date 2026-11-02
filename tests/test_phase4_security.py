@@ -441,6 +441,12 @@ class TestDeploymentConfiguration:
         text = (REPO / "Dockerfile.production").read_text(encoding="utf-8")
         assert "ENV CONTROL_PLANE_ENV=production" in text
 
+    def test_production_image_drops_packaging_tools(self):
+        # wheel / setuptools (vendored jaraco.context) carried CVEs and are
+        # not used at runtime (first image scan, Phase 4).
+        text = (REPO / "Dockerfile.production").read_text(encoding="utf-8")
+        assert "pip uninstall -y --no-cache-dir setuptools wheel" in text
+
     def test_docker_group_has_no_root_default(self):
         text = (REPO / "docker-compose.production.yml").read_text(encoding="utf-8")
         assert "${DOCKER_GID:-0}" not in text

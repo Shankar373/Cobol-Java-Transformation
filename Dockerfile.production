@@ -53,7 +53,11 @@ WORKDIR /app
 # Dependencies first (better layer caching).
 COPY requirements.lock /app/requirements.lock
 # --require-hashes: every wheel must match the sha256 recorded in the lock.
-RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock && \
+    # Packaging tools from the base image are not used at runtime and carried
+    # known vulnerabilities (wheel CVE-2026-24049; jaraco.context
+    # CVE-2026-23949 vendored in setuptools - first image scan, Phase 4).
+    pip uninstall -y --no-cache-dir setuptools wheel
 
 # Application code. Explicit paths only — nothing else enters the image
 # (no tests/, no test-artifacts/, no frontend/, no local data/*.db).

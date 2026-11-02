@@ -58,6 +58,7 @@ Severity: P1 high, P2 medium, P3 low (no P0 found).
 | Docker socket in the API container (root-equivalent) | **accepted risk**, documented | a socket proxy limited to the sandbox images, or running the API on the host, is an infrastructure decision |
 | Artifact / image / SBOM signing and provenance attestation | **owner decision** (L3_7 decision record: BLOCKED) | key custody (file / secret manager / KMS), algorithm, rotation, legacy-seal policy |
 | Generated framework versions: Spring Boot 3.2.5, Quarkus 3.15.1, Micronaut 4.6.3 past support | **owner decision** (J1, J3) | generator + precache + full corpus re-proof; the new image scan reports them (report-only until then) |
+| Image scan findings (OS packages of all three images, Maven build-plugin jars, Docker CLI binary, base-image pip tooling) — see "First image scan" | **owner decision** | each fix changes a pinned identity recorded in evidence/provenance (oracle image, base digests, Docker CLI pin) |
 | Project LICENSE | **owner decision** | `PROJECT_LICENSE_DECISION.md` recommends Apache-2.0 |
 | Berkeley DB (Sleepycat) in the oracle image | legal review **if the image is distributed** | built locally today, not shipped |
 | Retention / deletion of uploaded and generated data; encryption at rest; backup encryption | **owner decision** | policy and storage choice |
@@ -68,6 +69,28 @@ Severity: P1 high, P2 medium, P3 low (no P0 found).
 | Production image includes test-only packages (pytest, Pygments) | open (P3) | needs a separate runtime lock |
 | 58 tracked evidence files contain a developer's local paths | open (P3) | low sensitivity; untracking or a history rewrite is the owner's call |
 | `engine/execution/docker_runner.py` (deprecated, no importers, allows bridge networking) | deferred to the architecture audit (D1) | unreachable; removal is scheduled there |
+
+### First image scan (supply-chain run 41468080031, `5cabbb9`)
+
+The new report-only job's first results, HIGH / CRITICAL only:
+
+| Image | Target | HIGH | CRITICAL | Nature |
+|---|---|---|---|---|
+| oracle `gnucobol-ocesql` | Ubuntu 22.04 packages | 516 | 18 | base OS never refreshed since the 2026-10-08 digest pin; `-dev` packages stay in the image |
+| offline Maven | Ubuntu 24.04 packages | 3 | 0 | base OS |
+| offline Maven | jars in the offline repository | 59 | 5 | mostly **build-time** Maven plugin dependencies pulled by `dependency:go-offline` (old `maven-core`, `plexus-utils`, `dom4j`, `velocity`, `freemarker`, `jsoup`) — run only inside the network-isolated build container; **runtime** findings in what generated jars ship: `spring-boot` 3.2.5 / `spring-core` 6.1.6, `jackson`, `micrometer`, `micronaut-context` 4.6.6 |
+| production API | Debian 12 packages | 49 | 2 | base OS (`python:3.11-slim` digest pin) |
+| production API | Python packages outside the lock | 2 | 0 | `wheel` 0.45.1 (CVE-2026-24049), `jaraco.context` 5.3.0 (CVE-2026-23949, vendored in setuptools): packaging tools of the base image, unused at runtime — **fixed in the follow-up commit**: both are uninstalled from the image (app import and `/ready` verified without them) |
+| production API | Docker CLI binary | 25 | 1 | static `docker` client at the pinned `DOCKER_CLI_VERSION` |
+
+None of these is introduced by Phase 4 — the scan makes them visible for
+the first time. Remediation is outside "safely actionable" here because each
+one changes a pinned, evidence-bearing identity: framework upgrades (J1, J3:
+generator + precache + full corpus re-proof), refreshing the oracle image
+(the oracle's image identity is recorded in every verdict's evidence),
+base-image and Docker CLI digest bumps (provenance and runtime-digest pins,
+J2). They are listed as owner-dependent below; making the scan a gate
+belongs to the same decision.
 
 ## 3. Verification
 
