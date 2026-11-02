@@ -124,10 +124,20 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   numeric REDEFINES view whose bytes become non-digits at run time stops
   the Java run.  **CALL BY VALUE** (`workload-by-value`, GnuCOBOL 3.1.2
   implementation unfinished) stays refused.
-- **Runtimes**: `spring_boot` and `plain_java` are proven end to end on the
-  whole corpus (Phase 3 §3.11).  `jakarta_ee` is a plain jar under a
-  Jakarta-marked pom (no server runtime); Quarkus, Micronaut, WildFly and
-  Open Liberty have no adapter.
+- **Runtimes**: `spring_boot`, `plain_java`, `quarkus` and `micronaut` are
+  proven end to end on the whole corpus (Phase 3 §3.11, §3.12).  Quarkus and
+  Micronaut are command-mode applications only: no HTTP/REST endpoints, no
+  native image.  `jakarta_ee` is a plain jar under a Jakarta-marked pom (no
+  server runtime).  Application servers (a Jakarta EE server, WildFly, Open
+  Liberty, Payara, TomEE) are **not supported**: deferred by decision, the
+  names are refused as unknown targets.
+- **Stale local image provenance** reports FAILED, not UNAVAILABLE: when the
+  Maven image is rebuilt locally without re-running
+  `scripts/record_docker_image_provenance.py`, the candidate lane correctly
+  refuses the image ("Docker or Maven image not available"), but the run's
+  verdict is FAILED (the oracle is compared against a candidate that was
+  never built) instead of UNAVAILABLE.
+  Fail-safe (never VERIFIED); CI records provenance after each image build.
 - **Undefined data names** are not resolved by the parser: a program GnuCOBOL
   rejects (e.g. a name cut at column 72) still fails, but at Java compile time.
 - **Plain Java entry selection** falls back to the first program when no entry

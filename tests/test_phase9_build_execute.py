@@ -35,7 +35,7 @@ class TestTargetAdapterSelection:
             DockerSpringBootCandidateAdapter,
         )
 
-    @pytest.mark.parametrize("target", ["plain_java", "jakarta_ee"])
+    @pytest.mark.parametrize("target", ["plain_java", "jakarta_ee", "quarkus", "micronaut"])
     def test_non_spring_targets_select_maven_lane(self, target):
         from engine.candidate.factory import candidate_adapter_for_target
         from engine.candidate.maven_adapter import MavenProjectCandidateAdapter
@@ -98,7 +98,7 @@ def _generate_target_project(tmp_path: pathlib.Path, target: str):
 
 
 @requires_docker
-@pytest.mark.parametrize("target", ["plain_java", "jakarta_ee"])
+@pytest.mark.parametrize("target", ["plain_java", "jakarta_ee", "quarkus", "micronaut"])
 def test_target_builds_executes_and_matches_oracle(tmp_path, target):
     """Fresh end-to-end: BUILD (offline Maven) → EXECUTE (Docker jar) →
     independent GnuCOBOL oracle → stdout comparison → VERIFIED.

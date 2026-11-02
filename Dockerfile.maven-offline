@@ -18,6 +18,18 @@ RUN mkdir -p /tmp/precache/src/main/java/precache && \
     rm -rf /tmp/precache && \
     chmod 755 /root && chmod -R a+rX /root/.m2
 
+# Pre-cache the Quarkus and Micronaut command-mode lanes (Phase 3,
+# target_runtime quarkus / micronaut).  docker/maven-precache holds exactly
+# the projects their runtime adapters generate (pom, entry class, resources;
+# tests/test_framework_runtimes.py keeps them in sync), so the offline
+# repository has every plugin and dependency a generated project builds with.
+COPY docker/maven-precache /tmp/fwprecache
+RUN for fw in quarkus micronaut; do \
+        (cd /tmp/fwprecache/$fw && mvn -B -DskipTests dependency:go-offline package) || exit 1; \
+    done && \
+    rm -rf /tmp/fwprecache && \
+    chmod -R a+rX /root/.m2
+
 # P0 non-root execution (2026-10-24): the workload containers run as
 # --user 10001:10001 (engine.execution.container_hardening).  /root is
 # 0700 in the base image, so the offline repository above would be

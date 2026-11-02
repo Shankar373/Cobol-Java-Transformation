@@ -191,7 +191,9 @@ class TestRuntimeAdapterRegistry:
 
         assert set(_ADAPTER_FACTORIES) == set(implemented_target_runtimes())
         assert set(_ADAPTER_FACTORIES) <= set(SUPPORTED_TARGET_RUNTIMES)
-        assert set(_ADAPTER_FACTORIES) == {"spring_boot", "plain_java", "jakarta_ee"}
+        assert set(_ADAPTER_FACTORIES) == {
+            "spring_boot", "plain_java", "jakarta_ee", "quarkus", "micronaut"
+        }
 
 
 class TestPlanTruth:

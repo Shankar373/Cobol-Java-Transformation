@@ -526,6 +526,15 @@ class UniversalModernizationPipeline:
                 "lane with fresh per-workload oracle comparison — no Jakarta "
                 "EE server runtime and no universal equivalence claim"
             )
+        elif self._config.target_runtime in ("quarkus", "micronaut"):
+            limitations.append(
+                f"target_runtime={self._config.target_runtime}: command-mode "
+                "application (the run unit executes once inside the "
+                "framework container; no HTTP endpoints, no native image); "
+                "Maven build + jar execution + fresh oracle comparison are "
+                "produced per workload by the verification pipeline (no "
+                "universal equivalence claim)"
+            )
 
         if not limitations:
             limitations = ("No limitations identified",)

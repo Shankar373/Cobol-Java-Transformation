@@ -9,16 +9,18 @@ from __future__ import annotations
 from engine.candidate.adapter import CandidateAdapter
 
 # Targets whose generated project is a Spring Boot application (built by the
-# Spring Boot lane).  plain_java / jakarta_ee are dependency-free Maven
-# projects built by the generic Maven lane.
-_SUPPORTED_TARGETS = ("spring_boot", "plain_java", "jakarta_ee")
+# Spring Boot lane).  plain_java / jakarta_ee / quarkus / micronaut are
+# Maven projects building one runnable jar, built by the generic Maven lane
+# (the offline image pre-caches the Quarkus and Micronaut dependencies).
+_SUPPORTED_TARGETS = ("spring_boot", "plain_java", "jakarta_ee", "quarkus", "micronaut")
 
 
 def candidate_adapter_for_target(target_runtime: str) -> CandidateAdapter:
     """Resolve the build + execute adapter for a configured runtime target.
 
     - ``spring_boot`` → ``DockerSpringBootCandidateAdapter``
-    - ``plain_java`` / ``jakarta_ee`` → ``MavenProjectCandidateAdapter``
+    - ``plain_java`` / ``jakarta_ee`` / ``quarkus`` / ``micronaut`` →
+      ``MavenProjectCandidateAdapter``
     - unknown target → ``ValueError`` naming the supported set (never a
       silent fallback to another lane).
     """
@@ -30,7 +32,7 @@ def candidate_adapter_for_target(target_runtime: str) -> CandidateAdapter:
         )
 
         return DockerSpringBootCandidateAdapter()
-    if target_runtime in ("plain_java", "jakarta_ee"):
+    if target_runtime in ("plain_java", "jakarta_ee", "quarkus", "micronaut"):
         from engine.candidate.maven_adapter import MavenProjectCandidateAdapter
 
         return MavenProjectCandidateAdapter()

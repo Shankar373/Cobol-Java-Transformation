@@ -24,6 +24,8 @@ SUPPORTED_TARGET_RUNTIMES: tuple[str, ...] = (
     "spring_boot",
     "plain_java",
     "jakarta_ee",
+    "quarkus",
+    "micronaut",
 )
 SUPPORTED_JAVA_VERSIONS: tuple[str, ...] = ("17", "21")
 SUPPORTED_BUILD_TOOLS: tuple[str, ...] = ("maven",)
@@ -35,6 +37,8 @@ PLAN_OUTPUT_TYPE_BY_TARGET: dict[str, str] = {
     "spring_boot": "SPRING_BOOT",
     "plain_java": "NATIVE_JAVA",
     "jakarta_ee": "JAKARTA_EE",
+    "quarkus": "QUARKUS",
+    "micronaut": "MICRONAUT",
 }
 VALID_PLAN_OUTPUT_TYPES: tuple[str, ...] = tuple(
     PLAN_OUTPUT_TYPE_BY_TARGET.values()
@@ -467,10 +471,259 @@ def _jakarta_pom_xml(*, application_id: str, entry_class: str, java_version: str
 """
 
 
+class _FrameworkCommandAdapter(PlainJavaRuntimeAdapter):
+    """A framework application in command mode around the plain-Java program.
+
+    The program classes are exactly the ``plain_java`` ones; the framework
+    entry class starts the framework's container, runs the COBOL run unit
+    (the entry program's ``main``) inside it and shuts it down.  Framework
+    console output is switched off so stdout stays the program's own.  The
+    project builds to exactly one runnable jar in ``target/``.
+    """
+
+    entry_class_name: ClassVar[str]
+
+    def _assemble(self, java_application, *, entry_program, copybook_models,
+                  output_prefix, runtime):
+        outcome = super()._assemble(
+            java_application, entry_program=entry_program,
+            copybook_models=copybook_models, output_prefix=output_prefix,
+            runtime=runtime,
+        )
+        root = outcome.project_dir
+        for rel, content in self._framework_files(outcome.entrypoint).items():
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        return AssemblyOutcome(project_dir=root, entrypoint=self.entry_class_name)
+
+    def _framework_files(self, program_class: str) -> dict[str, str]:
+        raise NotImplementedError
+
+
+class QuarkusRuntimeAdapter(_FrameworkCommandAdapter):
+    """Quarkus command-mode application (``@QuarkusMain``), uber-jar."""
+
+    target_runtime: ClassVar[str] = "quarkus"
+    entry_class_name: ClassVar[str] = "CobolQuarkusMain"
+    model_package: ClassVar[str] = "com.modernized.app.quarkus.model"
+
+    def _framework_files(self, program_class: str) -> dict[str, str]:
+        return {
+            f"src/main/java/{self.entry_class_name}.java": (
+                "import io.quarkus.runtime.Quarkus;\n"
+                "import io.quarkus.runtime.QuarkusApplication;\n"
+                "import io.quarkus.runtime.annotations.QuarkusMain;\n\n"
+                "/** Runs the COBOL run unit inside the Quarkus runtime (command mode). */\n"
+                "@QuarkusMain\n"
+                f"public class {self.entry_class_name} implements QuarkusApplication {{\n"
+                "    @Override\n"
+                "    public int run(String... args) throws Exception {\n"
+                f"        {program_class}.main(args);\n"
+                "        return 0;\n"
+                "    }\n\n"
+                "    public static void main(String... args) {\n"
+                f"        Quarkus.run({self.entry_class_name}.class, args);\n"
+                "    }\n"
+                "}\n"
+            ),
+            "src/main/resources/application.properties": (
+                "quarkus.banner.enabled=false\n"
+                "quarkus.log.console.enable=false\n"
+                "quarkus.package.jar.type=uber-jar\n"
+                "quarkus.package.jar.add-runner-suffix=false\n"
+            ),
+        }
+
+    def _render_pom(self, *, application_id: str, entry_class: str, java_version: str) -> str:
+        return _quarkus_pom_xml(application_id=application_id, java_version=java_version)
+
+
+class MicronautRuntimeAdapter(_FrameworkCommandAdapter):
+    """Micronaut application: the run unit runs inside an ``ApplicationContext``;
+    shaded into one jar."""
+
+    target_runtime: ClassVar[str] = "micronaut"
+    entry_class_name: ClassVar[str] = "CobolMicronautMain"
+    model_package: ClassVar[str] = "com.modernized.app.micronaut.model"
+
+    def _framework_files(self, program_class: str) -> dict[str, str]:
+        return {
+            f"src/main/java/{self.entry_class_name}.java": (
+                "import io.micronaut.context.ApplicationContext;\n\n"
+                "/** Runs the COBOL run unit inside a Micronaut application context. */\n"
+                f"public class {self.entry_class_name} {{\n"
+                "    public static void main(String[] args) throws Exception {\n"
+                "        try (ApplicationContext context = ApplicationContext.run()) {\n"
+                f"            {program_class}.main(args);\n"
+                "        }\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+
+    def _render_pom(self, *, application_id: str, entry_class: str, java_version: str) -> str:
+        return _micronaut_pom_xml(
+            application_id=application_id, main_class=self.entry_class_name,
+            java_version=java_version,
+        )
+
+
+#: Framework versions; Dockerfile.maven-offline pre-caches exactly these.
+QUARKUS_VERSION = "3.15.1"
+MICRONAUT_PLATFORM_VERSION = "4.6.3"
+
+
+def _artifact_id(application_id: str) -> str:
+    return (application_id or "generated-app").lower().replace(" ", "-").replace("_", "-")
+
+
+def _quarkus_pom_xml(*, application_id: str, java_version: str) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.modernized.app</groupId>
+    <artifactId>{_artifact_id(application_id)}</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>{application_id}</name>
+    <description>Auto-generated Quarkus command-mode application (target_runtime=quarkus)</description>
+    <properties>
+        <maven.compiler.release>{java_version}</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <quarkus.version>{QUARKUS_VERSION}</quarkus.version>
+    </properties>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${{quarkus.version}}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-arc</artifactId>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${{quarkus.version}}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+"""
+
+
+def _micronaut_pom_xml(*, application_id: str, main_class: str, java_version: str) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.modernized.app</groupId>
+    <artifactId>{_artifact_id(application_id)}</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>{application_id}</name>
+    <description>Auto-generated Micronaut application (target_runtime=micronaut)</description>
+    <properties>
+        <maven.compiler.release>{java_version}</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.micronaut.platform</groupId>
+                <artifactId>micronaut-platform</artifactId>
+                <version>{MICRONAUT_PLATFORM_VERSION}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>io.micronaut</groupId>
+            <artifactId>micronaut-context</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <version>2.0.16</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+            <plugin>
+                <!-- the thin jar goes to target/thin: target/ holds one runnable jar -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <outputDirectory>${{project.build.directory}}/thin</outputDirectory>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <outputFile>${{project.build.directory}}/app.jar</outputFile>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>{main_class}</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+"""
+
+
 _ADAPTER_FACTORIES: dict[str, type[RuntimeAdapter]] = {
     "spring_boot": SpringBootRuntimeAdapter,
     "plain_java": PlainJavaRuntimeAdapter,
     "jakarta_ee": JakartaEeRuntimeAdapter,
+    "quarkus": QuarkusRuntimeAdapter,
+    "micronaut": MicronautRuntimeAdapter,
 }
 
 

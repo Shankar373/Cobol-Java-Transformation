@@ -35,6 +35,12 @@ Java/Maven (generator-emitted, engine scope — NOT modified):
 `spring-boot-starter-parent 3.2.5`, `java.version 21`,
 `spring-boot-starter` (+ `spring-context`, `spring-boot-starter-batch`
 in JCL paths). Build image `maven:3.9-eclipse-temurin-21`.
+Phase 3 framework targets (2026-11-02, `engine/transformation/runtime_adapters.py`,
+pre-cached from `docker/maven-precache`): `quarkus-bom` / `quarkus-arc` /
+`quarkus-maven-plugin 3.15.1`; `micronaut-platform 4.6.3` BOM +
+`micronaut-context`, `slf4j-nop 2.0.16`, `maven-shade-plugin 3.6.0`,
+`maven-jar-plugin 3.3.0`.  Not yet scanned for advisories or licenses
+(Phase 4 dependency and license review).
 Runtime `eclipse-temurin:21-jdk` with code-enforced digest
 `eclipse-temurin@sha256:4d06…7026`
 (`engine/candidate/docker_spring_boot_adapter.py:72`).
