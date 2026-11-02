@@ -51,10 +51,10 @@ Still open, all fail closed today (no false VERIFIED path known):
   ERROR~~ is lowered since Phase 3 increment 8 (`tests/test_size_error.py`)
   for single-receiver ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE; with several
   receivers or with DIVIDE … REMAINDER it is still refused.
-- **Division by zero without ON SIZE ERROR**: GnuCOBOL 3.1.2 leaves the
-  receiver unchanged and continues; the generated Java throws
-  `ArithmeticException` (the run fails, it never verifies).  Not yet
-  reproduced.
+- ~~**Division by zero without ON SIZE ERROR**: the generated Java threw
+  `ArithmeticException`~~ — since increment 9 a zero divisor anywhere in a
+  DIVIDE/COMPUTE leaves every receiver (REMAINDER too) unchanged and the run
+  continues, as GnuCOBOL 3.1.2 does (`tests/test_size_error.py`).
 - **STDERR** is compared only when the source writes to it (`UPON STDERR` /
   `SYSERR`); otherwise GnuCOBOL runtime messages and JVM diagnostics differ by
   design and are not compared.

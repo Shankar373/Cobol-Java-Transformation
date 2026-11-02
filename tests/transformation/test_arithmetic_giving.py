@@ -28,6 +28,20 @@ def parser() -> CobolParser:
     return CobolParser()
 
 
+def _statements(java):
+    """Method body statements, including those inside a ``JavaIf`` (a
+    DIVIDE by a data item is guarded: a zero divisor leaves the receiver
+    unchanged, GnuCOBOL 3.1.2 — ``tests/test_size_error.py``)."""
+    from engine.transformation.java_ir import JavaIf
+
+    out = []
+    for s in java.java_class.methods[0].body_statements:
+        out.append(s)
+        if isinstance(s, JavaIf):
+            out.extend(s.then_body)
+    return out
+
+
 def _magnitude_wrapper(expr):
     """Unwrap the ``Math.abs(...)`` applied to an unsigned COBOL receiver.
 
@@ -347,7 +361,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        stmts = [s for s in java.java_class.methods[0].body_statements
+        stmts = [s for s in _statements(java)
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
         expr = _magnitude_wrapper(stmts[0].expression)
@@ -370,7 +384,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        stmts = [s for s in java.java_class.methods[0].body_statements
+        stmts = [s for s in _statements(java)
                  if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(stmts) == 1
         expr = _magnitude_wrapper(stmts[0].expression)
@@ -396,7 +410,7 @@ MAIN.
 """
         java = self._parse_and_map(cobol)
         # WS_B should not have any assignment from the SUBTRACT statement
-        ws_b_assigns = [s for s in java.java_class.methods[0].body_statements
+        ws_b_assigns = [s for s in _statements(java)
                        if hasattr(s, 'target') and s.target == 'WS_B']
         # No assignments to WS_B at all (no MOVE, no SUBTRACT target)
         assert len(ws_b_assigns) == 0
@@ -426,7 +440,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        stmts = [s for s in java.java_class.methods[0].body_statements
+        stmts = [s for s in _statements(java)
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
         expr = _magnitude_wrapper(stmts[0].expression)
@@ -449,7 +463,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        stmts = [s for s in java.java_class.methods[0].body_statements
+        stmts = [s for s in _statements(java)
                  if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(stmts) == 1
         expr = _magnitude_wrapper(stmts[0].expression)
@@ -474,9 +488,9 @@ MAIN.
 """
         java = self._parse_and_map(cobol)
         # WS_A and WS_B should not have any assignment from the MULTIPLY statement
-        ws_a_assigns = [s for s in java.java_class.methods[0].body_statements
+        ws_a_assigns = [s for s in _statements(java)
                        if hasattr(s, 'target') and s.target == 'WS_A']
-        ws_b_assigns = [s for s in java.java_class.methods[0].body_statements
+        ws_b_assigns = [s for s in _statements(java)
                        if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(ws_a_assigns) == 0
         assert len(ws_b_assigns) == 0
@@ -506,7 +520,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        stmts = [s for s in java.java_class.methods[0].body_statements
+        stmts = [s for s in _statements(java)
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
         expr = _magnitude_wrapper(stmts[0].expression)
@@ -531,7 +545,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        remainder_stmts = [s for s in java.java_class.methods[0].body_statements
+        remainder_stmts = [s for s in _statements(java)
                           if hasattr(s, 'target') and s.target == 'WS_R']
         assert len(remainder_stmts) == 1
         # COBOL REMAINDER = dividend - (stored quotient * divisor), not a
@@ -565,9 +579,9 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        ws_a_assigns = [s for s in java.java_class.methods[0].body_statements
+        ws_a_assigns = [s for s in _statements(java)
                        if hasattr(s, 'target') and s.target == 'WS_A']
-        ws_b_assigns = [s for s in java.java_class.methods[0].body_statements
+        ws_b_assigns = [s for s in _statements(java)
                        if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(ws_a_assigns) == 0
         assert len(ws_b_assigns) == 0
@@ -602,7 +616,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        targets = [s.target for s in java.java_class.methods[0].body_statements
+        targets = [s.target for s in _statements(java)
                   if hasattr(s, 'target')]
         # Only WS_C should be assigned the subtraction result
         assert "WS_C" in targets
@@ -624,7 +638,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        targets = [s.target for s in java.java_class.methods[0].body_statements
+        targets = [s.target for s in _statements(java)
                   if hasattr(s, 'target')]
         assert "WS_B" in targets
 
@@ -645,7 +659,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        targets = [s.target for s in java.java_class.methods[0].body_statements
+        targets = [s.target for s in _statements(java)
                   if hasattr(s, 'target')]
         assert "WS_C" in targets
         assert targets.count("WS_A") == 0
@@ -667,7 +681,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        targets = [s.target for s in java.java_class.methods[0].body_statements
+        targets = [s.target for s in _statements(java)
                   if hasattr(s, 'target')]
         assert "WS_B" in targets
 
@@ -688,7 +702,7 @@ MAIN.
     STOP RUN.
 """
         java = self._parse_and_map(cobol)
-        targets = [s.target for s in java.java_class.methods[0].body_statements
+        targets = [s.target for s in _statements(java)
                   if hasattr(s, 'target')]
         assert "WS_C" in targets
         assert targets.count("WS_A") == 0
@@ -709,7 +723,7 @@ class TestCobolSemanticCorrectness:
 
     def _get_assignment(self, java, target_name):
         """Get the JavaAssignment for a target variable."""
-        for s in java.java_class.methods[0].body_statements:
+        for s in _statements(java):
             if hasattr(s, 'target') and s.target == target_name:
                 return s
         return None

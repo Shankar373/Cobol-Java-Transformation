@@ -10,9 +10,12 @@ def _parse_map(cobol: str):
 
 
 def _assignment(java_program, target: str):
+    """The assignment to ``target`` — also inside a zero-divisor guard
+    (a DIVIDE by a data item: a zero divisor leaves the receiver unchanged)."""
     for statement in java_program.java_class.methods[0].body_statements:
-        if getattr(statement, "target", None) == target:
-            return statement
+        for candidate in (statement, *getattr(statement, "then_body", ())):
+            if getattr(candidate, "target", None) == target:
+                return candidate
     raise AssertionError(f"No assignment for {target}")
 
 

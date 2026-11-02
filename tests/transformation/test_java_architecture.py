@@ -786,11 +786,17 @@ class TestStatementMapping:
         assert isinstance(java_stmts[0], JavaMethodCallStatement)
 
     def test_divide_statement_maps_to_java_assignment(self):
+        # A data-item divisor is guarded: zero leaves the receiver unchanged
+        # (GnuCOBOL 3.1.2, tests/test_size_error.py).
+        from engine.transformation.java_ir import JavaIf
+
         stmt = DivideStatement(target="WS-RESULT", source="WS-A", divisor="WS-B")
         java_stmts = map_cobol_statement(stmt)
         assert len(java_stmts) == 1
-        assert isinstance(java_stmts[0], JavaAssignment)
-        assert java_stmts[0].target == "WS_RESULT"
+        assert isinstance(java_stmts[0], JavaIf)
+        (assignment,) = java_stmts[0].then_body
+        assert isinstance(assignment, JavaAssignment)
+        assert assignment.target == "WS_RESULT"
 
     def test_move_literal_string(self):
         stmt = MoveStatement(target="WS-NAME", source="'HELLO WORLD'")

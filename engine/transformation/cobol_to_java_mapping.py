@@ -758,6 +758,32 @@ def _division_divisors(expr: JavaExpression) -> list[JavaExpression]:
     return found
 
 
+def _zero_divisor_test(expr: JavaExpression, program) -> JavaExpression | None:
+    """``true`` when some divisor of ``expr`` is zero; None when every
+    divisor is a non-zero literal (or there is no division)."""
+    tests: list[JavaExpression] = []
+    for divisor in _division_divisors(expr):
+        if isinstance(divisor, JavaLiteral) and _is_numeric_literal(divisor.value.rstrip("Ll")):
+            if float(divisor.value.rstrip("Ll")) != 0:
+                continue
+        if _expression_requires_fractional_type(divisor, program):
+            tests.append(JavaBinaryOp(
+                left=JavaMethodCall(
+                    object_ref=_promote_numeric_expression_to_decimal(divisor, program),
+                    method_name="signum",
+                ),
+                operator="==", right=JavaLiteral(value="0"),
+            ))
+        else:
+            tests.append(JavaBinaryOp(left=divisor, operator="==", right=JavaLiteral(value="0")))
+    if not tests:
+        return None
+    combined = tests[0]
+    for test in tests[1:]:
+        combined = JavaBinaryOp(left=combined, operator="||", right=test)
+    return combined
+
+
 def _emit_arithmetic(result, stmt, target: str, raw: JavaExpression, program,
                      called_programs=None) -> None:
     """Store an arithmetic result, honouring ``[NOT] ON SIZE ERROR``.
@@ -771,10 +797,20 @@ def _emit_arithmetic(result, stmt, target: str, raw: JavaExpression, program,
     runs.  Truncated fraction digits are not a size error.
     """
     if not (stmt.size_error_body or stmt.not_size_error_body):
-        result.append(JavaAssignment(
+        assignment = JavaAssignment(
             target=target,
             expression=_apply_numeric_receiver_semantics(raw, target, program, stmt.rounded),
-        ))
+        )
+        zero = _zero_divisor_test(raw, program)
+        if zero is None:
+            result.append(assignment)
+        else:
+            # GnuCOBOL 3.1.2: a zero divisor leaves the receiver unchanged and
+            # the run continues (``tests/test_size_error.py``); Java threw.
+            result.append(JavaIf(
+                condition=JavaUnaryOp(operator="!", operand=zero),
+                then_body=(assignment,),
+            ))
         return
     item = _find_data_item(program, target)
     if item is None or not item.is_numeric or isinstance(raw, JavaUnsupportedExpression):
@@ -789,23 +825,7 @@ def _emit_arithmetic(result, stmt, target: str, raw: JavaExpression, program,
     decimal = JavaType(basic_type=JavaBasicType.DECIMAL)
     flag = _fresh_io_var("size")
     exact = _fresh_io_var("exact")
-    zero_tests: list[JavaExpression] = []
-    for divisor in _division_divisors(raw):
-        if _expression_requires_fractional_type(divisor, program):
-            zero_tests.append(JavaBinaryOp(
-                left=JavaMethodCall(
-                    object_ref=_promote_numeric_expression_to_decimal(divisor, program),
-                    method_name="signum",
-                ),
-                operator="==", right=JavaLiteral(value="0"),
-            ))
-        else:
-            zero_tests.append(JavaBinaryOp(left=divisor, operator="==", right=JavaLiteral(value="0")))
-    zero: JavaExpression = JavaLiteral(value="false")
-    for test in zero_tests:
-        zero = test if zero == JavaLiteral(value="false") else JavaBinaryOp(
-            left=zero, operator="||", right=test,
-        )
+    zero = _zero_divisor_test(raw, program) or JavaLiteral(value="false")
     result.append(JavaLocalVarDecl(
         java_type=JavaType(basic_type=JavaBasicType.BOOLEAN), name=flag, initializer=zero,
     ))
@@ -4159,9 +4179,14 @@ def map_cobol_statement(
                     remainder_target,
                     program,
                 )
-            result.append(JavaAssignment(
+            remainder_assignment = JavaAssignment(
                 target=remainder_target,
                 expression=remainder_expression,
+            )
+            zero = _zero_divisor_test(JavaBinaryOp(left=source, operator="/", right=divisor), program)
+            result.append(remainder_assignment if zero is None else JavaIf(
+                condition=JavaUnaryOp(operator="!", operand=zero),
+                then_body=(remainder_assignment,),
             ))
 
     elif isinstance(stmt, ComputeStatement):

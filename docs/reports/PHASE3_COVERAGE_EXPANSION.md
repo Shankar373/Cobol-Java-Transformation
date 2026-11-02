@@ -341,3 +341,23 @@ earlier Phase 3 applications is byte-identical to `84d92d4`.  Tests that
 pinned "SIZE ERROR is refused" now pin the attached bodies; the
 `divide_on_size_error` false-success case moved from "fails closed" to
 "supported", with GnuCOBOL's output (`ERR`, `0`).
+
+### 3.9 Division by zero without ON SIZE ERROR (increment 9)
+
+GnuCOBOL 3.1.2 (7 cases pinned in `tests/test_size_error.py`): a zero
+divisor anywhere in a DIVIDE or COMPUTE — `BY`, `INTO`, nested inside a
+larger expression, a decimal divisor — leaves every receiver unchanged,
+REMAINDER included, and the run continues.  The generated Java threw
+`ArithmeticException` and the run failed.
+
+`_emit_arithmetic` now guards the store (`if (!(divisor == 0)) …`, or
+`signum()` for decimal divisors); a non-zero literal divisor (`/ 4`) is
+not guarded, so such code is unchanged.
+
+Regression: the generated Java changed for exactly the five applications
+that divide by a data item — `workload-arithmetic`,
+`workload-divide-giving-verified`, `workload-divide-into-verified`,
+`workload-payroll`, `workload_inventory`; each was re-run through the API
+(**VERIFIED**) and re-checked independently (**AGREE**).  All other
+generated Java is byte-identical to `0193fb3`.  Tests that looked for the
+DIVIDE assignment at the top level now look inside the guard.

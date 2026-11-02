@@ -119,6 +119,48 @@ EXPECTED = (
 )
 
 
+#: Without the phrase (Phase 3, increment 9): a zero divisor anywhere in the
+#: statement leaves every receiver unchanged — REMAINDER too — and the run
+#: continues (GnuCOBOL 3.1.2); the generated Java threw ArithmeticException.
+DIVIDE_BY_ZERO = """\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DIVZ.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-A      PIC 9(4) VALUE 100.
+       01  WS-Z      PIC 9(4) VALUE 0.
+       01  WS-DZ     PIC 9V99 VALUE 0.
+       01  WS-Q      PIC 9(4) VALUE 7.
+       01  WS-R      PIC 9(4) VALUE 8.
+       01  WS-D      PIC 9(3)V99 VALUE 1.5.
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           DIVIDE WS-A BY WS-Z GIVING WS-Q
+           DISPLAY 'D1 ' WS-Q
+           DIVIDE WS-Z INTO WS-A
+           DISPLAY 'D2 ' WS-A
+           COMPUTE WS-Q = WS-A / WS-Z
+           DISPLAY 'D3 ' WS-Q
+           COMPUTE WS-Q = (WS-A / WS-Z) + 1
+           DISPLAY 'D4 ' WS-Q
+           COMPUTE WS-D = WS-A / WS-DZ
+           DISPLAY 'D5 ' WS-D
+           DIVIDE WS-A BY WS-Z GIVING WS-Q REMAINDER WS-R
+           DISPLAY 'D6 ' WS-Q ' ' WS-R
+           COMPUTE WS-Q = WS-A / 4
+           DISPLAY 'D7 ' WS-Q
+           STOP RUN.
+"""
+DIVIDE_BY_ZERO_EXPECTED = (
+    "D1 0007\nD2 0100\nD3 0007\nD4 0007\nD5 001.50\nD6 0007 0008\nD7 0025\n"
+)
+
+CASES = {
+    "size_error": (SOURCE, "SIZEERR", EXPECTED),
+    "divide_by_zero_without_phrase": (DIVIDE_BY_ZERO, "DIVZ", DIVIDE_BY_ZERO_EXPECTED),
+}
+
+
 def _level(source: str) -> tuple[CapabilityLevel, str]:
     unit = CobolProgramUnit(program_id="S", source_path="S.cob",
                             program=CobolParser().parse(source), source_text=source)
@@ -205,12 +247,14 @@ class TestClauseCollector:
         ]
 
 
-def test_generated_java_matches_oracle(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_generated_java_matches_oracle(name: str, tmp_path: Path) -> None:
     if not (shutil.which("javac") and shutil.which("java")):
         if os.environ.get("RUN_DOCKER_TESTS") == "1":
             pytest.fail("javac/java not on PATH: the Docker lane requires a JDK")
         pytest.skip("javac/java not on PATH")
-    result = TransformationProducer().transform(SOURCE, "SIZEERR")
+    source, program_id, expected = CASES[name]
+    result = TransformationProducer().transform(source, program_id)
     assert result.success is True, result.errors
     for generated in result.generated_files:
         (tmp_path / generated.filename).write_text(generated.source_code, encoding="utf-8")
@@ -226,18 +270,21 @@ def test_generated_java_matches_oracle(tmp_path: Path) -> None:
         capture_output=True, timeout=60, cwd=tmp_path,
     )
     assert run.returncode == 0, run.stderr.decode(errors="replace")
-    assert run.stdout.decode() == EXPECTED
+    assert run.stdout.decode() == expected
 
 
-def test_oracle_pins(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_oracle_pins(name: str, tmp_path: Path) -> None:
     if os.environ.get("RUN_DOCKER_TESTS") != "1":
         pytest.skip("Docker lane test: set RUN_DOCKER_TESTS=1 to run it")
-    (tmp_path / "SIZEERR.cob").write_text(SOURCE, encoding="utf-8")
+    source, program_id, expected = CASES[name]
+    (tmp_path / f"{program_id}.cob").write_text(source, encoding="utf-8")
     os.chmod(tmp_path, 0o777)
     run = subprocess.run(
         ["docker", "run", "--rm", "--network", "none", "-v", f"{tmp_path}:/src",
-         ORACLE_IMAGE, "sh", "-c", "cd /tmp && cobc -x /src/SIZEERR.cob -o s && ./s"],
+         ORACLE_IMAGE, "sh", "-c",
+         f"cd /tmp && cobc -x /src/{program_id}.cob -o s && ./s"],
         capture_output=True, timeout=300,
     )
     assert run.returncode == 0, run.stderr.decode(errors="replace")
-    assert run.stdout.decode() == EXPECTED
+    assert run.stdout.decode() == expected
