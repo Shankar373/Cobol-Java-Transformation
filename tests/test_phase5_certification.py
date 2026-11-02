@@ -237,8 +237,10 @@ def test_workflow_pipelines_into_tee_keep_the_command_status():
     # GitHub's default `run` shell is `bash -e` without pipefail: in
     # `cmd | tee log` a failing cmd is masked by tee. The first certification
     # run passed although the verifier crashed. Every step that pipes into
-    # tee must run with pipefail (explicit, or shell: bash).
-    import yaml
+    # tee must run with pipefail (explicit, or shell: bash). PyYAML is in
+    # the backend lock, not in the pytest-only gate job: skip there, the
+    # backend job runs it.
+    yaml = pytest.importorskip("yaml")
 
     for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
         data = yaml.safe_load(workflow.read_text(encoding="utf-8"))
