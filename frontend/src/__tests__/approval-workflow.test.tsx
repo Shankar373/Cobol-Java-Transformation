@@ -23,6 +23,7 @@ const PENDING = {
   approver: null,
   reason: null,
   decided_at: null,
+  history: [],
 };
 
 const APPROVED = {
@@ -31,6 +32,7 @@ const APPROVED = {
   approver: 'reviewer-a',
   reason: null,
   decided_at: '2026-10-17T10:00:00+00:00',
+  history: [],
 };
 
 beforeEach(() => {
@@ -121,6 +123,7 @@ describe('ApprovalPanel', () => {
       approver: 'reviewer-b',
       reason: 'scope mismatch',
       decided_at: '2026-10-17T10:05:00+00:00',
+      history: [],
     });
     mockSetRunApproval.mockResolvedValue({
       run_id: 'run-1',
@@ -128,6 +131,7 @@ describe('ApprovalPanel', () => {
       approver: 'reviewer-b',
       reason: 'scope mismatch',
       decided_at: '2026-10-17T10:05:00+00:00',
+      history: [],
     });
 
     render(<ApprovalPanel runId="run-1" />);
@@ -202,6 +206,7 @@ describe('ApprovalPanel', () => {
       approver: 'reviewer-c',
       reason: 'second look failed',
       decided_at: '2026-10-17T11:00:00+00:00',
+      history: [],
     });
 
     render(<ApprovalPanel runId="run-1" />);

@@ -1,7 +1,7 @@
 # Third-Party Notices
 
-**Status:** Dependency inventory. Project license not yet selected (see
-`docs/decisions/` and `KNOWN_ISSUES.md`); no `LICENSE` file is shipped.
+**Status:** Dependency inventory. The project is licensed under the
+Apache License 2.0 (`LICENSE`, `NOTICE`; decided 2026-11-03).
 This document records the direct/transitive dependencies and their stated
 licenses for attribution purposes. It is not a license grant.
 

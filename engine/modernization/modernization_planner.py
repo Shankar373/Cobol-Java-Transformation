@@ -1,4 +1,6 @@
-"""Modernization Planner — Single entry point for modernization planning.
+"""EXPERIMENTAL - not wired into the product (architecture audit, 2026-11-03): the production plan is engine/modernization/transformation_plan.py; this planner is exercised by tests only. Kept by owner decision; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Modernization Planner — Single entry point for modernization planning.
 
 Architecture:
     Universal Ingestion

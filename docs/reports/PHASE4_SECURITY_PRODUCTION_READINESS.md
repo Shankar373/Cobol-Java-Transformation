@@ -66,7 +66,7 @@ Severity: P1 high, P2 medium, P3 low (no P0 found).
 | Artifact / image / SBOM signing and provenance attestation | **owner decision** (L3_7 decision record: BLOCKED) | key custody (file / secret manager / KMS), algorithm, rotation, legacy-seal policy |
 | Generated framework versions: Spring Boot 3.2.5, Quarkus 3.15.1, Micronaut 4.6.3 past support | **owner decision** (J1, J3) | generator + precache + full corpus re-proof; the new image scan reports them (report-only until then) |
 | Image scan findings (OS packages of all three images, Maven build-plugin jars, Docker CLI binary, base-image pip tooling) — see "First image scan" | **owner decision** | each fix changes a pinned identity recorded in evidence/provenance (oracle image, base digests, Docker CLI pin) |
-| Project LICENSE | **owner decision** | `PROJECT_LICENSE_DECISION.md` recommends Apache-2.0 |
+| Project LICENSE | **decided 2026-11-03: Apache-2.0** | `LICENSE`, `NOTICE` committed (architecture audit) |
 | Berkeley DB (Sleepycat) in the oracle image | legal review **if the image is distributed** | built locally today, not shipped |
 | Retention / deletion of uploaded and generated data; encryption at rest; backup encryption | **owner decision** | policy and storage choice |
 | Rate-limit values; evidence TTL (BL-113); cancellation (BL-115) | **owner decisions** (D-7, D-8) | defaults set for rate limits only |

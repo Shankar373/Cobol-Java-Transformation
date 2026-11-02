@@ -58,7 +58,7 @@ tests, pushing images to a registry.
 |---|---|---|
 | One shared API token; no user identity, roles or tenancy; approver is free text | anyone holding the token can approve and export | choose an identity provider and role model (BL-122 / D-9) |
 | No artifact or image signing / provenance attestation | releases cannot be verified by a third party | key custody decision (L3_7 decision record) |
-| No project LICENSE | no legal basis to use or redistribute | select a licence (`PROJECT_LICENSE_DECISION.md` recommends Apache-2.0) |
+| ~~No project LICENSE~~ | resolved 2026-11-03 | Apache-2.0 (`LICENSE`, `NOTICE`) |
 | Generated frameworks past support (Spring Boot 3.2.5, Quarkus 3.15.1, Micronaut 4.6.3); image OS/package findings (first Trivy run) | generated applications and images carry known CVEs | approve upgrades — generator, precache, full corpus re-proof (J1, J3); image refresh changes evidence identities (J2) |
 | Docker socket in the API container | root-equivalent on the host | socket proxy or host-run API (accepted risk today) |
 | No retention/deletion, encryption at rest, backup encryption | customer source and generated code accumulate unencrypted | policy and storage decision |

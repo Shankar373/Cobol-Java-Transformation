@@ -192,7 +192,6 @@ def _bind_sources(source: str) -> list[str]:
         "engine/oracle/docker_adapter.py",
         "engine/candidate/docker_java_adapter.py",
         "engine/candidate/docker_spring_boot_adapter.py",
-        "engine/execution/docker_runner.py",
         "engine/transformation/producers/opensource4j.py",
     ],
 )

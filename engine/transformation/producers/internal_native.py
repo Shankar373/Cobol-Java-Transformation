@@ -1,4 +1,6 @@
-"""Internal Native Java Producer — primary transformation technology.
+"""EXPERIMENTAL - not wired into the product (architecture audit, 2026-11-03): the production pipeline generates through ApplicationGenerator and the runtime adapters; this producer is exercised by tests only. Kept by owner decision; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Internal Native Java Producer — primary transformation technology.
 
 This is the project's own COBOL→native-Java transformation producer.
 It generates standalone Java that requires only standard JDK/JVM.

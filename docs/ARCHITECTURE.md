@@ -44,8 +44,10 @@ exported from `engine/modernization/__init__.py`; it is used by tests and the AP
 **Canonical execution paths:** Docker execution is in
 `engine/candidate/docker_spring_boot_adapter.py` (candidate) and
 `engine/oracle/docker_adapter.py` (oracle).
-`engine/execution/docker_runner.py` is **deprecated** (BL-117, zero importers);
-it is retained for historical reference and must not be wired to new code.
+The former `engine/execution/docker_runner.py` (deprecated in BL-117, zero
+importers) was removed in the 2026-11-03 architecture audit (D1); every
+container run goes through the adapters above and
+`engine/execution/container_hardening.py`.
 
 ## Execution boundary
 

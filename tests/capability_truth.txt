@@ -81,6 +81,7 @@ tests/test_external_dependency_edges.py
 tests/test_runtime_adapter_architecture.py
 tests/test_framework_runtimes.py
 tests/test_capability_truth_manifest.py
+tests/test_experimental_modules.py
 tests/test_phase5_certification.py
 tests/test_shell_script_contracts.py
 tests/test_docker_capability_truth.py

@@ -1,7 +1,7 @@
 """BL-097: source-tree hashing must be platform-canonical.
 
 ``compute_source_tree_hash`` feeds adapter-level identity checks in
-``engine/oracle/docker_adapter.py`` and ``engine/execution/docker_runner.py``.
+``engine/oracle/docker_adapter.py`` (``engine/execution/docker_runner.py`` was removed as dead code, audit D1).
 It previously baked the OS path separator into the digest via
 ``str(f.relative_to(path))``, so an identical source tree hashed
 differently on Windows (``src\\A.cob``) and Linux (``src/A.cob``) —

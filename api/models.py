@@ -243,11 +243,6 @@ class VerdictResponse(BaseModel):
 # Ingestion
 # ---------------------------------------------------------------------------
 
-class IngestRequest(BaseModel):
-    """Request to ingest a legacy application source."""
-    git_url: str | None = None
-
-
 class IngestResponse(BaseModel):
     """Response after ingestion + discovery."""
     application_id: str

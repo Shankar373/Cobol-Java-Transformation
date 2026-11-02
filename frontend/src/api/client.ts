@@ -124,6 +124,8 @@ export interface ApplicationResponse {
   description: string;
   workload_id: string;
   java_entrypoint: string;
+  /** Generation target (api/models.py ApplicationResponse.target_runtime). */
+  target_runtime: string;
   cobol_source_path: string | null;
   java_candidate_path: string | null;
   generated_app_path: string | null;
@@ -245,10 +247,6 @@ export interface ArtifactsResponse {
   artifacts: ArtifactMetadata[];
 }
 
-export interface ValidateResponse {
-  run_id: string;
-  stage: RunStage;
-}
 
 // ---------------------------------------------------------------------------
 // Customer approval
@@ -260,12 +258,23 @@ export type ApprovalState = 'PENDING' | 'APPROVED' | 'REJECTED';
 /** Decisions accepted by the approval endpoint (PENDING is never one). */
 export type ApprovalDecisionValue = 'APPROVED' | 'REJECTED';
 
+/** One entry of a run's append-only approval trail (api/models.py ApprovalEvent). */
+export interface ApprovalEvent {
+  /** APPROVED | REJECTED, or RESET when a revalidation discarded a decision. */
+  state: string;
+  approver: string | null;
+  reason: string | null;
+  recorded_at: string;
+}
+
 export interface RunApprovalResponse {
   run_id: string;
   state: ApprovalState;
   approver: string | null;
   reason: string | null;
   decided_at: string | null;
+  /** Every decision and reset, oldest first (Phase 4 audit trail). */
+  history: ApprovalEvent[];
 }
 
 export interface ApprovalDecisionInput {
@@ -302,9 +311,6 @@ export interface VerdictResponse {
   comparisons: ComparisonDetail[];
 }
 
-export interface HealthResponse {
-  status: string;
-}
 
 export interface RunDetailResponse {
   id: string;
@@ -415,33 +421,7 @@ export async function createApplication(
   });
 }
 
-export async function uploadFiles(
-  appId: string,
-  files: File[],
-): Promise<UploadResponse> {
-  const form = new FormData();
-  for (const f of files) {
-    form.append('files', f);
-  }
-  return request<UploadResponse>(`/applications/${appId}/upload`, {
-    method: 'POST',
-    body: form,
-  });
-}
 
-export async function uploadCandidate(
-  appId: string,
-  files: File[],
-): Promise<UploadResponse> {
-  const form = new FormData();
-  for (const f of files) {
-    form.append('files', f);
-  }
-  return request<UploadResponse>(`/applications/${appId}/candidate`, {
-    method: 'POST',
-    body: form,
-  });
-}
 
 export async function modernize(
   appId: string,
@@ -466,11 +446,6 @@ export async function getArtifacts(
   return request<ArtifactsResponse>(`/runs/${runId}/artifacts`);
 }
 
-export async function validateRun(runId: string): Promise<ValidateResponse> {
-  return request<ValidateResponse>(`/runs/${runId}/validate`, {
-    method: 'POST',
-  });
-}
 
 /** Current approval record for a run (PENDING until a decision). */
 export async function getRunApproval(runId: string): Promise<RunApprovalResponse> {
@@ -499,9 +474,6 @@ export async function getVerdict(runId: string): Promise<VerdictResponse> {
   return request<VerdictResponse>(`/runs/${runId}/verdict`);
 }
 
-export async function getHealth(): Promise<HealthResponse> {
-  return request<HealthResponse>('/health');
-}
 
 // ---------------------------------------------------------------------------
 // Application history (persistent backend contract).

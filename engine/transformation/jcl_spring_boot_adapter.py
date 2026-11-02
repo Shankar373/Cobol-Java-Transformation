@@ -1,4 +1,6 @@
-"""JCL Spring Batch IR → Spring Boot IR adapter.
+"""EXPERIMENTAL - not wired into the product (architecture audit, 2026-11-03): a JCL -> Spring Batch assembly path with no production caller; JCL is not certified (docs/CAPABILITY_MATRIX.md). Kept by owner decision; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+JCL Spring Batch IR → Spring Boot IR adapter.
 
 Converts a ``SpringBatchApplication`` (produced by the JCL modernization
 lane) into a ``SpringBootApplication`` that the existing

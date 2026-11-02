@@ -1,7 +1,9 @@
 # Project License Decision Report
 
 Date: 2026-10-30
-Status: BLOCKED pending owner selection (no license committed).
+Status: **DECIDED 2026-11-03 - Apache-2.0** (owner decision during the architecture audit).
+`LICENSE` (canonical Apache License 2.0 text) and `NOTICE` are committed at the
+repository root; sections 1-3 below record the state before the decision.
 
 ## 1. Current state
 

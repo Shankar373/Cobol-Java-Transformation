@@ -107,7 +107,6 @@ lanes; capability truth gate green; deployment hardening substantial. Trusted
 signing unimplemented (owner-blocked), runtime equivalence partially proven,
 L.6.1 incomplete, legal/licensing gaps remain. No universal COBOL equivalence
 claimed.
-EOF
 
 
 ## Addendum — full integration suite attempt

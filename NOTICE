@@ -1,0 +1,10 @@
+Cobol-Java-Transformation (SystemaOps COBOL-to-Java modernization platform)
+Copyright 2026 the Cobol-Java-Transformation contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product depends on third-party components distributed under their own
+licenses; see docs/THIRD_PARTY_NOTICES.md. The GnuCOBOL oracle image built
+from Dockerfile.gnucobol (GnuCOBOL: GPL-3.0 / LGPL-3.0; Berkeley DB: Sleepycat)
+is a separate program invoked as a process and is not distributed with this
+source.

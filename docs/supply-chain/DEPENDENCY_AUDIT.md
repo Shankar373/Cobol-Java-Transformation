@@ -47,8 +47,7 @@ The sections after this one record the 2026-10-08 baseline. Current state:
   actions and Docker base-image updates weekly (never auto-merged).
 - **Still open (owner):** artifact/image signing and provenance
   attestation (key custody — `docs/decisions/L3_7_TRUSTED_SIGNING_DECISION_RECORD.md`),
-  framework upgrades (J1, J3), runtime digest rotation (J2), a project
-  LICENSE, legal review of the oracle image's Berkeley DB (Sleepycat)
+  framework upgrades (J1, J3), runtime digest rotation (J2), legal review of the oracle image's Berkeley DB (Sleepycat)
   licence if that image is ever distributed.
 
 ## 1. Dependency inventory (FACT)

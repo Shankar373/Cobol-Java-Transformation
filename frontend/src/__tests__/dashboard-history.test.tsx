@@ -16,6 +16,7 @@ const apps = [
     generated_entrypoint: null,
     discovered_program_ids: [],
     generated_program_ids: [],
+    target_runtime: 'spring_boot',
     created_at: '2024-01-01T00:00:00Z',
   },
 ];

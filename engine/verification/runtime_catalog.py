@@ -1,4 +1,6 @@
-"""Declarative runtime-capability catalog with fail-closed discovery.
+"""EXPERIMENTAL - not wired into the product (architecture audit, 2026-11-03): re-exported by engine.verification but read by tests only. Kept by owner decision; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Declarative runtime-capability catalog with fail-closed discovery.
 
 What the platform can prove at runtime differs sharply by workload family:
 GnuCOBOL and Java batch execution are proven; DB2, MQ, CICS, IMS and JCL

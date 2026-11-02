@@ -22,7 +22,6 @@ capability/verdict tests (highest-risk subset) via contextual read.
 No vacuous candidate found in this high-risk batch. The remaining conditional-only
 and loop-only candidates (mostly collection-property / file-organization guards)
 are classified Category B/C and preserved. No test rewrites performed.
-EOF
 
 ## Batch 2 (additional) - 2026-10-29
 - tests/transformation/test_capability_registry_reconciliation.py: 2 candidates - meaningful collection checks. Preserve.
