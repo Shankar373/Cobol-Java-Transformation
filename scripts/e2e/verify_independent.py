@@ -257,16 +257,22 @@ def _summary(side: dict) -> dict:
 
 
 def _release(work: Path) -> None:
-    """Make a work tree removable by this process.
+    """Remove a work tree, best effort; never raises.
 
     The sandbox user (uid 10001) owns what its containers created (Maven's
-    target/, program output); on a Linux host the invoking user cannot
-    delete those, and the temporary-directory cleanup crashed the run (CI,
-    2026-11-02). The same uid, in a hardened container, opens the tree up.
+    target/, program output). On a Linux host the invoking user may not be
+    able to delete those, which crashed the run in CI (2026-11-02, twice).
+    The same uid, in a hardened container, deletes what it owns first; any
+    remainder is left in the temporary directory - cleanup can never abort
+    a re-check, and no evidence depends on it.
     """
-    if any(work.iterdir()):
-        docker(["-v", f"{work.as_posix()}:/w", JRE, "sh", "-c",
-                "chmod -R a+rwX /w 2>/dev/null; true"], timeout=300)
+    if work.is_dir() and any(work.iterdir()):
+        p = docker(["-v", f"{work.as_posix()}:/w", JRE, "sh", "-c",
+                    "chmod -R a+rwX /w; find /w -mindepth 1 -delete"], timeout=300)
+        if p.returncode != 0:
+            print(f"cleanup container exit {p.returncode}: "
+                  f"{p.stderr.decode(errors='replace')[-300:]}", file=sys.stderr)
+    shutil.rmtree(work, ignore_errors=True)
 
 
 def main() -> None:
@@ -280,24 +286,24 @@ def main() -> None:
         if r.get("verdict") != "VERIFIED" or app in done or (wanted and app not in wanted):
             continue
         rec = {"app": app}
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-            try:
-                o = run_cobol(REPO / "fixtures" / app / "cobol", Path(tmp))
-                j = run_java(Path(r["generated_app_path"]), Path(tmp))
-                if "build_error" in j:
-                    rec["verdict"] = "JAVA_BUILD_ERROR"
-                    rec["detail"] = j["build_error"]
-                else:
-                    diffs = [k for k in ("stdout", "stderr", "exit", "files") if o[k] != j[k]]
-                    rec["verdict"] = "AGREE" if not diffs else "DISAGREE"
-                    rec["diffs"] = diffs
-                    rec["oracle"] = _summary(o)
-                    rec["java"] = _summary(j)
-            except Exception as exc:  # noqa: BLE001
-                rec["verdict"] = "HARNESS_ERROR"
-                rec["detail"] = repr(exc)[:500]
-            finally:
-                _release(Path(tmp))
+        tmp = tempfile.mkdtemp()
+        try:
+            o = run_cobol(REPO / "fixtures" / app / "cobol", Path(tmp))
+            j = run_java(Path(r["generated_app_path"]), Path(tmp))
+            if "build_error" in j:
+                rec["verdict"] = "JAVA_BUILD_ERROR"
+                rec["detail"] = j["build_error"]
+            else:
+                diffs = [k for k in ("stdout", "stderr", "exit", "files") if o[k] != j[k]]
+                rec["verdict"] = "AGREE" if not diffs else "DISAGREE"
+                rec["diffs"] = diffs
+                rec["oracle"] = _summary(o)
+                rec["java"] = _summary(j)
+        except Exception as exc:  # noqa: BLE001
+            rec["verdict"] = "HARNESS_ERROR"
+            rec["detail"] = repr(exc)[:500]
+        finally:
+            _release(Path(tmp))
         with OUT.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
         print(app, rec["verdict"], rec.get("diffs", ""), flush=True)
