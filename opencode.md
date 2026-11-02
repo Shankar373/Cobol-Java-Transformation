@@ -1045,7 +1045,7 @@ subset now transforms and is oracle-proven.)
   async-modernize); BL-097 **8/8 new + 45 regression passed**;
   frontend **143/143** (was 133), `tsc --noEmit`
   clean, `npm run build` clean.
-- Deliverable: `UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md`
+- Deliverable: `docs/reports/archive/UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md`
   (requirement matrix, runtime-lane maps, equivalence strategy, roadmap
   R-1..R-8, truthful scorecard); linked from `README.md`.
 

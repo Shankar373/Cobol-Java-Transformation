@@ -966,7 +966,7 @@ Line counts measured this session.
   - 🟡 **MEDIUM** `ci.yml:43-100` — the capability gate is a **frozen hard-coded file list**: any new test file not added here is never executed by the fast gate (only by the 180-minute backend job), so "capability truth" coverage silently lags new tests.
   - 🟢 **LOW** `ci.yml:191,198` — `if: always()` on the frontend test and build steps makes them run after `npm ci` failure (wasted work, confusing logs); the job still fails, so this is noise rather than a masking bug.
   - 🟢 **LOW** `ci.yml:185` — Node pinned to `20` inline instead of reading `.nvmrc` (`20`) — two pins that can drift.
-- **Limitations:** No lint job (no ruff/flake8 despite `PHASE7C_FINAL_EVIDENCE.md:140-146` reporting ruff runs), no coverage/mutation gate (deferred D-3), no deploy job, `timeout-minutes: 180` for the Docker job.
+- **Limitations:** No lint job (no ruff/flake8 despite `docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md:140-146` reporting ruff runs), no coverage/mutation gate (deferred D-3), no deploy job, `timeout-minutes: 180` for the Docker job.
 - **Gaps:** `requirements.lock` is installed without `--require-hashes` (`ci.yml:114,155`); no image vulnerability scan; the deselected test at `ci.yml:100` is permanently carved out of the fast gate (documented, but it is a standing exception).
 - **Issues:** Actions are SHA-pinned (good, `:19,21,165,183`) while pip/node are not — inconsistent pinning policy. `set -o pipefail` at `:36` is redundant with the explicit `shell: bash` elsewhere but absent where it matters (see `supply-chain.yml`).
 
@@ -976,7 +976,7 @@ Line counts measured this session.
   - 🔴 **HIGH** `supply-chain.yml:44-45` — `python -m pip_audit ... | tee ...` runs with **no `shell:` key**, so GitHub's default `bash -e {0}` applies (**no `pipefail`**): the step's exit status is `tee`'s (0), i.e. **pip-audit findings cannot fail the job**.
   - 🔴 **HIGH** `supply-chain.yml:84` — same defect for `npm audit --json | tee ...`: `npm audit` exits non-zero on vulnerabilities, `tee` exits 0 → masked.
   - 🔴 **HIGH** `supply-chain.yml:88-90` — `npm sbom | tee` and `npm ls --all --json | tee` are likewise masked, so SBOM generation can silently produce nothing.
-  - 🔴 **HIGH** — the header claim at `supply-chain.yml:6-9` ("pip-audit and npm audit now GATE (no continue-on-error)") and `UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md:90,202` ("3 gating jobs", "audits gate with no bypass") are therefore **false**: this is the canonical "CI step that can't fail".
+  - 🔴 **HIGH** — the header claim at `supply-chain.yml:6-9` ("pip-audit and npm audit now GATE (no continue-on-error)") and `docs/reports/archive/UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md:90,202` ("3 gating jobs", "audits gate with no bypass") are therefore **false**: this is the canonical "CI step that can't fail".
   - 🟡 **MEDIUM** `supply-chain.yml:39` — audit tooling installed unpinned (`"pip-audit>=2.7" "cyclonedx-bom>=7"`): the *scanner* itself floats.
 - **Limitations:** No container image scanning (trivy/grype) for `systemaops-api`/nginx/oracle images; no license gate; no SBOM for the built images; `schedule` only weekly (`:17`).
 - **Gaps:** `build_release_manifest.py` has no test (job-only invocation, `:115`); the manifest job uploads with `if-no-files-found: error` (`:124`) but its *content* is never validated; `docs/RELEASE_GATE_WS4.md:273` still records a fixed `lockfileVersion: null` defect.
@@ -1071,7 +1071,7 @@ Line counts measured this session.
 - **Purpose:** Loose compatible ranges for development flexibility (`requirements.lock` is the release pin).
 - **Bugs:**
   - 🟢 **LOW** `requirements.txt:5-6` — `pytest>=9,<10` / `pytest-asyncio>=1.3,<2` are test-only deps living in the same file as runtime deps, so a dev install and the prod lock are generated from a mixed set.
-- **Limitations:** Six direct deps only; no lint/type-check tool declared even though `PHASE7C_FINAL_EVIDENCE.md:140-146` and opencode reference `ruff` runs.
+- **Limitations:** Six direct deps only; no lint/type-check tool declared even though `docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md:140-146` and opencode reference `ruff` runs.
 - **Gaps:** No `ruff`/`mypy`/`bandit` anywhere in `requirements.txt`/`requirements.lock`, and **no CI job runs a linter** — the lint evidence quoted in PHASE7C/PHASE7D reports cannot be reproduced from the declared dependencies.
 - **Issues:** Range drift risk: `requirements.txt` ranges and `requirements.lock` pins are updated by separate processes with no script asserting every lock entry satisfies its range.
 
@@ -1098,7 +1098,7 @@ Line counts measured this session.
 #### `MASTER_IMPLEMENTATION_README.md`
 - **Purpose:** 2346-line normative specification (§1–§80): architecture, invariants (no-LLM), phase policy, audit-first rules, backlog contract, documentation authority hierarchy.
 - **Bugs:**
-  - 🟡 **MEDIUM** `MASTER_IMPLEMENTATION_README.md:2036-2058` — §71 Final Release Gate is a block of **all-unchecked `[ ]` boxes**, while `UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md:68` asserts "19✅ / 2⚠️" for that same gate: the spec contains no such state, so the audit doc reports checkbox values that do not exist in the file it cites.
+  - 🟡 **MEDIUM** `MASTER_IMPLEMENTATION_README.md:2036-2058` — §71 Final Release Gate is a block of **all-unchecked `[ ]` boxes**, while `docs/reports/archive/UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md:68` asserts "19✅ / 2⚠️" for that same gate: the spec contains no such state, so the audit doc reports checkbox values that do not exist in the file it cites.
   - 🟢 **LOW** `MASTER_IMPLEMENTATION_README.md:2150-2152` — orphaned empty `---` / duplicate horizontal rule after §75 (stray formatting artifact).
 - **Limitations:** By design it contains no live status (`:2133-2147`); "eventually" requirements are deliberately unmeasured (`:199-237`).
 - **Gaps:** §49 (`:1376-1386`) requires contract tests for all five contracts; no traceability table maps each contract's Test-First table (e.g. `JAVA_CANDIDATE_CONTRACT_V2.md:68-77`) to an actual test file — several have none. §51 (`:1447-1462`) requires "security checks" in CI; no lint/secret-scan/image-scan job exists.
@@ -1114,7 +1114,7 @@ Line counts measured this session.
 - **Gaps:** The checkpoint's required-state list (`MASTER_IMPLEMENTATION_README.md:1877-1903`) includes "Last known green commit" and "CI result" — absent from the newest block; historical contradictions (e.g. `:1012` "122 rows" vs `:815`/README 147) are only resolvable by reading the whole 4643-line file.
 - **Issues:** 4643 lines and growing ~1 block/session with no archival policy — the file now duplicates `docs/BACKLOG.md` change-log, `README.md` counts, and `RUNTIME_PROOF_MATRIX` labels in three formats.
 
-#### `UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md`
+#### `docs/reports/archive/UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md`
 - **Purpose:** 2026-10-19 evidence-driven audit + remediation record (BL-094..097) + roadmap (R-1..R-8), with later status addenda.
 - **Bugs:**
   - 🟡 **MEDIUM** `UNIVERSAL...md:90` and `:202` — claims `supply-chain.yml` has "3 gating jobs (pip-audit, npm audit, release manifest)" and "supply-chain audits gate with no bypass"; **false** — those steps are masked by `tee` without `pipefail` (`supply-chain.yml:44-45,84`).
@@ -1124,27 +1124,27 @@ Line counts measured this session.
 - **Gaps:** Roadmap item **R-1** ("Commit + CI-validate the combined working tree", `:261`) is described as "the most valuable next step" (`:298`) — but the current working tree shows the pattern recurring again (98 modified/untracked entries at HEAD `62e647f`), so the doc's own top recommendation is stale *and* unheeded.
 - **Issues:** Contains its own full verification ledger (`:237-253`) that duplicates `opencode.md` session blocks; `:60` correctly states the Master README is 2346 lines (verified) — good, but `:199`/`:83` row-level statuses are already superseded by BL-134/135 addenda, making the tables read-only history inside a "current" doc.
 
-#### `PHASE7C_FINAL_EVIDENCE.md`
+#### `docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md`
 - **Purpose:** Root-level historical Phase 7C remediation evidence (placeholder tests replaced, validator fix, adversarial results).
 - **Bugs:** None found (already banner-labeled historical at `:2`, correct per §78).
 - **Limitations:** Dated to a Windows host without Docker: `:109-113` records Docker/BUILD as BLOCKED/NOT VERIFIED — deliberately narrow evidence.
 - **Gaps:** Its `docs/` counterpart listed by `label_historical_reports.py:42` **does not exist** (only the root copy is tracked), so the labeling tool's target list is wrong for this file; no index explains root-vs-`docs/` placement.
-- **Issues:** Direct contradiction with its sibling: `PHASE7C_FINAL_EVIDENCE.md:6` says "**FREEZE PHASE 7C**" while `PHASE7C_FORENSIC_CORRECTION.md:222` says "**DO NOT FREEZE PHASE 7C — REMEDIATION REQUIRED**" — two root-level reports with opposite verdicts and no ordering note beyond their dates (`:2` banner vs `:4` "Date: 2026-09-17").
+- **Issues:** Direct contradiction with its sibling: `docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md:6` says "**FREEZE PHASE 7C**" while `docs/reports/archive/PHASE7C_FORENSIC_CORRECTION.md:222` says "**DO NOT FREEZE PHASE 7C — REMEDIATION REQUIRED**" — two root-level reports with opposite verdicts and no ordering note beyond their dates (`:2` banner vs `:4` "Date: 2026-09-17").
 
-#### `PHASE7C_FORENSIC_CORRECTION.md`
+#### `docs/reports/archive/PHASE7C_FORENSIC_CORRECTION.md`
 - **Purpose:** The 2026-09-17 forensic pass that found the two placeholder tests and the F401, recommending "DO NOT FREEZE".
 - **Bugs:** None found (historical, banner-labeled at `:2`).
 - **Limitations:** Scoped to 23 tasks on a single test file; test counts (79, `:30-34`; 1229, `:152`) are frozen snapshots.
-- **Gaps:** No companion document at root records the *decision* that reconciles it with `PHASE7C_FINAL_EVIDENCE.md`'s FREEZE verdict (the correction is superseded only implicitly by ordering).
-- **Issues:** Duplicates the defect table and remediation options already summarized in `PHASE7C_FINAL_EVIDENCE.md:10-52` (two files, overlapping content, opposite conclusions); `:250-259` contains a malformed generated-file list (`pom.xml/pom.xml`, `Application.java/Application.java`) — an obvious capture bug preserved as evidence.
+- **Gaps:** No companion document at root records the *decision* that reconciles it with `docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md`'s FREEZE verdict (the correction is superseded only implicitly by ordering).
+- **Issues:** Duplicates the defect table and remediation options already summarized in `docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md:10-52` (two files, overlapping content, opposite conclusions); `:250-259` contains a malformed generated-file list (`pom.xml/pom.xml`, `Application.java/Application.java`) — an obvious capture bug preserved as evidence.
 
-#### `PHASE7D_COMPLETION_REPORT.md`
+#### `docs/reports/archive/PHASE7D_COMPLETION_REPORT.md`
 - **Purpose:** Historical Phase 7D report: full COBOL→Spring Boot→Docker→oracle chain with 12 bug fixes and test counts.
 - **Bugs:**
-  - 🟡 **MEDIUM** `PHASE7D_COMPLETION_REPORT.md:11` — "**VERDICT: VERIFIED**" reuses the platform's controlled verdict vocabulary (`VERDICT_CONTRACT.md:20-30`) for a *phase* result, and `:152` reports "Behavioral Equivalence: 3/3 passed (VERDICT = VERIFIED)" — a claims-style statement from a historical doc that only the banner (`:2`) neutralizes.
-  - 🟡 **MEDIUM** `PHASE7D_COMPLETION_REPORT.md:167-169` — image digests are stale/wrong: `gnucobol-ocesql:latest → sha256:f6f567fb...` contradicts the current recorded identity `sha256:68900cc01cd6...` (`docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md:56`) and `maven-offline-springboot → sha256:99d13a54...` contradicts the post-BL-135 rebuild `sha256:aea01e81217...` (`opencode.md:165`).
+  - 🟡 **MEDIUM** `docs/reports/archive/PHASE7D_COMPLETION_REPORT.md:11` — "**VERDICT: VERIFIED**" reuses the platform's controlled verdict vocabulary (`VERDICT_CONTRACT.md:20-30`) for a *phase* result, and `:152` reports "Behavioral Equivalence: 3/3 passed (VERDICT = VERIFIED)" — a claims-style statement from a historical doc that only the banner (`:2`) neutralizes.
+  - 🟡 **MEDIUM** `docs/reports/archive/PHASE7D_COMPLETION_REPORT.md:167-169` — image digests are stale/wrong: `gnucobol-ocesql:latest → sha256:f6f567fb...` contradicts the current recorded identity `sha256:68900cc01cd6...` (`docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md:56`) and `maven-offline-springboot → sha256:99d13a54...` contradicts the post-BL-135 rebuild `sha256:aea01e81217...` (`opencode.md:165`).
 - **Limitations:** Honest and specific: single workload (ARITHMETIC) (`:185`), numeric formatting normalization (`:183`), Spring startup overhead (`:187`).
-- **Gaps:** `label_historical_reports.py:46` targets `PHASE7D_COMPLETION_REPORT.md` but there is **no `docs/` copy** either — the root-only placement of all three PHASE7C/7D reports is undocumented; `:213` lists `Dockerfile.maven-offline` as a "New File" that is now a core tracked image definition.
+- **Gaps:** `label_historical_reports.py:46` targets `docs/reports/archive/PHASE7D_COMPLETION_REPORT.md` but there is **no `docs/` copy** either — the root-only placement of all three PHASE7C/7D reports is undocumented; `:213` lists `Dockerfile.maven-offline` as a "New File" that is now a core tracked image definition.
 - **Issues:** `:143` (`30 passed in 593.95s`) and `:156` (`1605 passed`) are unreproducible counts; the "Files Modified" table (`:193-207`) overlaps `docs/` phase reports for the same changes (duplication).
 
 #### `contracts/ARTIFACT_CONTRACT_SPEC.md`
@@ -1166,7 +1166,7 @@ Line counts measured this session.
 - **Purpose:** V2 extension defining the Spring Boot/Maven candidate shape (pom.xml, offline Maven, V2 manifest fields, sandbox rules).
 - **Bugs:**
   - 🟡 **MEDIUM** `JAVA_CANDIDATE_CONTRACT_V2.md:39-47` — mandates `build_system`, `maven_pom_hash`, `spring_profile`, `offline_repo_digest` with fail-closed intake refusal: **none of these four fields appears anywhere in `engine/` or `tests/`** (repo-wide grep finds them only in this file) — a normative contract with zero implementing or enforcing code.
-  - 🟡 **MEDIUM** `JAVA_CANDIDATE_CONTRACT_V2.md:54` — requires `mvn -o package`; the actual lane uses `-Dmaven.test.skip=true` and adapter-specific flags (see `PHASE7D_COMPLETION_REPORT.md:128`) — contract command vs code command diverge with no test pinning either.
+  - 🟡 **MEDIUM** `JAVA_CANDIDATE_CONTRACT_V2.md:54` — requires `mvn -o package`; the actual lane uses `-Dmaven.test.skip=true` and adapter-specific flags (see `docs/reports/archive/PHASE7D_COMPLETION_REPORT.md:128`) — contract command vs code command diverge with no test pinning either.
 - **Limitations:** One lane only; any further build system requires a new version (`:79-83`).
 - **Gaps:** §5 Test-First table (`:68-77`, six scenarios incl. "Missing `pom.xml` in V2 candidate → Intake refusal") has **no matching tests at all** — the entire V2 contract is unenforced documentation.
 - **Issues:** Duplicate/contradictory spec pair with V1: V1 `:27` "No build system — no `pom.xml`" vs V2 `:19-26` "Maven project tree" are reconciled only by cross-references added in the uncommitted working-tree diff (`git diff -- contracts/JAVA_CANDIDATE_CONTRACT*.md` shows `M` on both); at HEAD the reconciliation is partial.
@@ -1202,7 +1202,7 @@ Line counts measured this session.
 ### Cross-cutting flags (Section J)
 
 - **Duplicate/contradictory contract specs (V1 vs V2):** reconciled only on paper — `JAVA_CANDIDATE_CONTRACT.md:27` forbids `pom.xml`, `JAVA_CANDIDATE_CONTRACT_V2.md:19-26` requires it, and **V2's four mandatory manifest fields are implemented nowhere** (grep finds `build_system`/`maven_pom_hash`/`spring_profile`/`offline_repo_digest` only in the V2 doc). Both files are `M` (uncommitted) in the working tree, so HEAD carries the unreconciled version; `docs/CONTRACT_STATUS.md:20` and `docs/BACKLOG.md:6761` (BL-110) are the only reconciliation record.
-- **Stale root-level `PHASE*.md` vs `docs\`:** root holds `PHASE7C_FINAL_EVIDENCE.md`, `PHASE7C_FORENSIC_CORRECTION.md`, `PHASE7D_COMPLETION_REPORT.md` with **no `docs/` counterparts**, while `scripts/label_historical_reports.py:42-43` still targets the non-existent `docs/PHASE7C_*` paths (reported "missing" every run). The root pair also carries **opposite verdicts** (FREEZE vs DO NOT FREEZE) and `PHASE7D` carries stale image digests (`:167-169`) plus a phase-level `VERIFIED` claim (`:11`). `docs/` separately holds ~30 other `PHASE*` reports, so phase evidence is split across two trees with no index.
+- **Stale root-level `PHASE*.md` vs `docs\`:** root holds `docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md`, `docs/reports/archive/PHASE7C_FORENSIC_CORRECTION.md`, `docs/reports/archive/PHASE7D_COMPLETION_REPORT.md` with **no `docs/` counterparts**, while `scripts/label_historical_reports.py:42-43` still targets the non-existent `docs/PHASE7C_*` paths (reported "missing" every run). The root pair also carries **opposite verdicts** (FREEZE vs DO NOT FREEZE) and `PHASE7D` carries stale image digests (`:167-169`) plus a phase-level `VERIFIED` claim (`:11`). `docs/` separately holds ~30 other `PHASE*` reports, so phase evidence is split across two trees with no index.
 - **`engine_py_files.txt`:** confirmed stale artifact — tracked, 49 **absolute Windows paths** (`C:\Users\bandi\Desktop\...`), last touched by the baseline commit `2026-09-18 chore: establish COBOL to Java transformation baseline`, referenced by no code (only `docs/RELEASE_GATE_WS4.md:42-43`, which records that it was deliberately "**restored**, not deleted"). It is machine-specific, unusable on CI/Linux, and should be deleted or regenerated relative-path.
 - **Repo-wide context affecting every finding:** HEAD is `62e647f` (2026-10-26) with **98 modified/untracked entries**, including `scripts/backup/verify_backup.py`, `.gitattributes`, `tests/test_shell_script_contracts.py`, `tests/test_backup_verification.py`, `tests/test_readiness.py`, `tests/test_structured_logging.py`, `tests/test_workspace_persistence.py` and `ci.yml` — the BL-139..147 batch exists only in the working tree, so HEAD's CI/gate/backup-verification claims (`opencode.md:11-67`) are not backed by committed files.
 

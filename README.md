@@ -9,6 +9,11 @@
 > not certified for production use (owner-dependent gaps:
 > `docs/reports/PHASE5_RELEASE_READINESS.md`). Certification evidence:
 > `docs/reports/PHASE5_FINAL_CERTIFICATION.md`. Older baselines below are dated history.
+>
+> **Navigation:** [docs/README.md](docs/README.md) (documentation index),
+> [CONTRIBUTING.md](CONTRIBUTING.md), [docs/RUNTIME_ADAPTERS.md](docs/RUNTIME_ADAPTERS.md).
+> Architecture audit (2026-11-03): [docs/audits/CHANGE_LEDGER.md](docs/audits/CHANGE_LEDGER.md).
+> Licensed under the Apache License 2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)).
 
 > **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
 > below are a *dated snapshot* of the state when this document was written, not a
@@ -62,7 +67,7 @@ after the commands.
 #    without that token or with one under 32 characters — startup error
 #    plus 401 on every other route, wired into docker-compose.production.yml
 #    and start-production.sh)
-python -m pip install --require-hashes -r requirements.lock
+python -m pip install --require-hashes -r requirements-dev.lock   # runtime + test tooling
 python -m uvicorn api.app:app --port 8000
 
 # 2. Verify it is up
@@ -243,7 +248,7 @@ GnuCOBOL equivalence is not a blanket claim of z/OS or mainframe equivalence.
 - docs/operations/BACKUP_RECOVERY.md — backup, automatic verification and restore drill
 - docs/security/PRODUCTION_SECURITY.md — production security posture, shipped controls and deferred controls
 - docs/TRUST_BOUNDARY.md — what is trusted, sealed, and revalidated
-- UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md — 2026-10-19 evidence-driven audit, remediation record (BL-094/095/096) and roadmap
+- docs/reports/archive/UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md — 2026-10-19 evidence-driven audit, remediation record (BL-094/095/096) and roadmap
 - docs/KNOWN_ISSUES.md — current risks and resolved historical blockers
 - docs/REMEDIATION_MATRIX.md — remediation priorities
 - docs/CONTRACT_STATUS.md — contract/spec implementation status

@@ -435,3 +435,10 @@ build/
 deployment/tls/
 .env.rollback.*
 backups/
+
+# Generated verification output (untracked 2026-11-03, architecture audit D5):
+# the scripts in tests/verification/ regenerate these on demand.
+tests/verification/results/
+tests/verification/results_fresh/
+tests/verification/results_fresh2/
+tests/verification/evidence/

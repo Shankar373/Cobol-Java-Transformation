@@ -395,23 +395,40 @@ def test_ingest_counts_against_the_job_limit(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestSupplyChainConfiguration:
-    def test_every_python_pin_is_hashed(self):
-        text = (REPO / "requirements.lock").read_text(encoding="utf-8")
-        pins = re.findall(r"^([A-Za-z0-9_.\[\]-]+==\S+)", text, re.M)
-        assert len(pins) >= 30
+    @staticmethod
+    def _pins(lock: str) -> dict[str, str]:
+        text = (REPO / lock).read_text(encoding="utf-8")
         blocks = re.split(r"^(?=[A-Za-z0-9_.\[\]-]+==)", text, flags=re.M)[1:]
         for block in blocks:
-            assert "--hash=sha256:" in block, block.splitlines()[0]
+            assert "--hash=sha256:" in block, (lock, block.splitlines()[0])
+        return {b.split("==")[0].lower(): b.split()[0] for b in blocks}
+
+    @pytest.mark.parametrize("lock,minimum", [("requirements.lock", 20),
+                                              ("requirements-dev.lock", 30)])
+    def test_every_python_pin_is_hashed(self, lock, minimum):
+        assert len(self._pins(lock)) >= minimum
+
+    def test_runtime_lock_holds_no_test_tooling(self):
+        # Audit D4 (owner decision): the production image installs the
+        # runtime lock only; test tooling lives in the dev lock.
+        runtime = self._pins("requirements.lock")
+        dev = self._pins("requirements-dev.lock")
+        for tool in ("pytest", "httpx", "pytest-asyncio", "iniconfig", "pluggy"):
+            assert tool not in runtime, tool
+        assert "pytest-asyncio" not in dev  # unused, dropped
+        for name, pin in runtime.items():   # dev = runtime + tooling, same pins
+            assert dev.get(name) == pin, (name, pin, dev.get(name))
 
     def test_installs_require_hashes(self):
         assert "--require-hashes -r /app/requirements.lock" in (
             REPO / "Dockerfile.production").read_text(encoding="utf-8")
+        lock = re.compile(r"requirements(-dev)?\.lock")
         for wf in sorted(p.name for p in (REPO / ".github/workflows").glob("*.yml")):
             text = (REPO / ".github/workflows" / wf).read_text(encoding="utf-8")
             for line in text.splitlines():
-                if "pip install" in line and "requirements.lock" in line:
+                if "pip install" in line and lock.search(line):
                     assert "--require-hashes" in line, (wf, line)
-                if "pip install" in line and "requirements.lock" not in line:
+                if "pip install" in line and not lock.search(line):
                     assert "==" in line, (wf, line)  # tools pinned too
 
     def test_checkouts_do_not_persist_credentials(self):

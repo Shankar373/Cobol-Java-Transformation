@@ -35,12 +35,12 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: requirements.lock
+          cache-dependency-path: requirements-dev.lock
       - name: Install pinned dependencies
-        run: python -m pip install --require-hashes -r requirements.lock
+        run: python -m pip install --require-hashes -r requirements-dev.lock
       - name: Install audit tooling
         run: python -m pip install "pip-audit==2.10.1" "cyclonedx-bom==7.6.0"
-      - name: pip-audit (requirements.lock)
+      - name: pip-audit (requirements.lock + requirements-dev.lock)
         id: pip-audit
         run: |
           # BL-143: default run shell is `bash -e` (no pipefail) — without
@@ -50,6 +50,10 @@ jobs:
           mkdir -p test-artifacts/supply-chain
           python -m pip_audit -r requirements.lock --format=json --desc \
             | tee test-artifacts/supply-chain/pip-audit.json
+          # Test tooling never ships (production installs requirements.lock
+          # only) but runs in CI: it is audited too (audit D4 lock split).
+          python -m pip_audit -r requirements-dev.lock --format=json --desc \
+            | tee test-artifacts/supply-chain/pip-audit-dev.json
       - name: Python SBOM (CycloneDX)
         run: |
           set -o pipefail
@@ -57,6 +61,9 @@ jobs:
           python -m cyclonedx_py requirements -i requirements.lock \
             --output-format JSON \
             --output-file test-artifacts/supply-chain/sbom-python.cyclonedx.json
+          python -m cyclonedx_py requirements -i requirements-dev.lock \
+            --output-format JSON \
+            --output-file test-artifacts/supply-chain/sbom-python-dev.cyclonedx.json
           python -m pip freeze --exclude-editable \
             | tee test-artifacts/supply-chain/pip-freeze.txt
       - name: Upload Python supply-chain artifacts

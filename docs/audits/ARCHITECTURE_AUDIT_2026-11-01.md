@@ -101,7 +101,7 @@ from an audit report on trust.
 - `pytest-asyncio` unused; `pydantic`/`starlette`/`PyYAML` imported but undeclared; production image installs test deps; no hashes in the lock.
 
 ### 4.6 Documentation and repository hygiene
-- 45 root-level reports (most 10-30/10-31 agent reports), several duplicated or superseded; root `COBOL_CAPABILITY_MATRIX.md` contradicts `docs/CAPABILITY_MATRIX.md` (claims DB2/CICS runtime and full file I/O).
+- 45 root-level reports (most 10-30/10-31 agent reports), several duplicated or superseded; root `docs/reports/archive/COBOL_CAPABILITY_MATRIX.md` contradicts `docs/CAPABILITY_MATRIX.md` (claims DB2/CICS runtime and full file I/O).
 - README points to `opencode.md` as the live checkpoint (stale since 10-27); `docs/ARCHITECTURE.md` predates current modules; KNOWN_ISSUES has items already fixed (BL-108/109, D-9 supply chain).
 - Missing: CONTRIBUTING, LICENSE (despite the decision record), CHANGELOG, runtime-adapter guide, docs index.
 - `test-artifacts/` (48 force-added files) and `tests/verification/` (324 generated files including whole Spring apps) are stale generated output.

@@ -333,6 +333,6 @@ The 2026-10-19 audit found and fixed red-first: frontend Authorization integrati
 (BL-096), and platform-canonical ZIP ingestion + source-tree hashing (BL-097). Red-first
 evidence and regression results: `docs/BACKLOG.md` change-log (bd)/(be). Not yet
 CI-validated (no push authorization); roadmap R-1 in
-`UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md` covers commit + exact-SHA CI.
+`docs/reports/archive/UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md` covers commit + exact-SHA CI.
 
 Historical forensic reports remain evidence of what was true at their recorded time.

@@ -453,3 +453,19 @@ class TestB4InfrastructureIsNotProgramFailure:
         candidate = [e for e in result.evidence_manifest.execution_evidence
                      if e.runtime_id.startswith("candidate")]
         assert candidate and all(e.termination_status == "error" for e in candidate)
+
+
+# ---------------------------------------------------------------------------
+# C1: one Java source renderer (no per-generator copies to drift apart)
+# ---------------------------------------------------------------------------
+
+def test_generators_share_one_renderer():
+    from engine.transformation.java_generator import JavaGenerator
+    from engine.transformation.java_render import JavaSourceRenderer
+    from engine.transformation.spring_boot_generator import SpringBootGenerator
+
+    for generator in (JavaGenerator, SpringBootGenerator):
+        assert issubclass(generator, JavaSourceRenderer)
+        for method in ("_stmt_to_string", "_expr_to_string", "_method_call_to_string",
+                       "_escape_java_string"):
+            assert method not in vars(generator), (generator.__name__, method)

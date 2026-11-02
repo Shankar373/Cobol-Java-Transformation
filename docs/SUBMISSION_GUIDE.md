@@ -57,7 +57,7 @@ Full verified commands, expected outputs, and troubleshooting live in
 **`README.md` → "Quick Start (verified)"**. In short:
 
 ```bash
-python -m pip install --require-hashes -r requirements.lock
+python -m pip install --require-hashes -r requirements-dev.lock
 python -m uvicorn api.app:app --port 8000        # backend, auth off by default
 
 cd frontend && npm ci && npm run dev              # SPA on http://localhost:5173
@@ -195,7 +195,7 @@ docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:late
 python scripts/record_docker_image_provenance.py
 
 # 1. backend
-python -m pip install --require-hashes -r requirements.lock
+python -m pip install --require-hashes -r requirements-dev.lock
 python -m uvicorn api.app:app --port 8000
 
 # 2. run the verified E2E in a second terminal

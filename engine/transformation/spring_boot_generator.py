@@ -25,13 +25,12 @@ Imports only:
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass
 
 # Integral Java literals may carry a type suffix (``123L``); those are
 # still numeric literals and must never be quoted as Strings.
-_JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
 
+from engine.transformation.java_render import JavaSourceRenderer
 from engine.transformation.control_flow import (
     RUN_UNIT_ENTRY_METHOD,
     RUN_UNIT_EXIT_STATUS_METHOD,
@@ -63,12 +62,20 @@ class GeneratedFile:
     path: str = ""  # project-relative path (e.g. "src/main/java/com/app/App.java")
 
 
-class SpringBootGenerator:
+class SpringBootGenerator(JavaSourceRenderer):
     """Generates a complete Spring Boot project from SpringBootApplication IR.
 
     This generator consumes ONLY SpringBootApplication.
     It has NO COBOL IR dependency.
     """
+
+    # Shared rendering (engine/transformation/java_render.py, audit C1)
+    # with this generator's long-standing output conventions.
+    render_typed_assignment = True
+    render_throw = True
+    split_nested_if_lines = True
+    spaced_cast = True
+
 
     def generate_project(self, application: SpringBootApplication) -> list[GeneratedFile]:
         """Generate a complete Spring Boot project.
@@ -620,219 +627,6 @@ public class {class_name} {{
 
         lines.append("    }")
         return lines
-
-    def _stmt_to_string(self, stmt) -> str:
-        """Convert a Java IR statement to a Java source string."""
-        from engine.transformation.java_ir import (
-            JavaAssignment, JavaMethodCallStatement, JavaReturn,
-            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaDoWhile,
-            JavaFor, JavaThrow, JavaLocalVarDecl,
-        )
-        if isinstance(stmt, JavaAssignment):
-            expr_str = self._expr_to_string(stmt.expression)
-            if stmt.java_type:
-                return f"{stmt.java_type.to_source()} {stmt.target} = {expr_str};"
-            return f"{stmt.target} = {expr_str};"
-        if isinstance(stmt, JavaLocalVarDecl):
-            init_str = ""
-            if stmt.initializer:
-                init_str = f" = {self._expr_to_string(stmt.initializer)}"
-            return f"{stmt.java_type.to_source()} {stmt.name}{init_str};"
-        if isinstance(stmt, JavaMethodCallStatement):
-            return self._method_call_to_string(stmt.call) + ";"
-        if isinstance(stmt, JavaReturn):
-            if stmt.expression:
-                return f"return {self._expr_to_string(stmt.expression)};"
-            return "return;"
-        if isinstance(stmt, JavaComment):
-            return f"// {stmt.text}"
-        if isinstance(stmt, JavaThrow):
-            if stmt.message:
-                return f'throw new {stmt.exception_class}("{stmt.message}");'
-            return f"throw new {stmt.exception_class}();"
-        if isinstance(stmt, JavaIf):
-            cond = self._expr_to_string(stmt.condition)
-            lines = [f"if ({cond}) {{"]
-            for s in stmt.then_body:
-                inner = self._stmt_to_string(s)
-                if inner:
-                    for inner_line in inner.split("\n"):
-                        lines.append(f"    {inner_line}")
-            if stmt.else_body:
-                lines.append("} else {")
-                for s in stmt.else_body:
-                    inner = self._stmt_to_string(s)
-                    if inner:
-                        for inner_line in inner.split("\n"):
-                            lines.append(f"    {inner_line}")
-            lines.append("}")
-            return "\n".join(lines)
-        if isinstance(stmt, JavaWhile):
-            cond = self._expr_to_string(stmt.condition)
-            lines = [f"while ({cond}) {{"]
-            for s in stmt.body:
-                inner = self._stmt_to_string(s)
-                if inner:
-                    for inner_line in inner.split("\n"):
-                        lines.append(f"    {inner_line}")
-            lines.append("}")
-            return "\n".join(lines)
-        if isinstance(stmt, JavaDoWhile):
-            cond = self._expr_to_string(stmt.condition)
-            lines = ["do {"]
-            for s in stmt.body:
-                inner = self._stmt_to_string(s)
-                if inner:
-                    for inner_line in inner.split("\n"):
-                        lines.append(f"    {inner_line}")
-            lines.append(f"}} while ({cond});")
-            return "\n".join(lines)
-        if isinstance(stmt, JavaFor):
-            init_str = self._stmt_to_string(stmt.init).rstrip(";") if stmt.init else ""
-            cond_str = self._expr_to_string(stmt.condition) if stmt.condition else ""
-            update_str = self._stmt_to_string(stmt.update).rstrip(";") if stmt.update else ""
-            lines = [f"for ({init_str}; {cond_str}; {update_str}) {{"]
-            for s in stmt.body:
-                inner = self._stmt_to_string(s)
-                if inner:
-                    for inner_line in inner.split("\n"):
-                        lines.append(f"    {inner_line}")
-            lines.append("}")
-            return "\n".join(lines)
-        if isinstance(stmt, JavaBlock):
-            return "\n".join(self._stmt_to_string(s) for s in stmt.statements)
-        raise ValueError(
-            "MISSING_REQUIRED_SEMANTIC: Java statement type "
-            f"{type(stmt).__name__} has no generator mapping."
-        )
-
-    def _expr_to_string(self, expr) -> str:
-        """Convert a Java IR expression to a Java source string."""
-        from engine.transformation.java_ir import (
-            JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaUnaryOp,
-            JavaMethodCall, JavaStringConcat, JavaCast, JavaNewObject,
-            JavaTernary, JavaArrayAccess, JavaNewArray,
-            JavaFilledArray, JavaBasicType, JavaUnsupportedExpression,
-        )
-        if isinstance(expr, JavaUnsupportedExpression):
-            raise ValueError(
-                "UNSUPPORTED_COBOL_EXPRESSION: "
-                f"{expr.reason}; source={expr.source_expression!r}"
-            )
-        if isinstance(expr, JavaLiteral):
-            if expr.value == "null" and not expr.java_type:
-                return "null"
-            if expr.value in ("true", "false") and not expr.java_type:
-                return expr.value
-            # Reuse the canonical Java string-escaping helper from the
-            # native Java generator so both generators render identical,
-            # compilable literals for quotes, backslashes, and control
-            # bytes.
-            from engine.transformation.java_generator import JavaGenerator
-            if (
-                expr.java_type
-                and expr.java_type.basic_type == JavaBasicType.DECIMAL
-            ):
-                # Decimal-exact literal: a string constructor preserves the
-                # exact digits/scale of the COBOL literal (never a double).
-                return (
-                    f'new java.math.BigDecimal('
-                    f'"{JavaGenerator._escape_java_string(expr.value)}")'
-                )
-            if expr.java_type and expr.java_type.basic_type and \
-               expr.java_type.basic_type.value == "String":
-                return f'"{JavaGenerator._escape_java_string(expr.value)}"'
-            # A single-quoted value is a COBOL string literal spelling, not a
-            # Java char: normalize to a double-quoted Java string literal.
-            if len(expr.value) >= 2 and expr.value.startswith("'") and expr.value.endswith("'"):
-                return f'"{JavaGenerator._escape_java_string(expr.value[1:-1])}"'
-            if not expr.value.replace(".", "").replace("-", "").isdigit() and not (
-                _JAVA_LITERAL_SUFFIX_RE.match(expr.value)
-            ):
-                if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
-                    return expr.value
-                if not expr.value.startswith('"'):
-                    return f'"{JavaGenerator._escape_java_string(expr.value)}"'
-            return expr.value
-        if isinstance(expr, JavaVariableRef):
-            return expr.name
-        if isinstance(expr, JavaArrayAccess):
-            return (
-                f"{self._expr_to_string(expr.array)}"
-                f"[{self._expr_to_string(expr.index)}]"
-            )
-        if isinstance(expr, JavaNewArray):
-            dims = "".join(f"[{d}]" for d in expr.dimensions)
-            return f"new {expr.element_type.to_source()}{dims}"
-        if isinstance(expr, JavaFilledArray):
-            return (
-                f"java.util.Collections.nCopies({expr.length}, "
-                f"{self._expr_to_string(expr.fill)})"
-                f".toArray(new {expr.element_type.to_source()}[0])"
-            )
-        if isinstance(expr, JavaBinaryOp):
-            left = self._expr_to_string(expr.left)
-            right = self._expr_to_string(expr.right)
-            return f"({left} {expr.operator} {right})"
-        if isinstance(expr, JavaUnaryOp):
-            operand = self._expr_to_string(expr.operand)
-            if any(op in operand for op in ("==", "!=", "&&", "||", ">=", "<=", "<", ">")):
-                depth = 0
-                grouped = False
-                for i, ch in enumerate(operand):
-                    if ch == "(":
-                        depth += 1
-                    elif ch == ")":
-                        depth -= 1
-                        if depth == 0:
-                            grouped = i == len(operand) - 1
-                            break
-                if not grouped:
-                    operand = f"({operand})"
-            return f"({expr.operator}{operand})"
-        if isinstance(expr, JavaMethodCall):
-            return self._method_call_to_string(expr)
-        if isinstance(expr, JavaStringConcat):
-            parts = []
-            for p in expr.parts:
-                rendered = self._expr_to_string(p)
-                if isinstance(p, JavaLiteral) and not p.java_type:
-                    if not rendered.startswith('"'):
-                        rendered = f'"{rendered}"'
-                parts.append(rendered)
-            return " + ".join(parts)
-        if isinstance(expr, JavaCast):
-            inner = self._expr_to_string(expr.expression)
-            return f"({expr.target_type.to_source()}) {inner}"
-        if isinstance(expr, JavaNewObject):
-            args = ", ".join(self._expr_to_string(a) for a in expr.arguments)
-            return f"new {expr.class_name}({args})"
-        if isinstance(expr, JavaTernary):
-            cond = self._expr_to_string(expr.condition)
-            true_str = self._expr_to_string(expr.true_expr)
-            false_str = self._expr_to_string(expr.false_expr)
-            return f"({cond} ? {true_str} : {false_str})"
-        # Fail closed (audit A6): see JavaGenerator._expr_to_string.
-        raise ValueError(
-            "MISSING_REQUIRED_SEMANTIC: no Java rendering for expression "
-            f"{type(expr).__name__}"
-        )
-
-    def _method_call_to_string(self, call) -> str:
-        """Convert a Java IR method call to a Java source string."""
-        from engine.transformation.java_ir import JavaStringConcat
-
-        args = ", ".join(self._expr_to_string(a) for a in call.arguments)
-        if call.is_static:
-            return f"{call.class_name}.{call.method_name}({args})"
-        if call.object_ref:
-            obj = self._expr_to_string(call.object_ref)
-            if isinstance(call.object_ref, JavaStringConcat):
-                # Keep ``(a + b).length()`` grouped; ``a + b.length()`` would
-                # bind the method to the last operand only.
-                obj = f"({obj})"
-            return f"{obj}.{call.method_name}({args})"
-        return f"{call.method_name}({args})"
 
     # ================================================================
     # REPOSITORIES

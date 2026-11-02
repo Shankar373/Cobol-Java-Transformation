@@ -11,6 +11,17 @@ CURRENT / TARGET / REASON / BENEFIT / BREAKING-CHANGE RISK / TEST RESULT.
 Minimal safe upgrades preferred. Previous TypeScript compiler regressions
 must not be repeated.
 
+## Architecture audit update (2026-11-03) — lock split
+
+`requirements.lock` now holds the runtime closure only (22 pins: what the
+production image installs); `requirements-dev.lock` adds the test tooling
+(pytest, httpx, PyYAML: 31 pins). Same versions and hashes as the former
+single lock; `pytest-asyncio` (unused) dropped; `pydantic` and `starlette`,
+imported by `api/`, are now declared in `requirements.txt`. CI and the
+certification workflow install the dev lock; pip-audit and the CycloneDX SBOM
+cover both locks; the release manifest records both (`pinned`, `devPinned`).
+Guard: `tests/test_phase4_security.py::TestSupplyChainConfiguration`.
+
 ## Phase 4 update (2026-11-02) — supersedes the stale facts below
 
 The sections after this one record the 2026-10-08 baseline. Current state:

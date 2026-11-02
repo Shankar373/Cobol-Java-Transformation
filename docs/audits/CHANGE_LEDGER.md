@@ -59,4 +59,21 @@ test-only modules but mark them experimental; Apache-2.0)**
 | D1 | see push | Deleted zero-user code: `engine/transformation/source_model.py`, `engine/execution/docker_runner.py`, `api.models.IngestRequest`, four unused frontend API wrappers (`uploadFiles`, `uploadCandidate`, `validateRun`, `getHealth`) and their two types; stray `EOF` lines in two reports | `git grep` over code: no importer/caller; test scan lists updated; DEPENDENCY_MAP regenerated | affected suites 146 passed; frontend 172 passed, `tsc` clean | — | pending |
 | D2 | see push | Test-only modules kept and labelled EXPERIMENTAL (ModernizationPlanner, JCL→Spring Batch adapter, SQL repository mapping + model, runtime catalog, ApplicationAssembler, InternalNativeJavaProducer); "primary producer" wording corrected | AST scan of every `api/`/`engine/` import | `tests/test_experimental_modules.py` (label + no production importer; gate) | 405 related passed | pending |
 | — | see push | Frontend types synced with the API: `ApplicationResponse.target_runtime`, `RunApprovalResponse.history` (`ApprovalEvent`) | 3 frontend test files' fixtures | `tsc --noEmit` 16 errors → 0 | frontend 172 passed | pending |
-| — | see push | Apache-2.0: canonical `LICENSE`, `NOTICE`, decision recorded in `PROJECT_LICENSE_DECISION.md`, THIRD_PARTY_NOTICES, reports; `frontend/package.json` license field | — | — | — | pending |
+| — | `dea48c6` | Apache-2.0: canonical `LICENSE`, `NOTICE`, decision recorded in `PROJECT_LICENSE_DECISION.md`, THIRD_PARTY_NOTICES, reports; `frontend/package.json` license field | — | — | — | pending |
+| D4 | see push | Lock split: `requirements.lock` = runtime closure (22 pins, what the production image installs); `requirements-dev.lock` = runtime + pytest/httpx/PyYAML (31); same versions and hashes; `pytest-asyncio` dropped; `pydantic`/`starlette` declared in `requirements.txt`; CI/certification install the dev lock; pip-audit + SBOM cover both; manifest records both | `Dockerfile.production` (runtime lock), 3 workflows, release manifest, README/SUBMISSION_GUIDE | both locks resolve completely under `--require-hashes` for Linux/py3.11 (21 + 30 packages); `TestSupplyChainConfiguration` (runtime lock holds no test tooling, shares every pin with dev) | — | pending |
+| D5 | see push | 42 superseded root reports `git mv` to `docs/reports/archive/` with an ARCHIVED banner (the root `COBOL_CAPABILITY_MATRIX.md` additionally marked wrong: it claimed DB2/CICS runtime); references rewritten; 47 generated files in `test-artifacts/` and 310 in `tests/verification/` untracked (kept: provenance JSON, 4 real tests, scripts) and ignored | label script, README, KNOWN_ISSUES, opencode; no test reads the untracked output | `tests/verification` 71 passed | — | pending |
+| docs | see push | `docs/README.md` (index), `docs/RUNTIME_ADAPTERS.md` (how a target is added and proven), `CONTRIBUTING.md`; README navigation + licence | — | — | — | pending |
+| C1 | see push | `engine/transformation/java_render.py`: one `JavaSourceRenderer` for statements/expressions/method calls/string escaping; `JavaGenerator` and `SpringBootGenerator` inherit it (~440 duplicated lines removed); their historical differences are five explicit options (typed assignment, `throw`, `if` paren stripping, nested-line splitting, cast style) | both generators; 10 test files calling `_stmt_to_string` | guard `test_generators_share_one_renderer` | 108-build snapshot **byte-identical**; transformation + generator suites 2,479 passed | pending |
+
+**Re-verified, not done in this pass (behaviour-preserving refactors, high
+churn; each needs its own red/green + byte-identical proof):**
+C2 shared `ContainerRunner` (≈230 duplicated lines of run/timeout/cleanup
+across the oracle and candidate adapters; container hardening is already
+shared); C3 entry-shape hook (Spring runner and `main` templates still in the
+generators); C4 statement dispatch table (the chain now fails closed on an
+unknown type - A6 - so the remaining work is structural only); C6 splitting
+`api/service.py` (1,850 lines) into ingest / orchestration / queries / approval;
+D3 shared test helpers (23 cross-test private imports, 29 copies of a
+Docker-availability probe). Class-name conventions (five helpers producing
+`Pay_Calc` vs `PayCalc`) need an owner decision: unifying them renames
+generated classes.

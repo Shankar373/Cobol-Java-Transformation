@@ -41,14 +41,13 @@ TARGETS = [
     "docs/PHASE6A_UNIVERSAL_IR.md",
     "docs/PHASE7C_FINAL_EVIDENCE.md",
     "docs/PHASE7C_FORENSIC_CORRECTION.md",
-    "PHASE7C_FINAL_EVIDENCE.md",
-    "PHASE7C_FORENSIC_CORRECTION.md",
-    "PHASE7D_COMPLETION_REPORT.md",
+    "docs/reports/archive/PHASE7C_FINAL_EVIDENCE.md",
+    "docs/reports/archive/PHASE7C_FORENSIC_CORRECTION.md",
+    "docs/reports/archive/PHASE7D_COMPLETION_REPORT.md",
     "docs/RELEASE_GATE_WS4.md",
     "docs/CODE_AUDIT_REPORT.md",
     "docs/verification/CURRENT_CAPABILITY_VERIFICATION.md",
     "tests/verification/FINAL_REPORT.md",
-    "tests/verification/results_fresh2/FINAL_REPORT.md",
 ]
 
 MARKER_TOKENS = ("historical", "superseded", "dated snapshot")

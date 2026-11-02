@@ -165,7 +165,11 @@ def main() -> int:
         "python": {
             "versionPin": python_version_pin(),
             "lockFile": "requirements.lock",
+            # What the production image installs (runtime only).
             "pinned": parse_lock(lock_text or ""),
+            # CI / development tooling, never shipped (audit D4 lock split).
+            "devLockFile": "requirements-dev.lock",
+            "devPinned": parse_lock(read_text(ROOT / "requirements-dev.lock") or ""),
         },
         "frontend": {
             "nodePin": (read_text(ROOT / ".nvmrc") or "").strip() or "UNKNOWN",
