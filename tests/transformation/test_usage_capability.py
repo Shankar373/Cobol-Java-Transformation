@@ -7,7 +7,9 @@ rule forbids.  These tests lock in:
 * the parser records the canonical USAGE token on ``DataItem.usage``,
 * the parser emits a non-blocking PARTIAL_SUPPORT diagnostic (never forced
   to UNSUPPORTED),
-* ``COMP``/``COMP-3``/... classify at PARTIAL, never SUPPORTED, and
+* ``COMP``/``COMP-3``/... classify at PARTIAL, never SUPPORTED, unless
+  nothing can observe the item's bytes (unreferenced, or used only by value
+  — Phase 3, ``tests/test_binary_usage_values.py``), and
 * a program with no USAGE clause is unaffected (no false PARTIAL).
 """
 
@@ -142,7 +144,7 @@ class TestParserDiagnostic:
 
 
 class TestCapabilityClassification:
-    def _classify_fixture(self, name: str) -> CapabilityLevel:
+    def _classify_fixture(self, name: str, docker_available: bool = False) -> CapabilityLevel:
         fixture = (
             Path(__file__).resolve().parents[2]
             / "fixtures"
@@ -150,20 +152,19 @@ class TestCapabilityClassification:
             / "cobol"
         )
         app = ApplicationDiscovery().discover(fixture)
-        report = CapabilityAnalyzer(docker_available=False).analyze(app)
+        report = CapabilityAnalyzer(docker_available=docker_available).analyze(app)
         programs = [c for c in report.components if c.component_type == "PROGRAM"]
         assert len(programs) == 1
         return programs[0].level
 
-    def test_workload_comp_is_partial(self) -> None:
-        level = self._classify_fixture("workload-comp")
-        assert level is CapabilityLevel.PARTIAL
-        assert level is not CapabilityLevel.SUPPORTED
+    def test_workload_comp_uses_values_only(self) -> None:
+        # Standalone COMP items used in DISPLAY/arithmetic only (Phase 3).
+        level = self._classify_fixture("workload-comp", docker_available=True)
+        assert level is CapabilityLevel.SUPPORTED
 
-    def test_workload_comp3_is_partial(self) -> None:
-        level = self._classify_fixture("workload-comp3")
-        assert level is CapabilityLevel.PARTIAL
-        assert level is not CapabilityLevel.SUPPORTED
+    def test_workload_comp3_uses_values_only(self) -> None:
+        level = self._classify_fixture("workload-comp3", docker_available=True)
+        assert level is CapabilityLevel.SUPPORTED
 
     def test_no_usage_program_stays_supported(self) -> None:
         src = _MINIMAL.format(ws="01 WS-A PIC 9(3) VALUE 0.")
@@ -207,12 +208,19 @@ class TestUnreferencedUsageItem:
     def test_unreferenced_standalone_comp_is_supported(self) -> None:
         assert _level_of("01 WS-RRN PIC 9(4) COMP.") is CapabilityLevel.SUPPORTED
 
-    def test_referenced_comp_stays_partial(self) -> None:
+    def test_byte_level_reference_stays_partial(self) -> None:
+        level = _level_of(
+            "01 WS-RRN PIC 9(4) COMP.",
+            "    ADD 1 TO WS-RRN.\n    CALL 'SUB' USING WS-RRN.\n    STOP RUN.\n",
+        )
+        assert level is CapabilityLevel.PARTIAL
+
+    def test_value_only_reference_is_supported(self) -> None:
         level = _level_of(
             "01 WS-RRN PIC 9(4) COMP.",
             "    ADD 1 TO WS-RRN.\n    DISPLAY WS-RRN.\n    STOP RUN.\n",
         )
-        assert level is CapabilityLevel.PARTIAL
+        assert level is CapabilityLevel.SUPPORTED
 
     def test_comp_inside_group_stays_partial(self) -> None:
         level = _level_of("01 WS-G.\n   05 WS-RRN PIC 9(4) COMP.")

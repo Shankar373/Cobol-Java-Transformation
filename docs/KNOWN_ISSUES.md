@@ -35,7 +35,10 @@ Still open, all fail closed today (no false VERIFIED path known):
   programs with non-declarative `EXEC SQL` / `EXEC DLI` derive `UNSUPPORTED`.
 - **Real shared group storage:** groups are lowered as views; OCCURS,
   REDEFINES, COMP, signed/scaled leaves, reference modification and group
-  operands of STRING/UNSTRING/INSPECT/READ/WRITE/CALL are refused.
+  operands of STRING/UNSTRING/INSPECT/READ/WRITE/CALL are refused.  A file
+  record (FD 01) is a view only when it is its FD's sole record, every leaf
+  is named and the use is MOVE/DISPLAY; any other use of a record name is
+  refused (it reached the Java as an undeclared name before Phase 3).
 - ~~**Spring Boot application path entry**~~ — fixed in Phase 2: the runner
   calls `RUN_UNIT$ENTRY` (fall-through chain, EXIT PROGRAM no-op), oracle-pinned
   through the Maven build in `tests/integration/test_spring_entry_semantics.py`.
@@ -61,8 +64,21 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   keeps RELATIVE files in memory and writes no image.
 - **Record SEQUENTIAL files** (no LINE, or no ORGANIZATION clause) fail closed.
 - **Signed / COMP numeric STRING sources** fail closed (stored encoding).
-- **Referenced COMP / COMP-3 items** keep programs PARTIAL (`workload-comp`,
-  `workload-comp3`, `workload-relative`, `workload-relative-file`).
+- ~~**Referenced COMP / COMP-3 items** keep programs PARTIAL~~ — since Phase 3
+  a standalone COMP/BINARY/COMP-3/PACKED-DECIMAL item used only by value is
+  SUPPORTED (`workload-comp`, `workload-comp3`, `workload-binary-values`
+  VERIFIED; `tests/test_binary_usage_values.py`).  Still PARTIAL: an item a
+  statement can see as bytes (CALL USING, reference modification,
+  STRING/INSPECT, LENGTH OF, REDEFINES, inside a group), and COMP-5,
+  COMP-1, COMP-2.  `workload-relative`/`workload-relative-file` now generate
+  and are PARTIAL only for their RELATIVE file image.
+- **MOVE alphanumeric → numeric** is certified for digit-only content; any
+  other content (spaces, signs, letters — GnuCOBOL applies rules not
+  reproduced) stops the Java run with `NumberFormatException`, so the run
+  FAILS instead of storing a guessed value.
+- **Found by the Phase 3 binary-values application, refused today:** signed
+  literals in conditions (`IF X > -1`), and a figurative constant in a
+  numeric comparison (`IF X > ZERO`, classified UNKNOWN).
 - **OCCURS whole-record references, REDEFINES numeric reinterpretation**
   (`workload-occurs`, `workload-redefines`) and **CALL BY VALUE**
   (`workload-by-value`, GnuCOBOL 3.1.2 implementation unfinished) stay refused.

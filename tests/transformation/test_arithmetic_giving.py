@@ -39,7 +39,10 @@ def _magnitude_wrapper(expr):
 
     It also unwraps the high-order truncation ``(... % 10**n)`` applied to an
     integer receiver whose result can outgrow its PIC (oracle: ``ADD 999 TO
-    PIC 9(3)`` holding 5 stores ``004``).
+    PIC 9(3)`` holding 5 stores ``004``), and normalises the equivalent
+    spellings of one operation (``a * b``, ``Math.multiplyExact(a, b)`` and
+    the exact ``BigDecimal`` chain used when the product can outgrow the
+    Java type) to a ``JavaBinaryOp`` over the operands.
     """
     from engine.transformation.java_ir import JavaBinaryOp, JavaMethodCall
 
@@ -53,6 +56,36 @@ def _magnitude_wrapper(expr):
         expr = expr.arguments[0]
     if isinstance(expr, JavaBinaryOp) and expr.operator == "%":
         expr = expr.left
+    return _operation(expr)
+
+
+_EXACT_OPERATORS = {
+    "addExact": "+", "subtractExact": "-", "multiplyExact": "*",
+    "add": "+", "subtract": "-", "multiply": "*",
+}
+
+
+def _operation(expr):
+    """``expr`` with Math.*Exact / exact BigDecimal arithmetic as JavaBinaryOp."""
+    from engine.transformation.java_ir import JavaBinaryOp, JavaMethodCall
+
+    if not isinstance(expr, JavaMethodCall):
+        return expr
+    if expr.method_name in ("intValueExact", "longValueExact", "remainder", "setScale"):
+        return _operation(expr.object_ref)
+    if expr.method_name == "valueOf" and expr.class_name == "java.math.BigDecimal":
+        return _operation(expr.arguments[0])
+    operator = _EXACT_OPERATORS.get(expr.method_name)
+    if operator and expr.is_static and expr.class_name == "Math":
+        return JavaBinaryOp(
+            left=_operation(expr.arguments[0]), operator=operator,
+            right=_operation(expr.arguments[1]),
+        )
+    if operator and expr.object_ref is not None:
+        return JavaBinaryOp(
+            left=_operation(expr.object_ref), operator=operator,
+            right=_operation(expr.arguments[0]),
+        )
     return expr
 
 
@@ -397,11 +430,9 @@ MAIN.
                  if hasattr(s, 'target') and s.target == 'WS_C']
         assert len(stmts) == 1
         expr = _magnitude_wrapper(stmts[0].expression)
-        assert expr.class_name == "Math"
-        assert expr.method_name == "multiplyExact"
-        assert len(expr.arguments) == 2
-        assert hasattr(expr.arguments[0], 'name') and expr.arguments[0].name == 'WS_A'
-        assert hasattr(expr.arguments[1], 'name') and expr.arguments[1].name == 'WS_B'
+        assert expr.operator == "*"
+        assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
+        assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
 
     def test_inplace_target_is_multiplicand(self):
         cobol = """\
@@ -422,9 +453,8 @@ MAIN.
                  if hasattr(s, 'target') and s.target == 'WS_B']
         assert len(stmts) == 1
         expr = _magnitude_wrapper(stmts[0].expression)
-        assert expr.class_name == "Math"
-        assert expr.method_name == "multiplyExact"
-        assert len(expr.arguments) == 2
+        assert expr.operator == "*"
+        assert {expr.left.name, expr.right.name} == {'WS_A', 'WS_B'}
 
     def test_both_operands_unchanged_after_giving(self):
         """GIVING must not mutate A or B."""
@@ -729,11 +759,9 @@ MAIN.
         assignment = self._get_assignment(java, "WS_C")
         assert assignment is not None
         expr = _magnitude_wrapper(assignment.expression)
-        assert expr.class_name == "Math"
-        assert expr.method_name == "multiplyExact"
-        assert len(expr.arguments) == 2
-        assert hasattr(expr.arguments[0], 'name') and expr.arguments[0].name == 'WS_A'
-        assert hasattr(expr.arguments[1], 'name') and expr.arguments[1].name == 'WS_B'
+        assert expr.operator == "*"
+        assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
+        assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
 
     def test_divide_giving_c_equals_a_div_b(self):
         """DIVIDE A BY B GIVING C means C = A / B (integer)."""

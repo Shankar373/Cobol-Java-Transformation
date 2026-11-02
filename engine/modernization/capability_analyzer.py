@@ -221,6 +221,92 @@ def _is_unreferenced_standalone_item(program, item, source_text: str) -> bool:
     return len(re.findall(pattern, source_text, re.IGNORECASE)) == 1
 
 
+#: Canonical USAGEs whose *value* semantics equal DISPLAY of the same PIC in
+#: the oracle's configuration (GnuCOBOL 3.1.2 default.conf: binary-truncate
+#: yes).  Proof: ``fixtures/workload-binary-values`` prints identical
+#: output with and without its USAGE clauses (truncation at both ends,
+#: wrap, ROUNDED, negative into unsigned, MOVE to and from PIC X).  COMP-5
+#: (no truncation) and the floating COMP-1/COMP-2 differ and stay PARTIAL.
+_VALUE_EQUIVALENT_USAGES = frozenset({"COMP", "COMP-3"})
+
+#: Statements in which a data reference contributes only its numeric value.
+_VALUE_VERBS = frozenset({
+    "ADD", "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE", "MOVE", "DISPLAY",
+    "IF", "EVALUATE", "PERFORM", "INITIALIZE",
+})
+
+#: Every statement-starting verb: the governing verb of a reference is the
+#: last one before it.  A verb outside ``_VALUE_VERBS`` (CALL, STRING,
+#: INSPECT, SET, ACCEPT, READ ... KEY, WRITE ... FROM, SEARCH, GO ...
+#: DEPENDING) may see the item's bytes, so it disqualifies the item.
+_STATEMENT_VERBS = _VALUE_VERBS | frozenset({
+    "ACCEPT", "ALTER", "CALL", "CANCEL", "CLOSE", "CONTINUE", "DELETE",
+    "ENTRY", "EXEC", "EXIT", "GENERATE", "GO", "GOBACK", "INITIATE",
+    "INSPECT", "INVOKE", "MERGE", "OPEN", "READ", "RELEASE", "RETURN",
+    "REWRITE", "SEARCH", "SET", "SORT", "START", "STOP", "STRING",
+    "SUPPRESS", "TERMINATE", "UNSTRING", "USE", "WRITE",
+})
+
+
+def _is_value_only_item(program, item, source_text: str) -> bool:
+    """True when a COMP/COMP-3 item's byte encoding cannot be observed.
+
+    The generated Java stores the item as a number exactly like a DISPLAY
+    item of the same PIC, which the oracle proves equivalent as long as
+    only the *value* is used.  Qualifies: a standalone WORKING-STORAGE item
+    (level 01/77, no children, OCCURS or REDEFINES) of a
+    ``_VALUE_EQUIVALENT_USAGES`` usage, in a program without COPY/REPLACE,
+    whose name occurs — in the text the compiler reads, comments and
+    literals masked — only in its own declaration, as a ``RELATIVE KEY``,
+    and in PROCEDURE DIVISION statements governed by a ``_VALUE_VERBS``
+    verb, never reference-modified (``X(1:2)``), never after ``OF``/``IN``
+    (``LENGTH OF``, ``ADDRESS OF``) and never in a statement that names
+    ``LENGTH``/``BYTE-LENGTH``.  Group moves involving it are rejected by
+    the group checks (``group_move_problem``).
+    """
+    if item.usage not in _VALUE_EQUIVALENT_USAGES:
+        return False
+    if item.level not in (1, 77) or item.children or item.redefines or item.occurs:
+        return False
+    if not any(ws is item for ws in getattr(program, "working_storage", ()) or ()):
+        return False
+    from engine.transformation.copybook_model import _mask_comments
+    from engine.transformation.cobol_parser import _mask_literal_contents
+    from engine.transformation.source_format import compiler_visible_text
+
+    text = _mask_literal_contents(_mask_comments(compiler_visible_text(source_text))).upper()
+    if re.search(r"(?<![\w-])(?:COPY|REPLACE)(?![\w-])", text):
+        return False
+    split = re.search(r"(?<![\w-])PROCEDURE\s+DIVISION(?![\w-])", text)
+    if split is None:
+        return False
+    name = re.escape(item.name.upper())
+    data, procedure = text[:split.start()], text[split.end():]
+    declared = len(re.findall(rf"(?<![\w-])(?:01|1|77)\s+{name}(?![\w-])", data))
+    keys = len(re.findall(rf"(?<![\w-])RELATIVE\s+KEY\s+(?:IS\s+)?{name}(?![\w-])", data))
+    if declared != 1 or len(re.findall(rf"(?<![\w-]){name}(?![\w-])", data)) != 1 + keys:
+        return False
+    tokens = re.findall(r"[A-Z0-9][A-Z0-9-]*|\S", procedure)
+    verb = None
+    statement: list[str] = []
+    for index, token in enumerate(tokens):
+        if token in _STATEMENT_VERBS:
+            verb, statement = token, []
+        statement.append(token)
+        if token != item.name.upper():
+            continue
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        preceding = tokens[index - 1] if index else ""
+        if (
+            verb not in _VALUE_VERBS
+            or following == "("
+            or preceding in ("OF", "IN")
+            or {"LENGTH", "BYTE-LENGTH"} & set(statement)
+        ):
+            return False
+    return True
+
+
 def _scan_copy_replacing(source_text: str) -> "list[tuple[str, CapabilityLevel, str]]":
     """Classify COPY ... REPLACING clauses the materialization lane cannot apply.
 
@@ -890,7 +976,9 @@ class CapabilityAnalyzer:
         for item in _iter_program_data_items(program):
             if not item.usage:
                 continue
-            if _is_unreferenced_standalone_item(program, item, unit.source_text or ""):
+            if _is_unreferenced_standalone_item(
+                program, item, unit.source_text or ""
+            ) or _is_value_only_item(program, item, unit.source_text or ""):
                 continue
             usage_key = USAGE_TO_CONSTRUCT.get(item.usage, "USAGE")
             usage_items.setdefault(usage_key, []).append(f"{item.name} ({item.usage})")

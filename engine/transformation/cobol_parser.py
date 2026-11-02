@@ -36,10 +36,12 @@ from engine.transformation.control_flow import (
 )
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
 from engine.transformation.group_storage import (
+    file_record_groups,
     group_move_problem,
     group_reference_problem,
     is_group,
     iter_data_items,
+    uncertified_file_records,
 )
 from engine.transformation.figurative import parse_figurative_constant
 from engine.transformation.redefines import build_redefines_plan, write_targets
@@ -135,6 +137,17 @@ _GROUP_SAFE_STATEMENTS = (
     PerformStatement,
     PerformTimesStatement,
     AcceptStatement,
+)
+
+#: Statements that name a file record as the file's record area.
+_FILE_STATEMENTS = (
+    OpenStatement,
+    CloseStatement,
+    ReadStatement,
+    WriteStatement,
+    RewriteStatement,
+    DeleteStatement,
+    StartStatement,
 )
 
 _OPERAND_TOKEN = re.compile(r"[A-Z0-9][A-Z0-9-]*", re.IGNORECASE)
@@ -693,6 +706,7 @@ class CobolParser:
                     container_path=fd.container_path,
                     record_name=fsd.record_name,
                     record_items=fsd.record_items,
+                    record_groups=fsd.record_groups,
                     organization=fd.organization,
                     access_mode=fd.access_mode,
                     record_key=fd.record_key,
@@ -753,41 +767,72 @@ class CobolParser:
         concatenation of DISPLAY-usage PIC X / unsigned PIC 9 leaves, and
         MOVE into it when every leaf is a named PIC X field.  Anything else
         (oracle: ``MOVE 'WXYZ' TO WS-G`` with numeric or OCCURS leaves) is
-        reported.  File records are excluded: their layout is
-        assembled/disassembled by the file-I/O lowering.
+        reported.
+
+        A file record (an FD's 01 entry) is assembled/disassembled by the
+        file-I/O lowering, so file statements may name it freely.  Elsewhere
+        it is a group view only when ``file_record_groups`` certifies it, and
+        only in MOVE/DISPLAY; any other use of a record name is reported
+        (it would otherwise reach the Java as an undeclared field).
         """
-        items = (*program.working_storage, *program.linkage_section)
+        file_groups = file_record_groups(program)
+        record_problems = uncertified_file_records(program)
+        items = (*program.working_storage, *program.linkage_section, *file_groups)
         groups = {
             item.name.upper() for item in iter_data_items(items) if is_group(item)
         }
-        if not groups:
+        file_records = {item.name.upper() for item in file_groups} | set(record_problems)
+        if not groups and not file_records:
             return
 
         def base(ref: str) -> str:
             return str(ref or "").split("(", 1)[0].strip().rstrip(".").upper()
+
+        def record_problem(names) -> str | None:
+            hit = sorted(set(names) & set(record_problems))
+            return record_problems[hit[0]] if hit else None
 
         for para in program.paragraphs:
             for stmt in _walk_statements(para.statements):
                 problems: list[tuple[str, str]] = []
                 if isinstance(stmt, MoveStatement):
                     for target in stmt.targets or (stmt.target,):
-                        if base(stmt.source) in groups or base(target) in groups:
+                        problem = record_problem((base(stmt.source), base(target)))
+                        if problem is None and (
+                            base(stmt.source) in groups or base(target) in groups
+                        ):
                             problem = group_move_problem(items, stmt.source, target)
-                            if problem:
-                                problems.append(("MOVE", problem))
+                        if problem:
+                            problems.append(("MOVE", problem))
                 elif isinstance(stmt, DisplayStatement):
                     for part in stmt.parts:
-                        if base(part) in groups:
+                        problem = record_problem((base(part),))
+                        if problem is None and base(part) in groups:
                             problem = group_reference_problem(items, part)
-                            if problem:
-                                problems.append(("DISPLAY", problem))
-                elif not isinstance(stmt, _GROUP_SAFE_STATEMENTS):
+                        if problem:
+                            problems.append(("DISPLAY", problem))
+                else:
+                    tokens = _operand_tokens(stmt)
+                    verb = type(stmt).__name__.removesuffix("Statement").upper()
+                    records = (
+                        [] if isinstance(stmt, _FILE_STATEMENTS)
+                        else sorted(tokens & file_records)
+                    )
                     # Every other verb reads or writes the unrelated Java
                     # group field (oracle: STRING/UNSTRING INTO a group
                     # filled its leaves; the Java left them untouched).
-                    hit = sorted(_operand_tokens(stmt) & groups)
-                    if hit:
-                        verb = type(stmt).__name__.removesuffix("Statement").upper()
+                    hit = (
+                        []
+                        if isinstance(stmt, _GROUP_SAFE_STATEMENTS)
+                        else sorted((tokens & groups) - file_records)
+                    )
+                    if records:
+                        problems.append((
+                            verb,
+                            record_problem(records)
+                            or f"file record {records[0]} as an operand",
+                        ))
+                    elif hit:
                         problems.append((verb, f"group item {hit[0]} as an operand"))
                 for verb, problem in problems:
                     self._diagnostics.warning(
@@ -1311,6 +1356,7 @@ class CobolParser:
         current_fd: str | None = None
         current_record: str | None = None
         current_items: list[DataItem] = []
+        record_lines: list[list[str]] = []
 
         for line in lines:
             upper = line.upper().strip()
@@ -1325,12 +1371,15 @@ class CobolParser:
                             container_path="",
                             record_name=current_record,
                             record_items=tuple(current_items),
+                            record_groups=self._record_groups(record_lines),
                         ))
                     parts = line.strip().split()
                     current_fd = parts[1].rstrip(".") if len(parts) >= 2 else None
                     current_record = None
                     current_items = []
+                    record_lines = []
                 elif current_fd and upper.startswith("01 "):
+                    record_lines.append([line])
                     parts = line.strip().split()
                     if len(parts) >= 2:
                         current_record = parts[1].rstrip(".")
@@ -1352,6 +1401,8 @@ class CobolParser:
                                 usage=usage,
                             ))
                 elif current_fd and re.match(r"\d{2}\s+", upper):
+                    if record_lines:
+                        record_lines[-1].append(line)
                     # Handle sub-level items (05, 10, 15, etc.)
                     parts = line.strip().split()
                     if len(parts) >= 2:
@@ -1380,9 +1431,29 @@ class CobolParser:
                             container_path="",
                             record_name=current_record,
                             record_items=tuple(current_items),
+                            record_groups=self._record_groups(record_lines),
                         ))
                     break
+                elif record_lines and upper:
+                    # The rest of an entry continued on the next line
+                    # (``OCCURS 5.``): part of the record's description.
+                    record_lines[-1].append(line)
         return file_defs
+
+    @staticmethod
+    def _record_groups(records: list[list[str]]) -> tuple[DataItem, ...]:
+        """Each 01 record description of an FD as a data-description tree.
+
+        Parsed by a scratch parser: the FILE SECTION pass has already
+        reported every diagnostic these lines raise.
+        """
+        scratch = CobolParser()
+        return tuple(
+            item
+            for lines in records
+            for item in scratch.parse_data_description_lines(lines)
+            if item.level == 1
+        )
 
     def parse_data_description_lines(self, lines: list[str]) -> list[DataItem]:
         """Parse COBOL data-description entries for WORKING-STORAGE, LINKAGE or COPYBOOKs."""

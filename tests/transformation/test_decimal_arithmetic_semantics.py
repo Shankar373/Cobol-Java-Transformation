@@ -218,6 +218,12 @@ MAIN.
 
 
 def test_large_integral_source_to_int_receiver_uses_exact_narrowing():
+    """A long source into an int receiver keeps its low-order digits.
+
+    GnuCOBOL: ``MOVE 9000000123`` (``9(10)``) to ``9(9)`` stores
+    ``000000123``; ``Math.toIntExact`` threw instead.  Value pinned in
+    ``tests/test_binary_usage_values.py`` (``wide_integer_results``).
+    """
     cobol = """\
 >>SOURCE FORMAT FREE
 IDENTIFICATION DIVISION.
@@ -233,10 +239,16 @@ MAIN.
 """
     java = _parse_map(cobol)
     source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
-    assert "Math.toIntExact" in source
+    assert "Math.toIntExact" not in source
+    assert "remainder(java.math.BigDecimal.valueOf(1000000000L)).intValueExact()" in source
 
 
 def test_nested_integral_expression_keeps_parent_overflow_protection():
+    """A sum that can outgrow ``int`` is computed exactly, then truncated.
+
+    GnuCOBOL: three ``9(9)`` items of 900000000 sum into ``9(9)`` as
+    ``700000000``; the ``Math.addExact`` chain threw at 2.7e9.
+    """
     cobol = """\
 >>SOURCE FORMAT FREE
 IDENTIFICATION DIVISION.
@@ -254,4 +266,6 @@ MAIN.
 """
     java = _parse_map(cobol)
     source = JavaGenerator()._stmt_to_string(_assignment(java, "WS_RESULT"))
-    assert source.count("Math.addExact") == 2
+    assert "Math.addExact" not in source
+    assert source.count(".add(") == 2
+    assert "remainder(java.math.BigDecimal.valueOf(1000000000L))" in source

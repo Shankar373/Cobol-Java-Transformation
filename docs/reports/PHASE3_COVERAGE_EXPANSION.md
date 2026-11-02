@@ -39,7 +39,7 @@ matrix, and the 2026-11-01 architecture audit
    (every program depends on it). *Done, §3.*
 2. **Application data** — RETURN-CODE; COMP/COMP-3 storage; REDEFINES
    numeric reinterpretation; OCCURS whole-record references; signed
-   STRING sources.
+   STRING sources.  *RETURN-CODE done, §3.2; COMP/COMP-3 by value, §3.4.*
 3. **Files** — record-level comparison of INDEXED/RELATIVE files (turns the
    6 PARTIAL apps into VERIFIED when equal); record SEQUENTIAL files.
    *INDEXED done, §3.3; RELATIVE and record SEQUENTIAL open.*
@@ -136,6 +136,58 @@ then alone through the independent re-check:
 
 The independent records (hex) of each side are in
 `evidence/phase3/independent_verification.jsonl`.  The two RELATIVE
-fixtures (`workload-relative`, `workload-relative-file`) are still
-refused at generation for their referenced COMP/COMP-3 items, exactly as
-in Phase 2; they produce no verdict.
+fixtures (`workload-relative`, `workload-relative-file`) were still
+refused at generation for their referenced COMP/COMP-3 items at this
+point, exactly as in Phase 2 (resolved in §3.4).
+
+### 3.4 Binary and packed items by value; numeric lowerings (increment 4)
+
+Audit: four Phase 2 applications (`comp`, `comp3`, `relative`,
+`relative-file`) were refused only because they reference COMP/COMP-3
+items, all standalone and all used by value.  Measured first: GnuCOBOL
+3.1.2 (`default.conf`: `binary-truncate: yes`, `pretty-display: yes`)
+prints identical output for `fixtures/workload-binary-values` with and
+without its USAGE clauses, so such an item has DISPLAY value semantics,
+and the Java already stores it as a number.
+
+Forcing the refusal off (probe only, never committed) showed why it must
+stay off for anything else: `workload-relative` did not compile (the FD
+record `REL-REC` reached the Java as an undeclared name), and the new
+application exposed four lowerings that were wrong for DISPLAY items too —
+programs the analyzer already classified SUPPORTED:
+
+| Defect (generated Java) | GnuCOBOL | Now |
+|---|---|---|
+| `WS_U = WS_DIGITS;` — PIC X into numeric did not compile | digit content read as unsigned integer, low-order digits kept | digit-guarded `parseInt`/`BigDecimal`; other content stops the run |
+| `WS_PACKED < 0 && …` — BigDecimal with `<` did not compile | — | compound conditions with a decimal operand split per atom (`compareTo`) |
+| `String.format("%-8s", WS_SHORT)` gave `10      ` | `0010    ` (unsigned digits at PIC width) | `String.format("%04d", Math.abs(..))` |
+| `Math.toIntExact(WS_BIG)` / `Math.multiplyExact` threw | exact result truncated to the receiver | exact BigDecimal when an operation can exceed its Java type; also fixes a silent `int * int` overflow into a long receiver |
+
+| Layer | Change |
+|---|---|
+| Capability analyzer | `_is_value_only_item`: COMP/BINARY/COMP-3/PACKED-DECIMAL, standalone WORKING-STORAGE item, no COPY/REPLACE; every occurrence (compiler-visible text, comments and literals masked) is its declaration, a RELATIVE KEY, or a PROCEDURE reference governed by ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE/MOVE/DISPLAY/IF/EVALUATE/PERFORM/INITIALIZE, never reference-modified, after `OF`/`IN` or in a statement naming LENGTH/BYTE-LENGTH. COMP-5, COMP-1, COMP-2 unchanged (PARTIAL) |
+| Parser / IR | `FileDefinition.record_groups`: each FD 01 record as a data-description tree; FD record names are checked like groups (`file_record_groups` / `uncertified_file_records`) |
+| Mapper | group views include certified FD records; the four lowerings above |
+
+Applications through the API (no bypass), each then independently re-checked:
+
+| Application | Before | Now | Independent |
+|---|---|---|---|
+| workload-binary-values (new) | — | **VERIFIED** | AGREE |
+| workload-comp | refused | **VERIFIED** | AGREE |
+| workload-comp3 | refused | **VERIFIED** | AGREE |
+| workload-multiply-giving-verified | VERIFIED | **VERIFIED** (generated Java changed: exact product) | AGREE |
+| workload-universal | VERIFIED | **VERIFIED** (same) | AGREE |
+| workload-relative | refused | PARTIAL (stdout, exit MATCH; RELATIVE image INCONCLUSIVE) | — |
+| workload-relative-file | refused | PARTIAL (same) | — |
+
+Regression: generated Java for the other 42 Phase 2 applications is
+byte-identical to `2ebedc4`.  Existing tests that pinned the throwing
+`Math.*Exact` lowering were changed to assert the exact form and the
+oracle-pinned values (`test_decimal_arithmetic_semantics.py`,
+`test_arithmetic_giving.py`); the tests that pinned "referenced COMP is
+PARTIAL" now pin the byte-level cases (`test_usage_capability.py`).
+
+Found and left refused (named diagnostics, recorded in KNOWN_ISSUES):
+ON SIZE ERROR, signed literals in conditions (`> -1`), a figurative
+constant in a numeric comparison (`> ZERO`).

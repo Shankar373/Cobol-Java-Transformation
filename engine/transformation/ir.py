@@ -380,6 +380,11 @@ class FileDefinition:
     container_path: str
     record_name: str
     record_items: tuple[DataItem, ...] = ()
+    # Every 01 record description of the FD as a data-description tree
+    # (``record_items`` is the flattened leaf list the file-I/O lowering
+    # uses).  Several 01 records share one record area, so only an FD with
+    # exactly one record can be treated as an ordinary group.
+    record_groups: tuple[DataItem, ...] = ()
     # File semantics (from SELECT clause)
     organization: FileOrganization = FileOrganization.SEQUENTIAL
     access_mode: FileAccessMode = FileAccessMode.SEQUENTIAL

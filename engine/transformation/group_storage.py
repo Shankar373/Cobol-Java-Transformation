@@ -96,6 +96,52 @@ def find_item(items, name: str) -> DataItem | None:
     return found[0] if len(unique) == 1 else None
 
 
+def file_record_groups(program) -> tuple[DataItem, ...]:
+    """FD records that are certified group views.
+
+    Only the sole 01 record of its FD qualifies (several records share one
+    record area), only when every leaf is named (a READ overwrites FILLER
+    bytes, which a WORKING-STORAGE view treats as constants) and only when
+    its leaves are exactly the record fields the file-I/O lowering declares,
+    in order.
+    """
+    found = []
+    for fd in getattr(program, "file_definitions", ()) or ():
+        if len(fd.record_groups) != 1 or not is_group(fd.record_groups[0]):
+            continue
+        record = fd.record_groups[0]
+        layout, problem = group_layout((record,), record.name)
+        if problem or any(leaf.name is None for leaf in layout.leaves):
+            continue
+        fields = [
+            item.name.upper() for item in fd.record_items
+            if not item.is_group and not item.is_condition_name
+        ]
+        if [leaf.name.upper() for leaf in layout.leaves] == fields:
+            found.append(record)
+    return tuple(found)
+
+
+def uncertified_file_records(program) -> dict[str, str]:
+    """FD record names that cannot be used as data, with the reason."""
+    certified = {item.name.upper() for item in file_record_groups(program)}
+    problems: dict[str, str] = {}
+    for fd in getattr(program, "file_definitions", ()) or ():
+        for record in fd.record_groups:
+            name = record.name.upper()
+            if len(fd.record_groups) > 1:
+                problems[name] = (
+                    f"file record {record.name} shares the record area of"
+                    f" {fd.name} with another record description"
+                )
+            elif is_group(record) and name not in certified:
+                problems[name] = (
+                    f"file record {record.name} is not a certified group view"
+                    " (FILLER, OCCURS, REDEFINES or non-DISPLAY leaves)"
+                )
+    return problems
+
+
 def _filler_constant(item: DataItem) -> str | None:
     if item.value is None:
         return " " * item.pic_length

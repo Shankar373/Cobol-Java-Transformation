@@ -39,6 +39,7 @@ from engine.transformation.control_flow import (
 from engine.transformation.figurative import figurative_to_width, parse_figurative_constant
 from engine.transformation.group_storage import (
     GroupLayout,
+    file_record_groups,
     find_item,
     group_layout,
     group_move_problem,
@@ -527,10 +528,14 @@ def _int_lit(value: int) -> JavaLiteral:
 
 
 def _group_items(program) -> tuple:
-    """Data items whose groups are lowered as views (WORKING-STORAGE/LINKAGE)."""
+    """Data items whose groups are lowered as views (WORKING-STORAGE/LINKAGE,
+    plus the file records ``file_record_groups`` certifies)."""
     if program is None:
         return ()
-    return (*program.working_storage, *program.linkage_section)
+    return (
+        *program.working_storage, *program.linkage_section,
+        *file_record_groups(program),
+    )
 
 
 def _named_group(program, ref: str):
@@ -631,6 +636,113 @@ def _group_move_statements(source: str, target: str, program) -> list[JavaStatem
         )
         for leaf in layout.leaves
     ]
+
+
+def _alphanumeric_to_numeric(
+    source: str,
+    source_expr: JavaExpression,
+    target: str,
+    item: DataItem,
+    program,
+) -> JavaExpression | None:
+    """MOVE of alphanumeric data into a numeric receiver (certified subset).
+
+    GnuCOBOL 3.1.2 reads digit-only content as an unsigned integer and keeps
+    its low-order integer digits (``'12345678'`` gives ``PIC 9(4)`` 5678 and
+    ``PIC 9(3)V99`` 678.00; ``'07'`` gives 0007).  Other content (spaces,
+    signs, letters) follows rules this lowering does not reproduce, so the
+    Java aborts on it (``NumberFormatException``) instead of storing a
+    guessed value; a quoted literal is checked here.  ``None`` when
+    ``source`` is not alphanumeric.
+    """
+    digits = item.integer_digits
+    text = source.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        value = text[1:-1]
+        if not value.isdigit() or digits <= 0:
+            return JavaUnsupportedExpression(
+                source_expression=f"MOVE {source} TO {target}",
+                reason="only a digit-only literal moves into a numeric item",
+            )
+        low = str(int(value[-digits:]))
+        if item.decimal_places > 0:
+            checked: JavaExpression = _str_lit(low)
+        else:
+            return JavaLiteral(value=low + java_integral_suffix(low))
+    else:
+        sender = _find_data_item(program, source)
+        if sender is None or not sender.is_alphanumeric or sender.pic_length <= 0:
+            return None
+        if digits <= 0:
+            return JavaUnsupportedExpression(
+                source_expression=f"MOVE {source} TO {target}",
+                reason="numeric receiver without integer digits",
+            )
+        low_order = JavaMethodCall(
+            object_ref=source_expr, method_name="substring",
+            arguments=(JavaMethodCall(
+                class_name="Math", method_name="max", is_static=True,
+                arguments=(_int_lit(0), JavaBinaryOp(
+                    left=JavaMethodCall(object_ref=source_expr, method_name="length"),
+                    operator="-", right=_int_lit(digits),
+                )),
+            ),),
+        )
+        checked = JavaTernary(
+            condition=JavaMethodCall(
+                object_ref=source_expr, method_name="matches",
+                arguments=(_str_lit("[0-9]+"),),
+            ),
+            true_expr=low_order,
+            false_expr=_str_lit(
+                f"MOVE {source} TO {target}: only digit-only content is certified"
+            ),
+        )
+    if item.decimal_places > 0:
+        return JavaMethodCall(
+            object_ref=JavaNewObject(class_name="java.math.BigDecimal", arguments=(checked,)),
+            method_name="setScale", arguments=(_int_lit(item.decimal_places),),
+        )
+    parse = ("Long", "parseLong") if item.pic_length > 9 else ("Integer", "parseInt")
+    return JavaMethodCall(
+        class_name=parse[0], method_name=parse[1], is_static=True, arguments=(checked,),
+    )
+
+
+def _numeric_as_alphanumeric(
+    source: str,
+    source_expr: JavaExpression,
+    program,
+) -> JavaExpression | None:
+    """Characters a numeric sender gives an alphanumeric receiver.
+
+    GnuCOBOL 3.1.2: an integer item moves its digits unsigned, at its PIC
+    digit count (``S9(4)`` holding -37 gives ``0037``, for DISPLAY, COMP and
+    COMP-3 alike); an integer literal moves its digits as written, without
+    the sign (``-12`` gives ``12``, ``0012`` gives ``0012``).  ``None`` when
+    ``source`` is not numeric.
+    """
+    text = source.strip()
+    if re.fullmatch(r"[+-]?\d+", text):
+        return _str_lit(text.lstrip("+-"))
+    sender = _find_data_item(program, source)
+    if sender is None or not sender.is_numeric:
+        return None
+    if sender.decimal_places > 0 or sender.pic_length <= 0:
+        return JavaUnsupportedExpression(
+            source_expression=f"MOVE {source}",
+            reason="a non-integer numeric item cannot be moved to an alphanumeric item",
+        )
+    return JavaMethodCall(
+        class_name="String", method_name="format", is_static=True,
+        arguments=(
+            _str_lit(f"%0{sender.pic_length}d"),
+            JavaMethodCall(
+                class_name="Math", method_name="abs", is_static=True,
+                arguments=(source_expr,),
+            ),
+        ),
+    )
 
 
 def _bool_lit(value: bool) -> JavaLiteral:
@@ -1834,6 +1946,57 @@ def _expression_integral_digit_width(
     return 0
 
 
+_JAVA_INT_MAX = 2**31 - 1
+_JAVA_LONG_MAX = 2**63 - 1
+
+
+_OVERFLOWS = "overflows"
+
+
+def _native_integral_bound(
+    expr: JavaExpression,
+    program: CobolProgram | None,
+) -> tuple[int, bool] | str | None:
+    """(magnitude bound, evaluated as long) of an integral expression.
+
+    ``_OVERFLOWS`` when some operation could exceed the Java type it is
+    evaluated in (int unless an operand is long); ``None`` when the
+    expression is not plain arithmetic over integer PIC fields and
+    literals, so no bound is known.
+    """
+    if isinstance(expr, JavaVariableRef):
+        item = _find_data_item(program, expr.name)
+        if item is None or not item.is_numeric or item.decimal_places > 0:
+            return None
+        return 10 ** item.pic_length - 1, item.pic_length > 9
+    if isinstance(expr, JavaLiteral):
+        text = expr.value.strip()
+        digits = text.lstrip("+-").rstrip("Ll")
+        if not digits.isdigit():
+            return None
+        value = int(digits)
+        return value, text.endswith(("L", "l")) or value > _JAVA_INT_MAX
+    if isinstance(expr, JavaUnaryOp) and expr.operator == "-":
+        return _native_integral_bound(expr.operand, program)
+    if isinstance(expr, JavaBinaryOp) and expr.operator in ("+", "-", "*", "/", "%"):
+        left = _native_integral_bound(expr.left, program)
+        right = _native_integral_bound(expr.right, program)
+        if _OVERFLOWS in (left, right):
+            return _OVERFLOWS
+        if left is None or right is None:
+            return None
+        is_long = left[1] or right[1]
+        bound = {
+            "+": left[0] + right[0],
+            "-": left[0] + right[0],
+            "*": left[0] * right[0],
+        }.get(expr.operator, left[0])
+        if bound > (_JAVA_LONG_MAX if is_long else _JAVA_INT_MAX):
+            return _OVERFLOWS
+        return bound, is_long
+    return None
+
+
 def _protect_integral_overflow(
     expression: JavaExpression,
     target_item: DataItem,
@@ -2053,6 +2216,17 @@ def _scale_numeric_receiver(
         if rounded
         else _expression_has_nested_division(expression)
     )
+    # Native Java arithmetic only when no operation can overflow the type it
+    # is evaluated in and the result's type fits the receiver; anything else
+    # is computed exactly, since COBOL truncates the exact result to the
+    # receiving PIC (oracle: ``SUBTRACT S9(9) FROM S9(15) GIVING S9(9)``
+    # stores the low 9 digits, where ``Math.toIntExact`` threw and an
+    # ``int * int`` product overflowed before widening to a long receiver).
+    native = _native_integral_bound(expression, program)
+    if native == _OVERFLOWS or (
+        isinstance(native, tuple) and native[1] and item.pic_length <= 9
+    ):
+        exact_intermediates = True
     if not _expression_requires_fractional_type(
         expression, program
     ) and not exact_intermediates:
@@ -2810,6 +2984,14 @@ def _involves_alphanumeric(condition: str, program: CobolProgram | None) -> bool
     return False
 
 
+def _involves_decimal(condition: str, program: CobolProgram | None) -> bool:
+    """Whether a condition text names a decimal item or a point literal."""
+    for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_.-]*", condition):
+        if _operand_is_decimal(token.rstrip("."), program):
+            return True
+    return False
+
+
 def _alphanumeric_comparison(
     op: str,
     left_token: str,
@@ -2907,7 +3089,12 @@ def map_cobol_condition_to_java(
     # Compound conditions over alphanumeric operands are mapped atom by atom
     # so every relation gets the padded-comparison semantics; the textual
     # fallback below would render Java String identity (``==``) instead.
-    if program is not None and _involves_alphanumeric(condition, program):
+    # Decimal operands need the same, for ``compareTo`` (oracle: ``IF D < 0
+    # AND N > 0`` with ``D PIC S9(5)V99`` rendered ``D < 0`` on a BigDecimal).
+    if program is not None and (
+        _involves_alphanumeric(condition, program)
+        or _involves_decimal(condition, program)
+    ):
         unwrapped = _strip_enclosing_parens(condition)
         for keyword, java_op in (("OR", "||"), ("AND", "&&")):
             atoms = _split_top_level(unwrapped, keyword)
@@ -3600,7 +3787,14 @@ def map_cobol_statement(
                 continue
             expression = source
             item = _find_data_item(program, move_target)
-            if item is not None and item.is_numeric and _is_numeric_expression(expression, program):
+            converted = (
+                _alphanumeric_to_numeric(stmt.source, source, move_target, item, program)
+                if item is not None and item.is_numeric
+                else None
+            )
+            if converted is not None:
+                expression = converted
+            elif item is not None and item.is_numeric and _is_numeric_expression(expression, program):
                 expression = _apply_numeric_receiver_semantics(
                     expression,
                     move_target,
@@ -3637,15 +3831,22 @@ def map_cobol_statement(
                 else:
                     # MOVE stores exactly the receiving PIC X width: pad on
                     # the right, or truncate on the right before any
-                    # subsequent use.
+                    # subsequent use.  A numeric sender contributes its
+                    # unsigned digits, not Java's rendering of the number.
+                    characters = _numeric_as_alphanumeric(stmt.source, source, program)
                     padded = JavaMethodCall(
                         class_name="String", method_name="format", is_static=True,
-                        arguments=(_str_lit(f"%-{item.pic_length}s"), source),
+                        arguments=(
+                            _str_lit(f"%-{item.pic_length}s"),
+                            source if characters is None else characters,
+                        ),
                     )
                     expression = JavaMethodCall(
                         object_ref=padded, method_name="substring",
                         arguments=(_int_lit(0), _int_lit(item.pic_length)),
                     )
+                    if isinstance(characters, JavaUnsupportedExpression):
+                        expression = characters
             result.append(JavaAssignment(
                 target=cobol_reference_to_java_source(move_target),
                 expression=expression,
