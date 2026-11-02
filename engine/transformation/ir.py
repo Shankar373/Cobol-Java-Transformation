@@ -385,6 +385,9 @@ class FileDefinition:
     # uses).  Several 01 records share one record area, so only an FD with
     # exactly one record can be treated as an ordinary group.
     record_groups: tuple[DataItem, ...] = ()
+    # ORGANIZATION SEQUENTIAL (explicit, or no ORGANIZATION clause) as
+    # opposed to LINE SEQUENTIAL: fixed-length records, no line terminator.
+    record_sequential: bool = False
     # File semantics (from SELECT clause)
     organization: FileOrganization = FileOrganization.SEQUENTIAL
     access_mode: FileAccessMode = FileAccessMode.SEQUENTIAL

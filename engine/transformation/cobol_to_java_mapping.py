@@ -745,6 +745,53 @@ def _numeric_as_alphanumeric(
     )
 
 
+def _write_from_characters(source: str, program, fd=None) -> JavaExpression:
+    """Characters ``WRITE … FROM source`` moves into the record area.
+
+    A PIC X field as is, a group through its certified view, a quoted
+    literal as its text.  A numeric sender depends on the record (GnuCOBOL
+    3.1.2): into a group record the move is a group move — the sender's
+    stored bytes, so ``S9(5)`` -42 arrives as ``0004r`` (sign overpunch) —
+    which is reproduced only for an unsigned DISPLAY integer (its bytes are
+    its digits); into an elementary PIC X record it is an alphanumeric
+    move (unsigned digits).  Anything else fails closed.
+    """
+    text = source.strip()
+    sender = _find_data_item(program, text)
+    record = fd.record_groups[0] if fd is not None and len(fd.record_groups) == 1 else None
+    if (
+        sender is not None and sender.is_numeric
+        and (record is None or is_group(record))
+        and (sender.signed or sender.decimal_places or sender.usage)
+    ):
+        return JavaUnsupportedExpression(
+            source_expression=f"WRITE FROM {text}",
+            reason="a group move of a signed, scaled or non-DISPLAY numeric item "
+            "copies its stored encoding, which is not reproduced",
+        )
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        return _str_lit(text[1:-1])
+    group = _named_group(program, text)
+    if group is not None:
+        problem = group_reference_problem(_group_items(program), text)
+        if problem:
+            return JavaUnsupportedExpression(
+                source_expression=f"WRITE FROM {text}", reason=problem,
+            )
+        return _group_view_expression(group_layout(_group_items(program), group.name)[0])
+    reference = JavaVariableRef(name=cobol_reference_to_java_source(text))
+    numeric = _numeric_as_alphanumeric(text, reference, program)
+    if numeric is not None:
+        return numeric
+    item = _find_data_item(program, text)
+    if item is not None and item.is_alphanumeric and item.pic_length > 0:
+        return reference
+    return JavaUnsupportedExpression(
+        source_expression=f"WRITE FROM {text}",
+        reason="WRITE FROM operand is not a certified field",
+    )
+
+
 def _bool_lit(value: bool) -> JavaLiteral:
     # Renderers quote unknown literals; true/false must stay bare Java    # keywords — both generators special-case untyped true/false/null.
     return JavaLiteral(value="true" if value else "false")
@@ -4380,6 +4427,10 @@ def map_cobol_statement(
                     "readKey", _str_lit(path),
                     _key_expr(stmt_key_for_read, fd, program),
                 )
+            elif fd is not None and fd.record_sequential:
+                call = _cobol_call(
+                    "readRecord", _str_lit(path), _int_lit(_record_total_width(fd)),
+                )
             else:
                 call = _cobol_call("readNext", _str_lit(path))
             result.append(JavaLocalVarDecl(
@@ -4457,10 +4508,33 @@ def map_cobol_statement(
             rec_expr = _assembly_expression(fd, content_var)
             if rec_expr is None:
                 rec_expr = JavaVariableRef(name=content_var)
+            if stmt.from_field and _record_layout(fd):
+                # WRITE r FROM x is MOVE x TO r, then WRITE r: the record
+                # fields take x's characters and the file gets exactly them
+                # (the assembly alone wrote the record's previous content).
+                image_var = _fresh_io_var("from")
+                result.append(JavaLocalVarDecl(
+                    java_type=JavaType(basic_type=JavaBasicType.STRING),
+                    name=image_var,
+                    initializer=_cobol_call(
+                        "pad", _write_from_characters(stmt.from_field, program, fd),
+                        _int_lit(_record_total_width(fd)), _bool_lit(False),
+                    ),
+                ))
+                result.extend(_disassembly_statements(fd, image_var))
+                rec_expr = JavaVariableRef(name=image_var)
             if _is_relative(fd):
                 # RELATIVE: third arg is the current RRN (relative key field).
                 rrn_expr = _key_expr("", fd, program)
                 call = _cobol_call("write", _str_lit(path), rec_expr, rrn_expr)
+            elif fd is not None and fd.record_sequential:
+                # Record SEQUENTIAL: the fixed-length record area, no
+                # terminator, trailing spaces kept (GnuCOBOL 3.1.2).
+                width = _record_total_width(fd)
+                call = _cobol_call(
+                    "writeRecord", _str_lit(path),
+                    _cobol_call("pad", rec_expr, _int_lit(width), _bool_lit(False)),
+                )
             elif fd is not None and fd.organization == FileOrganization.SEQUENTIAL:
                 # LINE SEQUENTIAL (the only sequential organisation the
                 # parser admits): GnuCOBOL drops trailing spaces from the

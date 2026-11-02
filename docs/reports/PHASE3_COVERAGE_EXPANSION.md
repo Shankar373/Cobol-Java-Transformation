@@ -42,7 +42,7 @@ matrix, and the 2026-11-01 architecture audit
    STRING sources.  *RETURN-CODE done, §3.2; COMP/COMP-3 by value, §3.4.*
 3. **Files** — record-level comparison of INDEXED/RELATIVE files (turns the
    6 PARTIAL apps into VERIFIED when equal); record SEQUENTIAL files.
-   *INDEXED done, §3.3; RELATIVE, §3.5; record SEQUENTIAL open.*
+   *INDEXED done, §3.3; RELATIVE, §3.5; record SEQUENTIAL, §3.6.*
 4. **Multi-runtime** — end-to-end API lanes for plain Java and Jakarta EE
    with GnuCOBOL proof, then a runtime-adapter port for the entry/host
    shape and additional runtimes (Quarkus, Micronaut, Open Liberty), each
@@ -236,3 +236,41 @@ A runtime test that pinned the old `23` for a missing file now pins `35`
 Still INCONCLUSIVE (PARTIAL), by design: a RELATIVE image with no live
 record or an ambiguous layout; a file a program reads without creating it
 in the same run.
+
+### 3.6 Record SEQUENTIAL files, WRITE … FROM, line/page control (increment 6)
+
+ORGANIZATION SEQUENTIAL — explicit, or the default without an
+ORGANIZATION clause — is the everyday batch file, and failed closed
+entirely.  Measured on GnuCOBOL 3.1.2: one fixed-length record description
+gives bare record areas back to back (no terminator, trailing spaces
+kept); several record descriptions of different lengths switch to
+variable records behind a 4-byte header (2-byte big-endian length + 2 zero
+bytes) — pinned, and refused.
+
+| Layer | Change |
+|---|---|
+| Parser / IR | `FileDefinition.record_sequential`; `_validate_record_sequential` certifies one record description that is an elementary PIC X item or a certified group view, with no VARYING / CONTAINS n TO m / RECORDING MODE / LINAGE and no OPEN I-O, REWRITE, DELETE or START on the file |
+| Runtime | `CobolFileIo.writeRecord` / `readRecord` (fixed width, no terminator) — purely additive |
+| Mapper | WRITE pads the record to its width and calls `writeRecord`; READ calls `readRecord` |
+| Analyzer | sequential OPEN EXTEND is SUPPORTED (appends exactly like GnuCOBOL, pinned for LINE and record SEQUENTIAL); OPEN I-O stays PARTIAL |
+
+Found by the oracle while building the application, fixed for every
+organization:
+
+| Before | GnuCOBOL 3.1.2 | Now |
+|---|---|---|
+| `WRITE r FROM x` wrote r's previous fields (the record assembly ignored FROM) | MOVE x TO r, then WRITE r | the record fields take x's characters and exactly those are written |
+| — | into a group record the move copies x's stored bytes: `S9(5)` -42 is written `0004r` | unsigned DISPLAY integers reproduced; signed / scaled / COMP senders fail closed |
+| `WRITE … AFTER ADVANCING 2 LINES` (one line) dropped with no diagnostic | line/page control characters around the record | fails closed (UNSUPPORTED_CONSTRUCT) |
+
+Application: `fixtures/workload-record-sequential` (extract with field
+MOVEs, OPEN EXTEND, `WRITE … FROM` a group, READ/AT END/FILE STATUS
+totals, a summary record written FROM a group with FILLER literals) —
+**VERIFIED** through the API (stdout, exit status, `EXTRACT.DAT` and
+`SUMMARY.DAT` byte-exact MATCH) and **AGREE** in the independent re-check.
+
+Regression: only the generated `CobolFileIo.java` changed, in the 14 file
+applications, by the two added methods (no line removed); their service
+code is byte-identical to `9111a50`, so nothing calls the new methods.
+All other generated Java is byte-identical.  No fixture used WRITE … FROM
+or ADVANCING.

@@ -163,6 +163,45 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         }
     }
 
+    /** WRITE to a record-sequential file: the fixed-length record area,
+     *  no line terminator. */
+    static String writeRecord(String path, String rec) {
+        try {
+            java.io.BufferedWriter w = OUT.get(path);
+            if (w == null) {
+                return "23";
+            }
+            w.write(rec);
+            w.flush();
+            return "00";
+        } catch (Exception e) {
+            return "23";
+        }
+    }
+
+    /** READ the next fixed-length record of a record-sequential file;
+     *  null at end of file. */
+    static String readRecord(String path, int width) {
+        try {
+            java.io.BufferedReader r = IN.get(path);
+            if (r == null) {
+                return null;
+            }
+            char[] buf = new char[width];
+            int n = 0;
+            while (n < width) {
+                int k = r.read(buf, n, width - n);
+                if (k < 0) {
+                    break;
+                }
+                n += k;
+            }
+            return n == 0 ? null : new String(buf, 0, n);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Explicit READ ... NEXT — same sequential/cursor semantics as read(). */
     static String readNext(String path) {
         return read(path);

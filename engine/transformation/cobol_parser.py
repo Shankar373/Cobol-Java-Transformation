@@ -663,7 +663,7 @@ class CobolParser:
         # sees them instead of dropping them without a trace.
         self._emit_unsupported_section_and_directive_diagnostics(code_lines)
         self._validate_division_order(code_lines)
-        self._validate_file_organizations(code_lines)
+        record_sequential = self._record_sequential_files(code_lines)
         program_id = self._parse_program_id(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
@@ -731,6 +731,10 @@ class CobolParser:
                 if isinstance(stmt, OpenStatement):
                     open_stmts.append(stmt)
 
+        merged_files = [
+            replace(fd, record_sequential=fd.name.upper() in record_sequential)
+            for fd in merged_files
+        ]
         program = CobolProgram(
             program_id=program_id,
             file_definitions=tuple(merged_files),
@@ -754,6 +758,7 @@ class CobolParser:
         self._validate_redefines(program)
         self._validate_control_flow(program)
         self._validate_group_references(program)
+        self._validate_record_sequential(program, code_lines)
         self._validate_unique_data_names(program)
 
         return program
@@ -811,6 +816,14 @@ class CobolParser:
                             problem = group_reference_problem(items, part)
                         if problem:
                             problems.append(("DISPLAY", problem))
+                elif isinstance(stmt, WriteStatement) and base(stmt.from_field) in groups:
+                    # WRITE r FROM g reads g's characters (a group view),
+                    # like DISPLAY g; the record r is the file's own area.
+                    problem = record_problem((base(stmt.from_field),)) or (
+                        group_reference_problem(items, stmt.from_field)
+                    )
+                    if problem:
+                        problems.append(("WRITE", problem))
                 else:
                     tokens = _operand_tokens(stmt)
                     verb = type(stmt).__name__.removesuffix("Statement").upper()
@@ -1140,16 +1153,15 @@ class CobolParser:
         )
         return [*working_storage, *register]
 
-    def _validate_file_organizations(self, lines: list[str]) -> None:
-        """Fail closed on record-sequential files.
-
-        The generated file runtime implements LINE SEQUENTIAL (one record
-        per line, trailing spaces removed on WRITE).  ORGANIZATION
-        SEQUENTIAL — explicit, or the default when no ORGANIZATION clause is
-        given — is fixed-length records with no line terminator in GnuCOBOL,
-        which that runtime does not reproduce.  Only files assigned to a
-        literal name are checked; device assignments are not files.
+    @staticmethod
+    def _record_sequential_files(lines: list[str]) -> set[str]:
+        """Files (upper-case names) of ORGANIZATION SEQUENTIAL — explicit, or
+        the default when no ORGANIZATION clause is given — as opposed to LINE
+        SEQUENTIAL.  Only files assigned to a literal name count; device
+        assignments are not files.  ``_validate_record_sequential`` decides
+        which of them the runtime reproduces.
         """
+        found: set[str] = set()
         text = " ".join(lines)
         for m in re.finditer(
             r"\bSELECT\s+(?:OPTIONAL\s+)?([\w-]+)\s+ASSIGN\s+(?:TO\s+)?"
@@ -1163,12 +1175,69 @@ class CobolParser:
             )
             kind = organization.group(1).upper() if organization else "SEQUENTIAL"
             if kind == "SEQUENTIAL":
+                found.add(m.group(1).upper())
+        return found
+
+    def _validate_record_sequential(self, program: CobolProgram, lines: list[str]) -> None:
+        """Fail closed on record-sequential files the runtime does not reproduce.
+
+        GnuCOBOL 3.1.2 writes a record-sequential file with one fixed-length
+        record description as the bare record areas, back to back (no
+        terminator, trailing spaces kept); the runtime's ``writeRecord`` /
+        ``readRecord`` do the same.  Certified only when the FD's single
+        record is an elementary PIC X item or a certified group view
+        (``file_record_groups``: named DISPLAY PIC X / unsigned PIC 9 leaves)
+        and nothing makes records variable or positions them: several record
+        descriptions (GnuCOBOL then writes a 4-byte length header per
+        record), RECORD VARYING / CONTAINS n TO m, RECORDING MODE, LINAGE.
+        OPEN I-O, REWRITE, DELETE and START on the file are not lowered.
+        """
+        text = " ".join(lines)
+        certified = {item.name.upper() for item in file_record_groups(program)}
+        for fd in program.file_definitions:
+            if not fd.record_sequential:
+                continue
+            name = fd.name.upper()
+            problem = None
+            header = re.search(
+                rf"(?<![\w-])FD\s+{re.escape(fd.name)}(?![\w-])([^.]*)\.",
+                text, re.IGNORECASE,
+            )
+            clauses = header.group(1) if header else ""
+            if len(fd.record_groups) != 1:
+                problem = "several (or no) record descriptions make records variable-length"
+            elif re.search(
+                r"(?<![\w-])(VARYING|RECORDING|LINAGE)(?![\w-])"
+                r"|\bCONTAINS\s+\d+\s+TO\b",
+                clauses, re.IGNORECASE,
+            ):
+                problem = "variable-length or positioned records are not reproduced"
+            else:
+                record = fd.record_groups[0]
+                elementary = (
+                    not is_group(record) and record.is_alphanumeric
+                    and record.pic_length > 0 and record.occurs is None
+                    and record.redefines is None and record.usage is None
+                )
+                if not elementary and record.name.upper() not in certified:
+                    problem = (
+                        f"record {record.name} is not a certified layout (signed, "
+                        "scaled or non-DISPLAY fields, FILLER, OCCURS or REDEFINES)"
+                    )
+            if problem is None:
+                for para in program.paragraphs:
+                    for stmt in _walk_statements(para.statements):
+                        if problem or getattr(stmt, "file_name", "").upper() != name:
+                            continue
+                        if isinstance(stmt, OpenStatement) and stmt.mode.upper() == "I-O":
+                            problem = "OPEN I-O is not lowered"
+                        elif isinstance(stmt, (RewriteStatement, DeleteStatement, StartStatement)):
+                            problem = f"{type(stmt).__name__.removesuffix('Statement').upper()} is not lowered"
+            if problem:
                 self._diagnostics.warning(
                     DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                    f"File {m.group(1).upper()} is record SEQUENTIAL: "
-                    "fixed-length record files without line terminators are "
-                    "not certified (only LINE SEQUENTIAL is)",
-                    location=m.group(1).upper(),
+                    f"File {name} is record SEQUENTIAL: {problem}",
+                    location=name,
                 )
 
     def _validate_program_structure(self, program: CobolProgram, source: str) -> None:
@@ -2202,6 +2271,19 @@ class CobolParser:
         record_name = match.group(1).rstrip(".") if match else ""
         from_match = re.search(r"\bFROM\s+(\S+)", header_text, re.IGNORECASE)
         from_field = from_match.group(1).rstrip(".") if from_match else ""
+        advancing = re.search(
+            r"(?<![\w-])(AFTER|BEFORE|END-OF-PAGE|EOP)(?![\w-])", header_text, re.IGNORECASE,
+        )
+        if advancing:
+            # Line/page control writes extra characters around the record;
+            # the generated runtime writes the record only.
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"WRITE {record_name} {advancing.group(1).upper()} (ADVANCING / "
+                "END-OF-PAGE) is not lowered: line and page control is not "
+                "reproduced",
+                location=record_name,
+            )
 
         # Determine file name from the FILE SECTION record owner.  The
         # "-REC" -> "-FILE" convention is only a fallback for programs whose

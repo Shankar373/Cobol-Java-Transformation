@@ -1215,7 +1215,8 @@ class CapabilityAnalyzer:
                 "oracle-proven on the shipped fixtures; behavioral equivalence "
                 "(stdout, FILE STATUS, exit code) is PROVEN for the certified "
                 "subset. The on-disk record/index representation is an emulation, "
-                "not VSAM; file-image equivalence is not claimed.",
+                "not VSAM; file-image equivalence is not claimed — the files are "
+                "certified by their records (key order / RRN).",
             )
 
         if definition.access_mode == FileAccessMode.DYNAMIC:
@@ -1232,7 +1233,10 @@ class CapabilityAnalyzer:
                 "unsupported by the file runtime",
             )
 
-        if fd.operation == "OPEN" and fd.mode in ("I-O", "EXTEND"):
+        # OPEN EXTEND appends (LINE and record SEQUENTIAL), oracle-pinned in
+        # tests/test_record_sequential_files.py; OPEN I-O (record REWRITE in
+        # place) is not lowered.
+        if fd.operation == "OPEN" and fd.mode == "I-O":
             return (
                 CapabilityLevel.PARTIAL,
                 f"OPEN {fd.mode} on {fd.file_name} is not reproduced by the "

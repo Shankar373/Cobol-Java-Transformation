@@ -65,7 +65,18 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   a RELATIVE image with no live record or an ambiguous slot layout, and any
   INDEXED/RELATIVE file the program reads without creating it in the same
   run (the Java emulation does not load an existing image).
-- **Record SEQUENTIAL files** (no LINE, or no ORGANIZATION clause) fail closed.
+- ~~**Record SEQUENTIAL files** fail closed~~ — fixed-length record
+  SEQUENTIAL files are certified since increment 6
+  (`tests/test_record_sequential_files.py`).  Still refused: variable-length
+  records (several record descriptions, VARYING, CONTAINS n TO m, RECORDING
+  MODE), LINAGE, OPEN I-O/REWRITE/DELETE/START on sequential files, and
+  record layouts outside the group-view subset.
+- **WRITE … AFTER/BEFORE [ADVANCING] / END-OF-PAGE** fail closed (they were
+  silently dropped before increment 6); `WRITE … FROM` on a continuation
+  line is refused (skipped-statement diagnostic).
+- **Numeric fields holding spaces** (a record READ whose numeric field is
+  blank): GnuCOBOL keeps the spaces, the Java field is a number — the run
+  stops or differs, it never verifies.
 - **`SELECT OPTIONAL`** fails closed (increment 5): a missing optional file
   opens with status 05 and reads empty, which the generated runtime does not
   model; it was silently ignored before.  A missing non-optional file opens

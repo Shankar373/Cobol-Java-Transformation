@@ -68,17 +68,39 @@ _SOURCE = """\
 EXPECTED_STDOUT = "[AL|03|00600|125               ]\n"
 EXPECTED_FILE = b"AL|03|00600|125\n\n  LEAD\n"
 
+#: The same program on a record SEQUENTIAL file (explicit, or no
+#: ORGANIZATION clause): GnuCOBOL 3.1.2 writes the three 30-byte record
+#: areas back to back, trailing spaces kept, no terminator.
+_RECORD_SOURCES = {
+    "explicit": _SOURCE.replace(
+        "ORGANIZATION IS LINE SEQUENTIAL", "ORGANIZATION IS SEQUENTIAL"
+    ),
+    "default": _SOURCE.replace("\n               ORGANIZATION IS LINE SEQUENTIAL", ""),
+}
+RECORD_FILE = (
+    b"AL|03|00600|125".ljust(30) + b" " * 30 + b"  LEAD".ljust(30)
+)
+
 
 def _transform(source: str):
     return TransformationProducer().transform(source, "PROBE")
 
 
-def test_generated_java_matches_oracle(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("source", "expected_file"),
+    [
+        (_SOURCE, EXPECTED_FILE),
+        (_RECORD_SOURCES["explicit"], RECORD_FILE),
+        (_RECORD_SOURCES["default"], RECORD_FILE),
+    ],
+    ids=["line-sequential", "record-sequential", "no-organization"],
+)
+def test_generated_java_matches_oracle(tmp_path: Path, source: str, expected_file: bytes) -> None:
     if not (shutil.which("javac") and shutil.which("java")):
         if os.environ.get("RUN_DOCKER_TESTS") == "1":
             pytest.fail("javac/java not on PATH: the Docker lane requires a JDK")
         pytest.skip("javac/java not on PATH")
-    result = _transform(_SOURCE)
+    result = _transform(source)
     assert result.success is True, result.errors
     for generated in result.generated_files:
         (tmp_path / generated.filename).write_text(generated.source_code, encoding="utf-8")
@@ -95,21 +117,17 @@ def test_generated_java_matches_oracle(tmp_path: Path) -> None:
     )
     assert run.returncode == 0, run.stderr.decode(errors="replace")
     assert run.stdout.decode() == EXPECTED_STDOUT
-    assert (tmp_path / "LS.TXT").read_bytes() == EXPECTED_FILE
+    assert (tmp_path / "LS.TXT").read_bytes() == expected_file
 
 
-def test_record_sequential_file_fails_closed() -> None:
-    source = _SOURCE.replace("ORGANIZATION IS LINE SEQUENTIAL", "ORGANIZATION IS SEQUENTIAL")
-    result = _transform(source)
-    assert result.success is False
-    assert any("is record SEQUENTIAL" in error for error in result.errors), result.errors
-
-
-def test_file_without_organization_defaults_to_record_sequential() -> None:
-    source = _SOURCE.replace("\n               ORGANIZATION IS LINE SEQUENTIAL", "")
-    result = _transform(source)
-    assert result.success is False
-    assert any("is record SEQUENTIAL" in error for error in result.errors), result.errors
+@pytest.mark.parametrize("variant", sorted(_RECORD_SOURCES))
+def test_record_sequential_file_is_lowered(variant: str) -> None:
+    """Record SEQUENTIAL is certified since Phase 3 increment 6 (it failed
+    closed before); variable-length forms still fail closed
+    (``tests/test_record_sequential_files.py``)."""
+    result = _transform(_RECORD_SOURCES[variant])
+    assert result.success is True, result.errors
+    assert "CobolFileIo.writeRecord(" in result.generated_files[0].source_code
 
 
 def test_signed_numeric_string_source_fails_closed() -> None:
