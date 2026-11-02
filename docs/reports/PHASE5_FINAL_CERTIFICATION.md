@@ -119,5 +119,20 @@ corpus evidence (`seconds`), not asserted.
 
 ## 8. CI on the exact SHA
 
-Recorded after the push (follow-up commit): `ci.yml`, `supply-chain.yml`
-and the dispatched `certification.yml` run per runtime.
+**First certification run (`d4a95cb`, run 41494148954) was a false pass and
+is not counted.** All four jobs reported success, but inspection of the
+artifacts showed an empty re-check and summary: the independent verifier had
+crashed on Linux (files owned by the sandbox uid 10001 could not be removed
+by the runner when the temporary directory was cleaned up — a side effect of
+running the verifier non-root since Phase 4), and the steps still passed
+because `python … | tee …` under GitHub's default `bash -e` (no `pipefail`)
+takes its status from `tee`. Fixed: the verifier makes its work tree
+removable through a hardened container running as the same uid; the
+certification workflow runs every step with `pipefail`; a guard test fails
+any workflow step that pipes into `tee` without `pipefail` (the main CI was
+already compliant — BL-143). Two transient Maven Central errors (a 502 and an
+unreadable descriptor) failed the Quarkus image build; image builds now
+retry (`scripts/ci/build-image.sh`).
+
+The certification of record is the re-run on the fixed commit, recorded
+below in a follow-up commit.

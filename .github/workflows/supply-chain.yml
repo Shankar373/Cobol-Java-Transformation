@@ -169,9 +169,9 @@ jobs:
           persist-credentials: false
       - name: Build images
         run: |
-          docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:scan .
-          docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:scan .
-          docker build --pull -f Dockerfile.production -t systemaops-api:scan .
+          bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:scan
+          bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:scan
+          bash scripts/ci/build-image.sh Dockerfile.production systemaops-api:scan
       - name: Scan images
         run: |
           mkdir -p test-artifacts/supply-chain/trivy

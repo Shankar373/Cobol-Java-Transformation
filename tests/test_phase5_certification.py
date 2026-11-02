@@ -220,3 +220,34 @@ def test_one_product_version_everywhere():
     assert package["version"] == __version__
     manifest = (REPO / "scripts" / "supply-chain" / "build_release_manifest.py").read_text(encoding="utf-8")
     assert '"productVersion": product_version()' in manifest
+
+
+def test_ci_image_builds_retry_transient_registry_errors():
+    # A single 502 from Maven Central failed a certification job twice
+    # (run 41494148954); every workflow builds images through the retrying
+    # script, never a bare `docker build`.
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        text = workflow.read_text(encoding="utf-8")
+        assert "docker build" not in text, workflow.name
+    script = (REPO / "scripts" / "ci" / "build-image.sh").read_text(encoding="utf-8")
+    assert "for attempt in 1 2 3" in script and "set -euo pipefail" in script
+
+
+def test_workflow_pipelines_into_tee_keep_the_command_status():
+    # GitHub's default `run` shell is `bash -e` without pipefail: in
+    # `cmd | tee log` a failing cmd is masked by tee. The first certification
+    # run passed although the verifier crashed. Every step that pipes into
+    # tee must run with pipefail (explicit, or shell: bash).
+    import yaml
+
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        data = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        default_shell = (data.get("defaults") or {}).get("run", {}).get("shell")
+        for job in data["jobs"].values():
+            job_shell = (job.get("defaults") or {}).get("run", {}).get("shell", default_shell)
+            for step in job["steps"]:
+                run = step.get("run", "")
+                if "| tee" not in run:
+                    continue
+                shell = step.get("shell", job_shell)
+                assert "pipefail" in run or shell == "bash", (workflow.name, step.get("name"))

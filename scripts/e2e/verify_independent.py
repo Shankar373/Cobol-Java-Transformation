@@ -256,6 +256,19 @@ def _summary(side: dict) -> dict:
             "exit": side["exit"], "files": side["files"], "records": side["records"]}
 
 
+def _release(work: Path) -> None:
+    """Make a work tree removable by this process.
+
+    The sandbox user (uid 10001) owns what its containers created (Maven's
+    target/, program output); on a Linux host the invoking user cannot
+    delete those, and the temporary-directory cleanup crashed the run (CI,
+    2026-11-02). The same uid, in a hardened container, opens the tree up.
+    """
+    if any(work.iterdir()):
+        docker(["-v", f"{work.as_posix()}:/w", JRE, "sh", "-c",
+                "chmod -R a+rwX /w 2>/dev/null; true"], timeout=300)
+
+
 def main() -> None:
     done = set()
     if OUT.exists():
@@ -267,7 +280,7 @@ def main() -> None:
         if r.get("verdict") != "VERIFIED" or app in done or (wanted and app not in wanted):
             continue
         rec = {"app": app}
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             try:
                 o = run_cobol(REPO / "fixtures" / app / "cobol", Path(tmp))
                 j = run_java(Path(r["generated_app_path"]), Path(tmp))
@@ -283,6 +296,8 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 rec["verdict"] = "HARNESS_ERROR"
                 rec["detail"] = repr(exc)[:500]
+            finally:
+                _release(Path(tmp))
         with OUT.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
         print(app, rec["verdict"], rec.get("diffs", ""), flush=True)

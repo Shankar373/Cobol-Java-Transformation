@@ -43,6 +43,10 @@ found two over-claims, both fail-closed in generation (no false VERIFIED):
   on every command); fixed by `scripts/deploy/lib-docker-gid.sh`, sourced by all
   four entry points (guard test). Rebuilding a reused image tag destroys the
   rollback target — PRODUCTION.md now builds a new tag per release.
+- **CI false pass (found and fixed the same day):** the first run of the new
+  certification workflow passed although the independent verifier had crashed
+  (sandbox-owned files on Linux; `cmd | tee` without `pipefail`). Not counted;
+  verifier and workflow fixed, guard test on every workflow (`tests/test_phase5_certification.py`).
 - **Performance:** first deterministic budgets (`tests/test_phase5_performance.py`:
   corpus generation, API read latency). Docker build/execution time is
   host-dependent and reported, not asserted.

@@ -24,6 +24,13 @@ on:
 permissions:
   contents: read
 
+# Every step runs as `bash -eo pipefail`: several steps pipe into `tee`, and
+# the default `bash -e` takes the pipeline's status from `tee` - the first
+# run of this workflow reported success although the verifier had crashed.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   certify:
     name: Certify ${{ matrix.runtime }}
@@ -49,9 +56,9 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Build GnuCOBOL oracle image
-        run: docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
+        run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
       - name: Build project Maven image
-        run: docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:latest .
+        run: bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:latest
       - name: Pull pinned Java execution image
         run: |
           RUNTIME_DIGEST="$(python -c 'from engine.candidate.docker_spring_boot_adapter import DockerSpringBootConfig; print(DockerSpringBootConfig().runtime_digest)')"
