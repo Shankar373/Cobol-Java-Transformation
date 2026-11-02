@@ -9,11 +9,16 @@ name: Corpus certification (GnuCOBOL, all runtimes)
 # platform), and fail unless every verdict equals the accepted evidence and
 # every re-check AGREEs (scripts/e2e/certify_corpus.py).
 #
-# Manually dispatched for a release candidate (about an hour per runtime):
-#   gh workflow run certification.yml --ref <branch>
-# Not on every push - the regular CI already runs the oracle-pinned suites.
+# Runs for a release candidate (about an hour per runtime), not on every
+# push - the regular CI already runs the oracle-pinned suites:
+#   * a pushed commit whose message contains "[certify]" (any branch; the
+#     evidence is then tied to that exact SHA), or
+#   * manual dispatch once this file is on the default branch:
+#     gh workflow run certification.yml --ref <branch>
+# On other pushes the job is skipped (shown as skipped, never as passed).
 
 on:
+  push:
   workflow_dispatch:
 
 permissions:
@@ -22,6 +27,7 @@ permissions:
 jobs:
   certify:
     name: Certify ${{ matrix.runtime }}
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[certify]')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
