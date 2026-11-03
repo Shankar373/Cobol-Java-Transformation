@@ -1,26 +1,65 @@
-# Phase 4 (2026-11-02): pinned dependencies, action SHAs and base-image
-# digests otherwise only change by hand. Dependabot proposes updates as pull
-# requests; nothing is merged automatically - every bump still goes through
-# CI (exact-SHA) and the policy in docs/supply-chain/DEPENDENCY_AUDIT.md.
-# requirements.lock carries --hash entries: regenerate them with
-# scripts/supply-chain/hash_requirements_lock.py when taking a Python bump.
+# Dependency update policy (roadmap unit 3, 2026-11-04). Updates arrive as pull
+# requests; nothing merges automatically - every bump goes through the exact-SHA
+# CI and the policy in docs/supply-chain/DEPENDENCY_AUDIT.md.
+#
+# Why this is narrower than "everything weekly":
+# - Python is NOT managed here. requirements.lock / requirements-dev.lock are
+#   hash-pinned and are the source of truth; Dependabot can only raise the floors
+#   in requirements*.txt, which then contradict the locks (PRs #13, #14, #19,
+#   #25). pip-audit in CI covers vulnerabilities; Python bumps are done by hand
+#   with scripts/supply-chain/hash_requirements_lock.py.
+# - The oracle and runtime images are certified pins (GnuCOBOL 3.1.2 from the
+#   Ubuntu 22.04 packages; Python 3.11; Java 21). A new base image changes the
+#   ground truth, so major/minor moves are refused here and done as a deliberate,
+#   re-certified unit.
+# - React 18 / Vite 6 / TypeScript 5 / jsdom / vitest majors need a migration,
+#   not a bump.
 version: 2
 updates:
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
+      - dependency-name: jsdom
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 2
+    ignore:
+      # Certified pins: the oracle's base image and compiler, the Python and
+      # Java runtimes. Refreshed by hand in a re-certified unit.
+      - dependency-name: ubuntu
+      - dependency-name: python
+      - dependency-name: maven
+      - dependency-name: eclipse-temurin

@@ -11,6 +11,39 @@ CURRENT / TARGET / REASON / BENEFIT / BREAKING-CHANGE RISK / TEST RESULT.
 Minimal safe upgrades preferred. Previous TypeScript compiler regressions
 must not be repeated.
 
+## Roadmap unit 3 (2026-11-04) - Dependabot policy and the reviewed upgrades
+
+Dependabot opened PRs #10-#27 the moment its config reached `main`. Each was reviewed against the locks, the runtime
+pins and certification impact; none was merged blindly. The policy now lives in `.github/dependabot.yml` and is
+pinned by `tests/test_dependency_policy.py`.
+
+**Applied (one reviewed upgrade each; test result = the full CI + certification gate on the unit's commit):**
+
+| Upgrade | Current -> target | Reason / benefit | Breaking-change risk (release notes read) |
+|---|---|---|---|
+| `actions/checkout` | v6.0.2 -> v7.0.1 `3d3c42e` | Node 24, security hardening | v7.0.0 blocks fork-PR checkout for `pull_request_target`/`workflow_run`: not used here |
+| `actions/setup-python` | v6.2.0 -> v7.1.0 `6d4fd22` | maintained line | removes the `pip-install` input (unused); drops EOL Python (we use 3.11) |
+| `actions/setup-node` | v6.2.0 -> v7.1.0 `949feb2` | maintained line | drops a dummy `NODE_AUTH_TOKEN` export (unused) |
+| `actions/upload-artifact` | v6.0.0 -> v7.0.2 `cf430e0` | maintained line | adds opt-in unzipped single-file upload; ESM internals; our usage unchanged |
+| `vitest` (dev) | 5.0.3 -> 5.0.5 | patch fixes | patch; 185 tests pass, `npm ci`, build and `npm audit` (0 vulnerabilities) re-run |
+
+Every pin is still a full commit SHA with a version comment, one commit per action across all workflows (tests).
+
+**Not applied, with reason:**
+
+| PR(s) | Change | Decision |
+|---|---|---|
+| #10 | Ubuntu 22.04 -> 26.04 (`Dockerfile.gnucobol`) | Rejected: the oracle's GnuCOBOL 3.1.2 comes from pinned 22.04 packages; a new base changes the ground truth. Docker `ubuntu` is now ignored |
+| #11 | Python 3.11 -> 3.15 (`Dockerfile.production`) | Deferred to a deliberate, re-certified Python upgrade; `python` ignored |
+| #12 | Maven/Temurin 21 -> 26 (`Dockerfile.maven-offline`) | Rejected: generation targets and the offline cache are certified on Java 21; `maven`/`eclipse-temurin` ignored |
+| #13 #14 #19 #25 | pip floors above the locked versions | Rejected: they would contradict the hash-pinned locks; pip is no longer managed by Dependabot (locks are refreshed by hand with `hash_requirements_lock.py`; `pip-audit` gates CI) |
+| #20 #22 | pip floors equal to the locked versions | No-ops (PyYAML 6.0.3, httpx 0.28.1 already locked); nothing to apply |
+| #17 #23 #24 #27 | TypeScript 7, jsdom 30, plugin-react 6, React 19 | Deferred: majors needing a migration (the frontend is React 18 / Vite 6); majors of these packages are ignored |
+
+The PRs stay open until `impl/enterprise-platform` reaches `main`; the superseded ones are closed with a pointer to the
+unit's commit then. On 2026-11-03 Dependabot's 67 queued/running workflow runs were cancelled (owner-approved) because
+they starved the baseline certification of runners.
+
 ## Architecture audit update (2026-11-03) — lock split
 
 `requirements.lock` now holds the runtime closure only (22 pins: what the
