@@ -98,6 +98,11 @@ class DiscoveryResult:
     file_dependencies: list[dict] = field(default_factory=list)
     call_dependencies: list[dict] = field(default_factory=list)
     dependency_edges: list[dict] = field(default_factory=list)
+    # JCL analysis (roadmap unit 4): how each COBOL ddname binds to the step's DD
+    # statements, the dataset catalogue and the cross-step data flow.
+    dd_bindings: list[dict] = field(default_factory=list)
+    dataset_catalog: list[dict] = field(default_factory=list)
+    dataset_flows: list[dict] = field(default_factory=list)
     source_file_count: int = 0
     total_size_bytes: int = 0
     discovery_errors: list[dict] = field(default_factory=list)
@@ -116,6 +121,9 @@ class DiscoveryResult:
             "file_dependencies": self.file_dependencies,
             "call_dependencies": self.call_dependencies,
             "dependency_edges": self.dependency_edges,
+            "dd_bindings": self.dd_bindings,
+            "dataset_catalog": self.dataset_catalog,
+            "dataset_flows": self.dataset_flows,
             "source_file_count": self.source_file_count,
             "total_size_bytes": self.total_size_bytes,
             "discovery_success": self.discovery_success,
@@ -370,11 +378,31 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
             }
             result.jcl_jobs.append(job_info)
 
+        from engine.jcl.dd_binding import build_dataset_catalog, dataset_flows
+
+        result.dataset_catalog = build_dataset_catalog(jcl_app)
+        result.dataset_flows = dataset_flows(jcl_app)
+
         # Link JCL with COBOL if both exist
         if result.cobol_programs:
             cobol_discovery2 = ApplicationDiscovery()
             cobol_app2 = cobol_discovery2.discover(str(workspace), application_id=application_id)
             jcl_app = jcl_discovery.link_with_cobol(jcl_app, cobol_app2)
+
+            from engine.jcl.dd_binding import bind_dd_names, cobol_file_assignments
+
+            assignments: dict[str, list] = {}
+            for unit in cobol_app2.programs:
+                # source_path is relative to the workspace; never read outside it.
+                source = (workspace / unit.source_path).resolve()
+                if not source.is_relative_to(workspace.resolve()):
+                    continue
+                try:
+                    text = source.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                assignments[unit.program_id] = cobol_file_assignments(text)
+            result.dd_bindings = bind_dd_names(jcl_app, assignments)
 
             for dep in jcl_app.dependencies:
                 result.dependency_edges.append({

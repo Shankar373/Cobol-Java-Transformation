@@ -213,6 +213,39 @@ describe('ModernizationRun discovery', () => {
     expect(screen.getByText(/TRANS\.DAT \(READ\)/)).toBeInTheDocument();
   });
 
+  it('shows DD bindings and the dataset catalogue, and omits them when absent', async () => {
+    mockGetRun.mockResolvedValue(runResponse('COMPLETED') as never);
+    mockGetDiscovery.mockResolvedValue({
+      ...discoveryResponse(),
+      dd_bindings: [
+        { job: 'NIGHTLY', step: 'STEP1', program: 'PAYROLL', file_name: 'EMP-FILE', ddname: 'EMPIN',
+          dataset: 'HR.EMPLOYEES', disposition: 'SHR', status: 'BOUND', detail: '' },
+        { job: 'NIGHTLY', step: 'STEP1', program: 'PAYROLL', file_name: 'X', ddname: 'NOSUCH',
+          dataset: '', disposition: '', status: 'UNBOUND', detail: 'no DD statement named NOSUCH in step STEP1' },
+      ],
+      dataset_catalog: [
+        { dsn: 'HR.MASTER(+1)', kind: 'GDG_RELATIVE', flags: ['relative generation is not resolved'],
+          uses: [{ job: 'NIGHTLY', step: 'STEP1', dd: 'EMPIN', disposition: 'NEW', role: 'PRODUCER' }] },
+      ],
+    } as never);
+
+    render(<ModernizationRun runId="run-1" applicationId="app-1" />);
+
+    const bindings = await screen.findByTestId('dd-bindings');
+    expect(within(bindings).getByText(/BOUND → HR\.EMPLOYEES/)).toBeInTheDocument();
+    expect(within(bindings).getByText(/UNBOUND.*no DD statement named NOSUCH/)).toBeInTheDocument();
+    expect(within(screen.getByTestId('dataset-catalog')).getByText(/not resolved/)).toBeInTheDocument();
+  });
+
+  it('renders no DD sections for a discovery without bindings', async () => {
+    mockGetRun.mockResolvedValue(runResponse('COMPLETED') as never);
+    mockGetDiscovery.mockResolvedValue(discoveryResponse() as never);
+    render(<ModernizationRun runId="run-1" applicationId="app-1" />);
+    await waitFor(() => expect(screen.getByText('Discovery Results')).toBeInTheDocument());
+    expect(screen.queryByTestId('dd-bindings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-catalog')).not.toBeInTheDocument();
+  });
+
   it('shows discovery on FAILED runs with terminal explanation', async () => {
     mockGetRun.mockResolvedValue(runResponse('FAILED', 'Maven build failed') as never);
     mockGetDiscovery.mockResolvedValue(discoveryResponse() as never);

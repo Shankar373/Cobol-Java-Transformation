@@ -38,8 +38,34 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
 
     private CobolFileIo() {}
 
+    /**
+     * File name resolution as GnuCOBOL's libcob does it (oracle-probed, 3.1.2): a name
+     * without a directory is looked up as DD_name, then dd_name, then name in the
+     * environment; an absolute result is used as is, a relative one (or the plain
+     * name) goes under COB_FILE_PATH when set, else the working directory.
+     */
+    static String map(String name) {
+        if (name.indexOf('/') >= 0 || name.indexOf('\\\\') >= 0) {
+            return name;
+        }
+        String value = System.getenv("DD_" + name);
+        if (value == null) {
+            value = System.getenv("dd_" + name);
+        }
+        if (value == null) {
+            value = System.getenv(name);
+        }
+        String file = value != null ? value : name;
+        if (file.startsWith("/")) {
+            return file;
+        }
+        String base = System.getenv("COB_FILE_PATH");
+        return (base != null && !base.isEmpty()) ? base + "/" + file : file;
+    }
+
     /** OPEN file: mode INPUT/OUTPUT/I-O/EXTEND; keyLen 0 = sequential, keyLen < 0 = relative (RRN store). */
     static String open(String path, String mode, int keyLen) {
+        path = map(path);
         try {
             if (keyLen < 0) {
                 // RELATIVE organization: records keyed by 1-based RRN.
@@ -93,6 +119,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
 
     /** CLOSE file: flush state, persist the emulated index, release handles. */
     static String close(String path) {
+        path = map(path);
         try {
             java.io.BufferedReader r = IN.remove(path);
             if (r != null) {
@@ -115,6 +142,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     /** WRITE record; keyLen 0 appends a line (sequential), else indexed insert.
      *  For relative files (opened with keyLen < 0), the third argument is the RRN. */
     static String write(String path, String rec, int keyLenOrRrn) {
+        path = map(path);
         try {
             java.util.TreeMap<Integer, String> rel = REL.get(path);
             if (rel != null && !IDX.containsKey(path)) {
@@ -152,6 +180,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
 
     /** READ next record (sequential line, or indexed cursor after START/READ KEY). */
     static String read(String path) {
+        path = map(path);
         try {
             java.io.BufferedReader r = IN.get(path);
             if (r != null) {
@@ -166,6 +195,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     /** WRITE to a record-sequential file: the fixed-length record area,
      *  no line terminator. */
     static String writeRecord(String path, String rec) {
+        path = map(path);
         try {
             java.io.BufferedWriter w = OUT.get(path);
             if (w == null) {
@@ -182,6 +212,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     /** READ the next fixed-length record of a record-sequential file;
      *  null at end of file. */
     static String readRecord(String path, int width) {
+        path = map(path);
         try {
             java.io.BufferedReader r = IN.get(path);
             if (r == null) {
@@ -204,11 +235,13 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
 
     /** Explicit READ ... NEXT — same sequential/cursor semantics as read(). */
     static String readNext(String path) {
+        path = map(path);
         return read(path);
     }
 
     /** READ relative record at RRN; null = not found (INVALID KEY). */
     static String readRelative(String path, int rrn) {
+        path = map(path);
         java.util.TreeMap<Integer, String> m = REL.get(path);
         if (m == null) {
             return null;
@@ -218,6 +251,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
 
     /** READ ... KEY IS key for indexed files; null = not found (INVALID KEY). */
     static String readKey(String path, String key) {
+        path = map(path);
         java.util.TreeMap<String, String> m = IDX.get(path);
         if (m == null) {
             return null;
@@ -234,6 +268,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
 
     /** START file KEY IS rel key; positions the cursor for indexed reads. */
     static String start(String path, String op, String key) {
+        path = map(path);
         java.util.TreeMap<String, String> m = IDX.get(path);
         if (m == null || m.isEmpty()) {
             return "23";
@@ -268,6 +303,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     /** REWRITE record (replace by key); "23" when the key is absent.
      *  Relative: third argument is RRN (file must be open in relative mode). */
     static String rewrite(String path, String rec, int keyLenOrRrn) {
+        path = map(path);
         try {
             java.util.TreeMap<Integer, String> rel = REL.get(path);
             if (rel != null && !IDX.containsKey(path)) {
@@ -296,6 +332,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     /** DELETE record by key; "23" when the key is absent.
      *  Relative overload: delete the record at RRN. */
     static String delete(String path, String key, int keyLen) {
+        path = map(path);
         try {
             ensureIndex(path, keyLen);
             java.util.TreeMap<String, String> m = IDX.get(path);
@@ -311,6 +348,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     }
 
     static String deleteRelative(String path, int rrn) {
+        path = map(path);
         java.util.TreeMap<Integer, String> m = REL.get(path);
         if (m == null || !m.containsKey(rrn)) {
             return "23";

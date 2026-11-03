@@ -749,6 +749,7 @@ class CobolParser:
                     file_status_field=fd.file_status_field,
                     record_contains=fd.record_contains,
                     block_contains=fd.block_contains,
+                    assign_kind=fd.assign_kind,
                 ))
             else:
                 merged_files.append(fd)
@@ -1224,8 +1225,33 @@ class CobolParser:
         found: list[tuple[str, str | None, str]] = []
         for m in _SELECT_ASSIGN.finditer(cls._file_control_text(lines)):
             literal = m.group(3) if m.group(2) else None
-            found.append((m.group(1).upper(), literal, m.group(0).split(None, 2)[-1]))
+            # Quoted: the whole clause text; unquoted: the bare target word
+            # (a DD name candidate, EXTERNAL, DISK, ...).
+            target = m.group(0).split(None, 2)[-1] if literal is not None else (m.group(4) or "")
+            found.append((m.group(1).upper(), literal, target))
         return found
+
+    #: ``ASSIGN TO <word>`` words that are device or format keywords, not DD names.
+    _ASSIGN_KEYWORDS = frozenset({
+        "EXTERNAL", "DYNAMIC", "DISK", "PRINTER", "PRINTER-1", "PRINT", "TAPE",
+        "KEYBOARD", "DISPLAY", "USING", "LINE", "SEQUENTIAL", "RANDOM",
+        "STDIN", "STDOUT", "SYSIN", "SYSOUT", "SYSPRINT", "SYS000", "S1",
+    })
+
+    @classmethod
+    def _ddname(cls, target: str) -> str | None:
+        """The DD name of ``ASSIGN TO <target>`` when it is the certified plain form.
+
+        Certified (``tests/integration/test_ddname_oracle.py``): an upper-case
+        identifier that is not a device/format keyword and not one of the names
+        the lowering treats as standard output. Anything else stays refused.
+        """
+        if (
+            re.fullmatch(r"[A-Z][A-Z0-9-]{0,29}", target or "")
+            and target not in cls._ASSIGN_KEYWORDS
+        ):
+            return target
+        return None
 
     def _with_return_code_register(
         self, source, working_storage, linkage_section, using_parameters, paragraphs,
@@ -1522,18 +1548,37 @@ class CobolParser:
                 location=m.group(1).upper(),
             )
         paths = {}
+        kinds: dict[str, str] = {}
+        # GnuCOBOL reads ``ASSIGN TO <data-item>`` as a variable file name, not a DD name,
+        # so a target that is also declared as a data item is never a plain ddname.
+        data_names = {
+            m.group(1).upper()
+            for m in re.finditer(
+                r"(?:^|\s)(?:0[1-9]|[1-4]\d|66|77|88)\s+([A-Za-z][\w-]*)",
+                "\n".join(lines), re.MULTILINE,
+            )
+        }
         for name, literal, target in self._select_assignments(lines):
-            paths[name] = literal
-            if literal is None:
+            ddname = self._ddname(target) if literal is None else None
+            if ddname and ddname in data_names:
+                ddname = None
+            paths[name] = literal if literal is not None else ddname
+            kinds[name] = "DDNAME" if ddname else "LITERAL"
+            if literal is None and ddname is None:
                 self._diagnostics.warning(
                     DiagnosticCode.UNSUPPORTED_CONSTRUCT,
                     f"File {name} has no literal file name ({target}): only "
-                    "ASSIGN to a quoted file name is certified; a data-name or "
-                    "device assignment has no oracle-proven Java binding",
+                    "ASSIGN to a quoted file name or a plain upper-case DD name "
+                    "is certified; a data-name, device, EXTERNAL or lower-case "
+                    "assignment has no oracle-proven Java binding",
                     location=name,
                 )
         return [
-            replace(fd, container_path=paths.get(fd.name.upper()) or "")
+            replace(
+                fd,
+                container_path=paths.get(fd.name.upper()) or "",
+                assign_kind=kinds.get(fd.name.upper(), "LITERAL"),
+            )
             for fd in file_defs
         ]
 

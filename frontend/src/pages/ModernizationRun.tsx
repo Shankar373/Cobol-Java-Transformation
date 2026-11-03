@@ -805,6 +805,42 @@ export function ModernizationRun({
                   </div>
                 )}
 
+                {/* JCL DD bindings — COBOL ASSIGN name to the step's DD statement */}
+                {(discovery.dd_bindings ?? []).length > 0 && (
+                  <div data-testid="dd-bindings">
+                    <div style={subheadingStyle}>DD Bindings ({(discovery.dd_bindings ?? []).length})</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.xs }}>
+                      {(discovery.dd_bindings ?? []).map((b, i) => (
+                        <div key={`${b.step}-${b.ddname}-${b.file_name}-${i}`} style={itemRowStyle}>
+                          <span style={{ fontWeight: tokens.font.weights.medium }}>
+                            {b.step} · {b.ddname || b.file_name}
+                          </span>
+                          <span style={{ color: tokens.colors.textMuted, fontSize: tokens.font.sizes.xs }}>
+                            {b.status}{b.dataset ? ` → ${b.dataset}` : ''}{b.status !== 'BOUND' && b.detail ? ` (${b.detail})` : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(discovery.dataset_catalog ?? []).length > 0 && (
+                  <div data-testid="dataset-catalog">
+                    <div style={subheadingStyle}>Datasets ({(discovery.dataset_catalog ?? []).length})</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.xs }}>
+                      {(discovery.dataset_catalog ?? []).map((d) => (
+                        <div key={d.dsn} style={itemRowStyle}>
+                          <span style={{ fontWeight: tokens.font.weights.medium }}>{d.dsn}</span>
+                          <span style={{ color: tokens.colors.textMuted, fontSize: tokens.font.sizes.xs }}>
+                            {d.kind}: {d.uses.map((u) => `${u.step} ${u.role.toLowerCase()}`).join(', ')}
+                            {d.flags.length > 0 && ` — ${d.flags.join('; ')}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Dependencies — collapsible */}
                 {discovery.dependency_edges.length > 0 && (
                   <details className="collapsible" open>

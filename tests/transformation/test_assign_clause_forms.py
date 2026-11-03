@@ -71,8 +71,15 @@ SPELLINGS = {
 EXPECTED_STDOUT = "[ALPHA   ]\n[BETA    ]\nN=2\n"
 
 
-def _source(select: str) -> str:
-    return _TEMPLATE.format(select=select)
+def _source(select: str, *, data_name: str = "") -> str:
+    """The probe program; ``data_name`` declares a WORKING-STORAGE item of that name."""
+    source = _TEMPLATE.format(select=select)
+    if data_name:
+        source = source.replace(
+            "       PROCEDURE DIVISION.",
+            f"       01 {data_name} PIC X(20).\n       PROCEDURE DIVISION.",
+        )
+    return source
 
 
 def _transform(source: str):
@@ -99,7 +106,9 @@ def test_every_spelling_generates_the_reference_java(name: str) -> None:
 
 @pytest.mark.parametrize("target", ["WS-FILE-NAME", "DISK", "KEYBOARD"])
 def test_non_literal_assign_fails_closed(target: str) -> None:
-    result = _transform(_source(f"           SELECT DATA-FILE ASSIGN TO {target}"))
+    # WS-FILE-NAME is declared, so GnuCOBOL reads it as a variable file name (dynamic
+    # assignment); DISK and KEYBOARD are device words. None is a plain ddname.
+    result = _transform(_source(f"           SELECT DATA-FILE ASSIGN TO {target}", data_name=target))
     assert result.success is False
     assert any("DATA-FILE" in e and "ASSIGN" in e for e in result.errors), result.errors
 
@@ -136,7 +145,7 @@ def test_oracle_pin_matches_gnucobol(name: str, tmp_path: Path) -> None:
 # The API path (capability analysis, plan, generation) must agree with the
 # producer: a literal spelling generates, a non-literal ASSIGN never does.
 
-def _pipeline(select: str, tmp_path: Path):
+def _pipeline(select: str, tmp_path: Path, *, data_name: str = ""):
     from engine.modernization.pipeline import (
         ModernizationConfig,
         UniversalModernizationPipeline,
@@ -144,7 +153,7 @@ def _pipeline(select: str, tmp_path: Path):
 
     src = tmp_path / "src"
     src.mkdir()
-    (src / "PROBE.cob").write_text(_source(select), encoding="utf-8")
+    (src / "PROBE.cob").write_text(_source(select, data_name=data_name), encoding="utf-8")
     return UniversalModernizationPipeline(
         ModernizationConfig(
             source_dir=str(src),
@@ -166,7 +175,7 @@ def test_pipeline_generates_every_literal_spelling(name: str, tmp_path: Path) ->
 
 
 def test_pipeline_refuses_non_literal_assign(tmp_path: Path) -> None:
-    report = _pipeline("           SELECT DATA-FILE ASSIGN TO WS-FILE-NAME", tmp_path)
+    report = _pipeline("           SELECT DATA-FILE ASSIGN TO WS-FILE-NAME", tmp_path, data_name="WS-FILE-NAME")
     assert report.generation_success is False
     project = report.generated_project_dir
     assert not project or not list(Path(project).rglob("*.java"))
@@ -181,3 +190,11 @@ def test_pipeline_refuses_output_with_fail_closed_symbols(tmp_path: Path) -> Non
         report.generation_errors
     )
     assert report.generated_project_dir == ""
+
+
+def test_an_undeclared_name_is_a_ddname_not_a_refusal() -> None:
+    # No data item of that name exists, so libcob resolves it from the environment
+    # (DD_<name>) exactly like any other ddname (tests/integration/test_ddname_oracle.py).
+    result = _transform(_source("           SELECT DATA-FILE ASSIGN TO WS-FILE-NAME"))
+    assert result.success is True, result.errors
+    assert 'CobolFileIo.open("WS-FILE-NAME"' in result.generated_files[0].source_code

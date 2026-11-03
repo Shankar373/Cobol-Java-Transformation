@@ -398,6 +398,10 @@ class FileDefinition:
     # FD metadata
     record_contains: int | None = None  # RECORD CONTAINS n CHARACTERS
     block_contains: int | None = None  # BLOCK CONTAINS n RECORDS
+    # What ``container_path`` is: a quoted file name (LITERAL) or an upper-case
+    # DD name (DDNAME: ``ASSIGN TO CUSTFILE``), which the runtime resolves
+    # from the environment exactly as GnuCOBOL does (roadmap unit 4).
+    assign_kind: str = "LITERAL"
 
 
 @dataclass(frozen=True)

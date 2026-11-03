@@ -272,6 +272,9 @@ class DiscoveryResponse(BaseModel):
     file_dependencies: list[dict]
     call_dependencies: list[dict]
     dependency_edges: list[dict]
+    dd_bindings: list[dict] = Field(default_factory=list)
+    dataset_catalog: list[dict] = Field(default_factory=list)
+    dataset_flows: list[dict] = Field(default_factory=list)
     source_file_count: int
     total_size_bytes: int
     discovery_success: bool = True

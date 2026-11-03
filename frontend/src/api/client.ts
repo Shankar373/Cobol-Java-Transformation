@@ -198,6 +198,10 @@ export interface DiscoveryResult {
   file_dependencies: FileDependency[];
   call_dependencies: CallDependency[];
   dependency_edges: DependencyEdge[];
+  /** COBOL ASSIGN name -> JCL DD binding per step (analysis only). */
+  dd_bindings?: DdBinding[];
+  /** Datasets named by DD statements with their producing/consuming steps. */
+  dataset_catalog?: DatasetCatalogEntry[];
   source_file_count: number;
   total_size_bytes: number;
   /**
@@ -209,6 +213,25 @@ export interface DiscoveryResult {
   discovery_success: boolean;
   /** One entry per stage that failed; a non-empty list means the flag above is false. */
   discovery_errors: DiscoveryIssue[];
+}
+
+export interface DdBinding {
+  job: string;
+  step: string;
+  program: string;
+  file_name: string;
+  ddname: string;
+  dataset: string;
+  disposition: string;
+  status: 'BOUND' | 'UNBOUND' | 'LITERAL_PATH' | 'UNUSED_DD';
+  detail: string;
+}
+
+export interface DatasetCatalogEntry {
+  dsn: string;
+  kind: string;
+  flags: string[];
+  uses: { job: string; step: string; dd: string; disposition: string; role: string }[];
 }
 
 /** One discovery-stage failure, as produced by `api/ingestion.py`. */
