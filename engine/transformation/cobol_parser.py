@@ -3816,8 +3816,9 @@ class CobolParser:
         upper = line.upper()
 
         destination = "STDOUT"
-        if "UPON STDERR" in upper:
-            destination = "STDERR"
+        upon = re.search(r"\bUPON\s+([A-Z][\w-]*)\s*\.?\s*$", upper)
+        if upon:
+            destination = self._display_device(upon.group(1), lines[start])
 
         # Extract parts
         parts_match = re.search(r"DISPLAY\s+(.+?)(?:\s+UPON|$)", line, re.IGNORECASE)
@@ -3860,8 +3861,12 @@ class CobolParser:
         while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
-            if u.startswith(("UPON STDERR", "UPON STDOUT")):
-                destination = "STDERR" if "STDERR" in u else "STDOUT"
+            if u.startswith("UPON "):
+                destination = self._display_device(
+                    u[len("UPON "):].strip().rstrip(".").strip(), lines[i])
+                if l.endswith("."):
+                    i += 1
+                    break
                 i += 1
                 continue
             if u.startswith(break_prefixes):
@@ -3881,6 +3886,20 @@ class CobolParser:
             i += 1
 
         return DisplayStatement(parts=tuple(parts), destination=destination), i
+
+    # GnuCOBOL 3.1.2 devices (tests/integration/test_display_upon_oracle.py).
+    _DISPLAY_DEVICES = {
+        "STDERR": "STDERR", "SYSERR": "STDERR",
+        "STDOUT": "STDOUT", "SYSOUT": "STDOUT", "CONSOLE": "STDOUT",
+    }
+
+    def _display_device(self, device: str, line: str) -> str:
+        """Stream for ``DISPLAY ... UPON <device>``; other devices fail closed."""
+        stream = self._DISPLAY_DEVICES.get(device.upper())
+        if stream is None:
+            self._emit_unparsed("DISPLAY", line)
+            return "STDOUT"
+        return stream
 
     def _check_display_operands(self, text: str, line: str) -> None:
         """Fail closed when DISPLAY text holds anything but literals/data-names.

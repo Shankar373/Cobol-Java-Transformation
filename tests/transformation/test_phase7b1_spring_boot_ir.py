@@ -83,7 +83,6 @@ def _make_java_program(
     return JavaProgram(
         program_id=program_id,
         java_class=java_class,
-        generation_mode="minimal",
         file_resources=file_resources,
         database_resources=database_resources,
         transaction_boundaries=transaction_boundaries,

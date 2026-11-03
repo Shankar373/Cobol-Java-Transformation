@@ -326,8 +326,10 @@ class TestLowering:
         assert 'String.format("%-14s", "12")' in java  # MOVE -12: sign dropped
 
     def test_alphanumeric_to_numeric_accepts_only_digits(self) -> None:
+        # Leading spaces read as zeros since 2026-11-03 (T5 parity,
+        # tests/integration/test_space_padded_move_oracle.py).
         java = _java(_MOVES)
-        assert 'A_DIG.matches("[0-9]+")' in java
+        assert 'A_DIG.matches(" *[0-9]*")' in java
         assert "R_4 = 99;" in java  # MOVE '0099': checked at generation
 
     def test_non_digit_literal_into_numeric_fails_closed(self) -> None:
@@ -412,7 +414,8 @@ def test_generated_java_matches_oracle(name: str, tmp_path: Path) -> None:
 
 def test_non_digit_content_aborts_the_java_run(tmp_path: Path) -> None:
     """GnuCOBOL gives '4A2B' -> 0000 and '42  ' -> 0042 by rules the Java
-    does not reproduce: it must stop, never store a guess."""
+    does not reproduce: it must stop, never store a guess. (Leading spaces
+    are certified; trailing ones are not.)"""
     source = _usage_program("PIC 9(4)", (
         "           MOVE '42  ' TO WS-T\n"
         "           MOVE WS-T TO WS-N\n"
@@ -421,7 +424,7 @@ def test_non_digit_content_aborts_the_java_run(tmp_path: Path) -> None:
     run = _run_java(source, tmp_path)
     assert run.returncode != 0
     assert run.stdout == b""
-    assert b"only digit-only content is certified" in run.stderr
+    assert b"only leading spaces and digits are certified" in run.stderr
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,6 @@
 # used to live inline in ci.yml, where a broken entry surfaced only in CI).
 
 tests/transformation/test_capability_registry_reconciliation.py
-tests/transformation/test_capability_walker_depth.py
 tests/transformation/test_producer_capability_consistency.py
 tests/transformation/test_usage_capability.py
 tests/transformation/test_structural_capability.py

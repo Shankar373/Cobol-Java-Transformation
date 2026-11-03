@@ -3,6 +3,10 @@
 Verifies that the Java Application Model is genuinely semantic and
 domain-independent. No field-name heuristics, no path-based inference,
 no hardcoded delimiters, no Claims-specific logic.
+
+Tests of the removed decision-template helpers (file roles, summary
+formatting, missing-filename refusal) and of ``derive_capabilities`` were
+deleted with the template lanes (audit T5).
 """
 
 from __future__ import annotations
@@ -26,7 +30,6 @@ from engine.transformation.ir import (
     DisplayStatement,
     StatusCodeMapping,
     ThresholdRule,
-    derive_capabilities,
 )
 
 from engine.transformation.java_ir import (
@@ -79,19 +82,6 @@ class TestCaseA_PicDerivedFormatting:
         item_with_amt = DataItem(name="TOTAL-AMOUNT", pic_type=PicType.NUMERIC, pic_length=6)
         # Both should have the same format width — PIC-driven, not name-driven
         assert item_no_amt.format_width == item_with_amt.format_width == 6
-
-    def test_summary_uses_pic_width(self):
-        """_build_summary_java uses PIC format_width, not field name."""
-        gen = JavaGenerator()
-        ws = (
-            DataItem(name="FIELD-A", pic_type=PicType.NUMERIC, pic_length=6),
-            DataItem(name="FIELD-B", pic_type=PicType.NUMERIC, pic_length=2),
-        )
-        result = gen._build_summary_java(("FIELD-A", "FIELD-B"), ws)
-        assert "%06d" in result
-        assert "%02d" in result
-        # No AMT-based formatting
-        assert "AMT" not in result or "AMT" in "TOTAL-AMOUNT"  # only if field name contains AMT
 
 
 # ============================================================
@@ -284,114 +274,6 @@ class TestCaseE_DomainRename:
         assert java_generic.java_class.methods[0].name == "GEN_PARA"
         assert java_business.java_class.methods[0].name == "PROCESS_CLAIMS"
 
-
-# ============================================================
-# Negative tests — fail safely on missing information
-# ============================================================
-
-class TestNegative:
-    """Missing semantic information must fail explicitly."""
-
-    def test_no_path_filename_fails(self):
-        """File paths without filenames must not invent one."""
-        gen = JavaGenerator()
-        # Provide 2 input + 2 output files (decision mode minimum), all with bad paths
-        program = CobolProgram(
-            program_id="TEST",
-            file_definitions=(
-                FileDefinition(
-                    name="IN-FILE1", container_path="/data/", record_name="IN-REC1",
-                ),
-                FileDefinition(
-                    name="IN-FILE2", container_path="/data/", record_name="IN-REC2",
-                ),
-                FileDefinition(
-                    name="OUT-FILE1", container_path="/data/", record_name="OUT-REC1",
-                ),
-                FileDefinition(
-                    name="OUT-FILE2", container_path="/data/", record_name="OUT-REC2",
-                ),
-            ),
-            open_statements=(
-                OpenStatement(mode="INPUT", file_name="IN-FILE1"),
-                OpenStatement(mode="INPUT", file_name="IN-FILE2"),
-                OpenStatement(mode="OUTPUT", file_name="OUT-FILE1"),
-                OpenStatement(mode="OUTPUT", file_name="OUT-FILE2"),
-            ),
-            status_codes=(
-                StatusCodeMapping(code="R", label="REJECTED", field_name="STATUS-FLAG"),
-            ),
-            threshold_rules=(
-                ThresholdRule(field_name="X", operator=">", value=500),
-            ),
-            report_header="TEST REPORT",
-            summary_fields=("X",),
-            input_record_mappings=(
-                InputRecordMapping(record_name="IN-REC1", file_name="IN-FILE1", delimiter="|", fields=("A",)),
-                InputRecordMapping(record_name="IN-REC2", file_name="IN-FILE2", delimiter="|", fields=("B",)),
-            ),
-            output_formats=(),
-        )
-        with pytest.raises(ValueError):
-            gen._generate_decision_java(program, "Test")
-
-    def test_no_open_statements_uses_positional(self):
-        """Without OPEN statements, file roles use positional ordering."""
-        gen = JavaGenerator()
-        program = CobolProgram(
-            program_id="TEST",
-            file_definitions=(
-                FileDefinition(
-                    name="FILE1",
-                    container_path="/data/f1.dat",
-                    record_name="REC1",
-                ),
-                FileDefinition(
-                    name="FILE2",
-                    container_path="/data/f2.dat",
-                    record_name="REC2",
-                ),
-            ),
-            open_statements=(),  # no OPEN statements
-        )
-        files = gen._get_files_by_role(program, "INPUT")
-        # Falls back to positional ordering
-        assert len(files) == 2
-
-    def test_empty_program_capabilities(self):
-        """Empty program has no capabilities."""
-        program = CobolProgram(program_id="EMPTY")
-        caps = derive_capabilities(program)
-        assert caps.file_input is False
-        assert caps.file_output is False
-
-    def test_no_summary_fields_no_formatting(self):
-        """No summary fields → no formatting lines."""
-        gen = JavaGenerator()
-        result = gen._build_summary_java((), ())
-        assert result == ""
-
-    def test_missing_open_statement_no_role(self):
-        """OPEN statement for different file doesn't assign role."""
-        gen = JavaGenerator()
-        program = CobolProgram(
-            program_id="TEST",
-            file_definitions=(
-                FileDefinition(
-                    name="FILE-A",
-                    container_path="/data/a.dat",
-                    record_name="REC-A",
-                ),
-            ),
-            open_statements=(
-                OpenStatement(mode="INPUT", file_name="FILE-B"),  # different file
-            ),
-        )
-        files = gen._get_files_by_role(program, "INPUT")
-        # FILE-A is not opened as INPUT
-        assert len(files) == 0
-
-
 # ============================================================
 # Mutation matrix
 # ============================================================
@@ -426,29 +308,14 @@ class TestMutationMatrix:
         ),))
         assert res1.record_delimiter != res2.record_delimiter
 
+
     def test_open_mode_mutation(self):
-        """Changing OPEN mode changes file role."""
-        gen = JavaGenerator()
-        program_input = CobolProgram(
-            program_id="T",
-            file_definitions=(FileDefinition(name="F", container_path="/d/f.dat", record_name="R"),),
-            open_statements=(OpenStatement(mode="INPUT", file_name="F"),),
-        )
-        program_output = CobolProgram(
-            program_id="T",
-            file_definitions=(FileDefinition(name="F", container_path="/d/f.dat", record_name="R"),),
-            open_statements=(OpenStatement(mode="OUTPUT", file_name="F"),),
-        )
-        assert len(gen._get_files_by_role(program_input, "INPUT")) == 1
-        # OUTPUT-only file is not in INPUT role
-        input_files = gen._get_files_by_role(program_output, "INPUT")
-        # Fallback returns all files, but OPEN OUTPUT ≠ OPEN INPUT
-        # Verify the file is not matched by OUTPUT statement
-        matched_by_output = any(
-            sm.file_name == "F" and sm.mode == "OUTPUT"
-            for sm in program_output.open_statements
-        )
-        assert matched_by_output
+        """Changing the OPEN mode changes the file resource's access mode."""
+        fd = FileDefinition(name="F", container_path="/d/f.dat", record_name="R")
+        as_input = map_cobol_file_to_resource(fd, (), (OpenStatement(mode="INPUT", file_name="F"),))
+        as_output = map_cobol_file_to_resource(fd, (), (OpenStatement(mode="OUTPUT", file_name="F"),))
+        assert as_input.access_mode == JavaFileAccessMode.READ
+        assert as_output.access_mode == JavaFileAccessMode.WRITE
 
     def test_program_dependency_mutation(self):
         """Adding a CALL dependency changes application graph."""

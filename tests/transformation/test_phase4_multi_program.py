@@ -83,7 +83,6 @@ def _make_program(
 
 def _make_java_program(
     program_id: str,
-    generation_mode: str = "minimal",
     file_names: tuple[str, ...] = (),
     calls: tuple[str, ...] = (),
     copybooks: tuple[str, ...] = (),
@@ -105,7 +104,6 @@ def _make_java_program(
     return JavaProgram(
         program_id=program_id,
         java_class=java_class,
-        generation_mode=generation_mode,
         file_resources=file_resources,
         database_resources=database_resources,
         calls=calls,
@@ -844,7 +842,6 @@ class TestDirectJavaIrGeneration:
                             ),
                         ),
                     ),
-                    generation_mode="minimal",
                 ),
                 JavaProgram(
                     program_id="PROG-B",
@@ -861,7 +858,6 @@ class TestDirectJavaIrGeneration:
                             ),
                         ),
                     ),
-                    generation_mode="minimal",
                 ),
             ),
         )
@@ -893,7 +889,6 @@ class TestDirectJavaIrGeneration:
                             ),
                         ),
                     ),
-                    generation_mode="minimal",
                 ),
                 JavaProgram(
                     program_id="B",
@@ -908,7 +903,6 @@ class TestDirectJavaIrGeneration:
                             ),
                         ),
                     ),
-                    generation_mode="minimal",
                 ),
             ),
         )

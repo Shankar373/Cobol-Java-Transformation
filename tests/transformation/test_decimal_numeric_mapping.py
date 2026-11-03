@@ -1,4 +1,8 @@
-"""Focused regression tests for Numeric P0 N1+N2: decimal PIC parsing/type and input conversion."""
+"""Focused regression tests for Numeric P0 N1+N2: decimal PIC parsing/type and input conversion.
+
+Tests of the removed "file_io"/"decision" template parsing (rec[i] splits)
+were deleted with the template lanes (audit T5).
+"""
 
 from pathlib import Path
 
@@ -127,64 +131,6 @@ MAIN.
     assert _find_decimal_object_parse(assignments) is not None
 
 
-def test_ir_file_input_converts_decimal_record_field_with_decimal_parse():
-    java_program = JavaProgram(
-        program_id="DECIMAL-INPUT",
-        java_class=JavaClass(
-            name="Decimal_Input",
-            fields=(
-                JavaField(
-                    name="WS_AMOUNT",
-                    java_type=JavaType(basic_type=JavaBasicType.DOUBLE),
-                ),
-                JavaField(
-                    name="WS_COUNT",
-                    java_type=JavaType(basic_type=JavaBasicType.INT),
-                ),
-            ),
-        ),
-        file_resources=(
-            JavaFileResource(
-                name="INPUT-FILE",
-                path="/tmp/input.dat",
-                access_mode=JavaFileAccessMode.READ,
-            ),
-        ),
-        generation_mode="file_io",
-    )
-    application = JavaApplication(
-        application_id="DECIMAL-INPUT",
-        programs=(java_program,),
-    )
-
-    source = JavaGenerator().generate_from_java(application)[0].source_code
-
-    assert "Double.parseDouble(rec[0].trim())" in source
-    assert "Integer.parseInt(rec[1].trim())" in source
-
-
-def test_ir_decision_input_assignment_converts_decimal_field_with_double_parse():
-    generator = JavaGenerator()
-    java_program = JavaProgram(
-        program_id="DECIMAL-DECISION",
-        java_class=JavaClass(
-            name="Decimal_Decision",
-            fields=(
-                JavaField(
-                    name="WS_AMOUNT",
-                    java_type=JavaType(basic_type=JavaBasicType.DOUBLE),
-                ),
-            ),
-        ),
-        input_record_fields=("WS_AMOUNT",),
-    )
-    source = generator._generate_field_assignments_from_ir(
-        java_program, java_program.java_class
-    )
-
-    assert "Double.parseDouble(rec[0].trim())" in source
-
-
 def test_decimal_expression_literals_map_to_big_decimal():
     for value in ("3.14", "-0.25"):
         java_expr = map_cobol_expr_to_java(value)
@@ -198,7 +144,7 @@ def test_structured_decimal_literal_maps_to_big_decimal():
     assert java_expr.java_type.basic_type == JavaBasicType.DECIMAL
 
 
-def test_decimal_literal_type_is_preserved_through_active_file_io_generation():
+def test_decimal_literal_type_is_preserved_in_generated_declaration():
     java_program = JavaProgram(
         program_id="DECIMAL-GENERATION",
         java_class=JavaClass(
@@ -218,7 +164,6 @@ def test_decimal_literal_type_is_preserved_through_active_file_io_generation():
                 access_mode=JavaFileAccessMode.READ,
             ),
         ),
-        generation_mode="file_io",
     )
 
     source = JavaGenerator().generate_from_java(
@@ -226,7 +171,6 @@ def test_decimal_literal_type_is_preserved_through_active_file_io_generation():
     )[0].source_code
 
     assert "static double WS_AMOUNT = 12.50;" in source
-    assert "WS_AMOUNT = Double.parseDouble(rec[0].trim());" in source
 
 
 def test_signed_integer_pic_is_still_parsed_without_decimal_places():
@@ -247,43 +191,6 @@ MAIN.
     assert item.decimal_places == 0
     assert map_pic_to_java_type(item).basic_type == JavaBasicType.INT
     
-def test_file_section_decimal_mapping_is_used_by_generic_file_io_generator():
-    cobol = """\
->>SOURCE FORMAT FREE
-IDENTIFICATION DIVISION.
-PROGRAM-ID. FILE-DECIMAL.
-ENVIRONMENT DIVISION.
-INPUT-OUTPUT SECTION.
-FILE-CONTROL.
-    SELECT INPUT-FILE ASSIGN TO "/tmp/input.dat"
-        ORGANIZATION IS LINE SEQUENTIAL.
-DATA DIVISION.
-FILE SECTION.
-FD INPUT-FILE.
-01 INPUT-REC.
-   05 INPUT-AMOUNT PIC S9(5)V99 COMP-3.
-   05 INPUT-LONG PIC S9(10) COMP-3.
-WORKING-STORAGE SECTION.
-01 WS-DUMMY PIC X VALUE SPACE.
-PROCEDURE DIVISION.
-MAIN.
-    STOP RUN.
-"""
-    generator = JavaGenerator()
-    program = CobolParser().parse(cobol)
-    mapping = InputRecordMapping(
-        record_name="INPUT-REC",
-        file_name="INPUT-FILE",
-        delimiter="|",
-        fields=("INPUT-AMOUNT", "INPUT-LONG"),
-    )
-    declarations = generator._gen_io_variable_declarations(program, (mapping,))
-    parsing = generator._gen_unstring_parsing_java(mapping, program)
-    assert "static java.math.BigDecimal INPUT_AMOUNT = java.math.BigDecimal.ZERO;" in declarations
-    assert "static long INPUT_LONG = 0;" in declarations
-    assert "INPUT_AMOUNT = new java.math.BigDecimal(rec[0].trim());" in parsing
-    assert "INPUT_LONG = Long.parseLong(rec[1].trim());" in parsing
-
 
 def test_file_decimal_move_to_integer_receiver_preserves_numeric_semantics():
     cobol = """\

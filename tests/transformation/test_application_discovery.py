@@ -34,7 +34,6 @@ from engine.transformation.ir import (
     DependencyEdge,
     FileDependency,
     ProgramCall,
-    derive_capabilities,
 )
 
 

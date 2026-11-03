@@ -141,10 +141,12 @@ Report: `docs/reports/PHASE2_E2E_VALIDATION_2026-11-01.md`.  Open items:
   STRING/INSPECT, LENGTH OF, REDEFINES, inside a group), and COMP-5,
   COMP-1, COMP-2.  `workload-relative`/`workload-relative-file` now generate
   and, since increment 5, are VERIFIED.
-- **MOVE alphanumeric → numeric** is certified for digit-only content; any
-  other content (spaces, signs, letters — GnuCOBOL applies rules not
-  reproduced) stops the Java run with `NumberFormatException`, so the run
-  FAILS instead of storing a guessed value.
+- **MOVE alphanumeric → numeric** is certified for digit-only content and
+  for leading spaces followed by digits (spaces read as zeros); any other
+  content (embedded or trailing spaces, signs, letters — GnuCOBOL applies
+  rules not reproduced, e.g. `' 2 00'` gives 00200) stops the Java run with
+  `NumberFormatException`, so the run FAILS instead of storing a guessed
+  value.
 - ~~**Found by the Phase 3 binary-values application, refused today:** signed
   literals in conditions, ZERO in a numeric comparison~~ — supported since
   increment 7, together with sign conditions (`IS [NOT] POSITIVE/NEGATIVE/

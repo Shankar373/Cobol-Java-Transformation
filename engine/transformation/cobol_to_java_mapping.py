@@ -121,7 +121,6 @@ from engine.transformation.java_ir import (
     JavaIf,
     JavaLiteral,
     JavaLocalVarDecl,
-    JavaMatchOutcome,
     JavaMethod,
     JavaMethodCall,
     JavaMethodCallStatement,
@@ -129,15 +128,11 @@ from engine.transformation.java_ir import (
     JavaNewObject,
     JavaParameter,
     JavaProgram,
-    JavaReportConfig,
     JavaReturn,
     JavaSqlOperationType,
     JavaStatement,
-    JavaStatusCodeMapping,
     JavaStringConcat,
-    JavaSummaryField,
     JavaTernary,
-    JavaThresholdRule,
     JavaTransactionBoundary,
     JavaType,
     JavaUnaryOp,
@@ -691,12 +686,22 @@ def _alphanumeric_to_numeric(
                 source_expression=f"MOVE {source} TO {target}",
                 reason="numeric receiver without integer digits",
             )
+        # Leading spaces read as zeros (``"  200"`` gives 00200, all spaces
+        # give 0; oracle-pinned in test_space_padded_move_oracle.py): a "0"
+        # prefix keeps the all-spaces case parseable.
+        digits_text = JavaBinaryOp(
+            left=_str_lit("0"), operator="+",
+            right=JavaMethodCall(object_ref=source_expr, method_name="stripLeading"),
+        )
         low_order = JavaMethodCall(
-            object_ref=source_expr, method_name="substring",
+            object_ref=digits_text, method_name="substring",
             arguments=(JavaMethodCall(
                 class_name="Math", method_name="max", is_static=True,
                 arguments=(_int_lit(0), JavaBinaryOp(
-                    left=JavaMethodCall(object_ref=source_expr, method_name="length"),
+                    left=JavaMethodCall(
+                        object_ref=digits_text,
+                        method_name="length",
+                    ),
                     operator="-", right=_int_lit(digits),
                 )),
             ),),
@@ -704,11 +709,11 @@ def _alphanumeric_to_numeric(
         checked = JavaTernary(
             condition=JavaMethodCall(
                 object_ref=source_expr, method_name="matches",
-                arguments=(_str_lit("[0-9]+"),),
+                arguments=(_str_lit(" *[0-9]*"),),
             ),
             true_expr=low_order,
             false_expr=_str_lit(
-                f"MOVE {source} TO {target}: only digit-only content is certified"
+                f"MOVE {source} TO {target}: only leading spaces and digits are certified"
             ),
         )
     if item.decimal_places > 0:
@@ -6024,191 +6029,12 @@ def map_cobol_program_to_java(
         for fd in program.file_definitions
     )
 
-    # --- Decision-mode metadata ---
-
-    # Status codes → JavaStatusCodeMapping
-    status_code_mappings = tuple(
-        JavaStatusCodeMapping(
-            code=sc.code,
-            label=sc.label,
-            counter_name=_label_to_counter_name(sc.label),
-            field_name=sc.field_name.replace("-", "_"),
-        )
-        for sc in program.status_codes
-    )
-
-    def walk(statements):
-        for statement in statements:
-            yield statement
-            for attr in ("body", "then_body", "else_body", "at_end_body",
-                         "not_at_end_body", "invalid_key_body", "not_invalid_key_body",
-                         "size_error_body", "not_size_error_body"):
-                yield from walk(getattr(statement, attr, ()))
-
-    counter_labels = {
-        statement.parts[1]: _cobol_field_to_java_var(statement.parts[0][1:-1].removesuffix("="))
-        for paragraph in program.paragraphs for statement in paragraph.statements
-        if isinstance(statement, DisplayStatement) and len(statement.parts) == 2
-        and statement.parts[0].startswith(("'", '"'))
-    }
-    threshold_rules_list = []
-    for tr in program.threshold_rules:
-        pass_label = ""
-        pass_counter = ""
-        for paragraph in program.paragraphs:
-            for statement in walk(paragraph.statements):
-                if isinstance(statement, IfStatement) and statement.condition == f"{tr.field_name} {tr.operator} {tr.value}":
-                    for branch_statement in statement.else_body:
-                        if isinstance(branch_statement, MoveStatement) and branch_statement.source.startswith(("'", '"')):
-                            pass_label = branch_statement.source[1:-1]
-                        if isinstance(branch_statement, AddStatement) and branch_statement.source == "1":
-                            pass_counter = counter_labels.get(branch_statement.target, "")
-                            break
-        threshold_rules_list.append(JavaThresholdRule(
-            field_name=tr.field_name,
-            operator=tr.operator,
-            value=tr.value,
-            pass_label=pass_label,
-            pass_counter_name=pass_counter,
-        ))
-    threshold_rules = tuple(threshold_rules_list)
-
-    # Summary fields → JavaSummaryField
-    ws_lookup = {item.name: item for item in program.working_storage}
-    summary_items = dict(ws_lookup)
-    for paragraph in program.paragraphs:
-        for statement in paragraph.statements:
-            if isinstance(statement, DisplayStatement) and len(statement.parts) == 2:
-                label, reference = statement.parts
-                if label.startswith(("'", '"')) and label.endswith(label[0]):
-                    item = ws_lookup.get(reference)
-                    if item is not None:
-                        summary_items[label[1:-1].removesuffix("=")] = item
-    def _summary_format(item: DataItem | None) -> tuple[int, str]:
-        if item is None or not item.is_numeric or item.pic_length == 0:
-            return 0, ""
-        return item.format_width, display_format_spec(
-            integer_digits=item.integer_digits,
-            decimal_digits=item.decimal_places,
-            signed=item.signed,
-        )
-
-    summary_fields = tuple(
-        JavaSummaryField(
-            field_name=field,
-            java_var_name=_cobol_field_to_java_var(field),
-            format_width=_summary_format(summary_items.get(field))[0],
-            is_numeric=summary_items[field].is_numeric if field in summary_items else True,
-            format_spec=_summary_format(summary_items.get(field))[1],
-        )
-        for field in program.summary_fields
-    )
-
-    # Match outcomes → JavaMatchOutcome
-    match_outcomes: tuple[JavaMatchOutcome, ...] = ()
-    if program.match_outcome_labels:
-        match_outcomes = (JavaMatchOutcome(
-            paid_label=program.match_outcome_labels[0] if len(program.match_outcome_labels) > 0 else "",
-            partial_label=program.match_outcome_labels[1] if len(program.match_outcome_labels) > 1 else "",
-            unpaid_label=program.match_outcome_labels[2] if len(program.match_outcome_labels) > 2 else "",
-        ),)
-
-    # Report config → JavaReportConfig
-    report_config: JavaReportConfig | None = None
-    if program.report_header or program.output_formats:
-        # Derive file names from file roles
-        input_files = [fd for fd in program.file_definitions
-                       if any(sm.file_name == fd.name and sm.mode.upper() == "INPUT"
-                              for sm in program.open_statements)]
-        output_files = [fd for fd in program.file_definitions
-                        if any(sm.file_name == fd.name and sm.mode.upper() == "OUTPUT"
-                               for sm in program.open_statements)]
-
-        report_file_name = output_files[0].name if output_files else ""
-        secondary_output_name = output_files[1].name if len(output_files) > 1 else ""
-
-        # Derive record format fields from output_formats
-        report_format_fields: tuple[str, ...] = ()
-        output_format_fields: tuple[str, ...] = ()
-        if len(program.output_formats) > 0 and program.output_formats[0].record_format:
-            report_format_fields = tuple(
-                fd.field_name for fd in program.output_formats[0].record_format.fields
-            )
-        if len(program.output_formats) > 1 and program.output_formats[1].record_format:
-            output_format_fields = tuple(
-                fd.field_name for fd in program.output_formats[1].record_format.fields
-            )
-
-        report_config = JavaReportConfig(
-            header=program.report_header,
-            report_file_name=report_file_name,
-            output_file_name=secondary_output_name,
-            report_fields=summary_fields,
-            output_fields=summary_fields,
-            report_format_fields=report_format_fields,
-            output_format_fields=output_format_fields,
-        )
-
-    # Determine generation mode from capabilities
-    caps = _derive_generation_mode(program)
-
-    # Match the primary input resource, rather than the first UNSTRING in
-    # source order (a lookup file may be loaded before the primary file).
-    input_record_fields: tuple[str, ...] = ()
-    input_amount_field = ""
-    if program.input_record_mappings:
-        primary_input = next((r for r in file_resources if r.access_mode in (
-            JavaFileAccessMode.READ, JavaFileAccessMode.READ_WRITE,
-        )), None)
-        mapping = next((m for m in program.input_record_mappings
-                        if primary_input is not None and m.file_name == primary_input.name),
-                       program.input_record_mappings[0])
-        input_record_fields = tuple(
-            f.replace("-", "_") for f in mapping.fields
-        )
-        if program.threshold_rules:
-            amount = program.threshold_rules[0].field_name
-            if amount in mapping.fields:
-                input_amount_field = amount.replace("-", "_")
-            else:
-                for paragraph in program.paragraphs:
-                    for statement in walk(paragraph.statements):
-                        if isinstance(statement, MoveStatement) and amount in (
-                            statement.targets or (statement.target,)
-                        ) and statement.source in mapping.fields:
-                            input_amount_field = statement.source.replace("-", "_")
-
-    decision_result_field = ""
-    decision_result_width = 0
-    if program.status_codes:
-        label = program.status_codes[0].label
-        for paragraph in program.paragraphs:
-            for statement in walk(paragraph.statements):
-                if isinstance(statement, MoveStatement) and statement.source in (f"'{label}'", f'"{label}"'):
-                    item = ws_lookup.get(statement.target)
-                    if item is not None:
-                        decision_result_field = statement.target.replace("-", "_")
-                        decision_result_width = item.pic_length
-                        break
-            if decision_result_field:
-                break
-
     return JavaProgram(
         program_id=program.program_id,
         java_class=java_class,
         cobol_program_id=program.program_id,
         file_resources=file_resources,
         has_file_status=any(fd.file_status_field for fd in program.file_definitions),
-        status_codes=status_code_mappings,
-        threshold_rules=threshold_rules,
-        summary_fields=summary_fields,
-        report_config=report_config,
-        match_outcomes=match_outcomes,
-        generation_mode=caps,
-        input_record_fields=input_record_fields,
-        input_amount_field=input_amount_field,
-        decision_result_field=decision_result_field,
-        decision_result_width=decision_result_width,
         copybooks=program.copybooks,
         calls=program.called_programs,
         entry_points=program.entry_points,
@@ -6420,41 +6246,3 @@ def _paragraph_method_name(program: "CobolProgram | None", cobol_name: str) -> s
 def _to_java_class_name(cobol_name: str) -> str:
     """Convert COBOL program name to Java class name."""
     return cobol_name.replace("-", "_").replace(" ", "_").title()
-
-
-def _cobol_field_to_java_var(field_name: str) -> str:
-    """Convert a COBOL field name to a Java variable name.
-
-    Converts LABEL_NAME → labelName (camelCase).
-    """
-    parts = field_name.lower().split("_")
-    return parts[0] + "".join(p.capitalize() for p in parts[1:])
-
-
-def _label_to_counter_name(label: str) -> str:
-    """Convert a status label to a Java counter variable name.
-
-    Uses the same derivation as _cobol_field_to_java_var.
-    Example: "REJECTED" → "rejected"
-    """
-    return _cobol_field_to_java_var(label)
-
-
-def _derive_generation_mode(program: CobolProgram) -> str:
-    """Derive the generation mode from COBOL program capabilities.
-
-    Returns "decision", "file_io", or "minimal".
-    This is the only place where capability-based mode selection occurs.
-    """
-    from engine.transformation.ir import derive_capabilities
-    caps = derive_capabilities(program)
-
-    if caps.decision and program.status_codes:
-        return "decision"
-    # file_io mode needs an actual input file (the lane raises
-    # "No input files found" otherwise).  A program that UNSTRINGs a
-    # WORKING-STORAGE field has an InputRecordMapping but no FD, so it
-    # must take the minimal lane and rely on the mapper's UNSTRING split.
-    if caps.input_record_mapping and getattr(program, "file_definitions", None):
-        return "file_io"
-    return "minimal"

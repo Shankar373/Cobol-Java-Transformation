@@ -212,20 +212,20 @@ class TestNativeJavaProof:
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
         source = result.generated_files[0].source_code
-        # Default input dir uses /workspace/input path when no CLI arg provided
-        assert '"/workspace/input"' in source
-        assert '"/claims.dat"' in source
-        assert '"/payments.dat"' in source
+        # The ASSIGN paths are opened and read as written (statement lowering;
+        # the template's directory arguments went with the lanes, audit T5).
+        assert 'CobolFileIo.open("/workspace/input/claims.dat", "INPUT", 0);' in source
+        assert 'CobolFileIo.readNext("/workspace/input/claims.dat")' in source
+        assert 'CobolFileIo.readNext("/workspace/input/payments.dat")' in source
 
     def test_writes_actual_output_files(self, cobol_source: str):
         """Generated Java writes actual workload output paths."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
         source = result.generated_files[0].source_code
-        # Default output dir uses /workspace/output path when no CLI arg provided
-        assert '"/workspace/output"' in source
-        assert '"/report.txt"' in source
-        assert '"/settlement.dat"' in source
+        assert 'CobolFileIo.open("/workspace/output/report.txt", "OUTPUT", 0);' in source
+        assert 'CobolFileIo.write("/workspace/output/report.txt",' in source
+        assert 'CobolFileIo.write("/workspace/output/settlement.dat",' in source
 
     def test_uses_standard_java_libraries(self, cobol_source: str):
         """Generated Java uses only standard Java libraries."""
