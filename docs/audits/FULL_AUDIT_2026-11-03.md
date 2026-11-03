@@ -21,12 +21,22 @@ re-checked (treat as likely, not proven).
 with differential verification; **NO-GO** for any production release or
 broadened capability claim until the P0 items in §5 are fixed.
 
-> **Update (same day, post-audit steps 2-5):** the three engine P0s T1-T3 are
-> fixed with GnuCOBOL differential tests, and the oracle trust anchor is
-> enforced (V5/V6: pinned packages, observed `cobc --version`, production
-> digest pin) - see §3. Both NO-GO conditions are addressed; a GO decision
-> still waits for plan steps 6-8 (verification gaps, P1/P2 fixes, full
-> regression and certification on the final SHA).
+> **Decision after remediation (same day, plan steps 1-8 complete):**
+> **GO** to move forward - continued development, controlled pilots and
+> customer evaluations on the certified subset. Both NO-GO conditions are
+> resolved: the engine P0s T1-T3 are fixed and GnuCOBOL-proven, and the
+> oracle trust anchor is enforced (V5/V6). Every P1 except T5 is fixed
+> (T5 re-assessed: the legacy lane carries working golden tests and no
+> VERIFIED application uses it). Re-certified on `e10180b`: all CI green
+> (Docker lane 5,258 passed, 0 skipped), 4 runtimes x 44/54 VERIFIED with
+> 44/44 independent agreement - the same corpus result under stricter
+> verification.
+>
+> **Not covered by this GO:** a production release. That remains blocked by
+> the owner-dependent gaps in `docs/reports/PHASE5_RELEASE_READINESS.md`
+> (identity/RBAC, secrets management, durable job queue, artifact signing,
+> Docker socket exposure), and the remaining P2/P3 items in §4 stay open
+> (§6). No universal COBOL compatibility is claimed.
 
 Why not GO:
 - Three SUPPORTED constructs are **silently mistranslated** (T1–T3, reproduced,

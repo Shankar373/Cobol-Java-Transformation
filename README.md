@@ -10,6 +10,11 @@
 > `docs/reports/PHASE5_RELEASE_READINESS.md`). Certification evidence:
 > `docs/reports/PHASE5_FINAL_CERTIFICATION.md`. Older baselines below are dated history.
 >
+> **Full audit (2026-11-03):** findings, fixes and the decision are in
+> [docs/audits/FULL_AUDIT_2026-11-03.md](docs/audits/FULL_AUDIT_2026-11-03.md); the corpus was
+> re-certified on `e10180b` with stricter verification (all observable channels compared,
+> pinned and version-checked GnuCOBOL oracle) and the same result.
+>
 > **Navigation:** [docs/README.md](docs/README.md) (documentation index),
 > [CONTRIBUTING.md](CONTRIBUTING.md), [docs/RUNTIME_ADAPTERS.md](docs/RUNTIME_ADAPTERS.md).
 > Architecture audit (2026-11-03): [docs/audits/CHANGE_LEDGER.md](docs/audits/CHANGE_LEDGER.md).

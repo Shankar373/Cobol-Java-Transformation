@@ -1,5 +1,22 @@
 # Phase 5 — Final Certification
 
+> **Re-certified after the full audit — certification of record is now
+> `e10180b` (2026-11-03):** corpus certification run 41588866872 (all four
+> runtimes: 44/54 VERIFIED, 9 refused, 1 UNAVAILABLE, independent re-check
+> AGREE 44/44, CERTIFIED), CI 41588866932 (Docker lane 5,258 passed, 0
+> skipped; hermetic 4,820 passed; frontend 178 passed), supply chain
+> 41588866740 — all green. Since `feff105` the verification became stricter:
+> STDOUT, STDERR and EXIT_STATUS are compared on every run whatever the
+> contract declares, the GnuCOBOL oracle is package-pinned with its compiler
+> version observed before every run (production also requires a declared
+> image digest), declared contracts apply only to byte-identical fixture
+> source, and Docker/build infrastructure failures can no longer derive
+> FAILED. Engine corrections (period-closed IF/EVALUATE, AND/OR precedence
+> with level-88 items, REDEFINES writers, DIVIDE REMAINDER, REPLACE, NOT
+> relations, source-line indicators) are each proven against GnuCOBOL; the
+> corpus result is unchanged. Details: `docs/audits/FULL_AUDIT_2026-11-03.md`,
+> `docs/audits/CHANGE_LEDGER.md`. The `feff105` record below is history.
+
 **Certified on `feff105`** (2026-11-03): corpus certification run 41503841435,
 CI 41503841507 (5,137 backend tests), supply chain 41503841784 — all green.
 
