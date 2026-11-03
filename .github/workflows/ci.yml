@@ -57,6 +57,27 @@ jobs:
         # no longer matches the import graph (audit B3; it had gone stale).
         run: python tools/dependency_map.py --check
 
+  lint:
+    # Audit CI-F15: pyflakes (unused names, undefined names) and syntax
+    # errors over the Python code; configuration in ruff.toml.
+    name: Python lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+      - name: Install ruff
+        run: python -m pip install --require-hashes -r requirements-lint.lock
+      - name: Lint
+        run: ruff check .
+
   backend-hermetic:
     # Audit B2: the whole suite without Docker (RUN_DOCKER_TESTS unset), as a
     # developer runs it. Catches hermetic-only regressions the Docker lane

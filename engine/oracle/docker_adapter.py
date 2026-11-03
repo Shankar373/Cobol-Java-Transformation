@@ -107,10 +107,13 @@ def oracle_shell_command(
         f"if [ $compile_status -eq 137 ]; then : >/workspace/compilation/compile_timeout; fi; "
         f"cat /workspace/compilation/stdout; "
         f"cat /workspace/compilation/stderr >&2; exit $compile_status; fi; "
-        f"cd /workspace && "
+        # One group: `cd /workspace && ( watchdog ) & exec prog` would
+        # background the whole `cd && ...` list and run the program in the
+        # compile directory.
+        f"cd /workspace && {{ "
         f"( sleep {int(run_seconds)}; : >/workspace/compilation/run_timeout; "
         f"kill -KILL $$ ) & "
-        f"exec /tmp/oracle_prog"
+        f"exec /tmp/oracle_prog; }}"
     )
 
 

@@ -41,6 +41,6 @@ def test_cics_generator_emits_valid_java_literals_in_receive():
 
 
 if __name__ == "__main__":
-    test_java_arg_quotes_provide_valid_java_literals()
+    test_java_arg_quotes_produce_valid_java_literals()
     test_cics_generator_emits_valid_java_literals_in_receive()
     print("All BL-057 tests passed")

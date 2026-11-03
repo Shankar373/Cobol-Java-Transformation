@@ -99,6 +99,7 @@ from engine.transformation.redefines import build_redefines_plan, RedefinesPlan
 
 from engine.transformation.java_ir import (
     JavaApplication,
+    JavaExpression,
     JavaArrayAccess,
     JavaAssignment,
     JavaBasicType,
@@ -1861,7 +1862,6 @@ def map_cobol_expr_to_java(expr: str) -> JavaExpression:
     operator expressions remain structured JavaBinaryOp trees so semantic
     overflow/scale checks see the full tree.
     """
-    import re as _re
 
     expr = expr.strip()
 
@@ -1910,7 +1910,6 @@ def _unsupported_arithmetic_expression(source_expression: str) -> JavaExpression
     )
 
 def _tokenize_cobol_expr(expr: str):
-    import re as _re
     tokens = []
     i = 0
     n = len(expr)
@@ -3075,7 +3074,6 @@ def _condition_name_only(
 ) -> JavaExpression | None:
     """Resolve a condition that is exactly a condition name (or TRUE = name)."""
     stripped = text.strip()
-    upper = stripped.upper()
     match = re.match(
         r"^(?:TRUE\s*=\s*)?(NOT\s+)?([A-Z0-9][\w-]*)$", stripped, re.IGNORECASE
     )
@@ -3601,16 +3599,6 @@ def map_cobol_condition_to_java(
         if op in ("==", "!=") and (left_is_fill or right_is_fill):
             fill_expr = left_expr if left_is_fill else right_expr
             field_expr = right_expr if left_is_fill else left_expr
-            matches = JavaMethodCall(
-                object_ref=field_expr,
-                method_name="chars",
-                arguments=(),
-            )
-            all_of = JavaMethodCall(
-                object_ref=matches,
-                method_name="allMatch",
-                arguments=(),
-            )
             filled = JavaMethodCall(
                 object_ref=field_expr,
                 method_name="replace",

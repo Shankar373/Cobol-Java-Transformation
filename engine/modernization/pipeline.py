@@ -29,7 +29,7 @@ This module reuses ALL existing components:
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityReport

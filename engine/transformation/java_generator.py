@@ -18,6 +18,7 @@ drop whatever it did not model.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from engine.transformation.java_render import JavaSourceRenderer
 from engine.transformation.java_ir import (
@@ -127,17 +128,17 @@ class JavaGenerator(JavaSourceRenderer):
                 f"    /** Call {class_name}. */",
                 f"    public void call{class_name}() {{",
                 f"        {class_name} program = get(\"{class_name}\");",
-                f"        if (program != null) {{",
-                f"            // program execution placeholder",
-                f"        }}",
-                f"    }}",
+                "        if (program != null) {",
+                "            // program execution placeholder",
+                "        }",
+                "    }",
                 "",
             ])
 
         lines.append("}")
         return "\n".join(lines)
 
-    def generate(self, program: CobolProgram) -> list[GeneratedFile]:
+    def generate(self, program: Any) -> list[GeneratedFile]:
         """Backward-compatible entry point: CobolProgram → Java source.
 
         Uses the mapping layer to convert CobolProgram → JavaApplication,

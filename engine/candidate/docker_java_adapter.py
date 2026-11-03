@@ -37,6 +37,7 @@ from engine.domain.identities import (
     ExecutionId,
     RunId,
 )
+from engine.execution.container_runner import run_container
 from engine.execution.container_hardening import (
     container_run_hardening_flags,
     prepare_host_tree,
@@ -516,61 +517,16 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     "sh", "-c", java_cmd,
                 ]
 
-                # Execute with timeout lifecycle
-                proc = None
-                stdout = b""
-                stderr = b""
-                exit_code: int | None = None
-                termination = "error"
-
-                try:
-                    proc = subprocess.run(
-                        docker_cmd,
-                        input=input_data or b"",
-                        capture_output=True,
-                        timeout=self._config.timeout_seconds + 5,
-                        creationflags=_flags,
-                    )
-                    stdout = proc.stdout
-                    stderr = proc.stderr
-                    exit_code = proc.returncode
-                    termination = "normal" if exit_code == 0 else "nonzero_exit"
-                    if is_docker_infrastructure_exit(exit_code, stderr):
-                        # Docker refused the run: no program behaviour to
-                        # compare (audit V4).
-                        exit_code = None
-                        termination = "error"
-
-                except subprocess.TimeoutExpired as exc:
-                    # Step 1: Kill the docker client process
-                    if proc is not None:
-                        try:
-                            proc.kill()
-                            proc.wait(timeout=5)
-                        except Exception:
-                            pass
-
-                    stdout = exc.stdout if getattr(exc, "stdout", None) is not None else b""
-
-                    # Step 2: Explicitly stop and remove the container
-                    # Do NOT rely on --rm alone — proc.kill() kills the client
-                    # but the container persists on the daemon.
-                    _cleanup_removed, cleanup_detail = self._cleanup_container(
-                        container_name
-                    )
-
-                    stderr = (
-                        b"Java execution timeout; "
-                        + f"cleanup={cleanup_detail}".encode()
-                    )
-                    exit_code = None
-                    termination = "timeout"
-
-                except Exception as e:
-                    stdout = b""
-                    stderr = str(e).encode()
-                    exit_code = None
-                    termination = "error"
+                run = run_container(
+                    docker_cmd,
+                    input_data=input_data,
+                    timeout_seconds=self._config.timeout_seconds,
+                    container_name=container_name,
+                    label="Java",
+                    cleanup=self._cleanup_container,
+                )
+                stdout, stderr = run.stdout, run.stderr
+                exit_code, termination = run.exit_code, run.termination
 
                 generated_files: dict[str, bytes] = collect_generated_files(
                     output_dir, workspace_dir, ("classes", "output", "input"),

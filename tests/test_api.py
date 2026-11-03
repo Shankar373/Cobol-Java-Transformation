@@ -79,7 +79,6 @@ def _await_terminal(run_id: str, timeout_s: float = 120.0) -> dict:
     state (COMPLETED or FAILED).  Tolerates CI runners under load.
 
     Returns the final run body dict."""
-    import time
 
     deadline = time.monotonic() + timeout_s
     body: dict = {}

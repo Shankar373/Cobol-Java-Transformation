@@ -285,7 +285,7 @@ def _jcl_status_for_source(source: str | Path | None) -> str:
 
     try:
         return modernize_jcl_workload(root).status
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception:  # pragma: no cover - defensive
         logger.exception("JCL modernization failed for source %s", root)
         return "ERROR"
 
@@ -560,7 +560,7 @@ class Service:
         Detects the application name from the ZIP and updates the record
         if the current name is the generic placeholder.
         """
-        from api.ingestion import ingest_zip, discover_application, IngestionError
+        from api.ingestion import ingest_zip, discover_application
         from api.name_derivation import derive_application_name_from_zip_bytes
 
         app = self.get_application(app_id)

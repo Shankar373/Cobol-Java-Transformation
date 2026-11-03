@@ -16,7 +16,7 @@ import pytest
 
 from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
-from tests.test_comparison_contract_strength import _Candidate, _Oracle
+from tests.comparison_doubles import Candidate as _Candidate, Oracle as _Oracle
 
 _DRIVER = (
     "       IDENTIFICATION DIVISION.\n"

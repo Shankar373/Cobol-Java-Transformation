@@ -41,12 +41,10 @@ from engine.transformation.ir import (
     FileDependency,
     FileOrganization,
     FileAccessMode,
-    ProgramCall,
     UnstringStatement,
     normalize_cobol_name,
 )
 from engine.transformation.cobol_parser import CobolParser
-from engine.transformation.contracts import TransformationProducer
 from engine.transformation.semantic_capability import (
     CONSTRUCT_REGISTRY,
     IR_TYPE_TO_CONSTRUCT,

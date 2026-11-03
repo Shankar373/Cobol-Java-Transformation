@@ -47,7 +47,7 @@ def test_program_runs_in_the_foreground_under_a_watchdog():
     command = _command(run_s=7)
     assert "sleep 7" in command
     assert "/workspace/compilation/run_timeout" in command
-    assert command.rstrip().endswith("exec /tmp/oracle_prog")
+    assert command.rstrip().endswith("exec /tmp/oracle_prog; }")
     # The program itself is never wrapped in `timeout` (its exit code stays
     # its own) and never sent to the background (stdin stays attached).
     assert "timeout -s KILL 7" not in command
@@ -126,3 +126,42 @@ def test_stdin_still_reaches_accept(tmp_path):
     outcome = adapter.execute(RunId(value="run-v16-stdin"), src, input_data=b"HELLO\n")
     assert outcome.exit_code == 0, outcome.stderr.decode(errors="replace")
     assert outcome.stdout == b"GOT HELLO     \n"
+
+
+def test_program_runs_in_the_workspace_directory():
+    """The watchdog must not move the program out of /workspace.
+
+    ``cd /workspace && ( watchdog ) & exec prog`` backgrounds the whole
+    ``cd && ...`` list, so the program ran in the (read-only) compile
+    directory and every relative file name failed with status 37.
+    """
+    command = _command()
+    assert "cd /workspace && { " in command
+    assert command.rstrip().endswith("exec /tmp/oracle_prog; }")
+
+
+def test_relative_files_work_under_the_watchdog(tmp_path):
+    adapter = _adapter(run_seconds=30)
+    source = (
+        "       IDENTIFICATION DIVISION.\n"
+        "       PROGRAM-ID. TMO.\n"
+        "       ENVIRONMENT DIVISION.\n"
+        "       INPUT-OUTPUT SECTION.\n"
+        "       FILE-CONTROL.\n"
+        "           SELECT OUT-FILE ASSIGN TO \"REL.DAT\"\n"
+        "               ORGANIZATION IS LINE SEQUENTIAL.\n"
+        "       DATA DIVISION.\n"
+        "       FILE SECTION.\n"
+        "       FD OUT-FILE.\n"
+        "       01 OUT-REC PIC X(5).\n"
+        "       PROCEDURE DIVISION.\n"
+        "           OPEN OUTPUT OUT-FILE\n"
+        "           MOVE \"HELLO\" TO OUT-REC\n"
+        "           WRITE OUT-REC\n"
+        "           CLOSE OUT-FILE\n"
+        "           STOP RUN.\n"
+    )
+    (tmp_path / "TMO.cob").write_text(source, encoding="utf-8")
+    outcome = adapter.execute(RunId(value="run-v16-rel"), str(tmp_path))
+    assert outcome.exit_code == 0, outcome.stderr.decode(errors="replace")
+    assert any(name.endswith("REL.DAT") for name in (outcome.generated_files or {}))

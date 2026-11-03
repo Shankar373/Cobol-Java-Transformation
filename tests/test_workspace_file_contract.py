@@ -17,7 +17,7 @@ from engine.domain.identities import VerdictState
 from engine.evidence.integrity import EvidenceIntegrityValidator, ValidatedEvidenceManifest
 from engine.execution.workspace_files import collect_generated_files
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
-from tests.test_comparison_contract_strength import _Candidate, _Oracle
+from tests.comparison_doubles import Candidate as _Candidate, Oracle as _Oracle
 
 _INDEXED = (
     "       IDENTIFICATION DIVISION.\n"

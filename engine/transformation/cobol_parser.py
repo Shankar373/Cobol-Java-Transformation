@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
@@ -110,6 +110,9 @@ from engine.transformation.ir import (
     UnstringStatement,
     WriteStatement,
 )
+
+if TYPE_CHECKING:
+    from engine.transformation.ir import Statement
 
 
 class CobolParseError(Exception):
@@ -569,7 +572,6 @@ class CobolParser:
         Returns None if any operand is not pseudo-text (==...==).
         """
         # Split on commas that are not inside ==...==.
-        pairs: list[tuple[str, str]] = []
         # Simple regex: find all ==...== BY ==...== patterns
         import re as _re
         pattern = _re.compile(r"==(.+?)==\s+BY\s+==(.+?)==", _re.IGNORECASE)

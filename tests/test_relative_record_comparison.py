@@ -37,7 +37,7 @@ from engine.comparators.indexed_records import (
 from engine.domain.identities import VerdictState
 from engine.evidence.integrity import EvidenceIntegrityValidator, ValidatedEvidenceManifest
 from engine.transformation.producer import TransformationProducer
-from tests.test_indexed_record_comparison import _SOURCE, _file_results, _run
+from tests.record_pipeline_support import _SOURCE, _file_results, _run
 
 DATA = Path(__file__).parent / "data" / "relative"
 ORACLE_IMAGE = "gnucobol-ocesql:latest"

@@ -14,11 +14,14 @@ perform any transformation itself.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 
-from engine.modernization.capability_analyzer import CapabilityLevel, CapabilityReport
+from engine.modernization.capability_analyzer import (
+    CapabilityLevel,
+    CapabilityReport,
+    ComponentCapability,
+)
 from engine.transformation.ir import CobolApplication
 from engine.transformation.runtime_adapters import VALID_PLAN_OUTPUT_TYPES
 
@@ -245,7 +248,7 @@ class TransformationPlanGenerator:
     def _plan_program(
         self,
         program_id: str,
-        capability: 'ComponentCapability | None',
+        capability: ComponentCapability | None,
     ) -> ComponentPlan:
         """Plan a single program's transformation.
 

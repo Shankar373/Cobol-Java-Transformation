@@ -90,7 +90,6 @@ def _make_mock_generate(expected_programs=("PROG-1",)):
     through the store rather than in-memory aliasing.
     """
     def mock_generate(self_svc, app, run):
-        from api.models import RunStage
         for stage in (
             RunStage.DISCOVERING,
             RunStage.DISCOVERY_COMPLETED,
@@ -111,7 +110,6 @@ def _make_mock_generate(expected_programs=("PROG-1",)):
 def _make_mock_validation():
     """Return a mock _run_validation that sets evidence stage and verdict."""
     def mock_validation(self_svc, app, run, java_dir, entrypoint, adapter=None):
-        from api.models import RunStage
         run.stage = RunStage.VALIDATING_EVIDENCE
         run.verdict = make_stub_verdict(run.id, run.workload_id)
     return mock_validation

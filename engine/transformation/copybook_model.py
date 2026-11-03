@@ -410,7 +410,6 @@ def collect_copybook_texts(
         spans = _find_copy_statements(text)
         if not spans:
             return
-        masked = _mask_comments(text)
         for start, end, target in spans:
             target_key = target.upper()
             if target_key == stem or target_key in chain:
@@ -1236,7 +1235,7 @@ def render_model_class(cls) -> str:
         f"package {cls.package};",
         "",
         "/**",
-        f" * Shared data model materialized from COPYBOOK.",
+        " * Shared data model materialized from COPYBOOK.",
         " * Auto-generated: data definition only, no business logic.",
         " */",
         f"public class {cls.name} {{",

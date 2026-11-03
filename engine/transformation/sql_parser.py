@@ -16,6 +16,7 @@ for semantic extraction.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from engine.transformation.ir import (
     Db2TableDependency,
@@ -40,6 +41,9 @@ from engine.transformation.ir import (
 )
 
 from engine.transformation.sql_split import split_sql_statements
+
+if TYPE_CHECKING:
+    from engine.transformation.ir import SqlGroupBy
 
 
 #: Host-variable reference (``:NAME``) in raw embedded SQL text.

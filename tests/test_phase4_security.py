@@ -425,7 +425,7 @@ class TestSupplyChainConfiguration:
             REPO / "Dockerfile.production").read_text(encoding="utf-8")
         # Audit CI-F14: tooling (pytest for the gate, pip-audit/cyclonedx) is
         # hash-locked too, not just version-pinned.
-        lock = re.compile(r"--require-hashes -r requirements(-dev|-gate|-audit)?\.lock")
+        lock = re.compile(r"--require-hashes -r requirements(-dev|-gate|-audit|-lint)?\.lock")
         for wf in sorted(p.name for p in (REPO / ".github/workflows").glob("*.yml")):
             text = (REPO / ".github/workflows" / wf).read_text(encoding="utf-8")
             for line in text.splitlines():

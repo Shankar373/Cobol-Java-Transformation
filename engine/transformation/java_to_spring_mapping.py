@@ -21,7 +21,6 @@ from engine.transformation.java_ir import (
     JavaBasicType,
     JavaBlock,
     JavaClass,
-    JavaComment,
     JavaDependencyType,
     JavaDoWhile,
     JavaFor,

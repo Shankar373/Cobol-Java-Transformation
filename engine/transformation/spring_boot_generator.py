@@ -253,10 +253,10 @@ class SpringBootGenerator(JavaSourceRenderer):
         """Generate application.properties from configuration."""
         config = application.configuration
         lines = [
-            f"# Auto-generated application properties",
+            "# Auto-generated application properties",
             f"spring.application.name={application.application_id.lower().replace(' ', '-')}",
-            f"spring.main.banner-mode=off",
-            f"logging.level.root=OFF",
+            "spring.main.banner-mode=off",
+            "logging.level.root=OFF",
         ]
 
         if config and config.has_database:
@@ -452,11 +452,11 @@ public class {class_name} {{
 
         lines.extend([
             "",
-            f"/**",
+            "/**",
             f" * Service component for {service.source_program}.",
-            f" * Auto-generated from Java Application IR.",
-            f" */",
-            f"@Service",
+            " * Auto-generated from Java Application IR.",
+            " */",
+            "@Service",
         ])
 
         if service.is_transactional:
@@ -547,7 +547,6 @@ public class {class_name} {{
         A model without class IR renders its shell so the canonical path
         still exists.
         """
-        from engine.transformation.spring_boot_ir import SpringBootModel
 
         assert isinstance(model, SpringBootModel)
         cls = model.java_class
@@ -717,16 +716,16 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Abstract repository for {impl.table_name}.",
-            f" * Strategy: UNSPECIFIED — implementation selected later.",
+            " * Strategy: UNSPECIFIED — implementation selected later.",
             f" * Source: {impl.source_repository}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public abstract class {class_name} {{",
         ]
 
         for method in impl.methods:
             params = ", ".join(f"{ptype.to_source()} {pname}" for ptype, pname in method.parameters)
-            lines.append(f"")
+            lines.append("")
             lines.append(f"    /** {method.operation_type.value} operation on {method.table_name} */")
             lines.append(f"    public abstract {method.return_type.to_source()} {method.name}({params});")
 
@@ -773,9 +772,9 @@ public interface {class_name} {{
             "",
             "/**",
             f" * JPA repository for {impl.table_name}.",
-            f" * Strategy: JPA.",
+            " * Strategy: JPA.",
             f" * Source: {impl.source_repository}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             "@Repository",
             f"public interface {class_name} extends JpaRepository<Object, Long> {{",
@@ -783,7 +782,7 @@ public interface {class_name} {{
 
         for method in impl.methods:
             if method.operation_type.value == "SELECT":
-                lines.append(f"")
+                lines.append("")
                 lines.append(f"    /** {method.operation_type.value} operation on {method.table_name} */")
                 lines.append(f"    {method.return_type.to_source()} {method.name}({', '.join(f'{ptype.to_source()} {pname}' for ptype, pname in method.parameters)});")
 
@@ -827,18 +826,18 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Abstract adapter for {impl.source_resource}.",
-            f" * Strategy: UNSPECIFIED — implementation selected later.",
+            " * Strategy: UNSPECIFIED — implementation selected later.",
             f" * Access mode: {impl.access_mode}",
             f" * Organization: {impl.file_organization}",
             f" * Source: {impl.source_adapter}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public abstract class {class_name} {{",
         ]
 
         for method in impl.methods:
             params = ", ".join(f"{ptype.to_source()} {pname}" for ptype, pname in method.parameters)
-            lines.append(f"")
+            lines.append("")
             lines.append(f"    /** {method.operation_type.value} operation */")
             lines.append(f"    public abstract {method.return_type.to_source()} {method.name}({params});")
 
@@ -874,11 +873,11 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Java IO adapter for {impl.source_resource}.",
-            f" * Strategy: JAVA_IO.",
+            " * Strategy: JAVA_IO.",
             f" * Access mode: {impl.access_mode}",
             f" * Organization: {impl.file_organization}",
             f" * Source: {impl.source_adapter}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public class {class_name} implements Closeable {{",
             "",
@@ -896,7 +895,7 @@ public interface {class_name} {{
                 "",
                 "    /** Open for reading */",
                 "    public void openForRead() throws IOException {",
-                f'        this.reader = new BufferedReader(new FileReader(filePath));',
+                '        this.reader = new BufferedReader(new FileReader(filePath));',
                 "    }",
                 "",
                 "    /** Read a single record */",
@@ -912,7 +911,7 @@ public interface {class_name} {{
                 "",
                 "    /** Open for writing */",
                 "    public void openForWrite() throws IOException {",
-                f'        this.writer = new BufferedWriter(new FileWriter(filePath));',
+                '        this.writer = new BufferedWriter(new FileWriter(filePath));',
                 "    }",
                 "",
                 "    /** Write a single record */",
@@ -961,11 +960,11 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Java NIO adapter for {impl.source_resource}.",
-            f" * Strategy: NIO.",
+            " * Strategy: NIO.",
             f" * Access mode: {impl.access_mode}",
             f" * Organization: {impl.file_organization}",
             f" * Source: {impl.source_adapter}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public class {class_name} implements Closeable {{",
             "",
@@ -1000,7 +999,7 @@ public interface {class_name} {{
                 "",
                 "    /** Write a single record */",
                 "    public void write(String record) throws IOException {",
-                f"        Files.write(filePath, (record + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),",
+                "        Files.write(filePath, (record + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),",
                 f"            {open_option});",
                 "    }",
                 "",

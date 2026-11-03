@@ -35,7 +35,7 @@ It only produces a deterministic, verifiable plan.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 import re
@@ -48,10 +48,8 @@ from engine.modernization.capability_analyzer import (
     ComponentCapability,
 )
 from engine.modernization.transformation_plan import (
-    TransformationAction,
     TransformationPlan,
     TransformationPlanGenerator,
-    TransformerType,
 )
 from engine.transformation.application_discovery import ApplicationDiscovery
 from engine.transformation.ir import (
@@ -416,7 +414,6 @@ class ModernizationPlanner:
         """Build the detailed modernization plan."""
         # Lookup tables
         cap_by_id = {c.component_id: c for c in capability_report.components}
-        unit_by_id = {u.program_id: u for u in application.programs}
 
         # Build program plans
         program_plans: list[ProgramPlan] = []

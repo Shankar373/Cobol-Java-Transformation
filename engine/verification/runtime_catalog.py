@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path

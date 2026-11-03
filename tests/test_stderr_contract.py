@@ -17,7 +17,7 @@ from pathlib import Path
 from api.workload_contract import default_contract
 from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
-from tests.test_comparison_contract_strength import _Candidate, _Oracle
+from tests.comparison_doubles import Candidate as _Candidate, Oracle as _Oracle
 
 _UPON_STDERR = (
     "       IDENTIFICATION DIVISION.\n"
