@@ -1,4 +1,6 @@
-"""Deterministic DB2 → SQLite translation for the controlled test database.
+"""EXPERIMENTAL - not wired into the product (roadmap unit 1, 2026-11-03): a SQLite test-database adapter for the DB2 lane; not DB2 verification. Kept for tests; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Deterministic DB2 → SQLite translation for the controlled test database.
 
 Purpose and limits (read before claiming anything):
 

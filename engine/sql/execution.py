@@ -1,4 +1,6 @@
-"""Controlled test-database execution for the DB2 lane.
+"""EXPERIMENTAL - not wired into the product (roadmap unit 1, 2026-11-03): the SQLite execution harness for the DB2 lane; no production caller. Kept for tests; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Controlled test-database execution for the DB2 lane.
 
 Executes the supported SQL subset on an embedded, dependency-free SQLite
 database (standard library) with deterministic DB2-compatible status

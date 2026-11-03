@@ -21,6 +21,8 @@ Endpoints:
   POST   /runs/{id}/approval                     — approve (VERIFIED only) or reject
   GET    /runs/{id}/download                     — download generated ZIP
                                                    (APPROVED + re-verified)
+  GET    /runtimes                               — Java runtime targets and
+                                                   which are certified
   GET    /health                                 — liveness probe
   GET    /ready                                  — readiness probe (503 when
                                                    a gating dependency is down)
@@ -76,8 +78,11 @@ from api.logging_config import (
     configure_logging,
     new_request_id,
 )
+from engine.transformation.runtime_registry import RUNTIME_TARGETS
+
 from api.models import (
     ApplicationCreate,
+    RuntimeTargetResponse,
     ApplicationResponse,
     ApprovalRequest,
     ApprovalResponse,
@@ -1297,6 +1302,21 @@ def download_generated(run_id: str) -> StreamingResponse:
 # ---------------------------------------------------------------------------
 # Health / readiness
 # ---------------------------------------------------------------------------
+
+@app.get("/runtimes", response_model=list[RuntimeTargetResponse])
+def list_runtimes() -> list[RuntimeTargetResponse]:
+    """The Java runtime targets and which of them are certified.
+
+    Read from the single runtime registry; the frontend selector offers only
+    the certified rows, and ``POST /applications`` rejects the others.
+    """
+    return [
+        RuntimeTargetResponse(
+            key=t.key, label=t.label, certified=t.certified, note=t.note
+        )
+        for t in RUNTIME_TARGETS
+    ]
+
 
 @app.get("/health")
 def health() -> dict[str, str]:

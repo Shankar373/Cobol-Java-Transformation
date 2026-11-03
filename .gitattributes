@@ -6,6 +6,11 @@
 # file bytes and `bash -n` syntax.
 *.sh text eol=lf
 
+# Node scripts with a shebang (frontend/scripts/*.mjs) fail the same way: Node cannot
+# parse `#!/usr/bin/env node` and the whole vitest suite that imports them dies
+# on a Windows checkout (roadmap unit 1).
+*.mjs text eol=lf
+
 # GnuCOBOL (Berkeley DB) INDEXED file images used as test evidence: raw
 # bytes, never line-ending converted (tests/test_indexed_record_comparison.py).
 tests/data/indexed_bdb/*.DAT binary

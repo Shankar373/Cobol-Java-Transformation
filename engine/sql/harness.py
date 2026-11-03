@@ -1,4 +1,6 @@
-"""Deterministic controlled-execution harness for the DB2 lane.
+"""EXPERIMENTAL - not wired into the product (roadmap unit 1, 2026-11-03): the DB2 lane trace harness; its golden trace is self-generated. Kept for tests; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Deterministic controlled-execution harness for the DB2 lane.
 
 Drives an analyzed ``Db2SqlModel`` against a controlled SQLite database
 (``Db2ControlledDatabase``) replicating the DB2 semantics of the supported

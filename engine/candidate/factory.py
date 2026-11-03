@@ -7,12 +7,19 @@ the supported set instead of silently falling back to another lane.
 from __future__ import annotations
 
 from engine.candidate.adapter import CandidateAdapter
+from engine.transformation.runtime_registry import (
+    LANE_MAVEN,
+    LANE_SPRING_BOOT,
+    RUNTIME_KEYS,
+    runtime_target,
+)
 
-# Targets whose generated project is a Spring Boot application (built by the
-# Spring Boot lane).  plain_java / jakarta_ee / quarkus / micronaut are
-# Maven projects building one runnable jar, built by the generic Maven lane
-# (the offline image pre-caches the Quarkus and Micronaut dependencies).
-_SUPPORTED_TARGETS = ("spring_boot", "plain_java", "jakarta_ee", "quarkus", "micronaut")
+# The lane per target is a column of the runtime registry: Spring Boot
+# applications are built by the Spring Boot lane; plain_java / jakarta_ee /
+# quarkus / micronaut are Maven projects building one runnable jar, built by
+# the generic Maven lane (the offline image pre-caches the Quarkus and
+# Micronaut dependencies).
+_SUPPORTED_TARGETS = RUNTIME_KEYS
 
 
 def candidate_adapter_for_target(target_runtime: str) -> CandidateAdapter:
@@ -26,18 +33,22 @@ def candidate_adapter_for_target(target_runtime: str) -> CandidateAdapter:
     """
     # Imported inside the function so the resolution stays monkeypatchable
     # (tests patch the adapter classes at their defining modules).
-    if target_runtime == "spring_boot":
+    try:
+        lane = runtime_target(target_runtime).lane
+    except ValueError:
+        raise ValueError(
+            f"invalid target_runtime: {target_runtime!r} — supported "
+            f"target_runtime values: "
+            f"{', '.join(repr(t) for t in _SUPPORTED_TARGETS)}"
+        ) from None
+    if lane == LANE_SPRING_BOOT:
         from engine.candidate.docker_spring_boot_adapter import (
             DockerSpringBootCandidateAdapter,
         )
 
         return DockerSpringBootCandidateAdapter()
-    if target_runtime in ("plain_java", "jakarta_ee", "quarkus", "micronaut"):
+    if lane == LANE_MAVEN:
         from engine.candidate.maven_adapter import MavenProjectCandidateAdapter
 
         return MavenProjectCandidateAdapter()
-    raise ValueError(
-        f"invalid target_runtime: {target_runtime!r} — supported "
-        f"target_runtime values: "
-        f"{', '.join(repr(t) for t in _SUPPORTED_TARGETS)}"
-    )
+    raise ValueError(f"unknown candidate lane {lane!r} for {target_runtime!r}")

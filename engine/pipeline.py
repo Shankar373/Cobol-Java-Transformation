@@ -1166,7 +1166,14 @@ class VerticalSlicePipeline:
     def _run_legacy(
         self, run_id: RunId, oracle_result: object, candidate_result: object,
     ) -> tuple[tuple[ArtifactEvidence, ...], tuple[ComparisonEvidence, ...]]:
-        """Legacy hardcoded path for backward compatibility."""
+        """Fixed STDOUT/STDERR/exit-status comparison used when no workload is declared.
+
+        Reachable only when ``PipelineConfig.workload`` is ``None``: the
+        control-plane API always declares one (``api/service.py``), so this
+        mode serves the engine-level tests and verification scripts (15 test
+        files build a ``PipelineConfig`` without a workload). It is kept for
+        them, not as a product path.
+        """
         from engine.comparators.framework import (
             ExitStatusComparator,
             FixedRecordComparator,

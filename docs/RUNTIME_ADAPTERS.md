@@ -5,6 +5,15 @@ once (`ApplicationGenerator`, `engine/transformation/cobol_to_java_mapping.py`);
 a **runtime adapter** only assembles that IR into a buildable project for one
 target. Adapters never parse COBOL or change semantics.
 
+## The runtime registry
+
+`engine/transformation/runtime_registry.py` is the single table of targets: key, label, plan output type, candidate
+lane (Spring Boot or generic Maven) and a `certified` flag. The assembly adapters, the candidate-lane factory, the
+API and the frontend all read it. `GET /runtimes` lists it; `POST /applications` accepts only certified targets
+(`jakarta_ee` is registered and the engine can still generate it, but the API answers 400 "not certified"); the
+frontend selector offers the certified rows. `tests/test_runtime_registry.py` pins the certified set to the
+corpus-certification matrix in `.github/workflows/certification.yml`.
+
 ## Proven targets
 
 | `target_runtime` | Adapter (`engine/transformation/runtime_adapters.py`) | Project | Proof |

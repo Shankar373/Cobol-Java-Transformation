@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { tokens } from '../theme/tokens';
 import { PageContainer, Button, Header } from '../components';
 import { IconFile, IconX, IconDownload } from '../components/icons';
-import { CERTIFIED_RUNTIMES } from '../api/client';
+import { CERTIFIED_RUNTIMES, getRuntimes } from '../api/client';
 
 interface NewModernizationProps {
   onSubmit: (data: {
@@ -44,6 +44,32 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
   const [workloadId, setWorkloadId] = useState('');
   const [description, setDescription] = useState('');
   const [targetRuntime, setTargetRuntime] = useState('spring_boot');
+  // The server's registry decides which runtimes may be chosen (only the
+  // certified ones); the built-in list covers the moment before it answers.
+  const [runtimeOptions, setRuntimeOptions] = useState<
+    { value: string; label: string; note?: string }[]
+  >(CERTIFIED_RUNTIMES);
+  useEffect(() => {
+    let active = true;
+    getRuntimes()
+      .then((rows) => {
+        if (!active) return;
+        const certified = rows
+          .filter((r) => r.certified)
+          .map((r) => ({ value: r.key, label: r.label, note: r.note }));
+        if (certified.length === 0) return;
+        setRuntimeOptions(certified);
+        setTargetRuntime((current) =>
+          certified.some((r) => r.value === current) ? current : certified[0].value,
+        );
+      })
+      .catch(() => {
+        // Unreachable server: keep the built-in certified list.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [zipError, setZipError] = useState<string | null>(null);
   const [nameAutoFilled, setNameAutoFilled] = useState(false);
@@ -326,8 +352,8 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
                   value={targetRuntime}
                   onChange={(e) => setTargetRuntime(e.target.value)}
                 >
-                  {CERTIFIED_RUNTIMES.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
+                  {runtimeOptions.map((r) => (
+                    <option key={r.value} value={r.value} title={r.note}>{r.label}</option>
                   ))}
                 </select>
               </div>

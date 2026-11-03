@@ -4,7 +4,8 @@ Owns orchestration state transitions.  Does NOT duplicate transformation
 or validation logic — it delegates to:
   - engine.transformation.application_discovery.ApplicationDiscovery
   - engine.transformation.application_generator.ApplicationGenerator
-  - engine.pipeline.UniversalModernizationPipeline (derivation of the
+  - engine.modernization.pipeline.UniversalModernizationPipeline (generation)
+  - engine.pipeline.VerticalSlicePipeline (validation; derivation of the
     verdict happens inside the engine pipeline via
     engine.verdict.derivation.derive_verdict_validated /
     derive_verdict_untrusted — nothing in api/ calls derive_verdict
@@ -71,6 +72,7 @@ from engine import docker_cli
 from engine.domain.identities import VerdictState
 from engine.pipeline import PipelineConfig, VerticalSlicePipeline
 from engine.transformation.runtime_adapters import RuntimeTargetConfig
+from engine.transformation.runtime_registry import require_certified
 
 __all__ = ["Service", "ServiceError"]
 
@@ -502,6 +504,9 @@ class Service:
     ) -> ApplicationRecord:
         try:
             RuntimeTargetConfig(target_runtime=target_runtime)
+            # New applications may only pick a certified runtime (an
+            # existing application keeps whatever it was created with).
+            require_certified(target_runtime)
         except ValueError as exc:
             raise ServiceError(str(exc)) from exc
         app_id = f"app-{uuid.uuid4().hex[:12]}"
@@ -897,11 +902,9 @@ class Service:
                     expected_generation=run.validation_generation,
                 )
 
-            adapter = None
-            if not use_uploaded_candidate:
-                from engine.candidate.factory import candidate_adapter_for_target
-
-                adapter = candidate_adapter_for_target(app.target_runtime)
+            adapter = self._candidate_adapter(
+                app, build_project=not use_uploaded_candidate
+            )
             self._run_validation(app, run, java_dir, entrypoint, adapter)
 
             # Terminal state is set here; VALIDATING_EVIDENCE itself is
@@ -1107,11 +1110,9 @@ class Service:
             _source, candidate_path = self._revalidation_target(run, app)
             candidate_dir = Path(candidate_path)
             entrypoint = self._revalidation_entrypoint(run, app, candidate_dir)
-            adapter = None
-            if (candidate_dir / "pom.xml").exists():
-                from engine.candidate.factory import candidate_adapter_for_target
-
-                adapter = candidate_adapter_for_target(app.target_runtime)
+            adapter = self._candidate_adapter(
+                app, build_project=(candidate_dir / "pom.xml").exists()
+            )
             self._run_validation(
                 app, run, candidate_dir, entrypoint, adapter
             )
@@ -1134,6 +1135,20 @@ class Service:
         self._persist_final(run)
 
     # -- internal -----------------------------------------------------------
+
+    @staticmethod
+    def _candidate_adapter(app: ApplicationRecord, *, build_project: bool):
+        """The candidate build/execute adapter for the application's runtime.
+
+        ``None`` selects the default lane inside ``_run_validation`` (an
+        uploaded Java tree without a Maven project is run directly). One
+        place for both the modernize and the revalidate path.
+        """
+        if not build_project:
+            return None
+        from engine.candidate.factory import candidate_adapter_for_target
+
+        return candidate_adapter_for_target(app.target_runtime)
 
     @staticmethod
     def _run_source(run: RunRecord, app: ApplicationRecord) -> str | None:

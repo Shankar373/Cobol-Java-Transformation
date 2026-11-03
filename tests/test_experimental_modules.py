@@ -23,6 +23,11 @@ EXPERIMENTAL = {
     "engine.verification.runtime_catalog",
     "engine.modernization.application_assembler",
     "engine.transformation.producers.internal_native",
+    # Labelled in roadmap unit 1 (they were unlabelled but equally unreachable).
+    "engine.transformation.producers.opensource4j",
+    "engine.sql.db2_sqlite",
+    "engine.sql.execution",
+    "engine.sql.harness",
 }
 
 # Package re-exports keep the public import paths the tests use.

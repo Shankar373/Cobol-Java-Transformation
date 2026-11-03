@@ -1,4 +1,6 @@
-"""OpenSourceCOBOL4J adapter — external/alternative producer.
+"""EXPERIMENTAL - not wired into the product (roadmap unit 1, 2026-11-03): an external-tool producer (needs libcobj.jar); no production caller. Kept for tests; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+OpenSourceCOBOL4J adapter — external/alternative producer.
 
 This adapter wraps OpenSourceCOBOL4J as an external transformation producer.
 It is NOT part of the core transformation implementation.

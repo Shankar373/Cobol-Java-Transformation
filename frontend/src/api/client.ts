@@ -133,7 +133,23 @@ export interface ApplicationCreate {
   target_runtime?: string;
 }
 
-/** Runtimes certified on the corpus (docs/RUNTIME_ADAPTERS.md). */
+/** One row of the server's runtime registry (GET /runtimes). */
+export interface RuntimeTarget {
+  key: string;
+  label: string;
+  certified: boolean;
+  note: string;
+}
+
+export async function getRuntimes(): Promise<RuntimeTarget[]> {
+  return request<RuntimeTarget[]>('/runtimes');
+}
+
+/**
+ * Runtimes certified on the corpus (docs/RUNTIME_ADAPTERS.md). The server's
+ * registry (``getRuntimes``) is authoritative; this list is only what the
+ * selector shows until that answers, or if it cannot be reached.
+ */
 export const CERTIFIED_RUNTIMES: { value: string; label: string }[] = [
   { value: 'spring_boot', label: 'Spring Boot' },
   { value: 'plain_java', label: 'Plain Java' },

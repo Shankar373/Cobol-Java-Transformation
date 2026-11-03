@@ -16,17 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
+from engine.transformation.runtime_registry import RUNTIME_KEYS, RUNTIME_TARGETS
+
 # Example configuration: the five keys and their supported value
 # sets.  Deliberately narrow: a future build tool, packaging,
 # execution mode, or Java version must be added here explicitly,
 # never accepted silently.
-SUPPORTED_TARGET_RUNTIMES: tuple[str, ...] = (
-    "spring_boot",
-    "plain_java",
-    "jakarta_ee",
-    "quarkus",
-    "micronaut",
-)
+SUPPORTED_TARGET_RUNTIMES: tuple[str, ...] = RUNTIME_KEYS  # runtime_registry.py
 SUPPORTED_JAVA_VERSIONS: tuple[str, ...] = ("17", "21")
 SUPPORTED_BUILD_TOOLS: tuple[str, ...] = ("maven",)
 SUPPORTED_PACKAGINGS: tuple[str, ...] = ("jar",)
@@ -34,11 +30,7 @@ SUPPORTED_EXECUTION_MODES: tuple[str, ...] = ("batch",)
 
 # Transformation-plan vocabulary for assembly output types.
 PLAN_OUTPUT_TYPE_BY_TARGET: dict[str, str] = {
-    "spring_boot": "SPRING_BOOT",
-    "plain_java": "NATIVE_JAVA",
-    "jakarta_ee": "JAKARTA_EE",
-    "quarkus": "QUARKUS",
-    "micronaut": "MICRONAUT",
+    t.key: t.plan_output_type for t in RUNTIME_TARGETS
 }
 VALID_PLAN_OUTPUT_TYPES: tuple[str, ...] = tuple(
     PLAN_OUTPUT_TYPE_BY_TARGET.values()

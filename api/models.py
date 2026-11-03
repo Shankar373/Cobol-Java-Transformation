@@ -68,6 +68,15 @@ class ApplicationCreate(BaseModel):
     target_runtime: str = Field(default="spring_boot", min_length=1, max_length=64)
 
 
+class RuntimeTargetResponse(BaseModel):
+    """One row of the runtime-target registry (``GET /runtimes``)."""
+
+    key: str
+    label: str
+    certified: bool
+    note: str
+
+
 class ApplicationResponse(BaseModel):
     """Application metadata."""
     id: str
@@ -312,7 +321,7 @@ class IntegratedProofResult(BaseModel):
     FILE paths, plus a JCL job stream, joined into a single auditable result:
 
         JCL -> MAIN -> COPYBOOK TAXREC + CALL CALC + LINE SEQUENTIAL FILE
-             -> UniversalModernizationPipeline (phases 1-5)
+             -> engine.modernization.pipeline.UniversalModernizationPipeline (phases 1-5)
              -> VerticalSlicePipeline          (phases 6-11)
              -> dependency ledger -> central status
 
