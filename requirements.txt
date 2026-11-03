@@ -4,4 +4,4 @@ python-multipart>=0.0.9,<1
 uvicorn[standard]>=0.30,<1
 # Imported directly by api/ (were undeclared, audit D4):
 pydantic>=2,<3
-starlette>=1,<2
+starlette>=1.10.0,<2
