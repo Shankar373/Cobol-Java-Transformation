@@ -38,7 +38,7 @@ usage) and checks:
 
 * `control-plane.db` exists, is non-empty, opens read-only, passes
   `PRAGMA integrity_check`, contains the `applications` and `runs`
-  tables, and has `PRAGMA user_version` ≤ 8 (this build's
+  tables, and has `PRAGMA user_version` ≤ 9 (this build's
   `DB_SCHEMA_VERSION`; a newer schema would be refused by `Store` at
   restore anyway);
 * `workspaces.tar.gz` exists and is a readable gzip tar with **at least

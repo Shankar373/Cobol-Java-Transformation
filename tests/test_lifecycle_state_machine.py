@@ -263,6 +263,8 @@ def _finish_run(app_id: str, run_id: str, stage: RunStage) -> None:
 
     _set_candidate_path(app_id)
     store = app_mod._store
+    # Real generation records the bundle on the run too (audit F7).
+    store.set_run_generated(run_id, store.get_application(app_id).generated_app_path, None)
     record = store.get_run(run_id)
     record.stage = stage
     record.completed_at = "2024-01-01T00:00:00+00:00"
@@ -320,6 +322,11 @@ class TestApiRevalidationSingleFlight:
         app_id = _create_uploaded_app("in-flight")
         run_id = client.post(f"/applications/{app_id}/modernize").json()["run_id"]
         _set_candidate_path(app_id)  # paths are fine; stage is not terminal
+        import api.app as app_mod
+
+        app_mod._store.set_run_generated(
+            run_id, app_mod._store.get_application(app_id).generated_app_path, None
+        )
 
         resp = client.post(f"/runs/{run_id}/validate")
         assert resp.status_code == 409
@@ -336,6 +343,7 @@ class TestApiRevalidationSingleFlight:
         app = app_mod._store.get_application(app_id)
         app.generated_app_path = None
         app_mod._store.update_application(app)
+        app_mod._store.set_run_generated(run_id, None, None)
 
         resp = client.post(f"/runs/{run_id}/validate")
         assert resp.status_code == 400

@@ -101,6 +101,8 @@ def _create_run_with_bundle(
         path.write_bytes(content)
     rec.generated_app_path = str(target)
     svc._store.update_application(rec)
+    # Real generation records the bundle on the run too (audit F7).
+    svc._store.set_run_generated(run_id, str(target), None)
     return run_id, target
 
 

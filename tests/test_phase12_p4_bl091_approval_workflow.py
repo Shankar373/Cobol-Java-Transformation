@@ -103,6 +103,8 @@ def _seed_generated(run_id: str, files: list[tuple[str, bytes]]) -> Path:
         path.write_bytes(content)
     app_rec.generated_app_path = str(target)
     app_mod._service._store.update_application(app_rec)
+    # Real generation records the bundle on the run too (audit F7).
+    app_mod._service._store.set_run_generated(run_id, str(target), None)
     # A real run seals its generated bundle at generation time
     # (api.artifact_seal); approval/export verify the seal, so the
     # fixture seals the seeded bytes exactly like the pipeline would.

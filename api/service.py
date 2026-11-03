@@ -94,6 +94,17 @@ def _production_active() -> bool:
         return os.environ.get("CONTROL_PLANE_ENV", "").strip().lower() == "production"
 
 
+def _bundle_of_other_run(bundle: str, run_id: str) -> bool:
+    """True when ``bundle`` is a pipeline output named after another run.
+
+    Generated bundles are created as ``pipeline-output-<run id>-<random>``.
+    """
+    name = Path(bundle).name
+    return name.startswith("pipeline-output-") and not name.startswith(
+        f"pipeline-output-{run_id}-"
+    )
+
+
 def _revalidation_candidate(app: ApplicationRecord) -> str | None:
     """The Java tree a re-validation runs: the generated application.
 
@@ -776,6 +787,9 @@ class Service:
             application_id=app_id,
             workload_id=app.workload_id,
             stage=RunStage.CREATED,
+            # The source THIS run modernizes (audit F7); a later re-ingest
+            # replaces the application's path, never the run's.
+            source_path=app.cobol_source_path,
         )
         try:
             self._store.add_run(run)
@@ -860,6 +874,8 @@ class Service:
             self._finish_failed(run, f"Application {app_id!r} not found")
             return
 
+        self._snapshot_discovery(run, app)
+
         try:
             if use_uploaded_candidate:
                 if app.java_candidate_path is None:
@@ -871,6 +887,15 @@ class Service:
                 entrypoint = self._resolve_uploaded_entrypoint(app, java_dir)
             else:
                 java_dir, entrypoint = self._generate_application(app, run)
+                # Record the bundle on the run itself: revalidation,
+                # approval and export of THIS run use it, whatever the
+                # application generates next (audit F7).
+                run.generated_app_path = str(java_dir)
+                run.generated_entrypoint = entrypoint
+                self._store.set_run_generated(
+                    run.id, str(java_dir), entrypoint,
+                    expected_generation=run.validation_generation,
+                )
 
             adapter = None
             if not use_uploaded_candidate:
@@ -898,6 +923,27 @@ class Service:
             run.completed_at = datetime.now(timezone.utc).isoformat()
 
         self._persist_final(run)
+
+    def _snapshot_discovery(self, run: RunRecord, app: ApplicationRecord) -> None:
+        """Store the discovery of this run's source once (audit F6).
+
+        The run-detail endpoint serves this snapshot instead of re-running
+        discovery on every poll. Best effort: a failure leaves it absent.
+        """
+        source = self._run_source(run, app)
+        if source is None:
+            return
+        try:
+            from api.ingestion import discover_application
+
+            snapshot = discover_application(Path(source), app.id).to_dict()
+            self._store.set_run_discovery(run.id, snapshot)
+            run.discovery_snapshot = snapshot
+        except Exception:
+            logger.exception(
+                "Discovery snapshot failed for run %s", run.id,
+                extra={"event": "run.discovery_snapshot_failed", "run_id": run.id},
+            )
 
     def _finish_failed(self, run: RunRecord, message: str) -> None:
         run.stage = RunStage.FAILED
@@ -979,16 +1025,16 @@ class Service:
         if app is None:
             raise NotFoundError(f"Application {run.application_id!r} not found")
 
-        candidate_path = _revalidation_candidate(app)
-        if app.cobol_source_path is None or candidate_path is None:
-            raise ServiceError("Run lacks source or candidate paths for re-validation")
+        # The run's own source and bundle (audit F7), checked BEFORE the
+        # reset so a run that can no longer be revalidated keeps its result.
+        source, _candidate = self._revalidation_target(run, app)
 
         # Resolve the contract BEFORE resetting the run so an unusable
         # workload cannot destroy the terminal result.
         contract = resolve_certification_contract(
             app.workload_id,
             description=f"API-driven workload for {app.name}",
-            uploaded_source=app.cobol_source_path or "",
+            uploaded_source=source,
         )
 
         # Slot first: a failed reset must not leave a reserved slot behind,
@@ -1058,16 +1104,9 @@ class Service:
             return
 
         try:
-            candidate_path = _revalidation_candidate(app)
-            if app.cobol_source_path is None or candidate_path is None:
-                raise ServiceError(
-                    "Run lacks source or candidate paths for re-validation"
-                )
-            entrypoint = (
-                app.generated_entrypoint
-                or app.java_entrypoint
-            )
+            _source, candidate_path = self._revalidation_target(run, app)
             candidate_dir = Path(candidate_path)
+            entrypoint = self._revalidation_entrypoint(run, app, candidate_dir)
             adapter = None
             if (candidate_dir / "pom.xml").exists():
                 from engine.candidate.factory import candidate_adapter_for_target
@@ -1096,7 +1135,85 @@ class Service:
 
     # -- internal -----------------------------------------------------------
 
-    def _resolve_entry_program(self, app: ApplicationRecord) -> str:
+    @staticmethod
+    def _run_source(run: RunRecord, app: ApplicationRecord) -> str | None:
+        """The COBOL source this run works on (audit F7).
+
+        Runs created before schema v9 have no recorded source and use the
+        application's (the only path that existed then).
+        """
+        source = getattr(run, "source_path", None)
+        return source if source is not None else app.cobol_source_path
+
+    def run_generated_path(self, run: RunRecord) -> str | None:
+        """The generated bundle of THIS run, for approval and export (F7).
+
+        A run created before schema v9 falls back to the application's
+        bundle unless that bundle is named after another run - then the
+        run has no bundle it can prove is its own.
+        """
+        if run.source_path is not None or run.generated_app_path is not None:
+            return run.generated_app_path
+        app = self.get_application(run.application_id)
+        bundle = app.generated_app_path
+        if bundle and _bundle_of_other_run(bundle, run.id):
+            return None
+        return bundle
+
+    def _revalidation_target(
+        self, run: RunRecord, app: ApplicationRecord
+    ) -> tuple[str, str]:
+        """``(source, candidate)`` a revalidation of ``run`` must use (F7).
+
+        Fails closed instead of validating something the run did not
+        produce: a source replaced by a later upload, a bundle no longer on
+        disk, or (for runs from before schema v9) an application bundle
+        that belongs to another run.
+        """
+        if run.source_path is None:
+            if app.generated_app_path and _bundle_of_other_run(
+                app.generated_app_path, run.id
+            ):
+                raise ServiceError(
+                    "This run predates per-run paths and the application's "
+                    "latest generated application belongs to another run; "
+                    "start a new modernization"
+                )
+            source = app.cobol_source_path
+            candidate = _revalidation_candidate(app)
+        else:
+            source = run.source_path
+            if run.generated_app_path:
+                candidate = run.generated_app_path
+            elif _production_active():
+                raise ServiceError(
+                    "Re-validation needs the generated application; uploaded "
+                    "Java candidates are disabled in production deployments"
+                )
+            else:
+                candidate = app.java_candidate_path
+        if source is None or candidate is None:
+            raise ServiceError("Run lacks source or candidate paths for re-validation")
+        if run.source_path is not None and not Path(source).is_dir():
+            # A re-ingest deletes the previous source workspace.
+            raise ServiceError(
+                "The COBOL source of this run was replaced by a later upload; "
+                "start a new modernization to validate the current source"
+            )
+        return source, candidate
+
+    def _revalidation_entrypoint(
+        self, run: RunRecord, app: ApplicationRecord, candidate_dir: Path
+    ) -> str:
+        if run.source_path is None:
+            return app.generated_entrypoint or app.java_entrypoint
+        if run.generated_app_path:
+            return run.generated_entrypoint or app.java_entrypoint
+        return self._resolve_uploaded_entrypoint(app, candidate_dir)
+
+    def _resolve_entry_program(
+        self, app: ApplicationRecord, source: str | None = None
+    ) -> str:
         """Resolve the COBOL entry program id used for Spring Boot assembly.
 
         ``ApplicationCreate.java_entrypoint`` is a client-supplied string that
@@ -1118,13 +1235,14 @@ class Service:
         failing the run.
         """
         declared = (app.java_entrypoint or "").strip()
-        if not app.cobol_source_path:
+        source = source or app.cobol_source_path
+        if not source:
             return declared
 
         try:
             from api.ingestion import discover_application
 
-            discovery = discover_application(Path(app.cobol_source_path), app.id)
+            discovery = discover_application(Path(source), app.id)
         except Exception:
             logger.exception(
                 "Entry-program discovery failed for application %s; "
@@ -1196,10 +1314,10 @@ class Service:
         docker_available = docker_cli.docker_available_with_retry()
 
         pipeline_config = ModernizationConfig(
-            source_dir=app.cobol_source_path,
+            source_dir=self._run_source(run, app),
             output_dir=output_dir,
             application_id=app.id,
-            entrypoint=self._resolve_entry_program(app),
+            entrypoint=self._resolve_entry_program(app, self._run_source(run, app)),
             docker_available=docker_available,
             target_runtime=app.target_runtime,
         )
@@ -1332,24 +1450,25 @@ class Service:
         trusted fixture registry when the workload declares one, otherwise
         the explicit default — and is recorded on the run record.
         """
+        source = self._run_source(run, app)
         contract = resolve_certification_contract(
             app.workload_id,
             description=f"API-driven workload for {app.name}",
-            uploaded_source=app.cobol_source_path or "",
+            uploaded_source=source or "",
         )
         run.certification_contract = contract.contract_id
         workload_def = contract.workload
 
         config = PipelineConfig(
             workload_id=app.workload_id,
-            cobol_source_path=app.cobol_source_path,
+            cobol_source_path=source,
             java_candidate_path=str(java_dir),
             java_entrypoint=entrypoint,
             workload=workload_def,
             use_docker_java=True,
             # Same resolution the Spring Boot assembly used, so the oracle
             # runs the program the candidate enters (or refuses).
-            oracle_entry_program=self._resolve_entry_program(app) or None,
+            oracle_entry_program=self._resolve_entry_program(app, source) or None,
         )
 
         phase_to_stage = {
@@ -1425,15 +1544,14 @@ class Service:
         if facade is None:
             return
 
-        jcl_status = _jcl_status_for_source(app.cobol_source_path)
+        source = self._run_source(run, app)
+        jcl_status = _jcl_status_for_source(source)
         proof = _proof_payload(
             app.workload_id,
             facade,
             runtime_evidence_from_result(result),
             jcl_status,
-            extra_dependencies=_external_dependency_entries_for_source(
-                app.cobol_source_path
-            ),
+            extra_dependencies=_external_dependency_entries_for_source(source),
         )
         run_report["integrated_proof"] = proof
         # Bind the proof to the validation generation it was computed under:
@@ -1576,9 +1694,9 @@ class Service:
         if decision == "APPROVED":
             run = self.get_run(run_id)
             self.require_verified_evidence(run, action="approved")
-            app = self.get_application(run.application_id)
-            if app.generated_app_path is not None:
-                verify_generated_seal(app.generated_app_path, run.generated_seal)
+            bundle = self.run_generated_path(run)
+            if bundle is not None:
+                verify_generated_seal(bundle, run.generated_seal)
             elif _production_active():
                 # Audit F2: in production only a sealed generated bundle
                 # can be signed off; there is nothing else to export.
@@ -1774,19 +1892,18 @@ class Service:
 
         app = self.get_application(run.application_id)
         runtime = runtime_evidence_from_result(_ResultFacade())
+        source = self._run_source(run, app)
         jcl_status = (
             run_report["jcl_status"]
             if "jcl_status" in run_report
-            else _jcl_status_for_source(app.cobol_source_path)
+            else _jcl_status_for_source(source)
         )
         return _proof_payload(
             app.workload_id,
             facade,
             runtime,
             jcl_status,
-            extra_dependencies=_external_dependency_entries_for_source(
-                app.cobol_source_path
-            ),
+            extra_dependencies=_external_dependency_entries_for_source(source),
         )
 
     def get_run_report(self, run_id: str) -> dict:
@@ -1861,8 +1978,11 @@ class Service:
         run = self.get_run(run_id)
         app = self.get_application(run.application_id)
 
-        discovery: dict | None = None
-        if app.cobol_source_path is not None:
+        # The run's discovery snapshot (audit F6): no discovery per poll.
+        # Runs from before schema v9 have none and are discovered live, as
+        # before.
+        discovery: dict | None = run.discovery_snapshot
+        if discovery is None and run.source_path is None and app.cobol_source_path:
             try:
                 from api.ingestion import discover_application
 
@@ -1873,9 +1993,10 @@ class Service:
                 discovery = None
 
         generated_files: list[str] = []
-        if app.generated_app_path is not None:
+        bundle = self.run_generated_path(run)
+        if bundle is not None:
             try:
-                root = Path(app.generated_app_path)
+                root = Path(bundle)
                 if root.exists():
                     generated_files = sorted(
                         str(f.relative_to(root)).replace("\\", "/")

@@ -1219,9 +1219,11 @@ def download_generated(run_id: str) -> StreamingResponse:
     # approval column alone (audit A4: an approved attempt's verdict can
     # stop being VERIFIED).
     _svc().require_verified_evidence(run, action="exported")
+
     app = _svc().get_application(run.application_id)
 
-    java_dir = app.generated_app_path
+    # The bundle THIS run generated, not the application's latest (F7).
+    java_dir = _svc().run_generated_path(run)
     if java_dir is None or not Path(java_dir).exists():
         raise _error(404, "No generated Java application available for this run")
 

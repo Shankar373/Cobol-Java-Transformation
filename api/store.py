@@ -32,6 +32,7 @@ Lifecycle integrity is enforced here:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -211,11 +212,36 @@ class RunRecord:
     # cleared by begin_revalidation so a fresh attempt starts clean.  NULL
     # for runs created before schema v7 (UI falls back to all-pending).
     last_stage: str | None = None
+    # What THIS run worked on (audit F6/F7, schema v9).  The application
+    # columns hold only the latest upload and bundle; revalidation,
+    # approval, export and the detail view read these instead, so an older
+    # run is never checked against a newer bundle or source.  Written by
+    # add_run (source_path), set_run_generated and set_run_discovery only;
+    # update_run never touches them and begin_revalidation keeps them.
+    # NULL source_path = a run created before schema v9.
+    source_path: str | None = None
+    generated_app_path: str | None = None
+    generated_entrypoint: str | None = None
+    discovery_snapshot: dict | None = None
 
 
 #: Database schema version written by this code. Payload schema versions are
 #: tracked separately in :mod:`api.serialization`.
-DB_SCHEMA_VERSION = 8
+DB_SCHEMA_VERSION = 9
+
+
+def _encode_snapshot(snapshot: dict | None) -> str | None:
+    return None if snapshot is None else json.dumps(snapshot, sort_keys=True)
+
+
+def _decode_snapshot(text: str | None) -> dict | None:
+    if not text:
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None  # an unreadable snapshot is treated as absent
+    return value if isinstance(value, dict) else None
 
 
 def _last_stage_anchor(stage: RunStage, previous: str | None) -> str | None:
@@ -375,6 +401,13 @@ class Store:
             self._conn.execute(
                 "ALTER TABLE runs ADD COLUMN last_stage TEXT"
             )
+        # migration 8: run-scoped paths and discovery snapshot (audit
+        # F6/F7).  NULL on older rows: the service falls back to the
+        # application's paths only when they can still belong to that run.
+        for column in ("source_path", "generated_app_path",
+                       "generated_entrypoint", "discovery_json"):
+            if column not in columns:
+                self._conn.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
 
     # -- applications -------------------------------------------------------
 
@@ -606,8 +639,10 @@ class Store:
                     " verdict_blob, report_blob, validation_generation,"
                     " certification_contract, approval_state,"
                     " approval_approver, approval_reason, approval_decided_at,"
-                    " generated_seal, last_stage)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " generated_seal, last_stage, source_path,"
+                    " generated_app_path, generated_entrypoint, discovery_json)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+                    " ?, ?, ?, ?, ?, ?)",
                     self._run_params(record, stage)
                     + (
                         record.approval_state,
@@ -616,6 +651,10 @@ class Store:
                         record.approval_decided_at,
                         record.generated_seal,
                         _last_stage_anchor(stage, record.last_stage),
+                        record.source_path,
+                        record.generated_app_path,
+                        record.generated_entrypoint,
+                        _encode_snapshot(record.discovery_snapshot),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -811,6 +850,52 @@ class Store:
                     " attempt; discarding stale seal"
                 )
             self._conn.commit()
+
+    def _set_run_columns(
+        self, run_id: str, values: dict, expected_generation: int | None
+    ) -> None:
+        """UPDATE named run columns, optionally bound to an attempt."""
+        assignments = ", ".join(f"{name} = ?" for name in values)
+        params = list(values.values()) + [run_id]
+        sql = f"UPDATE runs SET {assignments} WHERE id = ?"
+        if expected_generation is not None:
+            sql += " AND validation_generation = ?"
+            params.append(int(expected_generation))
+        with self._lock:
+            cursor = self._conn.execute(sql, params)
+            if cursor.rowcount == 0:
+                exists = self._conn.execute(
+                    "SELECT 1 FROM runs WHERE id = ?", (run_id,)
+                ).fetchone()
+                if exists is None:
+                    raise NotFoundError(f"Run {run_id!r} not found")
+                raise ConflictError(
+                    f"Run {run_id!r} was reset by a newer validation"
+                    " attempt; discarding stale write"
+                )
+            self._conn.commit()
+
+    def set_run_generated(
+        self,
+        run_id: str,
+        generated_app_path: str | None,
+        generated_entrypoint: str | None,
+        *,
+        expected_generation: int | None = None,
+    ) -> None:
+        """Record the bundle THIS run generated (audit F7)."""
+        self._set_run_columns(
+            run_id,
+            {"generated_app_path": generated_app_path,
+             "generated_entrypoint": generated_entrypoint},
+            expected_generation,
+        )
+
+    def set_run_discovery(self, run_id: str, snapshot: dict | None) -> None:
+        """Record the discovery of THIS run's source (audit F6)."""
+        self._set_run_columns(
+            run_id, {"discovery_json": _encode_snapshot(snapshot)}, None
+        )
 
     def begin_revalidation(
         self,
@@ -1033,4 +1118,8 @@ class Store:
             approval_decided_at=row["approval_decided_at"],
             generated_seal=row["generated_seal"],
             last_stage=row["last_stage"],
+            source_path=row["source_path"],
+            generated_app_path=row["generated_app_path"],
+            generated_entrypoint=row["generated_entrypoint"],
+            discovery_snapshot=_decode_snapshot(row["discovery_json"]),
         )

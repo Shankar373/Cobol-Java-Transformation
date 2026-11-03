@@ -199,6 +199,8 @@ def _seed_run_with_generated_files(
     rec = svc.get_application(app_id)
     rec.generated_app_path = str(gen_dir)
     svc._store.update_application(rec)
+    # Real generation records the bundle on the run too (audit F7).
+    svc._store.set_run_generated(run_id, str(gen_dir), None)
     # A real run seals its generated bundle at generation time
     # (api.artifact_seal); approval/export verify the seal, so the
     # fixture seals the seeded bytes exactly like the pipeline would.

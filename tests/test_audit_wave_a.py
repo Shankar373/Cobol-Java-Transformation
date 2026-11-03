@@ -64,6 +64,8 @@ def _seed_generated(run_id: str) -> None:
     (target / "Main.java").write_bytes(b"class Main {}")
     app_rec.generated_app_path = str(target)
     svc._store.update_application(app_rec)
+    # Real generation records the bundle on the run too (audit F7).
+    svc._store.set_run_generated(run_id, str(target), None)
     svc._store.set_generated_seal(run_id, compute_generated_seal(target))
 
 
