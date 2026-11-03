@@ -497,3 +497,65 @@ class TestDeploymentConfiguration:
                      '"--network", "none"', '"no-new-privileges=true"'):
             assert flag in text
         assert 'docker(["run"' not in text
+
+
+class TestAuditApiFollowUps:
+    """Full audit 2026-11-03 follow-ups on the API surface."""
+
+    def test_run_detail_stage_messages_are_redacted_in_production(
+        self, tmp_path, monkeypatch
+    ):
+        # F3: stage_messages carries run.error verbatim and bypassed _public.
+        import uuid
+
+        from fastapi.testclient import TestClient
+
+        import api.app as app_module
+        from api.models import RunStage
+        from api.service import Service
+        from api.store import ApplicationRecord, RunRecord, Store
+
+        root = tmp_path / "workspaces"
+        monkeypatch.setenv("CONTROL_PLANE_WORKSPACE_DIR", str(root))
+        monkeypatch.setenv("CONTROL_PLANE_ENV", "production")
+        monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", _TOKEN)
+        store = Store()
+        monkeypatch.setattr(app_module, "_store", store)
+        monkeypatch.setattr(app_module, "_service", Service(store))
+        suffix = uuid.uuid4().hex[:8]
+        store.add_application(ApplicationRecord(
+            id="app-f3-" + suffix, name="f3-" + suffix, description="",
+            workload_id="wl-f3", java_entrypoint="",
+        ))
+        leaked = str(root / "pipeline-output-x" / "secret.txt")
+        store.add_run(RunRecord(
+            id="run-f3-" + suffix, application_id="app-f3-" + suffix,
+            workload_id="wl-f3", stage=RunStage.FAILED,
+            error="Pipeline generation failed: " + leaked,
+        ))
+
+        body = TestClient(app_module.app).get(
+            "/runs/run-f3-" + suffix + "/detail",
+            headers={"Authorization": f"Bearer {_TOKEN}"},
+        ).json()
+        flat = repr(body)
+        assert str(root) not in flat and root.as_posix() not in flat, flat
+        assert any("<server>" in m for m in body["stage_messages"]), body
+
+    def test_unreadable_cobol_file_is_a_discovery_error(self, tmp_path):
+        # F8: per-file COBOL discovery errors were dropped, so discovery
+        # reported success while the pipeline failed closed on them.
+        from api.ingestion import discover_application
+
+        (tmp_path / "GOOD.cob").write_text(
+            "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. GOOD.\n"
+            "       PROCEDURE DIVISION.\n           STOP RUN.\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "BAD.cob").write_bytes(
+            b"       IDENTIFICATION DIVISION.\n       PROGRAM-ID. BAD.\n\xff\xfe\n"
+        )
+        result = discover_application(tmp_path, "app-f8")
+        assert result.discovery_success is False
+        messages = " ".join(e["message"] for e in result.discovery_errors)
+        assert "BAD.cob" in messages and str(tmp_path) not in messages

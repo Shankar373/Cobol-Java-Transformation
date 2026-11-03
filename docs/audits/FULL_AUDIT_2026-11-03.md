@@ -86,6 +86,13 @@ Why not NO-GO:
 | V4 | P2 | `engine/docker_cli.is_docker_infrastructure_exit`: build timeouts, staging exceptions and Docker exits 125-127 are infrastructure (build) / `error` termination (run, only with Docker's own message, so a program's RETURN-CODE 125 is still compared) | `tests/test_infrastructure_classification.py` (16 tests, 7 red before) |
 | V7 | P2 | The candidate environment records `<AdapterClass> <runtime image identity>` (`os_base`); the verdict scope is built from the manifest (lane + observed oracle compiler) instead of naming the Spring Boot adapter for every run | `tests/verdict/test_scope_names_the_executed_lane.py` (3 red before) |
 | V10 | P2 | A fixture's declared contract applies only when the upload is byte-identical to the fixture's `cobol/` tree; any other upload naming its workload id gets the default contract | `tests/test_certification_contract.py` (+1 regression test, red before; two tests now upload real fixture source) |
+| T4 | P1 | DIVIDE … REMAINDER uses the intermediate quotient (dividend / divisor truncated to the quotient's scale, sign and all integer digits kept); oracle-measured first: GnuCOBOL -5 / 2 GIVING PIC 9(3) leaves REMAINDER -1 (Java gave -9), 1000 / 3 GIVING PIC 99 leaves 1 (Java gave 901) | `tests/integration/test_divide_remainder_oracle.py` (5 cases, red before); 2 corpus apps' generated code changed (workload-arithmetic, workload-binary-values) - certification re-checks them |
+| T6 | P1 | REPLACE substitutes whole words only, literals untouched, a new REPLACE replaces the set (reuses the copybook REPLACING matcher) | `tests/integration/test_replace_directive_oracle.py` (GnuCOBOL, red before) |
+| T9-T11 | P2 | `NOT <relation>` lowered as a negated relation; fixed-format column-7 `D`/`/` lines are comments (D under WITH DEBUGGING MODE is diagnosed); inline `*>` comments stripped outside literals; reference modification diagnosed by the parser | `tests/integration/test_source_lines_and_negation_oracle.py` (GnuCOBOL, red before) |
+| F3/F8/F9 | P2/P3 | `stage_messages` redacted in production; per-file COBOL discovery errors reported (discovery no longer claims success while the pipeline fails closed); dead `_detect_source_root` removed | `tests/test_phase4_security.py::TestAuditApiFollowUps` (red before) |
+| FE-01/FE-04 | P2 | Sidebar status from `GET /ready` (operational / degraded with failing checks / unknown); Approve offered only for VERIFIED runs, with the reason shown, Reject unchanged | `frontend/src/__tests__/audit-ui-status.test.tsx` (4 of 6 red before) |
+| CI-F1 | P2 | `uvloop` marked `sys_platform != "win32"` in both locks; `pip install --require-hashes -r requirements-dev.lock` verified on Windows | manifest build + lock tests |
+| T5 | — | **Not done (re-assessed):** routing every program through statement lowering broke 24 tests - the "decision" lane carries end-to-end golden tests that compile and run the claims programs correctly. Removing it needs statement lowering to reach parity (FD I/O + UNSTRING) first; no VERIFIED corpus app uses either legacy lane. | — |
 | — | — | Corpus regression for T1-T3: 108 generated builds (54 apps x spring_boot/plain_java) byte-identical before and after | snapshot comparison |
 
 ---
@@ -102,12 +109,12 @@ medium, **P3** low.
 | T1 | **P0 — FIXED** | R | `engine/transformation/cobol_parser.py:3138-3193` (`_parse_if`); same in `_parse_evaluate` ~3010 | A period-closed `IF` (no END-IF, period on a later line) swallows every following sentence: `IF WS-A > 0 / DISPLAY 'POSITIVE'. / DISPLAY 'ALWAYS'.` → `if (WS_A > 0) { …"POSITIVE"; …"ALWAYS"; return; }`, 0 diagnostics | Close the scope when a child statement's source line ends in a period; oracle tests for period-closed IF/EVALUATE |
 | T2 | **P0 — FIXED** | R | `engine/transformation/cobol_to_java_mapping.py:3067-3087` (`expand_condition_names`) | When the program declares any 88-level, AND/OR is folded left to right: `A = 1 OR I = 2 AND J = 3` → `((A==1)\|\|(I==2)) && (J==3)`; COBOL binds AND tighter. 0 diagnostics | Split on top-level OR first, then AND (the alphanumeric path at :3354-3372 already does) |
 | T3 | **P0 — FIXED** | R | `engine/transformation/redefines.py:253-286` (`write_targets`), used at `cobol_parser.py:1023` | Non-MOVE writers to a REDEFINES view are not detected (ACCEPT, INITIALIZE, SET, MULTIPLY…BY receiver, SUBTRACT…FROM receiver, DIVIDE REMAINDER): `INITIALIZE WS-B` (B REDEFINES A) updates only `WS_B`, `WS_A`/`WS_A$BYTES` stale. CAPABILITY_MATRIX:57 claims non-MOVE writers fail closed | Deny by default: any non-MOVE statement with a write target on a view → diagnostic; enumerate all receivers |
-| T4 | P1 | C | `cobol_to_java_mapping.py:4228-4262` | DIVIDE … REMAINDER uses the *stored* (receiver-truncated) quotient; GnuCOBOL uses the signed intermediate quotient (unverified against oracle) | One scale-truncated BigDecimal temporary for both receivers; oracle test |
+| T4 | P1 — FIXED | R | `cobol_to_java_mapping.py:4228-4262` | DIVIDE … REMAINDER uses the *stored* (receiver-truncated) quotient; GnuCOBOL uses the signed intermediate quotient (unverified against oracle) | One scale-truncated BigDecimal temporary for both receivers; oracle test |
 | T5 | P1 | C | `cobol_to_java_mapping.py:6440-6457`; `java_generator.py:99-102, 200-280` | Legacy heuristic template lanes ("decision", "file_io") can replace statement lowering (positional `"\|"` split, dropped statements); today they fail at javac only by accident | Delete both lanes and their extractors; always use statement lowering |
-| T6 | P1 | A | `cobol_parser.py:528-580` | `REPLACE` uses plain `str.replace` (rewrites inside literals and longer names) and accumulates pairs instead of resetting | Reuse `copybook_model._apply_replacing`; new REPLACE resets active pairs |
+| T6 | P1 — FIXED | R | `cobol_parser.py:528-580` | `REPLACE` uses plain `str.replace` (rewrites inside literals and longer names) and accumulates pairs instead of resetting | Reuse `copybook_model._apply_replacing`; new REPLACE resets active pairs |
 | T7 | P2 | A | `cobol_to_java_mapping.py:5050-5115` | Two UNSTRINGs in one paragraph redeclare `_unstr_*` locals → javac error (fails closed) | Fresh names or `{}` block |
 | T8 | P2 | A | `cobol_to_java_mapping.py:5019-5220` vs `semantic_capability.py:168-179` | UNSTRING POINTER/TALLYING emit real (wrong) Java though registry and docs say refused; only the parser diagnostic blocks | Emit the documented unresolvable symbol; delete uncertified code |
-| T9–T11 | P2 | A | parser conditions / refmod / comments | `IF NOT A = 1` → `!WS_A == 1`; reference modification, abbreviated combined conditions, parenthesised conditions, `/` and `D` lines, inline `*>` comments: no parser diagnostic (fail at javac or exception) | Parser emits UNSUPPORTED_CONSTRUCT for each |
+| T9–T11 | P2 — FIXED | R | parser conditions / refmod / comments | `IF NOT A = 1` → `!WS_A == 1`; reference modification, abbreviated combined conditions, parenthesised conditions, `/` and `D` lines, inline `*>` comments: no parser diagnostic (fail at javac or exception) | Parser emits UNSUPPORTED_CONSTRUCT for each |
 | T12 | P2 | A | `cobol_to_java_mapping.py:4895-4910` | Sequential REWRITE lowers to compilable Java setting status 23; blocked only by the analyzer | Emit an unresolvable symbol (defence in depth) |
 | T13–T16 | P3 | A | `semantic_capability.py:703-716`, `cobol_parser.py:3023-3045`, `ir.py:613`, `cobol_to_java_mapping.py:4150-4170` | Comment detection over-blocks; EVALUATE ALSO lowered to OR; dead `PerformTimesStatement`; multi-source ADD raises instead of diagnosing | As listed |
 | T17 | P3 | A | `CobolStdin.alnum` | PIC X ACCEPT windows by Java chars, GnuCOBOL by bytes (non-ASCII input) | Oracle-pin with a UTF-8 line |
@@ -138,12 +145,12 @@ matching; stdin and `/workspace` layout symmetric between oracle and candidate.
 
 | ID | Sev | V | file:line | Finding | Recommended fix |
 |---|---|---|---|---|---|
-| F3 | P2 | A | `api/app.py:979` | `stage_messages` not passed through `_public()` (raw `run.error`, may hold server paths) | Wrap in `_public()` |
+| F3 | P2 — FIXED | R | `api/app.py:979` | `stage_messages` not passed through `_public()` (raw `run.error`, may hold server paths) | Wrap in `_public()` |
 | F4 | P3 | A | `api/app.py:947,1077,1136,985-997` | `/discovery`, `/verdict`, `/integrated-proof`, `/artifacts` not passed through `_public()` (leak unconfirmed) | Apply centrally |
 | F5 | P2 | A | `api/service.py:558,677,698` | Re-ingest/re-upload deletes the previous source dir with no in-flight-run check (fails closed, destroys the run) | 409 while a run is active |
 | F6 | P2 | C | `api/service.py:1835-1858` | `/runs/{id}/detail` re-runs full discovery on every 1.5 s poll, outside the job limit | Persist a per-run discovery snapshot (C6) |
 | F7 | P2 | A | `api/service.py:971,1048`; `api/app.py:1190` | Source/generated paths are per application, seal/approval per run: revalidating an old run validates the latest bundle; old `pipeline-output-*` never garbage-collected | Paths on the run record (C6); retention policy |
-| F8 | P2 | A | `api/ingestion.py:270-310` | `discover_application` drops `cobol_app.discovery_errors`; an unparsable file vanishes and `discovery_success` stays True | Propagate the errors |
+| F8 | P2 — FIXED | R | `api/ingestion.py:270-310` | `discover_application` drops `cobol_app.discovery_errors`; an unparsable file vanishes and `discovery_success` stays True | Propagate the errors |
 | F9 | P3 | C | `api/service.py:524,569-599` | `_detect_source_root` result unused (dead code) | Delete |
 | F10 | P3 | A | `api/store.py:777-793` | `set_generated_seal` has no `validation_generation` guard despite the docstring | Add `expected_generation` |
 | F11/FE-03 | P3 | A | `deployment/nginx/systemaops.conf:69-71,101` | `add_header` in `/app/assets/` drops server-level security headers; SPA shell has no CSP | Repeat headers; CSP for `/app/` |
@@ -160,9 +167,9 @@ risk.
 
 | ID | Sev | V | file:line | Finding | Recommended fix |
 |---|---|---|---|---|---|
-| FE-01 | P2 | C | `frontend/src/components/Sidebar.tsx:216` | "All Systems Operational" is hard-coded; never calls `/ready` | Poll `/ready`; show unknown on failure |
+| FE-01 | P2 — FIXED | R | `frontend/src/components/Sidebar.tsx:216` | "All Systems Operational" is hard-coded; never calls `/ready` | Poll `/ready`; show unknown on failure |
 | FE-02 | P2 | A | `frontend/src/api/client.ts:57-75`; nginx `/app/` | Bearer token in `localStorage` and no CSP on the SPA document | CSP; consider `sessionStorage` |
-| FE-04 | P2 | A | `frontend/src/components/ApprovalPanel.tsx:217-223` | Approve enabled for any COMPLETED run; backend refuses non-VERIFIED with 409 | Gate on `verdict_state === 'VERIFIED'` |
+| FE-04 | P2 — FIXED | R | `frontend/src/components/ApprovalPanel.tsx:217-223` | Approve enabled for any COMPLETED run; backend refuses non-VERIFIED with 409 | Gate on `verdict_state === 'VERIFIED'` |
 | FE-05 | P2 | A | `frontend/src/pages/ModernizationRun.tsx:211-221,288` | Terminal fetches `.catch(() => null)`: a 401/500 looks like "not produced", never retried | 404 = not produced; otherwise error + retry |
 | FE-06/07 | P2 | A | `frontend/src/App.tsx:71-110,174-198` | Reloaded in-flight runs are not polled; failed ingest/modernize retry creates duplicate applications | Seed polling; reuse the created app |
 | FE-08 | P2 | A | `frontend/src/api/client.ts:114-119` | No `target_runtime` selector or type; download label always "Spring Boot"; `certification_contract` fields missing from TS | Add field, selector, labels |
@@ -178,7 +185,7 @@ terminal stages, bundle secret guard.
 
 | ID | Sev | V | file:line | Finding | Recommended fix |
 |---|---|---|---|---|---|
-| CI-F1 | P2 | R | `requirements.lock:301`, `requirements-dev.lock:373` | `uvloop` has no `sys_platform != "win32"` marker; the documented install fails on Windows (the main dev host) | Add the marker (uvicorn[standard]'s own) |
+| CI-F1 | P2 — FIXED | R | `requirements.lock:301`, `requirements-dev.lock:373` | `uvloop` has no `sys_platform != "win32"` marker; the documented install fails on Windows (the main dev host) | Add the marker (uvicorn[standard]'s own) |
 | CI-F3 | P2 | A | `tests/conftest.py:91-93` | Infra-skip→fail regex misses "no JVM toolchain…" (and cobc/mvn/gnucobol wording) | Widen regex or use an explicit marker |
 | CI-F4 | P2 | C | `docs/reports/PHASE5_FINAL_CERTIFICATION.md:3-6`; README.md:3-11 | Certification of record is `feff105`; generation/verification changed since (Wave A, C1, ACCEPT, E1, this audit); later `[certify]` runs not recorded | Re-record certification on the release SHA |
 | CI-F5 | P2 | A | `docs/CAPABILITY_MATRIX.md:62,75,82` | ACCEPT, UNSTRING, PERFORM TIMES proven by unit oracle only; no corpus app exercises them on quarkus/micronaut/plain_java | Corpus apps or "unit-only" labels |

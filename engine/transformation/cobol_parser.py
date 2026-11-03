@@ -50,6 +50,7 @@ from engine.transformation.sign_conditions import rewrite_sign_conditions
 from engine.transformation.source_format import (
     code_mentions,
     compiler_visible_text,
+    detect_source_format,
     reference_format_errors,
     unquote_literal,
 )
@@ -530,7 +531,15 @@ class CobolParser:
 
         Returns a new list of source lines with substitutions applied.
         REPLACE OFF ends the current replacement scope.
+
+        Audit 2026-11-03 (T6): substitution is the copybook REPLACING
+        matcher (``copybook_model._apply_replacing``) - case-insensitive on
+        whole COBOL words, quoted literals untouched, one simultaneous pass;
+        plain ``str.replace`` rewrote ``"CNT="`` and ``WS-CNTX``.  A new
+        REPLACE statement replaces the active set instead of adding to it.
         """
+        from engine.transformation.copybook_model import _apply_replacing
+
         result: list[str] = []
         active: list[tuple[str, str]] = []  # (old, new) pairs
         for line in lines:
@@ -551,13 +560,9 @@ class CobolParser:
                     )
                     result.append(line)
                     continue
-                active.extend(pairs)
+                active = list(pairs)
                 continue
-            # Apply active replacements.
-            out = line
-            for old_text, new_text in active:
-                out = out.replace(old_text, new_text)
-            result.append(out)
+            result.append(_apply_replacing(line, tuple(active)) if active else line)
         return result
 
     def _parse_replace_pairs(self, text: str) -> list[tuple[str, str]] | None:
@@ -601,10 +606,38 @@ class CobolParser:
             )
         # Fixed format: the compiler never sees columns 73+, so neither may we.
         lines = compiler_visible_text(source).split("\n")
+        fixed_format = detect_source_format(source) == "fixed"
+        debugging_mode = re.search(
+            r"WITH\s+DEBUGGING\s+MODE", self._mask_quoted(source), re.IGNORECASE
+        ) is not None
         # Remove comments and empty lines
         code_lines = []
         for line in lines:
+            if fixed_format and len(line) > 6 and re.fullmatch(r"[\d ]{6}", line[:6]):
+                # Column 7 is the indicator area in fixed format whatever
+                # columns 1-6 hold (usually spaces, not digits): ``*`` and
+                # ``/`` (page eject) are comments, and ``D`` is a debugging
+                # line - a comment unless the program declares WITH
+                # DEBUGGING MODE (GnuCOBOL default; audit T11).  These used
+                # to reach the statement parser as "unsupported statements".
+                indicator = line[6]
+                if indicator in "*/":
+                    continue
+                if indicator in "Dd":
+                    if debugging_mode:
+                        self._diagnostics.warning(
+                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                            "Debugging line under WITH DEBUGGING MODE is not "
+                            "transformed",
+                            location=line[7:40].strip(),
+                        )
+                    continue
             cleaned = _strip_area_prefix(line)
+            # Inline comment: ``*>`` outside a literal ends the line's code
+            # (GnuCOBOL 3.x, both formats; audit T11).
+            marker = self._mask_quoted(cleaned).find("*>")
+            if marker > 0:
+                cleaned = cleaned[:marker].rstrip()
             # Fixed-format source carries a 6-column sequence number and a
             # column-7 indicator.  Free-format source has no such prefix, so
             # only lines that actually begin with six digits are rewritten.
@@ -1083,6 +1116,19 @@ class CobolParser:
             # while "LOCAL-STORAGE-FIELD." or "REPLACE-COUNT." cannot.
             candidate = line.rstrip().rstrip(".")
             upper = candidate.upper()
+            # Reference modification (``WS-X(2:3)``) has no Java mapping;
+            # name it here instead of letting the mapper emit Java that
+            # fails at javac (audit T10).
+            if re.search(
+                r"[A-Z0-9][\w-]*\s*\([^()'\"]*:[^()'\"]*\)",
+                self._mask_quoted(upper),
+            ):
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    "Reference modification (identifier(offset:length)) is "
+                    "not supported",
+                    location=f"line {number}",
+                )
             if re.search(r"(?<![\w-])LOCAL-STORAGE(?![\w-])", upper):
                 self._diagnostics.warning(
                     DiagnosticCode.UNSUPPORTED_CONSTRUCT,

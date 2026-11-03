@@ -247,7 +247,14 @@ class TestTransformationChain:
         assert "WS_DIFF = Math.abs(((WS_A - WS_B) % " in svc.source_code
         assert "WS_PROD = ((WS_A * WS_B) % " in svc.source_code
         assert "WS_QUOT = (WS_A / WS_B)" in svc.source_code
-        assert "WS_REM = Math.abs(((WS_A - (WS_QUOT * WS_B)) % " in svc.source_code
+        # REMAINDER from the intermediate quotient (dividend / divisor at
+        # the quotient's scale), never from the stored WS_QUOT (audit T4).
+        rem_line = next(
+            line for line in svc.source_code.splitlines()
+            if "WS_REM =" in line and "int WS_REM" not in line
+        )
+        assert "WS_QUOT" not in rem_line, rem_line
+        assert "setScale(0, java.math.RoundingMode.DOWN)" in rem_line, rem_line
 
     def test_service_has_if_else_logic(self):
         """Generated service has IF/ELSE comparison logic."""

@@ -411,6 +411,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // API functions
 // ---------------------------------------------------------------------------
 
+export interface ReadinessResponse {
+  status: string;
+  checks: Record<string, { ok: boolean; detail?: string; gating?: boolean }>;
+}
+
+/**
+ * GET /ready - unauthenticated by design. Answers 200 when ready and 503 with
+ * the same body when a gating dependency is down, so the body is read for
+ * both (audit FE-01: the sidebar status used to be hard-coded).
+ */
+export async function getReadiness(): Promise<ReadinessResponse> {
+  const res = await fetch(`${BASE}/ready`, withAuth());
+  if (res.status !== 200 && res.status !== 503) {
+    throw new ApiError(res.status, res.statusText);
+  }
+  return res.json() as Promise<ReadinessResponse>;
+}
+
 export async function createApplication(
   data: ApplicationCreate,
 ): Promise<ApplicationResponse> {

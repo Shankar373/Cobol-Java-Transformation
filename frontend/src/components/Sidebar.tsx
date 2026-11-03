@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { tokens } from '../theme/tokens';
+import { getReadiness } from '../api/client';
 import {
   IconGrid,
   IconPlus,
@@ -95,8 +96,64 @@ function NavItem({
   );
 }
 
+type SystemStatus =
+  | { kind: 'unknown' }
+  | { kind: 'ready' }
+  | { kind: 'degraded'; failing: string[] };
+
+const STATUS_POLL_MS = 30000;
+
+/** Server readiness from GET /ready, re-checked every 30 s (audit FE-01). */
+function useSystemStatus(): SystemStatus {
+  const [status, setStatus] = useState<SystemStatus>({ kind: 'unknown' });
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      try {
+        const body = await getReadiness();
+        if (!active) return;
+        const failing = Object.entries(body.checks ?? {})
+          .filter(([, c]) => c && c.ok === false)
+          .map(([name]) => name);
+        setStatus(
+          body.status === 'ready' && failing.length === 0
+            ? { kind: 'ready' }
+            : { kind: 'degraded', failing },
+        );
+      } catch {
+        if (active) setStatus({ kind: 'unknown' });
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), STATUS_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+  return status;
+}
+
+const STATUS_VIEW: Record<SystemStatus['kind'], { color: string; ring: string }> = {
+  ready: { color: '#4ade80', ring: 'rgba(74,222,128,0.25)' },
+  degraded: { color: '#fbbf24', ring: 'rgba(251,191,36,0.25)' },
+  unknown: { color: '#94a3b8', ring: 'rgba(148,163,184,0.25)' },
+};
+
+function statusText(status: SystemStatus): string {
+  if (status.kind === 'ready') return 'All Systems Operational';
+  if (status.kind === 'degraded') {
+    return status.failing.length > 0
+      ? `Degraded: ${status.failing.join(', ')}`
+      : 'Degraded';
+  }
+  return 'Status unknown';
+}
+
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   const activeKey: SidebarPage = currentPage === 'run' ? 'dashboard' : currentPage;
+  const systemStatus = useSystemStatus();
+  const statusView = STATUS_VIEW[systemStatus.kind];
 
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -206,14 +263,20 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
               width: 7,
               height: 7,
               borderRadius: '50%',
-              background: '#4ade80',
+              background: statusView.color,
               flexShrink: 0,
-              boxShadow: '0 0 0 2px rgba(74,222,128,0.25)',
+              boxShadow: `0 0 0 2px ${statusView.ring}`,
             }}
           />
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>System Status</div>
-            <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>All Systems Operational</div>
+            <div
+              role="status"
+              data-status={systemStatus.kind}
+              style={{ fontSize: 10, color: statusView.color, marginTop: 1 }}
+            >
+              {statusText(systemStatus)}
+            </div>
           </div>
         </div>
       </div>

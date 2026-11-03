@@ -1002,7 +1002,8 @@ def get_run_detail(run_id: str) -> RunDetailResponse:
         error=_public(detail["error"]),
         verdict_state=detail["verdict_state"],
         discovery=_public(detail["discovery"]),
-        stage_messages=detail["stage_messages"],
+        # Holds run.error verbatim: redact it like `error` (audit F3).
+        stage_messages=_public(detail["stage_messages"]),
         last_stage=detail.get("last_stage"),
         generated_files=_public(detail["generated_files"]),
     )

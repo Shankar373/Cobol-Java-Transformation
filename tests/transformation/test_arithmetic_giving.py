@@ -528,7 +528,7 @@ MAIN.
         assert hasattr(expr.left, 'name') and expr.left.name == 'WS_A'
         assert hasattr(expr.right, 'name') and expr.right.name == 'WS_B'
 
-    def test_remainder_uses_stored_quotient(self):
+    def test_remainder_uses_intermediate_quotient(self):
         cobol = """\
 >>SOURCE FORMAT FREE
 IDENTIFICATION DIVISION.
@@ -548,19 +548,18 @@ MAIN.
         remainder_stmts = [s for s in _statements(java)
                           if hasattr(s, 'target') and s.target == 'WS_R']
         assert len(remainder_stmts) == 1
-        # COBOL REMAINDER = dividend - (stored quotient * divisor), not a
-        # Java ``%`` (oracle: 7 / 3 GIVING PIC 9V99 leaves REMAINDER 0.01).
-        # Both operations may be overflow-guarded (Math.*Exact).
-        def binary(node):
-            exact = {"subtractExact": "-", "multiplyExact": "*"}
-            if getattr(node, "method_name", None) in exact:
-                return exact[node.method_name], node.arguments[0], node.arguments[1]
-            return node.operator, node.left, node.right
+        # COBOL REMAINDER = dividend - (intermediate quotient * divisor), not
+        # a Java ``%`` (oracle: 7 / 3 GIVING PIC 9V99 leaves REMAINDER 0.01).
+        # The intermediate quotient is the division truncated to the quotient
+        # receiver's scale - never the stored WS-C, which loses the sign and
+        # high-order digits (audit T4, tests/integration/
+        # test_divide_remainder_oracle.py).
+        from engine.transformation.java_render import JavaSourceRenderer
 
-        op, dividend, product = binary(_magnitude_wrapper(remainder_stmts[0].expression))
-        assert (op, dividend.name) == ("-", "WS_A")
-        op, quotient, divisor = binary(product)
-        assert (op, quotient.name, divisor.name) == ("*", "WS_C", "WS_B")
+        rendered = JavaSourceRenderer()._stmt_to_string(remainder_stmts[0])
+        assert "WS_C" not in rendered, rendered
+        assert "WS_A" in rendered and "WS_B" in rendered, rendered
+        assert "setScale(0, java.math.RoundingMode.DOWN)" in rendered, rendered
 
     def test_both_operands_unchanged_after_giving(self):
         """GIVING must not mutate A or B."""

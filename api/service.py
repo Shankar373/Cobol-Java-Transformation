@@ -76,10 +76,6 @@ __all__ = ["Service", "ServiceError"]
 
 logger = logging.getLogger(__name__)
 
-# Legacy source tree root markers — first match wins (case-insensitive,
-# see _detect_source_root).
-SOURCE_ROOT_MARKERS = {"main.cob", "main.cbl"}
-
 #: Default cap on background jobs running per Service instance.
 DEFAULT_MAX_CONCURRENT_JOBS = 4
 
@@ -549,9 +545,6 @@ class Service:
         workspace = ingest_zip(data, app_id)
 
         try:
-            # 2. Detect source root (top-level dir if ZIP contains a single root dir)
-            source_root = self._detect_source_root(workspace)
-
             # 3. Run application discovery from the workspace root so that
             # sibling trees (jcl/, copybooks/, nested cobol/) are visible
             # to COBOL discovery, JCL discovery and COPY resolution.
@@ -594,36 +587,6 @@ class Service:
             # Clean up workspace on failure
             _cleanup_temp_dir(workspace)
             raise
-
-    def _detect_source_root(self, workspace: Path) -> Path:
-        """Return the actual source root inside an extracted workspace.
-
-        If the ZIP contains a single top-level directory, descend into it.
-        If well-known markers exist at the top level, use the workspace directly.
-        """
-        children = list(workspace.iterdir())
-        dirs = [c for c in children if c.is_dir()]
-        files = [c for c in children if c.is_file()]
-
-        # Single-directory ZIP — use that directory as root
-        if len(dirs) == 1 and len(files) == 0:
-            return dirs[0]
-
-        # Check for source markers at top level
-        if any(f.name.lower() in SOURCE_ROOT_MARKERS for f in files):
-            return workspace
-
-        # Check one level down
-        for d in dirs:
-            if any((d / m).exists() for m in SOURCE_ROOT_MARKERS) or any(
-                c.name.lower() in SOURCE_ROOT_MARKERS
-                for c in d.iterdir()
-                if c.is_file()
-            ):
-                return d
-
-        # Fallback: workspace itself
-        return workspace
 
     # -- uploads -------------------------------------------------------------
 

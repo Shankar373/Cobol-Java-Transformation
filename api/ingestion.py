@@ -335,6 +335,16 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                 "target": edge.target,
                 "edge_type": edge.edge_type,
             })
+
+        # A file that could not be read or parsed is recorded by the COBOL
+        # discovery; dropping it here reported discovery_success while the
+        # modernization pipeline then failed closed on the same error
+        # (audit F8).
+        for error in getattr(cobol_app, "discovery_errors", ()):
+            result.discovery_errors.append({
+                "stage": "COBOL_DISCOVERY",
+                "message": _without_root(str(error), workspace),
+            })
     except Exception as exc:
         result.discovery_errors.append({
             "stage": "COBOL_DISCOVERY",

@@ -916,7 +916,11 @@ export function ModernizationRun({
               button, placeholder button, retry button) can be disabled until
               APPROVED (BL-119). */}
           {run.stage === 'COMPLETED' && (
-            <ApprovalPanel runId={runId} onStateChange={setApprovalState} />
+            <ApprovalPanel
+              runId={runId}
+              verdictState={verdict?.state ?? run.verdict_state ?? null}
+              onStateChange={setApprovalState}
+            />
           )}
 
           {/* Download failures are always shown. The earlier pollError banner

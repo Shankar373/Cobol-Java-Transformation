@@ -27,6 +27,12 @@ import {
 
 interface ApprovalPanelProps {
   runId: string;
+  /**
+   * The run's verdict. The backend refuses APPROVED (409) unless the run is
+   * VERIFIED, so Approve is offered only then (audit FE-04); Reject stays
+   * available for any completed run.
+   */
+  verdictState?: string | null;
   /** Optional callback invoked whenever the approval state changes. */
   onStateChange?: (state: ApprovalState | null) => void;
 }
@@ -62,7 +68,7 @@ const inputStyle: React.CSSProperties = {
   background: '#ffffff',
 };
 
-export function ApprovalPanel({ runId, onStateChange }: ApprovalPanelProps) {
+export function ApprovalPanel({ runId, verdictState, onStateChange }: ApprovalPanelProps) {
   const [approval, setApproval] = useState<RunApprovalResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [approver, setApprover] = useState('');
@@ -88,6 +94,7 @@ export function ApprovalPanel({ runId, onStateChange }: ApprovalPanelProps) {
 
   const approverValid = approver.trim().length > 0;
   const reasonValid = reason.trim().length > 0;
+  const canApprove = verdictState === 'VERIFIED';
 
   const decide = async (decision: 'APPROVED' | 'REJECTED') => {
     if (!approverValid) return;
@@ -218,7 +225,7 @@ export function ApprovalPanel({ runId, onStateChange }: ApprovalPanelProps) {
             variant="primary"
             size="md"
             onClick={() => void decide('APPROVED')}
-            disabled={submitting || !approverValid}
+            disabled={submitting || !approverValid || !canApprove}
           >
             Approve
           </Button>
@@ -231,6 +238,15 @@ export function ApprovalPanel({ runId, onStateChange }: ApprovalPanelProps) {
             Reject
           </Button>
         </div>
+        {!canApprove && (
+          <div
+            role="note"
+            style={{ fontSize: tokens.font.sizes.sm, color: tokens.colors.textMuted }}
+          >
+            Only a VERIFIED run can be approved
+            {verdictState ? ` (this run is ${verdictState})` : ''}. It can still be rejected.
+          </div>
+        )}
       </div>
     </SectionCard>
   );

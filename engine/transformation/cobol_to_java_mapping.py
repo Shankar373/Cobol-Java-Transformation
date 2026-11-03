@@ -2048,6 +2048,14 @@ def _array_base_name(expr: JavaExpression) -> str:
     return expr.name if isinstance(expr, JavaVariableRef) else ""
 
 
+#: BigDecimal instance methods the promotion emits; such a node is already a
+#: BigDecimal and must not be wrapped in ``BigDecimal.valueOf`` again.
+_BIG_DECIMAL_INSTANCE_METHODS = frozenset({
+    "add", "subtract", "multiply", "divide", "remainder", "negate",
+    "setScale", "abs",
+})
+
+
 def _promote_numeric_expression_to_decimal(
     expr: JavaExpression,
     program: CobolProgram | None,
@@ -2070,7 +2078,15 @@ def _promote_numeric_expression_to_decimal(
     - integer literals/variables → ``new java.math.BigDecimal("...")`` /
       ``java.math.BigDecimal.valueOf(...)`` (no binary-float conversion)
     - a ref to a decimal item is already a BigDecimal value.
+    - a BigDecimal instance-method node (``x.setScale(...)``, as built for
+      the DIVIDE REMAINDER intermediate quotient) is already a BigDecimal.
     """
+    if (
+        isinstance(expr, JavaMethodCall)
+        and not expr.is_static
+        and expr.method_name in _BIG_DECIMAL_INSTANCE_METHODS
+    ):
+        return expr
     if isinstance(expr, JavaBinaryOp):
         left = _promote_numeric_expression_to_decimal(expr.left, program)
         right = _promote_numeric_expression_to_decimal(expr.right, program)
@@ -3347,6 +3363,22 @@ def map_cobol_condition_to_java(
             reason="Malformed or unsupported COBOL condition",
         )
     condition = rewrite_sign_conditions(condition)
+    # ``NOT <one relation>`` negates the whole relation (audit T9: the
+    # textual path below rendered ``IF NOT A = 1`` as ``!A == 1``, which
+    # javac rejects).  A NOT over a compound is left to the paths below.
+    negated_relation = re.match(r"(?i)^\s*NOT\s+(?!\()(.+)$", condition)
+    if (
+        negated_relation
+        and _RELATIONAL_TEXT.search(negated_relation.group(1))
+        and len(_split_top_level(negated_relation.group(1), "OR")) == 1
+        and len(_split_top_level(negated_relation.group(1), "AND")) == 1
+    ):
+        return JavaUnaryOp(
+            operator="!",
+            operand=map_cobol_condition_to_java(
+                negated_relation.group(1), condition_names, program
+            ),
+        )
     if condition_names:
         expanded = expand_condition_names(condition, condition_names, program)
         if expanded is not None:
@@ -4239,11 +4271,14 @@ def map_cobol_statement(
             JavaBinaryOp(left=source, operator="/", right=divisor),
             program, called_programs,
         )
-        # REMAINDER = dividend - (stored truncated quotient * divisor), not
+        # REMAINDER = dividend - (intermediate quotient * divisor), not
         # ``dividend % divisor`` (oracle: 7 / 3 GIVING PIC 9V99 leaves
-        # REMAINDER 0.01, not 1.00).  The stored quotient equals the
-        # truncated quotient only without ROUNDED, and only while the
-        # dividend/divisor are not themselves the quotient receiver.
+        # REMAINDER 0.01, not 1.00).  The intermediate quotient is truncated
+        # to the quotient receiver's decimal places only - it keeps its sign
+        # and every integer digit (GnuCOBOL 3.1.2: -5 / 2 GIVING PIC 9(3)
+        # stores 002 but leaves REMAINDER -1; 1000 / 3 GIVING PIC 99 stores
+        # 33 but leaves REMAINDER 1).  Using the *stored* quotient gave -9
+        # and 901 (audit 2026-11-03, T4).
         if stmt.remainder:
             remainder_target = cobol_reference_to_java_source(stmt.remainder)
             operand_names = {
@@ -4259,12 +4294,29 @@ def map_cobol_statement(
                     ),
                 )
             else:
+                quotient_item = _find_data_item(program, target)
+                quotient_scale = (
+                    quotient_item.decimal_places
+                    if quotient_item is not None and quotient_item.is_numeric
+                    else 0
+                )
+                intermediate_quotient = JavaMethodCall(
+                    object_ref=_promote_numeric_expression_to_decimal(
+                        JavaBinaryOp(left=source, operator="/", right=divisor),
+                        program,
+                    ),
+                    method_name="setScale",
+                    arguments=(
+                        JavaLiteral(value=str(quotient_scale)),
+                        JavaVariableRef(name="java.math.RoundingMode.DOWN"),
+                    ),
+                )
                 remainder_expression = _apply_numeric_receiver_semantics(
                     JavaBinaryOp(
                         left=source,
                         operator="-",
                         right=JavaBinaryOp(
-                            left=_reference_expression(stmt.target),
+                            left=intermediate_quotient,
                             operator="*",
                             right=divisor,
                         ),

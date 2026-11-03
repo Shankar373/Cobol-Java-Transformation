@@ -54,7 +54,7 @@ describe('ApprovalPanel', () => {
   it('renders the PENDING state with decision controls', async () => {
     mockGetRunApproval.mockResolvedValue(PENDING);
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
 
     await waitFor(() => {
       expect(screen.getByText(/Pending/i)).toBeTruthy();
@@ -67,7 +67,7 @@ describe('ApprovalPanel', () => {
   it('keeps Reject disabled until both approver and a real reason exist', async () => {
     mockGetRunApproval.mockResolvedValue(PENDING);
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
     await waitFor(() => expect(screen.getByText(/Pending/i)).toBeTruthy());
 
     const reject = screen.getByRole('button', { name: /reject/i }) as HTMLButtonElement;
@@ -95,7 +95,7 @@ describe('ApprovalPanel', () => {
     mockGetRunApproval.mockResolvedValueOnce(PENDING).mockResolvedValue(APPROVED);
     mockSetRunApproval.mockResolvedValue(APPROVED);
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
     await waitFor(() => expect(screen.getByText(/Pending/i)).toBeTruthy());
 
     fireEvent.change(screen.getByPlaceholderText(/approver/i), {
@@ -134,7 +134,7 @@ describe('ApprovalPanel', () => {
       history: [],
     });
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
     await waitFor(() => expect(screen.getByText(/Pending/i)).toBeTruthy());
 
     fireEvent.change(screen.getByPlaceholderText(/approver/i), {
@@ -162,7 +162,7 @@ describe('ApprovalPanel', () => {
   it('disables decisions until approver is non-empty', async () => {
     mockGetRunApproval.mockResolvedValue(PENDING);
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
     await waitFor(() => expect(screen.getByText(/Pending/i)).toBeTruthy());
 
     const approve = screen.getByRole('button', { name: /approve/i }) as HTMLButtonElement;
@@ -185,7 +185,7 @@ describe('ApprovalPanel', () => {
       new ApiError(422, 'rejection requires a reason'),
     );
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
     await waitFor(() => expect(screen.getByText(/Pending/i)).toBeTruthy());
 
     fireEvent.change(screen.getByPlaceholderText(/approver/i), {
@@ -209,7 +209,7 @@ describe('ApprovalPanel', () => {
       history: [],
     });
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
 
     await waitFor(() => {
       expect(screen.getAllByText(/Rejected/i).length).toBeGreaterThan(0);
@@ -221,7 +221,7 @@ describe('ApprovalPanel', () => {
   it('shows a load error when the approval record cannot be fetched', async () => {
     mockGetRunApproval.mockRejectedValue(new ApiError(404, "Run 'run-1' not found"));
 
-    render(<ApprovalPanel runId="run-1" />);
+    render(<ApprovalPanel runId="run-1" verdictState="VERIFIED" />);
 
     await waitFor(() => {
       expect(screen.getByText(/not found/i)).toBeTruthy();
