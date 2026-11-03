@@ -248,14 +248,7 @@ def test_by_value_and_by_content_protect_caller_at_mapper_level():
 # ---------------------------------------------------------------------------
 
 
-def _docker_available() -> bool:
-    try:
-        return subprocess.run(
-            ["docker", "info"], capture_output=True, timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        ).returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 needs_docker = pytest.mark.skipif(

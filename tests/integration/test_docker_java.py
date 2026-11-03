@@ -40,18 +40,7 @@ JAVA_SLOW = str(FIXTURES / "java-candidate-slow")
 COBOL_SOURCE = str(FIXTURES / "cobol" / "ARITH.cob")
 
 
-def _docker_available() -> bool:
-    """Check if Docker is available."""
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 import os

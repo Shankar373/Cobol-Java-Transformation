@@ -45,16 +45,7 @@ COBOL_DIR = f"{FIXTURE_ROOT}/cobol"
 ENTRYPOINT = "INTGMAIN"
 
 
-def _docker_available() -> bool:
-    try:
-        return subprocess.run(
-            ["docker", "version"],
-            capture_output=True,
-            timeout=30,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        ).returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 needs_docker = pytest.mark.skipif(not _docker_available(), reason="Docker not available")

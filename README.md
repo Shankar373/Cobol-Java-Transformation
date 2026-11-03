@@ -63,7 +63,7 @@ All commands below were executed and confirmed against commit `49821ad`
 environment for the full Docker suite; see "Local results vs CI evidence"
 after the commands.
 
-**Prerequisites:** Python 3.11+ (`python`), Node 20 + npm, Docker.
+**Prerequisites:** Python 3.11+ (`python`), Node 22 + npm (`.nvmrc`), Docker.
 
 ```bash
 # 1. Backend (FastAPI control plane, port 8000; auth OFF by default —

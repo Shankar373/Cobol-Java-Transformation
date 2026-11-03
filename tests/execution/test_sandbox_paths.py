@@ -218,16 +218,7 @@ def test_no_untranslated_bind_sources(module):
 # ---------------------------------------------------------------------------
 
 
-def _docker_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 @pytest.mark.skipif(

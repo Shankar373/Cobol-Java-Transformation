@@ -268,17 +268,7 @@ class TestGeneratedCallProject:
 # Docker-gated: 7. build, 8. call-chain output, 9. oracle CALL boundary
 # ---------------------------------------------------------------------------
 
-def _docker_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 needs_docker = pytest.mark.skipif(

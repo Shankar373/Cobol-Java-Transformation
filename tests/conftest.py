@@ -89,7 +89,8 @@ def pytest_collection_modifyitems(config, items):
 # broken CI image into a green run with fewer tests. One rule for all of them:
 # with RUN_DOCKER_TESTS=1, such a skip is reported as a failure.
 _INFRASTRUCTURE_SKIP = re.compile(
-    r"docker|image|java|jdk|temurin|daemon", re.IGNORECASE
+    r"docker|image|java|jdk|jvm|temurin|daemon|cobc|gnucobol|mvn|maven",
+    re.IGNORECASE,
 )
 
 

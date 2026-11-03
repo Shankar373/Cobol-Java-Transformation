@@ -442,3 +442,7 @@ tests/verification/results/
 tests/verification/results_fresh/
 tests/verification/results_fresh2/
 tests/verification/evidence/
+
+# A Windows shell that does not expand %TEMP% creates this directory
+# literally in the working tree (audit CI-F24).
+%TEMP%/

@@ -216,14 +216,7 @@ class TestNoRunSiteDriftsFromTheSharedHelper:
 # ---------------------------------------------------------------------------
 
 
-def _docker_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["docker", "info"], capture_output=True, timeout=10, text=True
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 DOCKER_AVAILABLE = _docker_available()

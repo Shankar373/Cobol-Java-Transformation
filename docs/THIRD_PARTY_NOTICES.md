@@ -5,27 +5,54 @@ Apache License 2.0 (`LICENSE`, `NOTICE`; decided 2026-11-03).
 This document records the direct/transitive dependencies and their stated
 licenses for attribution purposes. It is not a license grant.
 
-## Python (requirements.lock)
-Direct dependencies (from requirements.txt):
-- fastapi — MIT
-- python-multipart — Apache-2.0
-- uvicorn[standard] — BSD-3-Clause
-- httpx — BSD-3-Clause
-- pytest — MIT
-- pytest-asyncio — Apache-2.0
+## Shipped dependencies
 
-Transitive dependencies are pinned in `requirements.lock`; their licenses are
-standard permissive (MIT/BSD/Apache-2.0/PSF). Regenerate this inventory from
-the lockfile before distribution.
+Generated from the lockfiles by `scripts/supply-chain/generate_notices.py`
+(licenses as declared in PyPI / npm metadata for the pinned version);
+`--check` runs in the test suite and fails when a locked package is missing
+or listed at another version. Development and CI tooling (pytest, httpx,
+vite, vitest, TypeScript, testing-library, jsdom, pip-audit, cyclonedx-bom)
+does not ship and is not listed.
 
-## Frontend (frontend/package.json)
-- react — MIT
-- react-dom — MIT
-- vite — MIT
-- vitest — MIT
-- @testing-library/* — MIT
-- jsdom — MIT
-- typescript — Apache-2.0
+<!-- BEGIN GENERATED: scripts/supply-chain/generate_notices.py -->
+
+### Python (production image: `requirements.lock`)
+
+| Package | Version | License | Platform |
+|---|---|---|---|
+| `annotated-doc` | 0.0.5 | MIT | all |
+| `annotated-types` | 0.7.0 | MIT License | all |
+| `anyio` | 4.14.2 | MIT | all |
+| `click` | 8.4.2 | BSD-3-Clause | all |
+| `colorama` | 0.4.6 | BSD License | sys_platform == "win32" |
+| `fastapi` | 0.141.1 | MIT | all |
+| `h11` | 0.16.0 | MIT License | all |
+| `httptools` | 0.8.0 | MIT | all |
+| `idna` | 3.15 | BSD-3-Clause | all |
+| `pydantic` | 2.13.4 | MIT | all |
+| `pydantic_core` | 2.46.4 | MIT | all |
+| `python-dotenv` | 1.2.4 | BSD-3-Clause | all |
+| `python-multipart` | 0.0.32 | Apache-2.0 | all |
+| `PyYAML` | 6.0.3 | MIT License | all |
+| `starlette` | 1.3.1 | BSD-3-Clause | all |
+| `typing-extensions` | 4.15.0 | PSF-2.0 | all |
+| `typing-inspection` | 0.4.2 | MIT | all |
+| `uvicorn` | 0.52.3 | BSD-3-Clause | all |
+| `uvloop` | 0.23.0 | Apache Software License / MIT License | sys_platform != "win32" |
+| `watchfiles` | 1.2.0 | MIT License | all |
+| `websockets` | 17.0.1 | BSD-3-Clause | all |
+
+### Frontend (bundled into the SPA: non-dev `frontend/package-lock.json`)
+
+| Package | Version | License |
+|---|---|---|
+| `js-tokens` | 4.0.0 | MIT |
+| `loose-envify` | 1.4.0 | MIT |
+| `react` | 18.3.1 | MIT |
+| `react-dom` | 18.3.1 | MIT |
+| `scheduler` | 0.23.2 | MIT |
+
+<!-- END GENERATED -->
 
 ## Container / external tools (process boundary, not linked)
 - eclipse-temurin (JDK) — GPLv2 + Classpath Exception

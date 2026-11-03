@@ -423,14 +423,28 @@ class TestSupplyChainConfiguration:
     def test_installs_require_hashes(self):
         assert "--require-hashes -r /app/requirements.lock" in (
             REPO / "Dockerfile.production").read_text(encoding="utf-8")
-        lock = re.compile(r"requirements(-dev)?\.lock")
+        # Audit CI-F14: tooling (pytest for the gate, pip-audit/cyclonedx) is
+        # hash-locked too, not just version-pinned.
+        lock = re.compile(r"--require-hashes -r requirements(-dev|-gate|-audit)?\.lock")
         for wf in sorted(p.name for p in (REPO / ".github/workflows").glob("*.yml")):
             text = (REPO / ".github/workflows" / wf).read_text(encoding="utf-8")
             for line in text.splitlines():
-                if "pip install" in line and lock.search(line):
-                    assert "--require-hashes" in line, (wf, line)
-                if "pip install" in line and not lock.search(line):
-                    assert "==" in line, (wf, line)  # tools pinned too
+                if "pip install" in line:
+                    assert lock.search(line), (wf, line)
+
+    def test_gate_lock_matches_dev_lock(self):
+        def entries(name):
+            text = (REPO / name).read_text(encoding="utf-8").replace("\\\n", " ")
+            return {
+                line.split("==")[0].lower(): " ".join(line.split())
+                for line in text.splitlines()
+                if "==" in line and not line.startswith("#")
+            }
+
+        gate, dev = entries("requirements-gate.lock"), entries("requirements-dev.lock")
+        assert "pytest" in gate and "fastapi" not in gate
+        for name, entry in gate.items():
+            assert dev.get(name) == entry, name
 
     def test_checkouts_do_not_persist_credentials(self):
         import yaml

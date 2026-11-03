@@ -144,17 +144,7 @@ def test_runner_enters_run_unit_entry(tmp_path: Path, name: str) -> None:
     assert f"{field}.{RUN_UNIT_ENTRY_METHOD}();" in _entry_source(project)
 
 
-def _docker_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 @pytest.mark.skipif(not _docker_available(), reason="Docker not available")

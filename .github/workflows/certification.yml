@@ -21,6 +21,12 @@ on:
   push:
   workflow_dispatch:
 
+# Audit CI-F12: a newer push to a pull request supersedes its older run;
+# pushes are grouped by commit so every pushed SHA keeps its own evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -43,12 +49,12 @@ jobs:
         runtime: [spring_boot, plain_java, quarkus, micronaut]
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # No job pushes: do not leave the token in .git/config.
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.11'
           cache: pip
@@ -91,7 +97,7 @@ jobs:
             --out-dir certification/evidence | tee certification/summary.txt
       - name: Upload certification evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: certification-${{ matrix.runtime }}
           path: certification/**
