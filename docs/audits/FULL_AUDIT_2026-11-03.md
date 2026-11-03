@@ -27,10 +27,11 @@ broadened capability claim until the P0 items in §5 are fixed.
 > resolved: the engine P0s T1-T3 are fixed and GnuCOBOL-proven, and the
 > oracle trust anchor is enforced (V5/V6). Every P1 is fixed, T5 last
 > (Batch E: the legacy template lanes are deleted after statement lowering
-> was proven equal to GnuCOBOL on the claims program). Re-certified on `e10180b`: all CI green
-> (Docker lane 5,258 passed, 0 skipped), 4 runtimes x 44/54 VERIFIED with
-> 44/44 independent agreement - the same corpus result under stricter
-> verification.
+> was proven equal to GnuCOBOL on the claims program). Re-certified on `ccb2034`
+> (run 41626310282): 4 runtimes x 44/54 VERIFIED with 44/44 independent
+> agreement - the same corpus result as `e10180b` - and all CI green on
+> `6cecbbd` (Docker lane 5,176 passed, 0 skipped; hermetic 4,730; run
+> 41629785201).
 >
 > **Not covered by this GO:** a production release. That remains blocked by
 > the owner-dependent gaps in `docs/reports/PHASE5_RELEASE_READINESS.md`
