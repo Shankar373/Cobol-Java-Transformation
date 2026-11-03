@@ -15,6 +15,8 @@ program matched the generated Java:
 
 from __future__ import annotations
 
+import dataclasses
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -265,3 +267,38 @@ class TestUnobservedEffects:
         result = _verdict(tmp_path, source=_SQL, legacy=legacy)
         outcome = EvidenceIntegrityValidator().validate(result.evidence_manifest)
         assert isinstance(outcome, ValidatedEvidenceManifest), outcome
+
+
+class TestStderrIsAlwaysCompared:
+    """Audit V1: candidate stderr was compared only when the COBOL source
+    itself wrote to stderr, so a candidate's stack trace or warning there -
+    with matching stdout and exit status - still reached VERIFIED."""
+
+    class _NoisyCandidate(_Candidate):
+        def execute(self, run_id, compiled_path, manifest, input_data=None, input_files=None):
+            result = super().execute(run_id, compiled_path, manifest, input_data, input_files)
+            return dataclasses.replace(result, stderr=b"WARNING: retrying lookup\n")
+
+    def test_candidate_stderr_the_cobol_never_writes_is_a_difference(self, tmp_path, legacy):
+        src = tmp_path / "MAIN.cob"
+        src.write_text(_PLAIN, encoding="latin-1")
+        cand = tmp_path / "cand"
+        cand.mkdir()
+        (cand / "Main.java").write_text("class Main {}", encoding="utf-8")
+        pipe = VerticalSlicePipeline(
+            PipelineConfig(
+                workload_id="wl-contract",
+                cobol_source_path=str(src),
+                java_candidate_path=str(cand),
+                java_entrypoint="Main",
+                workload=None if legacy else default_contract("wl-contract").workload,
+                use_docker_java=True,
+            ),
+            candidate_adapter=self._NoisyCandidate(b"HI\n", None, 0),
+        )
+        pipe._oracle_adapter = _Oracle(b"HI\n", None, 0)
+        result = pipe.run()
+
+        by_type = {c.artifact_type: c.result for c in result.evidence_manifest.comparison_evidence}
+        assert by_type.get("STDERR") == "MISMATCH", by_type
+        assert result.verdict.state == VerdictState.FAILED

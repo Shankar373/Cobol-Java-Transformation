@@ -14,6 +14,29 @@ import subprocess
 import time
 
 
+#: Exit statuses the docker CLI itself uses: 125 the daemon refused the run,
+#: 126 the container command cannot be invoked, 127 it was not found.
+DOCKER_CLI_EXIT_CODES = frozenset({125, 126, 127})
+
+
+def is_docker_infrastructure_exit(
+    returncode: int | None, stderr: bytes | str, *, build: bool = False
+) -> bool:
+    """Whether a ``docker run`` failed in Docker itself, not in the program.
+
+    Audit 2026-11-03 (V4). A build step (javac, Maven) never exits 125-127,
+    so for ``build=True`` the code alone decides. A program run may end
+    with any status (a COBOL RETURN-CODE of 125 is legitimate), so there
+    the docker CLI's own message must be present as well.
+    """
+    if returncode not in DOCKER_CLI_EXIT_CODES:
+        return False
+    if build:
+        return True
+    text = stderr.decode("utf-8", errors="replace") if isinstance(stderr, bytes) else stderr
+    return text.lstrip().startswith("docker:") or "Error response from daemon" in text
+
+
 def check_docker_available(subcommand: str = "info", timeout: int = 10) -> bool:
     """Probe the Docker daemon with ``docker <subcommand>``; False when unavailable."""
     try:

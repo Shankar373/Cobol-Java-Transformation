@@ -780,7 +780,9 @@ class Service:
         # run so an unusable workload fails the request instead of failing
         # a run in the background.
         resolve_certification_contract(
-            app.workload_id, description=f"API-driven workload for {app.name}"
+            app.workload_id,
+            description=f"API-driven workload for {app.name}",
+            uploaded_source=app.cobol_source_path or "",
         )
 
         self._acquire_job_slot()
@@ -1001,7 +1003,9 @@ class Service:
         # Resolve the contract BEFORE resetting the run so an unusable
         # workload cannot destroy the terminal result.
         contract = resolve_certification_contract(
-            app.workload_id, description=f"API-driven workload for {app.name}"
+            app.workload_id,
+            description=f"API-driven workload for {app.name}",
+            uploaded_source=app.cobol_source_path or "",
         )
 
         # Slot first: a failed reset must not leave a reserved slot behind,
@@ -1344,7 +1348,9 @@ class Service:
         the explicit default — and is recorded on the run record.
         """
         contract = resolve_certification_contract(
-            app.workload_id, description=f"API-driven workload for {app.name}"
+            app.workload_id,
+            description=f"API-driven workload for {app.name}",
+            uploaded_source=app.cobol_source_path or "",
         )
         run.certification_contract = contract.contract_id
         workload_def = contract.workload

@@ -81,9 +81,13 @@ Still open, all fail closed today (no false VERIFIED path known):
   `ArithmeticException`~~ — since increment 9 a zero divisor anywhere in a
   DIVIDE/COMPUTE leaves every receiver (REMAINDER too) unchanged and the run
   continues, as GnuCOBOL 3.1.2 does (`tests/test_size_error.py`).
-- **STDERR** is compared only when the source writes to it (`UPON STDERR` /
-  `SYSERR`); otherwise GnuCOBOL runtime messages and JVM diagnostics differ by
-  design and are not compared.
+- **STDERR** is compared byte-exactly on every run (audit 2026-11-03, V1).
+  It used to be compared only when the source wrote to it, on the assumption
+  that GnuCOBOL runtime messages and JVM diagnostics differ by design; the
+  independent re-check of the certified corpus showed identical stderr on
+  both sides for all 44 VERIFIED applications on all four runtimes, so the
+  exception only hid candidate stack traces and warnings. A run whose
+  runtime prints diagnostics the oracle does not is FAILED, not VERIFIED.
 
 ### Application end-to-end validation (Phase 2, 2026-11-01)
 Every `fixtures/*/cobol` application was run through the real API (ZIP

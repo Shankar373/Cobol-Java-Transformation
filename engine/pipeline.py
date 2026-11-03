@@ -388,13 +388,16 @@ class VerticalSlicePipeline:
         comparison_evidence: list[ComparisonEvidence] = []
 
         artifacts = tuple(workload.artifacts)
-        # Stdout and exit status are observable for every program, so every
-        # run compares them even when a declared contract omits them
-        # (audit 2026-11-03, V2): a file-only contract otherwise let a
-        # stdout divergence reach VERIFIED.
+        # Stdout, stderr and exit status are observable for every program,
+        # so every run compares them even when a declared contract omits them
+        # (audit 2026-11-03): V2 - a file-only contract let a stdout
+        # divergence reach VERIFIED; V1 - stderr was compared only when the
+        # COBOL source wrote to it, so a candidate's stack trace or warning
+        # on stderr was never compared.
         names = {a.logical_name for a in artifacts}
         for artifact_type, logical_name, comparator_id in (
             ("STDOUT", "stdout", "stdout-exact"),
+            ("STDERR", "stderr", "stderr-exact"),
             ("EXIT_STATUS", "exit-status", "exit-status-exact"),
         ):
             if not any(a.artifact_type == artifact_type for a in artifacts):
@@ -406,18 +409,6 @@ class VerticalSlicePipeline:
                     artifact_type=artifact_type,
                     comparator_id=comparator_id,
                 ),)
-        if (
-            not any(a.artifact_type == "STDERR" for a in artifacts)
-            and self._source_writes_stderr()
-        ):
-            # The program writes to standard error itself, so stderr is an
-            # observable effect even when the contract does not declare it.
-            artifacts += (WorkloadArtifact(
-                logical_name="stderr",
-                artifact_type="STDERR",
-                comparator_id="stderr-exact",
-            ),)
-
         for artifact_def in artifacts:
             # Extract content
             oracle_content = self._extract_artifact_content(
@@ -688,6 +679,12 @@ class VerticalSlicePipeline:
         "target", "build", "out", ".git", "__pycache__", "node_modules",
     })
 
+    def _candidate_lane(self) -> str:
+        """``<AdapterClass> <runtime image identity>`` of the candidate lane."""
+        adapter = self._candidate_adapter
+        identity = getattr(adapter, "runtime_identity", "") or ""
+        return f"{type(adapter).__name__} {identity}".strip()
+
     def _candidate_resource_limits(self) -> dict[str, str]:
         """Resource limits of the configured candidate adapter (best effort)."""
         cfg = getattr(self._candidate_adapter, "_config", None)
@@ -754,11 +751,6 @@ class VerticalSlicePipeline:
 
     #: DISPLAY ... UPON STDERR/SYSERR, or a SPECIAL-NAMES mnemonic for the
     #: error device that DISPLAY ... UPON <mnemonic> can then target.
-    _STDERR_WRITE_PATTERN = re.compile(
-        r"\bUPON\s+(?:STDERR|SYSERR)\b|\b(?:STDERR|SYSERR)\s+IS\b",
-        re.IGNORECASE,
-    )
-
     _KEYED_FILE_SELECT = re.compile(
         r"\bSELECT\s+[\w-]+\s+ASSIGN\s+(?:TO\s+)?[\"']([^\"']+)[\"']([^.]*)\.",
         re.IGNORECASE,
@@ -891,11 +883,6 @@ class VerticalSlicePipeline:
             content_hash=ContentHash.from_string(json.dumps({
                 "result": "INCONCLUSIVE", "differences": [difference],
             }, sort_keys=True)),
-        )
-
-    def _source_writes_stderr(self) -> bool:
-        return any(
-            self._STDERR_WRITE_PATTERN.search(text) for text in self._source_texts()
         )
 
     def _source_texts(self) -> list[str]:
@@ -1110,6 +1097,10 @@ class VerticalSlicePipeline:
                     self._candidate_adapter, "network_policy", "unisolated"
                 ),
                 resource_limits=self._candidate_resource_limits(),
+                # The lane that actually ran (audit V7): adapter class and
+                # the immutable runtime image it executed, so the sealed
+                # evidence and the verdict scope name the real runtime.
+                os_base=self._candidate_lane(),
             ),
         )
         controlled_input_identity = InputIdentity(

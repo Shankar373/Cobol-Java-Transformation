@@ -66,6 +66,25 @@ def _create_app(name: str, workload_id: str) -> str:
     return app_id
 
 
+def _create_fixture_app(name: str, workload_id: str, fixture: str) -> str:
+    """An application whose upload is exactly the fixture's ``cobol/`` tree."""
+    from pathlib import Path
+
+    resp = client.post(
+        "/applications", json={"name": name, "workload_id": workload_id}
+    )
+    assert resp.status_code == 201, resp.text
+    app_id = resp.json()["id"]
+    cobol = Path(__file__).resolve().parent.parent / "fixtures" / fixture / "cobol"
+    files = [
+        ("files", (f.name, io.BytesIO(f.read_bytes()), "text/plain"))
+        for f in sorted(cobol.iterdir()) if f.is_file()
+    ]
+    upload = client.post(f"/applications/{app_id}/upload", files=files)
+    assert upload.status_code == 201, upload.text
+    return app_id
+
+
 # ---------------------------------------------------------------------------
 # Contract resolution (unit)
 # ---------------------------------------------------------------------------
@@ -215,7 +234,9 @@ class TestContractReachesEngine:
 
     def test_declared_contract_drives_pipeline_config(self, _reset_store):
         store = _reset_store
-        app_id = _create_app("declared-contract", "file-write-read")
+        app_id = _create_fixture_app(
+            "declared-contract", "file-write-read", "workload-file-write-read"
+        )
 
         run_id = _run_modernize_with_fake_engine(app_id)
 
@@ -234,9 +255,27 @@ class TestContractReachesEngine:
         run = store.get_run(run_id)
         assert run.certification_contract == "declared:workload-file-write-read"
 
+    def test_fixture_workload_id_on_other_source_gets_the_default_contract(
+        self, _reset_store
+    ):
+        # Audit V10: naming a fixture's workload id used to apply that
+        # fixture's declared contract (artifact set, normalisation) to any
+        # uploaded COBOL. A foreign upload is certified under the default.
+        store = _reset_store
+        app_id = _create_app("borrowed-id", "file-write-read")
+
+        run_id = _run_modernize_with_fake_engine(app_id)
+
+        config = _CapturingPipeline.captured["config"]
+        assert [a.artifact_type for a in config.workload.artifacts] == [
+            "STDOUT",
+            "EXIT_STATUS",
+        ]
+        assert store.get_run(run_id).certification_contract == DEFAULT_CONTRACT_ID
+
     def test_contract_with_inputs_fails_before_run_creation(self, _reset_store):
         store = _reset_store
-        app_id = _create_app("claims-workload", "workload-claims")
+        app_id = _create_fixture_app("claims-workload", "workload-claims", "workload-claims")
 
         resp = client.post(f"/applications/{app_id}/modernize")
 

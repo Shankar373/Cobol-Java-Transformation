@@ -74,14 +74,36 @@ class VerdictDeriver:
     """Derives verdicts from evidence manifests. Pure function — no side effects."""
 
     def __init__(self) -> None:
-        self._supported_scope = (
+        # Filled per manifest by ``_scope_for`` (audit V7): the scope used to
+        # name the Spring Boot adapter and temurin for every run, including
+        # quarkus/micronaut/plain_java and host-lane runs.
+        self._supported_scope_template = (
             "V1 validation scope: "
-            "GnuCOBOL 3.1.2.0 oracle (Docker), Docker Spring Boot candidate "
-            "(DockerSpringBootCandidateAdapter, eclipse-temurin:21-jdk), "
-            "artifacts: STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, FIXED_RECORD; "
+            "GnuCOBOL {compiler} oracle (Docker), {candidate}, "
+            "artifact types STDOUT, STDERR, EXIT_STATUS, TEXT_FILE, "
+            "FIXED_RECORD as the run's contract declares them; "
             "derived BUSINESS_INVARIANT reports gate business rules; "
             "INDEXED/RELATIVE/SQL/DATABASE excluded (UNSUPPORTED); "
             "substring containment permanently forbidden."
+        )
+
+    def _scope_for(self, manifest: EvidenceManifest) -> str:
+        """The scope statement of this run, from what its evidence records."""
+        lane = next(
+            (
+                env.os_base
+                for env in manifest.environment_identities
+                if env.runtime_id.startswith("candidate") and env.os_base
+            ),
+            None,
+        )
+        candidate = (
+            f"Java candidate ({lane})" if lane
+            else "Java candidate (lane not recorded)"
+        )
+        compiler = manifest.oracle_identity.compiler_version or "(unrecorded)"
+        return self._supported_scope_template.format(
+            compiler=compiler, candidate=candidate
         )
 
     def derive_from_validated(self, validated: "ValidatedEvidenceManifest") -> Verdict:
@@ -381,7 +403,7 @@ class VerdictDeriver:
             executed_check_count=executed_checks,
             skipped_count=skipped_count,
             unavailable_count=unavailable_count,
-            supported_scope_statement=self._supported_scope,
+            supported_scope_statement=self._scope_for(manifest),
             evidence_manifest_hash=str(manifest.manifest_hash),
             derivation_timestamp=datetime.now(timezone.utc).isoformat(),
             differences=differences,

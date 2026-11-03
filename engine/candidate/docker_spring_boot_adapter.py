@@ -52,7 +52,7 @@ from engine.candidate.image_provenance import (
     resolve_docker_image_identity,
     verify_image_identity,
 )
-from engine.docker_cli import check_docker_available, cleanup_container
+from engine.docker_cli import check_docker_available, cleanup_container, is_docker_infrastructure_exit
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
@@ -439,6 +439,9 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                             success=False,
                             class_files={},
                             compilation_errors=(f"Maven build failed (exit {proc.returncode}):\n{stdout}\n{stderr}",),
+                            infrastructure_error=is_docker_infrastructure_exit(
+                                proc.returncode, proc.stderr, build=True
+                            ),
                             compilation_time_ms=int(
                                 (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                             ),
@@ -490,6 +493,9 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                         success=False,
                         class_files={},
                         compilation_errors=("Maven build timed out",),
+                        # A build that could not finish says nothing about
+                        # the program's behaviour (audit V4).
+                        infrastructure_error=True,
                         compilation_time_ms=int(
                             (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                         ),
@@ -500,6 +506,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 success=False,
                 class_files={},
                 compilation_errors=(str(e),),
+                infrastructure_error=True,
                 compilation_time_ms=int(
                     (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                 ),
@@ -651,6 +658,11 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                     stderr = proc.stderr
                     exit_code = proc.returncode
                     termination = "normal" if exit_code == 0 else "nonzero_exit"
+                    if is_docker_infrastructure_exit(exit_code, stderr):
+                        # Docker refused the run: no program behaviour to
+                        # compare (audit V4).
+                        exit_code = None
+                        termination = "error"
 
                 except subprocess.TimeoutExpired as exc:
                     if proc is not None:

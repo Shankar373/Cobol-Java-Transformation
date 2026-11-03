@@ -1,10 +1,12 @@
-"""A program that writes to standard error is compared on stderr (Docker-free).
+"""Standard error is always compared (Docker-free).
 
-The default contract compares stdout and exit status.  When the COBOL
-source itself writes to the error device (``DISPLAY ... UPON STDERR`` /
-``SYSERR``, or a SPECIAL-NAMES mnemonic for it), stderr is part of the
-program's behaviour, so the declared-contract pipeline adds an exact STDERR
-comparison: Java that drops or alters those lines can no longer be VERIFIED.
+The default contract declares stdout and exit status.  Stderr is part of
+every program's observable behaviour, so the declared-contract pipeline adds
+an exact STDERR comparison to every run (audit 2026-11-03, V1; it used to be
+added only when the COBOL source wrote to the error device, so a candidate's
+stack trace or warning on stderr was never compared).  Java that drops or
+alters ``DISPLAY ... UPON STDERR`` lines, or writes stderr the COBOL does
+not, can no longer be VERIFIED.
 """
 
 from __future__ import annotations
@@ -100,7 +102,13 @@ def test_syserr_mnemonic_counts_as_stderr_write(tmp_path):
     assert result.verdict.state == VerdictState.FAILED
 
 
-def test_program_without_stderr_writes_keeps_default_contract(tmp_path):
+def test_program_without_stderr_writes_compares_empty_stderr(tmp_path):
     result = _run(tmp_path, _STDOUT_ONLY, b"", b"")
-    assert _stderr_results(result) == []
+    assert _stderr_results(result) == ["MATCH"]
     assert result.verdict.state == VerdictState.VERIFIED
+
+
+def test_candidate_stderr_the_program_never_writes_fails(tmp_path):
+    result = _run(tmp_path, _STDOUT_ONLY, b"", b"Exception in thread main\n")
+    assert _stderr_results(result) == ["MISMATCH"]
+    assert result.verdict.state == VerdictState.FAILED

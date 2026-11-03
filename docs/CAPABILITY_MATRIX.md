@@ -153,7 +153,7 @@ scenarios plus gate invariants). Per-workload runtime-proof status lives in
   an ambiguous or unknown entry refuses to run instead of picking a module by file
   order). Files a program leaves in its working directory are collected on both
   sides as `workspace/<path>` and compared byte-exactly, like `/workspace/output`
-  files. stderr is compared whenever the source writes to it (`UPON STDERR`/`SYSERR`).
+  files. stdout, stderr and exit status are compared on every run, whatever the contract declares (audit 2026-11-03, V1/V2; stderr used to be compared only when the source wrote to it).
 - **INDEXED and RELATIVE files are compared by records.**
   (Phase 3) The physical images differ by construction (Berkeley DB B-tree vs the
   Java emulation `<file>.idx`), so an INDEXED file is certified by its record

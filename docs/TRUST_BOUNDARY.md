@@ -112,9 +112,11 @@ Contract: `tests/test_phase12_p4_bl091_approval_workflow.py::TestApprovalRequire
   the generated application enters (`PipelineConfig.oracle_entry_program`)
   and the oracle refuses an unknown or ambiguous entry instead of selecting a
   module by file order (Phase 2);
-* the declared contract (default: `STDOUT` + `EXIT_STATUS`), plus `STDERR`
-  whenever the COBOL source writes to the error device (`UPON STDERR` /
-  `SYSERR`) and the contract does not already declare it;
+* the declared contract (default: `STDOUT` + `EXIT_STATUS`), plus
+  `STDOUT`, `STDERR` and `EXIT_STATUS` whenever the contract does not
+  declare them (audit 2026-11-03, V1/V2: every program's observable
+  channels are compared; a fixture's declared contract applies only to an
+  upload byte-identical to that fixture's source, V10);
 * **every file either execution wrote**, declared or not, byte-exactly — in
   `/workspace/output` (keyed by name) and anywhere in the working directory
   (keyed `workspace/<path>`, `engine/execution/workspace_files.py`); a file

@@ -33,6 +33,8 @@ Fail-closed rules:
 
 from __future__ import annotations
 
+import hashlib
+
 import importlib.util
 import inspect
 import re
@@ -201,14 +203,48 @@ def load_declared_workload(workload_id: str) -> WorkloadDefinition | None:
     return declaration
 
 
+def _file_digests(root: Path) -> list[str]:
+    """Sorted sha256 of every regular file under ``root`` (layout-agnostic)."""
+    return sorted(
+        hashlib.sha256(f.read_bytes()).hexdigest()
+        for f in root.rglob("*")
+        if f.is_file() and not f.is_symlink()
+    )
+
+
+def uploaded_source_matches_fixture(workload_id: str, uploaded_source: str) -> bool:
+    """True when the uploaded files are exactly the fixture's ``cobol/`` tree."""
+    if not uploaded_source:
+        return False
+    fixture_cobol = FIXTURES_ROOT / workload_py_name(workload_id) / "cobol"
+    source = Path(uploaded_source)
+    if not fixture_cobol.is_dir() or not source.is_dir():
+        return False
+    return _file_digests(source) == _file_digests(fixture_cobol)
+
+
 def resolve_certification_contract(
     workload_id: str,
     *,
     description: str = "",
+    uploaded_source: str | None = None,
 ) -> CertificationContract:
-    """Resolve the certification contract for a run (fail closed)."""
+    """Resolve the certification contract for a run (fail closed).
+
+    ``uploaded_source`` binds a fixture's declared contract to that
+    fixture's own source (audit 2026-11-03, V10): the API passes the
+    application's uploaded tree, and only an upload byte-identical to the
+    fixture's ``cobol/`` files gets the declared contract (its artifact set
+    and normalisation); any other upload naming the fixture's workload id
+    is certified under the explicit default contract.  ``None`` resolves by
+    id alone (registry inspection, never a run).
+    """
     declaration = load_declared_workload(workload_id)
     if declaration is None:
+        return default_contract(workload_id, description=description)
+    if uploaded_source is not None and not uploaded_source_matches_fixture(
+        workload_id, uploaded_source
+    ):
         return default_contract(workload_id, description=description)
 
     if declaration.inputs:

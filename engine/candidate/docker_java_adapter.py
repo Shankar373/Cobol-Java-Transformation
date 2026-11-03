@@ -31,7 +31,7 @@ from engine.candidate.adapter import (
     CompilationResult,
 )
 from engine.candidate.image_provenance import digest_of_identity
-from engine.docker_cli import check_docker_available, cleanup_container
+from engine.docker_cli import check_docker_available, cleanup_container, is_docker_infrastructure_exit
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
@@ -119,6 +119,12 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
         `none` truthfully for this lane.
         """
         return "none"
+
+    @property
+    def runtime_identity(self) -> str:
+        """Immutable identity of the JDK image this lane runs (audit V7)."""
+        digest = getattr(self, "_resolved_digest", "") or ""
+        return f"{self._config.image.split(':', 1)[0]}@{digest}" if digest else ""
 
     def __init__(self, config: DockerJavaConfig | None = None) -> None:
         super().__init__()
@@ -334,6 +340,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                             success=False,
                             class_files={},
                             compilation_errors=(proc.stderr.decode(errors="replace"),),
+                            infrastructure_error=is_docker_infrastructure_exit(
+                                proc.returncode, proc.stderr, build=True
+                            ),
                             compilation_time_ms=int(
                                 (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                             ),
@@ -379,6 +388,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                         success=False,
                         class_files={},
                         compilation_errors=("Compilation timed out",),
+                        # A build that could not finish says nothing about
+                        # the program's behaviour (audit V4).
+                        infrastructure_error=True,
                         compilation_time_ms=int(
                             (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                         ),
@@ -389,6 +401,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 success=False,
                 class_files={},
                 compilation_errors=(str(e),),
+                infrastructure_error=True,
                 compilation_time_ms=int(
                     (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                 ),
@@ -522,6 +535,11 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     stderr = proc.stderr
                     exit_code = proc.returncode
                     termination = "normal" if exit_code == 0 else "nonzero_exit"
+                    if is_docker_infrastructure_exit(exit_code, stderr):
+                        # Docker refused the run: no program behaviour to
+                        # compare (audit V4).
+                        exit_code = None
+                        termination = "error"
 
                 except subprocess.TimeoutExpired as exc:
                     # Step 1: Kill the docker client process
