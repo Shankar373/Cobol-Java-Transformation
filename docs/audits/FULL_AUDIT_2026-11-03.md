@@ -21,6 +21,10 @@ re-checked (treat as likely, not proven).
 with differential verification; **NO-GO** for any production release or
 broadened capability claim until the P0 items in §5 are fixed.
 
+> **Update (same day, post-audit step 2-4):** the three engine P0s T1-T3 are
+> fixed with GnuCOBOL differential tests (see §3). The remaining release
+> condition is the oracle trust anchor (V5/V6, plan step 5).
+
 Why not GO:
 - Three SUPPORTED constructs are **silently mistranslated** (T1–T3, reproduced,
   zero diagnostics). The GnuCOBOL differential gate catches them only when the
@@ -69,6 +73,10 @@ Why not NO-GO:
 | V3 | P1 (regression from E1 `513cc87`) | `engine/oracle/docker_adapter.py`: RETURN-CODE detection read `src/<name>`; nested uploads keep modules under the module directory, so every nonzero exit (RETURN-CODE programs, compile failures) became `error` → ERROR and discarded real output | `tests/integration/test_oracle_multiprogram.py::test_nested_return_code_is_compared_not_error`, `::test_nested_compile_failure_keeps_diagnostics` (both red before) |
 | E1 | P1 | (earlier today, `513cc87`) oracle found no programs in nested ZIP layouts → every nested upload UNAVAILABLE | 7 tests in `test_oracle_multiprogram.py` |
 | ACCEPT | feature + bug | (`f47ab1c`) unsigned decimal ACCEPT targets; integer conversion now matches GnuCOBOL (`1.5`, `1,2`, `+12+` were wrong) | 3 differential tests incl. seeded fuzz |
+| T1 | P0 | `cobol_parser.py`: a separator period ends the sentence and every open IF/EVALUATE scope (`_ends_sentence`), including inline `ELSE …` and `WHEN … stmt.` lines | `tests/integration/test_sentence_scope_oracle.py`: IR test + GnuCOBOL differential over 9 shapes (red before: all 19 sentences folded into the first IF) |
+| T2 | P0 | `cobol_to_java_mapping.py` `expand_condition_names`: top-level split on OR then AND (quotes/parentheses respected), each side mapped with the program; abbreviated relations refused | `tests/integration/test_condition_precedence_oracle.py`: 10 combinations byte-identical to GnuCOBOL (red before) |
+| T3 | P0 | `redefines.py` `write_targets` deny by default (every receiver of every verb; unknown verbs write every name), and the parser guards the base as well as the views; SET resolves to the 88's parent | `tests/transformation/test_redefines_writers.py`: 15 tests (8 red before) |
+| — | — | Corpus regression for T1-T3: 108 generated builds (54 apps x spring_boot/plain_java) byte-identical before and after | snapshot comparison |
 
 ---
 
@@ -81,9 +89,9 @@ medium, **P3** low.
 
 | ID | Sev | V | file:line | Finding | Recommended fix |
 |---|---|---|---|---|---|
-| T1 | **P0** | R | `engine/transformation/cobol_parser.py:3138-3193` (`_parse_if`); same in `_parse_evaluate` ~3010 | A period-closed `IF` (no END-IF, period on a later line) swallows every following sentence: `IF WS-A > 0 / DISPLAY 'POSITIVE'. / DISPLAY 'ALWAYS'.` → `if (WS_A > 0) { …"POSITIVE"; …"ALWAYS"; return; }`, 0 diagnostics | Close the scope when a child statement's source line ends in a period; oracle tests for period-closed IF/EVALUATE |
-| T2 | **P0** | R | `engine/transformation/cobol_to_java_mapping.py:3067-3087` (`expand_condition_names`) | When the program declares any 88-level, AND/OR is folded left to right: `A = 1 OR I = 2 AND J = 3` → `((A==1)\|\|(I==2)) && (J==3)`; COBOL binds AND tighter. 0 diagnostics | Split on top-level OR first, then AND (the alphanumeric path at :3354-3372 already does) |
-| T3 | **P0** | R | `engine/transformation/redefines.py:253-286` (`write_targets`), used at `cobol_parser.py:1023` | Non-MOVE writers to a REDEFINES view are not detected (ACCEPT, INITIALIZE, SET, MULTIPLY…BY receiver, SUBTRACT…FROM receiver, DIVIDE REMAINDER): `INITIALIZE WS-B` (B REDEFINES A) updates only `WS_B`, `WS_A`/`WS_A$BYTES` stale. CAPABILITY_MATRIX:57 claims non-MOVE writers fail closed | Deny by default: any non-MOVE statement with a write target on a view → diagnostic; enumerate all receivers |
+| T1 | **P0 — FIXED** | R | `engine/transformation/cobol_parser.py:3138-3193` (`_parse_if`); same in `_parse_evaluate` ~3010 | A period-closed `IF` (no END-IF, period on a later line) swallows every following sentence: `IF WS-A > 0 / DISPLAY 'POSITIVE'. / DISPLAY 'ALWAYS'.` → `if (WS_A > 0) { …"POSITIVE"; …"ALWAYS"; return; }`, 0 diagnostics | Close the scope when a child statement's source line ends in a period; oracle tests for period-closed IF/EVALUATE |
+| T2 | **P0 — FIXED** | R | `engine/transformation/cobol_to_java_mapping.py:3067-3087` (`expand_condition_names`) | When the program declares any 88-level, AND/OR is folded left to right: `A = 1 OR I = 2 AND J = 3` → `((A==1)\|\|(I==2)) && (J==3)`; COBOL binds AND tighter. 0 diagnostics | Split on top-level OR first, then AND (the alphanumeric path at :3354-3372 already does) |
+| T3 | **P0 — FIXED** | R | `engine/transformation/redefines.py:253-286` (`write_targets`), used at `cobol_parser.py:1023` | Non-MOVE writers to a REDEFINES view are not detected (ACCEPT, INITIALIZE, SET, MULTIPLY…BY receiver, SUBTRACT…FROM receiver, DIVIDE REMAINDER): `INITIALIZE WS-B` (B REDEFINES A) updates only `WS_B`, `WS_A`/`WS_A$BYTES` stale. CAPABILITY_MATRIX:57 claims non-MOVE writers fail closed | Deny by default: any non-MOVE statement with a write target on a view → diagnostic; enumerate all receivers |
 | T4 | P1 | C | `cobol_to_java_mapping.py:4228-4262` | DIVIDE … REMAINDER uses the *stored* (receiver-truncated) quotient; GnuCOBOL uses the signed intermediate quotient (unverified against oracle) | One scale-truncated BigDecimal temporary for both receivers; oracle test |
 | T5 | P1 | C | `cobol_to_java_mapping.py:6440-6457`; `java_generator.py:99-102, 200-280` | Legacy heuristic template lanes ("decision", "file_io") can replace statement lowering (positional `"\|"` split, dropped statements); today they fail at javac only by accident | Delete both lanes and their extractors; always use statement lowering |
 | T6 | P1 | A | `cobol_parser.py:528-580` | `REPLACE` uses plain `str.replace` (rewrites inside literals and longer names) and accumulates pairs instead of resetting | Reuse `copybook_model._apply_replacing`; new REPLACE resets active pairs |

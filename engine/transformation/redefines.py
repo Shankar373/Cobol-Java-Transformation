@@ -250,37 +250,78 @@ def overlay_members(plan: RedefinesPlan) -> Iterable[RedefinesView]:
     return plan.views.values()
 
 
+#: Statement classes that never store into a data item they name.
+_READ_ONLY_STATEMENTS = frozenset({
+    "DisplayStatement", "IfStatement", "PerformStatement", "OpenStatement",
+    "CloseStatement", "DeleteStatement", "StartStatement", "GoToStatement",
+    "StopRunStatement", "ExitProgramStatement", "GobackStatement",
+    "ExitStatement", "ContinueStatement", "SqlStatement",
+})
+
+
+def _names(*values: object) -> tuple[str, ...]:
+    out: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            if value:
+                out.append(value)
+        elif isinstance(value, (tuple, list)):
+            out.extend(v for v in value if isinstance(v, str) and v)
+    return tuple(out)
+
+
 def write_targets(stmt: object) -> tuple[str, ...]:
     """COBOL names a statement writes, whatever its verb.
 
     Duck-typed so this module stays free of the statement-class import graph.
     Only MOVE is certified for overlay members; the parser uses this list to
     reject every other writer explicitly.
+
+    Deny by default (audit 2026-11-03, T3): every receiver of every known
+    verb is listed (ACCEPT, INITIALIZE, SET, the MULTIPLY ... BY and
+    SUBTRACT ... FROM receivers, DIVIDE REMAINDER, STRING/UNSTRING
+    pointers, BY REFERENCE arguments were missing, so those writes left the
+    base storage stale with no diagnostic), and a statement class this
+    function does not know is treated as writing every name it holds.
     """
     name = type(stmt).__name__
+    get = lambda attr: getattr(stmt, attr, None)  # noqa: E731
+    if name in _READ_ONLY_STATEMENTS:
+        return ()
     if name == "MoveStatement":
-        targets = tuple(getattr(stmt, "targets", ()) or ())
-        single = getattr(stmt, "target", "") or ""
-        return tuple(t for t in (*targets, single) if t)
-    if name == "ComputeStatement":
-        return tuple(t for t in (getattr(stmt, "target", ""),) if t)
+        return _names(get("targets"), get("target"))
+    if name in ("ComputeStatement", "AcceptStatement", "SetConditionStatement"):
+        return _names(get("target"))
     if name == "AddStatement":
-        giving = getattr(stmt, "giving_target", None)
-        if giving:
-            return (giving,)
-        return tuple(t for t in (getattr(stmt, "target", ""),) if t)
+        return _names(get("giving_target") or get("target"))
     if name == "SubtractStatement":
-        return tuple(
-            t for t in (getattr(stmt, "to_field", "") or "",) if t
-        )
-    if name in ("MultiplyStatement", "DivideStatement"):
-        return tuple(t for t in (getattr(stmt, "target", "") or "",) if t)
+        return _names(get("to_field") or get("from_field"))
+    if name == "MultiplyStatement":
+        return _names(get("target") or get("multiplicand"))
+    if name == "DivideStatement":
+        return _names(get("target"), get("remainder"))
+    if name == "InitializeStatement":
+        return _names(get("targets"))
     if name == "StringStatement":
-        return tuple(t for t in (getattr(stmt, "target", "") or "",) if t)
+        return _names(get("target"), get("pointer"))
     if name == "UnstringStatement":
-        return tuple(getattr(stmt, "targets", ()) or ())
+        return _names(get("targets"), get("pointer"), get("tallying_pointer"))
     if name == "ReadStatement":
-        return tuple(t for t in (getattr(stmt, "into_field", "") or "",) if t)
-    return ()
+        return _names(get("into_field"), get("record_name"))
+    if name in ("WriteStatement", "RewriteStatement"):
+        return _names(get("record_name") if get("from_field") else "")
+    if name == "CallStatement":
+        modes = tuple(get("passing_modes") or ())
+        arguments = tuple(get("arguments") or ())
+        by_reference = tuple(
+            arg for index, arg in enumerate(arguments)
+            if index >= len(modes) or str(modes[index]).upper() == "REFERENCE"
+        )
+        return _names(by_reference, get("returning"))
+    if name == "PerformTimesStatement":
+        return _names(get("varying_var"))
+    # Unknown verb: every name-like attribute counts as written.
+    fields = getattr(stmt, "__dataclass_fields__", None) or vars(stmt)
+    return _names(*(getattr(stmt, attr, None) for attr in fields))
 
 

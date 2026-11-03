@@ -43,6 +43,9 @@ tests/test_record_sequential_files.py
 tests/test_condition_operands.py
 tests/test_size_error.py
 tests/test_redefines_digit_views.py
+tests/transformation/test_redefines_writers.py
+tests/integration/test_sentence_scope_oracle.py
+tests/integration/test_condition_precedence_oracle.py
 tests/test_occurs_elements.py
 tests/test_signed_storage_text.py
 tests/comparators/test_fixed_record_trailing_partial.py

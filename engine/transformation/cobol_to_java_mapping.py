@@ -3052,38 +3052,49 @@ def _condition_name_only(
 
 
 def expand_condition_names(
-    condition: str, specs: dict[str, ConditionNameSpec]
+    condition: str,
+    specs: dict[str, ConditionNameSpec],
+    program: CobolProgram | None = None,
 ) -> JavaExpression | None:
     """Resolve every level-88 name in ``condition`` to its comparison.
 
-    Simple conditions resolve structurally; ``AND``/``OR`` compounds expand
-    each side so a name can be mixed with ordinary comparisons.
+    Simple conditions resolve structurally; ``AND``/``OR`` compounds are split
+    at the top level (outside quotes and parentheses) on ``OR`` first, then
+    ``AND``, so ``AND`` binds tighter as in COBOL, and each side is mapped
+    with the program so alphanumeric/decimal operands keep their comparison
+    semantics.  The earlier left-to-right fold rendered
+    ``A = 1 OR I = 2 AND J = 3`` as ``((A == 1) || (I == 2)) && (J == 3)``
+    whenever the program declared any level-88 item (audit 2026-11-03, T2).
     """
     if not specs:
         return None
     direct = _condition_name_only(condition, specs)
     if direct is not None:
         return direct
-    parts = re.split(r"\s+(AND|OR)\s+", condition, flags=re.IGNORECASE)
-    if len(parts) == 1:
-        return None
-    # Build left-associatively: a AND b OR c → ((a && b) || c)
-    expression: JavaExpression | None = None
-    pending_operator = ""
-    for index, part in enumerate(parts):
-        if index % 2 == 1:
-            pending_operator = "&&" if part.upper() == "AND" else "||"
+    unwrapped = _strip_enclosing_parens(condition)
+    for keyword, java_op in (("OR", "||"), ("AND", "&&")):
+        atoms = _split_top_level(unwrapped, keyword)
+        if len(atoms) < 2:
             continue
-        side = _condition_name_only(part, specs)
-        if side is None:
-            side = map_cobol_condition_to_java(part, condition_names=specs)
-        if expression is None:
-            expression = side
-        else:
-            expression = JavaBinaryOp(
-                left=expression, operator=pending_operator, right=side
+        expression: JavaExpression | None = None
+        for atom in atoms:
+            side = _condition_name_only(atom, specs)
+            if side is None:
+                if not _RELATIONAL_TEXT.search(atom) and _split_top_level(
+                    _strip_enclosing_parens(atom), "AND"
+                ) == [_strip_enclosing_parens(atom)]:
+                    # Abbreviated combined relation (``A = 1 OR 2``): the
+                    # implied subject and operator are not certified.
+                    return JavaUnsupportedExpression(
+                        source_expression=condition,
+                        reason="abbreviated combined relation condition is not certified",
+                    )
+                side = map_cobol_condition_to_java(atom, specs, program)
+            expression = side if expression is None else JavaBinaryOp(
+                left=expression, operator=java_op, right=side
             )
-    return expression
+        return expression
+    return None
 
 
 def _is_numeric_literal(token: str) -> bool:
@@ -3337,7 +3348,7 @@ def map_cobol_condition_to_java(
         )
     condition = rewrite_sign_conditions(condition)
     if condition_names:
-        expanded = expand_condition_names(condition, condition_names)
+        expanded = expand_condition_names(condition, condition_names, program)
         if expanded is not None:
             return expanded
     condition = condition.strip()

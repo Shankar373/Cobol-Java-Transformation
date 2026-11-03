@@ -999,6 +999,20 @@ class CobolParser:
             return
 
         certified = {view.name.upper() for view in plan.views.values()}
+        # A non-MOVE write to the base storage leaves every view stale just
+        # as a write to a view leaves the base stale (audit T3).
+        guarded = certified | {view.base.upper() for view in plan.views.values()}
+        # SET <condition-name> TO TRUE writes the condition's parent item.
+        condition_parent: dict[str, str] = {}
+
+        def index_conditions(items):
+            for item in items:
+                for child in getattr(item, "children", ()) or ():
+                    if getattr(child, "level", 0) == 88:
+                        condition_parent[child.name.upper()] = item.name.upper()
+                index_conditions(getattr(item, "children", ()) or ())
+
+        index_conditions(program.working_storage)
 
         def walk(statements):
             for stmt in statements:
@@ -1022,9 +1036,13 @@ class CobolParser:
             for stmt in walk(para.statements):
                 for target in dict.fromkeys(write_targets(stmt)):
                     base = target.split("(", 1)[0].strip().upper()
-                    if base not in certified:
+                    base = condition_parent.get(base, base)
+                    if base not in guarded:
                         continue
                     verb = type(stmt).__name__.replace("Statement", "").upper()
+                    if base not in certified and verb == "MOVE":
+                        # MOVE into the base keeps the overlay in sync.
+                        continue
                     if verb != "MOVE" or "(" in target:
                         self._diagnostics.warning(
                             DiagnosticCode.UNSUPPORTED_CONSTRUCT,
@@ -2116,6 +2134,15 @@ class CobolParser:
             lambda match: " " * len(match.group(0)), text,
         )
 
+    @staticmethod
+    def _ends_sentence(line: str) -> bool:
+        """True when ``line`` ends with a separator period (outside quotes).
+
+        A period ends the COBOL sentence and with it every open IF and
+        EVALUATE scope, wherever it appears (audit 2026-11-03, T1).
+        """
+        return CobolParser._mask_quoted(line).rstrip().endswith(".")
+
     def _collect_file_clauses(
         self,
         lines: list[str],
@@ -2990,7 +3017,8 @@ class CobolParser:
             if not u.startswith("WHEN "):
                 i += 1
                 continue
-            spec = lines[i].strip()[len("WHEN "):].rstrip(".").strip()
+            when_line = lines[i]
+            spec = when_line.strip()[len("WHEN "):].rstrip(".").strip()
             i += 1
             body = []
             # A statement may sit on the same line as WHEN, e.g.
@@ -3007,12 +3035,22 @@ class CobolParser:
                         f"Inline WHEN statement did not parse into IR: {lost[:60]}",
                         location="EVALUATE",
                     )
-            while i < len(lines) and not lines[i].strip().upper().startswith(("WHEN ", "END-EVALUATE")):
+            closed = bool(inline) and self._ends_sentence(when_line)
+            while (
+                not closed
+                and i < len(lines)
+                and not lines[i].strip().upper().startswith(("WHEN ", "END-EVALUATE"))
+            ):
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:
                     body.append(stmt)
                 i = max(new_i, i + 1)
+                # A period after an arm's statement ends the sentence and so
+                # the EVALUATE; the following sentences are not in this arm.
+                closed = self._ends_sentence(lines[i - 1])
             arms.append((spec, tuple(body)))
+            if closed:
+                break
         def cond(spec):
             if subject.strip().upper() == "TRUE":
                 # EVALUATE TRUE treats each WHEN clause as a Boolean
@@ -3179,6 +3217,9 @@ class CobolParser:
                             f"Inline ELSE statement did not parse into IR: {lost[:60]}",
                             location="ELSE",
                         )
+                    if self._ends_sentence(l):
+                        # `ELSE DISPLAY 'N'.` - the period ends the IF.
+                        break
                 continue
 
             if u.startswith("END-IF"):
@@ -3195,6 +3236,11 @@ class CobolParser:
                 else:
                     else_body.append(stmt)
             i = max(new_i, i + 1)
+            if self._ends_sentence(lines[i - 1]):
+                # The child's period ends the sentence and with it this IF
+                # (and any enclosing scope).  Scanning on swallowed every
+                # following sentence into the body (audit T1).
+                break
 
         return IfStatement(
             condition=condition,
