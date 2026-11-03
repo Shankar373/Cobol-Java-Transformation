@@ -93,7 +93,6 @@ from engine.transformation.ir import (
     OutputFormat,
     Paragraph,
     PerformStatement,
-    PerformTimesStatement,
     PicType,
     ReadStatement,
     RecordFormat,
@@ -137,7 +136,6 @@ _GROUP_SAFE_STATEMENTS = (
     InitializeStatement,
     IfStatement,
     PerformStatement,
-    PerformTimesStatement,
     AcceptStatement,
 )
 
@@ -2717,6 +2715,21 @@ class CobolParser:
                 rounded=rounded,
             ), end
 
+        # ADD a b GIVING c: the TO operand is optional with GIVING (audit
+        # T16); every sending operand is summed into the receiver.
+        giving_only = re.search(
+            r"ADD\s+(.+?)\s+GIVING\s+(\S+)(?:\s+ROUNDED)?\s*$", line, re.IGNORECASE,
+        )
+        if giving_only and not re.search(r"(?<![\w-])TO(?![\w-])", giving_only.group(1), re.IGNORECASE):
+            source = giving_only.group(1).strip()
+            return AddStatement(
+                source=source,
+                target="",
+                source_expr=self._build_expression(source),
+                giving_target=giving_only.group(2).strip().rstrip("."),
+                rounded=bool(re.search(r"\sROUNDED\s*$", line, re.IGNORECASE)),
+            ), end
+
         self._emit_unparsed("ADD", lines[start])
         return AddStatement(source="", target=""), end
 
@@ -3104,15 +3117,23 @@ class CobolParser:
                 return spec.strip()
             if spec.upper() == "OTHER":
                 return "OTHER"
-            # `WHEN a ALSO b ALSO c` lists alternative values.  ALSO
-            # is a keyword, not a value, so treating it as an operand produced
-            # `A = 1 OR A = ALSO OR A = 2`.  Split on ALSO and OR the real
-            # alternatives.  The condition mapper renders a top-level
-            # ` OR ` chain left-to-right, so alternatives are emitted flat
-            # rather than parenthesised: parentheses are stripped downstream
-            # and would silently change operator precedence.
+            # ALSO pairs selection objects with *several* subjects
+            # (``EVALUATE A ALSO B`` / ``WHEN 1 ALSO 2``).  Neither form is
+            # lowered: a single-subject ``WHEN 1 ALSO 2`` is not even valid
+            # COBOL (GnuCOBOL 3.1.2: "wrong number of WHEN parameters"), and
+            # the old reading of ALSO as alternative values invented a
+            # meaning for it (audit T14).  Refuse with a diagnostic and an
+            # unresolvable operand so generation fails closed.
+            if re.search(r"(?<![\w-])ALSO(?![\w-])", f"{subject} {spec}", re.IGNORECASE):
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    "EVALUATE ... ALSO (multiple selection subjects/objects) "
+                    "is not supported",
+                    location="EVALUATE",
+                )
+                return f"{subject} = UNSUPPORTED-EVALUATE-ALSO"
             alternatives: list[str] = []
-            for group in re.split(r"\s+ALSO\s+", spec, flags=re.IGNORECASE):
+            for group in (spec,):
                 tokens = group.split()
                 if not tokens:
                     continue

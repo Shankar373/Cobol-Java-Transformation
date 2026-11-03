@@ -26,7 +26,6 @@ from engine.transformation.ir import (
     GobackStatement,
     Paragraph,
     PerformStatement,
-    PerformTimesStatement,
     StopRunStatement,
 )
 
@@ -87,7 +86,7 @@ def performed_paragraphs(paragraphs) -> frozenset[str]:
     performed: set[str] = set()
     for paragraph in paragraphs:
         for stmt in walk_statements(paragraph.statements):
-            if not isinstance(stmt, (PerformStatement, PerformTimesStatement)):
+            if not isinstance(stmt, PerformStatement):
                 continue
             first = (stmt.paragraph_name or "").strip().upper()
             if not first:

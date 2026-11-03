@@ -6,6 +6,12 @@
 # Automated scheduling (cron/systemd) is NOT installed by this script —
 # see docs/operations/BACKUP_RECOVERY.md.
 # Usage: ./scripts/backup/backup.sh [BACKUP_DIR]  (default: ./backups/<timestamp>)
+#
+# Consistency: the database and the workspace volume are copied one after
+# the other. Online (the default) a run created between the two copies can
+# reference a workspace the archive lacks (audit F16). QUIESCE=1 stops only
+# the API container for the duration of both copies (nginx keeps answering
+# with 502) so they describe the same instant, and restarts it on exit.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -30,6 +36,19 @@ host_path() { # host_path <path>
   fi
 }
 DEST_HOST="$(host_path "$PWD/$DEST")"
+
+if [ "${QUIESCE:-0}" = "1" ]; then
+  API_CONTAINER="$(docker ps -q \
+    --filter label=com.docker.compose.project=systemaops-production \
+    --filter label=com.docker.compose.service=api)"
+  if [ -n "$API_CONTAINER" ]; then
+    echo "QUIESCE=1: stopping the API container for a consistent snapshot"
+    docker stop "$API_CONTAINER" >/dev/null
+    trap 'docker start "$API_CONTAINER" >/dev/null && echo "API container restarted"' EXIT
+  else
+    echo "QUIESCE=1: no running API container found; nothing to stop"
+  fi
+fi
 
 # 1. SQLite online backup through a transient container (same image family).
 docker run --rm \

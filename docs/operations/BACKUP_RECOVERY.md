@@ -1,5 +1,11 @@
 # Backup, Recovery, Rollback
 
+> **Consistency (audit F16):** the database and the workspace volume are copied one
+> after the other. An online backup can therefore hold a run whose workspace was
+> created between the two copies and is missing from the archive. For a consistent
+> pair run `QUIESCE=1 ./scripts/backup/backup.sh`: the API container is stopped for
+> the duration of both copies (nginx answers 502 meanwhile) and restarted on exit.
+
 ## What is backed up (`scripts/backup/backup.sh`)
 
 | Item | How | Why it must be preserved |

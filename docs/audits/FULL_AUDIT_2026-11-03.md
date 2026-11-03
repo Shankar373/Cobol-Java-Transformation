@@ -103,6 +103,8 @@ Why not NO-GO:
 | FE-01/FE-04 | P2 | Sidebar status from `GET /ready` (operational / degraded with failing checks / unknown); Approve offered only for VERIFIED runs, with the reason shown, Reject unchanged | `frontend/src/__tests__/audit-ui-status.test.tsx` (4 of 6 red before) |
 | CI-F1 | P2 | `uvloop` marked `sys_platform != "win32"` in both locks; `pip install --require-hashes -r requirements-dev.lock` verified on Windows | manifest build + lock tests |
 | T5 | — | **Not done (re-assessed):** routing every program through statement lowering broke 24 tests - the "decision" lane carries end-to-end golden tests that compile and run the claims programs correctly. Removing it needs statement lowering to reach parity (FD I/O + UNSTRING) first; no VERIFIED corpus app uses either legacy lane. | — |
+| Batch A (engine P2/P3) | P2/P3 | T7 UNSTRING temporaries scoped per statement; T8 WITH POINTER / TALLYING IN fail closed (the uncertified code moved the pointer to the end and assigned the tally); T12 sequential REWRITE emits an unresolvable symbol; T13 capability scanner reads compiler-visible text (sequence-numbered comments, D and / lines, `*>`, doubled-quote literals); T14 EVALUATE ALSO refused (GnuCOBOL rejects single-subject ALSO); T15 dead `PerformTimesStatement` removed; T16 several ADD sending operands (GnuCOBOL byte-identical) | tests red before; corpus snapshot: only workload-studentproc (already UNAVAILABLE) changed |
+| Batch B (verification/API/deploy P2/P3) | P2/P3 | V11 independent verifier pins images by id, records identities and the project hash, refuses several jars; V12 ERROR-vs-UNAVAILABLE text aligned with the code; V13 only the top-level `target/` excluded from builds, one jar or fail; V14 random suffix on engine run ids; V18 multiprog declaration fixed; F4 every run/discovery response redacted in production; F5 409 while a run is in progress; F10 seal write bound to the validation attempt; F11/FE-02/FE-03 nginx CSP for the SPA and security headers on assets; F12 X-Forwarded-For trusted from the pinned nginx edge address only; F13-F16 docs and `QUIESCE=1` consistent backup | tests red before; nginx `-t` and compose render verified |
 | — | — | Corpus regression for T1-T3: 108 generated builds (54 apps x spring_boot/plain_java) byte-identical before and after | snapshot comparison |
 
 ---
@@ -122,12 +124,12 @@ medium, **P3** low.
 | T4 | P1 — FIXED | R | `cobol_to_java_mapping.py:4228-4262` | DIVIDE … REMAINDER uses the *stored* (receiver-truncated) quotient; GnuCOBOL uses the signed intermediate quotient (unverified against oracle) | One scale-truncated BigDecimal temporary for both receivers; oracle test |
 | T5 | P1 | C | `cobol_to_java_mapping.py:6440-6457`; `java_generator.py:99-102, 200-280` | Legacy heuristic template lanes ("decision", "file_io") can replace statement lowering (positional `"\|"` split, dropped statements); today they fail at javac only by accident | Delete both lanes and their extractors; always use statement lowering |
 | T6 | P1 — FIXED | R | `cobol_parser.py:528-580` | `REPLACE` uses plain `str.replace` (rewrites inside literals and longer names) and accumulates pairs instead of resetting | Reuse `copybook_model._apply_replacing`; new REPLACE resets active pairs |
-| T7 | P2 | A | `cobol_to_java_mapping.py:5050-5115` | Two UNSTRINGs in one paragraph redeclare `_unstr_*` locals → javac error (fails closed) | Fresh names or `{}` block |
-| T8 | P2 | A | `cobol_to_java_mapping.py:5019-5220` vs `semantic_capability.py:168-179` | UNSTRING POINTER/TALLYING emit real (wrong) Java though registry and docs say refused; only the parser diagnostic blocks | Emit the documented unresolvable symbol; delete uncertified code |
+| T7 | P2 — FIXED | R | `cobol_to_java_mapping.py:5050-5115` | Two UNSTRINGs in one paragraph redeclare `_unstr_*` locals → javac error (fails closed) | Fresh names or `{}` block |
+| T8 | P2 — FIXED | R | `cobol_to_java_mapping.py:5019-5220` vs `semantic_capability.py:168-179` | UNSTRING POINTER/TALLYING emit real (wrong) Java though registry and docs say refused; only the parser diagnostic blocks | Emit the documented unresolvable symbol; delete uncertified code |
 | T9–T11 | P2 — FIXED | R | parser conditions / refmod / comments | `IF NOT A = 1` → `!WS_A == 1`; reference modification, abbreviated combined conditions, parenthesised conditions, `/` and `D` lines, inline `*>` comments: no parser diagnostic (fail at javac or exception) | Parser emits UNSUPPORTED_CONSTRUCT for each |
-| T12 | P2 | A | `cobol_to_java_mapping.py:4895-4910` | Sequential REWRITE lowers to compilable Java setting status 23; blocked only by the analyzer | Emit an unresolvable symbol (defence in depth) |
-| T13–T16 | P3 | A | `semantic_capability.py:703-716`, `cobol_parser.py:3023-3045`, `ir.py:613`, `cobol_to_java_mapping.py:4150-4170` | Comment detection over-blocks; EVALUATE ALSO lowered to OR; dead `PerformTimesStatement`; multi-source ADD raises instead of diagnosing | As listed |
-| T17 | P3 | A | `CobolStdin.alnum` | PIC X ACCEPT windows by Java chars, GnuCOBOL by bytes (non-ASCII input) | Oracle-pin with a UTF-8 line |
+| T12 | P2 — FIXED | R | `cobol_to_java_mapping.py:4895-4910` | Sequential REWRITE lowers to compilable Java setting status 23; blocked only by the analyzer | Emit an unresolvable symbol (defence in depth) |
+| T13–T16 | P3 — FIXED | R | `semantic_capability.py:703-716`, `cobol_parser.py:3023-3045`, `ir.py:613`, `cobol_to_java_mapping.py:4150-4170` | Comment detection over-blocks; EVALUATE ALSO lowered to OR; dead `PerformTimesStatement`; multi-source ADD raises instead of diagnosing | As listed |
+| T17 | P3 — ACCEPTED (documented limitation) | C | `CobolStdin.alnum` | PIC X ACCEPT windows by Java chars, GnuCOBOL by bytes (non-ASCII input) | Oracle-pin with a UTF-8 line |
 | GAP-1 | P1 | A | parser PIC handling | **Numeric-edited PICs** (`ZZ,ZZ9.99`, `$`, `-`, `CR/DB`) raise `Unsupported PIC clause` — nearly every report program uses them | Highest-value next capability |
 
 ### 4.2 Execution, verification, evidence
@@ -142,8 +144,8 @@ medium, **P3** low.
 | V7 | P2 — FIXED | A | `engine/verdict/derivation.py:77-85` | Sealed scope always names the Spring Boot adapter and temurin, even for quarkus/micronaut/plain_java; candidate image digest not bound | Build scope/identity from the adapter that ran |
 | V8 | P2 — FIXED | A | `engine/execution/workspace_files.py:121-123` | Output files keyed by base name: `a/x.txt` and `b/x.txt` collide, one is never compared | Key by relative path |
 | V9 | P2 — FIXED | A | `engine/oracle/docker_adapter.py` compile command | Nested layout with copybooks in a sibling directory: oracle has no `-I` → UNAVAILABLE (fails closed) | `-I` per copybook directory |
-| V11 | P2 | A | `scripts/e2e/verify_independent.py:40-42` | Independent re-check uses mutable tags, records no digests or project hash, picks an arbitrary jar | Pin by digest, record identities, refuse >1 jar |
-| V12–V18 | P3 | A | see area report | Stale verdict-contract comments (ERROR vs UNAVAILABLE), `target/` package dirs dropped, second-granular run ids, C2 duplication (~230 lines), oracle compile+run share one timeout, unkeyed SHA-256 seal (known L.3.7), broken `fixtures/workload-multiprog/workload.py` | As listed |
+| V11 | P2 — FIXED | R | `scripts/e2e/verify_independent.py:40-42` | Independent re-check uses mutable tags, records no digests or project hash, picks an arbitrary jar | Pin by digest, record identities, refuse >1 jar |
+| V12–V18 | P3 — V12/V13/V14/V18 FIXED; V16 accepted; V15 (C2) and V17 (signing) remain | R | see area report | Stale verdict-contract comments (ERROR vs UNAVAILABLE), `target/` package dirs dropped, second-granular run ids, C2 duplication (~230 lines), oracle compile+run share one timeout, unkeyed SHA-256 seal (known L.3.7), broken `fixtures/workload-multiprog/workload.py` | As listed |
 
 Verified sound (no finding): verdict derivation (unknown → ERROR, MISMATCH →
 FAILED, INCONCLUSIVE → PARTIAL, zero checks → UNPROVEN); integrity validator
@@ -156,15 +158,15 @@ matching; stdin and `/workspace` layout symmetric between oracle and candidate.
 | ID | Sev | V | file:line | Finding | Recommended fix |
 |---|---|---|---|---|---|
 | F3 | P2 — FIXED | R | `api/app.py:979` | `stage_messages` not passed through `_public()` (raw `run.error`, may hold server paths) | Wrap in `_public()` |
-| F4 | P3 | A | `api/app.py:947,1077,1136,985-997` | `/discovery`, `/verdict`, `/integrated-proof`, `/artifacts` not passed through `_public()` (leak unconfirmed) | Apply centrally |
-| F5 | P2 | A | `api/service.py:558,677,698` | Re-ingest/re-upload deletes the previous source dir with no in-flight-run check (fails closed, destroys the run) | 409 while a run is active |
+| F4 | P3 — FIXED | R | `api/app.py:947,1077,1136,985-997` | `/discovery`, `/verdict`, `/integrated-proof`, `/artifacts` not passed through `_public()` (leak unconfirmed) | Apply centrally |
+| F5 | P2 — FIXED | R | `api/service.py:558,677,698` | Re-ingest/re-upload deletes the previous source dir with no in-flight-run check (fails closed, destroys the run) | 409 while a run is active |
 | F6 | P2 | C | `api/service.py:1835-1858` | `/runs/{id}/detail` re-runs full discovery on every 1.5 s poll, outside the job limit | Persist a per-run discovery snapshot (C6) |
 | F7 | P2 | A | `api/service.py:971,1048`; `api/app.py:1190` | Source/generated paths are per application, seal/approval per run: revalidating an old run validates the latest bundle; old `pipeline-output-*` never garbage-collected | Paths on the run record (C6); retention policy |
 | F8 | P2 — FIXED | R | `api/ingestion.py:270-310` | `discover_application` drops `cobol_app.discovery_errors`; an unparsable file vanishes and `discovery_success` stays True | Propagate the errors |
-| F9 | P3 | C | `api/service.py:524,569-599` | `_detect_source_root` result unused (dead code) | Delete |
-| F10 | P3 | A | `api/store.py:777-793` | `set_generated_seal` has no `validation_generation` guard despite the docstring | Add `expected_generation` |
-| F11/FE-03 | P3 | A | `deployment/nginx/systemaops.conf:69-71,101` | `add_header` in `/app/assets/` drops server-level security headers; SPA shell has no CSP | Repeat headers; CSP for `/app/` |
-| F12–F16 | P3 | A | Dockerfile.production:120; app.py docstring; PRODUCTION.md:31; PHASE4 report; backup.sh | Broad `--forwarded-allow-ips`; stale endpoint list; references to deleted `docker_runner.py`; non-atomic backup | As listed |
+| F9 | P3 — FIXED | C | `api/service.py:524,569-599` | `_detect_source_root` result unused (dead code) | Delete |
+| F10 | P3 — FIXED | R | `api/store.py:777-793` | `set_generated_seal` has no `validation_generation` guard despite the docstring | Add `expected_generation` |
+| F11/FE-03 | P3 — FIXED | R | `deployment/nginx/systemaops.conf:69-71,101` | `add_header` in `/app/assets/` drops server-level security headers; SPA shell has no CSP | Repeat headers; CSP for `/app/` |
+| F12–F16 | P3 — FIXED | R | Dockerfile.production:120; app.py docstring; PRODUCTION.md:31; PHASE4 report; backup.sh | Broad `--forwarded-allow-ips`; stale endpoint list; references to deleted `docker_runner.py`; non-atomic backup | As listed |
 
 Verified sound: constant-time auth, production fail-closed, probe exemptions,
 ZIP hardening (traversal, symlinks, ratio, size, duplicates), multipart caps,
@@ -178,7 +180,7 @@ risk.
 | ID | Sev | V | file:line | Finding | Recommended fix |
 |---|---|---|---|---|---|
 | FE-01 | P2 — FIXED | R | `frontend/src/components/Sidebar.tsx:216` | "All Systems Operational" is hard-coded; never calls `/ready` | Poll `/ready`; show unknown on failure |
-| FE-02 | P2 | A | `frontend/src/api/client.ts:57-75`; nginx `/app/` | Bearer token in `localStorage` and no CSP on the SPA document | CSP; consider `sessionStorage` |
+| FE-02 | P2 — CSP FIXED (token storage unchanged) | R | `frontend/src/api/client.ts:57-75`; nginx `/app/` | Bearer token in `localStorage` and no CSP on the SPA document | CSP; consider `sessionStorage` |
 | FE-04 | P2 — FIXED | R | `frontend/src/components/ApprovalPanel.tsx:217-223` | Approve enabled for any COMPLETED run; backend refuses non-VERIFIED with 409 | Gate on `verdict_state === 'VERIFIED'` |
 | FE-05 | P2 | A | `frontend/src/pages/ModernizationRun.tsx:211-221,288` | Terminal fetches `.catch(() => null)`: a 401/500 looks like "not produced", never retried | 404 = not produced; otherwise error + retry |
 | FE-06/07 | P2 | A | `frontend/src/App.tsx:71-110,174-198` | Reloaded in-flight runs are not polled; failed ingest/modernize retry creates duplicate applications | Seed polling; reuse the created app |

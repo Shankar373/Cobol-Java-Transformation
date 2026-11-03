@@ -126,6 +126,8 @@ class JavaSourceRenderer:
                      *self._indented_body(stmt.body), "}"]
             return "\n".join(lines)
         if isinstance(stmt, JavaBlock):
+            if stmt.scoped:
+                return "\n".join(["{", *self._indented_body(stmt.statements), "}"])
             return "\n".join(self._stmt_to_string(s) for s in stmt.statements)
         if isinstance(stmt, JavaWhile):
             cond = self._expr_to_string(stmt.condition)

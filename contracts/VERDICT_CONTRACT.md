@@ -30,7 +30,15 @@ Exactly seven states, no more, no less:
 | `ERROR` | **Validator/platform processing failure** — the validator itself failed to run, crashed, or could not process inputs (including execution timeout). | **No** |
 
 `ERROR` ≠ `UNAVAILABLE` ≠ `FAILED`: platform failure vs missing infrastructure vs
-behavioral divergence. The predecessor conflated these with fatal consequences
+behavioral divergence.
+
+**Precedence in the implementation (`engine/verdict/derivation.py`):** an
+execution that terminated with `error` or timed out derives `ERROR` before
+any other check, so an oracle or candidate that could not run (Docker gone
+mid-run, image identity mismatch, compile/build timeout, Docker's own exit
+125-127) is `ERROR`; `UNAVAILABLE` covers the cases left after that - no
+oracle execution, or an oracle that ran and exited nonzero without the
+program setting RETURN-CODE. The predecessor conflated these with fatal consequences
 (swallowed baseline exceptions became warnings).
 
 ## 3. Core Invariant: Pure Derivation

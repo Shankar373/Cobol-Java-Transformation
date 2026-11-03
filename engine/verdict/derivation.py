@@ -305,6 +305,13 @@ class VerdictDeriver:
     def _check_for_unavailable(self, manifest: EvidenceManifest) -> VerdictState | None:
         """Check for unavailable infrastructure.
 
+        Runs after :meth:`_check_for_errors`, which already returned ERROR
+        for any execution whose termination is ``error`` or that timed out
+        (audit V12: this docstring and the pipeline said those derive
+        UNAVAILABLE; they derive ERROR).  What remains here is an oracle
+        that ran and exited nonzero without the program setting
+        RETURN-CODE, or no oracle execution at all.
+
         For the oracle: any status other than "normal" or "return_code"
         means the reference failed and cannot be used as ground truth. This
         includes nonzero_exit.  "return_code" is a nonzero exit the program

@@ -50,6 +50,8 @@ tests/integration/test_oracle_compiler_pin.py
 tests/integration/test_divide_remainder_oracle.py
 tests/integration/test_replace_directive_oracle.py
 tests/integration/test_source_lines_and_negation_oracle.py
+tests/integration/test_add_source_list_oracle.py
+tests/transformation/test_scanner_comment_handling.py
 tests/test_occurs_elements.py
 tests/test_signed_storage_text.py
 tests/comparators/test_fixed_record_trailing_partial.py

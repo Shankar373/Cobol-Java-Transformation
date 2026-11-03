@@ -400,10 +400,10 @@ class TestA8PlanBlocksWhatAnalysisRefuses:
 
     def test_j3_unmapped_statement_types_raise(self):
         from engine.transformation.cobol_to_java_mapping import map_cobol_statement
-        from engine.transformation.ir import PerformTimesStatement
+        from engine.transformation.ir import SqlStatement
 
         with pytest.raises(NotImplementedError, match="has no Java mapping"):
-            map_cobol_statement(PerformTimesStatement(paragraph_name="P1"))
+            map_cobol_statement(SqlStatement(statement_type="SELECT", raw_sql="SELECT 1"))
 
 
 # ---------------------------------------------------------------------------

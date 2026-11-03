@@ -74,7 +74,6 @@ from engine.transformation.ir import (
     StopRunStatement,
     StringStatement,
     Statement,
-    PerformTimesStatement,
     SubtractStatement,
     UnstringStatement,
     WriteStatement,
@@ -2046,6 +2045,26 @@ def _array_base_name(expr: JavaExpression) -> str:
     while isinstance(expr, JavaArrayAccess):
         expr = expr.array
     return expr.name if isinstance(expr, JavaVariableRef) else ""
+
+
+_ADD_OPERAND = re.compile(r"[A-Za-z0-9][\w-]*|[+-]?\d*\.?\d+")
+
+
+def _add_source_operands(source: str) -> list[JavaExpression]:
+    """The sending operands of ADD: one expression, or a summed list.
+
+    ``ADD A B C TO D`` names several sending operands separated by spaces or
+    commas.  Only plain identifiers and numeric literals are split; any
+    other text (qualified names, subscripts, expressions) is mapped as one
+    expression, which keeps the existing fail-closed refusal.
+    """
+    tokens = [tok for tok in re.split(r"[\s,]+", (source or "").strip()) if tok]
+    if len(tokens) > 1 and all(
+        _ADD_OPERAND.fullmatch(tok) and tok.upper() not in ("OF", "IN", "TO", "GIVING")
+        for tok in tokens
+    ):
+        return [map_cobol_expr_to_java(tok) for tok in tokens]
+    return [map_cobol_expr_to_java(source)]
 
 
 #: BigDecimal instance methods the promotion emits; such a node is already a
@@ -4053,7 +4072,7 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     AcceptStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
-STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement, PerformTimesStatement})
+STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement})
 
 
 def classify_statement_capability(stmt: Statement) -> str:
@@ -4087,8 +4106,8 @@ def map_cobol_statement(
     # Fail closed for constructs the mapper does not implement (J-3).  Raising
     # here prevents a false-success transform where unsupported statements
     # would otherwise be silently omitted from the generated Java.
-    from engine.transformation.ir import PerformTimesStatement, SqlStatement
-    if isinstance(stmt, (PerformTimesStatement, SqlStatement)):
+    from engine.transformation.ir import SqlStatement
+    if isinstance(stmt, SqlStatement):
         raise NotImplementedError(
             f"{type(stmt).__name__} has no Java mapping; "
             "construct is classified UNSUPPORTED and must not be "
@@ -4192,10 +4211,20 @@ def map_cobol_statement(
     elif isinstance(stmt, AddStatement):
         # ADD A TO B GIVING C → C = A + B  (C receives result, B unchanged)
         # ADD A TO B           → B = A + B  (in-place)
+        # ADD A B C TO D       → D = D + A + B + C (audit T16: a source list
+        #                        of identifiers/numeric literals is summed;
+        #                        it used to raise "malformed expression")
+        # ADD A B GIVING C     → C = A + B (no TO operand)
         target = cobol_reference_to_java_source(
             stmt.giving_target or stmt.target
         )
-        source_a = map_cobol_expr_to_java(stmt.source)
+        add_operands = _add_source_operands(stmt.source)
+        source_a = add_operands[0]
+        for operand in add_operands[1:]:
+            source_a = JavaBinaryOp(left=source_a, operator="+", right=operand)
+        if stmt.giving_target and not (stmt.target or "").strip():
+            _emit_arithmetic(result, stmt, target, source_a, program, called_programs)
+            return result
         source_b = _reference_expression(stmt.target)
         if stmt.giving_target:
             _emit_arithmetic(
@@ -4962,24 +4991,22 @@ def map_cobol_statement(
                     result, status_field, call, need_expr=has_inv,
                 )
             elif key_len <= 0:
+                # Sequential REWRITE (replace the record last READ) has no
+                # CobolFileIo mapping.  It used to set status 23 in
+                # compilable Java, blocked only by the capability analyzer;
+                # an unresolvable symbol makes generation itself fail closed
+                # (audit T12).
                 result.append(JavaComment(
                     text=f"// REWRITE {stmt.file_name}: sequential REWRITE "
                     "unsupported by CobolFileIo",
                 ))
-                if status_field:
-                    cond_status = status_field
-                    result.append(JavaAssignment(
-                        target=status_field, expression=_str_lit("23"),
-                    ))
-                elif has_inv:
-                    cond_status = _fresh_io_var("st")
-                    result.append(JavaLocalVarDecl(
-                        java_type=JavaType(basic_type=JavaBasicType.STRING),
-                        name=cond_status,
-                        initializer=_str_lit("23"),
-                    ))
-                else:
-                    cond_status = ""
+                result.append(JavaAssignment(
+                    target=content_var,
+                    expression=JavaVariableRef(
+                        name=_file_fail_closed_symbol("SEQUENTIAL_REWRITE")
+                    ),
+                ))
+                cond_status = ""
             else:
                 rec_expr = _assembly_expression(fd, content_var)
                 if rec_expr is None:
@@ -5073,15 +5100,19 @@ def map_cobol_statement(
         # generated program cannot silently run with wrong semantics.
         result.append(JavaComment(text=f"UNSTRING {stmt.source}"))
         reasons: list[str] = []
-        # WITH POINTER is implemented (certified subset) - not a blocker.
+        # WITH POINTER and TALLYING IN are refused like the other clauses
+        # (audit T8): the code that used to "implement" them always moved
+        # the pointer to the end and assigned the tally where COBOL adds.
+        if stmt.pointer:
+            reasons.append("WITH_POINTER")
+        if stmt.tallying_pointer:
+            reasons.append("TALLYING_IN")
         if stmt.has_overflow:
             reasons.append("ON_OVERFLOW")
         if stmt.varying_pointer:
             reasons.append(
                 "VARYING_IN_" + stmt.varying_pointer.upper().replace("-", "_")
             )
-        # TALLYING IN is implemented (certified subset): count the receiving
-        # fields that received a piece.
         delim_is_literal = (
             len(stmt.delimiter) >= 2
             and stmt.delimiter[0] == stmt.delimiter[-1]
@@ -5101,18 +5132,10 @@ def map_cobol_statement(
                     ),
                 ))
             return result
-        # Certified subset: emit a real delimited split.
-        has_pointer = bool(stmt.pointer)
-        pointer_java = stmt.pointer.replace("-", "_") if has_pointer else None
-
-        # _unstr_ptr is always defined (defaults to 1 = start of source) so
-        # downstream code (TALLYING IN) can reference it uniformly.
-        if not has_pointer:
-            result.append(JavaLocalVarDecl(
-                java_type=JavaType(basic_type=JavaBasicType.INT),
-                name="_unstr_ptr",
-                initializer=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
-            ))
+        # Certified subset: emit a real delimited split, in its own scoped
+        # block so two UNSTRINGs in one paragraph do not redeclare the
+        # temporaries (audit T7).
+        outer_result, result = result, []
 
         # Source expression (field or literal).
         src_expr = map_cobol_expr_to_java(stmt.source)
@@ -5122,51 +5145,11 @@ def map_cobol_statement(
             java_type=JavaType(basic_type=JavaBasicType.STRING),
         )
 
-        # WITH POINTER: start position is 1-based; if 0 treat as 1.
-        if has_pointer and pointer_java is not None:
-            result.append(JavaLocalVarDecl(
-                java_type=JavaType(basic_type=JavaBasicType.INT),
-                name="_unstr_ptr",
-                initializer=JavaTernary(
-                    condition=JavaBinaryOp(
-                        left=JavaVariableRef(name=pointer_java),
-                        operator="<=",
-                        right=JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
-                    ),
-                    true_expr=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
-                    false_expr=JavaVariableRef(name=pointer_java),
-                ),
-            ))
-            # source substring from pointer position
-            result.append(JavaLocalVarDecl(
-                java_type=JavaType(basic_type=JavaBasicType.STRING),
-                name="_unstr_src",
-                initializer=JavaTernary(
-                    condition=JavaBinaryOp(
-                        left=JavaVariableRef(name="_unstr_ptr"),
-                        operator="<=",
-                        right=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
-                    ),
-                    true_expr=JavaMethodCall(
-                        object_ref=src_expr,
-                        method_name="substring",
-                        arguments=(
-                            JavaBinaryOp(
-                                left=JavaVariableRef(name="_unstr_ptr"),
-                                operator="-",
-                                right=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
-                            ),
-                        ),
-                    ),
-                    false_expr=JavaLiteral(value="", java_type=JavaType(basic_type=JavaBasicType.STRING)),
-                ),
-            ))
-        else:
-            result.append(JavaLocalVarDecl(
-                java_type=JavaType(basic_type=JavaBasicType.STRING),
-                name="_unstr_src",
-                initializer=src_expr,
-            ))
+        result.append(JavaLocalVarDecl(
+            java_type=JavaType(basic_type=JavaBasicType.STRING),
+            name="_unstr_src",
+            initializer=src_expr,
+        ))
 
         result.append(JavaLocalVarDecl(
             java_type=JavaType(basic_type=JavaBasicType.STRING),
@@ -5244,51 +5227,8 @@ def map_cobol_statement(
             )
             result.append(JavaAssignment(target=java_target, expression=expr))
 
-        # TALLYING IN: count the receiving fields that received a piece.
-        if stmt.tallying_pointer:
-            tally_java = stmt.tallying_pointer.replace("-", "_")
-            result.append(JavaAssignment(
-                target=tally_java,
-                expression=JavaTernary(
-                    condition=JavaBinaryOp(
-                        left=JavaVariableRef(name="_unstr_ptr"),
-                        operator="<=",
-                        right=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
-                    ),
-                    true_expr=JavaMethodCall(
-                        class_name="Math",
-                        method_name="min",
-                        is_static=True,
-                        arguments=(
-                            JavaVariableRef(name="_unstr_parts.length"),
-                            JavaLiteral(value=str(len(stmt.targets)), java_type=JavaType(basic_type=JavaBasicType.INT)),
-                        ),
-                    ),
-                    false_expr=JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.INT)),
-                ),
-            ))
-
-        # WITH POINTER update: certified subset consumes all pieces, so
-        # pointer advances to end of source + 1 (or stays unchanged if ptr
-        # was already beyond source).
-        if has_pointer and pointer_java is not None:
-            result.append(JavaAssignment(
-                target=pointer_java,
-                expression=JavaTernary(
-                    condition=JavaBinaryOp(
-                        left=JavaVariableRef(name="_unstr_ptr"),
-                        operator="<=",
-                        right=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
-                    ),
-                    true_expr=JavaBinaryOp(
-                        left=JavaMethodCall(object_ref=src_expr, method_name="length", arguments=()),
-                        operator="+",
-                        right=JavaLiteral(value="1", java_type=JavaType(basic_type=JavaBasicType.INT)),
-                    ),
-                    false_expr=JavaVariableRef(name=pointer_java),
-                ),
-            ))
-        return result
+        outer_result.append(JavaBlock(statements=tuple(result), scoped=True))
+        return outer_result
 
     elif isinstance(stmt, PerformStatement):
         # Check for VARYING form

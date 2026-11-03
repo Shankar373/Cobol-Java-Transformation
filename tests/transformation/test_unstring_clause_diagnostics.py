@@ -164,36 +164,50 @@ class TestCertifiedSubsetStaysQuiet:
 
 
 class TestMapperFailsClosedForClauses:
-    def test_pointer_clause_is_now_implemented(self) -> None:
-        # WITH POINTER is now implemented (certified subset): the mapper
-        # emits a real split with pointer tracking instead of an
-        # unresolvable symbol.  Other extra clauses still fail closed.
-        _, stmt = _parse(
-            "    UNSTRING WS-SRC DELIMITED BY \",\"\n"
-            "        INTO WS-A\n"
-            "        WITH POINTER WS-P\n"
-            "    END-UNSTRING.\n"
+    def test_pointer_and_tallying_fail_closed(self) -> None:
+        # WITH POINTER and TALLYING IN are refused (audit T8): the registry,
+        # the docs and the parser diagnostic say so, and the code that used
+        # to "implement" them moved the pointer to the end of the source and
+        # assigned the tally where COBOL adds to it.
+        for clause, symbol in (
+            ("WITH POINTER WS-P", "UNSUPPORTED_UNSTRING$WITH_POINTER"),
+            ("TALLYING IN WS-P", "UNSUPPORTED_UNSTRING$TALLYING_IN"),
+        ):
+            body = (
+                "    UNSTRING WS-SRC DELIMITED BY \",\"\n"
+                "        INTO WS-A\n"
+                f"        {clause}\n"
+                "    END-UNSTRING.\n"
+            )
+            _, stmt = _parse(body)
+            program_ir = CobolParser().parse(HEADER + body + "    STOP RUN.\n")
+            mapped = map_cobol_statement(stmt, program_ir)
+            symbols = [
+                s.expression.name
+                for s in mapped
+                if isinstance(s, JavaAssignment)
+                and isinstance(s.expression, JavaVariableRef)
+            ]
+            assert symbol in symbols, (clause, symbols)
+            assert not any(
+                isinstance(s, JavaLocalVarDecl) and s.name == "_unstr_parts" for s in mapped
+            ), clause
+
+    def test_two_unstrings_in_one_paragraph_do_not_collide(self) -> None:
+        # Audit T7: the temporaries were declared at method scope, so a
+        # second UNSTRING redeclared _unstr_src and javac failed.
+        from engine.transformation.java_generator import JavaGenerator
+
+        body = (
+            "    UNSTRING WS-SRC DELIMITED BY \",\" INTO WS-A.\n"
+            "    UNSTRING WS-SRC DELIMITED BY \",\" INTO WS-A.\n"
         )
-        parser = CobolParser()
-        program_ir = parser.parse(
-            HEADER
-            + "    UNSTRING WS-SRC DELIMITED BY \",\"\n"
-            + "        INTO WS-A\n"
-            + "        WITH POINTER WS-P\n"
-            + "    END-UNSTRING.\n"
-            + "    STOP RUN.\n"
-        )
-        mapped = map_cobol_statement(stmt, program_ir)
-        # No unresolvable symbol is emitted for WITH POINTER.
-        symbols = [
-            s.expression.name
-            for s in mapped
-            if isinstance(s, JavaAssignment)
-            and isinstance(s.expression, JavaVariableRef)
-        ]
-        assert not any(name.startswith("UNSUPPORTED_UNSTRING$") for name in symbols), symbols
-        # A real split is emitted.
-        assert any(isinstance(s, JavaLocalVarDecl) and s.name == "_unstr_parts" for s in mapped), mapped
+        code = JavaGenerator().generate(CobolParser().parse(HEADER + body + "    STOP RUN.\n"))[0].source_code
+        lines = [line.strip() for line in code.splitlines() if line.strip()]
+        declarations = [i for i, line in enumerate(lines) if line.startswith("String _unstr_src")]
+        assert len(declarations) >= 2, code
+        # Each UNSTRING's temporaries open their own Java block.
+        assert all(lines[i - 1] == "{" for i in declarations), code
 
     def test_certified_subset_does_not_fabricate_fail_closed_symbol(self) -> None:
         _, stmt = _parse(

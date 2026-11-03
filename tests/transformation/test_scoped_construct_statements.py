@@ -380,54 +380,73 @@ class TestMultilineBehaviourUnchanged:
 
 
 # ---------------------------------------------------------------------------
-# BL-021 - ALSO lists alternatives
+# BL-021 / audit T14 - ALSO is refused, not read as alternative values
 # ---------------------------------------------------------------------------
+#
+# ALSO pairs selection objects with several subjects.  A single-subject
+# ``WHEN 1 ALSO 2`` is not valid COBOL (GnuCOBOL 3.1.2: "wrong number of WHEN
+# parameters"); BL-021 used to read it as ``WS-A = 1 OR WS-A = 2``, inventing
+# a meaning.  Both forms now fail closed: a parser diagnostic plus an
+# unresolvable operand, so generated Java cannot run.
+
 
 class TestWhenAlso:
-    def test_when_with_two_also_values_folds_into_one_or_condition(self):
-        stmt = _first_statement(_program(
+    @staticmethod
+    def _parse(*body: str):
+        parser = CobolParser()
+        program = parser.parse(_program(*body))
+        return parser, program.paragraphs[0].statements[0]
+
+    def test_single_subject_also_is_diagnosed(self):
+        parser, _ = self._parse(
             "EVALUATE WS-A",
             "    WHEN 1 ALSO 2",
             '        DISPLAY "LOW"',
             "END-EVALUATE",
-        ))
-        assert stmt.condition == "WS-A = 1 OR WS-A = 2", stmt.condition
+        )
+        assert any("ALSO" in d.message for d in parser.diagnostics.all)
 
-    def test_when_with_three_also_values_folds_into_one_or_condition(self):
-        stmt = _first_statement(_program(
-            "EVALUATE WS-A",
-            "    WHEN 1 ALSO 2 ALSO 3",
-            '        DISPLAY "LOW"',
-            "END-EVALUATE",
-        ))
-        assert stmt.condition == "WS-A = 1 OR WS-A = 2 OR WS-A = 3", stmt.condition
-
-    def test_also_is_not_a_value(self):
-        stmt = _first_statement(_program(
+    def test_also_is_not_read_as_alternatives(self):
+        _, stmt = self._parse(
             "EVALUATE WS-A",
             "    WHEN 1 ALSO 2",
             '        DISPLAY "LOW"',
             "END-EVALUATE",
-        ))
-        assert "ALSO" not in stmt.condition
+        )
+        assert "OR" not in stmt.condition.upper().split()
+        assert "UNSUPPORTED-EVALUATE-ALSO" in stmt.condition
 
-    def test_also_generates_correct_java(self):
+    def test_also_generates_unresolvable_java(self):
         code = _generate(_program(
             "EVALUATE WS-A",
             "    WHEN 1 ALSO 2",
             '        DISPLAY "LOW"',
             "END-EVALUATE",
         ))
-        assert "if (WS_A == 1 || WS_A == 2)" in code
+        assert "UNSUPPORTED_EVALUATE_ALSO" in code
+        assert "WS_A == 2" not in code
 
-    def test_range_plus_also(self):
-        stmt = _first_statement(_program(
+    def test_multiple_subjects_are_diagnosed(self):
+        parser = CobolParser()
+        try:
+            parser.parse(_program(
+                "EVALUATE WS-A ALSO WS-A",
+                "    WHEN 1 ALSO 2",
+                '        DISPLAY "LOW"',
+                "END-EVALUATE",
+            ))
+        except Exception:
+            return  # refusing by exception is also fail-closed
+        assert any("ALSO" in d.message for d in parser.diagnostics.all)
+
+    def test_plain_when_values_still_work(self):
+        _, stmt = self._parse(
             "EVALUATE WS-A",
-            "    WHEN 1 THRU 5 ALSO 7",
+            "    WHEN 1 THRU 5",
             '        DISPLAY "X"',
             "END-EVALUATE",
-        ))
-        assert stmt.condition == "WS-A >= 1 AND WS-A <= 5 OR WS-A = 7", stmt.condition
+        )
+        assert stmt.condition == "WS-A >= 1 AND WS-A <= 5", stmt.condition
 
 
 # ---------------------------------------------------------------------------

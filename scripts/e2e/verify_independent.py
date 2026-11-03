@@ -18,6 +18,11 @@ VERIFIED app in $E2E_IN:
 Both runs collect stdout, stderr, exit code and EVERY file left anywhere in
 their working directory; the record is AGREE only when all of them are
 identical.  Results go to $VERIFY_OUT.
+
+Every image is resolved once to its immutable id and run by that id, and
+each record carries the image identities plus a hash of the re-built Java
+project, so a re-check states exactly what it ran (audit V11: it ran
+mutable tags and recorded neither).
 """
 from __future__ import annotations
 
@@ -37,9 +42,41 @@ from pathlib import Path
 RESULTS = Path(os.environ.get("E2E_IN", "e2e_results.jsonl")).resolve()
 OUT = Path(os.environ.get("VERIFY_OUT", "verify_results.jsonl")).resolve()
 REPO = Path(__file__).resolve().parents[2]
-ORACLE = "gnucobol-ocesql:latest"
-MAVEN = "maven-offline-springboot:latest"
-JRE = "eclipse-temurin:21-jdk"
+ORACLE_TAG = "gnucobol-ocesql:latest"
+MAVEN_TAG = "maven-offline-springboot:latest"
+JRE_TAG = "eclipse-temurin:21-jdk"
+
+
+def _image_id(tag: str) -> str:
+    """Immutable id of a local image; fail rather than run a moving tag."""
+    out = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", tag],
+        capture_output=True, text=True, timeout=60,
+    )
+    image_id = out.stdout.strip()
+    if out.returncode != 0 or not image_id.startswith("sha256:"):
+        raise SystemExit(f"cannot resolve an immutable id for {tag!r}: {out.stderr.strip()}")
+    return image_id
+
+
+ORACLE = MAVEN = JRE = ""  # set by _pin_images() before any run
+IMAGES: dict[str, str] = {}
+
+
+def _pin_images() -> None:
+    global ORACLE, MAVEN, JRE
+    ORACLE, MAVEN, JRE = _image_id(ORACLE_TAG), _image_id(MAVEN_TAG), _image_id(JRE_TAG)
+    IMAGES.update({ORACLE_TAG: ORACLE, MAVEN_TAG: MAVEN, JRE_TAG: JRE})
+
+
+def project_sha256(project: Path) -> str:
+    """Hash of the generated project as re-built here (``target/`` excluded)."""
+    digest = hashlib.sha256()
+    for f in sorted(project.rglob("*")):
+        rel = f.relative_to(project)
+        if f.is_file() and "target" not in rel.parts[:1]:
+            digest.update(rel.as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return "sha256:" + digest.hexdigest()
 
 
 #: Sandbox flags for every container this script starts (its own copy: the
@@ -236,7 +273,11 @@ def run_java(project: Path, work: Path) -> dict:
                timeout=900)
     if b.returncode != 0:
         return {"build_error": (b.stdout + b.stderr)[-1500:].decode(errors="replace")}
-    jar = next(jars.glob("*.jar")).name
+    built = sorted(jars.glob("*.jar"))
+    if len(built) != 1:
+        # Which jar ran must never depend on directory order.
+        return {"build_error": f"expected exactly one jar, found {[j.name for j in built]}"}
+    jar = built[0].name
     run = work / "jrun"
     (run / "output").mkdir(parents=True)
     for d in (run, run / "output"):
@@ -276,6 +317,7 @@ def _release(work: Path) -> None:
 
 
 def main() -> None:
+    _pin_images()
     done = set()
     if OUT.exists():
         done = {json.loads(line)["app"] for line in OUT.read_text().splitlines() if line.strip()}
@@ -285,7 +327,8 @@ def main() -> None:
         app = r["app"]
         if r.get("verdict") != "VERIFIED" or app in done or (wanted and app not in wanted):
             continue
-        rec = {"app": app}
+        rec = {"app": app, "images": dict(IMAGES),
+               "project_sha256": project_sha256(Path(r["generated_app_path"]))}
         tmp = tempfile.mkdtemp()
         try:
             o = run_cobol(REPO / "fixtures" / app / "cobol", Path(tmp))

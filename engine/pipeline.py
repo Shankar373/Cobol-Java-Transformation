@@ -25,6 +25,7 @@ import json
 import os
 import re
 import tempfile
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -968,7 +969,13 @@ class VerticalSlicePipeline:
         VALIDATING_EVIDENCE) as each phase STARTS. It changes nothing
         about execution, comparison, evidence, or verdict semantics.
         """
-        run_id = RunId(value=f"run-{self._config.workload_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
+        # A random suffix keeps concurrent runs of one workload in the same
+        # second apart: they shared execution and artifact ids, weakening
+        # the cross-run replay binding (audit V14).
+        run_id = RunId(
+            value=f"run-{self._config.workload_id}-"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+        )
         workload_id = WorkloadId(value=self._config.workload_id)
 
         source_identity = self._compute_source_identity()
@@ -1018,7 +1025,8 @@ class VerticalSlicePipeline:
                 )
         else:
             # A build that could not run (infrastructure) is an execution
-            # error -> UNAVAILABLE; a build that ran and failed is the
+            # error -> ERROR (derivation checks errors first); a build that
+            # ran and failed is the
             # program's fault -> compared as a nonzero exit -> FAILED.
             infrastructure = getattr(compilation, "infrastructure_error", False)
             candidate_result = CandidateExecutionResult(

@@ -168,7 +168,6 @@ class TestCapabilityAnalysis:
         assert statement_types == classified_types
         assert ir.PerformStatement in STATEMENT_CAPABILITY_SUPPORTED
         assert ir.UnstringStatement in STATEMENT_CAPABILITY_SUPPORTED
-        assert ir.PerformTimesStatement in STATEMENT_CAPABILITY_UNSUPPORTED
         assert ir.GoToStatement in STATEMENT_CAPABILITY_UNSUPPORTED
 
     def test_report_to_dict(self):

@@ -51,6 +51,7 @@ from engine.transformation.java_ir import (
     JavaIf,
     JavaLiteral,
     JavaMethodCall,
+    JavaVariableRef,
 )
 from engine.transformation.semantic_capability import (
     IR_TYPE_TO_CONSTRUCT,
@@ -463,8 +464,12 @@ MAIN-PARA.
         ]
         assert any("MULTIPLE FILES" in d.message.upper() for d in warnings)
 
-    def test_sequential_rewrite_fails_closed_with_status_23(self):
-        """Sequential REWRITE has no CobolFileIo path: status 23, no silence."""
+    def test_sequential_rewrite_fails_closed(self):
+        """Sequential REWRITE has no CobolFileIo path: an unresolvable symbol.
+
+        It used to set status 23 in compilable Java, blocked only by the
+        capability analyzer (audit T12); generation itself now fails closed.
+        """
         source = """IDENTIFICATION DIVISION.
 PROGRAM-ID. T.
 ENVIRONMENT DIVISION.
@@ -490,11 +495,12 @@ MAIN-PARA.
         program = CobolParser().parse(source)
         java_program = map_cobol_program_to_java(program)
         nodes = _walk_java(java_program.java_class.methods)
-        assigns_23 = [
-            n for n in nodes
-            if isinstance(n, JavaAssignment) and "23" in _literal_values(n.expression)
+        symbols = [
+            n.expression.name for n in nodes
+            if isinstance(n, JavaAssignment) and isinstance(n.expression, JavaVariableRef)
+            and "$" in n.expression.name
         ]
-        assert assigns_23, "sequential REWRITE must surface status 23"
+        assert any("SEQUENTIAL_REWRITE" in s for s in symbols), symbols
         calls = [
             n for n in nodes
             if isinstance(n, JavaMethodCall) and n.method_name == "rewrite"

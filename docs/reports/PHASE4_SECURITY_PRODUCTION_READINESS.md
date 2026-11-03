@@ -72,10 +72,10 @@ Severity: P1 high, P2 medium, P3 low (no P0 found).
 | Rate-limit values; evidence TTL (BL-113); cancellation (BL-115) | **owner decisions** (D-7, D-8) | defaults set for rate limits only |
 | Metrics, alerting, error tracking | **owner decision** | choice of stack; logs are structured JSON with request ids |
 | Total disk quota for sandbox staging | operator | own filesystem or quota for `SANDBOX_HOST_STAGING_DIR` |
-| uvicorn trusts forwarded headers from all RFC1918 ranges | open (P3) | narrowing needs the deployment's proxy network range |
-| Production image includes test-only packages (pytest, Pygments) | open (P3) | needs a separate runtime lock |
+| uvicorn trusts forwarded headers from all RFC1918 ranges | **fixed** (full audit F12, 2026-11-03) | nginx has a fixed edge address (`NGINX_EDGE_IP`, default 172.30.250.10) and the API trusts `X-Forwarded-For` from it only (`FORWARDED_ALLOW_IPS`) |
+| Production image includes test-only packages (pytest, Pygments) | **fixed** (architecture audit D4) | `requirements.lock` is the runtime closure the image installs; test tooling lives in `requirements-dev.lock` |
 | 58 tracked evidence files contain a developer's local paths | open (P3) | low sensitivity; untracking or a history rewrite is the owner's call |
-| `engine/execution/docker_runner.py` (deprecated, no importers, allows bridge networking) | deferred to the architecture audit (D1) | unreachable; removal is scheduled there |
+| `engine/execution/docker_runner.py` (deprecated, no importers, allows bridge networking) | **removed** (architecture audit D1, `dea48c6`) | — |
 
 ### First image scan (supply-chain run 41468080031, `5cabbb9`)
 

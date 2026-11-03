@@ -11,6 +11,18 @@ Lifecycle/persistence/API security hardening has since been applied on top of th
 
 ## Open material issues
 
+### Full-audit limitations kept by decision (2026-11-03)
+
+- **Non-ASCII data in `PIC X` (audit T17).** GnuCOBOL counts bytes; the
+  generated Java holds `PIC X` fields as Java strings (characters). Input or
+  data with multi-byte characters (ACCEPT, MOVE, file records) is outside
+  the certified subset: such a run shows a mismatch, never a false VERIFIED.
+- **Oracle compile and run share one timeout (audit V16).** A very slow
+  `cobc` compile counts against the program's time limit and derives ERROR
+  (fail closed). Splitting the budgets needs either a second container per
+  oracle run or an in-container watchdog that keeps stdin for ACCEPT; both
+  change the ground-truth component, so the split is deferred.
+
 > **Reconciliation note (BL-120, 2026-10-21 universal requirements audit):** the two
 > `P0` headings below are Master README §54 **high-risk areas**, not filed P0 defects.
 > Under the §77 priority contract a P0 is an *item* with incorrect business semantics,

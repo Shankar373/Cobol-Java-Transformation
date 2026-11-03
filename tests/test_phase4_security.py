@@ -559,3 +559,88 @@ class TestAuditApiFollowUps:
         assert result.discovery_success is False
         messages = " ".join(e["message"] for e in result.discovery_errors)
         assert "BAD.cob" in messages and str(tmp_path) not in messages
+
+    def test_verdict_and_artifacts_are_redacted_in_production(self, tmp_path, monkeypatch):
+        # F4: only run errors went through _public; verdict differences,
+        # comparison details and artifact metadata did not.
+        from fastapi.testclient import TestClient
+
+        import api.app as app_module
+
+        root = tmp_path / "workspaces"
+        leaked = str(root / "pipeline-output-x" / "Main.java")
+        monkeypatch.setenv("CONTROL_PLANE_WORKSPACE_DIR", str(root))
+        monkeypatch.setenv("CONTROL_PLANE_ENV", "production")
+        monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", _TOKEN)
+        svc = app_module._svc()
+        monkeypatch.setattr(svc, "get_verdict", lambda run_id: {
+            "run_id": run_id, "state": "FAILED", "workload_id": "w",
+            "source_hash": "s", "oracle_id": "o", "oracle_digest": "d",
+            "executed_check_count": 1, "skipped_count": 0, "unavailable_count": 0,
+            "supported_scope_statement": "scope", "evidence_manifest_hash": "h",
+            "derivation_timestamp": "t", "differences": ["differs in " + leaked],
+        })
+        monkeypatch.setattr(svc, "get_comparisons", lambda run_id: [{
+            "comparison_id": "c", "comparator_id": "x", "artifact_type": "STDOUT",
+            "result": "MISMATCH", "differences": ["see " + leaked],
+        }])
+        monkeypatch.setattr(svc, "get_artifacts", lambda run_id: [{
+            "artifact_id": "a", "artifact_type": "TEXT_FILE", "logical_name": leaked,
+            "producer_role": "CANDIDATE", "content_hash": "h", "size_bytes": 1,
+        }])
+        client = TestClient(app_module.app)
+        headers = {"Authorization": f"Bearer {_TOKEN}"}
+        for path in ("/runs/run-f4/verdict", "/runs/run-f4/artifacts"):
+            body = client.get(path, headers=headers).text
+            assert str(root) not in body and root.as_posix() not in body, (path, body)
+            assert "<server>" in body, (path, body)
+
+    def test_source_cannot_be_replaced_while_a_run_is_in_progress(self, monkeypatch):
+        # F5: re-ingest / re-upload deleted the source directory an
+        # in-flight pipeline was still reading.
+        import uuid
+
+        from api.errors import ConflictError
+        from api.models import RunStage
+        from api.service import Service
+        from api.store import ApplicationRecord, RunRecord, Store
+
+        monkeypatch.delenv("CONTROL_PLANE_ENV", raising=False)
+        store = Store()
+        svc = Service(store)
+        suffix = uuid.uuid4().hex[:8]
+        store.add_application(ApplicationRecord(
+            id="app-f5-" + suffix, name="f5-" + suffix, description="",
+            workload_id="wl-f5", java_entrypoint="",
+        ))
+        store.add_run(RunRecord(
+            id="run-f5-" + suffix, application_id="app-f5-" + suffix,
+            workload_id="wl-f5", stage=RunStage.TRANSFORMING,
+        ))
+        with pytest.raises(ConflictError, match="in progress"):
+            svc.upload_cobol_source("app-f5-" + suffix, {"A.cob": b"x"})
+        with pytest.raises(ConflictError, match="in progress"):
+            svc.ingest_application("app-f5-" + suffix, b"PK", "a.zip")
+
+    def test_stale_worker_cannot_overwrite_the_seal(self):
+        # F10: set_generated_seal had no validation_generation guard.
+        import uuid
+
+        from api.errors import ConflictError
+        from api.models import RunStage
+        from api.store import ApplicationRecord, RunRecord, Store
+
+        store = Store()
+        suffix = uuid.uuid4().hex[:8]
+        store.add_application(ApplicationRecord(
+            id="app-f10-" + suffix, name="f10-" + suffix, description="",
+            workload_id="w", java_entrypoint="",
+        ))
+        store.add_run(RunRecord(
+            id="run-f10-" + suffix, application_id="app-f10-" + suffix,
+            workload_id="w", stage=RunStage.COMPLETED,
+        ))
+        store.set_generated_seal("run-f10-" + suffix, "SEAL-0", expected_generation=0)
+        with pytest.raises(ConflictError, match="stale seal"):
+            store.set_generated_seal("run-f10-" + suffix, "SEAL-OLD", expected_generation=-1)
+        assert store.get_run("run-f10-" + suffix).generated_seal == "SEAL-0"

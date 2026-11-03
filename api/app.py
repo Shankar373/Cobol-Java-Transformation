@@ -16,7 +16,11 @@ Endpoints:
   POST   /runs/{id}/validate                     — re-run validation (async)
   GET    /runs/{id}/verdict                      — verdict
   GET    /runs/{id}/report                       — modernization report
+  GET    /runs/{id}/integrated-proof             — integrated proof status
+  GET    /runs/{id}/approval                     — approval state + history
+  POST   /runs/{id}/approval                     — approve (VERIFIED only) or reject
   GET    /runs/{id}/download                     — download generated ZIP
+                                                   (APPROVED + re-verified)
   GET    /health                                 — liveness probe
   GET    /ready                                  — readiness probe (503 when
                                                    a gating dependency is down)
@@ -959,18 +963,20 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
     from api.ingestion import discover_application
     discovery = discover_application(Path(app.cobol_source_path), app_id)
 
+    # Every response body is redacted in production, not only run errors
+    # (audit F4).
     return DiscoveryResponse(
         application_id=app_id,
-        cobol_programs=discovery.cobol_programs,
-        copybooks=discovery.copybooks,
-        jcl_jobs=discovery.jcl_jobs,
-        file_dependencies=discovery.file_dependencies,
-        call_dependencies=discovery.call_dependencies,
-        dependency_edges=discovery.dependency_edges,
+        cobol_programs=_public(discovery.cobol_programs),
+        copybooks=_public(discovery.copybooks),
+        jcl_jobs=_public(discovery.jcl_jobs),
+        file_dependencies=_public(discovery.file_dependencies),
+        call_dependencies=_public(discovery.call_dependencies),
+        dependency_edges=_public(discovery.dependency_edges),
         source_file_count=discovery.source_file_count,
         total_size_bytes=discovery.total_size_bytes,
         discovery_success=discovery.discovery_success,
-        discovery_errors=discovery.discovery_errors,
+        discovery_errors=_public(discovery.discovery_errors),
     )
 
 
@@ -1016,7 +1022,7 @@ def get_run_artifacts(run_id: str) -> ArtifactsResponse:
 
     return ArtifactsResponse(
         run_id=run_id,
-        artifacts=[ArtifactMetadata(**a) for a in artifacts],
+        artifacts=[ArtifactMetadata(**a) for a in _public(artifacts)],
     )
 
 
@@ -1083,7 +1089,7 @@ def get_run_verdict(run_id: str) -> VerdictResponse:
     v = _svc().get_verdict(run_id)
     comparisons_raw = _svc().get_comparisons(run_id)
 
-    comparisons = [ComparisonDetail(**c) for c in comparisons_raw]
+    comparisons = [ComparisonDetail(**c) for c in _public(comparisons_raw)]
     contract_id = v.get("certification_contract")
 
     return VerdictResponse(
@@ -1101,7 +1107,7 @@ def get_run_verdict(run_id: str) -> VerdictResponse:
         supported_scope_statement=v["supported_scope_statement"],
         evidence_manifest_hash=v["evidence_manifest_hash"],
         derivation_timestamp=v["derivation_timestamp"],
-        differences=v.get("differences", []),
+        differences=_public(v.get("differences", [])),
         comparisons=comparisons,
         certification_contract=contract_id,
         contract_source=_contract_source(contract_id),
@@ -1160,8 +1166,8 @@ def get_run_integrated_proof(run_id: str) -> IntegratedProofResponse:
             generation_success=bool(p.get("generation_success", False)),
             overall_capability=p.get("overall_capability", "UNKNOWN"),
             jcl_status=p.get("jcl_status", "NOT_PRESENT"),
-            runtime=p.get("runtime", {}),
-            dependency_ledger=p.get("dependency_ledger", []),
+            runtime=_public(p.get("runtime", {})),
+            dependency_ledger=_public(p.get("dependency_ledger", [])),
             required_dependencies=p.get(
                 "required_dependencies",
                 [e for e in p.get("dependency_ledger", []) if e.get("required", False)],

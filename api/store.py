@@ -774,22 +774,42 @@ class Store:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def set_generated_seal(self, run_id: str, seal: str) -> None:
+    def set_generated_seal(
+        self, run_id: str, seal: str, *, expected_generation: int | None = None
+    ) -> None:
         """Persist the sealed bundle evidence for a run (P0).
 
         Written by the same worker that produced the generated
         application; ``update_run`` deliberately never rewrites this
-        column (see :class:`RunRecord`), so a stale worker from an older
-        validation attempt cannot clobber the seal of a newer one.
+        column (see :class:`RunRecord`).  With ``expected_generation`` the
+        write is bound to that validation attempt, like ``update_run``: a
+        stale worker from an older attempt gets :class:`ConflictError`
+        instead of clobbering the seal of a newer one (audit F10 - the
+        docstring promised this before the write enforced it).
         Raises :class:`NotFoundError` for unknown runs.
         """
         with self._lock:
-            cursor = self._conn.execute(
-                "UPDATE runs SET generated_seal = ? WHERE id = ?",
-                (seal, run_id),
-            )
+            if expected_generation is None:
+                cursor = self._conn.execute(
+                    "UPDATE runs SET generated_seal = ? WHERE id = ?",
+                    (seal, run_id),
+                )
+            else:
+                cursor = self._conn.execute(
+                    "UPDATE runs SET generated_seal = ?"
+                    " WHERE id = ? AND validation_generation = ?",
+                    (seal, run_id, int(expected_generation)),
+                )
             if cursor.rowcount == 0:
-                raise NotFoundError(f"Run {run_id!r} not found")
+                exists = self._conn.execute(
+                    "SELECT 1 FROM runs WHERE id = ?", (run_id,)
+                ).fetchone()
+                if exists is None:
+                    raise NotFoundError(f"Run {run_id!r} not found")
+                raise ConflictError(
+                    f"Run {run_id!r} was reset by a newer validation"
+                    " attempt; discarding stale seal"
+                )
             self._conn.commit()
 
     def begin_revalidation(

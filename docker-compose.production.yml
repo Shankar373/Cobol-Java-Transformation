@@ -41,6 +41,8 @@ services:
       # the API itself refuses to start without a token and answers 401 for
       # every unauthenticated request — independent of this compose guard.
       CONTROL_PLANE_ENV: production
+      # Trust X-Forwarded-For only from the nginx edge address (audit F12).
+      FORWARDED_ALLOW_IPS: ${NGINX_EDGE_IP:-172.30.250.10}
       # The GnuCOBOL oracle is pinned to the image this deployment built
       # (audit V5): start-production.sh resolves the digest; the API refuses
       # to start without it and the engine refuses any other image.
@@ -155,7 +157,9 @@ services:
       # Optional: prebuilt frontend (npm run build output) served as static files.
       - ${FRONTEND_DIST_PATH:-./frontend/dist}:/usr/share/nginx/html:ro
     networks:
-      - edge
+      edge:
+        # Fixed so the API can trust X-Forwarded-For from this address only.
+        ipv4_address: ${NGINX_EDGE_IP:-172.30.250.10}
     # Flat mem_limit: enforced without swarm mode.
     mem_limit: 256m
     # Least privilege for the nginx master (binds :443, then drops to the
@@ -185,6 +189,11 @@ services:
 networks:
   edge:
     name: systemaops-edge
+    ipam:
+      config:
+        # Override EDGE_SUBNET / NGINX_EDGE_IP together if this range is
+        # already used on the host.
+        - subnet: ${EDGE_SUBNET:-172.30.250.0/24}
   # Separate network object documents that sandbox containers run on the
   # host daemon with --network none (they are NOT attached here).
   sandbox-calls:

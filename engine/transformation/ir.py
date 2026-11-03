@@ -610,17 +610,6 @@ class PerformStatement:
 
 
 @dataclass(frozen=True)
-class PerformTimesStatement:
-    """PERFORM paragraph-name VARYING ... FROM ... BY ... UNTIL ... TIMES."""
-    paragraph_name: str
-    varying_var: str | None = None
-    from_value: str | None = None
-    by_value: str | None = None
-    until_condition: str | None = None
-    times: int | None = None
-
-
-@dataclass(frozen=True)
 class UnstringStatement:
     """UNSTRING source DELIMITED BY delimiter INTO targets.
 
@@ -789,7 +778,6 @@ Statement = (
     | DivideStatement
     | IfStatement
     | PerformStatement
-    | PerformTimesStatement
     | UnstringStatement
     | StringStatement
     | DisplayStatement

@@ -104,8 +104,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # uvicorn). One worker: the store is SQLite (single-writer) and background
 # jobs are in-process daemon threads — do NOT scale workers/replicas
 # without replacing the job queue (documented gap).
+# X-Forwarded-For is trusted only from the address uvicorn reads in
+# FORWARDED_ALLOW_IPS: docker-compose.production.yml pins nginx to one edge
+# address and passes exactly that.  The former 10/8, 172.16/12, 192.168/16
+# trusted any private-network peer to rewrite the client address in the
+# auth.failed audit log (audit F12).  The default trusts only loopback.
+ENV FORWARDED_ALLOW_IPS=127.0.0.1
 CMD ["python", "-m", "uvicorn", "api.app:app", \
      "--host", "0.0.0.0", "--port", "8000", \
      "--workers", "1", \
-     "--proxy-headers", \
-     "--forwarded-allow-ips", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]
+     "--proxy-headers"]

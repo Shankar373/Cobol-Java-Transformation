@@ -28,7 +28,7 @@ re-queueing them — that is the documented durability trade-off
 | Area | Status | Evidence / location |
 |---|---|---|
 | API image (non-root, pinned base, 1 worker) | Ready | `Dockerfile.production` |
-| Sandbox isolation (`--network none`, caps, ro mounts, tmpfs) | Ready (engine-enforced) | `engine/execution/docker_runner.py`, `engine/candidate/docker_*_adapter.py`, `engine/oracle/docker_adapter.py` |
+| Sandbox isolation (`--network none`, caps, ro mounts, tmpfs) | Ready (engine-enforced) | `engine/candidate/docker_*_adapter.py`, `engine/oracle/docker_adapter.py` |
 | Reverse proxy + TLS termination | Ready (config) — certs provisioned out of band | `deployment/nginx/systemaops.conf` |
 | Bearer auth (32-char production token floor), security headers, CORS deny-by-default, upload budgets | Ready (app-enforced) | `api/app.py` |
 | Liveness probe (`/health`, no auth) | Ready | nginx `healthcheck` → TLS `/health`, nginx `location = /health` |

@@ -306,8 +306,14 @@ class JavaThrow(JavaStatement):
 
 @dataclass(frozen=True)
 class JavaBlock(JavaStatement):
-    """A block of statements."""
+    """A block of statements.
+
+    ``scoped`` renders it as a Java ``{ ... }`` block, so locals declared
+    inside (e.g. one UNSTRING's temporaries) cannot collide with another
+    statement's (audit T7).
+    """
     statements: tuple[JavaStatement, ...] = ()
+    scoped: bool = False
 
 
 @dataclass(frozen=True)

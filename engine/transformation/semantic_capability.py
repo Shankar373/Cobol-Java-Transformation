@@ -41,7 +41,6 @@ from engine.transformation.ir import (
     MultiplyStatement,
     OpenStatement,
     PerformStatement,
-    PerformTimesStatement,
     ReadStatement,
     RewriteStatement,
     StartStatement,
@@ -219,10 +218,6 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         # the program was dropped by the parser, so the mapper will never see
         # it — absence of IR proves this instance is not transformable.
         source_only=CapabilityLevel.UNSUPPORTED,
-    ),
-    "PERFORM TIMES IR": _unsupported(
-        "PerformTimesStatement legacy IR node is not implemented by the "
-        "deterministic mapper"
     ),
     "EVALUATE": _supported(
         "EVALUATE is lowered to IfStatement by CobolParser and mapped "
@@ -544,7 +539,6 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     MultiplyStatement.__name__: "MULTIPLY",
     OpenStatement.__name__: "OPEN",
     PerformStatement.__name__: "PERFORM",
-    PerformTimesStatement.__name__: "PERFORM TIMES IR",
     ReadStatement.__name__: "READ",
     RewriteStatement.__name__: "REWRITE",
     SetConditionStatement.__name__: "SET CONDITION TO TRUE",
@@ -700,18 +694,34 @@ def ir_covers(source_key: str, ir_keys: set[str]) -> bool:
     return any(key in ir_keys for key in CONSTRUCT_IR_COVERAGE.get(source_key, ()))
 
 
+_QUOTED_LITERAL = re.compile("'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"")
+
+
 def _strip_literals_and_comments(source: str) -> str:
-    """Remove comments and quoted literals before keyword scanning."""
+    """Remove comments and quoted literals before keyword scanning.
+
+    Reads the text the compiler reads (audit T13): fixed format keeps
+    columns 1-72 and treats a column-7 ``*``, ``/`` or ``D`` as a comment
+    line whatever columns 1-6 hold (``000100* SORT ...`` used to be scanned
+    as code); ``*>`` starts a comment in both formats; literals use COBOL's
+    doubled-quote escape (the old pattern looked for backslash escapes).
+    """
+    from engine.transformation.source_format import (
+        compiler_visible_text,
+        detect_source_format,
+    )
+
+    fixed = detect_source_format(source) == "fixed"
     kept: list[str] = []
-    for line in source.splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("*") or stripped.startswith("/"):
+    for line in compiler_visible_text(source).splitlines():
+        if fixed and len(line) > 6 and line[6] in "*/Dd":
             continue
-        without_literals = re.sub(
-            r"""'(?:''|[^'])*'|"(?:\\\"\\\"|[^"])*" """.strip(),
-            " ",
-            line,
-        )
+        if line.lstrip().startswith("*>") or (not fixed and line.lstrip()[:1] == "*"):
+            continue
+        without_literals = _QUOTED_LITERAL.sub(" ", line)
+        marker = without_literals.find("*>")
+        if marker >= 0:
+            without_literals = without_literals[:marker]
         kept.append(without_literals)
     return "\n".join(kept)
 

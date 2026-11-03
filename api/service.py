@@ -65,7 +65,7 @@ from api.errors import (
 )
 from api.models import RunStage
 from api.paths import new_workspace
-from api.store import ApplicationRecord, RunRecord, Store
+from api.store import TERMINAL_STAGES, ApplicationRecord, RunRecord, Store
 from api.workload_contract import resolve_certification_contract
 from engine import docker_cli
 from engine.domain.identities import VerdictState
@@ -510,10 +510,28 @@ class Service:
             raise NotFoundError(f"Application {app_id!r} not found")
         return rec
 
+    def _refuse_while_run_active(self, app_id: str, action: str) -> None:
+        """409 when a run of this application is still in progress.
+
+        Replacing the sources deletes the previous source directory, which
+        an in-flight pipeline may still be reading: the run then failed for
+        a reason unrelated to the program (audit F5).
+        """
+        active = [
+            run.id for run in self._store.list_runs_for_application(app_id)
+            if run.stage not in TERMINAL_STAGES
+        ]
+        if active:
+            raise ConflictError(
+                f"Cannot {action} while run {active[0]} is in progress; "
+                "wait for it to complete or fail"
+            )
+
     def ingest_application(self, app_id: str, data: bytes, zip_filename: str = "") -> dict:
         """Ingest under a job slot: extraction and discovery are CPU and
         disk heavy, so they count against the concurrent job limit (429
         when it is reached) like modernize and revalidate."""
+        self._refuse_while_run_active(app_id, "re-ingest the application")
         self._acquire_job_slot()
         try:
             return self._ingest_application(app_id, data, zip_filename)
@@ -650,6 +668,7 @@ class Service:
         stay distinct); traversal is rejected and colliding paths are an
         explicit error instead of a silent overwrite.
         """
+        self._refuse_while_run_active(app_id, "replace the COBOL source")
         app = self.get_application(app_id)
         # Validate + write the NEW source BEFORE touching the
         # previous directory.  A rejected re-upload (traversal, collision,
@@ -682,6 +701,7 @@ class Service:
             raise ServiceError(
                 "Uploaded Java candidates are disabled in production deployments"
             )
+        self._refuse_while_run_active(app_id, "replace the Java candidate")
         app = self.get_application(app_id)
         # Same write-then-cleanup ordering as the COBOL upload —
         # a rejected re-upload must never destroy the previous candidate.
@@ -1262,7 +1282,9 @@ class Service:
         # one approval and export verify (the validation build adds
         # files such as target/*.jar after this point).
         seal = compute_generated_seal(report.generated_project_dir)
-        self._store.set_generated_seal(run.id, seal)
+        self._store.set_generated_seal(
+            run.id, seal, expected_generation=run.validation_generation
+        )
         run.generated_seal = seal
 
         return Path(report.generated_project_dir), report.generated_entrypoint
@@ -1377,7 +1399,9 @@ class Service:
         # and export; a validation that raises never reaches this seal and
         # keeps the run fail-closed.
         seal = compute_generated_seal(java_dir)
-        self._store.set_generated_seal(run.id, seal)
+        self._store.set_generated_seal(
+            run.id, seal, expected_generation=run.validation_generation
+        )
         run.generated_seal = seal
 
         self._store.update_run(run)

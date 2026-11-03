@@ -376,9 +376,11 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 staged_project = Path(tmpdir) / "project"
                 staged_project.mkdir()
 
-                # Copy all files except target/
+                # Copy all files except the project's build output (top-level
+                # target/ only: a Java package directory named "target" is
+                # source and used to be dropped silently - audit V13).
                 for item in candidate_dir.rglob("*"):
-                    if item.is_file() and "target" not in item.parts:
+                    if item.is_file() and item.relative_to(candidate_dir).parts[0] != "target":
                         rel = item.relative_to(candidate_dir)
                         dest = staged_project / rel
                         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -447,17 +449,38 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                             ),
                         )
 
-                    # Collect produced JAR
+                    # Collect the produced JAR: exactly one, so which jar runs
+                    # never depends on directory order (audit V13).
                     class_files = {}
-                    jar_files = list(output_dir.rglob("*.jar"))
+                    jar_files = sorted(
+                        j for j in output_dir.rglob("*.jar")
+                        if not j.name.endswith(".original")
+                    )
+                    if len(jar_files) > 1:
+                        return CompilationResult(
+                            success=False,
+                            class_files={},
+                            compilation_errors=(
+                                "Maven build produced more than one JAR: "
+                                + ", ".join(j.name for j in jar_files),
+                            ),
+                            compilation_time_ms=int(
+                                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                            ),
+                        )
+                    target_dir = Path(candidate_path) / "target"
+                    if target_dir.is_dir():
+                        # A jar left by an earlier build must not be picked
+                        # up next to this one.
+                        for stale in target_dir.glob("*.jar"):
+                            stale.unlink()
                     for jar in jar_files:
-                        if jar.name.endswith(".jar") and not jar.name.endswith(".original"):
+                        if jar.name.endswith(".jar"):
                             rel = jar.name
                             # Written by the build container: no link follow.
                             jar_bytes = read_sandbox_file(jar)
                             class_files[rel] = jar_bytes
                             # Write JAR back to candidate_path so execute() can find it
-                            target_dir = Path(candidate_path) / "target"
                             target_dir.mkdir(parents=True, exist_ok=True)
                             (target_dir / jar.name).write_bytes(jar_bytes)
 
@@ -571,11 +594,30 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
 
                 compiled_dir = Path(compiled_path)
                 jar_name = None
-                for f in compiled_dir.rglob("*.jar"):
-                    if not f.name.endswith(".original"):
-                        dest = staged_jars / f.name
-                        dest.write_bytes(f.read_bytes())
-                        jar_name = f.name
+                candidates = sorted(
+                    f for f in compiled_dir.rglob("*.jar")
+                    if not f.name.endswith(".original")
+                )
+                if len(candidates) > 1:
+                    return CandidateExecutionResult(
+                        execution_id=execution_id,
+                        run_id=run_id,
+                        status=AdapterStatus.FAILED,
+                        exit_code=None,
+                        stdout=b"",
+                        stderr=(
+                            "More than one JAR in compiled path; refusing to "
+                            "choose: " + ", ".join(f.name for f in candidates)
+                        ).encode(),
+                        start_time=start_time.isoformat(),
+                        end_time=datetime.now(timezone.utc).isoformat(),
+                        termination_status="error",
+                        timeout_applied=False,
+                    )
+                for f in candidates:
+                    dest = staged_jars / f.name
+                    dest.write_bytes(f.read_bytes())
+                    jar_name = f.name
 
                 if not jar_name:
                     return CandidateExecutionResult(

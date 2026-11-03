@@ -318,8 +318,6 @@ def write_targets(stmt: object) -> tuple[str, ...]:
             if index >= len(modes) or str(modes[index]).upper() == "REFERENCE"
         )
         return _names(by_reference, get("returning"))
-    if name == "PerformTimesStatement":
-        return _names(get("varying_var"))
     # Unknown verb: every name-like attribute counts as written.
     fields = getattr(stmt, "__dataclass_fields__", None) or vars(stmt)
     return _names(*(getattr(stmt, attr, None) for attr in fields))
