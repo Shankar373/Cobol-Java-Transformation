@@ -4,12 +4,10 @@
  * All HTTP communication lives here.  Pages/components import this
  * module and call its functions — they never fetch directly.
  *
- * Backend API:
+ * Backend calls made by this client (api/app.py has the full list):
  *   GET    /applications
  *   POST   /applications
  *   GET    /applications/{id}
- *   POST   /applications/{id}/upload
- *   POST   /applications/{id}/candidate (internal/test-only; never used by UI)
  *   POST   /applications/{id}/ingest
  *   GET    /applications/{id}/discovery
  *   POST   /applications/{id}/modernize
@@ -17,12 +15,18 @@
  *   GET    /runs/{id}
  *   GET    /runs/{id}/detail
  *   GET    /runs/{id}/artifacts
+ *   GET    /runs/{id}/report
+ *   GET    /runs/{id}/integrated-proof
  *   POST   /runs/{id}/validate
  *   GET    /runs/{id}/verdict
  *   GET    /runs/{id}/approval      (the customer's approval record)
  *   POST   /runs/{id}/approval      (record APPROVED/REJECTED decision)
- *   GET    /runs/{id}/download         (generated artifact only; 409 until APPROVED)
- *   GET    /health
+ *   GET    /runs/{id}/download      (generated artifact only; 409 until APPROVED)
+ *   GET    /ready                   (sidebar readiness status)
+ *
+ * Not used by the UI: POST /applications/{id}/upload and
+ * POST /applications/{id}/candidate (internal/test-only; refused in
+ * production), GET /health (probe).
  */
 
 const BASE = '';
@@ -75,6 +79,15 @@ export function setApiToken(token: string | null): void {
   }
 }
 
+/** True when a token entered in this browser is stored (sign-out clears it). */
+export function hasStoredApiToken(): boolean {
+  try {
+    return Boolean(localStorage.getItem(TOKEN_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
 /** Attach the Authorization header when a token is configured. */
 function withAuth(init?: RequestInit): RequestInit | undefined {
   const token = getApiToken();
@@ -116,7 +129,17 @@ export interface ApplicationCreate {
   description?: string;
   workload_id: string;
   java_entrypoint?: string;
+  /** spring_boot (default), plain_java, quarkus or micronaut (audit FE-08). */
+  target_runtime?: string;
 }
+
+/** Runtimes certified on the corpus (docs/RUNTIME_ADAPTERS.md). */
+export const CERTIFIED_RUNTIMES: { value: string; label: string }[] = [
+  { value: 'spring_boot', label: 'Spring Boot' },
+  { value: 'plain_java', label: 'Plain Java' },
+  { value: 'quarkus', label: 'Quarkus (command mode)' },
+  { value: 'micronaut', label: 'Micronaut (command mode)' },
+];
 
 export interface ApplicationResponse {
   id: string;
@@ -309,6 +332,9 @@ export interface VerdictResponse {
   derivation_timestamp: string;
   differences: string[];
   comparisons: ComparisonDetail[];
+  /** Contract the run was certified under (api/models.py VerdictResponse). */
+  certification_contract?: string | null;
+  contract_source?: string | null;
 }
 
 
@@ -410,6 +436,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
+
+/** POST /runs/{id}/validate - re-run validation of a finished run (202). */
+export async function revalidateRun(runId: string): Promise<{ run_id: string; stage: string }> {
+  return request<{ run_id: string; stage: string }>(`/runs/${runId}/validate`, {
+    method: 'POST',
+  });
+}
 
 export interface ReadinessResponse {
   status: string;

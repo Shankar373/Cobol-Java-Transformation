@@ -225,7 +225,7 @@ describe('ModernizationRun discovery', () => {
     expect(screen.getByText(/Run ID: run-1/)).toBeInTheDocument();
     // No download on failure — only the generated artifact may be served.
     expect(
-      screen.queryByText('Download Generated Spring Boot Application'),
+      screen.queryByText('Download Generated Java Application'),
     ).not.toBeInTheDocument();
   });
 });
@@ -324,7 +324,7 @@ describe('ModernizationRun download', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText('Download Generated Spring Boot Application'),
+        screen.getByText('Download Generated Java Application'),
       ).toBeInTheDocument(),
     );
     expect(screen.queryByText(/java candidate/i)).not.toBeInTheDocument();
@@ -348,7 +348,7 @@ describe('ModernizationRun download', () => {
     });
 
     render(<ModernizationRun runId="run-1" applicationId="app-1" />);
-    const btn = await screen.findByText('Download Generated Spring Boot Application');
+    const btn = await screen.findByText('Download Generated Java Application');
     fireEvent.click(btn);
 
     await waitFor(() => expect(mockDownload).toHaveBeenCalledWith('run-1'));

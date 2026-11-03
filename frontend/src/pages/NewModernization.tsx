@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { tokens } from '../theme/tokens';
 import { PageContainer, Button, Header } from '../components';
 import { IconFile, IconX, IconDownload } from '../components/icons';
+import { CERTIFIED_RUNTIMES } from '../api/client';
 
 interface NewModernizationProps {
   onSubmit: (data: {
@@ -9,6 +10,7 @@ interface NewModernizationProps {
     workloadId: string;
     description: string;
     zipFile: File;
+    targetRuntime: string;
   }) => void;
   loading?: boolean;
   onNavigate?: (page: string, id?: string) => void;
@@ -34,10 +36,14 @@ function formatBytes(bytes: number): string {
 
 type UploadState = 'idle' | 'ready' | 'processing' | 'error';
 
+/** Same limit as nginx client_max_body_size / CONTROL_PLANE_MAX_REQUEST_BYTES. */
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
 export function NewModernization({ onSubmit, loading, onNavigate }: NewModernizationProps) {
   const [name, setName] = useState('');
   const [workloadId, setWorkloadId] = useState('');
   const [description, setDescription] = useState('');
+  const [targetRuntime, setTargetRuntime] = useState('spring_boot');
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [zipError, setZipError] = useState<string | null>(null);
   const [nameAutoFilled, setNameAutoFilled] = useState(false);
@@ -56,7 +62,12 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
   const handleFiles = useCallback(
     (files: File[]) => {
       const zip = files.find((f) => f.name.toLowerCase().endsWith('.zip'));
-      if (zip) {
+      if (zip && zip.size > MAX_UPLOAD_BYTES) {
+        // The edge rejects bodies over 50 MB (nginx client_max_body_size);
+        // say so before uploading rather than after (audit FE-17).
+        setZipFile(null);
+        setZipError(`${zip.name} is ${formatBytes(zip.size)}; the upload limit is ${formatBytes(MAX_UPLOAD_BYTES)}.`);
+      } else if (zip) {
         setZipFile(zip);
         setZipError(null);
         if (!nameEditedByUser.current) {
@@ -200,7 +211,13 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
                     onDragLeave={() => setDragging(false)}
                     onDrop={handleDrop}
                     onClick={() => fileInputRef.current?.click()}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        // Space would otherwise also scroll the page (audit FE-17).
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }
+                    }}
                   >
                     <div
                       style={{
@@ -300,6 +317,22 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
               </div>
 
               <div>
+                <label style={labelStyle} htmlFor="target-runtime">
+                  Target runtime
+                </label>
+                <select
+                  id="target-runtime"
+                  style={inputStyle}
+                  value={targetRuntime}
+                  onChange={(e) => setTargetRuntime(e.target.value)}
+                >
+                  {CERTIFIED_RUNTIMES.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label style={labelStyle} htmlFor="description">
                   Description <span style={{ color: tokens.colors.textMuted, fontWeight: 400 }}>(optional)</span>
                 </label>
@@ -327,7 +360,7 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
               size="lg"
               disabled={!canSubmit}
               onClick={() => {
-                if (zipFile) onSubmit({ name, workloadId, description, zipFile });
+                if (zipFile) onSubmit({ name, workloadId, description, zipFile, targetRuntime });
               }}
               style={!canSubmit ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
             >

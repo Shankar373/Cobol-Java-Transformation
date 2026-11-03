@@ -130,6 +130,11 @@ export function ApprovalPanel({ runId, verdictState, onStateChange }: ApprovalPa
         <div style={{ color: tokens.colors.error, fontSize: tokens.font.sizes.sm }}>
           Could not load approval state: {loadError}
         </div>
+        <div style={{ marginTop: 8 }}>
+          <Button variant="secondary" size="sm" onClick={() => void refresh()}>
+            Retry
+          </Button>
+        </div>
       </SectionCard>
     );
   }
@@ -238,6 +243,21 @@ export function ApprovalPanel({ runId, verdictState, onStateChange }: ApprovalPa
             Reject
           </Button>
         </div>
+        {approval.history && approval.history.length > 0 && (
+          <div>
+            <div style={{ ...labelStyle, marginTop: 4 }}>Decision history</div>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: tokens.font.sizes.sm, color: tokens.colors.textSecondary }}>
+              {approval.history.map((event, index) => (
+                <li key={`${event.recorded_at}-${index}`}>
+                  {event.state === 'RESET'
+                    ? 'Reset by a new validation'
+                    : `${event.state}${event.approver ? ` by ${event.approver}` : ''}`}
+                  {event.reason ? ` — ${event.reason}` : ''} ({event.recorded_at})
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
         {!canApprove && (
           <div
             role="note"

@@ -8,8 +8,6 @@ import { SectionCard } from '../components/SectionCard';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
-import { StageIndicator } from '../components/StageIndicator';
-import { FileUpload } from '../components/FileUpload';
 
 describe('Header', () => {
   it('renders brand name', () => {
@@ -113,57 +111,6 @@ describe('EmptyState', () => {
     );
     expect(screen.getByText('Nothing here')).toBeInTheDocument();
     expect(screen.getByText('No items yet')).toBeInTheDocument();
-  });
-});
-
-describe('StageIndicator', () => {
-  it('renders all stages', () => {
-    render(<StageIndicator current="VALIDATING_EVIDENCE" />);
-    expect(screen.getByText('CREATED')).toBeInTheDocument();
-    expect(screen.getByText('TRANSFORMING')).toBeInTheDocument();
-    expect(screen.getByText('VALIDATING_EVIDENCE')).toBeInTheDocument();
-    expect(screen.getByText('COMPLETED')).toBeInTheDocument();
-  });
-
-  it('includes DISCOVERY_COMPLETED as its own step', () => {
-    render(<StageIndicator current="DISCOVERING" />);
-    expect(screen.getByText('DISCOVERY_COMPLETED')).toBeInTheDocument();
-  });
-
-  it('does not render INGESTING as a run stage', () => {
-    render(<StageIndicator current="DISCOVERING" />);
-    expect(screen.queryByText('INGESTING')).not.toBeInTheDocument();
-  });
-
-  it('orders EXECUTING_ORACLE before BUILDING (backend order)', () => {
-    const { container } = render(<StageIndicator current="DISCOVERING" />);
-    const text = container.textContent ?? '';
-    expect(text.indexOf('EXECUTING_ORACLE')).toBeLessThan(text.indexOf('BUILDING'));
-  });
-
-  it('shows error message when failed', () => {
-    render(<StageIndicator current="FAILED" error="Compile error" />);
-    expect(screen.getByText('Compile error')).toBeInTheDocument();
-  });
-});
-
-describe('FileUpload', () => {
-  it('renders drop zone text', () => {
-    render(<FileUpload onFiles={() => {}} />);
-    expect(screen.getByText(/Drop your ZIP archive/)).toBeInTheDocument();
-    expect(screen.getByText(/click to browse/)).toBeInTheDocument();
-  });
-
-  it('has accessible button role', () => {
-    render(<FileUpload onFiles={() => {}} />);
-    const dropzone = screen.getByRole('button', { name: /Upload file/i });
-    expect(dropzone).toBeInTheDocument();
-  });
-
-  it('renders custom label', () => {
-    render(<FileUpload onFiles={() => {}} label="Upload COBOL archive" />);
-    const dropzone = screen.getByRole('button', { name: /Upload COBOL archive/i });
-    expect(dropzone).toBeInTheDocument();
   });
 });
 
@@ -283,6 +230,7 @@ describe('NewModernization auto-fill from ZIP', () => {
       workloadId: 'wl-submit-app',
       description: '',
       zipFile: file,
+      targetRuntime: 'spring_boot',
     });
   });
 });

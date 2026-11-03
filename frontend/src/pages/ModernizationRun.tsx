@@ -44,12 +44,31 @@ import {
   downloadGenerated,
   getIntegratedProof,
   discoveryIssuesMessage,
+  revalidateRun,
+  ApiError,
 } from '../api/client';
 import {
   RUN_STAGES,
   isTerminalStage,
   type IngestSummary,
 } from '../api/stages';
+
+/**
+ * Load an optional terminal resource (audit FE-05). A 404 means the run did
+ * not produce it (FAILED runs have no verdict); any other failure is kept
+ * and shown with a retry instead of looking like "not produced".
+ */
+async function optional<T>(
+  label: string,
+  request: Promise<T>,
+): Promise<{ value: T | null; error: string | null }> {
+  try {
+    return { value: await request, error: null };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return { value: null, error: null };
+    return { value: null, error: `${label}: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
 
 interface ModernizationRunProps {
   runId: string;
@@ -164,9 +183,17 @@ export function ModernizationRun({
   const [pollError, setPollError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [approvalState, setApprovalState] = useState<ApprovalState | null>(null);
+  const [terminalErrors, setTerminalErrors] = useState<string[]>([]);
+  const [revalidating, setRevalidating] = useState(false);
+  const [revalidateError, setRevalidateError] = useState<string | null>(null);
+  // Bumped to restart polling after a revalidation (audit FE-10).
+  const [pollEpoch, setPollEpoch] = useState(0);
+  // The run this view currently shows: a response for an older run id that
+  // resolves late must not overwrite it (audit FE-09).
+  const currentRunRef = useRef(runId);
   const pollFailuresRef = useRef(0);
-  // Last non-terminal stage seen for the current run.  The API has no
-  // "failed at stage" field, so the stepper is anchored on this instead —
+  // Last non-terminal stage seen for the current run (the API also
+  // serves last_stage, used as the fallback anchor) —
   // without it a FAILED run renders every pipeline node as pending.
   const lastStageRef = useRef<RunStage | null>(null);
 
@@ -208,20 +235,65 @@ export function ModernizationRun({
 
   const loadTerminalData = useCallback(async () => {
     const [v, a, d, rd, rpt, ip] = await Promise.all([
-      getVerdict(runId).catch(() => null),
-      getArtifacts(runId).catch(() => null),
+      optional('Verdict', getVerdict(runId)),
+      optional('Artifacts', getArtifacts(runId)),
       // Re-attempt discovery at terminal state in case the early fetch
       // raced ingestion.
-      effectiveAppId ? getDiscovery(effectiveAppId).catch(() => null) : Promise.resolve(null),
-      // Run detail is best-effort enrichment; absence never blocks the view.
-      getRunDetail(runId).catch(() => null),
+      effectiveAppId
+        ? optional('Discovery', getDiscovery(effectiveAppId))
+        : Promise.resolve({ value: null, error: null }),
+      // Run detail is enrichment; absence never blocks the view.
+      optional('Run detail', getRunDetail(runId)),
       // Modernization report (capability analysis, transformation plan).
-      getReport(runId).catch(() => null),
+      optional('Report', getReport(runId)),
       // Integrated proof (dependency ledger + central status).
-      getIntegratedProof(runId).catch(() => null),
+      optional('Integrated proof', getIntegratedProof(runId)),
     ]);
-    return { v, a, d, rd, rpt, ip };
+    const errors = [v, a, d, rd, rpt, ip]
+      .map((r) => r.error)
+      .filter((e): e is string => e !== null);
+    return {
+      v: v.value, a: a.value, d: d.value, rd: rd.value, rpt: rpt.value, ip: ip.value, errors,
+    };
   }, [runId, effectiveAppId]);
+
+  const applyTerminalData = useCallback(
+    (data: Awaited<ReturnType<typeof loadTerminalData>>) => {
+      if (currentRunRef.current !== runId) return;
+      if (data.v) setVerdict(data.v);
+      // Render artifacts only when the backend actually returns them.
+      if (data.a && data.a.artifacts.length > 0) setArtifacts(data.a.artifacts);
+      if (data.d) setDiscovery((prev) => prev ?? data.d);
+      if (data.rd) setDetail((prev) => prev ?? data.rd);
+      if (data.rpt) setReport(data.rpt);
+      if (data.ip) setIntegratedProof(data.ip);
+      setTerminalErrors(data.errors);
+    },
+    [runId],
+  );
+
+  const retryTerminalData = useCallback(async () => {
+    applyTerminalData(await loadTerminalData());
+  }, [applyTerminalData, loadTerminalData]);
+
+  const handleRevalidate = useCallback(async () => {
+    setRevalidating(true);
+    setRevalidateError(null);
+    try {
+      await revalidateRun(runId);
+      // The run returns to CREATED: clear the old results and poll again.
+      setVerdict(null);
+      setArtifacts(null);
+      setReport(null);
+      setIntegratedProof(null);
+      setTerminalErrors([]);
+      setPollEpoch((n) => n + 1);
+    } catch (e) {
+      setRevalidateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRevalidating(false);
+    }
+  }, [runId]);
 
   const hasRunRef = useRef(false);
 
@@ -232,6 +304,7 @@ export function ModernizationRun({
       // it must never fail the poll when the endpoint is unavailable.
       getRunDetail(runId).catch(() => null),
     ]);
+    if (currentRunRef.current !== runId) return true;
     pollFailuresRef.current = 0;
     hasRunRef.current = true;
     setPollFailures(0);
@@ -245,22 +318,11 @@ export function ModernizationRun({
     if (runDetail) setDetail(runDetail);
 
     if (isTerminalStage(runData.stage)) {
-      try {
-        const { v, a, d, rd, rpt, ip } = await loadTerminalData();
-        if (v) setVerdict(v);
-        // Render artifacts only when the backend actually returns them.
-        if (a && a.artifacts.length > 0) setArtifacts(a.artifacts);
-        if (d) setDiscovery((prev) => prev ?? d);
-        if (rd) setDetail((prev) => prev ?? rd);
-        if (rpt) setReport(rpt);
-        if (ip) setIntegratedProof(ip);
-      } catch {
-        // Partial terminal data is acceptable; run state itself is shown.
-      }
+      applyTerminalData(await loadTerminalData());
       return true;
     }
     return false;
-  }, [runId, loadTerminalData]);
+  }, [runId, loadTerminalData, applyTerminalData]);
 
   useEffect(() => {
     let mounted = true;
@@ -268,7 +330,10 @@ export function ModernizationRun({
     // A new run id means a new pipeline: drop every piece of state that
     // belonged to the previous run so a reused component instance can never
     // render stale data (or a stale APPROVED gate) under the new id.
+    currentRunRef.current = runId;
+    hasRunRef.current = false;
     lastStageRef.current = null;
+    setTerminalErrors([]);
     setRun(null);
     setDetail(null);
     setVerdict(null);
@@ -309,7 +374,7 @@ export function ModernizationRun({
       mounted = false;
       if (timer) clearInterval(timer);
     };
-  }, [runId, poll, pollIntervalMs]);
+  }, [pollEpoch, runId, poll, pollIntervalMs]);
 
   const handleRetryPoll = () => {
     pollFailuresRef.current = 0;
@@ -434,7 +499,7 @@ export function ModernizationRun({
   const downloadLabel = downloading
     ? 'Downloading...'
     : approvalState === 'APPROVED'
-      ? 'Download Generated Spring Boot Application'
+      ? 'Download Generated Java Application'
       : `Download (awaiting approval${approvalState === 'REJECTED' ? ' — rejected' : ''})`;
 
   // Evidence-based ingestion display: a stored summary or a discovery
@@ -888,7 +953,7 @@ export function ModernizationRun({
                   </div>
                   <div style={{ marginTop: tokens.spacing.sm, fontSize: tokens.font.sizes.xs, color: tokens.colors.textMuted }}>
                     Per-file sizes are not exposed by the API. The download button serves the complete
-                    generated Spring Boot archive.
+                    generated Java project archive.
                   </div>
                 </>
               ) : (
@@ -921,6 +986,39 @@ export function ModernizationRun({
               verdictState={verdict?.state ?? run.verdict_state ?? null}
               onStateChange={setApprovalState}
             />
+          )}
+
+          {terminalErrors.length > 0 && (
+            <SectionCard title="Some results could not be loaded">
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: tokens.font.sizes.sm, color: tokens.colors.textSecondary }}>
+                {terminalErrors.map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+              <div style={{ marginTop: tokens.spacing.sm }}>
+                <Button variant="secondary" size="sm" onClick={() => void retryTerminalData()}>
+                  Retry loading results
+                </Button>
+              </div>
+            </SectionCard>
+          )}
+
+          {isTerminalStage(run.stage) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleRevalidate()}
+                disabled={revalidating}
+              >
+                {revalidating ? 'Starting validation…' : 'Re-run validation'}
+              </Button>
+              {revalidateError && (
+                <span role="alert" style={{ fontSize: tokens.font.sizes.sm, color: tokens.colors.error }}>
+                  {revalidateError}
+                </span>
+              )}
+            </div>
           )}
 
           {/* Download failures are always shown. The earlier pollError banner

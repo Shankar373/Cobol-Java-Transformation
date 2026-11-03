@@ -36,7 +36,7 @@ const mockGetArtifacts = vi.mocked(getArtifacts);
 const mockGetRunApproval = vi.mocked(getRunApproval);
 const mockDownload = vi.mocked(downloadGenerated);
 
-const APPROVED_LABEL = /download generated spring boot application/i;
+const APPROVED_LABEL = /download generated java application/i;
 const PENDING_LABEL = /download \(awaiting approval\)/i;
 const REJECTED_LABEL = /download \(awaiting approval — rejected\)/i;
 

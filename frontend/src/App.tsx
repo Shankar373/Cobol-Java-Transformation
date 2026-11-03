@@ -10,6 +10,12 @@ import { tokens } from './theme/tokens';
 type Page = 'dashboard' | 'new' | 'run';
 type HistorySource = 'server' | 'session' | 'auth-required';
 
+/** Runs newest first by creation time (audit FE-13: history was in server
+ *  order - grouped by application, oldest first). */
+function newestFirst(runs: RunResponse[]): RunResponse[] {
+  return [...runs].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -88,8 +94,18 @@ export default function App() {
         if (serverRuns.length > 0) {
           setRuns((prev) => {
             const seen = new Set(serverRuns.map((r) => r.id));
-            return [...serverRuns, ...prev.filter((r) => !seen.has(r.id))];
+            return newestFirst([...serverRuns, ...prev.filter((r) => !seen.has(r.id))]);
           });
+          // Runs still in progress after a reload are polled like runs
+          // started in this session (audit FE-06: they stayed frozen).
+          const inFlight = serverRuns.filter((r) => !isTerminalStage(r.stage));
+          if (inFlight.length > 0) {
+            setRunIds((prev) => {
+              const next = new Set(prev);
+              for (const r of inFlight) next.add(r.id);
+              return next;
+            });
+          }
         }
       } catch {
         // Per-app run history is best-effort; applications already loaded.
@@ -118,10 +134,24 @@ export default function App() {
   const handleTokenSubmit = useCallback(
     (token: string) => {
       api.setApiToken(token);
+      setHasToken(true);
       void loadHistory();
     },
     [loadHistory],
   );
+
+  // Sign out forgets the token stored in this browser (audit FE-20) and
+  // drops server history fetched with it.
+  const [hasToken, setHasToken] = useState(() => api.hasStoredApiToken());
+  const handleSignOut = useCallback(() => {
+    api.setApiToken(null);
+    setHasToken(false);
+    setApplications([]);
+    setRuns([]);
+    setRunIds(new Set());
+    setPage('dashboard');
+    void loadHistory();
+  }, [loadHistory]);
 
   // Poll runs that are in-progress
   useEffect(() => {
@@ -162,21 +192,38 @@ export default function App() {
     return () => clearInterval(interval);
   }, [runIds]);
 
+  // The application a failed submit already created, keyed by what was
+  // submitted: retrying the same upload reuses it instead of creating a
+  // duplicate application (audit FE-07).
+  const pendingApp = useRef<{ key: string; app: api.ApplicationResponse } | null>(null);
+
   const handleSubmit = async (data: {
     name: string;
     workloadId: string;
     description: string;
     zipFile: File;
+    targetRuntime?: string;
   }) => {
     setCreating(true);
     setSubmitError(null);
+    const submitKey = [
+      data.name, data.workloadId, data.targetRuntime ?? '', data.zipFile.name,
+      data.zipFile.size, data.zipFile.lastModified,
+    ].join('|');
     try {
-      const app = await api.createApplication({
-        name: data.name,
-        workload_id: data.workloadId,
-        description: data.description,
-      });
-      setApplications((prev) => [...prev, app]);
+      let app: api.ApplicationResponse;
+      if (pendingApp.current && pendingApp.current.key === submitKey) {
+        app = pendingApp.current.app;
+      } else {
+        app = await api.createApplication({
+          name: data.name,
+          workload_id: data.workloadId,
+          description: data.description,
+          ...(data.targetRuntime ? { target_runtime: data.targetRuntime } : {}),
+        });
+        pendingApp.current = { key: submitKey, app };
+        setApplications((prev) => [...prev, app]);
+      }
 
       // Ingest ZIP (runs discovery). Ingestion is synchronous and
       // completes before the modernization run starts.
@@ -197,6 +244,7 @@ export default function App() {
       setRuns((prev) => [run, ...prev]);
       setRunIds((prev) => new Set(prev).add(mod.run_id));
 
+      pendingApp.current = null;
       setSelectedAppId(app.id);
       setSelectedRunId(mod.run_id);
       setPage('run');
@@ -211,7 +259,11 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar currentPage={page} onNavigate={(p, id) => navigate(p, id)} />
+      <Sidebar
+        currentPage={page}
+        onNavigate={(p, id) => navigate(p, id)}
+        onSignOut={hasToken ? handleSignOut : undefined}
+      />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <main style={{ flex: 1 }}>
         {submitError && page === 'new' && (

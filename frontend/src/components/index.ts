@@ -6,8 +6,6 @@ export { SectionCard } from './SectionCard';
 export { ApprovalPanel } from './ApprovalPanel';
 export { Badge } from './Badge';
 export { Button } from './Button';
-export { FileUpload } from './FileUpload';
-export { StageIndicator } from './StageIndicator';
 export { EmptyState } from './EmptyState';
 export { VerdictDisplay } from './VerdictDisplay';
 export { ValidationScope } from './ValidationScope';

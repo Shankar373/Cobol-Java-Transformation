@@ -21,7 +21,6 @@ the lockfile before distribution.
 ## Frontend (frontend/package.json)
 - react — MIT
 - react-dom — MIT
-- react-router-dom — MIT
 - vite — MIT
 - vitest — MIT
 - @testing-library/* — MIT

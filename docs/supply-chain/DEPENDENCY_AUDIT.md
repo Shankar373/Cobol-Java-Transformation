@@ -27,7 +27,8 @@ Guard: `tests/test_phase4_security.py::TestSupplyChainConfiguration`.
 The sections after this one record the 2026-10-08 baseline. Current state:
 
 - **npm:** the 2026-10-08 critical/high set is closed by version —
-  `package.json` now has `vitest ^5.0.3` and `react-router-dom ^7.18.4`;
+  `package.json` now has `vitest ^5.0.3`; `react-router-dom` (never
+  imported) was removed on 2026-11-03 (audit FE-11);
   the lockfile no longer contains `tinypool` and resolves vite 6.4.5,
   esbuild 0.25.12, source-map-js 1.2.2. `npm audit` gates CI (no
   `continue-on-error`) and passed on `7e1a0d1` (supply-chain run

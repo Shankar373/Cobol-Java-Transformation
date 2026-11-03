@@ -74,6 +74,13 @@ The SPA attaches `Authorization: Bearer <token>` to every API call
 3. **Unset** — auth is off (dev default) and the client sends no
    Authorization header, byte-identical to the pre-auth client.
 
+When the API answers 401 the dashboard asks for the token and stores it as
+the runtime override (1). That copy lives in the browser's `localStorage`,
+readable by any script on the origin (the nginx CSP allows only same-origin
+scripts), so use the UI on trusted machines. **Sign out** in the sidebar
+(shown while a token is stored) removes it and clears the history fetched
+with it; a build-time token (2) cannot be signed out.
+
 There is no login UI and no per-user identity: the token is the same
 deployment-level control documented for the backend (no RBAC — carried
 limitation D-5).

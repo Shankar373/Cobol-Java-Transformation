@@ -15,6 +15,8 @@ export type SidebarPage = 'dashboard' | 'new' | 'run';
 interface SidebarProps {
   currentPage: SidebarPage;
   onNavigate: (page: string, id?: string) => void;
+  /** Shown when a token entered in this browser is stored (audit FE-20). */
+  onSignOut?: () => void;
 }
 
 const NAV_ITEMS: { key: SidebarPage; label: string; icon: React.ReactNode }[] = [
@@ -64,8 +66,12 @@ function NavItem({
     <a
       href="#"
       className="sidebar-nav-item"
-      title={label}
+      title={disabled ? `${label} (not available yet)` : label}
       aria-current={isActive ? 'page' : undefined}
+      // Placeholders (Applications, Runs, Artifacts, Reports) are not
+      // links: out of the tab order and announced as disabled (audit FE-12).
+      aria-disabled={disabled ? true : undefined}
+      tabIndex={disabled ? -1 : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -150,7 +156,7 @@ function statusText(status: SystemStatus): string {
   return 'Status unknown';
 }
 
-export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
+export function Sidebar({ currentPage, onNavigate, onSignOut }: SidebarProps) {
   const activeKey: SidebarPage = currentPage === 'run' ? 'dashboard' : currentPage;
   const systemStatus = useSystemStatus();
   const statusView = STATUS_VIEW[systemStatus.kind];
@@ -279,6 +285,25 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
             </div>
           </div>
         </div>
+        {onSignOut && (
+          <button
+            type="button"
+            className="sidebar-label"
+            onClick={onSignOut}
+            style={{
+              marginTop: 10,
+              background: 'transparent',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              color: '#94a3b8',
+              fontSize: 11,
+              padding: '4px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            Sign out
+          </button>
+        )}
       </div>
     </aside>
   );
