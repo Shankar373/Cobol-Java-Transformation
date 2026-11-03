@@ -35,6 +35,7 @@ WORKING-STORAGE SECTION.
 01 WS-BIG PIC 9(12).
 01 WS-SIGNED PIC S9(4).
 01 WS-DEC PIC 9(4)V99.
+01 WS-SDEC PIC S9(4)V99.
 01 WS-COMP PIC 9(4) COMP.
 01 WS-TAB PIC X(4) OCCURS 5 TIMES.
 01 WS-GROUP.
@@ -98,6 +99,15 @@ class TestCertifiedForms:
         assert "number" in rendered, rendered
         assert "JavaCast" not in rendered, rendered
 
+    def test_decimal_target_calls_cobol_stdin_decimal(self) -> None:
+        # PIC 9(4)V99: integer digits and scale, BigDecimal result (was
+        # UNSUPPORTED_ACCEPT$DECIMAL until the oracle probe pinned it).
+        out = _accept_expr("    ACCEPT WS-DEC.\n")
+        expr = out.expression
+        assert isinstance(expr, JavaMethodCall), expr
+        assert (expr.class_name, expr.method_name) == ("CobolStdin", "decimal")
+        assert [a.value for a in expr.arguments[1:]] == ["4", "2"]
+
     def test_from_console_stdin_sysin_are_certified(self) -> None:
         # FROM STDIN was missing from the alias list and failed closed
         # even though GnuCOBOL reads it from standard input.
@@ -121,9 +131,9 @@ class TestFailClosedForms:
         out = _accept_expr("    ACCEPT WS-SIGNED.\n")
         assert _symbol(out) == "UNSUPPORTED_ACCEPT$SIGNED"
 
-    def test_decimal_numeric_target_is_fail_closed(self) -> None:
-        out = _accept_expr("    ACCEPT WS-DEC.\n")
-        assert _symbol(out) == "UNSUPPORTED_ACCEPT$DECIMAL"
+    def test_signed_decimal_target_is_fail_closed(self) -> None:
+        out = _accept_expr("    ACCEPT WS-SDEC.\n")
+        assert _symbol(out) == "UNSUPPORTED_ACCEPT$SIGNED"
 
     def test_comp_usage_target_is_fail_closed(self) -> None:
         out = _accept_expr("    ACCEPT WS-COMP.\n")

@@ -1083,7 +1083,7 @@ def _accept_fail_closed_symbol(*reasons: str) -> str:
 
     Same fail-closed contract as :func:`_string_fail_closed_symbol`: the
     ``$`` makes the name unresolvable so ``javac`` reports the form
-    (FROM DATE/TIME/..., signed or decimal numeric target, unknown
+    (FROM DATE/TIME/..., signed numeric target, unknown
     target) instead of the program running with a silently wrong field
     value.
     """
@@ -4453,11 +4453,11 @@ def map_cobol_statement(
         # numeric field did not compile at all.
         #
         #   PIC X(n)      -> first n chars, space-padded (EOF: n spaces)
-        #   unsigned PIC 9(n), n <= 18
-        #                 -> GnuCOBOL alphanumeric-to-numeric move of the
-        #                    first n bytes (spaces removed, one leading or
-        #                    trailing sign ignored, anything else zero;
-        #                    EOF: zero)
+        #   unsigned PIC 9(n) / 9(i)V9(s), n = i + s <= 18
+        #                 -> GnuCOBOL's alphanumeric-to-numeric-display
+        #                    move of the first n bytes (CobolStdin.digits;
+        #                    EOF: zero); long/int for PIC 9(n), BigDecimal
+        #                    at scale s for PIC 9(i)V9(s)
         #
         # Everything else fails closed with an unresolvable symbol so
         # javac names the form instead of a wrong value shipping.
@@ -4483,13 +4483,13 @@ def map_cobol_statement(
             or width <= 0
             or (
                 item.is_numeric
-                and (item.signed or item.decimal_places > 0 or width > 18)
+                and (item.signed or width > 18)
             )
         ):
-            # Group/table targets, non-DISPLAY usages, signed or decimal
-            # numeric targets, targets wider than 18 digits (long cannot
-            # hold more) and targets with no declared PIC have no
-            # certified lowering.
+            # Group/table targets, non-DISPLAY usages, signed numeric
+            # targets, targets wider than 18 digits and targets with no
+            # declared PIC have no certified lowering.  (Signed targets
+            # keep the sign GnuCOBOL's move records; that is not proven.)
             reasons = []
             if item is None or width <= 0:
                 reasons.append("TARGET")
@@ -4504,8 +4504,6 @@ def map_cobol_statement(
             if item is not None and item.is_numeric:
                 if item.signed:
                     reasons.append("SIGNED")
-                if item.decimal_places > 0:
-                    reasons.append("DECIMAL")
                 if width > 18:
                     reasons.append("WIDE")
             result.append(JavaAssignment(
@@ -4524,7 +4522,25 @@ def map_cobol_statement(
             width_lit = JavaLiteral(
                 value=str(width), java_type=JavaType(basic_type=JavaBasicType.INT)
             )
-            if item.is_numeric:
+            if item.is_numeric and item.decimal_places > 0:
+                int_lit = JavaLiteral(
+                    value=str(width - item.decimal_places),
+                    java_type=JavaType(basic_type=JavaBasicType.INT),
+                )
+                scale_lit = JavaLiteral(
+                    value=str(item.decimal_places),
+                    java_type=JavaType(basic_type=JavaBasicType.INT),
+                )
+                result.append(JavaAssignment(
+                    target=java_target,
+                    expression=JavaMethodCall(
+                        class_name="CobolStdin",
+                        method_name="decimal",
+                        arguments=(line_call, int_lit, scale_lit),
+                        is_static=True,
+                    ),
+                ))
+            elif item.is_numeric:
                 number_call = JavaMethodCall(
                     class_name="CobolStdin",
                     method_name="number",

@@ -14,7 +14,9 @@ byte for byte for the certified subset:
   n <= 18): the GnuCOBOL alphanumeric-to-numeric move of the first n
   bytes — spaces removed, one leading or trailing sign tolerated (ignored
   for PIC 9), every remaining character a digit, anything else yields
-  zero; EOF yields zero.  Signed/decimal/non-DISPLAY targets fail closed.
+  zero; EOF yields zero.  (Superseded by the libcob move rule below,
+  which also covers unsigned decimal ``PIC 9(i)V9(s)`` targets.)
+  Signed/non-DISPLAY targets fail closed.
 
 Every input line below was first observed directly against the GnuCOBOL
 oracle; the Java side must match it exactly.
@@ -306,3 +308,106 @@ def test_accept_from_device_forms_byte_identical_to_gnucobol(tmp_path: Path) -> 
         tmp_path / "java", ACCEPT_FROM_DEVICES, ACCEPT_FROM_STDIN
     )
     assert cobol_out == java_out, (cobol_out, java_out)
+
+
+# ---------------------------------------------------------------------------
+# Unsigned decimal targets PIC 9(i)V9(s) and the shared conversion rule
+# ---------------------------------------------------------------------------
+#
+# GnuCOBOL 3.1.2 moves the first i+s bytes of the line into the field with
+# its alphanumeric-to-numeric-display move: leading white space and one
+# sign skipped, integer digits right-aligned (excess high-order digits
+# dropped), white space and ',' ignored, the first '.' starts the decimals,
+# and a bad character or second '.' met before the field is full zeroes the
+# whole field (CobolStdin.digits).  Every case below was observed on the
+# oracle first; the earlier integer rule disagreed with it on the
+# INTEGER_REGRESSION_CASES (e.g. "1.5" is 0001, not 0000).
+
+
+def _accept_matrix_program(program_id: str, pics: list[str]) -> str:
+    """One ``ACCEPT`` + ``DISPLAY`` per PIC, in order (free format)."""
+    lines = [
+        "IDENTIFICATION DIVISION.",
+        f"PROGRAM-ID. {program_id}.",
+        "DATA DIVISION.",
+        "WORKING-STORAGE SECTION.",
+        *(f"01 WS-F{i:03d} PIC {pic}." for i, pic in enumerate(pics, 1)),
+        "PROCEDURE DIVISION.",
+        "MAIN.",
+    ]
+    for i in range(1, len(pics) + 1):
+        lines.append(f"    ACCEPT WS-F{i:03d}.")
+        lines.append(f'    DISPLAY "{i:03d}=[" WS-F{i:03d} "]".')
+    lines.append("    STOP RUN.")
+    return "\n".join(lines) + "\n"
+
+
+DECIMAL_CASES = [("9(7)V99", s) for s in (
+    "50000", "50000.50", "50000.5", ".5", "0.25", "1234567.89", "12345678",
+    "1234567.891", "123.45.6", "abc", "", "  42.5  ", "-12.34", "12.34-",
+    "+7.1", "1,5", "12a", "9999999.99", "123456789012", "5.", "5 . 5",
+    "000000001", "1.2345", "  .  ", "0", "12345.6789", "1234567890",
+    "12345678.9", "1e3", "  1234567.89 ", "12.3+", "+.5", "1.-", "..",
+    "00050000.5", "1 000.5", "1.2.3", "1.2.", "1..2", ".5.", "12.3-", "12.-",
+    "-.5", "-1.", "1.5 -", "- 1.5", "+ 1.5", "1,5.5", ",5", "5,", "1.5,2",
+    "1.5a", "a1.5", "1.5e", "12+", "-12+", "1.2 3", "00.00", ".00", "1. 5",
+    "1.5-", "1.5 +", "1,000.5", "1..", "1.5.", ".", "-", "+", "-.", "1.2345-",
+    "12345678.-", "1234567.8-", "1.5+", "+1.5", "1.5 ", " 1.5", "1.,5",
+    "1,.5", "12.34.56", "1.2a", "1.23a", "1.234a", "1234567.8a", "12345678a",
+    "1.5--", "1.5-+", ".-", "5-.", "0.5-", "1.2-3", "1-.5", "1.5CR", "1.5DB",
+    "\t1.5", "a12345678", "1a2345678",
+)] + [("9(3)V99", s) for s in (
+    "123.45", "1234.5", "12.345", "99999", "1.5", "123456", "12.3456",
+)] + [("9V9(3)", s) for s in ("1.234", "12.3", "1.23456", ".1234")] + [
+    ("9(4)V9", s) for s in ("1234.5", "12345.6")
+]
+
+INTEGER_REGRESSION_CASES = [("9(4)", s) for s in (
+    "12+", "+12+", "-12-", "1,2", ",12", "1.5", "12.", ".5", "1..2", "1.2.3",
+    "12 +", "1+", "+", "-", "12-3",
+)]
+
+
+def _differential(tmp_path: Path, program_id: str, cases: list[tuple[str, str]]) -> None:
+    source = _accept_matrix_program(program_id, [pic for pic, _ in cases])
+    stdin_text = "".join(line + "\n" for _, line in cases)
+    name = f"{program_id.lower()}.cob"
+    cobol_out = _run_gnucobol(tmp_path / "cobol", name, source, stdin_text)
+    java_out = _run_generated_java(tmp_path / "java", source, stdin_text)
+    assert len(cobol_out) == len(cases), cobol_out
+    mismatches = [
+        (pic, line, c, j)
+        for (pic, line), c, j in zip(cases, cobol_out, java_out)
+        if c != j
+    ]
+    assert not mismatches and len(java_out) == len(cobol_out), mismatches
+
+
+@needs_docker
+def test_accept_decimal_byte_identical_to_gnucobol(tmp_path: Path) -> None:
+    _differential(tmp_path, "ACCEPTDEC", DECIMAL_CASES)
+
+
+@needs_docker
+def test_accept_integer_regressions_byte_identical_to_gnucobol(tmp_path: Path) -> None:
+    _differential(tmp_path, "ACCEPTREG", INTEGER_REGRESSION_CASES)
+
+
+def _fuzz_cases(count: int = 240) -> list[tuple[str, str]]:
+    """Seeded (deterministic) lines over the characters the rule treats
+    specially, cycled across integer and decimal field shapes."""
+    import random
+
+    rng = random.Random(20261103)
+    alphabet = "0123456789" * 3 + "  ..,,+-a\t"
+    pics = ["9(4)", "9(7)V99", "9(3)V99", "9V9(3)", "9(12)", "9(2)V9(4)"]
+    return [
+        (pics[i % len(pics)],
+         "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 14))))
+        for i in range(count)
+    ]
+
+
+@needs_docker
+def test_accept_seeded_fuzz_byte_identical_to_gnucobol(tmp_path: Path) -> None:
+    _differential(tmp_path, "ACCEPTFZ", _fuzz_cases())

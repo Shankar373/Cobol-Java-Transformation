@@ -254,14 +254,16 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "ACCEPT <field> [FROM CONSOLE|STDIN|SYSIN] consumes one whole "
         "standard-input line per statement through a shared reader: "
         "PIC X(n) receives the first n characters space-padded (EOF: n "
-        "spaces); unsigned PIC 9(n), n <= 18, receives the GnuCOBOL "
-        "alphanumeric-to-numeric conversion of the first n bytes "
-        "(spaces removed, one leading or trailing sign ignored, "
-        "anything else yields zero; EOF: zero). Byte-identical to "
-        "GnuCOBOL 3.1.2 (tests/integration/test_accept_oracle_proof"
+        "spaces); unsigned PIC 9(n) and 9(i)V9(s), i+s <= 18, receive "
+        "GnuCOBOL's alphanumeric-to-numeric-display move of the first "
+        "i+s bytes (leading spaces and one sign skipped, integer digits "
+        "right-aligned, spaces and ',' ignored, one '.' starts the "
+        "decimals, a bad character before the field is full zeroes it; "
+        "EOF: zero). Byte-identical to GnuCOBOL 3.1.2, including a "
+        "240-line seeded fuzz (tests/integration/test_accept_oracle_proof"
         ".py). Other FROM devices (DATE/TIME/DAY/COMMAND-LINE/...), "
-        "signed, decimal, non-DISPLAY, table, group and unknown "
-        "targets fail closed with an unresolvable symbol.",
+        "signed, non-DISPLAY, table, group and unknown targets fail "
+        "closed with an unresolvable symbol.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "INITIALIZE": _supported(
