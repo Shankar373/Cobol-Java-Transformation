@@ -198,6 +198,18 @@ class TestModuleDirectory:
             None, ["a/HELLO.cob", "b/HELLO.cob"],
         )
 
+    def test_copybook_dirs_lists_sibling_directories(self, tmp_path: Path) -> None:
+        (tmp_path / "cobol").mkdir()
+        (tmp_path / "copy").mkdir()
+        (tmp_path / "cobol" / "MAIN.cob").write_text(MAIN_COB, encoding="utf-8")
+        (tmp_path / "copy" / "COMMON.cpy").write_text(COMMON_CPY, encoding="utf-8")
+        (tmp_path / "README.md").write_text("demo", encoding="utf-8")
+        assert DockerOracleAdapter.copybook_dirs(tmp_path, tmp_path / "cobol") == [".", "copy"]
+
+    def test_flat_layout_adds_no_include_dirs(self, tmp_path: Path) -> None:
+        _write_multi(tmp_path)
+        assert DockerOracleAdapter.copybook_dirs(tmp_path, tmp_path) == []
+
     def test_no_programs_keeps_root(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
         assert DockerOracleAdapter.module_directory(tmp_path) == (tmp_path, [])
@@ -293,6 +305,21 @@ class TestDockerOracleExecution:
         _write_multi(app)
         (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
         outcome = _make_adapter().execute(RunId(value="run-ora-nested"), str(tmp_path))
+
+        assert outcome.exit_code == 0, outcome.stderr.decode(errors="replace")[:500]
+        assert outcome.stdout.decode(errors="replace").splitlines() == EXPECTED_CHAIN
+
+    def test_nested_copybooks_in_sibling_directory_resolve(self, tmp_path: Path) -> None:
+        # Audit V9: app/cobol + app/copy - generation found COMMON.cpy, the
+        # oracle (cd app/cobol, no -I) did not, so the run was UNAVAILABLE.
+        from engine.domain.identities import RunId
+
+        (tmp_path / "app" / "cobol").mkdir(parents=True)
+        (tmp_path / "app" / "copy").mkdir()
+        (tmp_path / "app" / "cobol" / "MAIN.cob").write_text(MAIN_COB, encoding="utf-8")
+        (tmp_path / "app" / "cobol" / "CLAIMS.cob").write_text(CLAIMS_COB, encoding="utf-8")
+        (tmp_path / "app" / "copy" / "COMMON.cpy").write_text(COMMON_CPY, encoding="utf-8")
+        outcome = _make_adapter().execute(RunId(value="run-ora-copy-dir"), str(tmp_path))
 
         assert outcome.exit_code == 0, outcome.stderr.decode(errors="replace")[:500]
         assert outcome.stdout.decode(errors="replace").splitlines() == EXPECTED_CHAIN

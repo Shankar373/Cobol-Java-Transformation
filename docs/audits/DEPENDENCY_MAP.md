@@ -152,7 +152,7 @@ it at most once.  `tests` = test files that mention it.
 | `engine/cics/subset.py::known_command_names` | 1 |
 | `engine/cics/subset.py::supported_command_names` | 1 |
 | `engine/cics/subset.py::unsupported_command_names` | 1 |
-| `engine/oracle/docker_adapter.py::oracle_image_digest` | 0 |
+| `engine/oracle/docker_adapter.py::oracle_image_digest` | 1 |
 | `engine/sql/dialect.py::runtime_verified_features` | 2 |
 | `engine/sql/extractor.py::analyze_cobol_sql` | 2 |
 | `engine/sql/harness.py::run_db2_workload` | 3 |

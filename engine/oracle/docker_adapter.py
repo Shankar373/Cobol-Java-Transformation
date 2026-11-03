@@ -257,6 +257,24 @@ class DockerOracleAdapter(OracleAdapter):
             return source_dir, []
         return None, [f.relative_to(source_dir).as_posix() for f in programs]
 
+    @staticmethod
+    def copybook_dirs(source_root: Path, module_dir: Path) -> list[str]:
+        """Other directories of the staged tree, for ``cobc -I`` (audit V9).
+
+        ``cobc`` runs inside ``module_dir`` and finds copybooks there; a
+        nested upload often keeps them in a sibling directory
+        (``app/cobol`` + ``app/copy``), which discovery and generation
+        search but the oracle could not, so the run ended UNAVAILABLE.
+        Every other directory holding a regular file is returned as a
+        sorted POSIX path relative to ``source_root`` ("." for the root).
+        A flat layout returns nothing, so its command line is unchanged.
+        """
+        dirs = {
+            f.parent for f in source_root.rglob("*")
+            if f.is_file() and not f.is_symlink() and f.parent != module_dir
+        }
+        return sorted(d.relative_to(source_root).as_posix() for d in dirs)
+
     @classmethod
     def select_modules(
         cls,
@@ -673,9 +691,13 @@ class DockerOracleAdapter(OracleAdapter):
                 format_flag = self._compile_format_flag(
                     module_dir, [main_file, *link_modules]
                 )
+                include_flags = "".join(
+                    f"-I {shlex.quote(container_src if d == '.' else container_src + '/' + d)} "
+                    for d in self.copybook_dirs(Path(tmpdir, "src"), module_dir)
+                )
                 compile_cmd = (
                     f"cd {shlex.quote(compile_dir)} && "
-                    f"cobc -x {format_flag}{compile_units} -o /tmp/oracle_prog "
+                    f"cobc -x {format_flag}{include_flags}{compile_units} -o /tmp/oracle_prog "
                     f">/workspace/compilation/stdout 2>/workspace/compilation/stderr; "
                     f"compile_status=$?; "
                     f"printf '%s' \"$compile_status\" >/workspace/compilation/exit_code; "

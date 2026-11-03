@@ -91,6 +91,8 @@ def test_bl051_oracle_timeout_names_and_cleans_container(tmp_path, monkeypatch):
     monkeypatch.setattr(
         adapter, "_resolve_image_identity", lambda: ("img@sha256:" + "a" * 64, "sha256:" + "a" * 64)
     )
+    # The pre-run compiler check (audit V6) is not under test here.
+    monkeypatch.setattr(adapter, "_observed_compiler_version", lambda _ref: "3.1.2.0")
     monkeypatch.setattr(
         adapter,
         "_compute_source_hash",

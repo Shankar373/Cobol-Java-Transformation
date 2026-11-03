@@ -84,6 +84,18 @@ class TestCollection:
             "workspace/sub/x.txt": b"X",
         }
 
+    def test_nested_output_files_with_one_name_do_not_collide(self, tmp_path):
+        # Audit V8: output files were keyed by base name, so a/x.txt and
+        # b/x.txt collided and one of them was never compared.
+        out = tmp_path / "output"
+        (out / "a").mkdir(parents=True)
+        (out / "b").mkdir()
+        (out / "a" / "x.txt").write_bytes(b"A")
+        (out / "b" / "x.txt").write_bytes(b"B")
+        (out / "top.txt").write_bytes(b"T")
+        files = collect_generated_files(out, None)
+        assert files == {"a/x.txt": b"A", "b/x.txt": b"B", "top.txt": b"T"}
+
 
 class TestComparison:
     def test_differing_sequential_workspace_file_fails(self, tmp_path):

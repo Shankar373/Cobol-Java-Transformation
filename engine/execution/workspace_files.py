@@ -120,7 +120,10 @@ def collect_generated_files(
 
     if output_dir.is_dir() and not output_dir.is_symlink():
         for f in _walk_regular_files(output_dir):
-            _take(f.name, f)
+            # Keyed by relative path (audit V8): keyed by base name,
+            # ``a/x.txt`` and ``b/x.txt`` collided and one was never
+            # compared.  A top-level file keeps its bare name.
+            _take(f.relative_to(output_dir).as_posix(), f)
     if workspace_dir is not None and workspace_dir.is_dir():
         for f in _walk_regular_files(workspace_dir):
             rel = f.relative_to(workspace_dir)
