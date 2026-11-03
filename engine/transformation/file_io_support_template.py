@@ -39,7 +39,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     private CobolFileIo() {}
 
     /**
-     * File name resolution as GnuCOBOL's libcob does it (oracle-probed, 3.1.2): a name
+     * File name resolution by DD name (pinned against the oracle runtime): a name
      * without a directory is looked up as DD_name, then dd_name, then name in the
      * environment; an absolute result is used as is, a relative one (or the plain
      * name) goes under COB_FILE_PATH when set, else the working directory.
