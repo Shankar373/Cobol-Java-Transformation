@@ -304,11 +304,12 @@ class TestJclParser:
         assert step2.condition.condition_type == "COND"
         assert step2.condition.code == "(0,NE)"
 
-    def test_set_symbol_reference_is_preserved_unresolved_in_exec(self) -> None:
+    def test_set_symbol_reference_is_substituted_in_exec(self) -> None:
+        # Roadmap unit 5: SET values are substituted before parsing.
         parser = JclParser()
         job = parser.parse(JCL_WITH_SYMBOLS)
         assert len(job.steps) == 1
-        assert job.steps[0].exec_.program == "&PROGNAME"
+        assert job.steps[0].exec_.program == "PROGRAM-A"
 
     def test_proc_exec_yields_step_procedure(self) -> None:
         parser = JclParser()
@@ -573,11 +574,11 @@ class TestSymbolicParameters:
         assert sym.is_resolved is False
         assert sym.value == ""
 
-    def test_symbolic_reference_in_exec_is_not_resolved_by_parser(self) -> None:
-        parser = JclParser()
-        job = parser.parse(JCL_WITH_SYMBOLS)
-        # Symbol is not resolved, just preserved
-        assert job.steps[0].exec_.program == "&PROGNAME"
+    def test_unset_symbolic_reference_is_preserved_not_guessed(self) -> None:
+        # A symbol with no SET, default or override is never invented; the semantic
+        # builder reports it (tests/test_jcl_preprocess.py).
+        job = JclParser().parse("//J JOB\n//S EXEC PGM=&NOSUCH\n")
+        assert job.steps[0].exec_.program == "&NOSUCH"
 
 
 class TestDomainNeutralEquivalence:

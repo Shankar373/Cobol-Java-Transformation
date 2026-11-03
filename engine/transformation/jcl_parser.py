@@ -11,7 +11,9 @@ It handles only the supported constructs:
 - //DD * (inline data)
 - //* comments
 - COND parameter
-- SET symbolic parameters
+- IF/THEN/ELSE/ENDIF: recorded on each step's ``condition`` (never evaluated)
+- in-stream and library PROC expansion, SET and symbolic parameters
+  (``engine.jcl.preprocess``, applied before parsing)
 - Step ordering (source order preserved)
 
 Unsupported constructs produce minimal IR without error.
@@ -23,6 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
+from engine.jcl.preprocess import expand, procedure_members
 from engine.transformation.ir import (
     JclApplication,
     JclCondition,
@@ -60,21 +63,27 @@ class JclParser:
             return jobs[0]
         return JclJob(name="")
 
-    def parse_jobs(self, source: str) -> tuple[JclJob, ...]:
+    def parse_jobs(
+        self, source: str, library: dict[str, str] | None = None,
+    ) -> tuple[JclJob, ...]:
         """Parse JCL source text into every JOB it declares, in source order.
 
         Each ``JOB`` statement starts a new :class:`JclJob`; statements
         stay attributed to the job they follow (no merging, no silent
         loss).
 
+        Procedures and symbolic parameters are expanded first
+        (``engine.jcl.preprocess``); ``library`` supplies catalogued procedures.
+
         Args:
             source: JCL source text
+            library: other members (name -> text) that may define procedures
 
         Returns:
             One ``JclJob`` per JOB statement; empty tuple only when the
             source carries no statements at all.
         """
-        return tuple(self._parse_lines(source.splitlines()))
+        return tuple(self._parse_lines(expand(source, library).text.splitlines()))
 
     def parse_application(self, sources: dict[str, str]) -> JclApplication:
         """Parse multiple JCL sources into a JclApplication.
@@ -86,8 +95,12 @@ class JclParser:
             JclApplication with all jobs and dependencies
         """
         jobs: list[JclJob] = []
+        library = sources
+        skipped = procedure_members(sources)  # procedure-only members are not job streams
         for filename, source in sources.items():
-            for job in self.parse_jobs(source):
+            if filename in skipped:
+                continue
+            for job in self.parse_jobs(source, library):
                 # replace() keeps every job field (including fields added
                 # later) without a hand-maintained copy list.
                 jobs.append(replace(job, source_path=filename))
@@ -108,6 +121,8 @@ class JclParser:
         comments: list[str] = []
         job_level_dds: list[JclDD] = []
         job_seen = False
+        # Open IF blocks, outermost first: (expression, in_else_branch).
+        if_stack: list[list] = []
 
         def flush() -> None:
             """Append the job accumulated so far and reset the buffers."""
@@ -148,6 +163,22 @@ class JclParser:
             # Parse the //NAME field
             rest = line[2:].strip()
 
+            # IF / ELSE / ENDIF: recorded on the steps they enclose, never evaluated
+            if_match = re.match(r"(?:\S+\s+)?IF\s*(\(.*\)|\S.*?)\s+THEN\b", rest, re.IGNORECASE)
+            if if_match:
+                if_stack.append([if_match.group(1).strip(), False])
+                i += 1
+                continue
+            if re.match(r"(?:\S+\s+)?ELSE\b", rest, re.IGNORECASE) and if_stack:
+                if_stack[-1][1] = True
+                i += 1
+                continue
+            if re.match(r"(?:\S+\s+)?ENDIF\b", rest, re.IGNORECASE):
+                if if_stack:
+                    if_stack.pop()
+                i += 1
+                continue
+
             # Check for JOB
             if " JOB " in rest or rest.upper().startswith("JOB "):
                 # A second JOB statement closes the job accumulated so far
@@ -161,6 +192,17 @@ class JclParser:
             # Check for EXEC
             if " EXEC " in rest or rest.upper().startswith("EXEC "):
                 step, i = self._parse_exec(rest, i, lines)
+                if if_stack and step.condition is None:
+                    expression = " AND ".join(
+                        f"NOT {expr}" if in_else else expr for expr, in_else in if_stack
+                    )
+                    in_else = if_stack[-1][1]
+                    step = replace(step, condition=JclCondition(
+                        condition_type="IF",
+                        if_expression=expression,
+                        then_steps=() if in_else else (step.name,),
+                        else_steps=(step.name,) if in_else else (),
+                    ))
                 steps.append(step)
                 continue
 

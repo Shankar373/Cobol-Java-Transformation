@@ -18,6 +18,7 @@ import re
 from itertools import pairwise
 
 from engine.jcl.diagnostics import JclDiagnosticCode, JclDiagnosticCollector
+from engine.jcl.preprocess import expand, procedure_members
 from engine.jcl.model import (
     JclControl,
     JclControlKind,
@@ -79,8 +80,28 @@ class JclSemanticBuilder:
         # Scan every raw source exactly once, attributing each line to the
         # JOB statement in effect.  Scanning per job would duplicate and
         # misattribute diagnostics across the jobs of a multi-job member.
-        for raw_text in raw_sources.values():
-            self._scan_unsupported(raw_text)
+        # Procedures and symbolic parameters are expanded first (engine.jcl.preprocess), so
+        # the scan sees the statements the job stream would execute; what cannot be
+        # expanded faithfully is an error, never a silent approximation.
+        procedure_only = procedure_members(raw_sources)
+        for member, raw_text in raw_sources.items():
+            if member in procedure_only:
+                continue
+            expansion = expand(raw_text, raw_sources)
+            for issue in expansion.issues:
+                code = (
+                    JclDiagnosticCode.UNRESOLVED_SYMBOL
+                    if issue.code == "UNRESOLVED_SYMBOL"
+                    else JclDiagnosticCode.UNSUPPORTED_PROCEDURE
+                )
+                self.diagnostics.error(code, issue.message, location=f"line {issue.line}")
+            for caller, proc in expansion.expanded:
+                self.diagnostics.info(
+                    JclDiagnosticCode.PROCEDURE_EXPANDED,
+                    f"procedure {proc} expanded at step {caller}",
+                    step=caller,
+                )
+            self._scan_unsupported(expansion.text)
 
         for job in app.jobs:
             jobs.append(self._build_job(job))
@@ -279,6 +300,19 @@ class JclSemanticBuilder:
         if condition is None:
             return None
 
+        if condition.condition_type == "IF":
+            self.diagnostics.warning(
+                JclDiagnosticCode.PARTIAL_COND_SEMANTICS,
+                f"IF {condition.if_expression} is recorded on the step but never "
+                "evaluated; the enclosing IF/THEN/ELSE block is refused separately",
+                job=job_name,
+                step=step.name,
+            )
+            return JclControl(
+                JclControlKind.UNSUPPORTED,
+                expression=condition.if_expression,
+                exit_status="UNKNOWN",
+            )
         raw = (condition.code or "").strip().upper()
         if raw == "EVEN":
             return JclControl(JclControlKind.EVEN, expression=raw, exit_status="ANY")
@@ -444,17 +478,7 @@ class JclSemanticBuilder:
                 )
                 continue
 
-            if first == "SET" or any(
-                keyword in parts for keyword in ("JOB", "EXEC", "DD")
-            ):
-                if first == "SET":
-                    self.diagnostics.info(
-                        JclDiagnosticCode.SYMBOL_SET_PRESERVED,
-                        "SET symbolic parameter preserved as text; substitution "
-                        "is outside the profile",
-                        job=job_name,
-                        location=location,
-                    )
+            if any(keyword in parts for keyword in ("JOB", "EXEC", "DD")):
                 continue
 
             if first == "PROC" or (len(parts) >= 2 and parts[1] == "PROC"):
