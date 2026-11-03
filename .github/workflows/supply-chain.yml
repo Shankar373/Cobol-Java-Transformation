@@ -74,7 +74,7 @@ jobs:
             | tee test-artifacts/supply-chain/pip-freeze.txt
       - name: Upload Python supply-chain artifacts
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: supply-chain-python
           path: test-artifacts/supply-chain/**
@@ -118,7 +118,7 @@ jobs:
           npm ls --all --json | tee ../test-artifacts/supply-chain/npm-ls.json
       - name: Upload frontend supply-chain artifacts
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: supply-chain-frontend
           path: test-artifacts/supply-chain/**
@@ -148,7 +148,7 @@ jobs:
           cat test-artifacts/supply-chain/dependency-manifest.json
       - name: Upload release manifest
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: supply-chain-manifest
           path: test-artifacts/supply-chain/dependency-manifest.json
@@ -204,7 +204,7 @@ jobs:
           done
       - name: Upload scan reports
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: supply-chain-image-scan
           path: test-artifacts/supply-chain/trivy/**
