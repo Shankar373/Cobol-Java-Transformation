@@ -46,6 +46,7 @@ from api.models import RunStage
 from api.service import Service, ServiceError
 from api.store import Store
 from engine.transformation.application_generator import ApplicationGenerationResult
+from tests.verified_run_support import seed_verified_api_run
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +347,14 @@ class TestDownloadProvenance:
         run_id = client.post(f"/applications/{app_id}/modernize").json()["run_id"]
         assert _await_run_http(client, run_id)["stage"] == "COMPLETED"
 
+        # BL-091 (D-1): export requires customer approval.
+        seed_verified_api_run(run_id)
+        approve = client.post(
+            f"/runs/{run_id}/approval",
+            json={"decision": "APPROVED", "approver": "qa"},
+        )
+        assert approve.status_code == 200, approve.text
+
         resp = client.get(f"/runs/{run_id}/download")
         assert resp.status_code == 200
         service_a = str(SERVICE_A).replace("\\", "/")
@@ -379,6 +388,15 @@ class TestDownloadProvenance:
             json={"use_uploaded_candidate": True},
         ).json()["run_id"]
         _await_run_http(client, run_id)
+
+        # BL-091 (D-1): approval first — the 404 below is the artifact
+        # contract observed after approval, not the approval gate.
+        seed_verified_api_run(run_id)
+        approve = client.post(
+            f"/runs/{run_id}/approval",
+            json={"decision": "APPROVED", "approver": "qa"},
+        )
+        assert approve.status_code == 200, approve.text
 
         resp = client.get(f"/runs/{run_id}/download")
         assert resp.status_code == 404

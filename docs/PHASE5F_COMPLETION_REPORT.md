@@ -1,5 +1,12 @@
 # Phase 5F Completion Report
 
+> **HISTORICAL (label added 2026-10-16, Phase 12 F-02 documentation reconciliation):**
+> dated phase record, not a current status claim (Master README §78).
+> Correction against canonical truth: the PARSED/IR/GENERATED matrix below marks
+> **GO TO** "YES"; canonical status is **GO TO = UNSUPPORTED** (comment +
+> diagnostic only). Canonical authority: `docs/SEMANTIC_PROOF_MATRIX.md`.
+> Live status: `opencode.md` + `docs/BACKLOG.md` register.
+
 ## Status: PARTIAL — Claims-specific transformer with reusable seams
 
 Phase 5F is NOT marked COMPLETE. The implementation is a Claims-specific

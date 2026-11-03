@@ -30,7 +30,7 @@ def pascal(value: str) -> str:
 def camel(value: str) -> str:
     """Derive a camelCase identifier from a COBOL/CICS name."""
     result = pascal(value)
-    return result[0].lower() + result[1:] if result else "unknown"
+    return result[0].lower() + result[1:]
 
 
 def _capitalize(token: str) -> str:

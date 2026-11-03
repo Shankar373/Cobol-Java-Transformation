@@ -1,0 +1,246 @@
+{
+ "api_read_latency_50_apps": {
+  "/applications": {
+   "p50_ms": 9.26,
+   "p95_ms": 12.85
+  },
+  "/applications/{id}": {
+   "p50_ms": 7.37,
+   "p95_ms": 9.28
+  },
+  "/applications/{id}/runs": {
+   "p50_ms": 7.66,
+   "p95_ms": 9.73
+  },
+  "/health": {
+   "p50_ms": 6.53,
+   "p95_ms": 9.1
+  }
+ },
+ "applications": 54,
+ "apps": {
+  "workload-add-giving-verified": {
+   "generated": true,
+   "median_seconds": 0.0884
+  },
+  "workload-arithmetic": {
+   "generated": true,
+   "median_seconds": 0.131
+  },
+  "workload-balance-check": {
+   "generated": true,
+   "median_seconds": 0.2573
+  },
+  "workload-batch-rc": {
+   "generated": true,
+   "median_seconds": 0.2232
+  },
+  "workload-binary-values": {
+   "generated": true,
+   "median_seconds": 0.4265
+  },
+  "workload-by-content": {
+   "generated": true,
+   "median_seconds": 0.0881
+  },
+  "workload-by-reference": {
+   "generated": true,
+   "median_seconds": 0.0886
+  },
+  "workload-by-value": {
+   "generated": false,
+   "median_seconds": 0.0219
+  },
+  "workload-call-chain": {
+   "generated": true,
+   "median_seconds": 0.1801
+  },
+  "workload-call-linkage": {
+   "generated": false,
+   "median_seconds": 0.0399
+  },
+  "workload-call-linkage-valid": {
+   "generated": true,
+   "median_seconds": 0.1185
+  },
+  "workload-cics": {
+   "generated": false,
+   "median_seconds": 0.0775
+  },
+  "workload-claims": {
+   "generated": false,
+   "median_seconds": 0.7562
+  },
+  "workload-comp": {
+   "generated": true,
+   "median_seconds": 0.1011
+  },
+  "workload-comp3": {
+   "generated": true,
+   "median_seconds": 0.1163
+  },
+  "workload-copybook": {
+   "generated": true,
+   "median_seconds": 0.0934
+  },
+  "workload-copybook-file-multi": {
+   "generated": true,
+   "median_seconds": 0.3355
+  },
+  "workload-db2": {
+   "generated": false,
+   "median_seconds": 0.1055
+  },
+  "workload-delete": {
+   "generated": true,
+   "median_seconds": 0.1939
+  },
+  "workload-divide-giving-verified": {
+   "generated": true,
+   "median_seconds": 0.0743
+  },
+  "workload-divide-into-verified": {
+   "generated": true,
+   "median_seconds": 0.114
+  },
+  "workload-dynamic-call": {
+   "generated": false,
+   "median_seconds": 0.0371
+  },
+  "workload-dynamic-call-valid": {
+   "generated": false,
+   "median_seconds": 0.0379
+  },
+  "workload-evaluate": {
+   "generated": true,
+   "median_seconds": 0.1616
+  },
+  "workload-file-write-read": {
+   "generated": true,
+   "median_seconds": 0.2574
+  },
+  "workload-gradecalc": {
+   "generated": true,
+   "median_seconds": 0.237
+  },
+  "workload-indexed": {
+   "generated": true,
+   "median_seconds": 0.274
+  },
+  "workload-indexed-file": {
+   "generated": true,
+   "median_seconds": 0.2561
+  },
+  "workload-indexed-rewrite-delete-start": {
+   "generated": true,
+   "median_seconds": 0.457
+  },
+  "workload-integrated": {
+   "generated": true,
+   "median_seconds": 0.2914
+  },
+  "workload-interest-accrual": {
+   "generated": true,
+   "median_seconds": 0.2018
+  },
+  "workload-level88": {
+   "generated": true,
+   "median_seconds": 0.0866
+  },
+  "workload-minimal": {
+   "generated": true,
+   "median_seconds": 0.0694
+  },
+  "workload-multiply": {
+   "generated": true,
+   "median_seconds": 0.0813
+  },
+  "workload-multiply-giving-verified": {
+   "generated": true,
+   "median_seconds": 0.0833
+  },
+  "workload-multiprog": {
+   "generated": false,
+   "median_seconds": 0.0369
+  },
+  "workload-multiprog-valid": {
+   "generated": true,
+   "median_seconds": 0.1115
+  },
+  "workload-notices": {
+   "generated": true,
+   "median_seconds": 0.1343
+  },
+  "workload-occurs": {
+   "generated": true,
+   "median_seconds": 0.1097
+  },
+  "workload-payroll": {
+   "generated": true,
+   "median_seconds": 0.2024
+  },
+  "workload-perform-varying": {
+   "generated": true,
+   "median_seconds": 0.0889
+  },
+  "workload-perform-varying-verified": {
+   "generated": true,
+   "median_seconds": 0.0509
+  },
+  "workload-record-sequential": {
+   "generated": true,
+   "median_seconds": 0.2032
+  },
+  "workload-redefines": {
+   "generated": false,
+   "median_seconds": 0.0288
+  },
+  "workload-relative": {
+   "generated": true,
+   "median_seconds": 0.1711
+  },
+  "workload-relative-file": {
+   "generated": true,
+   "median_seconds": 0.1782
+  },
+  "workload-rewrite": {
+   "generated": true,
+   "median_seconds": 0.1485
+  },
+  "workload-start-invalidkey": {
+   "generated": true,
+   "median_seconds": 0.1813
+  },
+  "workload-studentproc": {
+   "generated": true,
+   "median_seconds": 0.1662
+  },
+  "workload-subtract": {
+   "generated": true,
+   "median_seconds": 0.0704
+  },
+  "workload-subtract-giving-verified": {
+   "generated": true,
+   "median_seconds": 0.0717
+  },
+  "workload-subtract-multisource-verified": {
+   "generated": true,
+   "median_seconds": 0.074
+  },
+  "workload-universal": {
+   "generated": true,
+   "median_seconds": 0.19
+  },
+  "workload_inventory": {
+   "generated": true,
+   "median_seconds": 0.2937
+  }
+ },
+ "generated": 45,
+ "max_median_seconds": 0.7562,
+ "measured": "2026-11-02, Windows 11 dev host (Python 3.11), in-process TestClient, in-memory store",
+ "peak_traced_mib": 2.6,
+ "runs_per_app": 3,
+ "target_runtime": "spring_boot",
+ "total_median_seconds": 8.675
+}

@@ -1,5 +1,14 @@
 # Phase 5F.1 Transformation Feature Matrix
 
+> **HISTORICAL (label added 2026-10-16, Phase 12 F-02 documentation reconciliation):**
+> dated phase record (2026-09-15), not a current status claim (Master README §78).
+> Corrections against canonical truth: the table below marks **GO TO**
+> "Executed / Behaviorally Proven = YES" and **OCCURS** "YES"; canonical status
+> is **GO TO = UNSUPPORTED** (comment + diagnostic only, never behaviorally
+> proven as a transform) and **OCCURS = UNVERIFIED** (generated Java does not
+> compile). Canonical authority: `docs/SEMANTIC_PROOF_MATRIX.md`,
+> `docs/CAPABILITY_MATRIX.md`. Live status: `opencode.md` + `docs/BACKLOG.md` register.
+
 **Date:** 2026-09-15
 
 | Construct | Parsed | IR | Generated | Executed | Behaviorally Proven |

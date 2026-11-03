@@ -143,11 +143,23 @@ class InputIdentity:
         return ContentHash.from_string(combined)
 
 
+#: Side-effect channels that no comparator observes (database state,
+#: transaction-monitor effects, message queues).  An artifact of one of these
+#: types is a content-free marker that the program has effects the evidence
+#: cannot compare; verdict derivation turns it into UNSUPPORTED, never
+#: VERIFIED.
+UNOBSERVED_EFFECT_TYPES = frozenset({
+    "DATABASE_STATE", "TRANSACTION_EFFECTS", "MESSAGE_QUEUE_EFFECTS",
+})
+
+
 @dataclass(frozen=True)
 class ArtifactIdentity:
     """Identity of a captured artifact."""
     artifact_id: str
-    artifact_type: str  # one of V1 registry
+    # one of the V1 registry types, derived BUSINESS_INVARIANT, or an
+    # UNOBSERVED_EFFECT_TYPES marker
+    artifact_type: str
     logical_name: str
     producer_role: str  # "ORACLE" or "CANDIDATE"
     content_hash: ContentHash
@@ -155,7 +167,10 @@ class ArtifactIdentity:
     record_count: int | None = None
 
     def __post_init__(self) -> None:
-        valid_types = {"STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD"}
+        valid_types = {
+            "STDOUT", "STDERR", "EXIT_STATUS", "TEXT_FILE", "FIXED_RECORD",
+            "BUSINESS_INVARIANT",
+        } | UNOBSERVED_EFFECT_TYPES
         if self.artifact_type not in valid_types:
             raise ValueError(f"artifact_type must be one of {valid_types}, got {self.artifact_type}")
         if self.producer_role not in ("ORACLE", "CANDIDATE"):

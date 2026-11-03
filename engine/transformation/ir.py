@@ -17,6 +17,7 @@ Expression hierarchy:
     Expression
     ├── Literal (numeric/string literal)
     ├── FieldReference (COBOL field name)
+    ├── FigurativeConstant (ZERO / SPACES / HIGH-VALUE / ALL "x" / ...)
     ├── UnaryExpression (NOT, -)
     └── BinaryExpression (+, -, *, /, =, <>, >, <, >=, <=, AND, OR)
 
@@ -33,6 +34,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+
+from engine.transformation.figurative import ZERO
+
+
+def normalize_cobol_name(name: str) -> str:
+    """Uppercase form of a COBOL name for cross-lane identity joins.
+
+    COBOL is case-insensitive: a CALL literal ``'subprog'`` names the same
+    program as ``PROGRAM-ID SUBPROG``.  Every lane that joins names
+    (discovery resolution stamping, capability-analyzer callee lookups,
+    self-call detection, LINKAGE arity) must compare through this single
+    normalization so two lanes can never classify one CALL differently.
+    """
+    return name.upper()
 
 # ---------------------------------------------------------------------------
 # PIC clause types
@@ -78,6 +93,64 @@ class FieldReference(Expression):
         AMOUNT
     """
     name: str  # the COBOL field name
+
+
+@dataclass(frozen=True)
+class FigurativeConstant(Expression):
+    """A COBOL figurative constant.
+
+    These are reserved words with fixed, colon-independent meaning:
+
+    ==========================  ==================================
+    Constant                    Meaning
+    ==========================  ==================================
+    ``ZERO``/``ZEROS``          all numeric digits ``0``
+    ``SPACE``/``SPACES``        all spaces
+    ``QUOTE``/``QUOTES``        all double quotes
+    ``LOW-VALUE``/``VALUES``    the lowest collating character
+    ``HIGH-VALUE``/``VALUES``   the highest collating character
+    ``ALL "x"``                 ``x`` repeated across the receiver
+    ==========================  ==================================
+
+    They are *values*, not variables.  Representing them as a
+    :class:`FieldReference` named ``ZERO`` is a semantic defect: the
+    receiving item is then filled from an undeclared Java identifier, so
+    the generated program does not compile and the construct is silently
+    lost.  This node keeps the construct explicit in the IR so the parser,
+    the mapper and the capability analyzer all observe it.
+
+    ``text`` preserves the spelling exactly as it appeared in the COBOL
+    source so traceability back to the source line is never lost.
+    """
+
+    #: Canonical semantic kind (see :mod:`engine.transformation.figurative`).
+    kind: str
+    #: The original COBOL spelling, e.g. ``SPACES`` or ``ALL "*"``.
+    text: str = ""
+
+    @property
+    def is_numeric(self) -> bool:
+        """True when the constant supplies a numeric value (ZERO family)."""
+        return self.kind == ZERO
+
+
+@dataclass(frozen=True)
+class IntrinsicCall(Expression):
+    """An intrinsic function call or unmapped operator form.
+
+    Represents ``FUNCTION MIN(1, 2)`` and exponentiation (``2 ** 3``) as a
+    *recognised, deliberately unmapped* construct rather than letting it fall
+    through to :class:`FieldReference`.
+
+    The mapper has no certified mapping for either form, so they are recorded
+    explicitly and diagnosed; a consumer can never mistake the intrinsic for
+    a variable that happens to be named ``FUNCTION MIN(1, 2)``.
+    """
+
+    #: Upper-case intrinsic name (e.g. ``MIN``), or ``"**"`` for exponentiation.
+    name: str
+    #: Verbatim source text, preserved for diagnostics and traceability.
+    arguments: str = ""
 
 
 @dataclass(frozen=True)
@@ -184,6 +257,7 @@ class DataItem:
     - PIC clauses (X, 9, etc.)
     - VALUE clauses
     - OCCURS clauses
+    - USAGE clauses (COMP / COMP-3 / COMP-5 / ...)
     - Group hierarchy (children)
     """
     name: str
@@ -191,9 +265,21 @@ class DataItem:
     pic_type: PicType = PicType.ALPHANUMERIC
     pic_length: int = 0
     decimal_places: int = 0  # V clause: digits after decimal point
+    signed: bool = False  # explicit S sign in PIC
     value: str | None = None
     occurs: int | None = None
+    # OCCURS DEPENDING ON: the item's actual length is data-dependent.  The
+    # deterministic lane cannot certify variable-length tables, so the parser
+    # records the controlling item and raises UNSUPPORTED_CONSTRUCT instead of
+    # silently lowering the table to a fixed size.
+    occurs_depending_on: str | None = None
     redefines: str | None = None  # REDEFINES clause
+    # Canonical USAGE token when a USAGE clause was declared (e.g. "COMP",
+    # "COMP-3", "COMP-5").  ``None`` means DISPLAY (the COBOL default) or no
+    # clause.  The value path (numeric value/DISPLAY semantics) is certified;
+    # the record-area byte *encoding* of the non-DISPLAY usages is not, so it
+    # is recorded explicitly rather than silently dropped.
+    usage: str | None = None
     children: tuple[DataItem, ...] = ()
 
     @property
@@ -221,14 +307,25 @@ class DataItem:
         return self.level == 88
 
     @property
-    def format_width(self) -> int:
-        """Total display width for numeric formatting.
+    def integer_digits(self) -> int:
+        """Number of integer (whole) digit positions in the PIC.
 
-        Derived from PIC: integer digits + decimal places.
-        For PIC 9(6): width=6, decimal_places=0
-        For PIC 9(6)V99: width=8, decimal_places=2
+        ``pic_length`` counts every digit position (integer + fractional);
+        this is the integer-only subset.  PIC 9(6)V99 → 6.
         """
-        return self.pic_length + self.decimal_places
+        return self.pic_length - self.decimal_places
+
+    @property
+    def format_width(self) -> int:
+        """Total digit positions for numeric storage/display sizing.
+
+        Derived from PIC as every digit position: integer digits +
+        fractional digits.  Because ``pic_length`` already counts both, the
+        width is exactly ``pic_length`` — it must NOT add ``decimal_places``
+        a second time (that double-counted fractional digits for V/PIC).
+        PIC 9(6) → 6; PIC 9(6)V99 → 8.
+        """
+        return self.pic_length
 
     @property
     def is_decimal(self) -> bool:
@@ -283,6 +380,14 @@ class FileDefinition:
     container_path: str
     record_name: str
     record_items: tuple[DataItem, ...] = ()
+    # Every 01 record description of the FD as a data-description tree
+    # (``record_items`` is the flattened leaf list the file-I/O lowering
+    # uses).  Several 01 records share one record area, so only an FD with
+    # exactly one record can be treated as an ordinary group.
+    record_groups: tuple[DataItem, ...] = ()
+    # ORGANIZATION SEQUENTIAL (explicit, or no ORGANIZATION clause) as
+    # opposed to LINE SEQUENTIAL: fixed-length records, no line terminator.
+    record_sequential: bool = False
     # File semantics (from SELECT clause)
     organization: FileOrganization = FileOrganization.SEQUENTIAL
     access_mode: FileAccessMode = FileAccessMode.SEQUENTIAL
@@ -303,14 +408,31 @@ class OpenStatement:
 
 
 @dataclass(frozen=True)
+class CloseStatement:
+    """CLOSE file."""
+    file_name: str
+
+
+@dataclass(frozen=True)
 class ReadStatement:
     """READ file AT END / NOT AT END / INVALID KEY / NOT INVALID KEY."""
     file_name: str
     record_name: str
     key: str = ""  # READ with key for indexed/relative
     into_field: str = ""  # READ INTO field
+    read_next: bool = False  # READ NEXT RECORD
     at_end_body: tuple[Statement, ...] = ()
     not_at_end_body: tuple[Statement, ...] = ()
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class StartStatement:
+    """START file KEY IS [relational-operator] key."""
+    file_name: str
+    key: str = ""
+    operator: str = ""  # "=", "<", "<=", ">", ">="
     invalid_key_body: tuple[Statement, ...] = ()
     not_invalid_key_body: tuple[Statement, ...] = ()
 
@@ -321,6 +443,8 @@ class WriteStatement:
     record_name: str
     file_name: str
     from_field: str = ""  # WRITE FROM field
+    invalid_key_body: tuple[Statement, ...] = ()
+    not_invalid_key_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -343,14 +467,12 @@ class DeleteStatement:
 
 @dataclass(frozen=True)
 class MoveStatement:
-    """MOVE source TO target.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """MOVE source TO one or more targets."""
     source: str
     target: str
-    source_expr: Expression | None = None  # structured source expression
-    target_ref: FieldReference | None = None  # structured target reference
+    source_expr: Expression | None = None
+    target_ref: FieldReference | None = None
+    targets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,6 +485,64 @@ class AddStatement:
     target: str
     source_expr: Expression | None = None  # structured source expression
     target_ref: FieldReference | None = None  # structured target reference
+    giving_target: str | None = None  # ADD ... GIVING result
+    rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class SubtractStatement:
+    """SUBTRACT source FROM from_field [GIVING to_field]."""
+    source: str
+    from_field: str
+    to_field: str | None = None
+    source_expr: Expression | None = None
+    from_ref: FieldReference | None = None
+    to_ref: FieldReference | None = None
+    sources: tuple[str, ...] = ()  # multi-source SUBTRACT A B C FROM D
+    rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class MultiplyStatement:
+    """MULTIPLY source BY multiplicand [GIVING target]."""
+    source: str
+    multiplicand: str
+    target: str | None = None
+    source_expr: Expression | None = None
+    multiplicand_ref: FieldReference | None = None
+    target_ref: FieldReference | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
+
+
+@dataclass(frozen=True)
+class CallStatement:
+    """CALL a statically or dynamically named COBOL program."""
+    program_name: str
+    arguments: tuple[str, ...] = ()
+    passing_modes: tuple[str, ...] = ()
+    is_dynamic: bool = False
+    #: ``RETURNING`` receiving item (COBOL name).  The clause has no certified
+    #: Java lowering yet, so it is captured here to fail closed by name rather
+    #: than being folded into the USING argument list.
+    returning: str = ""
 
 
 @dataclass(frozen=True)
@@ -378,6 +558,13 @@ class DivideStatement:
     source_expr: Expression | None = None
     divisor_expr: Expression | None = None
     target_ref: FieldReference | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -390,6 +577,13 @@ class ComputeStatement:
     expression: str
     target_ref: FieldReference | None = None
     expression_expr: Expression | None = None
+    rounded: bool = False  # ROUNDED on the receiving item
+    # [NOT] ON SIZE ERROR bodies: with them a result that does not fit the
+    # receiver (or a zero divisor) leaves it unchanged and runs
+    # size_error_body; otherwise the result is stored and
+    # not_size_error_body runs.
+    size_error_body: tuple[Statement, ...] = ()
+    not_size_error_body: tuple[Statement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -406,24 +600,13 @@ class IfStatement:
 
 @dataclass(frozen=True)
 class PerformStatement:
-    """PERFORM paragraph-name UNTIL condition, or PERFORM paragraph-name.
-
-    Supports both raw string mode (backward compatible) and structured mode.
-    """
+    """PERFORM paragraph/inline block with optional UNTIL, TIMES, VARYING or THRU."""
     paragraph_name: str
     until_condition: str | None = None
-    structured_condition: Condition | None = None  # structured condition tree
-
-
-@dataclass(frozen=True)
-class PerformTimesStatement:
-    """PERFORM paragraph-name VARYING ... FROM ... BY ... UNTIL ... TIMES."""
-    paragraph_name: str
-    varying_var: str | None = None
-    from_value: str | None = None
-    by_value: str | None = None
-    until_condition: str | None = None
-    times: int | None = None
+    structured_condition: Condition | None = None
+    body: tuple[Statement, ...] = ()
+    thru_target: str | None = None
+    test_after: bool = False  # WITH TEST AFTER → do-while; default (BEFORE) → while
 
 
 @dataclass(frozen=True)
@@ -431,12 +614,28 @@ class UnstringStatement:
     """UNSTRING source DELIMITED BY delimiter INTO targets.
 
     Supports both raw string mode (backward compatible) and structured mode.
+
+    The certified mapping is the plain delimited split.  Every other clause
+    changes what the statement does — the position where the next split
+    starts, how many receivers were filled, or what happens on overflow — and
+    has no certified Java lowering yet.  Those clauses are captured here so
+    the mapper can fail closed by name instead of running with silently
+    different semantics.  An empty value / ``False`` means the clause was not
+    present in the source.
     """
     source: str
     delimiter: str
     targets: tuple[str, ...] = ()
     source_ref: FieldReference | None = None
     target_refs: tuple[FieldReference, ...] = ()
+    #: ``WITH POINTER`` receiving-position item (COBOL name).
+    pointer: str = ""
+    #: ``ON OVERFLOW`` / ``NOT ON OVERFLOW`` was present.
+    has_overflow: bool = False
+    #: ``VARYING IN`` receiving-position item (COBOL name).
+    varying_pointer: str = ""
+    #: ``TALLYING IN`` counter item (COBOL name).
+    tallying_pointer: str = ""
 
 
 @dataclass(frozen=True)
@@ -444,11 +643,39 @@ class StringStatement:
     """STRING parts INTO target.
 
     Supports both raw string mode (backward compatible) and structured mode.
+
+    The ``DELIMITED BY`` phrase of each sending item is part of the
+    statement's semantics and must be represented, never discarded.  The old
+    parser dropped it (a literal delimiter was even appended to ``parts`` as
+    if it were sending data, and ``WITH POINTER`` vanished), so the mapper
+    emitted a wrong value with no diagnostic while the verdict stayed
+    SUPPORTED.  The fields below close that gap:
+
+    * ``delimiter_exprs`` — one entry per sending item, parallel to
+      ``parts`` (or to ``structured_parts`` in structured mode):
+      ``None`` = ``DELIMITED BY SIZE``, ``FigurativeConstant`` = SPACE /
+      SPACES, ``Literal`` = a quoted delimiter, ``FieldReference`` = an
+      identifier delimiter (no certified dynamic mapping yet — the mapper
+      fails closed).  An empty tuple means legacy/directly-constructed
+      statements without delimiter metadata, which are treated as SIZE.
+    * ``pointer`` — the ``WITH POINTER`` receiving-position variable
+      (COBOL name); empty when the clause is absent.
+    * ``has_overflow`` — an ``ON OVERFLOW`` / ``NOT ON OVERFLOW`` clause is
+      present (no certified overflow flow yet; the parser raises
+      UNSUPPORTED_CONSTRUCT and the mapper fails closed).
+    * ``varying_pointer`` — the ``VARYING IN`` receiving-position variable
+      (COBOL name); empty when the clause is absent.  A re-audit
+      found the phrase silently dropped under a SUPPORTED verdict, so it is
+      now captured and fails closed exactly like ON OVERFLOW.
     """
     parts: tuple[str, ...] = ()
     target: str = ""
     structured_parts: tuple[Expression, ...] = ()  # structured source expressions
     target_ref: FieldReference | None = None  # structured target reference
+    delimiter_exprs: tuple[Expression | None, ...] = ()  # per-phrase delimiter
+    pointer: str = ""  # WITH POINTER variable (COBOL name)
+    has_overflow: bool = False  # ON OVERFLOW clause present
+    varying_pointer: str = ""  # VARYING IN variable (COBOL name)
 
 
 @dataclass(frozen=True)
@@ -463,6 +690,19 @@ class DisplayStatement:
 
 
 @dataclass(frozen=True)
+class SetConditionStatement:
+    """``SET <condition-name> TO TRUE``.
+
+    Only the condition-name form is represented: it names an 88-level
+    condition whose parent data item is assigned a value satisfying the
+    condition.  Other SET forms (index arithmetic, ``SET ... TO FALSE``,
+    ``SET ADDRESS OF``) stay unsupported and are never represented, so a
+    consumer cannot mistake them for implemented semantics.
+    """
+    target: str = ""  # condition name (COBOL spelling)
+
+
+@dataclass(frozen=True)
 class GoToStatement:
     """GO TO paragraph-name."""
     target: str = ""
@@ -473,24 +713,81 @@ class StopRunStatement:
     """STOP RUN."""
 
 
+@dataclass(frozen=True)
+class ExitProgramStatement:
+    """EXIT PROGRAM — terminate this program and return to the caller."""
+
+
+class GobackStatement:
+    """GOBACK — terminate this program and return to the caller.
+
+    Semantically equivalent to EXIT PROGRAM for the generated Java lane:
+    both lower to a Java ``return`` from the current method.  GOBACK is
+    tracked as a distinct construct so capability reporting names it
+    correctly.
+    """
+
+
+@dataclass(frozen=True)
+class AcceptStatement:
+    """ACCEPT target [FROM source] — read input into a field.
+
+    Only the plain ``ACCEPT field`` form (read a line from standard
+    input) is certified.  ``ACCEPT ... FROM DATE/TIME/DAY/...`` and
+    ``ACCEPT ... FROM COMMAND-LINE`` are recorded but fail closed.
+    """
+
+    target: str = ""
+    source: str = ""  # FROM clause (empty = standard input)
+
+
+@dataclass(frozen=True)
+class InitializeStatement:
+    """INITIALIZE field1 [field2 ...] — set each field to its type default.
+
+    Plain form (certified): alphanumeric targets are set to spaces,
+    numeric targets to a typed zero, and group targets are expanded
+    recursively to their elementary subordinates by category (FILLER and
+    88-level condition-names are skipped; GnuCOBOL 3.1.2 oracle-pinned).
+
+    ``ALL TO VALUE`` and ``REPLACING`` clauses are recorded on the
+    statement so the lowering can fail closed deliberately — their
+    keyword tokens are not targets.
+    """
+
+    targets: tuple[str, ...] = ()
+    all_to_value: bool = False
+    replacing: str = ""
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
+    | CloseStatement
     | ReadStatement
+    | StartStatement
     | WriteStatement
     | RewriteStatement
     | DeleteStatement
     | MoveStatement
     | AddStatement
+    | SubtractStatement
+    | MultiplyStatement
+    | ComputeStatement
+    | CallStatement
     | DivideStatement
     | IfStatement
     | PerformStatement
-    | PerformTimesStatement
     | UnstringStatement
     | StringStatement
     | DisplayStatement
+    | SetConditionStatement
     | GoToStatement
     | StopRunStatement
+    | ExitProgramStatement
+    | GobackStatement
+    | InitializeStatement
+    | AcceptStatement
 )
 
 
@@ -601,162 +898,6 @@ class InputRecordMapping:
 
 
 @dataclass(frozen=True)
-class ProgramCapabilities:
-    """Semantic capabilities derived from the COBOL program IR.
-
-    Each field represents whether the program uses a particular COBOL
-    construct. Capabilities are derived from IR elements (statements,
-    file definitions, data items) — NOT from program names, filenames,
-    or workload-specific terminology.
-    """
-    assignment: bool = False          # MOVE statements
-    arithmetic: bool = False          # ADD, SUBTRACT, MULTIPLY, DIVIDE, COMPUTE
-    condition: bool = False           # IF/ELSE statements
-    file_input: bool = False          # READ statements or input file definitions
-    file_output: bool = False         # WRITE statements or output file definitions
-    unstring: bool = False            # UNSTRING parsing
-    string_build: bool = False          # STRING record building
-    lookup: bool = False              # PERFORM + table search (LookupOperation)
-    display: bool = False             # DISPLAY output
-    goto: bool = False                # GO TO statements
-    perform: bool = False             # PERFORM statements
-    decision: bool = False            # IF+MOVE conditional assignment patterns
-    record_output: bool = False       # RecordFormat for output records
-    summary_output: bool = False      # Summary counters/fields for DISPLAY
-    input_record_mapping: bool = False  # InputRecordMapping for delimited records
-
-
-def derive_capabilities(program: CobolProgram) -> ProgramCapabilities:
-    """Derive ProgramCapabilities from the parsed COBOL program IR.
-
-    Inspects IR elements to determine which COBOL constructs are present.
-    No workload-specific detection — purely semantic analysis of IR nodes.
-
-    Capability derivation is based exclusively on generic IR elements:
-    - Statement types (MoveStatement, IfStatement, AddStatement, etc.)
-    - Compound statement patterns (IfStatement with MOVE in body)
-    - File definitions (input/output paths)
-    - InputRecordMapping (UNSTRING patterns)
-    - IfStatement with array indexing (table search)
-    - StringStatement + WriteStatement intersection (record output)
-    - DisplayStatement with label=value pattern (summary output)
-
-    No capability depends on Claims terminology, domain-specific field names,
-    or any domain-shaped container. All detection uses generic IR elements.
-    """
-
-    # Scan all statements recursively (all paragraphs)
-    all_stmts: list[Statement] = []
-    for para in program.paragraphs:
-        for stmt in para.statements:
-            all_stmts.extend(_flatten_statements(stmt))
-
-    has_move = any(isinstance(s, MoveStatement) for s in all_stmts)
-    has_arithmetic = any(isinstance(s, (AddStatement, DivideStatement)) for s in all_stmts)
-    has_condition = any(isinstance(s, IfStatement) for s in all_stmts)
-    has_display = any(isinstance(s, DisplayStatement) for s in all_stmts)
-    has_goto = any(isinstance(s, GoToStatement) for s in all_stmts)
-    has_perform = any(isinstance(s, PerformStatement) for s in all_stmts)
-    has_read = any(isinstance(s, ReadStatement) for s in all_stmts)
-    has_string = any(isinstance(s, StringStatement) for s in all_stmts)
-
-    # File roles from OPEN statements — not from path names
-    input_files = set()
-    output_files = set()
-    for stmt in program.open_statements:
-        if stmt.mode.upper() == "INPUT":
-            input_files.add(stmt.file_name)
-        elif stmt.mode.upper() == "OUTPUT":
-            output_files.add(stmt.file_name)
-
-    # InputRecordMapping
-    has_input_record = bool(program.input_record_mappings)
-
-    # --- Decision: any IfStatement with MoveStatement in then_body ---
-    decision = False
-    if has_condition and has_move:
-        for s in all_stmts:
-            if isinstance(s, IfStatement):
-                if any(isinstance(x, MoveStatement) for x in s.then_body):
-                    decision = True
-                    break
-
-    # --- Lookup: table search pattern (IF with array indexing) ---
-    # Generic COBOL table search: IF field(idx) = search-value
-    # The ") =" pattern distinguishes array indexing from grouping parentheses.
-    # Grouping: (A = B) — = is INSIDE parens
-    # Array indexing: field(idx) = value — = is OUTSIDE closing paren
-    has_lookup = any(
-        isinstance(s, IfStatement) and ') =' in s.condition
-        for s in all_stmts
-    )
-
-    # --- Record output: STRING builds a record that is subsequently written ---
-    # Generic evidence: StringStatement.target matches WriteStatement.record_name
-    # STRING INTO a variable that is never written = just string building
-    # STRING INTO a record that IS written = record output
-    string_targets: set[str] = set()
-    write_records: set[str] = set()
-    for s in all_stmts:
-        if isinstance(s, StringStatement):
-            string_targets.add(s.target)
-        if isinstance(s, WriteStatement):
-            write_records.add(s.record_name)
-    has_record_output = bool(string_targets & write_records)
-
-    # --- Summary output: DISPLAY with "LABEL=" VARIABLE pattern ---
-    # Generic evidence: first part is a quoted string ending with "=",
-    # second part is a variable (not quoted).
-    # This captures: DISPLAY "TOTAL=" WS-COUNT
-    # This excludes:  DISPLAY "ERROR" (no variable), DISPLAY "REJECT:" ID (no =)
-    has_summary = False
-    for s in all_stmts:
-        if isinstance(s, DisplayStatement) and len(s.parts) >= 2:
-            first = s.parts[0].strip('"')
-            second = s.parts[1]
-            if first.endswith('=') and not second.startswith('"'):
-                has_summary = True
-                break
-
-    return ProgramCapabilities(
-        assignment=has_move,
-        arithmetic=has_arithmetic,
-        condition=has_condition,
-        file_input=has_read or bool(input_files),
-        file_output=bool(write_records) or bool(output_files),
-        unstring=has_input_record,
-        string_build=has_string,
-        lookup=has_lookup,
-        display=has_display,
-        goto=has_goto,
-        perform=has_perform,
-        decision=decision,
-        record_output=has_record_output,
-        summary_output=has_summary,
-        input_record_mapping=has_input_record,
-    )
-
-
-def _flatten_statements(stmt: Statement) -> list[Statement]:
-    """Recursively flatten compound statements into a list."""
-    result = [stmt]
-    if isinstance(stmt, IfStatement):
-        for s in stmt.then_body:
-            result.extend(_flatten_statements(s))
-        for s in stmt.else_body:
-            result.extend(_flatten_statements(s))
-    if isinstance(stmt, ReadStatement):
-        for s in stmt.not_at_end_body:
-            result.extend(_flatten_statements(s))
-        for s in stmt.at_end_body:
-            result.extend(_flatten_statements(s))
-    if isinstance(stmt, PerformStatement):
-        # PERFORM body statements are in paragraphs, not in the statement itself
-        pass
-    return result
-
-
-@dataclass(frozen=True)
 class CobolProgram:
     """Complete parsed COBOL program IR.
 
@@ -778,9 +919,11 @@ class CobolProgram:
     summary_fields: tuple[str, ...] = ()
     report_header: str = ""
     # Dependency information
-    called_programs: tuple[str, ...] = ()  # PROGRAM-IDs called via CALL
+    called_programs: tuple[str, ...] = ()
     copybooks: tuple[str, ...] = ()  # COPY references
     entry_points: tuple[str, ...] = ()  # ENTRY statements
+    linkage_section: tuple[DataItem, ...] = ()
+    using_parameters: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -809,6 +952,11 @@ class CopybookReference:
     source_program: str  # PROGRAM-ID of program containing COPY
     copybook_name: str  # name of the copybook
     location: str = ""  # line/column if available
+    # Resolution outcome recorded at discovery time.  "RESOLVED" means a
+    # single on-disk match; "UNRESOLVED" means no candidate; "AMBIGUOUS"
+    # means more than one candidate with equal precedence.
+    resolution: str = "UNRESOLVED"
+    resolved_path: str = ""  # absolute path when resolution == "RESOLVED"
 
 
 @dataclass(frozen=True)
@@ -848,6 +996,22 @@ class CobolProgramUnit:
     copybooks: tuple[CopybookReference, ...] = ()
     entry_points: tuple[str, ...] = ()
     file_dependencies: tuple[FileDependency, ...] = ()
+    # Raw source of this unit.  Capability analysis scans it directly so that
+    # constructs the parser never turns into IR (CLOSE, REWRITE, SORT, ...)
+    # cannot be reported as supported.
+    source_text: str = ""
+    # Non-empty when discovery could only produce a stub IR because the parser
+    # raised CobolParseError on an unsupported sub-construct.  The capability
+    # analyzer treats this as an additional signal to classify the program via
+    # source scan rather than IR walk alone.
+    parse_error: str = ""
+    # Diagnostics emitted while this unit's statements were parsed, rendered as
+    # "CODE: message".  A statement the parser recognised but could not turn
+    # into IR would otherwise survive as an empty-but-present node that still
+    # maps to a SUPPORTED registry key, so capability analysis would report a
+    # loss it could never see.  Non-empty => the unit must not be reported as
+    # fully SUPPORTED on IR evidence alone.
+    parse_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -861,6 +1025,7 @@ class CobolApplication:
     programs: tuple[CobolProgramUnit, ...] = ()
     copybooks: tuple[str, ...] = ()  # discovered copybook names
     edges: tuple[DependencyEdge, ...] = ()  # dependency graph edges
+    discovery_errors: tuple[str, ...] = ()  # source units omitted from discovery
 
     def get_program(self, program_id: str) -> CobolProgramUnit | None:
         """Find a program by its PROGRAM-ID."""
@@ -942,8 +1107,6 @@ class CobolApplication:
         for edge in self.edges:
             if edge.source not in seen_ids:
                 errors.append(f"Dependency source not in application: {edge.source}")
-            if edge.target not in seen_ids and edge.edge_type == "CALL":
-                pass  # Already reported as unresolved
 
         # Detect cycles (informational, not necessarily errors)
         cycles = self.detect_cycles()
@@ -970,6 +1133,11 @@ class JclJob:
     steps: tuple[JclStep, ...] = ()
     comments: tuple[str, ...] = ()
     source_path: str = ""  # filesystem path to the JCL source
+    # DD statements written before the job's first EXEC (JOBLIB, job
+    # message datasets, ...). Preserved so job-level datasets are never
+    # silently dropped; they are diagnosed as outside the
+    # semantic profile's supported subset.
+    job_dd_statements: tuple[JclDD, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1013,7 +1181,6 @@ class JclDD:
     dcb: str = ""  # DCB= value
     vol: str = ""  # VOL= value
     sysout: str = ""  # SYSOUT= value
-    sysin: bool = False  # SYSIN DD * indicator
     is_temporary: bool = False  # temporary dataset (SYSOUT=* or DSN=&&...)
     is_inline: bool = False  # inline data (DD * or DD DATA)
 
@@ -1168,14 +1335,6 @@ class JclApplication:
                 elif not step.exec_.program and not step.exec_.procedure:
                     errors.append(f"Malformed EXEC: step {step.name} has no PGM or PROC")
 
-        # Check for unresolved PGM references
-        known_programs = set()  # Would need COBOL application to resolve
-        for job in self.jobs:
-            for step in job.steps:
-                if step.exec_ and step.exec_.program:
-                    if step.exec_.program not in known_programs:
-                        pass  # Will be resolved when linked with COBOL
-
         # Check for invalid dependency references
         all_step_names: set[str] = set()
         for job in self.jobs:
@@ -1326,10 +1485,15 @@ class SqlJoin:
     """A SQL JOIN clause.
 
     Represents table join with condition.
+
+    ``on_predicates`` holds every honest ON conjunct (same
+    additive pattern as ``SqlSelect.where_predicates``); ``on_condition``
+    remains the first conjunct for single-predicate consumers.
     """
     join_type: SqlJoinType = SqlJoinType.INNER
     table: SqlTableReference | None = None
     on_condition: SqlPredicate | None = None
+    on_predicates: tuple[SqlPredicate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1363,6 +1527,10 @@ class SqlSelect:
     from_tables: tuple[SqlTableReference, ...] = ()
     joins: tuple[SqlJoin, ...] = ()
     where_predicate: SqlPredicate | None = None
+    #: Every top-level WHERE conjunct. ``where_predicate`` is
+    #: kept as the first conjunct for compatibility; a flat list is the
+    #: documented subset (no AND/OR boolean tree invented).
+    where_predicates: tuple[SqlPredicate, ...] = ()
     group_by: tuple[SqlGroupBy, ...] = ()
     having: SqlPredicate | None = None
     order_by: tuple[SqlOrderBy, ...] = ()
@@ -1390,6 +1558,8 @@ class SqlUpdate:
     table: SqlTableReference | None = None
     assignments: tuple[tuple[SqlColumnReference, SqlExpression], ...] = ()
     where_predicate: SqlPredicate | None = None
+    #: Every top-level WHERE conjunct; first == where_predicate.
+    where_predicates: tuple[SqlPredicate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1400,6 +1570,8 @@ class SqlDelete:
     """
     table: SqlTableReference | None = None
     where_predicate: SqlPredicate | None = None
+    #: Every top-level WHERE conjunct; first == where_predicate.
+    where_predicates: tuple[SqlPredicate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1447,6 +1619,10 @@ class EmbeddedSqlBlock:
     """
     statements: tuple[SqlStatement, ...] = ()
     raw_text: str = ""  # original embedded SQL text
+    #: Statement texts this parser cannot model — preserved,
+    #: never silently dropped; the analyzer surfaces them as validation
+    #: diagnostics. Empty for fully-supported blocks.
+    unsupported_statements: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -103,8 +103,10 @@ class TestProducerContract:
         # Parser is tolerant — returns FAILED with diagnostic (no exception)
         assert result.status.value == "FAILED"
         assert len(result.diagnostics) > 0
-        assert result.diagnostics[0]["level"] == "ERROR"
-        assert "PARSE_ERROR" in result.diagnostics[0]["code"]
+        # BL-042: the declared contract is contracts.Diagnostic — attribute
+        # access (not dict indexing) is the producer-boundary shape.
+        assert result.diagnostics[0].level == "ERROR"
+        assert "PARSE_ERROR" in result.diagnostics[0].code
 
     def test_java_source_tree_property(self):
         """java_source_tree returns filename→source mapping."""
@@ -155,7 +157,7 @@ class TestTransformationNegative:
         result = producer.transform("", program_id="EMPTY")
         assert result.status == TransformationStatus.FAILED
         assert len(result.diagnostics) > 0
-        assert result.diagnostics[0]["level"] == "ERROR"
+        assert result.diagnostics[0].level == "ERROR"
 
     def test_random_text_returns_failed(self):
         """TEST B: random non-COBOL text -> FAILED."""
@@ -166,7 +168,7 @@ class TestTransformationNegative:
         )
         assert result.status == TransformationStatus.FAILED
         assert len(result.diagnostics) > 0
-        assert result.diagnostics[0]["code"] == "PARSE_ERROR"
+        assert result.diagnostics[0].code == "PARSE_ERROR"
 
     def test_missing_identification_division_returns_failed(self):
         """TEST C: missing IDENTIFICATION DIVISION -> FAILED."""
@@ -192,20 +194,18 @@ class TestTransformationNegative:
         )
         result = producer.transform(source, program_id="TEST-COMPUTE")
         assert result.status == TransformationStatus.SUCCESS
-        codes = [d["code"] for d in result.diagnostics]
+        codes = [d.code for d in result.diagnostics]
         # COMPUTE is now fully supported, no UNSUPPORTED_CONSTRUCT
         assert "UNSUPPORTED_CONSTRUCT" not in codes
 
-    def test_claims_cobol_returns_partial(self):
-        """TEST E: valid Claims COBOL + unsupported constructs -> PARTIAL."""
+    def test_claims_cobol_returns_success(self):
+        """CLAIMS COBOL is now fully supported (PERFORM UNTIL handled) -> SUCCESS."""
         from pathlib import Path
         producer = InternalNativeJavaProducer()
         cobol = Path("fixtures/workload-claims/cobol/CLAIMS.cob").read_text()
         result = producer.transform(cobol, program_id="CLAIMS")
-        assert result.status == TransformationStatus.PARTIAL
-        assert len(result.diagnostics) > 0
-        codes = [d["code"] for d in result.diagnostics]
-        assert "UNSUPPORTED_CONSTRUCT" in codes
+        assert result.status == TransformationStatus.SUCCESS
+        assert len(result.generated_files) > 0
 
     def test_valid_minimal_cobol_returns_success(self):
         """TEST F: valid fully supported minimal COBOL -> SUCCESS."""

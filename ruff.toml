@@ -1,0 +1,15 @@
+# Lint baseline (audit CI-F15). Deliberately small: pyflakes (unused imports
+# and variables, undefined names) and syntax errors. Style rules are not
+# enforced - the codebase predates a formatter. CI runs `ruff check` with the
+# hash-locked version in requirements-lint.lock.
+target-version = "py311"
+extend-exclude = ["frontend", "fixtures", "tmp", "test-artifacts", ".venv", ".venv-audit"]
+
+[lint]
+select = ["F", "E9"]
+
+[lint.per-file-ignores]
+# Tests import names for fixtures and re-export helpers; only the
+# high-signal rules apply there (undefined names, redefinitions, syntax).
+"tests/**" = ["F401", "F841", "F541"]
+"**/__init__.py" = ["F401"]

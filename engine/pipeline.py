@@ -22,10 +22,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import tempfile
-from dataclasses import dataclass
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from engine.candidate.adapter import (
     CandidateAdapter,
@@ -37,20 +42,32 @@ from engine.candidate.docker_java_adapter import (
     DockerJavaConfig,
 )
 from engine.candidate.java_adapter import RealJavaCandidateAdapter
+from engine.comparators.indexed_records import (
+    UnreadableImage,
+    bdb_btree_records,
+    canonical_records,
+    canonical_relative_records,
+    emulated_index_records,
+    emulated_relative_records,
+    gnucobol_relative_records,
+)
 from engine.comparators.framework import (
     ComparatorRegistry,
     create_default_registry,
+    create_verification_registry,
+    register_business_invariant_comparator,
+    resolve_comparator_id,
 )
 from engine.domain.identities import (
     AdapterStatus,
     CandidateIdentity,
     ContentHash,
+    EnvironmentIdentity,
     ExecutionId,
     InputIdentity,
     OracleIdentity,
     RunId,
     SourceIdentity,
-    VerdictState,
     WorkloadId,
 )
 from engine.evidence.integrity import EvidenceIntegrityValidator
@@ -63,8 +80,21 @@ from engine.evidence.models import (
 from engine.execution.artifacts import ArtifactCapturer, CapturedArtifact
 from engine.oracle.adapter import OracleAdapterConfig
 from engine.oracle.docker_adapter import DockerOracleAdapter
-from engine.verdict.derivation import Verdict, derive_verdict
-from engine.workload import WorkloadDefinition
+from engine.verdict.derivation import (
+    Verdict,
+    derive_verdict_validated,
+    derive_verdict_untrusted,
+)
+from engine.verification.business_invariants import (
+    InvariantObservation,
+    build_report,
+)
+from engine.contracts.models import FailurePolicy
+from engine.workload import WorkloadArtifact, WorkloadDefinition
+
+#: Generated files are compared under this policy: a file that only one
+#: execution produced is a behavioural difference, never "unavailable".
+_ONE_SIDED_FILE_IS_MISMATCH = FailurePolicy(on_missing="FAILED")
 
 
 @dataclass(frozen=True)
@@ -75,13 +105,21 @@ class PipelineConfig:
     java_candidate_path: str
     java_entrypoint: str
     workload: WorkloadDefinition | None = None
-    oracle_image: str = "gnucobol-ocesql:latest"
-    oracle_digest: str = "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
+    oracle_image: str = os.environ.get(
+        "SYSTEMAOPS_ORACLE_IMAGE", "gnucobol-ocesql:latest"
+    )
+    # Declared immutable pin. Empty means auto-pin: the oracle adapter
+    # resolves the image's immutable identity at execution time and records
+    # it as the executed identity (fail closed on mismatch when set).
+    oracle_digest: str = os.environ.get("SYSTEMAOPS_ORACLE_DIGEST", "")
     oracle_compiler_version: str = "3.1.2.0"
     javac_path: str = "javac"
     java_path: str = "java"
     timeout_seconds: int = 30
     use_docker_java: bool = True
+    # COBOL PROGRAM-ID the candidate enters.  When set, the oracle runs that
+    # program (or refuses) instead of selecting an entry on its own.
+    oracle_entry_program: str | None = None
 
 
 @dataclass
@@ -122,7 +160,17 @@ class VerticalSlicePipeline:
     ) -> None:
         self._config = config
         self._capturer = ArtifactCapturer()
-        self._registry = registry or create_default_registry()
+        has_invariants = bool(
+            config.workload is not None and config.workload.invariants
+        )
+        if registry is not None:
+            self._registry = registry
+        elif has_invariants:
+            self._registry = create_verification_registry()
+        else:
+            self._registry = create_default_registry()
+        if has_invariants:
+            register_business_invariant_comparator(self._registry)
         self._integrity_validator = EvidenceIntegrityValidator()
 
         oracle_config = OracleAdapterConfig(
@@ -130,6 +178,7 @@ class VerticalSlicePipeline:
             image_digest=config.oracle_digest,
             compiler_version=config.oracle_compiler_version,
             timeout_seconds=config.timeout_seconds,
+            image=config.oracle_image,
         )
         self._oracle_adapter = DockerOracleAdapter(oracle_config)
 
@@ -149,22 +198,17 @@ class VerticalSlicePipeline:
     def _compute_source_identity(self) -> SourceIdentity:
         source_path = Path(self._config.cobol_source_path)
         hasher = hashlib.sha256()
+        file_count = 0
+        total_size = 0
         if source_path.is_file():
             hasher.update(source_path.read_bytes())
+            file_count = 1
+            total_size = source_path.stat().st_size
         elif source_path.is_dir():
             for f in sorted(source_path.rglob("*")):
                 if f.is_file():
                     hasher.update(str(f.relative_to(source_path)).encode())
                     hasher.update(f.read_bytes())
-
-        file_count = 0
-        total_size = 0
-        if source_path.is_file():
-            file_count = 1
-            total_size = source_path.stat().st_size
-        elif source_path.is_dir():
-            for f in source_path.rglob("*"):
-                if f.is_file():
                     file_count += 1
                     total_size += f.stat().st_size
 
@@ -187,7 +231,15 @@ class VerticalSlicePipeline:
         elif candidate_path.is_dir():
             for f in sorted(candidate_path.rglob("*")):
                 if f.is_file():
-                    hasher.update(str(f.relative_to(candidate_path)).encode())
+                    rel = f.relative_to(candidate_path)
+                    # Candidate identity is derived only from the source
+                    # tree, never from build outputs.  Maven writes
+                    # its build output under the top-level target/ directory;
+                    # excluding it keeps candidate_hash deterministic across
+                    # repeated builds of identical sources.
+                    if rel.parts and rel.parts[0] == "target":
+                        continue
+                    hasher.update(str(rel).encode())
                     hasher.update(f.read_bytes())
                     file_count += 1
                     total_size += f.stat().st_size
@@ -204,7 +256,7 @@ class VerticalSlicePipeline:
         candidate_path = Path(self._config.java_candidate_path)
         generated_files = {}
         if candidate_path.is_dir():
-            for f in candidate_path.rglob("*.java"):
+            for f in sorted(candidate_path.rglob("*.java")):
                 rel = f.relative_to(candidate_path)
                 file_hash = ContentHash.from_bytes(f.read_bytes())
                 generated_files[str(rel)] = str(file_hash)
@@ -218,7 +270,7 @@ class VerticalSlicePipeline:
             source_hash=str(source_hash),
             generated_files=generated_files,
             entrypoint=self._config.java_entrypoint,
-            java_version="25",
+            java_version="21",
         )
 
     def _extract_artifact_content(
@@ -226,32 +278,38 @@ class VerticalSlicePipeline:
         artifact_type: str,
         output_path: str | None,
         execution_result: object,
-    ) -> bytes:
-        """Extract artifact content from execution result based on artifact type."""
+    ) -> bytes | None:
+        """Extract artifact content; missing declared files return None."""
         if artifact_type == "STDOUT":
             return execution_result.stdout
         if artifact_type == "STDERR":
             return execution_result.stderr
         if artifact_type == "EXIT_STATUS":
-            return str(execution_result.exit_code or -1).encode()
+            _ec = execution_result.exit_code
+            return str(_ec if _ec is not None else -1).encode()
         if artifact_type in ("TEXT_FILE", "FIXED_RECORD"):
             generated = getattr(execution_result, "generated_files", None) or {}
             if output_path and output_path in generated:
                 return generated[output_path]
-            return b""
-        return b""
+            return None
+        return None
 
     def _capture_artifact(
         self,
         artifact_type: str,
         output_path: str | None,
         execution_id: ExecutionId,
-        content: bytes,
+        content: bytes | None,
         logical_name: str,
         producer_role: str,
         record_length: int | None = None,
     ) -> CapturedArtifact:
-        """Capture an artifact using the appropriate capturer method."""
+        """Capture an artifact; None content means the artifact is absent."""
+        if content is None:
+            return self._capturer.capture_missing(
+                execution_id, artifact_type, logical_name, producer_role,
+                record_length=record_length,
+            )
         if artifact_type == "STDOUT":
             return self._capturer.capture_stdout(
                 execution_id, content, logical_name, producer_role
@@ -296,6 +354,8 @@ class VerticalSlicePipeline:
             normalization_applied=comp_result.normalization_applied,
             differences=tuple(d.description for d in comp_result.differences),
             field_level_results=(),
+            ordering_applied=getattr(comp_result, "ordering_applied", "SEQUENTIAL"),
+            failure_policy=getattr(comp_result, "failure_policy", ""),
             content_hash=ContentHash.from_string(json.dumps({
                 "result": comp_result.result.value,
                 "differences": [
@@ -313,6 +373,7 @@ class VerticalSlicePipeline:
         candidate_result: object,
         source_identity: SourceIdentity,
         candidate_identity: CandidateIdentity,
+        input_files: dict[str, bytes] | None = None,
     ) -> tuple[
         tuple[ArtifactEvidence, ...],
         tuple[ComparisonEvidence, ...],
@@ -327,7 +388,29 @@ class VerticalSlicePipeline:
         candidate_artifacts_list: list[CapturedArtifact] = []
         comparison_evidence: list[ComparisonEvidence] = []
 
-        for artifact_def in workload.artifacts:
+        artifacts = tuple(workload.artifacts)
+        # Stdout, stderr and exit status are observable for every program,
+        # so every run compares them even when a declared contract omits them
+        # (audit 2026-11-03): V2 - a file-only contract let a stdout
+        # divergence reach VERIFIED; V1 - stderr was compared only when the
+        # COBOL source wrote to it, so a candidate's stack trace or warning
+        # on stderr was never compared.
+        names = {a.logical_name for a in artifacts}
+        for artifact_type, logical_name, comparator_id in (
+            ("STDOUT", "stdout", "stdout-exact"),
+            ("STDERR", "stderr", "stderr-exact"),
+            ("EXIT_STATUS", "exit-status", "exit-status-exact"),
+        ):
+            if not any(a.artifact_type == artifact_type for a in artifacts):
+                while logical_name in names:
+                    logical_name += "-required"
+                names.add(logical_name)
+                artifacts += (WorkloadArtifact(
+                    logical_name=logical_name,
+                    artifact_type=artifact_type,
+                    comparator_id=comparator_id,
+                ),)
+        for artifact_def in artifacts:
             # Extract content
             oracle_content = self._extract_artifact_content(
                 artifact_def.artifact_type, artifact_def.output_path, oracle_result
@@ -353,20 +436,186 @@ class VerticalSlicePipeline:
             oracle_artifacts_list.append(oracle_ca)
             candidate_artifacts_list.append(candidate_ca)
 
-            # Get comparator from registry
+            # Get comparator from registry (literal get call — tests assert
+            # dispatch is registry-driven, never direct instantiation).
             comparator = self._registry.get(artifact_def.artifact_type)
             if comparator is None:
                 raise ValueError(
                     f"No comparator registered for artifact_type={artifact_def.artifact_type!r}"
                 )
 
+            # Comparator binding: the comparator the declaration names (after
+            # alias resolution) must be exactly the comparator the registry
+            # dispatches for this artifact type. A disagreement means the
+            # evidence would be produced by an unbound comparator — fail closed.
+            declared_id = (getattr(artifact_def, "comparator_id", "") or "").strip()
+            if declared_id:
+                resolved_declared = resolve_comparator_id(declared_id)
+                registered_id = comparator.comparator_id.comparator_id
+                if resolved_declared != registered_id:
+                    raise ValueError(
+                        "Comparator binding mismatch for artifact_type="
+                        f"{artifact_def.artifact_type!r}: declaration "
+                        f"{declared_id!r} resolves to {resolved_declared!r} "
+                        f"but registry provides {registered_id!r}"
+                    )
+
             # Compare
+            normalization = (
+                artifact_def.normalization.allowed_normalizations
+                if artifact_def.normalization else ()
+            )
+            ordering = artifact_def.ordering.order if artifact_def.ordering else "SEQUENTIAL"
             comp_result = comparator.compare(
+                oracle_ca.artifact, oracle_ca.content,
+                candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=normalization,
+                ordering=ordering,
+                failure_policy=artifact_def.failure,
+            )
+            comparison_evidence.append(self._make_comparison_evidence(
+                run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
+            ))
+
+        # Every file either execution wrote is an observable effect.  Files
+        # the declaration does not name are still compared byte-exactly (no
+        # normalization), and a file produced on only one side is a MISMATCH:
+        # an undeclared output must never be silently ignored.
+        declared_paths = {
+            a.output_path for a in workload.artifacts if a.output_path
+        }
+        oracle_generated = getattr(oracle_result, "generated_files", None) or {}
+        candidate_generated = getattr(candidate_result, "generated_files", None) or {}
+        undeclared = sorted(
+            (set(oracle_generated) | set(candidate_generated)) - declared_paths
+        )
+        text_comparator = self._registry.get("TEXT_FILE")
+        if undeclared and text_comparator is None:
+            raise ValueError(
+                "No comparator registered for artifact_type='TEXT_FILE': "
+                "undeclared generated files cannot be compared"
+            )
+        emulated = self._emulated_file_image_names(undeclared)
+        records_compared = self._compare_file_records(
+            run_id, emulated, oracle_generated, candidate_generated,
+            oracle_result, candidate_result, text_comparator,
+            oracle_artifacts_list, candidate_artifacts_list, comparison_evidence,
+        )
+        for name in undeclared:
+            if name in records_compared:
+                continue
+            if name in emulated:
+                artifact_def = WorkloadArtifact(
+                    logical_name=f"generated-file:{name}",
+                    artifact_type="TEXT_FILE",
+                    comparator_id="text-file-exact",
+                    output_path=name,
+                )
+                oracle_ca = self._capture_artifact(
+                    "TEXT_FILE", name, oracle_result.execution_id,
+                    oracle_generated.get(name), artifact_def.logical_name, "ORACLE",
+                )
+                candidate_ca = self._capture_artifact(
+                    "TEXT_FILE", name, candidate_result.execution_id,
+                    candidate_generated.get(name), artifact_def.logical_name,
+                    "CANDIDATE",
+                )
+                oracle_artifacts_list.append(oracle_ca)
+                candidate_artifacts_list.append(candidate_ca)
+                comparison_evidence.append(self._inconclusive_comparison(
+                    run_id, artifact_def, oracle_ca, candidate_ca,
+                    text_comparator.comparator_id,
+                    f"{name}: on-disk image of an INDEXED/RELATIVE file; the "
+                    "Java file organisation is an emulation, so its bytes are "
+                    "not comparable and its record content is not compared",
+                ))
+                continue
+            artifact_def = WorkloadArtifact(
+                logical_name=f"generated-file:{name}",
+                artifact_type="TEXT_FILE",
+                comparator_id="text-file-exact",
+                output_path=name,
+                failure=_ONE_SIDED_FILE_IS_MISMATCH,
+            )
+            oracle_ca = self._capture_artifact(
+                "TEXT_FILE", name, oracle_result.execution_id,
+                oracle_generated.get(name), artifact_def.logical_name, "ORACLE",
+            )
+            candidate_ca = self._capture_artifact(
+                "TEXT_FILE", name, candidate_result.execution_id,
+                candidate_generated.get(name), artifact_def.logical_name,
+                "CANDIDATE",
+            )
+            oracle_artifacts_list.append(oracle_ca)
+            candidate_artifacts_list.append(candidate_ca)
+            comp_result = text_comparator.compare(
+                oracle_ca.artifact, oracle_ca.content,
+                candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=(),
+                ordering="SEQUENTIAL",
+                failure_policy=artifact_def.failure,
+            )
+            comparison_evidence.append(self._make_comparison_evidence(
+                run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
+            ))
+
+        # Business invariants are derived artifacts, evaluated independently
+        # against each execution. They run through the same registry, capture,
+        # comparison, integrity and verdict gates as observed artifacts: a
+        # rule that fails on either side can never produce a MATCH.
+        if workload.invariants:
+            invariant_comparator = self._registry.get("BUSINESS_INVARIANT")
+            if invariant_comparator is None:
+                raise ValueError(
+                    "No comparator registered for artifact_type="
+                    "'BUSINESS_INVARIANT': business invariants are declared "
+                    "but the verification comparator is unavailable"
+                )
+            oracle_ca = self._capturer.capture_business_invariant(
+                oracle_result.execution_id,
+                build_report(
+                    workload.invariants,
+                    InvariantObservation(
+                        exit_code=oracle_result.exit_code,
+                        stdout=oracle_result.stdout or b"",
+                        stderr=oracle_result.stderr or b"",
+                        files=getattr(oracle_result, "generated_files", None) or {},
+                        inputs=input_files or {},
+                    ),
+                ).to_bytes(),
+                "business-invariants",
+                "ORACLE",
+            )
+            candidate_ca = self._capturer.capture_business_invariant(
+                candidate_result.execution_id,
+                build_report(
+                    workload.invariants,
+                    InvariantObservation(
+                        exit_code=candidate_result.exit_code,
+                        stdout=candidate_result.stdout or b"",
+                        stderr=candidate_result.stderr or b"",
+                        files=getattr(candidate_result, "generated_files", None) or {},
+                        inputs=input_files or {},
+                    ),
+                ).to_bytes(),
+                "business-invariants",
+                "CANDIDATE",
+            )
+            oracle_artifacts_list.append(oracle_ca)
+            candidate_artifacts_list.append(candidate_ca)
+            comp_result = invariant_comparator.compare(
                 oracle_ca.artifact, oracle_ca.content,
                 candidate_ca.artifact, candidate_ca.content,
             )
             comparison_evidence.append(self._make_comparison_evidence(
-                run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
+                run_id,
+                SimpleNamespace(
+                    logical_name="business-invariants",
+                    artifact_type="BUSINESS_INVARIANT",
+                ),
+                oracle_ca,
+                candidate_ca,
+                comp_result,
             ))
 
         artifact_evidence = tuple(
@@ -378,9 +627,14 @@ class VerticalSlicePipeline:
     def _load_input_files(self) -> dict[str, bytes] | None:
         """Load input files from workload declaration.
 
-        Returns dict keyed by filename (e.g. 'claims.dat'), which the
+        Returns dict keyed by file name (e.g. 'claims.dat'), which the
         oracle and candidate adapters write into a temp input directory
         mounted at /workspace/input/.
+
+        A declared input that does not exist on disk fails closed: silently
+        omitting it would validate a different workload than declared.
+        Duplicate staging names are rejected when the WorkloadDefinition is
+        constructed, so keys are unambiguous here.
         """
         workload = self._config.workload
         if not workload or not workload.inputs:
@@ -389,28 +643,365 @@ class VerticalSlicePipeline:
         files: dict[str, bytes] = {}
         for inp in workload.inputs:
             source = fixture_root / inp.source_path
-            if source.is_file():
-                files[source.name] = source.read_bytes()
+            if not source.is_file():
+                raise ValueError(
+                    f"Declared input {inp.source_path!r} (logical_name="
+                    f"{inp.logical_name!r}) not found at {source}: refusing "
+                    f"to run with a different input set than declared"
+                )
+            files[source.name] = source.read_bytes()
         return files if files else None
 
-    def run(self, controlled_input: bytes | None = None) -> PipelineResult:
-        run_id = RunId(value=f"run-{self._config.workload_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
+    def _input_file_identities(self) -> dict[str, ContentHash]:
+        """Hashes of declared input files, keyed by container path.
+
+        Keyed by the declared ``container_path`` (not the staging name) so
+        the recorded input identity matches the workload declaration.
+        """
+        workload = self._config.workload
+        if not workload or not workload.inputs:
+            return {}
+        fixture_root = Path(self._config.cobol_source_path).parent.parent
+        identities: dict[str, ContentHash] = {}
+        for inp in workload.inputs:
+            source = fixture_root / inp.source_path
+            if not source.is_file():
+                raise ValueError(
+                    f"Declared input {inp.source_path!r} (logical_name="
+                    f"{inp.logical_name!r}) not found at {source}: refusing "
+                    f"to record an input identity for missing input"
+                )
+            identities[inp.container_path] = ContentHash.from_bytes(source.read_bytes())
+        return identities
+
+    #: Directories excluded from the candidate source-tree mutation hash
+    #: (build outputs written during compile are not source).
+    _SOURCE_TREE_EXCLUDED_DIRS = frozenset({
+        "target", "build", "out", ".git", "__pycache__", "node_modules",
+    })
+
+    def _candidate_lane(self) -> str:
+        """``<AdapterClass> <runtime image identity>`` of the candidate lane."""
+        adapter = self._candidate_adapter
+        identity = getattr(adapter, "runtime_identity", "") or ""
+        return f"{type(adapter).__name__} {identity}".strip()
+
+    def _candidate_resource_limits(self) -> dict[str, str]:
+        """Resource limits of the configured candidate adapter (best effort)."""
+        cfg = getattr(self._candidate_adapter, "_config", None)
+        return {
+            "memory": str(getattr(cfg, "memory_limit", "512m")),
+            "cpus": str(getattr(cfg, "cpu_limit", "1.0")),
+            "pids_limit": str(getattr(cfg, "pids_limit", 256)),
+        }
+
+    def _candidate_source_tree_hash(self) -> ContentHash:
+        """Hash the candidate's source tree at call time (build outputs excluded).
+
+        Recorded before and after build/execute so evidence proves the
+        candidate sources were not rewritten during validation.
+        """
+        candidate_path = Path(self._config.java_candidate_path)
+        hasher = hashlib.sha256()
+        if candidate_path.is_file():
+            hasher.update(candidate_path.read_bytes())
+        elif candidate_path.is_dir():
+            for f in sorted(candidate_path.rglob("*")):
+                if not f.is_file():
+                    continue
+                rel = f.relative_to(candidate_path)
+                if any(part in self._SOURCE_TREE_EXCLUDED_DIRS for part in rel.parts):
+                    continue
+                hasher.update(str(rel).encode())
+                hasher.update(f.read_bytes())
+        return ContentHash(digest=hasher.hexdigest())
+
+    #: Side-effect channels the comparators cannot observe, keyed by the
+    #: unsupported artifact type recorded for them.  Declarative EXEC SQL
+    #: statements (INCLUDE, DECLARE, WHENEVER, declare sections) touch no
+    #: database and are not counted.
+    _UNOBSERVED_EFFECT_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
+        (
+            "DATABASE_STATE",
+            "database-state",
+            re.compile(
+                r"\bEXEC\s+SQL\s+(?!INCLUDE\b|DECLARE\b|WHENEVER\b|"
+                r"BEGIN\s+DECLARE\b|END\s+DECLARE\b)\w",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "DATABASE_STATE",
+            "database-state",
+            re.compile(
+                r"\bEXEC\s+DLI\b|\bCALL\s+['\"](?:CBLTDLI|AIBTDLI)['\"]",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "TRANSACTION_EFFECTS",
+            "transaction-effects",
+            re.compile(r"\bEXEC\s+CICS\b", re.IGNORECASE),
+        ),
+        (
+            "MESSAGE_QUEUE_EFFECTS",
+            "message-queue-effects",
+            re.compile(r"\bCALL\s+['\"]MQ[A-Z]+['\"]", re.IGNORECASE),
+        ),
+    )
+
+    #: DISPLAY ... UPON STDERR/SYSERR, or a SPECIAL-NAMES mnemonic for the
+    #: error device that DISPLAY ... UPON <mnemonic> can then target.
+    _KEYED_FILE_SELECT = re.compile(
+        r"\bSELECT\s+[\w-]+\s+ASSIGN\s+(?:TO\s+)?[\"']([^\"']+)[\"']([^.]*)\.",
+        re.IGNORECASE,
+    )
+
+    def _keyed_file_names(self, organizations: str = "INDEXED|RELATIVE") -> set[str]:
+        """ASSIGN literals (base names) of SELECTs with one of
+        ``organizations`` (a regex alternation)."""
+        keyed: set[str] = set()
+        for text in self._source_texts():
+            for m in self._KEYED_FILE_SELECT.finditer(text):
+                if re.search(
+                    rf"\bORGANI[SZ]ATION\s+(?:IS\s+)?(?:{organizations})\b",
+                    m.group(2), re.IGNORECASE,
+                ):
+                    keyed.add(m.group(1).rsplit("/", 1)[-1])
+        return keyed
+
+    def _emulated_file_image_names(self, names: list[str]) -> set[str]:
+        """Generated files that are INDEXED/RELATIVE file images.
+
+        Matched by the ASSIGN literal of a SELECT whose ORGANIZATION is
+        INDEXED or RELATIVE: the file itself or a companion sharing its name
+        plus an extension (``IDX.DAT.idx``).
+        """
+        keyed = self._keyed_file_names()
+        return {
+            name for name in names
+            if any(
+                (base := name.rsplit("/", 1)[-1]) == k or base.startswith(k + ".")
+                for k in keyed
+            )
+        }
+
+    def _compare_file_records(
+        self, run_id, emulated, oracle_generated, candidate_generated,
+        oracle_result, candidate_result, text_comparator,
+        oracle_artifacts, candidate_artifacts, comparisons,
+    ) -> set[str]:
+        """Compare INDEXED/RELATIVE files by their records; return the
+        images handled.
+
+        The oracle leaves ``<file>`` (GnuCOBOL's Berkeley DB B-tree, or its
+        RELATIVE slot file), the generated runtime ``<file>.idx`` /
+        ``<file>.rel`` (its emulation).  When each image is on its own side
+        only and both decode (``engine.comparators.indexed_records``), their
+        records — what a COBOL program reading the file sees: in key order,
+        or by RRN — are compared byte-exactly as one ``<file>#records``
+        artifact; the physical images are not compared (their hashes stay
+        in the execution evidence).  Any other case is left to the
+        INCONCLUSIVE path.
+        """
+        readers = (
+            (self._keyed_file_names("INDEXED"), ".idx", bdb_btree_records,
+             emulated_index_records, canonical_records),
+            (self._keyed_file_names("RELATIVE"), ".rel", gnucobol_relative_records,
+             emulated_relative_records, canonical_relative_records),
+        )
+        handled: set[str] = set()
+        for name in sorted(emulated):
+            matching = [r for r in readers if name.rsplit("/", 1)[-1] in r[0]]
+            if len(matching) != 1:
+                continue
+            _, suffix, read_oracle, read_candidate, canonical = matching[0]
+            image = name + suffix
+            if (
+                name not in oracle_generated or name in candidate_generated
+                or image not in candidate_generated or image in oracle_generated
+            ):
+                continue
+            try:
+                oracle_records = read_oracle(oracle_generated[name])
+                candidate_records = read_candidate(candidate_generated[image])
+            except UnreadableImage:
+                continue
+            output_path = f"{name}#records"
+            artifact_def = WorkloadArtifact(
+                logical_name=f"generated-file:{output_path}",
+                artifact_type="TEXT_FILE",
+                comparator_id="text-file-exact",
+                output_path=output_path,
+                failure=_ONE_SIDED_FILE_IS_MISMATCH,
+            )
+            oracle_ca = self._capture_artifact(
+                "TEXT_FILE", output_path, oracle_result.execution_id,
+                canonical(oracle_records), artifact_def.logical_name, "ORACLE",
+            )
+            candidate_ca = self._capture_artifact(
+                "TEXT_FILE", output_path, candidate_result.execution_id,
+                canonical(candidate_records), artifact_def.logical_name,
+                "CANDIDATE",
+            )
+            oracle_artifacts.append(oracle_ca)
+            candidate_artifacts.append(candidate_ca)
+            comp_result = text_comparator.compare(
+                oracle_ca.artifact, oracle_ca.content,
+                candidate_ca.artifact, candidate_ca.content,
+                normalization_policy=(),
+                ordering="SEQUENTIAL",
+                failure_policy=artifact_def.failure,
+            )
+            comparisons.append(self._make_comparison_evidence(
+                run_id, artifact_def, oracle_ca, candidate_ca, comp_result,
+            ))
+            handled |= {name, image}
+        return handled
+
+    @staticmethod
+    def _inconclusive_comparison(
+        run_id: RunId,
+        artifact_def: WorkloadArtifact,
+        oracle_ca: CapturedArtifact,
+        candidate_ca: CapturedArtifact,
+        comparator: object,
+        difference: str,
+    ) -> ComparisonEvidence:
+        """INCONCLUSIVE evidence bound to the artifact type's comparator."""
+        return ComparisonEvidence(
+            comparison_id=f"comp-{artifact_def.logical_name}-{run_id.value}",
+            run_id=run_id,
+            comparator_id=comparator.comparator_id,
+            comparator_version=comparator.version,
+            oracle_artifact_id=oracle_ca.artifact.artifact_id,
+            candidate_artifact_id=candidate_ca.artifact.artifact_id,
+            artifact_type=artifact_def.artifact_type,
+            result="INCONCLUSIVE",
+            normalization_applied=(),
+            differences=(difference,),
+            field_level_results=(),
+            content_hash=ContentHash.from_string(json.dumps({
+                "result": "INCONCLUSIVE", "differences": [difference],
+            }, sort_keys=True)),
+        )
+
+    def _source_texts(self) -> list[str]:
+        """COBOL source text with comment lines and inline comments blanked."""
+        source_path = Path(self._config.cobol_source_path)
+        if source_path.is_file():
+            files = [source_path]
+        elif source_path.is_dir():
+            files = [f for f in sorted(source_path.rglob("*")) if f.is_file()]
+        else:
+            files = []
+        texts = []
+        for f in files:
+            lines = f.read_bytes().decode("latin-1").splitlines()
+            texts.append("\n".join(
+                "" if len(line) > 6 and line[6] in "*/" else line.split("*>", 1)[0]
+                for line in lines
+            ))
+        return texts
+
+    def _unobserved_effect_evidence(
+        self,
+        run_id: RunId,
+        workload_id: WorkloadId,
+        oracle_execution_id: ExecutionId,
+        candidate_execution_id: ExecutionId,
+    ) -> tuple[tuple[ArtifactEvidence, ...], tuple[ComparisonEvidence, ...]]:
+        """Unsupported-artifact evidence for effects no comparator observes.
+
+        Each channel found in the source yields a content-free marker per
+        execution plus an INCONCLUSIVE comparison binding the pair, so the
+        evidence stays integrity-valid and derivation reports UNSUPPORTED.
+        """
+        texts = self._source_texts()
+        channels: dict[str, str] = {}
+        for artifact_type, logical_name, pattern in self._UNOBSERVED_EFFECT_PATTERNS:
+            if any(pattern.search(text) for text in texts):
+                channels[artifact_type] = logical_name
+        artifacts: list[ArtifactEvidence] = []
+        comparisons: list[ComparisonEvidence] = []
+        for artifact_type, logical_name in sorted(channels.items()):
+            oracle_marker = self._capturer.capture_missing(
+                oracle_execution_id, artifact_type, logical_name, "ORACLE",
+                status="UNOBSERVED",
+            )
+            candidate_marker = self._capturer.capture_missing(
+                candidate_execution_id, artifact_type, logical_name, "CANDIDATE",
+                status="UNOBSERVED",
+            )
+            artifacts += [oracle_marker.to_evidence(), candidate_marker.to_evidence()]
+            difference = (
+                f"{artifact_type}: the program has {logical_name} that no"
+                " comparator observes; equivalence of those effects is unproven"
+            )
+            comparisons.append(ComparisonEvidence(
+                comparison_id=f"comp-{logical_name}-{run_id.value}",
+                run_id=run_id,
+                comparator_id="unobserved-effect",
+                comparator_version="1.0.0",
+                oracle_artifact_id=oracle_marker.artifact.artifact_id,
+                candidate_artifact_id=candidate_marker.artifact.artifact_id,
+                artifact_type=artifact_type,
+                result="INCONCLUSIVE",
+                normalization_applied=(),
+                differences=(difference,),
+                field_level_results=(),
+                content_hash=ContentHash.from_string(json.dumps({
+                    "result": "INCONCLUSIVE", "differences": [difference],
+                }, sort_keys=True)),
+                workload_id=workload_id,
+            ))
+        return tuple(artifacts), tuple(comparisons)
+
+    def run(
+        self,
+        controlled_input: bytes | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> PipelineResult:
+        """Run the full validation pipeline.
+
+        The optional progress callback receives phase names
+        (EXECUTING_ORACLE, BUILDING, EXECUTING_GENERATED, COMPARING,
+        VALIDATING_EVIDENCE) as each phase STARTS. It changes nothing
+        about execution, comparison, evidence, or verdict semantics.
+        """
+        # A random suffix keeps concurrent runs of one workload in the same
+        # second apart: they shared execution and artifact ids, weakening
+        # the cross-run replay binding (audit V14).
+        run_id = RunId(
+            value=f"run-{self._config.workload_id}-"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+        )
         workload_id = WorkloadId(value=self._config.workload_id)
 
         source_identity = self._compute_source_identity()
 
         input_files = self._load_input_files()
+        input_file_hashes = self._input_file_identities()
 
+        if progress is not None:
+            progress("EXECUTING_ORACLE")
+        oracle_kwargs = {}
+        if self._config.oracle_entry_program:
+            oracle_kwargs["entry_program"] = self._config.oracle_entry_program
         oracle_result = self._oracle_adapter.execute(
             run_id=run_id,
             source_path=self._config.cobol_source_path,
             input_data=controlled_input,
             input_files=input_files,
+            **oracle_kwargs,
         )
         oracle_evidence = oracle_result.to_execution_evidence()
 
         candidate_identity = self._compute_candidate_identity(source_identity.source_hash)
+        candidate_source_before = self._candidate_source_tree_hash()
 
+        if progress is not None:
+            progress("BUILDING")
         compilation = self._candidate_adapter.compile(
             candidate_path=self._config.java_candidate_path,
             manifest=self._build_candidate_manifest(source_identity.source_hash),
@@ -423,6 +1014,8 @@ class VerticalSlicePipeline:
                     class_file.parent.mkdir(parents=True, exist_ok=True)
                     class_file.write_bytes(bytecode)
 
+                if progress is not None:
+                    progress("EXECUTING_GENERATED")
                 candidate_result = self._candidate_adapter.execute(
                     run_id=run_id,
                     compiled_path=tmpdir,
@@ -431,36 +1024,97 @@ class VerticalSlicePipeline:
                     input_files=input_files,
                 )
         else:
-            from datetime import timezone as tz
+            # A build that could not run (infrastructure) is an execution
+            # error -> ERROR (derivation checks errors first); a build that
+            # ran and failed is the
+            # program's fault -> compared as a nonzero exit -> FAILED.
+            infrastructure = getattr(compilation, "infrastructure_error", False)
             candidate_result = CandidateExecutionResult(
                 execution_id=ExecutionId(value=f"candidate-{run_id.value}-compile-fail"),
                 run_id=run_id,
                 status=AdapterStatus.FAILED,
-                exit_code=1,
+                exit_code=None if infrastructure else 1,
                 stdout=b"",
                 stderr="; ".join(compilation.compilation_errors).encode(),
-                start_time=datetime.now(tz.utc).isoformat(),
-                end_time=datetime.now(tz.utc).isoformat(),
-                termination_status="nonzero_exit",
+                start_time=datetime.now(timezone.utc).isoformat(),
+                end_time=datetime.now(timezone.utc).isoformat(),
+                termination_status="error" if infrastructure else "nonzero_exit",
                 timeout_applied=False,
             )
 
+        candidate_source_after = self._candidate_source_tree_hash()
         candidate_evidence = candidate_result.to_execution_evidence()
 
+        # Bind both executions to the declared workload. Candidate evidence
+        # records the real source-tree hashes so a rewrite during build or
+        # execution is provable, and a compile failure is marked BUILD (it
+        # is not an execution of the candidate program).
+        oracle_evidence = replace(oracle_evidence, workload_id=workload_id)
+        candidate_evidence = replace(
+            candidate_evidence,
+            workload_id=workload_id,
+            source_tree_hash_before=candidate_source_before,
+            source_tree_hash_after=candidate_source_after,
+            execution_phase="EXECUTE" if compilation.success else "BUILD",
+        )
+
+        if progress is not None:
+            progress("COMPARING")
         if self._config.workload is not None:
             artifact_evidence, comparison_evidence, _, _ = self._run_declaration_driven(
                 run_id, workload_id, oracle_result, candidate_result,
                 source_identity, candidate_identity,
+                input_files=input_files,
             )
         else:
             artifact_evidence, comparison_evidence = self._run_legacy(
                 run_id, oracle_result, candidate_result,
             )
+        comparison_evidence = tuple(
+            replace(c, workload_id=workload_id) for c in comparison_evidence
+        )
+        # Effects no comparator can observe (database, transaction monitor,
+        # message queue) are recorded as unsupported artifacts so the verdict
+        # can never certify a program whose side effects were not compared.
+        effect_artifacts, effect_comparisons = self._unobserved_effect_evidence(
+            run_id, workload_id,
+            oracle_result.execution_id, candidate_result.execution_id,
+        )
+        artifact_evidence = tuple(artifact_evidence) + effect_artifacts
+        comparison_evidence = comparison_evidence + effect_comparisons
 
-        environment_identities = ()
+        environment_identities = (
+            EnvironmentIdentity(
+                runtime_id="oracle-gnucobol-3.1.2",
+                cobol_compiler=self._config.oracle_compiler_version,
+                os_base="gnucobol-ocesql",
+                network_policy="none",
+                resource_limits={"memory": "512m", "cpus": "1.0", "pids_limit": "256"},
+            ),
+            EnvironmentIdentity(
+                runtime_id="candidate-java",
+                java_version=getattr(self._candidate_adapter, "java_version", "") or None,
+                # Recorded from the adapter that actually executed, never a
+                # blanket "none": a Docker lane ran inside `--network none`
+                # and honestly claims it, while the host lane shares the
+                # host's network and must not assert an isolation it never
+                # had.  `getattr` mirrors the java_version lookup above so a
+                # duck-typed test double without the property falls back to
+                # the same honest "unisolated" default instead of crashing.
+                network_policy=getattr(
+                    self._candidate_adapter, "network_policy", "unisolated"
+                ),
+                resource_limits=self._candidate_resource_limits(),
+                # The lane that actually ran (audit V7): adapter class and
+                # the immutable runtime image it executed, so the sealed
+                # evidence and the verdict scope name the real runtime.
+                os_base=self._candidate_lane(),
+            ),
+        )
         controlled_input_identity = InputIdentity(
             input_id=f"input-{run_id.value}",
             stdin_hash=ContentHash.from_bytes(controlled_input or b""),
+            input_files=input_file_hashes,
         )
 
         manifest = EvidenceManifest(
@@ -478,32 +1132,16 @@ class VerticalSlicePipeline:
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation
+        if progress is not None:
+            progress("VALIDATING_EVIDENCE")
         validation_result = self._integrity_validator.validate(manifest)
         if isinstance(validation_result, list):
-            # Trust boundary violated — untrusted evidence cannot produce VERIFIED
-            # Derive the natural verdict from evidence structure, but override
-            # VERIFIED to ERROR when validation fails. This prevents forged or
-            # replayed evidence from achieving certification.
-            verdict = derive_verdict(manifest)
-            if verdict.state == VerdictState.VERIFIED:
-                verdict = Verdict(
-                    state=VerdictState.ERROR,
-                    workload_id=manifest.workload_id,
-                    run_id=manifest.run_id.value,
-                    source_hash=str(manifest.source_identity.source_hash),
-                    candidate_hash=str(manifest.candidate_identity.candidate_hash) if manifest.candidate_identity else None,
-                    oracle_id=manifest.oracle_identity.oracle_id,
-                    oracle_digest=manifest.oracle_identity.image_digest,
-                    executed_check_count=0,
-                    skipped_count=0,
-                    unavailable_count=0,
-                    supported_scope_statement="Evidence trust boundary violation",
-                    evidence_manifest_hash=str(manifest.manifest_hash),
-                    derivation_timestamp=datetime.now(timezone.utc).isoformat(),
-                    differences=tuple(v.description for v in validation_result),
-                )
+            # Trust boundary violated — untrusted evidence can never certify
+            # equivalence: derive the natural verdict for diagnostics, but
+            # clamp VERIFIED to ERROR with the violations as differences.
+            verdict = derive_verdict_untrusted(manifest, validation_result)
         else:
-            verdict = derive_verdict(manifest)
+            verdict = derive_verdict_validated(validation_result)
 
         return PipelineResult(
             run_id=run_id,
@@ -543,8 +1181,9 @@ class VerticalSlicePipeline:
         oracle_stderr_artifact = self._capturer.capture_stderr(
             oracle_result.execution_id, oracle_result.stderr, "oracle-stderr", "ORACLE"
         )
+        _oracle_ec = oracle_result.exit_code
         oracle_exit_artifact = self._capturer.capture_exit_status(
-            oracle_result.execution_id, oracle_result.exit_code or -1, "ORACLE"
+            oracle_result.execution_id, _oracle_ec if _oracle_ec is not None else -1, "ORACLE"
         )
 
         candidate_stdout_artifact = self._capturer.capture_stdout(
@@ -553,8 +1192,9 @@ class VerticalSlicePipeline:
         candidate_stderr_artifact = self._capturer.capture_stderr(
             candidate_result.execution_id, candidate_result.stderr, "candidate-stderr", "CANDIDATE"
         )
+        _cand_ec = candidate_result.exit_code
         candidate_exit_artifact = self._capturer.capture_exit_status(
-            candidate_result.execution_id, candidate_result.exit_code or -1, "CANDIDATE"
+            candidate_result.execution_id, _cand_ec if _cand_ec is not None else -1, "CANDIDATE"
         )
 
         oracle_artifacts_list = [
@@ -577,26 +1217,22 @@ class VerticalSlicePipeline:
         candidate_file_artifacts: dict[str, CapturedArtifact] = {}
 
         for name in all_generated_names:
-            oracle_content = oracle_generated.get(name, b"")
-            candidate_content = candidate_generated.get(name, b"")
+            # A file produced on only one side stays missing (never an empty
+            # file), so the comparator reports it instead of matching b"".
+            oracle_content = oracle_generated.get(name)
+            candidate_content = candidate_generated.get(name)
 
             is_fixed = name.endswith((".dat", ".rec"))
             logical = name.rsplit(".", 1)[0] if "." in name else name
-
-            if is_fixed:
-                oa = self._capturer.capture_fixed_record(
-                    oracle_result.execution_id, oracle_content, logical, "ORACLE"
-                )
-                ca = self._capturer.capture_fixed_record(
-                    candidate_result.execution_id, candidate_content, logical, "CANDIDATE"
-                )
-            else:
-                oa = self._capturer.capture_text_file_from_bytes(
-                    oracle_result.execution_id, oracle_content, logical, "ORACLE"
-                )
-                ca = self._capturer.capture_text_file_from_bytes(
-                    candidate_result.execution_id, candidate_content, logical, "CANDIDATE"
-                )
+            artifact_type = "FIXED_RECORD" if is_fixed else "TEXT_FILE"
+            oa = self._capture_artifact(
+                artifact_type, name, oracle_result.execution_id,
+                oracle_content, logical, "ORACLE",
+            )
+            ca = self._capture_artifact(
+                artifact_type, name, candidate_result.execution_id,
+                candidate_content, logical, "CANDIDATE",
+            )
 
             oracle_artifacts_list.append(oa)
             candidate_artifacts_list.append(ca)
@@ -613,6 +1249,7 @@ class VerticalSlicePipeline:
             oracle_stdout_artifact.content,
             candidate_stdout_artifact.artifact,
             candidate_stdout_artifact.content,
+            normalization_policy=(),
         )
         comparison_evidence.append(ComparisonEvidence(
             comparison_id=f"comp-stdout-{run_id.value}",
@@ -663,6 +1300,7 @@ class VerticalSlicePipeline:
             oracle_stderr_artifact.content,
             candidate_stderr_artifact.artifact,
             candidate_stderr_artifact.content,
+            normalization_policy=(),
         )
         comparison_evidence.append(ComparisonEvidence(
             comparison_id=f"comp-stderr-{run_id.value}",
@@ -691,6 +1329,8 @@ class VerticalSlicePipeline:
             comparator = FixedRecordComparator() if is_fixed else TextFileComparator()
             comp_result = comparator.compare(
                 oa.artifact, oa.content, ca.artifact, ca.content,
+                normalization_policy=(),
+                failure_policy=_ONE_SIDED_FILE_IS_MISMATCH,
             )
             comparison_evidence.append(ComparisonEvidence(
                 comparison_id=f"comp-{artifact_type.lower()}-{name}-{run_id.value}",

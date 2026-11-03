@@ -58,8 +58,13 @@ CLAIMS_COB = (
     "       PROCEDURE DIVISION.\n"
     "       CLAIM-PARA.\n"
     '           DISPLAY "CLAIMS-CALLED".\n'
-    "           STOP RUN.\n"
+    "           GOBACK.\n"
 )
+
+# STOP RUN in a CALLed program ends the whole run unit: GnuCOBOL 3.1.2 prints
+# MAIN-START, CLAIMS-CALLED and never returns to MAIN.  The generator cannot
+# reproduce that through a bean call, so this variant must fail closed.
+CLAIMS_STOP_RUN_COB = CLAIMS_COB.replace("GOBACK.", "STOP RUN.")
 
 COMMON_CPY = "       01 COMMON-REC PIC X(20).\n"
 
@@ -234,7 +239,7 @@ class TestGeneratedCallProject:
         entry_src = (
             project / "src/main/java/com/generated/app/Application.java"
         ).read_text(encoding="utf-8")
-        assert "main.MAIN_PARA();" in entry_src
+        assert "main.RUN_UNIT$ENTRY();" in entry_src
         # ClaimsService is reached through the CALL, never independently.
         assert "claims." not in entry_src.lower().replace("claims claims", "")
 
@@ -248,22 +253,22 @@ class TestGeneratedCallProject:
         end = main_src.index("MAIN-END")
         assert start < call < end
 
+    def test_stop_run_in_callee_fails_closed(self, tmp_path: Path) -> None:
+        _write_fixture(tmp_path)
+        (tmp_path / "CLAIMS.cob").write_text(CLAIMS_STOP_RUN_COB, encoding="utf-8")
+        _, _, project = _spring_project(tmp_path)
+
+        main_src = (project / MAIN_SERVICE).read_text(encoding="utf-8")
+        # Undeclared marker symbol: the project cannot compile, so no run can
+        # report MAIN-END after a STOP RUN that ended the run unit.
+        assert "UNSUPPORTED_CALL$STOP_RUN_IN_CALLED_PROGRAM" in main_src
+
 
 # ---------------------------------------------------------------------------
 # Docker-gated: 7. build, 8. call-chain output, 9. oracle CALL boundary
 # ---------------------------------------------------------------------------
 
-def _docker_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 needs_docker = pytest.mark.skipif(
@@ -344,7 +349,7 @@ class TestDockerCallChain:
 
         adapter = DockerOracleAdapter(OracleAdapterConfig(
             oracle_id="gnucobol-3.1.2",
-            image_digest=DockerOracleAdapter.V1_DIGEST,
+            image_digest="",
             compiler_version="3.1.2.0",
             timeout_seconds=60,
         ))

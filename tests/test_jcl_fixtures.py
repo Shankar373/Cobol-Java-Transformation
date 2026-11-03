@@ -26,7 +26,7 @@ def load_sources() -> dict[str, str]:
 class TestFixtureDiscovery:
     """Discovery of the JCL fixture workload."""
 
-    def test_fixtures_are_discovered(self) -> None:
+    def test_discovery_of_fixture_directory_yields_the_expected_job_set(self) -> None:
         discovery = JclDiscovery()
         app = discovery.discover(FIXTURES)
         assert {job.name for job in app.jobs} == EXPECTED_JOBS
@@ -41,7 +41,7 @@ class TestFixtureDiscovery:
 class TestFixtureModernization:
     """End-to-end modernization of the fixture workload."""
 
-    def test_supported_fixtures_full(self) -> None:
+    def test_mixed_jcl_fixture_modernizes_with_all_four_jobs(self) -> None:
         sources = load_sources()
         discovery = JclDiscovery()
         app = discovery.discover(FIXTURES)

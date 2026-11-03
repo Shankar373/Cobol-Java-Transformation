@@ -16,7 +16,7 @@ const variantStyles: Record<BadgeVariant, { bg: string; color: string }> = {
   error: { bg: tokens.colors.errorBg, color: tokens.colors.error },
   info: { bg: tokens.colors.infoBg, color: tokens.colors.info },
   default: { bg: '#f1f3f4', color: tokens.colors.textSecondary },
-  purple: { bg: '#f3e8ff', color: tokens.colors.accent },
+  purple: { bg: '#e0f2fe', color: tokens.colors.accent },
 };
 
 const sizeStyles: Record<BadgeSize, { padding: string; fontSize: string }> = {

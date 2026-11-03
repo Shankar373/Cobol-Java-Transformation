@@ -135,7 +135,12 @@ class TestJavaGeneratorBasic:
 
 
 class TestJavaGeneratorFileIO:
-    """Test Java file I/O generation (settlement mode)."""
+    """File I/O of the claims program, lowered from its statements.
+
+    The template helpers (readInput, padRight) were removed with the
+    decision/file_io lanes (audit T5); behaviour is pinned against GnuCOBOL
+    in tests/integration/test_claims_statement_lowering_oracle.py.
+    """
 
     def _parse_real_claims(self, parser: CobolParser):
         """Parse the real CLAIMS.cob fixture."""
@@ -147,29 +152,19 @@ class TestJavaGeneratorFileIO:
         program = self._parse_real_claims(parser)
         files = generator.generate(program)
         source = files[0].source_code
-        assert "claims.dat" in source
-        assert "payments.dat" in source
+        assert 'CobolFileIo.open("/workspace/input/claims.dat", "INPUT", 0);' in source
+        assert 'CobolFileIo.readNext("/workspace/input/payments.dat")' in source
 
     def test_writes_output_files(self, parser: CobolParser, generator: JavaGenerator):
         program = self._parse_real_claims(parser)
         files = generator.generate(program)
         source = files[0].source_code
-        assert "report.txt" in source
-        assert "settlement.dat" in source
-
-    def test_has_readInput_method(self, parser: CobolParser, generator: JavaGenerator):
-        program = self._parse_real_claims(parser)
-        files = generator.generate(program)
-        assert "static List<String[]> readInput" in files[0].source_code
-
-    def test_has_padRight_method(self, parser: CobolParser, generator: JavaGenerator):
-        program = self._parse_real_claims(parser)
-        files = generator.generate(program)
-        assert "static String padRight" in files[0].source_code
+        assert 'CobolFileIo.open("/workspace/output/report.txt", "OUTPUT", 0);' in source
+        assert 'CobolFileIo.write("/workspace/output/settlement.dat",' in source
 
 
 class TestJavaGeneratorVariables:
-    """Test working storage variable generation (settlement mode)."""
+    """WORKING-STORAGE declarations of the claims program."""
 
     def _parse_real_claims(self, parser: CobolParser):
         """Parse the real CLAIMS.cob fixture."""
@@ -181,19 +176,18 @@ class TestJavaGeneratorVariables:
         program = self._parse_real_claims(parser)
         files = generator.generate(program)
         source = files[0].source_code
-        assert "totalClaims" in source
-        assert "approved" in source
-        assert "rejected" in source
-        assert "pending" in source
-        assert "paid" in source
-        assert "unpaid" in source
+        # Every WORKING-STORAGE counter is declared from its PIC 9(2) ...
+        for name in ("CLAIM", "APPROVED", "REJECTED", "PENDING", "PAID", "UNPAID"):
+            assert f"static int WS_{name}_COUNT = 0;" in source
+        # ... and ADD 1 wraps at the PIC width.
+        assert "WS_APPROVED_COUNT = ((WS_APPROVED_COUNT + 1) % 100);" in source
 
     def test_amount_variables(self, parser: CobolParser, generator: JavaGenerator):
         program = self._parse_real_claims(parser)
         files = generator.generate(program)
         source = files[0].source_code
-        assert "totalClaimAmt" in source
-        assert "totalPayAmt" in source
+        assert "static int WS_TOTAL_CLAIMS = 0;" in source
+        assert "static int WS_TOTAL_PAYMENTS = 0;" in source
 
 
 class TestJavaGeneratorDeterminism:

@@ -1,4 +1,6 @@
-"""Java repository / service representation for DB2 SQL.
+"""EXPERIMENTAL - not wired into the product (architecture audit, 2026-11-03): used only by sql_repository_mapping (itself test-only); EXEC SQL is refused by the capability analysis. Kept by owner decision; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Java repository / service representation for DB2 SQL.
 
 Maps the lane-owned ``Db2SqlModel`` into a generator-agnostic Java
 repository/service representation.  This is NOT the Spring IR (which is

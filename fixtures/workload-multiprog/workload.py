@@ -1,25 +1,38 @@
-"""Multi-program workload definition."""
+"""Multi-program workload declaration (MAINPROG CALLs CALCULATE).
 
-from engine.workload import WorkloadDefinition, WorkloadInput, WorkloadArtifact
+The programs only DISPLAY: the observable behaviour is stdout, stderr and
+the exit status. The previous declaration passed keyword arguments that
+``WorkloadDefinition``/``WorkloadInput``/``WorkloadArtifact`` do not accept
+(``cobol_sources``, ``name``, ``path``, ``comparator``) and declared an input
+file and an ``output.txt`` the programs never touch, so resolving it always
+failed (audit V18).
+"""
 
-WORKLOAD_MULTIPROG = WorkloadDefinition(
-    workload_id="multiprog",
-    cobol_sources=(
-        "fixtures/workload-multiprog/cobol/MAINPROG.cob",
-        "fixtures/workload-multiprog/cobol/CALCULATE.cob",
-    ),
-    inputs=(
-        WorkloadInput(
-            name="multiprog.dat",
-            source_path="fixtures/workload-multiprog/input/multiprog.dat",
-            destination_path="/workspace/input/multiprog.dat",
+from __future__ import annotations
+
+from engine.workload import WorkloadArtifact, WorkloadDefinition
+
+
+def workload_multiprog_workload() -> WorkloadDefinition:
+    """Return the workload definition for the CALL-based multi-program app."""
+    return WorkloadDefinition(
+        workload_id="multiprog",
+        description="MAINPROG calls CALCULATE by static CALL; both DISPLAY",
+        artifacts=(
+            WorkloadArtifact(
+                logical_name="multiprog-stdout",
+                artifact_type="STDOUT",
+                comparator_id="stdout-exact",
+            ),
+            WorkloadArtifact(
+                logical_name="multiprog-stderr",
+                artifact_type="STDERR",
+                comparator_id="stderr-exact",
+            ),
+            WorkloadArtifact(
+                logical_name="multiprog-exit-status",
+                artifact_type="EXIT_STATUS",
+                comparator_id="exit-status-exact",
+            ),
         ),
-    ),
-    artifacts=(
-        WorkloadArtifact(
-            name="output.txt",
-            path="/workspace/output.txt",
-            comparator="TEXT_FILE",
-        ),
-    ),
-)
+    )

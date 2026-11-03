@@ -7,7 +7,6 @@ No engine logic lives here.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -54,9 +53,19 @@ class RunStage(str, Enum):
 class ApplicationCreate(BaseModel):
     """Request to register a new application."""
     name: str = Field(..., min_length=1, max_length=256)
-    description: str = ""
+    description: str = Field(default="", max_length=4096)
     workload_id: str = Field(..., min_length=1, max_length=256)
-    java_entrypoint: str = Field(default="Main", min_length=1)
+    # A (possibly qualified) Java class name or a COBOL program id: it
+    # reaches a container command line, so only name characters are
+    # accepted (letters, digits, ``_ $ -``, dot-separated).
+    java_entrypoint: str = Field(
+        default="Main", min_length=1, max_length=256,
+        pattern=r"^[A-Za-z0-9_$][A-Za-z0-9_$-]*(\.[A-Za-z0-9_$][A-Za-z0-9_$-]*)*$",
+    )
+    # Runtime target for this application.  Validated fail-closed by the
+    # service against SUPPORTED_TARGET_RUNTIMES — unknown values are
+    # rejected, never silently defaulted to another target.
+    target_runtime: str = Field(default="spring_boot", min_length=1, max_length=64)
 
 
 class ApplicationResponse(BaseModel):
@@ -66,6 +75,7 @@ class ApplicationResponse(BaseModel):
     description: str
     workload_id: str
     java_entrypoint: str
+    target_runtime: str = "spring_boot"
     cobol_source_path: str | None = None
     java_candidate_path: str | None = None
     generated_app_path: str | None = None
@@ -95,6 +105,55 @@ class RunResponse(BaseModel):
     created_at: str
     completed_at: str | None = None
     error: str | None = None
+    # Persisted verdict state (VERIFIED/FAILED/UNPROVEN/...), or None when
+    # no verdict was produced.  Served fail-closed: only when the verdict
+    # hash-matches its evidence manifest pair (Service.run_verdict_state).
+    # The dashboard's "Verified" stat counts this field — never the stage.
+    verdict_state: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Customer approval
+# ---------------------------------------------------------------------------
+
+class ApprovalDecision(str, Enum):
+    """Explicit customer decisions.
+
+    PENDING is the implicit state of every new run and is deliberately
+    NOT a decision value — the approval endpoint accepts a decision only.
+    """
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class ApprovalRequest(BaseModel):
+    """Decision payload for POST /runs/{run_id}/approval.
+
+    The approver string is recorded input, not a verified identity (this
+    feature keeps the single bearer token and adds no role-based access
+    control).
+    """
+    decision: ApprovalDecision
+    approver: str = Field(..., min_length=1, max_length=256)
+    reason: str | None = Field(default=None, max_length=4096)
+
+
+class ApprovalEvent(BaseModel):
+    """One entry of a run's append-only approval trail."""
+    state: str  # APPROVED | REJECTED | RESET (revalidation discarded a decision)
+    approver: str | None = None
+    reason: str | None = None
+    recorded_at: str
+
+
+class ApprovalResponse(BaseModel):
+    """Current approval record for a run, with its full decision trail."""
+    run_id: str
+    state: str  # PENDING | APPROVED | REJECTED
+    approver: str | None = None
+    reason: str | None = None
+    decided_at: str | None = None
+    history: list[ApprovalEvent] = Field(default_factory=list)
 
 
 class ArtifactMetadata(BaseModel):
@@ -172,16 +231,17 @@ class VerdictResponse(BaseModel):
     derivation_timestamp: str
     differences: list[str]
     comparisons: list[ComparisonDetail] = Field(default_factory=list)
+    # Certification contract the run was validated against:
+    # "declared:<fixture>" for a repository-declared workload or
+    # "default:stdout-exit-status" for the explicit fallback contract.
+    # contract_source is the "declared"/"default" prefix (informational).
+    certification_contract: str | None = None
+    contract_source: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # Ingestion
 # ---------------------------------------------------------------------------
-
-class IngestRequest(BaseModel):
-    """Request to ingest a legacy application source."""
-    git_url: str | None = None
-
 
 class IngestResponse(BaseModel):
     """Response after ingestion + discovery."""
@@ -205,6 +265,8 @@ class DiscoveryResponse(BaseModel):
     dependency_edges: list[dict]
     source_file_count: int
     total_size_bytes: int
+    discovery_success: bool = True
+    discovery_errors: list[dict] = Field(default_factory=list)
 
 
 class RunDetailResponse(BaseModel):
@@ -220,6 +282,9 @@ class RunDetailResponse(BaseModel):
     verdict_state: str | None = None
     discovery: dict | None = None
     stage_messages: list[str] = Field(default_factory=list)
+    # Last non-terminal stage this run occupied; None for runs created
+    # before schema v7 or ones that went terminal without recording one.
+    last_stage: str | None = None
     generated_files: list[str] = Field(default_factory=list)
 
 
@@ -234,3 +299,56 @@ class ModernizationReportResponse(BaseModel):
     run_id: str
     application_id: str
     report: dict
+
+
+# ---------------------------------------------------------------------------
+# Integrated Proof
+# ---------------------------------------------------------------------------
+
+class IntegratedProofResult(BaseModel):
+    """Integrated application proof: dependency ledger + central status gate.
+
+    One realistic application exercising COPYBOOK, static CALL and sequential
+    FILE paths, plus a JCL job stream, joined into a single auditable result:
+
+        JCL -> MAIN -> COPYBOOK TAXREC + CALL CALC + LINE SEQUENTIAL FILE
+             -> UniversalModernizationPipeline (phases 1-5)
+             -> VerticalSlicePipeline          (phases 6-11)
+             -> dependency ledger -> central status
+
+    The COBOL <-> Java runtime lane is expected to reach a genuine, evidence
+    backed VERIFIED. The application-level central status is expected to be
+    NOT VERIFIED because JCL has no runtime lane in this repository, which is
+    the honest answer for a workload that declares JCL.
+    """
+    workload_id: str
+    application_id: str
+    central_status: str
+    blocking_reasons: list[str]
+    generation_success: bool
+    overall_capability: str
+    jcl_status: str
+    runtime: dict
+    dependency_ledger: list[dict]
+    required_dependencies: list[dict]
+    unproven_dependencies: list[dict]
+    runtime_verdict_is_verified: bool
+
+
+class IntegratedProofResponse(BaseModel):
+    """Integrated proof for a run — complete dependency ledger + central status."""
+    run_id: str
+    proof: IntegratedProofResult
+    application_id: str
+    verdict_state: str
+    evidence_status: str
+    runtime_proof_status: str
+    reasons_for_not_verified: list[str]
+    proven_dependencies: list[dict]
+    unproven_dependencies: list[dict]
+    blocked_dependencies: list[dict]
+    unsupported_dependencies: list[dict]
+    evidence_complete: bool
+    evidence_integrity_valid: bool
+    required_dependencies_proven: bool
+    overall_verification: str

@@ -18,6 +18,8 @@ Generator has ZERO imports from:
 
 Imports only:
 - engine.transformation.spring_boot_ir
+- engine.transformation.java_ir (expression rendering)
+- engine.transformation.java_generator (canonical ``_escape_java_string``)
 """
 
 from __future__ import annotations
@@ -25,6 +27,14 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
+# Integral Java literals may carry a type suffix (``123L``); those are
+# still numeric literals and must never be quoted as Strings.
+
+from engine.transformation.java_render import JavaSourceRenderer
+from engine.transformation.control_flow import (
+    RUN_UNIT_ENTRY_METHOD,
+    RUN_UNIT_EXIT_STATUS_METHOD,
+)
 from engine.transformation.spring_boot_ir import (
     DataAccessStrategy,
     FileAccessStrategy,
@@ -35,6 +45,7 @@ from engine.transformation.spring_boot_ir import (
     SpringBootDependency,
     SpringBootDependencyType,
     SpringBootEntryPoint,
+    SpringBootModel,
     SpringBootRepository,
     SpringBootRepositoryImplementation,
     SpringBootService,
@@ -51,12 +62,20 @@ class GeneratedFile:
     path: str = ""  # project-relative path (e.g. "src/main/java/com/app/App.java")
 
 
-class SpringBootGenerator:
+class SpringBootGenerator(JavaSourceRenderer):
     """Generates a complete Spring Boot project from SpringBootApplication IR.
 
     This generator consumes ONLY SpringBootApplication.
     It has NO COBOL IR dependency.
     """
+
+    # Shared rendering (engine/transformation/java_render.py, audit C1)
+    # with this generator's long-standing output conventions.
+    render_typed_assignment = True
+    render_throw = True
+    split_nested_if_lines = True
+    spaced_cast = True
+
 
     def generate_project(self, application: SpringBootApplication) -> list[GeneratedFile]:
         """Generate a complete Spring Boot project.
@@ -76,8 +95,47 @@ class SpringBootGenerator:
             files.append(self._generate_entry_point(application.entry_point, application.services))
 
         # Services
+        service_files: list[GeneratedFile] = []
         for service in application.services:
-            files.append(self._generate_service(service))
+            service_files.append(self._generate_service(service))
+        files.extend(service_files)
+
+        # File I/O support class: emitted when a generated service performs
+        # COBOL file operations (detected by "CobolFileIo." references).
+        emitted_cobol_file_io = False
+        emitted_cobol_stdin = False
+        for service, service_file in zip(application.services, service_files):
+            if emitted_cobol_file_io and emitted_cobol_stdin:
+                break
+            if not emitted_cobol_file_io and "CobolFileIo." in service_file.source_code:
+                from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolFileIo.java"
+                files.append(GeneratedFile(
+                    filename="CobolFileIo.java",
+                    source_code=f"package {package};\n\n{COBOL_FILE_IO_JAVA}\n",
+                    class_name="CobolFileIo",
+                    path=path,
+                ))
+                emitted_cobol_file_io = True
+            if not emitted_cobol_stdin and "CobolStdin." in service_file.source_code:
+                # ACCEPT lowering references the shared CobolStdin helper;
+                # emit it in the same package as the referencing service.
+                from engine.transformation.stdin_support_template import COBOL_STDIN_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolStdin.java"
+                files.append(GeneratedFile(
+                    filename="CobolStdin.java",
+                    source_code=f"package {package};\n\n{COBOL_STDIN_JAVA}\n",
+                    class_name="CobolStdin",
+                    path=path,
+                ))
+                emitted_cobol_stdin = True
+
+        # Shared copybook models are emitted by the single model loop below
+        # (after the adapter implementations): a second loop here appended
+        # every model class file twice, producing duplicate same-package
+        # classes (javac failure) for every copybook workload.
 
         # Repositories (interfaces)
         for repo in application.repositories:
@@ -94,6 +152,12 @@ class SpringBootGenerator:
         # Adapter implementations
         for impl in application.adapter_implementations:
             files.append(self._generate_adapter_implementation(impl))
+
+        # Shared copybook data models: data holders only.  This is
+        # the single model-emission site — exactly one file per
+        # model, never appended twice.
+        for model in application.models:
+            files.append(self._generate_model(model))
 
         # Configuration
         if application.configuration:
@@ -189,15 +253,21 @@ class SpringBootGenerator:
         """Generate application.properties from configuration."""
         config = application.configuration
         lines = [
-            f"# Auto-generated application properties",
+            "# Auto-generated application properties",
             f"spring.application.name={application.application_id.lower().replace(' ', '-')}",
-            f"spring.main.banner-mode=off",
-            f"logging.level.root=OFF",
+            "spring.main.banner-mode=off",
+            "logging.level.root=OFF",
         ]
 
         if config and config.has_database:
             lines.append("# Database configuration — strategy UNSPECIFIED")
             lines.append("# Configure datasource when persistence strategy is selected")
+
+        if application.autoconfigure_excludes:
+            lines.append(
+                "spring.autoconfigure.exclude="
+                + ",".join(application.autoconfigure_excludes)
+            )
 
         if config and config.has_web:
             lines.append("server.port=8080")
@@ -230,8 +300,26 @@ class SpringBootGenerator:
         package = entry.package
         path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
 
+        # Selected-service execution: the runner invokes ONLY the requested
+        # entry service; callees run through service calls. Unknown/empty
+        # selection keeps the legacy invoke-every-service behaviour.
+        selected = (entry.selected_service or "").strip()
+        known = {svc.name for svc in services}
+        if selected and selected not in known:
+            # Fail closed (audit A6): a named entry that matches no service
+            # used to run every service instead.
+            raise ValueError(
+                f"selected service {selected!r} is not one of the generated"
+                f" services: {', '.join(sorted(known)) or 'none'}"
+            )
+        active = (
+            tuple(svc for svc in services if svc.name == selected)
+            if selected and selected in known
+            else tuple(services)
+        )
+
         # Check if this is a batch program (has business logic services)
-        has_services = bool(services)
+        has_services = bool(active)
 
         if has_services:
             # Batch execution: inject services and execute business logic
@@ -239,17 +327,31 @@ class SpringBootGenerator:
             service_params = []
             service_assignments = []
             service_calls = []
+            # The process exits with the run unit's exit status
+            # (RETURN-CODE & 0xFF) when the single entry service reports
+            # one; otherwise 0, as before.
+            exit_status = "0"
 
-            for i, svc in enumerate(services):
+            for i, svc in enumerate(active):
                 field_name = svc.name[0].lower() + svc.name[1:] if svc.name else f"service{i}"
                 service_fields.append(f"    private final {svc.name} {field_name};")
                 service_params.append(f"{svc.name} {field_name}")
                 service_assignments.append(f"        this.{field_name} = {field_name};")
-                # Call the first method of each service
+                # Enter each active service the way COBOL enters a program
+                # that was not CALLed: the run-unit entry (driver paragraph
+                # plus its fall-through chain).  Services without one (JCL
+                # job services) keep their first method.
                 if svc.methods:
-                    method = svc.methods[0]
+                    method = next(
+                        (m for m in svc.methods if m.name == RUN_UNIT_ENTRY_METHOD),
+                        svc.methods[0],
+                    )
                     params = ", ".join(f"new {ptype.to_source()}()" if hasattr(ptype, 'to_source') else str(ptype) for ptype, pname in method.parameters)
                     service_calls.append(f"            {field_name}.{method.name}({params});")
+                if len(active) == 1 and any(
+                    m.name == RUN_UNIT_EXIT_STATUS_METHOD for m in svc.methods
+                ):
+                    exit_status = f"{field_name}.{RUN_UNIT_EXIT_STATUS_METHOD}()"
 
             fields_block = "\n".join(service_fields) if service_fields else ""
             params_block = ",\n            ".join(service_params) if service_params else ""
@@ -262,7 +364,7 @@ class SpringBootGenerator:
                 "import org.springframework.boot.autoconfigure.SpringBootApplication;",
                 "import org.springframework.context.annotation.Bean;",
             ]
-            for svc in services:
+            for svc in active:
                 svc_package = svc.package if hasattr(svc, 'package') and svc.package else package
                 imports.append(f"import {svc_package}.{svc.name};")
 
@@ -297,7 +399,7 @@ public class {class_name} {{
     public CommandLineRunner runner() {{
         return args -> {{
 {calls_block}
-            System.exit(0);
+            System.exit({exit_status});
         }};
     }}
 }}
@@ -350,11 +452,11 @@ public class {class_name} {{
 
         lines.extend([
             "",
-            f"/**",
+            "/**",
             f" * Service component for {service.source_program}.",
-            f" * Auto-generated from Java Application IR.",
-            f" */",
-            f"@Service",
+            " * Auto-generated from Java Application IR.",
+            " */",
+            "@Service",
         ])
 
         if service.is_transactional:
@@ -363,13 +465,21 @@ public class {class_name} {{
         lines.append(f"public class {class_name} {{")
 
         # Add field declarations from JavaClass fields
+        from engine.transformation.java_ir import JavaBasicType
         for field in (service.fields or ()):
             init_val = ""
             if field.initializer:
                 init_expr = self._expr_to_string(field.initializer)
                 init_val = f" = {init_expr}"
+            elif field.java_type and field.java_type.basic_type == JavaBasicType.DECIMAL:
+                # An uninitialized BigDecimal field is null: any first use
+                # would be a null-shadowing NPE, so seed the zero value.
+                init_val = " = java.math.BigDecimal.ZERO"
             field_type = field.java_type.to_source() if field.java_type else "Object"
-            lines.append(f"    private {field_type} {field.name}{init_val};")
+            if "public" in (field.modifiers or ()):  # linkage fields
+                lines.append(f"    public static {field_type} {field.name}{init_val};")
+            else:
+                lines.append(f"    private {field_type} {field.name}{init_val};")
 
         if service.fields:
             lines.append("")
@@ -424,6 +534,73 @@ public class {class_name} {{
             path=path,
         )
 
+    # ================================================================
+    # COPYBOOK MODELS
+    # ================================================================
+
+    def _generate_model(self, model) -> GeneratedFile:
+        """Generate a shared copybook model class (data holder).
+
+        Consumes only the model's ``JavaClass`` IR via the existing
+        statement/expression renderers. Emits fields, a default
+        constructor, and accessors — never business logic, never ``main``.
+        A model without class IR renders its shell so the canonical path
+        still exists.
+        """
+
+        assert isinstance(model, SpringBootModel)
+        cls = model.java_class
+        package = model.package
+        class_name = model.name
+        fields = tuple(cls.fields) if cls is not None else ()
+        methods = tuple(cls.methods) if cls is not None else ()
+        lines = [
+            f"package {package};",
+            "",
+            "/**",
+            f" * Shared data model materialized from COPYBOOK {model.source_copybook}.",
+            " * Auto-generated: data definition only, no business logic.",
+            " */",
+            f"public class {class_name} {{",
+        ]
+        from engine.transformation.java_ir import JavaBasicType
+        for field in fields:
+            init_val = ""
+            if field.initializer:
+                init_val = f" = {self._expr_to_string(field.initializer)}"
+            elif field.java_type and field.java_type.basic_type == JavaBasicType.DECIMAL:
+                # An uninitialized BigDecimal field is null: seed the zero.
+                init_val = " = java.math.BigDecimal.ZERO"
+            field_type = field.java_type.to_source() if field.java_type else "Object"
+            lines.append(f"    private {field_type} {field.name}{init_val};")
+        lines.append("")
+        lines.append(f"    public {class_name}() {{}}")
+
+        for method in methods:
+            lines.append("")
+            lines.extend(self._generate_method_body(SpringBootServiceMethod(
+                name=method.name,
+                return_type=method.return_type,
+                parameters=tuple(
+                    (p.java_type, p.name) for p in method.parameters
+                ),
+                body_statements=method.body_statements,
+                is_static=False,
+                exceptions=method.exceptions,
+            )))
+
+        lines.extend([
+            "",
+            "}",
+        ])
+        path = f"src/main/java/{package.replace('.', '/')}/{class_name}.java"
+        return GeneratedFile(
+            filename=f"{class_name}.java",
+            source_code="\n".join(lines),
+            class_name=class_name,
+            path=path,
+        )
+
     def _generate_method_body(self, method: SpringBootServiceMethod) -> list[str]:
         """Generate a method implementation from structured IR."""
         # Build method signature
@@ -449,137 +626,6 @@ public class {class_name} {{
 
         lines.append("    }")
         return lines
-
-    def _stmt_to_string(self, stmt) -> str:
-        """Convert a Java IR statement to a Java source string."""
-        from engine.transformation.java_ir import (
-            JavaAssignment, JavaMethodCallStatement, JavaReturn,
-            JavaComment, JavaIf, JavaBlock, JavaWhile, JavaFor,
-            JavaThrow, JavaLocalVarDecl,
-        )
-        if isinstance(stmt, JavaAssignment):
-            expr_str = self._expr_to_string(stmt.expression)
-            if stmt.java_type:
-                return f"{stmt.java_type.to_source()} {stmt.target} = {expr_str};"
-            return f"{stmt.target} = {expr_str};"
-        if isinstance(stmt, JavaLocalVarDecl):
-            init_str = ""
-            if stmt.initializer:
-                init_str = f" = {self._expr_to_string(stmt.initializer)}"
-            return f"{stmt.java_type.to_source()} {stmt.name}{init_str};"
-        if isinstance(stmt, JavaMethodCallStatement):
-            return self._method_call_to_string(stmt.call) + ";"
-        if isinstance(stmt, JavaReturn):
-            if stmt.expression:
-                return f"return {self._expr_to_string(stmt.expression)};"
-            return "return;"
-        if isinstance(stmt, JavaComment):
-            return f"// {stmt.text}"
-        if isinstance(stmt, JavaThrow):
-            if stmt.message:
-                return f'throw new {stmt.exception_class}("{stmt.message}");'
-            return f"throw new {stmt.exception_class}();"
-        if isinstance(stmt, JavaIf):
-            cond = self._expr_to_string(stmt.condition)
-            lines = [f"if ({cond}) {{"]
-            for s in stmt.then_body:
-                inner = self._stmt_to_string(s)
-                if inner:
-                    for inner_line in inner.split("\n"):
-                        lines.append(f"    {inner_line}")
-            if stmt.else_body:
-                lines.append("} else {")
-                for s in stmt.else_body:
-                    inner = self._stmt_to_string(s)
-                    if inner:
-                        for inner_line in inner.split("\n"):
-                            lines.append(f"    {inner_line}")
-            lines.append("}")
-            return "\n".join(lines)
-        if isinstance(stmt, JavaWhile):
-            cond = self._expr_to_string(stmt.condition)
-            lines = [f"while ({cond}) {{"]
-            for s in stmt.body:
-                inner = self._stmt_to_string(s)
-                if inner:
-                    for inner_line in inner.split("\n"):
-                        lines.append(f"    {inner_line}")
-            lines.append("}")
-            return "\n".join(lines)
-        if isinstance(stmt, JavaFor):
-            init_str = self._stmt_to_string(stmt.init) if stmt.init else ""
-            cond_str = self._expr_to_string(stmt.condition) if stmt.condition else ""
-            update_str = self._stmt_to_string(stmt.update) if stmt.update else ""
-            lines = [f"for ({init_str} {cond_str}; {update_str}) {{"]
-            for s in stmt.body:
-                inner = self._stmt_to_string(s)
-                if inner:
-                    for inner_line in inner.split("\n"):
-                        lines.append(f"    {inner_line}")
-            lines.append("}")
-            return "\n".join(lines)
-        if isinstance(stmt, JavaBlock):
-            return "\n".join(self._stmt_to_string(s) for s in stmt.statements)
-        return ""
-
-    def _expr_to_string(self, expr) -> str:
-        """Convert a Java IR expression to a Java source string."""
-        from engine.transformation.java_ir import (
-            JavaLiteral, JavaVariableRef, JavaBinaryOp, JavaUnaryOp,
-            JavaMethodCall, JavaStringConcat, JavaCast, JavaNewObject,
-            JavaTernary,
-        )
-        if isinstance(expr, JavaLiteral):
-            if expr.java_type and expr.java_type.basic_type and \
-               expr.java_type.basic_type.value == "String":
-                return f'"{expr.value}"'
-            if not expr.value.replace(".", "").replace("-", "").isdigit():
-                if any(op in expr.value for op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||")):
-                    return expr.value
-                if not (expr.value.startswith('"') or expr.value.startswith("'")):
-                    return f'"{expr.value}"'
-            return expr.value
-        if isinstance(expr, JavaVariableRef):
-            return expr.name
-        if isinstance(expr, JavaBinaryOp):
-            left = self._expr_to_string(expr.left)
-            right = self._expr_to_string(expr.right)
-            return f"({left} {expr.operator} {right})"
-        if isinstance(expr, JavaUnaryOp):
-            operand = self._expr_to_string(expr.operand)
-            return f"({expr.operator}{operand})"
-        if isinstance(expr, JavaMethodCall):
-            return self._method_call_to_string(expr)
-        if isinstance(expr, JavaStringConcat):
-            parts = []
-            for p in expr.parts:
-                rendered = self._expr_to_string(p)
-                if isinstance(p, JavaLiteral) and not p.java_type:
-                    if not rendered.startswith('"'):
-                        rendered = f'"{rendered}"'
-                parts.append(rendered)
-            return " + ".join(parts)
-        if isinstance(expr, JavaCast):
-            inner = self._expr_to_string(expr.expression)
-            return f"({expr.target_type.to_source()}) {inner}"
-        if isinstance(expr, JavaNewObject):
-            args = ", ".join(self._expr_to_string(a) for a in expr.arguments)
-            return f"new {expr.class_name}({args})"
-        if isinstance(expr, JavaTernary):
-            cond = self._expr_to_string(expr.condition)
-            true_str = self._expr_to_string(expr.true_expr)
-            false_str = self._expr_to_string(expr.false_expr)
-            return f"({cond} ? {true_str} : {false_str})"
-        return ""
-
-    def _method_call_to_string(self, call) -> str:
-        """Convert a Java IR method call to a Java source string."""
-        args = ", ".join(self._expr_to_string(a) for a in call.arguments)
-        if call.is_static:
-            return f"{call.class_name}.{call.method_name}({args})"
-        if call.object_ref:
-            return f"{self._expr_to_string(call.object_ref)}.{call.method_name}({args})"
-        return f"{call.method_name}({args})"
 
     # ================================================================
     # REPOSITORIES
@@ -670,16 +716,16 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Abstract repository for {impl.table_name}.",
-            f" * Strategy: UNSPECIFIED — implementation selected later.",
+            " * Strategy: UNSPECIFIED — implementation selected later.",
             f" * Source: {impl.source_repository}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public abstract class {class_name} {{",
         ]
 
         for method in impl.methods:
             params = ", ".join(f"{ptype.to_source()} {pname}" for ptype, pname in method.parameters)
-            lines.append(f"")
+            lines.append("")
             lines.append(f"    /** {method.operation_type.value} operation on {method.table_name} */")
             lines.append(f"    public abstract {method.return_type.to_source()} {method.name}({params});")
 
@@ -702,48 +748,15 @@ public interface {class_name} {{
         self, impl: SpringBootRepositoryImplementation,
         class_name: str, package: str, path: str,
     ) -> GeneratedFile:
-        """Generate JDBC repository implementation."""
-        lines = [
-            f"package {package};",
-            "",
-            "import java.sql.Connection;",
-            "import java.sql.PreparedStatement;",
-            "import java.sql.ResultSet;",
-            "import java.sql.SQLException;",
-            "",
-            "/**",
-            f" * JDBC repository for {impl.table_name}.",
-            f" * Strategy: JDBC.",
-            f" * Source: {impl.source_repository}",
-            f" * Auto-generated from Java Application IR.",
-            " */",
-            f"public class {class_name} {{",
-            "",
-            "    private final Connection connection;",
-            "",
-            f"    public {class_name}(Connection connection) {{",
-            "        this.connection = connection;",
-            "    }",
-        ]
+        """Generate JDBC repository implementation.
 
-        for method in impl.methods:
-            params = ", ".join(f"{ptype.to_source()} {pname}" for ptype, pname in method.parameters)
-            lines.append("")
-            lines.append(f"    /** {method.operation_type.value} operation on {method.table_name} */")
-            lines.append(f"    public {method.return_type.to_source()} {method.name}({params}) {{")
-            lines.append("        // JDBC implementation — parameterized query recommended")
-            lines.append(f'        throw new UnsupportedOperationException("JDBC implementation pending for {method.operation_type.value}");')
-            lines.append("    }")
-
-        lines.append("}")
-        lines.append("")
-
-        source = "\n".join(lines)
-        return GeneratedFile(
-            filename=f"{class_name}.java",
-            source_code=source,
-            class_name=class_name,
-            path=path,
+        JDBC repository methods are not implemented; emitting throwing
+        stubs would report placeholder code as successfully modernized
+        business logic (non-negotiable rule 6). Fail closed instead.
+        """
+        raise NotImplementedError(
+            "JDBC repository implementation is not available; "
+            "no placeholder code is generated (rule 6)."
         )
 
     def _generate_jpa_repository(
@@ -759,9 +772,9 @@ public interface {class_name} {{
             "",
             "/**",
             f" * JPA repository for {impl.table_name}.",
-            f" * Strategy: JPA.",
+            " * Strategy: JPA.",
             f" * Source: {impl.source_repository}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             "@Repository",
             f"public interface {class_name} extends JpaRepository<Object, Long> {{",
@@ -769,7 +782,7 @@ public interface {class_name} {{
 
         for method in impl.methods:
             if method.operation_type.value == "SELECT":
-                lines.append(f"")
+                lines.append("")
                 lines.append(f"    /** {method.operation_type.value} operation on {method.table_name} */")
                 lines.append(f"    {method.return_type.to_source()} {method.name}({', '.join(f'{ptype.to_source()} {pname}' for ptype, pname in method.parameters)});")
 
@@ -813,18 +826,18 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Abstract adapter for {impl.source_resource}.",
-            f" * Strategy: UNSPECIFIED — implementation selected later.",
+            " * Strategy: UNSPECIFIED — implementation selected later.",
             f" * Access mode: {impl.access_mode}",
             f" * Organization: {impl.file_organization}",
             f" * Source: {impl.source_adapter}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public abstract class {class_name} {{",
         ]
 
         for method in impl.methods:
             params = ", ".join(f"{ptype.to_source()} {pname}" for ptype, pname in method.parameters)
-            lines.append(f"")
+            lines.append("")
             lines.append(f"    /** {method.operation_type.value} operation */")
             lines.append(f"    public abstract {method.return_type.to_source()} {method.name}({params});")
 
@@ -860,11 +873,11 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Java IO adapter for {impl.source_resource}.",
-            f" * Strategy: JAVA_IO.",
+            " * Strategy: JAVA_IO.",
             f" * Access mode: {impl.access_mode}",
             f" * Organization: {impl.file_organization}",
             f" * Source: {impl.source_adapter}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public class {class_name} implements Closeable {{",
             "",
@@ -882,7 +895,7 @@ public interface {class_name} {{
                 "",
                 "    /** Open for reading */",
                 "    public void openForRead() throws IOException {",
-                f'        this.reader = new BufferedReader(new FileReader(filePath));',
+                '        this.reader = new BufferedReader(new FileReader(filePath));',
                 "    }",
                 "",
                 "    /** Read a single record */",
@@ -898,7 +911,7 @@ public interface {class_name} {{
                 "",
                 "    /** Open for writing */",
                 "    public void openForWrite() throws IOException {",
-                f'        this.writer = new BufferedWriter(new FileWriter(filePath));',
+                '        this.writer = new BufferedWriter(new FileWriter(filePath));',
                 "    }",
                 "",
                 "    /** Write a single record */",
@@ -947,11 +960,11 @@ public interface {class_name} {{
             "",
             "/**",
             f" * Java NIO adapter for {impl.source_resource}.",
-            f" * Strategy: NIO.",
+            " * Strategy: NIO.",
             f" * Access mode: {impl.access_mode}",
             f" * Organization: {impl.file_organization}",
             f" * Source: {impl.source_adapter}",
-            f" * Auto-generated from Java Application IR.",
+            " * Auto-generated from Java Application IR.",
             " */",
             f"public class {class_name} implements Closeable {{",
             "",
@@ -986,7 +999,7 @@ public interface {class_name} {{
                 "",
                 "    /** Write a single record */",
                 "    public void write(String record) throws IOException {",
-                f"        Files.write(filePath, (record + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),",
+                "        Files.write(filePath, (record + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),",
                 f"            {open_option});",
                 "    }",
                 "",

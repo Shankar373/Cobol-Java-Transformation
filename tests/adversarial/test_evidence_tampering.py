@@ -176,7 +176,7 @@ class TestVerdictFieldTampering:
 class TestManifestHashTampering:
     """Attack: alter manifest contents after hash is computed."""
 
-    def test_altered_contents_do_not_affect_verdict(self):
+    def test_unchanged_content_yields_identical_hash_and_evidence_derived_verdict(self):
         """The manifest hash is informational. Verdict derivation uses
         the manifest contents, not the stored hash. Changing contents
         changes the computed hash but the verdict is still derived
@@ -217,7 +217,7 @@ class TestManifestHashTampering:
 class TestComparisonRemoval:
     """Attack: remove comparison evidence to change verdict."""
 
-    def test_removing_mismatch_comparison_changes_verdict(self):
+    def test_removing_mismatch_comparison_yields_verified_from_remaining_matches(self):
         """If a MISMATCH comparison is removed, the remaining MATCH
         comparisons produce VERIFIED. This is legitimate behavior:
         fewer comparisons mean fewer checks. The defense is at the
@@ -283,7 +283,7 @@ class TestComparisonRemoval:
 class TestArtifactSwap:
     """Attack: swap oracle and candidate artifact identities."""
 
-    def test_swapped_producer_role_in_comparison(self):
+    def test_swapped_producer_roles_do_not_change_match_verdict(self):
         """Swapping producer_role in artifact identities does not change
         the comparison result. The comparison is content-based, not
         role-based. However, the pipeline always assigns roles correctly."""
@@ -354,7 +354,7 @@ class TestZeroChecksCannotVerified:
     """Property: zero comparison checks cannot produce VERIFIED."""
 
     @pytest.mark.parametrize("artifact_count", [0, 1, 5])
-    def test_zero_comparisons_needs_verified(self, artifact_count: int):
+    def test_zero_comparisons_yield_unproven(self, artifact_count: int):
         """Even with artifacts present, zero comparisons → UNPROVEN."""
         run_id = RunId(value="run-zero-checks")
         artifacts = tuple(

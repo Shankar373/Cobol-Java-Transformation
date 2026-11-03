@@ -60,7 +60,7 @@ def _art_ev(
 class TestCrossRunConfusion:
     """Evidence from run A cannot silently become evidence for run B."""
 
-    def test_oracle_exec_from_different_run(self):
+    def test_cross_run_oracle_exec_verdict_binds_to_manifest_run_id(self):
         """Oracle execution evidence from run_A used in manifest for run_B.
         The deriver processes it. The verdict records manifest's run_id."""
         run_a = RunId(value="run-A-20260915000000")
@@ -107,7 +107,7 @@ class TestCrossRunConfusion:
         assert verdict.run_id == run_b.value
         assert verdict.state == VerdictState.VERIFIED
 
-    def test_comparison_from_different_run(self):
+    def test_foreign_run_comparison_yields_unproven_when_manifest_incomplete(self):
         """Comparison evidence from run_A used in manifest for run_B.
         No artifact evidence → manifest incomplete → UNPROVEN."""
         run_a = RunId(value="run-A-20260915000000")
@@ -185,7 +185,7 @@ class TestCrossWorkloadConfusion:
 class TestCrossOracleConfusion:
     """Evidence from oracle A cannot silently become evidence from oracle B."""
 
-    def test_oracle_identity_mismatch(self):
+    def test_verdict_records_manifest_oracle_identity(self):
         """Oracle identity in manifest differs from actual oracle execution.
         The deriver uses manifest's oracle identity for the verdict."""
         run_id = RunId(value="run-cross-oracle")
@@ -200,7 +200,7 @@ class TestCrossOracleConfusion:
         assert verdict.oracle_id == "gnucobol-3.1.2"
         assert verdict.oracle_digest == "sha256:" + "a" * 64
 
-    def test_wrong_oracle_digest(self):
+    def test_verdict_records_manifest_oracle_digest(self):
         """Different oracle digest than what was actually used.
         The verdict records whatever the manifest states."""
         run_id = RunId(value="run-wrong-digest")
@@ -217,7 +217,7 @@ class TestCrossOracleConfusion:
 class TestCandidateIdentityBinding:
     """Candidate identity must bind to the correct source hash."""
 
-    def test_candidate_source_hash_mismatch(self):
+    def test_candidate_source_hash_mismatch_recorded_but_state_stays_verified(self):
         """Candidate's source_hash doesn't match the manifest's source hash.
         The deriver records both hashes. The mismatch is visible in the
         verdict but does not change the verdict state."""

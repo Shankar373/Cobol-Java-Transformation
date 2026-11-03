@@ -1,6 +1,10 @@
 # JCL Modernization — Integration Contract
 
-> Status: proposed (contract only; no shared-file edits applied)
+> Status: **implemented** (Phase 5, 2026-10: BL-071…BL-077 + carried BL-063;
+> all contract surfaces are live and covered by focused tests).  JCL itself
+> remains a structural lane: it is PARTIAL-capped by construction in the
+> central capability gate (`integrated_proof.jcl_ledger_entry`) — no runtime
+> equivalence is claimed.
 > Scope: defines *how* `pipeline.py` / `api/` / code generators would consume
 > the JCL modernization lane **without modifying** the shared files listed in
 > project rules (`pipeline.py`, `api/`, `application_generator.py`,
@@ -22,6 +26,7 @@ def modernize_jcl(
     raw_sources: dict[str, str] | None,
     application_id: str = "jcl-modernization",
     base_package: str = "com.generated.batch",
+    pre_diagnostics: tuple[JclDiagnostic, ...] = (),   # BL-063 decode failures
 ) -> JclModernizationProfile: ...
 ```
 
@@ -30,16 +35,24 @@ def modernize_jcl(
 Preferred: reuse discovery so JCL joins the pipeline like COBOL does.
 
 ```python
-from engine.transformation.jcl_discovery import JclDiscovery
+from engine.transformation.jcl_discovery import JclDiscovery, find_jcl_members
 from engine.transformation.jcl_to_spring_batch import modernize_jcl
 
-sources = {path.name: path.read_text() for path in sorted(fx.glob("*.jcl"))}
+# Keys are member-relative paths (never basenames — colliding basenames
+# used to silently overwrite each other, BL-063); membership follows the
+# shared BL-063 rule (case-insensitive .jcl/.jcllib or extensionless JCL).
+sources = {
+    p.relative_to(fx).as_posix(): p.read_text(encoding="utf-8")
+    for p in find_jcl_members(fx)
+}
 app = JclDiscovery().discover(fx)
 profile = modernize_jcl(app, sources, application_id=app_id, base_package=pkg)
 ```
 
 `raw_sources` may be omitted when discovery already populated it; it is used
 only for unsupported-construct scanning (raw JCL text), never for IR building.
+Keys must be stable identifiers of the member (relative paths); the consumer
+(`modernize_jcl_workload`) reads and keys members exactly this way.
 
 ## The profile object (output contract)
 
@@ -132,6 +145,10 @@ created under the integration layer and must not modify shared files.
 
 ## Status
 
-Contract written. No `pipeline.py`/`api/` wiring applied, because applying it
-would require editing shared files listed as DO-NOT-MODIFY — per project
-rules, integration requiring shared-file edits must stop at the contract.
+Implemented in Phase 5 (2026-10).  The lane is consumed by
+`engine/transformation/jcl_consumer.py` (the single consumer-side import
+point) and surfaced by `api/service.py::_jcl_status_for_source` (presence
+gate via the shared BL-063 member rule; unusable trees fail closed to
+`ERROR`).  The shared-file boundary held: no DO-NOT-MODIFY file was edited
+for this contract — the consumer is a pure consumer of the lane's public
+API.

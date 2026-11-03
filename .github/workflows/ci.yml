@@ -1,0 +1,210 @@
+name: SystemaOps CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Audit CI-F12: a newer push to a pull request supersedes its older run;
+# pushes are grouped by commit so every pushed SHA keeps its own evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  capability-truth:
+    name: Capability truth gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+      - name: Install test runner only
+        # This gate deliberately installs nothing from requirements.lock: it
+        # guards capability truth, which must not depend on the runtime stack.
+        # Keeping it dependency-free also proves the registry/analyzer/producer
+        # surface has no hidden third-party coupling.
+        run: python -m pip install --require-hashes -r requirements-gate.lock
+      - name: Verify capability truth
+        # Fast, Docker-free gate. The same invariants the backend Docker job
+        # enforces, surfaced as their own job so a producer/registry
+        # contradiction fails in ~1 minute instead of after the full
+        # COBOL/Java image build (BL-012).
+        run: |
+          set -o pipefail
+          # Note: tests/test_docker_capability_truth.py contains one API-layer
+          # source-contract test (test_service_layer_probes_live_not_hardcoded)
+          # that imports api.service, which requires pydantic. This gate
+          # deliberately installs pytest only (BL-012 - no hidden runtime-stack
+          # coupling), so that single test is deselected here and remains
+          # enforced by the backend job, which runs the full suite. The same
+          # applies to tests/test_oracle_entry_binding.py::TestServiceResolvesEntry.
+          # The list lives in tests/capability_truth.txt (audit B3).
+          python -m pytest -q $(grep -v '^#' tests/capability_truth.txt | grep -v '^$')
+      - name: Dependency map is current
+        # tools/dependency_map.py --check fails when docs/audits/DEPENDENCY_MAP.md
+        # no longer matches the import graph (audit B3; it had gone stale).
+        run: python tools/dependency_map.py --check
+
+  lint:
+    # Audit CI-F15: pyflakes (unused names, undefined names) and syntax
+    # errors over the Python code; configuration in ruff.toml.
+    name: Python lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+      - name: Install ruff
+        run: python -m pip install --require-hashes -r requirements-lint.lock
+      - name: Lint
+        run: ruff check .
+
+  backend-hermetic:
+    # Audit B2: the whole suite without Docker (RUN_DOCKER_TESTS unset), as a
+    # developer runs it. Catches hermetic-only regressions the Docker lane
+    # hides, and - with PytestWarning as an error - a stale entry in
+    # tests/docker_lane.txt (conftest warns when an entry matches no test).
+    name: Backend hermetic suite (no Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Run the suite without Docker
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q -W error::pytest.PytestWarning tests
+
+  backend-oracle:
+    name: Backend and COBOL/Java Docker tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Build GnuCOBOL oracle image
+        run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
+      - name: Build project Maven image
+        run: bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:latest
+      - name: Pull pinned Java execution image
+        run: |
+          RUNTIME_DIGEST="$(python -c 'from engine.candidate.docker_spring_boot_adapter import DockerSpringBootConfig; print(DockerSpringBootConfig().runtime_digest)')"
+          docker pull "$RUNTIME_DIGEST"
+          docker tag "$RUNTIME_DIGEST" eclipse-temurin:21-jdk
+      - name: Record Docker image provenance
+        run: |
+          mkdir -p test-artifacts
+          python scripts/record_docker_image_provenance.py \
+            --build-image maven-offline-springboot:latest \
+            --runtime-image eclipse-temurin:21-jdk \
+            --output test-artifacts/docker-image-provenance.json
+      - name: Record Docker image evidence
+        run: |
+          set -o pipefail
+          mkdir -p test-artifacts
+          docker image inspect gnucobol-ocesql:latest maven-offline-springboot:latest eclipse-temurin:21-jdk > test-artifacts/docker-images.json
+          docker run --rm --network none gnucobol-ocesql:latest cobc --version | tee test-artifacts/gnucobol-version.txt
+          docker run --rm --network none eclipse-temurin:21-jdk java -version 2>&1 | tee test-artifacts/java-version.txt
+          docker run --rm --network none maven-offline-springboot:latest mvn -version | tee test-artifacts/maven-version.txt
+      - name: Install backend and test dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Run backend, oracle, and integration tests
+        shell: bash
+        env:
+          RUN_DOCKER_TESTS: "1"
+        run: |
+          set -o pipefail
+          python -m pytest -ra --junitxml=test-artifacts/backend-junit.xml tests 2>&1 | tee test-artifacts/backend-tests.log
+      - name: Upload backend logs and reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: backend-oracle-results
+          path: test-artifacts/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  frontend:
+    name: Frontend tests, TypeScript, and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run frontend tests
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p ../test-artifacts
+          npm test -- --reporter=verbose 2>&1 | tee ../test-artifacts/frontend-tests.log
+      - name: Run TypeScript check and production build
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../test-artifacts/frontend-build.log
+      - name: Upload frontend logs and build output
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: frontend-results
+          path: |
+            test-artifacts/frontend-*.log
+            frontend/dist/**
+          if-no-files-found: warn
+          retention-days: 30

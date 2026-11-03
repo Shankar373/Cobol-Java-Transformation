@@ -7,6 +7,8 @@ Security model:
 - Container-per-execution (--rm)
 - Network disabled (--network none)
 - Resource limits (--memory, --cpus, --pids-limit)
+- Hardened execution: no-new-privileges, --cap-drop ALL, non-root
+  --user 10001:10001 (see engine.execution.container_hardening)
 - Read-only staged source (-v :ro)
 - Hard timeout with explicit termination/cleanup lifecycle
 - Structured sandbox evidence
@@ -15,8 +17,8 @@ Security model:
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
-import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,10 +30,22 @@ from engine.candidate.adapter import (
     CandidateManifest,
     CompilationResult,
 )
+from engine.candidate.image_provenance import digest_of_identity
+from engine.docker_cli import check_docker_available, cleanup_container, is_docker_infrastructure_exit
 from engine.domain.identities import (
     AdapterStatus,
     ExecutionId,
     RunId,
+)
+from engine.execution.container_runner import run_container
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
+)
+from engine.execution.sandbox_paths import docker_volume_arg, sandbox_staging_dir
+from engine.execution.workspace_files import (
+    collect_generated_files,
+    read_sandbox_file,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,6 +111,22 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
     Candidate Java code NEVER executes directly on the host.
     """
 
+    @property
+    def network_policy(self) -> str:
+        """Every container this adapter runs is started with `--network none`.
+
+        Compilation and execution both happen inside those containers, so the
+        candidate genuinely has no network — the evidence manifest can record
+        `none` truthfully for this lane.
+        """
+        return "none"
+
+    @property
+    def runtime_identity(self) -> str:
+        """Immutable identity of the JDK image this lane runs (audit V7)."""
+        digest = getattr(self, "_resolved_digest", "") or ""
+        return f"{self._config.image.split(':', 1)[0]}@{digest}" if digest else ""
+
     def __init__(self, config: DockerJavaConfig | None = None) -> None:
         super().__init__()
         self._config = config or DockerJavaConfig()
@@ -118,16 +148,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
 
     def _check_docker(self) -> bool:
         """Check if Docker is available."""
-        try:
-            result = subprocess.run(
-                ["docker", "info"],
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        return check_docker_available()
 
     def _resolve_image_digest(self) -> str:
         """Resolve the image to an immutable digest. Fail-closed if unable."""
@@ -168,8 +189,13 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
         try:
             result = subprocess.run(
                 [
-                    "docker", "run", "--rm", "--network", "none",
-                    self._config.image, "java", "-version",
+                    "docker", "run", "--rm",
+                    *container_run_hardening_flags("probe-java-version"),
+                    "--network", "none",
+                    # Execute by immutable identity when resolved; the version
+                    # probe must never run an image selected by floating tag.
+                    self._resolved_digest or self._config.image,
+                    "java", "-version",
                 ],
                 capture_output=True,
                 timeout=30,
@@ -204,47 +230,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
         Returns (removed, detail) where removed indicates success and
         detail provides forensic information about what happened.
         """
-        _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-
-        # Step 1: Stop the container (SIGTERM, then SIGKILL after grace)
-        try:
-            stop_result = subprocess.run(
-                ["docker", "stop", "--time", "5", container_name],
-                capture_output=True,
-                timeout=15,
-                creationflags=_flags,
-            )
-            stop_ok = stop_result.returncode == 0
-        except Exception:
-            stop_ok = False
-
-        # Step 2: Remove the container (force remove)
-        try:
-            rm_result = subprocess.run(
-                ["docker", "rm", "-f", container_name],
-                capture_output=True,
-                timeout=10,
-                creationflags=_flags,
-            )
-            rm_ok = rm_result.returncode == 0
-        except Exception:
-            rm_ok = False
-
-        # Step 3: Verify removal
-        try:
-            inspect_result = subprocess.run(
-                ["docker", "inspect", container_name],
-                capture_output=True,
-                timeout=10,
-                creationflags=_flags,
-            )
-            exists = inspect_result.returncode == 0
-        except Exception:
-            exists = True  # Assume it exists if we can't check
-
-        removed = rm_ok and not exists
-        detail = f"stop={stop_ok}, rm={rm_ok}, exists_after={exists}"
-        return removed, detail
+        return cleanup_container(container_name)
 
     def probe(self) -> AdapterStatus:
         return self._status
@@ -280,13 +266,14 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 success=False,
                 class_files={},
                 compilation_errors=("Docker or Java image not available",),
+                infrastructure_error=True,
             )
 
         start_time = datetime.now(timezone.utc)
         _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with sandbox_staging_dir(prefix="javac-") as tmpdir:
                 # Stage candidate source
                 candidate_dir = Path(candidate_path)
                 staged_source = Path(tmpdir) / "source"
@@ -313,27 +300,34 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 staged_output.mkdir()
 
                 # Build javac command
-                javac_args = " ".join(java_files)
+                javac_args = " ".join(shlex.quote(name) for name in java_files)
                 compile_cmd = f"javac -d /workspace/classes {javac_args}"
 
                 # Deterministic container name for cleanup tracking
                 container_name = f"javac-{uuid.uuid4().hex[:12]}"
 
+                prepare_host_tree(staged_source, writable=False)
+                prepare_host_tree(staged_output, writable=True)
+
                 # Docker command: compile inside container
                 docker_cmd = [
                     "docker", "run", "--rm",
+                    *container_run_hardening_flags("javac"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", self._config.memory_limit,
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace",
-                    "-v", f"{os.path.abspath(staged_source)}:/workspace/source:ro",
-                    "-v", f"{os.path.abspath(staged_output)}:/workspace/classes",
-                    self._config.image,
+                    *docker_volume_arg(staged_source, "/workspace/source", readonly=True),
+                    *docker_volume_arg(staged_output, "/workspace/classes", readonly=False),
+                    self._resolved_digest,
                     "sh", "-c", compile_cmd,
                 ]
 
+                # Initialize so the TimeoutExpired handler never raises
+                # UnboundLocalError and cleanup always runs.
+                proc = None
                 try:
                     proc = subprocess.run(
                         docker_cmd,
@@ -347,6 +341,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                             success=False,
                             class_files={},
                             compilation_errors=(proc.stderr.decode(errors="replace"),),
+                            infrastructure_error=is_docker_infrastructure_exit(
+                                proc.returncode, proc.stderr, build=True
+                            ),
                             compilation_time_ms=int(
                                 (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                             ),
@@ -356,7 +353,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     class_files = {}
                     for f in staged_output.rglob("*.class"):
                         rel = f.relative_to(staged_output)
-                        class_files[str(rel)] = f.read_bytes()
+                        class_files[str(rel)] = read_sandbox_file(f)
 
                     if not class_files:
                         return CompilationResult(
@@ -392,6 +389,9 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                         success=False,
                         class_files={},
                         compilation_errors=("Compilation timed out",),
+                        # A build that could not finish says nothing about
+                        # the program's behaviour (audit V4).
+                        infrastructure_error=True,
                         compilation_time_ms=int(
                             (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                         ),
@@ -402,6 +402,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 success=False,
                 class_files={},
                 compilation_errors=(str(e),),
+                infrastructure_error=True,
                 compilation_time_ms=int(
                     (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                 ),
@@ -449,7 +450,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
             )
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with sandbox_staging_dir(prefix="javaexec-") as tmpdir:
                 # Stage compiled classes
                 staged_classes = Path(tmpdir) / "classes"
                 staged_classes.mkdir()
@@ -464,7 +465,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 entrypoint_class = manifest.entrypoint.removesuffix(".java")
 
                 # Java command inside container
-                java_cmd = f"java -cp /workspace/classes {entrypoint_class}"
+                java_cmd = f"java -cp /workspace/classes {shlex.quote(entrypoint_class)}"
 
                 # Output directory (container-local, writable)
                 output_dir = Path(tmpdir) / "output"
@@ -477,85 +478,59 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     input_dir.mkdir()
                     for name, content in input_files.items():
                         (input_dir / name).write_bytes(content)
-                    input_mount_args = [
-                        "-v", f"{os.path.abspath(input_dir)}:/workspace/input:ro",
-                    ]
+                    input_mount_args = docker_volume_arg(
+                        input_dir, "/workspace/input", readonly=True
+                    )
 
                 # Deterministic container name for explicit cleanup
                 container_name = f"java-{uuid.uuid4().hex[:12]}"
 
-                # Docker command: execute inside container
+                # Writable base at /workspace so candidates that assign
+                # RELATIVE file names (certified indexed/relative subset)
+                # can create them under the non-root identity; children
+                # (classes/output/input) nest below it.
+                workspace_dir = Path(tmpdir) / "ws"
+                workspace_dir.mkdir()
+                prepare_host_tree(workspace_dir, writable=True)
+                prepare_host_tree(staged_classes, writable=False)
+                prepare_host_tree(output_dir, writable=True)
+                if input_files:
+                    prepare_host_tree(input_dir, writable=False)
+
+                # Docker command: execute inside container.  ``-i`` +
+                # ``input=`` deliver exactly the controlled stdin the evidence
+                # manifest hashes (empty when none was declared).
                 docker_cmd = [
-                    "docker", "run", "--rm",
+                    "docker", "run", "--rm", "-i",
+                    *container_run_hardening_flags("java-exec"),
                     "--name", container_name,
                     "--network", "none",
                     "--memory", self._config.memory_limit,
                     "--cpus", self._config.cpu_limit,
                     "--pids-limit", str(self._config.pids_limit),
                     "--workdir", "/workspace",
-                    "-v", f"{os.path.abspath(staged_classes)}:/workspace/classes:ro",
-                    "-v", f"{os.path.abspath(output_dir)}:/workspace/output",
+                    *docker_volume_arg(workspace_dir, "/workspace", readonly=False),
+                    *docker_volume_arg(staged_classes, "/workspace/classes", readonly=True),
+                    *docker_volume_arg(output_dir, "/workspace/output", readonly=False),
                     *input_mount_args,
-                    self._config.image,
+                    self._resolved_digest,
                     "sh", "-c", java_cmd,
                 ]
 
-                # Execute with timeout lifecycle
-                proc = None
-                stdout = b""
-                stderr = b""
-                exit_code: int | None = None
-                termination = "error"
+                run = run_container(
+                    docker_cmd,
+                    input_data=input_data,
+                    timeout_seconds=self._config.timeout_seconds,
+                    container_name=container_name,
+                    label="Java",
+                    cleanup=self._cleanup_container,
+                )
+                stdout, stderr = run.stdout, run.stderr
+                exit_code, termination = run.exit_code, run.termination
 
-                try:
-                    proc = subprocess.run(
-                        docker_cmd,
-                        capture_output=True,
-                        timeout=self._config.timeout_seconds + 5,
-                        creationflags=_flags,
-                    )
-                    stdout = proc.stdout
-                    stderr = proc.stderr
-                    exit_code = proc.returncode
-                    termination = "normal" if exit_code == 0 else "nonzero_exit"
-
-                except subprocess.TimeoutExpired:
-                    # Step 1: Kill the docker client process
-                    if proc is not None:
-                        try:
-                            proc.kill()
-                            proc.wait(timeout=5)
-                        except Exception:
-                            pass
-
-                    stdout = proc.stdout if proc else b""
-
-                    # Step 2: Explicitly stop and remove the container
-                    # Do NOT rely on --rm alone — proc.kill() kills the client
-                    # but the container persists on the daemon.
-                    _cleanup_removed, cleanup_detail = self._cleanup_container(
-                        container_name
-                    )
-
-                    stderr = (
-                        b"Java execution timeout; "
-                        + f"cleanup={cleanup_detail}".encode()
-                    )
-                    exit_code = None
-                    termination = "timeout"
-
-                except Exception as e:
-                    stdout = b""
-                    stderr = str(e).encode()
-                    exit_code = None
-                    termination = "error"
-
-                generated_files: dict[str, bytes] = {}
-                if output_dir.is_dir():
-                    for f in sorted(output_dir.rglob("*")):
-                        if f.is_file():
-                            rel = f.name
-                            generated_files[rel] = f.read_bytes()
+                generated_files: dict[str, bytes] = collect_generated_files(
+                    output_dir, workspace_dir, ("classes", "output", "input"),
+                )
 
                 end_time = datetime.now(timezone.utc)
 
@@ -580,6 +555,7 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                     timeout_applied=termination == "timeout",
                     timeout_duration=self._config.timeout_seconds if termination == "timeout" else None,
                     generated_files=generated_files if generated_files else None,
+                    image_digest=digest_of_identity(self._resolved_digest) or None,
                 )
 
         except Exception as e:
@@ -595,4 +571,5 @@ class DockerJavaCandidateAdapter(CandidateAdapter):
                 end_time=end_time.isoformat(),
                 termination_status="error",
                 timeout_applied=False,
+                image_digest=digest_of_identity(self._resolved_digest) or None,
             )

@@ -49,10 +49,10 @@ class TestEndToEndGolden:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             java_file = Path(tmpdir) / "Claims.java"
-            java_file.write_text(java_code)
+            java_file.write_text(java_code, encoding="utf-8")
 
             proc = subprocess.run(
-                ["javac", str(java_file)],
+                ["javac", "-encoding", "UTF-8", str(java_file)],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -71,10 +71,10 @@ class TestEndToEndGolden:
 
         java_code = result.java_source_tree[list(result.java_source_tree.keys())[0]]
 
-        # Verify the Java code references the correct input paths (configurable via CLI args)
-        assert '"/workspace/input"' in java_code
-        assert '"/claims.dat"' in java_code
-        assert '"/payments.dat"' in java_code
+        # The ASSIGN paths are read as written (behaviour is pinned against
+        # GnuCOBOL in tests/integration/test_claims_statement_lowering_oracle.py).
+        assert 'CobolFileIo.readNext("/workspace/input/claims.dat")' in java_code
+        assert 'CobolFileIo.readNext("/workspace/input/payments.dat")' in java_code
 
     def test_generated_java_produces_correct_artifacts(self):
         """Generated Java declares correct output artifacts."""
@@ -84,9 +84,9 @@ class TestEndToEndGolden:
 
         java_code = result.java_source_tree[list(result.java_source_tree.keys())[0]]
 
-        assert '"/workspace/output"' in java_code
-        assert '"/report.txt"' in java_code
-        assert '"/settlement.dat"' in java_code
+        assert 'CobolFileIo.open("/workspace/output/report.txt", "OUTPUT", 0);' in java_code
+        assert 'CobolFileIo.open("/workspace/output/settlement.dat", "OUTPUT", 0);' in java_code
+        assert 'CobolFileIo.write("/workspace/output/settlement.dat",' in java_code
 
     def test_generated_java_matches_reference_behavior(self):
         """Generated Java has same structural behavior as reference."""
@@ -149,18 +149,15 @@ class TestEndToEndGolden:
 class TestNegativeGolden:
     """Prove mutation detection works.
 
-    KNOWN LIMITATION: The current generator is template-based. Mutations to
-    COBOL values (thresholds, status codes) do NOT change the generated Java
-    because the template hardcodes these values. This is documented as a
-    limitation that Phase 5F architecture is designed to address.
+    The generator lowers the program's statements (the template lanes were
+    removed, audit T5), so source values reach the generated Java as written.
     """
 
-    def test_threshold_mutation_does_not_change_java(self):
+    def test_threshold_mutation_updates_threshold_literal_and_changes_generated_java(self):
         """SOURCE-DRIVEN: Threshold mutation now changes generated Java.
 
-        The generator reads the threshold from the parsed IR (ThresholdRule).
-        Changing the COBOL source's numeric threshold now produces different
-        Java output with the correct value.
+        The threshold is lowered as part of the IF condition, so changing
+        the COBOL literal changes the generated comparison.
         """
         producer = InternalNativeJavaProducer()
         cobol = load_cobol()
@@ -172,12 +169,12 @@ class TestNegativeGolden:
         result2 = producer.transform(modified_cobol, program_id="CLAIMS")
         java2 = result2.java_source_tree[list(result2.java_source_tree.keys())[0]]
 
-        # Source-driven: Java1 has 500, Java2 has 1000
-        assert "THRESHOLD = 500" in java1
-        assert "THRESHOLD = 1000" in java2
+        assert "if (WS_CLAIM_AMOUNT < 500) {" in java1
+        assert "if (WS_CLAIM_AMOUNT < 1000) {" in java2
+        assert "< 500" not in java2
         assert java1 != java2
 
-    def test_status_code_mutation_does_not_change_java(self):
+    def test_status_code_mutation_updates_status_literal_and_changes_generated_java(self):
         """STATUS CODE MUTATION IS NOW PROPAGATED: IR-driven generator.
 
         The generator extracts status codes from the COBOL IF/MOVE patterns.

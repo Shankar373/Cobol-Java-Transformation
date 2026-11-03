@@ -8,7 +8,7 @@ Architecture:
 
     TransformationProducer (interface)
         ↓
-    InternalNativeJavaProducer (primary)
+    InternalNativeJavaProducer (experimental, test-only)
     OpenSourceCOBOL4JProducerAdapter (alternative)
     Future producers (LLM, commercial, etc.)
         ↓

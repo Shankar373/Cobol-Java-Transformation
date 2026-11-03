@@ -31,17 +31,7 @@ from engine.domain.identities import AdapterStatus, RunId
 ADVERSARIAL = Path(__file__).resolve().parent / "adversarial_fixtures"
 
 
-def _docker_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 def _list_container_ids() -> set[str]:
@@ -1016,4 +1006,10 @@ class TestRuffEvidence:
 
     def test_ruff_baseline_recorded(self):
         """Ruff check baseline recorded."""
-        assert True, "Ruff status recorded in final report"
+        # Ruff is not installed in this environment, so the claim that a
+        # ruff baseline was recorded is unsupported.  Assert the honest
+        # state instead of vacuously passing.
+        import shutil
+        assert shutil.which("ruff") is None, (
+            "ruff is now available; update the forensic evidence claim"
+        )

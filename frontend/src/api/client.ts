@@ -4,12 +4,10 @@
  * All HTTP communication lives here.  Pages/components import this
  * module and call its functions — they never fetch directly.
  *
- * Backend API:
+ * Backend calls made by this client (api/app.py has the full list):
  *   GET    /applications
  *   POST   /applications
  *   GET    /applications/{id}
- *   POST   /applications/{id}/upload
- *   POST   /applications/{id}/candidate (internal/test-only; never used by UI)
  *   POST   /applications/{id}/ingest
  *   GET    /applications/{id}/discovery
  *   POST   /applications/{id}/modernize
@@ -17,13 +15,89 @@
  *   GET    /runs/{id}
  *   GET    /runs/{id}/detail
  *   GET    /runs/{id}/artifacts
+ *   GET    /runs/{id}/report
+ *   GET    /runs/{id}/integrated-proof
  *   POST   /runs/{id}/validate
  *   GET    /runs/{id}/verdict
- *   GET    /runs/{id}/download         (generated artifact only)
- *   GET    /health
+ *   GET    /runs/{id}/approval      (the customer's approval record)
+ *   POST   /runs/{id}/approval      (record APPROVED/REJECTED decision)
+ *   GET    /runs/{id}/download      (generated artifact only; 409 until APPROVED)
+ *   GET    /ready                   (sidebar readiness status)
+ *
+ * Not used by the UI: POST /applications/{id}/upload and
+ * POST /applications/{id}/candidate (internal/test-only; refused in
+ * production), GET /health (probe).
  */
 
 const BASE = '';
+
+// ---------------------------------------------------------------------------
+// Bearer-token auth (production CONTROL_PLANE_API_TOKEN integration)
+//
+// The backend middleware (api/app.py) requires `Authorization: Bearer
+// <token>` on every route except /health when CONTROL_PLANE_API_TOKEN is
+// set; without a browser-side entry point the SPA received 401 on every
+// call in that configuration.  The token is resolved in priority order:
+//
+//   1. localStorage override (`systemaops.apiToken`) — runtime
+//      configuration without a rebuild (set/clear via setApiToken);
+//   2. build-time env `VITE_CONTROL_PLANE_API_TOKEN` — baked in by the
+//      deployment's frontend build;
+//   3. none → auth is off (the documented dev default) and requests are
+//      byte-identical to the pre-auth client (no Authorization header,
+//      GET init stays `undefined`).
+//
+// The token is a deployment-level shared secret; it is never logged and
+// is only ever sent to the same-origin backend (BASE === '').
+// ---------------------------------------------------------------------------
+
+const TOKEN_STORAGE_KEY = 'systemaops.apiToken';
+
+type MaybeEnvImportMeta = ImportMeta & {
+  env?: Record<string, string | undefined>;
+};
+
+/** Current bearer token, or null when auth is off. */
+export function getApiToken(): string | null {
+  try {
+    const stored = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (stored) return stored;
+  } catch {
+    // Storage unavailable (private mode, disabled) — fall through to env.
+  }
+  const env = (import.meta as MaybeEnvImportMeta).env;
+  const fromEnv = env?.['VITE_CONTROL_PLANE_API_TOKEN'];
+  return fromEnv ? fromEnv : null;
+}
+
+/** Set (token string) or clear (null) the runtime token override. */
+export function setApiToken(token: string | null): void {
+  if (token === null) {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } else {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  }
+}
+
+/** True when a token entered in this browser is stored (sign-out clears it). */
+export function hasStoredApiToken(): boolean {
+  try {
+    return Boolean(localStorage.getItem(TOKEN_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/** Attach the Authorization header when a token is configured. */
+function withAuth(init?: RequestInit): RequestInit | undefined {
+  const token = getApiToken();
+  if (!token) return init;
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return { ...init, headers };
+}
 
 // ---------------------------------------------------------------------------
 // Types (mirror backend Pydantic models)
@@ -55,7 +129,17 @@ export interface ApplicationCreate {
   description?: string;
   workload_id: string;
   java_entrypoint?: string;
+  /** spring_boot (default), plain_java, quarkus or micronaut (audit FE-08). */
+  target_runtime?: string;
 }
+
+/** Runtimes certified on the corpus (docs/RUNTIME_ADAPTERS.md). */
+export const CERTIFIED_RUNTIMES: { value: string; label: string }[] = [
+  { value: 'spring_boot', label: 'Spring Boot' },
+  { value: 'plain_java', label: 'Plain Java' },
+  { value: 'quarkus', label: 'Quarkus (command mode)' },
+  { value: 'micronaut', label: 'Micronaut (command mode)' },
+];
 
 export interface ApplicationResponse {
   id: string;
@@ -63,6 +147,8 @@ export interface ApplicationResponse {
   description: string;
   workload_id: string;
   java_entrypoint: string;
+  /** Generation target (api/models.py ApplicationResponse.target_runtime). */
+  target_runtime: string;
   cobol_source_path: string | null;
   java_candidate_path: string | null;
   generated_app_path: string | null;
@@ -98,6 +184,21 @@ export interface DiscoveryResult {
   dependency_edges: DependencyEdge[];
   source_file_count: number;
   total_size_bytes: number;
+  /**
+   * Whether discovery finished without any stage failing.  The API always
+   * sends this (it is computed server-side from `discovery_errors`), and the
+   * UI needs it: without it, a discovery that partially failed looked
+   * identical to one that fully succeeded.
+   */
+  discovery_success: boolean;
+  /** One entry per stage that failed; a non-empty list means the flag above is false. */
+  discovery_errors: DiscoveryIssue[];
+}
+
+/** One discovery-stage failure, as produced by `api/ingestion.py`. */
+export interface DiscoveryIssue {
+  stage: string;
+  message: string;
 }
 
 export interface CobolProgram {
@@ -145,6 +246,13 @@ export interface RunResponse {
   created_at: string;
   completed_at: string | null;
   error: string | null;
+  /**
+   * Persisted verdict state (VERIFIED/FAILED/UNPROVEN/...), or null when no
+   * verdict was produced.  Served fail-closed: only when the verdict
+   * hash-matches its evidence manifest.  The dashboard's "Verified" stat
+   * must count this field — never the run stage.
+   */
+  verdict_state?: string | null;
 }
 
 export interface ArtifactMetadata {
@@ -162,9 +270,40 @@ export interface ArtifactsResponse {
   artifacts: ArtifactMetadata[];
 }
 
-export interface ValidateResponse {
+
+// ---------------------------------------------------------------------------
+// Customer approval
+// ---------------------------------------------------------------------------
+
+/** Current per-run approval state. PENDING until an explicit decision. */
+export type ApprovalState = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** Decisions accepted by the approval endpoint (PENDING is never one). */
+export type ApprovalDecisionValue = 'APPROVED' | 'REJECTED';
+
+/** One entry of a run's append-only approval trail (api/models.py ApprovalEvent). */
+export interface ApprovalEvent {
+  /** APPROVED | REJECTED, or RESET when a revalidation discarded a decision. */
+  state: string;
+  approver: string | null;
+  reason: string | null;
+  recorded_at: string;
+}
+
+export interface RunApprovalResponse {
   run_id: string;
-  stage: RunStage;
+  state: ApprovalState;
+  approver: string | null;
+  reason: string | null;
+  decided_at: string | null;
+  /** Every decision and reset, oldest first (Phase 4 audit trail). */
+  history: ApprovalEvent[];
+}
+
+export interface ApprovalDecisionInput {
+  decision: ApprovalDecisionValue;
+  approver: string;
+  reason?: string;
 }
 
 export interface ComparisonDetail {
@@ -193,11 +332,11 @@ export interface VerdictResponse {
   derivation_timestamp: string;
   differences: string[];
   comparisons: ComparisonDetail[];
+  /** Contract the run was certified under (api/models.py VerdictResponse). */
+  certification_contract?: string | null;
+  contract_source?: string | null;
 }
 
-export interface HealthResponse {
-  status: string;
-}
 
 export interface RunDetailResponse {
   id: string;
@@ -211,6 +350,8 @@ export interface RunDetailResponse {
   verdict_state: string | null;
   discovery: Record<string, unknown> | null;
   stage_messages: string[];
+  /** Last non-terminal stage reached — anchors the FAILED-run stepper. */
+  last_stage?: string | null;
   generated_files: string[];
 }
 
@@ -228,17 +369,62 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Turn the API's `detail` field into a message a person can actually read.
+ *
+ * `detail` is not one shape: it is a plain string for errors the API authors
+ * wrote by hand, an ARRAY of Pydantic error objects when request validation
+ * fails (HTTP 422), and sometimes a single object for structured rejections.
+ * Displaying the raw envelope directly put `[object Object]` on the screen,
+ * which tells the customer nothing.  Each of these shapes is flattened
+ * deliberately so no part of the message is dropped or mangled.
+ */
+export function detailToMessage(detail: unknown): string {
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => detailToMessage(item))
+      .filter((part) => part.length > 0);
+    return parts.length > 0 ? parts.join('; ') : JSON.stringify(detail);
+  }
+  if (detail !== null && typeof detail === 'object') {
+    const record = detail as Record<string, unknown>;
+    // Pydantic puts the actual sentence in `msg`, and `loc` tells us which
+    // field was wrong.  Leading with the field name keeps the message precise
+    // without us having to invent any wording of our own.
+    const msg = typeof record.msg === 'string' ? record.msg : null;
+    if (msg !== null) {
+      const loc = Array.isArray(record.loc)
+        ? record.loc.map(String).join('.')
+        : '';
+      return loc ? `${loc}: ${msg}` : msg;
+    }
+    const parts = Object.entries(record).map(([key, value]) =>
+      `${key}: ${typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)}`,
+    );
+    return parts.length > 0 ? parts.join('; ') : JSON.stringify(detail);
+  }
+  return detail === null || detail === undefined
+    ? ''
+    : String(detail);
+}
+
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const res = await fetch(`${BASE}${path}`, withAuth(init));
   if (!res.ok) {
     let msg = res.statusText;
     try {
       const body = await res.json();
-      msg = body.detail ?? JSON.stringify(body);
+      msg = body.detail !== undefined ? detailToMessage(body.detail) : JSON.stringify(body);
+      if (!msg) {
+        msg = JSON.stringify(body);
+      }
     } catch {
       // ignore
     }
@@ -251,6 +437,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // API functions
 // ---------------------------------------------------------------------------
 
+/** POST /runs/{id}/validate - re-run validation of a finished run (202). */
+export async function revalidateRun(runId: string): Promise<{ run_id: string; stage: string }> {
+  return request<{ run_id: string; stage: string }>(`/runs/${runId}/validate`, {
+    method: 'POST',
+  });
+}
+
+export interface ReadinessResponse {
+  status: string;
+  checks: Record<string, { ok: boolean; detail?: string; gating?: boolean }>;
+}
+
+/**
+ * GET /ready - unauthenticated by design. Answers 200 when ready and 503 with
+ * the same body when a gating dependency is down, so the body is read for
+ * both (audit FE-01: the sidebar status used to be hard-coded).
+ */
+export async function getReadiness(): Promise<ReadinessResponse> {
+  const res = await fetch(`${BASE}/ready`, withAuth());
+  if (res.status !== 200 && res.status !== 503) {
+    throw new ApiError(res.status, res.statusText);
+  }
+  return res.json() as Promise<ReadinessResponse>;
+}
+
 export async function createApplication(
   data: ApplicationCreate,
 ): Promise<ApplicationResponse> {
@@ -261,33 +472,7 @@ export async function createApplication(
   });
 }
 
-export async function uploadFiles(
-  appId: string,
-  files: File[],
-): Promise<UploadResponse> {
-  const form = new FormData();
-  for (const f of files) {
-    form.append('files', f);
-  }
-  return request<UploadResponse>(`/applications/${appId}/upload`, {
-    method: 'POST',
-    body: form,
-  });
-}
 
-export async function uploadCandidate(
-  appId: string,
-  files: File[],
-): Promise<UploadResponse> {
-  const form = new FormData();
-  for (const f of files) {
-    form.append('files', f);
-  }
-  return request<UploadResponse>(`/applications/${appId}/candidate`, {
-    method: 'POST',
-    body: form,
-  });
-}
 
 export async function modernize(
   appId: string,
@@ -312,9 +497,27 @@ export async function getArtifacts(
   return request<ArtifactsResponse>(`/runs/${runId}/artifacts`);
 }
 
-export async function validateRun(runId: string): Promise<ValidateResponse> {
-  return request<ValidateResponse>(`/runs/${runId}/validate`, {
+
+/** Current approval record for a run (PENDING until a decision). */
+export async function getRunApproval(runId: string): Promise<RunApprovalResponse> {
+  return request<RunApprovalResponse>(`/runs/${runId}/approval`);
+}
+
+/**
+ * Record the customer's explicit decision.
+ *
+ * The backend enforces the scope: rejection requires a reason, approval
+ * reason is optional, a later decision supersedes the earlier one, and
+ * export/download answers 409 until the run is APPROVED.
+ */
+export async function setRunApproval(
+  runId: string,
+  input: ApprovalDecisionInput,
+): Promise<RunApprovalResponse> {
+  return request<RunApprovalResponse>(`/runs/${runId}/approval`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   });
 }
 
@@ -322,9 +525,6 @@ export async function getVerdict(runId: string): Promise<VerdictResponse> {
   return request<VerdictResponse>(`/runs/${runId}/verdict`);
 }
 
-export async function getHealth(): Promise<HealthResponse> {
-  return request<HealthResponse>('/health');
-}
 
 // ---------------------------------------------------------------------------
 // Application history (persistent backend contract).
@@ -375,6 +575,43 @@ export async function getDiscovery(
   return request<DiscoveryResult>(`/applications/${appId}/discovery`);
 }
 
+/**
+ * Build a warning message for a discovery that did not finish cleanly, or
+ * return null when the discovery is complete.
+ *
+ * The server tells us directly via `discovery_success`, but not every payload
+ * carries it (older responses, truncated bodies), so a non-empty error list is
+ * used as a fallback signal.  A completed discovery must return null — we must
+ * never invent a warning where none was reported — while a partial one must
+ * never be presented as complete.
+ */
+export function discoveryIssuesMessage(
+  discovery: DiscoveryResult,
+): string | null {
+  const errors = discovery.discovery_errors ?? [];
+
+  if (discovery.discovery_success) {
+    // The flag says success but errors were still reported.  That is a server
+    // contradiction, and hiding it would risk losing a real problem, so we
+    // show the errors rather than take the flag at its word.
+    return errors.length > 0 ? formatDiscoveryErrors(errors) : null;
+  }
+
+  if (errors.length > 0) {
+    return formatDiscoveryErrors(errors);
+  }
+
+  // Incomplete with no detail: say so plainly instead of guessing a cause.
+  return 'Discovery incomplete: the run did not finish cleanly (no further detail was reported).';
+}
+
+function formatDiscoveryErrors(errors: DiscoveryIssue[]): string {
+  const detail = errors
+    .map((error) => `${error.stage}: ${error.message}`)
+    .join('; ');
+  return `Discovery incomplete — ${errors.length} stage(s) reported problems: ${detail}`;
+}
+
 // ---------------------------------------------------------------------------
 // Modernization Report
 // ---------------------------------------------------------------------------
@@ -391,17 +628,78 @@ export async function getReport(
   return request<ModernizationReportResponse>(`/runs/${runId}/report`);
 }
 
+export interface DependencyLedgerEntry {
+  dependency_id: string;
+  kind: string;
+  visible: boolean;
+  capability_level: string;
+  proof_state: string;
+  required: boolean;
+  reason: string;
+}
+
+export interface IntegratedProofResult {
+  workload_id: string;
+  application_id: string;
+  central_status: string;
+  blocking_reasons: string[];
+  generation_success: boolean;
+  overall_capability: string;
+  jcl_status: string;
+  runtime: Record<string, unknown>;
+  dependency_ledger: DependencyLedgerEntry[];
+  required_dependencies: DependencyLedgerEntry[];
+  unproven_dependencies: DependencyLedgerEntry[];
+  runtime_verdict_is_verified: boolean;
+}
+
+export interface IntegratedProofResponse {
+  run_id: string;
+  application_id: string;
+  proof: IntegratedProofResult;
+  verdict_state: string;
+  evidence_status: string;
+  runtime_proof_status: string;
+  reasons_for_not_verified: string[];
+  proven_dependencies: DependencyLedgerEntry[];
+  unproven_dependencies: DependencyLedgerEntry[];
+  blocked_dependencies: DependencyLedgerEntry[];
+  unsupported_dependencies: DependencyLedgerEntry[];
+  evidence_complete: boolean;
+  evidence_integrity_valid: boolean;
+  required_dependencies_proven: boolean;
+  overall_verification: string;
+}
+
+// ---------------------------------------------------------------------------
+// Integrated Proof
+// ---------------------------------------------------------------------------
+
+export async function getIntegratedProof(
+  runId: string,
+): Promise<IntegratedProofResponse> {
+  return request<IntegratedProofResponse>(`/runs/${runId}/integrated-proof`);
+}
+
 // ---------------------------------------------------------------------------
 // Download
 // ---------------------------------------------------------------------------
 
 export async function downloadGenerated(runId: string): Promise<Blob> {
-  const res = await fetch(`${BASE}/runs/${runId}/download`);
+  // Call-shape parity with the pre-auth client: without a token the fetch
+  // receives no init argument at all (pinned by api-client tests).
+  const authed = withAuth();
+  const res = authed
+    ? await fetch(`${BASE}/runs/${runId}/download`, authed)
+    : await fetch(`${BASE}/runs/${runId}/download`);
   if (!res.ok) {
     let msg = res.statusText;
     try {
       const body = await res.json();
-      msg = body.detail ?? JSON.stringify(body);
+      msg = body.detail !== undefined ? detailToMessage(body.detail) : JSON.stringify(body);
+      if (!msg) {
+        msg = JSON.stringify(body);
+      }
     } catch {
       // ignore
     }

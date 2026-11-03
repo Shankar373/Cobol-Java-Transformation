@@ -97,7 +97,7 @@ class TestSchemaAndSeedConsistency:
 
 
 class TestWorkloadManifest:
-    def test_manifest_loads(self):
+    def test_manifest_declares_workload_id_inputs_and_artifacts(self):
         import importlib.util
 
         spec = importlib.util.spec_from_file_location("workload_db2", _FIXTURES / "workload.py")

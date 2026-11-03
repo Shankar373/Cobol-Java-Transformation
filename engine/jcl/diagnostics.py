@@ -39,11 +39,13 @@ class JclDiagnosticCode(Enum):
     SYMBOL_SET_PRESERVED = "JCL_SYMBOL_SET_PRESERVED"
     DUMMY_RESOURCE = "JCL_DUMMY_RESOURCE"
     JOB_UNNAMED = "JCL_JOB_UNNAMED"
+    JOB_LEVEL_DD = "JCL_JOB_LEVEL_DD"
     STEP_NO_EXEC = "JCL_STEP_NO_EXEC"
     UNSUPPORTED_PROCEDURE = "JCL_UNSUPPORTED_PROCEDURE"
     UNSUPPORTED_CONTROL_BLOCK = "JCL_UNSUPPORTED_CONTROL_BLOCK"
     UNSUPPORTED_STATEMENT = "JCL_UNSUPPORTED_STATEMENT"
     UNSUPPORTED_CONTINUATION = "JCL_UNSUPPORTED_CONTINUATION"
+    SOURCE_DECODE_FAILED = "JCL_SOURCE_DECODE_FAILED"
 
 
 @dataclass(frozen=True)
@@ -107,11 +109,11 @@ class JclDiagnosticCollector:
 
     @property
     def has_errors(self) -> bool:
-        return any(d.level == JclDiagnosticLevel.ERROR for d in self._diagnostics)
+        return bool(self.errors)
 
     @property
     def has_warnings(self) -> bool:
-        return any(d.level == JclDiagnosticLevel.WARNING for d in self._diagnostics)
+        return bool(self.warnings)
 
     @property
     def errors(self) -> list[JclDiagnostic]:

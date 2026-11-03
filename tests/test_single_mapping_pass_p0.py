@@ -221,7 +221,7 @@ class TestNoSecondCobolMapping:
 # ---------------------------------------------------------------------------
 
 class TestProjectWritten:
-    def test_generated_project_contents(
+    def test_generated_project_contains_pom_and_alpha_service_source(
         self, svc: Service, fake_pipeline
     ) -> None:
         app_id = _make_app(svc, {"ALPHA.cob": ALPHA})

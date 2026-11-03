@@ -1,0 +1,105 @@
+name: Corpus certification (GnuCOBOL, all runtimes)
+
+# Phase 5 (2026-11-02): re-derive the certification evidence on an exact
+# commit, in CI instead of on a developer machine. For each proven runtime,
+# in parallel: build the oracle and offline-Maven images, run every fixture
+# application through the API (ingest -> generate -> offline build ->
+# hardened execution -> comparison with GnuCOBOL), re-check every VERIFIED
+# application with the independent verifier (shares no code with the
+# platform), and fail unless every verdict equals the accepted evidence and
+# every re-check AGREEs (scripts/e2e/certify_corpus.py).
+#
+# Runs for a release candidate (about an hour per runtime), not on every
+# push - the regular CI already runs the oracle-pinned suites:
+#   * a pushed commit whose message contains "[certify]" (any branch; the
+#     evidence is then tied to that exact SHA), or
+#   * manual dispatch once this file is on the default branch:
+#     gh workflow run certification.yml --ref <branch>
+# On other pushes the job is skipped (shown as skipped, never as passed).
+
+on:
+  push:
+  workflow_dispatch:
+
+# Audit CI-F12: a newer push to a pull request supersedes its older run;
+# pushes are grouped by commit so every pushed SHA keeps its own evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Every step runs as `bash -eo pipefail`: several steps pipe into `tee`, and
+# the default `bash -e` takes the pipeline's status from `tee` - the first
+# run of this workflow reported success although the verifier had crashed.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  certify:
+    name: Certify ${{ matrix.runtime }}
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[certify]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [spring_boot, plain_java, quarkus, micronaut]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Build GnuCOBOL oracle image
+        run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
+      - name: Build project Maven image
+        run: bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:latest
+      - name: Pull pinned Java execution image
+        run: |
+          RUNTIME_DIGEST="$(python -c 'from engine.candidate.docker_spring_boot_adapter import DockerSpringBootConfig; print(DockerSpringBootConfig().runtime_digest)')"
+          docker pull "$RUNTIME_DIGEST"
+          docker tag "$RUNTIME_DIGEST" eclipse-temurin:21-jdk
+      - name: Record Docker image provenance
+        run: |
+          mkdir -p test-artifacts
+          python scripts/record_docker_image_provenance.py \
+            --build-image maven-offline-springboot:latest \
+            --runtime-image eclipse-temurin:21-jdk \
+            --output test-artifacts/docker-image-provenance.json
+      - name: Run the corpus through the API
+        env:
+          E2E_OUT: certification/e2e.jsonl
+          E2E_TARGET: ${{ matrix.runtime }}
+        run: |
+          mkdir -p certification
+          python scripts/e2e/run_fixture_apps.py 2>&1 | grep -E "^workload" | tee certification/e2e.log
+      - name: Independent re-check of every VERIFIED application
+        env:
+          E2E_IN: certification/e2e.jsonl
+          VERIFY_OUT: certification/independent.jsonl
+        run: python scripts/e2e/verify_independent.py | tee certification/independent.log
+      - name: Certify against the accepted evidence
+        run: |
+          python scripts/e2e/certify_corpus.py --runtime "${{ matrix.runtime }}" \
+            --results certification/e2e.jsonl \
+            --independent certification/independent.jsonl \
+            --out-dir certification/evidence | tee certification/summary.txt
+      - name: Upload certification evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: certification-${{ matrix.runtime }}
+          path: certification/**
+          if-no-files-found: warn
+          retention-days: 90

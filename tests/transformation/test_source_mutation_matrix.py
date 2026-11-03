@@ -70,8 +70,10 @@ class TestThresholdMutation:
         java2 = result2.generated_files[0].source_code
 
         assert java1 != java2
-        assert "THRESHOLD = 500" in java1
-        assert "THRESHOLD = 1000" in java2
+        # Lowered into the IF condition (the THRESHOLD constant belonged to
+        # the removed decision template, audit T5).
+        assert "if (WS_CLAIM_AMOUNT < 500) {" in java1
+        assert "if (WS_CLAIM_AMOUNT < 1000) {" in java2
 
     def test_threshold_minimal_200_to_100(self):
         producer = InternalNativeJavaProducer()
@@ -126,8 +128,8 @@ class TestArithmeticMutation:
         java2 = result2.generated_files[0].source_code
 
         assert java1 != java2
-        assert "WS_RESULT += 50;" in java1 or "WS_RESULT = (WS_RESULT + 50)" in java1
-        assert "WS_RESULT += 75;" in java2 or "WS_RESULT = (WS_RESULT + 75)" in java2
+        assert "WS_RESULT += 50;" in java1 or "WS_RESULT = ((WS_RESULT + 50) % " in java1
+        assert "WS_RESULT += 75;" in java2 or "WS_RESULT = ((WS_RESULT + 75) % " in java2
 
     def test_add_25_to_10(self):
         producer = InternalNativeJavaProducer()
@@ -139,8 +141,8 @@ class TestArithmeticMutation:
         java2 = result2.generated_files[0].source_code
 
         assert java1 != java2
-        assert "WS_COUNTER += 25;" in java1 or "WS_COUNTER = (WS_COUNTER + 25)" in java1
-        assert "WS_COUNTER += 10;" in java2 or "WS_COUNTER = (WS_COUNTER + 10)" in java2
+        assert "WS_COUNTER += 25;" in java1 or "WS_COUNTER = ((WS_COUNTER + 25) % " in java1
+        assert "WS_COUNTER += 10;" in java2 or "WS_COUNTER = ((WS_COUNTER + 10) % " in java2
 
 
 class TestOutputMutation:

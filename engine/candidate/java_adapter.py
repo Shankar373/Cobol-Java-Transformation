@@ -28,6 +28,10 @@ from engine.domain.identities import (
     RunId,
 )
 
+#: Timeout for a candidate Java *execution* (seconds).  Single source so the
+#: subprocess timeout and the evidence ``timeout_duration`` cannot desync.
+_EXEC_TIMEOUT_SECONDS = 30
+
 
 class RealJavaCandidateAdapter(CandidateAdapter):
     """Real Java candidate adapter using host javac/java."""
@@ -184,8 +188,12 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             entrypoint_class = manifest.entrypoint
             entrypoint_class = entrypoint_class.removesuffix(".java")
 
+            # The oracle runs on Linux and ends records with LF.  Comparison
+            # is byte-exact (no implicit CRLF folding), so the host JVM must
+            # not inject the host platform's separator (CRLF on Windows).
             java_cmd = [
                 self._java_path,
+                "-Dline.separator=\n",
                 "-cp", compiled_path,
                 entrypoint_class,
             ]
@@ -193,8 +201,8 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             proc = subprocess.run(
                 java_cmd,
                 capture_output=True,
-                input=input_data,
-                timeout=30,
+                input=input_data if input_data is not None else b"",
+                timeout=_EXEC_TIMEOUT_SECONDS,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
 
@@ -204,10 +212,12 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             exit_code = proc.returncode
             termination = "normal" if exit_code == 0 else "nonzero_exit"
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             end_time = datetime.now(timezone.utc)
-            stdout = b""
-            stderr = b"Java execution timeout"
+            stdout = exc.stdout if exc.stdout is not None else b""
+            stderr = exc.stderr if exc.stderr is not None else b"Java execution timeout"
+            if not stderr:
+                stderr = b"Java execution timeout"
             exit_code = None
             termination = "timeout"
 
@@ -229,5 +239,5 @@ class RealJavaCandidateAdapter(CandidateAdapter):
             end_time=end_time.isoformat(),
             termination_status=termination,
             timeout_applied=termination == "timeout",
-            timeout_duration=30,
+            timeout_duration=_EXEC_TIMEOUT_SECONDS,
         )

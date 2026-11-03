@@ -33,6 +33,8 @@ import ast
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from engine.transformation.java_ir import (
@@ -328,14 +330,12 @@ class TestStrategyNeutrality:
         for f in repo_impl:
             assert "java.sql.Connection" not in f.source_code
 
-    def test_jdbc_generates_jdbc(self):
-        """JDBC strategy generates JDBC implementation."""
+    def test_jdbc_does_not_emit_placeholder(self):
+        """JDBC strategy does not emit placeholder repository implementations (rule 6)."""
         sb = _with_strategy("APP", DataAccessStrategy.JDBC, FileAccessStrategy.UNSPECIFIED)
         gen = SpringBootGenerator()
-        files = gen.generate_project(sb)
-        repo_impl = [f for f in files if "Impl" in f.class_name and "Repository" in f.class_name]
-        assert len(repo_impl) >= 1
-        assert "java.sql.Connection" in repo_impl[0].source_code
+        with pytest.raises(NotImplementedError):
+            gen.generate_project(sb)
 
     def test_jpa_generates_jpa(self):
         """JPA strategy generates JPA interface."""
@@ -349,7 +349,7 @@ class TestStrategyNeutrality:
     def test_strategy_change_architecture(self):
         """Changing strategy produces different generated source."""
         sb1 = _with_strategy("APP", DataAccessStrategy.UNSPECIFIED, FileAccessStrategy.UNSPECIFIED)
-        sb2 = _with_strategy("APP", DataAccessStrategy.JDBC, FileAccessStrategy.UNSPECIFIED)
+        sb2 = _with_strategy("APP", DataAccessStrategy.JPA, FileAccessStrategy.UNSPECIFIED)
         gen = SpringBootGenerator()
         files1 = gen.generate_project(sb1)
         files2 = gen.generate_project(sb2)

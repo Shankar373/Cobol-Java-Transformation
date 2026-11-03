@@ -49,7 +49,8 @@ class TestRecordSetInvariants:
         (b"A\nB\nC", b"C\nB\nA"),       # reordered
         (b"A\nB\nC", b"A\nB\nC\nD\nE"), # two extra
         (b"", b"A"),                     # empty vs non-empty
-    ])
+    ], ids=["missing-record", "extra-record", "changed-record", "reordered",
+            "two-extra", "empty-vs-nonempty"])
     def test_different_record_sets_mismatch(self, oracle_data, candidate_data):
         r = self.comp.compare(self.ora, oracle_data, self.cand, candidate_data)
         assert r.result.value == "MISMATCH"

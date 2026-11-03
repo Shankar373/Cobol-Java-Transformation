@@ -77,18 +77,18 @@ class _StatementClassification:
     note: str = ""
 
 
-_PORTABLE_STATEMENTS = {
-    "SELECT": True,
-    "INSERT": True,
-    "UPDATE": True,
-    "DELETE": True,
-    "DECLARE_CURSOR": True,
-    "OPEN_CURSOR": True,
-    "FETCH_CURSOR": True,
-    "CLOSE_CURSOR": True,
-    "COMMIT": True,
-    "ROLLBACK": True,
-}
+_PORTABLE_STATEMENTS = frozenset({
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "DECLARE_CURSOR",
+    "OPEN_CURSOR",
+    "FETCH_CURSOR",
+    "CLOSE_CURSOR",
+    "COMMIT",
+    "ROLLBACK",
+})
 
 _NON_PORTABLE_STATEMENTS = {
     "CALL": "stored procedure invocation is outside the execution subset",
@@ -128,7 +128,6 @@ def classify_statement(
 
 
 def _claim_for(
-    stmt_semantic,
     classification: _StatementClassification,
 ) -> Db2CompatibilityLevel:
     if not classification.syntax_known:
@@ -149,7 +148,7 @@ def compatibility_report(model: Db2SqlModel) -> list[Db2FeatureCompatibility]:
     report: list[Db2FeatureCompatibility] = []
     for stmt in model.statements:
         classification = classify_statement(stmt)
-        claim = _claim_for(stmt, classification)
+        claim = _claim_for(classification)
         note = classification.note
         report.append(
             Db2FeatureCompatibility(

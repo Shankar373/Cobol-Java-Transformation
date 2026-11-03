@@ -1,7 +1,9 @@
+> **CURRENT IMPLEMENTATION STATUS:** The evidence subsystem is implemented in the current repository. The original specification remains normative; see docs/CONTRACT_STATUS.md for the implementation-status reconciliation.
+
 # EVIDENCE SPECIFICATION — V1
 
 > **Status:** SPECIFICATION (Phase 1C foundation). This document defines the evidence
-> subsystem design. Implementation is a later phase. Specification version: **1.0**.
+> subsystem design. The current repository contains the corresponding implementation. Specification version: **1.0**.
 > Authority chain: [VERDICT_CONTRACT.md](../../contracts/VERDICT_CONTRACT.md) →
 > [ORACLE_CONTRACT.md](../../contracts/ORACLE_CONTRACT.md) →
 > [ARTIFACT_CONTRACT_SPEC.md](../../contracts/ARTIFACT_CONTRACT_SPEC.md) →

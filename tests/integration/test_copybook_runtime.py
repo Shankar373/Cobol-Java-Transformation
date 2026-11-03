@@ -28,6 +28,7 @@ from engine.candidate.docker_spring_boot_adapter import (
     DockerSpringBootCandidateAdapter,
     DockerSpringBootConfig,
 )
+from engine.candidate.image_provenance import load_adapter_provenance
 from engine.contracts.models import NormalizationPolicy, OrderingPolicy
 from engine.domain.identities import (
     AdapterStatus,
@@ -51,9 +52,7 @@ COPYBOOK_COBOL_DIR = Path("fixtures/workload-copybook/cobol")
 def _oracle_config() -> OracleAdapterConfig:
     return OracleAdapterConfig(
         oracle_id="gnucobol-3.1.2",
-        image_digest=(
-            "sha256:f6f567fb15c30442ea844426dd9d5dea0b626f70bbe3d2208e26cf9d35b8d780"
-        ),
+        image_digest="",
         compiler_version="3.1.2.0",
         timeout_seconds=30,
     )
@@ -170,8 +169,10 @@ def _extract_app_output(raw: str) -> list[str]:
 
 
 def _normalize_numbers(text: str) -> str:
-    """Strip leading zeros from numeric values for comparison."""
-    return re.sub(r"=(\d+)", lambda m: "=" + (m.group(1).lstrip("0") or "0"), text)
+    """Strip leading zeros from numeric values and trailing spaces from PIC 9(n) formatting for comparison."""
+    text = re.sub(r"=(\d+)", lambda m: "=" + (m.group(1).lstrip("0") or "0"), text)
+    text = re.sub(r"(\d+)\s*$", r"\1", text)
+    return text
 
 
 # ============================================================
@@ -188,16 +189,21 @@ class TestAdapterAvailability:
         assert adapter.status == AdapterStatus.AVAILABLE
 
     def test_build_digest_verified(self):
-        """Build image digest matches configured value."""
+        """Build image identity matches the provisioned immutable identity."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.build_resolved_digest
-        assert adapter.build_resolved_digest == DockerSpringBootConfig().build_digest
+        provenance = load_adapter_provenance()
+        assert provenance.validate() == []
+        assert "sha256:" in adapter.build_identity
+        assert adapter.build_identity == provenance.build_identity
+        assert adapter.build_identity_kind == provenance.build_identity_kind
 
     def test_runtime_digest_verified(self):
         """Runtime image digest matches configured value."""
         adapter = DockerSpringBootCandidateAdapter()
-        assert "sha256:" in adapter.runtime_resolved_digest
-        assert adapter.runtime_resolved_digest == DockerSpringBootConfig().runtime_digest
+        provenance = load_adapter_provenance()
+        assert provenance.runtime_identity == DockerSpringBootConfig().runtime_digest
+        assert "sha256:" in adapter.runtime_identity
+        assert adapter.runtime_identity == DockerSpringBootConfig().runtime_digest
 
 
 # ============================================================
@@ -328,7 +334,7 @@ class TestDockerExecution:
         )
         return exec_result
 
-    def test_execution_succeeds(self, execution_result):
+    def test_execution_status_is_succeeded_or_available(self, execution_result):
         """JAR execution completes successfully."""
         assert execution_result.status in (AdapterStatus.AVAILABLE, AdapterStatus.SUCCEEDED)
 
@@ -356,9 +362,34 @@ class TestDockerExecution:
         # IF CLAIM-AMOUNT > 500 -> false, so AMOUNT LE 500
         assert any("AMOUNT LE 500" in line for line in app_output)
 
-    def test_stdout_has_iterations(self, execution_result):
-        """Output contains iteration results - not applicable for this simplified test."""
-        pass
+    def test_stdout_trace_in_order(self, execution_result):
+        """The workload's DISPLAY trace appears in source order.
+
+        Replaces a previous zero-assertion placeholder ("iterations — not
+        applicable"): the fixture program has no loop, but ordering is real
+        coverage the sibling `any(...)` checks do not provide.
+        """
+        stdout = execution_result.stdout.decode(errors="replace")
+        app_output = _extract_app_output(stdout)
+        markers = [
+            "COPYBOOK DEMO STARTED",
+            "INITIAL CLAIM-ID",
+            "UPDATED CLAIM-AMOUNT",
+            "WS-RESULT=",
+            "FINAL CLAIM-ID",
+        ]
+        positions = [
+            next(
+                (i for i, line in enumerate(app_output) if marker in line),
+                -1,
+            )
+            for marker in markers
+        ]
+        for marker, idx in zip(markers, positions):
+            assert idx >= 0, f"missing trace marker: {marker}"
+        assert positions == sorted(positions), (
+            f"DISPLAY trace out of order: {list(zip(markers, positions))}"
+        )
 
     def test_stdout_has_final_values(self, execution_result):
         """Output contains final values."""
@@ -449,7 +480,13 @@ class TestBehavioralEquivalence:
         candidate_adapter = DockerSpringBootCandidateAdapter()
         pipeline = VerticalSlicePipeline(config, candidate_adapter=candidate_adapter)
 
-        return pipeline.run()
+        phases = []
+        result = pipeline.run(progress=phases.append)
+        assert phases == [
+            "EXECUTING_ORACLE", "BUILDING", "EXECUTING_GENERATED",
+            "COMPARING", "VALIDATING_EVIDENCE",
+        ]
+        return result
 
     def test_exit_codes_match(self, pipeline_result):
         """Candidate and oracle have same exit code."""

@@ -45,17 +45,7 @@ SPRING_ENTRY = "com.generated.app.Application"
 # helpers
 # ---------------------------------------------------------------------------
 
-def _docker_available() -> bool:
-    import subprocess, os
-    try:
-        r = subprocess.run(
-            ["docker", "ps"],
-            capture_output=True, timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 def _images_available() -> bool:
@@ -332,7 +322,7 @@ class TestVerifiedVerdict:
         # --- Stage D: GnuCOBOL oracle (independent reference) ---
         oracle_cfg = OracleAdapterConfig(
             oracle_id="gnucobol-fresh",
-            image_digest="sha256:1a290177e8dfeaae6f9ffa1fd3431e08338e8a11fa164116484a86163e4ffc35",
+            image_digest="",
             compiler_version="3.1.2.0",
         )
         oracle_adapter = DockerOracleAdapter(oracle_cfg)

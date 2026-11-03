@@ -88,7 +88,7 @@ def _manifest(**kwargs) -> EvidenceManifest:
 class TestCrossRunArtifactSubstitution:
     """Artifact from run A substituted into run B's manifest."""
 
-    def test_oracle_artifact_from_different_run(self):
+    def test_cross_run_artifact_verdict_binds_to_manifest_run_and_fails(self):
         """Oracle artifact captured in run_A used in run_B comparison.
         The comparison runs with whatever artifacts are provided.
         The verdict records run_B's run_id."""
@@ -124,7 +124,7 @@ class TestCrossRunArtifactSubstitution:
 class TestCrossRunExecutionMixing:
     """Mixing execution evidence from different runs."""
 
-    def test_mixed_execution_runs(self):
+    def test_mixed_execution_runs_verdict_binds_to_manifest_run(self):
         """Oracle exec from run_A, candidate exec from run_B in same manifest.
         The manifest's run_id determines the verdict's run_id.
         The artifacts are fabricated to match the comparison."""
@@ -155,7 +155,7 @@ class TestCrossRunExecutionMixing:
 class TestCrossRunComparisonMixing:
     """Comparison evidence from different runs."""
 
-    def test_comparison_from_different_run_in_manifest(self):
+    def test_foreign_run_comparison_yields_unproven_when_manifest_incomplete(self):
         """Comparison from run_A used in manifest for run_B.
         The comparison is processed; the verdict records run_B."""
         run_a = RunId(value="run-A-comp")

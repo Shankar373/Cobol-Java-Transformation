@@ -22,17 +22,40 @@ Architecture:
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from engine.transformation.cobol_parser import CobolParseError, CobolParser
+from engine.transformation.contracts import Diagnostic as ContractDiagnostic
+from engine.transformation.diagnostics import DiagnosticCode, to_contract_diagnostic
 from engine.transformation.ir import CobolProgram
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator
 
 
 class TransformationError(Exception):
     """Raised when transformation fails."""
+
+
+# A COPY statement in a non-comment source line (fixed-format indicator area
+# in column 7 is ``*`` or ``/`` for comments).
+_COPY_STATEMENT = re.compile(
+    r"^(?:.{6}[ \-]|\s*)\s*COPY\s+([A-Z0-9][\w-]*)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Mapper fail-closed identifiers: ``UNSUPPORTED_<FORM>$<reason>...``.
+_FAIL_CLOSED_SYMBOL = re.compile(r"\bUNSUPPORTED_[A-Z_]+\$[\w$]*")
+
+
+def fail_closed_symbols(java_source: str) -> list[str]:
+    """Sorted fail-closed mapper symbols present in generated Java.
+
+    The single definition shared by every generation path (producer and
+    modernization pipeline), so they refuse exactly the same output.
+    """
+    return sorted(set(_FAIL_CLOSED_SYMBOL.findall(java_source)))
 
 
 @dataclass(frozen=True)
@@ -42,9 +65,20 @@ class TransformationResult:
     generated_files: tuple[GeneratedFile, ...] = ()
     program_ir: CobolProgram | None = None
     errors: tuple[str, ...] = ()
+    diagnostics: tuple[ContractDiagnostic, ...] = ()
     producer_identity: str = "cobol-to-java-transformer"
     producer_version: str = "1.0.0"
     transformation_timestamp: str = ""
+
+    @property
+    def has_errors(self) -> bool:
+        return bool(self.errors) or any(
+            d.level == "ERROR" for d in self.diagnostics
+        )
+
+    @property
+    def has_warnings(self) -> bool:
+        return any(d.level == "WARNING" for d in self.diagnostics)
 
     @property
     def java_source_tree(self) -> dict[str, str]:
@@ -91,13 +125,95 @@ class TransformationProducer:
             # Step 1: Parse COBOL → IR
             program = self._parser.parse(cobol_source)
 
+            # Propagate parser diagnostics so no statement loss is silent.
+            parser_diagnostics = tuple(
+                to_contract_diagnostic(d) for d in self._parser.diagnostics.all
+            )
+
+            # Fail closed when the parser recorded error-level diagnostics
+            # (e.g. no transformable COBOL program structure).  Without
+            # this check the producer fabricated success=True for input
+            # like "INVALID COBOL SOURCE".
+            if self._parser.diagnostics.has_errors:
+                error_messages = tuple(
+                    d.message for d in self._parser.diagnostics.errors
+                )
+                if not error_messages:
+                    error_messages = ("Parse error: invalid COBOL source",)
+                return TransformationResult(
+                    success=False,
+                    errors=error_messages,
+                    diagnostics=parser_diagnostics,
+                    producer_identity="cobol-to-java-transformer",
+                    producer_version="1.0.0",
+                    transformation_timestamp=timestamp,
+                )
+
+            # Fail closed when the parser recorded UNSUPPORTED_CONSTRUCT
+            # diagnostics: these are parser-level warnings, but reporting
+            # success=True for untransformable constructs is a false-success
+            # vector (non-negotiable rule 5/6).
+            unsupported = tuple(
+                d for d in self._parser.diagnostics.all
+                if d.code == DiagnosticCode.UNSUPPORTED_CONSTRUCT
+            )
+            if unsupported:
+                return TransformationResult(
+                    success=False,
+                    errors=tuple(d.message for d in unsupported),
+                    diagnostics=parser_diagnostics,
+                    producer_identity="cobol-to-java-transformer",
+                    producer_version="1.0.0",
+                    transformation_timestamp=timestamp,
+                )
+
+            # The single-source producer has no copybook search path: a COPY
+            # statement here is never expanded, and its record layout would
+            # be silently missing from the generated Java.
+            copy_statements = _COPY_STATEMENT.findall(cobol_source)
+            if copy_statements:
+                return TransformationResult(
+                    success=False,
+                    errors=tuple(
+                        f"COPY {name} is not expanded by the single-source "
+                        "producer (no copybook resolution)"
+                        for name in copy_statements
+                    ),
+                    diagnostics=parser_diagnostics,
+                    producer_identity="cobol-to-java-transformer",
+                    producer_version="1.0.0",
+                    transformation_timestamp=timestamp,
+                )
+
             # Step 2: Generate Java from IR
             generated_files = self._generator.generate(program)
+
+            # Fail-closed mapper symbols (``UNSUPPORTED_STRING$...``) are
+            # unresolvable by construction; reporting success for source that
+            # carries one defers the failure to javac at best.
+            fail_closed = sorted({
+                symbol
+                for generated in generated_files
+                for symbol in fail_closed_symbols(generated.source_code)
+            })
+            if fail_closed:
+                return TransformationResult(
+                    success=False,
+                    errors=tuple(
+                        f"Unsupported construct in generated Java: {symbol}"
+                        for symbol in fail_closed
+                    ),
+                    diagnostics=parser_diagnostics,
+                    producer_identity="cobol-to-java-transformer",
+                    producer_version="1.0.0",
+                    transformation_timestamp=timestamp,
+                )
 
             return TransformationResult(
                 success=True,
                 generated_files=tuple(generated_files),
                 program_ir=program,
+                diagnostics=parser_diagnostics,
                 producer_identity="cobol-to-java-transformer",
                 producer_version="1.0.0",
                 transformation_timestamp=timestamp,
@@ -111,7 +227,9 @@ class TransformationProducer:
                 producer_version="1.0.0",
                 transformation_timestamp=timestamp,
             )
-        except (ValueError, KeyError, TypeError, AttributeError) as e:
+        except (ValueError, KeyError, TypeError, AttributeError, NotImplementedError) as e:
+            # NotImplementedError is the mapper's fail-closed signal for IR
+            # with no Java mapping (EXEC SQL, PERFORM ... TIMES IR).
             return TransformationResult(
                 success=False,
                 errors=(f"Transformation error: {e}",),

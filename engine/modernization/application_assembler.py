@@ -1,4 +1,6 @@
-"""Application assembler — takes generated Java files and assembles them
+"""EXPERIMENTAL - not wired into the product (architecture audit, 2026-11-03): the production assembly is engine/transformation/runtime_adapters.py; this assembler is exercised by tests only. Kept by owner decision; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+Application assembler — takes generated Java files and assembles them
 into ONE deployable Spring Boot application.
 
 This module:

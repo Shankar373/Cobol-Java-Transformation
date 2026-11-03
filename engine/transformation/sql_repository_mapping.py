@@ -1,4 +1,6 @@
-"""SQL mapping facade: DB2 semantic model → Java repository/service.
+"""EXPERIMENTAL - not wired into the product (architecture audit, 2026-11-03): a DB2 -> Java repository facade with no production caller; EXEC SQL is refused by the capability analysis. Kept by owner decision; do not call it from api/ or the production pipelines without a review (tests/test_experimental_modules.py).
+
+SQL mapping facade: DB2 semantic model → Java repository/service.
 
 This module is the lane-owned integration surface between the DB2 SQL
 semantic layer (``engine.sql``) and the Java generation layer.

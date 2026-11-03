@@ -1,0 +1,57 @@
+# Docker build context exclusions.
+#
+# Keep secrets, credentials, environment files, and unnecessary artifacts
+# out of the image build context. Tracked (not git-ignored) so the
+# contract is enforced in version control (audit L.3.6).
+
+# Secrets and credentials
+.env
+.env.*
+*.secret
+*.secret.yaml
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+credentials.json
+service-account*.json
+
+# Environment / local config
+.env.local
+.env.*.local
+.env.production
+.env.rollback.*
+
+# Python caches and virtualenvs
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv-audit/
+*.egg-info/
+
+# Node / frontend build artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Test artifacts and scratch trees
+test-artifacts/
+tmp/
+*.junit.xml
+
+# VCS and editor metadata
+.git/
+.gitignore
+.github/
+*.swp
+*.swo
+.DS_Store
+
+# Large/generated outputs
+*.jar
+*.class
+*.war
+dist/
+build/

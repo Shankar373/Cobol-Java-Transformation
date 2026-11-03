@@ -40,18 +40,7 @@ JAVA_SLOW = str(FIXTURES / "java-candidate-slow")
 COBOL_SOURCE = str(FIXTURES / "cobol" / "ARITH.cob")
 
 
-def _docker_available() -> bool:
-    """Check if Docker is available."""
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+from tests.docker_probe import docker_daemon_available as _docker_available
 
 
 import os
@@ -71,14 +60,14 @@ pytestmark = pytest.mark.skipif(
 class TestDockerJavaAdapterUnit:
     """Unit tests for Docker Java adapter."""
 
-    def test_adapter_initializes(self):
+    def test_fresh_adapter_reports_a_known_status(self):
         """Adapter initializes and probes Docker availability."""
         config = DockerJavaConfig()
         adapter = DockerJavaCandidateAdapter(config)
         # Status is either AVAILABLE or UNAVAILABLE depending on Docker/image
         assert adapter.status in (AdapterStatus.AVAILABLE, AdapterStatus.UNAVAILABLE)
 
-    def test_adapter_has_resolved_digest(self):
+    def test_available_adapter_resolves_image_digest(self):
         """Adapter resolves image digest if Docker available."""
         config = DockerJavaConfig()
         adapter = DockerJavaCandidateAdapter(config)
@@ -86,7 +75,7 @@ class TestDockerJavaAdapterUnit:
             assert adapter.resolved_digest != ""
             assert "sha256:" in adapter.resolved_digest or len(adapter.resolved_digest) > 0
 
-    def test_adapter_has_java_version(self):
+    def test_available_adapter_detects_java_version(self):
         """Adapter detects Java version inside container."""
         config = DockerJavaConfig()
         adapter = DockerJavaCandidateAdapter(config)
@@ -264,8 +253,14 @@ public class WriteTest {
                 entrypoint="WriteTest",
             )
             compilation = adapter.compile(str(src_dir), manifest)
-            if not compilation.success:
-                pytest.skip("Compilation failed")
+            # A compilation failure here means the read-only-mount probe
+            # never ran: silently skipping would report "passed" for a
+            # test that proved nothing (audit D-1).
+            assert compilation.success, (
+                "compilation of the read-only mount probe failed; the "
+                "write-attempt assertion below never executed. "
+                f"errors={compilation.compilation_errors}"
+            )
 
             with tempfile.TemporaryDirectory() as classdir:
                 for name, bytecode in compilation.class_files.items():

@@ -68,6 +68,19 @@ class CandidateAdapter(ABC):
     def status(self) -> AdapterStatus:
         return self._status
 
+    @property
+    def network_policy(self) -> str:
+        """Network isolation actually in force while this adapter runs.
+
+        The evidence manifest records this verbatim, so it must describe what
+        really happened rather than an assumed default.  An adapter that does
+        not deliberately disable networking is reported as `unisolated`; only
+        adapters that run their candidate inside a `--network none` container
+        claim `none`.  This keeps recorded evidence honest: the host lane can
+        never assert an isolation that was never applied.
+        """
+        return "unisolated"
+
     @abstractmethod
     def validate_candidate(self, candidate_path: str, manifest: CandidateManifest) -> list[str]:
         """Validate candidate package. Returns list of violations."""
@@ -98,6 +111,12 @@ class CompilationResult:
     class_files: dict[str, bytes]  # path -> bytecode
     compilation_errors: tuple[str, ...] = ()
     compilation_time_ms: int = 0
+    # True when the build could not run at all (no Docker, build image
+    # unavailable or its identity changed) - an infrastructure failure, not
+    # a property of the generated program. The pipeline then records the
+    # candidate as an execution ``error`` (verdict UNAVAILABLE) instead of a
+    # nonzero exit compared against the oracle (verdict FAILED) - audit B4.
+    infrastructure_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -115,6 +134,9 @@ class CandidateExecutionResult:
     timeout_applied: bool
     timeout_duration: int | None = None
     generated_files: dict[str, bytes] | None = None
+    # Immutable identity (sha256:...) of the image actually executed;
+    # None when no container was run or identity could not be resolved.
+    image_digest: str | None = None
 
     def to_execution_evidence(self) -> ExecutionEvidence:
         """Convert to execution evidence."""
@@ -144,6 +166,7 @@ class CandidateExecutionResult:
             termination_status=self.termination_status,
             timeout_applied=self.timeout_applied,
             timeout_duration=self.timeout_duration,
+            image_digest=self.image_digest,
         )
 
 
@@ -180,16 +203,19 @@ class PlainJavaCandidateAdapter(CandidateAdapter):
         return violations
 
     def compile(self, candidate_path: str, manifest: CandidateManifest) -> CompilationResult:
-        """Compile candidate Java source."""
-        # In real implementation, this would:
-        # 1. Stage candidate read-only
-        # 2. Run platform-controlled javac
-        # 3. Capture compilation output
-        # For now, return placeholder
-        return CompilationResult(
-            success=True,
-            class_files={},
-            compilation_time_ms=0,
+        """Compile candidate Java source.
+
+        There is no host-lane javac in this adapter (audit D-6).  The old
+        body returned ``success=True`` with zero class files, so any caller
+        that trusted it recorded a fabricated successful compilation and
+        never ran the real compiler.  Real compilation happens only in
+        ``engine/candidate/docker_java_adapter.py``.
+        """
+        raise NotImplementedError(
+            "PlainJavaCandidateAdapter has no compiler implementation; the "
+            "V1 contract requires platform-controlled javac. Use "
+            "DockerJavaCandidateAdapter for real compilation — this "
+            "placeholder must never report a compilation result."
         )
 
     def execute(
@@ -200,29 +226,16 @@ class PlainJavaCandidateAdapter(CandidateAdapter):
         input_data: bytes | None = None,
         input_files: dict[str, bytes] | None = None,
     ) -> CandidateExecutionResult:
-        """Execute compiled candidate."""
-        from datetime import datetime, timezone
+        """Execute compiled candidate.
 
-        execution_id = ExecutionId(value=f"candidate-{run_id.value}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
-        start_time = datetime.now(timezone.utc).isoformat()
-
-        # In real implementation, this would:
-        # 1. Create container with pinned JDK
-        # 2. Stage compiled classes read-only
-        # 3. Execute with controlled inputs
-        # 4. Capture output
-        # For now, return placeholder
-        end_time = datetime.now(timezone.utc).isoformat()
-
-        return CandidateExecutionResult(
-            execution_id=execution_id,
-            run_id=run_id,
-            status=AdapterStatus.SUCCEEDED,
-            exit_code=0,
-            stdout=b"",
-            stderr=b"",
-            start_time=start_time,
-            end_time=end_time,
-            termination_status="normal",
-            timeout_applied=False,
+        The old body returned SUCCEEDED/exit 0 with empty stdout for any
+        input (audit D-6) — a fabrication channel that made executions
+        "pass" without running anything.  Execution without a real runtime
+        is now fail-closed.
+        """
+        raise NotImplementedError(
+            "PlainJavaCandidateAdapter has no execution implementation; "
+            "returning SUCCEEDED here would fabricate an execution "
+            "evidence record. Use DockerJavaCandidateAdapter."
         )
+

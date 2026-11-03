@@ -3,26 +3,27 @@ import { tokens } from '../theme/tokens';
 import type { VerdictResponse } from '../api/client';
 import { Badge } from './Badge';
 import { SectionCard } from './SectionCard';
+import { IconCheckCircle, IconAlert, IconXCircle, IconHelp, IconBan } from './icons';
 
 interface VerdictDisplayProps {
   verdict: VerdictResponse;
 }
 
-const verdictConfig: Record<string, { icon: string; color: string; bg: string; label: string }> = {
-  VERIFIED: { icon: '\u2705', color: tokens.colors.success, bg: tokens.colors.successBg, label: 'VERIFIED' },
-  PARTIAL: { icon: '\u26A0\uFE0F', color: tokens.colors.warning, bg: tokens.colors.warningBg, label: 'PARTIAL' },
-  FAILED: { icon: '\u274C', color: tokens.colors.error, bg: tokens.colors.errorBg, label: 'FAILED' },
-  UNPROVEN: { icon: '\u2753', color: tokens.colors.textMuted, bg: '#f5f5f5', label: 'UNPROVEN' },
-  UNAVAILABLE: { icon: '\u26D4', color: tokens.colors.warning, bg: tokens.colors.warningBg, label: 'UNAVAILABLE' },
-  UNSUPPORTED: { icon: '\u2753', color: tokens.colors.textMuted, bg: '#f5f5f5', label: 'UNSUPPORTED' },
-  ERROR: { icon: '\u26A0\uFE0F', color: tokens.colors.error, bg: tokens.colors.errorBg, label: 'ERROR' },
+const verdictConfig: Record<string, { icon: React.ReactNode; color: string; bg: string; label: string }> = {
+  VERIFIED: { icon: <IconCheckCircle size={40} />, color: tokens.colors.success, bg: tokens.colors.successBg, label: 'VERIFIED' },
+  PARTIAL: { icon: <IconAlert size={40} />, color: tokens.colors.warning, bg: tokens.colors.warningBg, label: 'PARTIAL' },
+  FAILED: { icon: <IconXCircle size={40} />, color: tokens.colors.error, bg: tokens.colors.errorBg, label: 'FAILED' },
+  UNPROVEN: { icon: <IconHelp size={40} />, color: tokens.colors.textMuted, bg: tokens.colors.surfaceAlt, label: 'UNPROVEN' },
+  UNAVAILABLE: { icon: <IconBan size={40} />, color: tokens.colors.warning, bg: tokens.colors.warningBg, label: 'UNAVAILABLE' },
+  UNSUPPORTED: { icon: <IconHelp size={40} />, color: tokens.colors.textMuted, bg: tokens.colors.surfaceAlt, label: 'UNSUPPORTED' },
+  ERROR: { icon: <IconAlert size={40} />, color: tokens.colors.error, bg: tokens.colors.errorBg, label: 'ERROR' },
 };
 
 export function VerdictDisplay({ verdict }: VerdictDisplayProps) {
   const cfg = verdictConfig[verdict.state] || verdictConfig.UNPROVEN;
 
   return (
-    <SectionCard title="Validation Verdict">
+    <SectionCard title="Validation Evidence">
       <div
         style={{
           display: 'flex',
@@ -44,7 +45,7 @@ export function VerdictDisplay({ verdict }: VerdictDisplayProps) {
             border: '1px solid ' + cfg.color + '30',
           }}
         >
-          <span style={{ fontSize: 40 }} aria-hidden="true">{cfg.icon}</span>
+          <span aria-hidden="true">{cfg.icon}</span>
           <div>
             <div
               style={{
@@ -89,20 +90,7 @@ export function VerdictDisplay({ verdict }: VerdictDisplayProps) {
           ))}
         </div>
 
-        {/* Scope statement */}
-        {verdict.supported_scope_statement && (
-          <div
-            style={{
-              padding: `${tokens.spacing.sm} ${tokens.spacing.md}`,
-              borderRadius: tokens.radii.sm,
-              background: tokens.colors.infoBg,
-              fontSize: tokens.font.sizes.sm,
-              color: tokens.colors.info,
-            }}
-          >
-            <strong>Scope:</strong> {verdict.supported_scope_statement}
-          </div>
-        )}
+        {/* Scope statement lives in the Validation Scope card — see ValidationScope. */}
 
         {/* Comparisons table */}
         {verdict.comparisons.length > 0 && (
@@ -189,22 +177,6 @@ export function VerdictDisplay({ verdict }: VerdictDisplayProps) {
           </div>
         )}
 
-        {/* Metadata */}
-        <div
-          style={{
-            fontSize: tokens.font.sizes.xs,
-            color: tokens.colors.textMuted,
-            borderTop: '1px solid ' + tokens.colors.divider,
-            paddingTop: tokens.spacing.md,
-            display: 'flex',
-            gap: tokens.spacing.lg,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span>Evidence: {verdict.evidence_manifest_hash}</span>
-          <span>Oracle: {verdict.oracle_id}</span>
-          <span>Derived: {verdict.derivation_timestamp}</span>
-        </div>
       </div>
     </SectionCard>
   );

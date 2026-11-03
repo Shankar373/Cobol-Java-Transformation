@@ -1,5 +1,15 @@
 # Phase 5F.1 Completion Report
 
+> **HISTORICAL (label added 2026-10-16, Phase 12 F-02 documentation reconciliation):**
+> dated phase record (2026-09-15), not a current status claim (Master README §78).
+> Stale understatement corrected by label: the closure-gate text below lists
+> "COMPUTE, SUBTRACT, MULTIPLY, DIVIDE, CALL, EVALUATE are unsupported";
+> canonical status today is **SUPPORTED subsets** for COMPUTE / SUBTRACT /
+> MULTIPLY / DIVIDE / static resolved CALL / EVALUATE (lowered to IF/ELSE),
+> with only SORT remaining UNSUPPORTED from that list. Canonical authority:
+> `docs/CAPABILITY_MATRIX.md`, `docs/SEMANTIC_PROOF_MATRIX.md`. Live status:
+> `opencode.md` + `docs/BACKLOG.md` register.
+
 **Date:** 2026-09-15
 **Phase:** 5F.1 — Final Closure Gate
 

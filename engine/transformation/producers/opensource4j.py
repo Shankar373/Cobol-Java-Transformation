@@ -20,10 +20,17 @@ Architecture:
 from __future__ import annotations
 
 import hashlib
+import logging
 import subprocess
-import tempfile
+import uuid
 from pathlib import Path
 
+from engine.docker_cli import cleanup_container
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
+)
+from engine.execution.sandbox_paths import sandbox_staging_dir, to_host_path
 from engine.transformation.contracts import (
     GeneratedFile,
     ProducerCapability,
@@ -31,7 +38,85 @@ from engine.transformation.contracts import (
     TransformationResult,
     TransformationStatus,
 )
-from engine.transformation.diagnostics import Diagnostic, DiagnosticCode
+from engine.transformation.diagnostics import (
+    Diagnostic,
+    DiagnosticCode,
+    to_contract_diagnostic,
+)
+
+
+# Declared capability surface of this adapter.  Hoisted to module scope (rather
+# than inlined in transform()) so the claims are inspectable without executing
+# the external compiler, and so the cross-producer capability guard
+# (tests/transformation/test_producer_capability_consistency.py) can assert
+# they never contradict the authoritative registry.
+_PRODUCER_SUPPORTED_CONSTRUCTS: tuple[str, ...] = (
+    "IDENTIFICATION DIVISION",
+    "ENVIRONMENT DIVISION",
+    "FILE-CONTROL",
+    "DATA DIVISION",
+    "FILE SECTION",
+    "WORKING-STORAGE",
+    "PIC X(n)",
+    "PIC 9(n)",
+    "OCCURS",
+    "OPEN",
+    "READ",
+    "WRITE",
+    "MOVE",
+    "ADD",
+    "IF/ELSE",
+    "PERFORM",
+    "DISPLAY",
+    "GO TO",
+    "STOP RUN",
+    "STRING",
+    "UNSTRING",
+    "SORT",
+    "CALL",
+    "INDEXED files",
+    "RELATIVE files",
+)
+_PRODUCER_UNSUPPORTED_CONSTRUCTS: tuple[str, ...] = ()
+
+# Hard resource ceilings for the container that runs the external COBOL
+# compiler.  We cap it because the source we compile is user-supplied: without
+# a ceiling a runaway or malicious compile could consume the whole host.
+# These live here as named constants (rather than inline strings) so the limits
+# are visible and adjustable in one place, and they deliberately match the
+# defaults used by the execution runner so every container we spawn obeys one
+# single resource policy.
+_PRODUCER_MEMORY_LIMIT = "512m"
+_PRODUCER_CPU_LIMIT = "1.0"
+_PRODUCER_PIDS_LIMIT = 256
+
+logger = logging.getLogger(__name__)
+
+
+def _cleanup_timed_out_container(container_name: str | None) -> None:
+    """Remove a producer container whose run did not finish normally.
+
+    When our timeout kills the Docker CLI process, the container it started is
+    left running behind our back, so we have to go and stop it explicitly.
+    This is best-effort: the caller is already reporting a FAILED compile, so a
+    cleanup problem is logged rather than raised — it must never replace or
+    hide the real error.
+    """
+    if not container_name:
+        return
+    try:
+        removed, detail = cleanup_container(container_name)
+    except Exception as exc:  # cleanup must never mask the producer failure
+        logger.warning(
+            "Producer container cleanup for %s raised: %s", container_name, exc
+        )
+        return
+    if not removed:
+        logger.warning(
+            "Producer container %s not confirmed removed (%s)",
+            container_name,
+            detail,
+        )
 
 
 class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
@@ -67,27 +152,62 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
                 diagnostics=(
-                    Diagnostic.error(
+                    to_contract_diagnostic(Diagnostic.error(
                         DiagnosticCode.GENERATION_ERROR,
                         "OpenSourceCOBOL4J adapter requires Docker",
-                    ),
+                    )),
                 ),
             )
 
+        # Declared before the try block so the cleanup in `finally` always has
+        # a defined value to work with, even if the compile never gets far
+        # enough to name a container.
+        container_name: str | None = None
+
         try:
-            # Write COBOL source to temp file
-            with tempfile.TemporaryDirectory() as tmpdir:
+            # Write the COBOL source to a temporary directory on the host.  The
+            # compiler container mounts this directory, which is why it has to
+            # be a host-visible path rather than a location inside the service
+            # container.
+            with sandbox_staging_dir(prefix="cobj-") as tmpdir:
                 cobol_path = Path(tmpdir) / f"{program_id}.cob"
                 cobol_path.write_text(cobol_source, encoding="utf-8")
 
-                # Run cobj via Docker
+                # Compile the source in Docker.  Each flag is a deliberate
+                # safety boundary, because the source being compiled is
+                # user-supplied:
+                #   --name        gives the container a known name so our
+                #                 timeout handler can find and stop it;
+                #                 `--rm` alone is not enough, because when the
+                #                 CLI client is killed the container it started
+                #                 is left running with no one to clean it up
+                #   --network none the compiler never needs the network, and
+                #                 untrusted source must not be able to reach it
+                #   --memory / --cpus / --pids-limit
+                #                 bound CPU, memory and process count so a
+                #                 pathological program cannot exhaust the host
+                #   no-new-privileges / --cap-drop ALL / --user 10001:10001
+                #                 hardened execution identity (shared flags —
+                #                 engine.execution.container_hardening)
+                container_name = f"cobj-{uuid.uuid4().hex[:12]}"
+                # The container user must be able to read the staged source
+                # and write the generated .java next to it.
+                prepare_host_tree(tmpdir, writable=True)
+                docker_cmd = [
+                    "docker", "run", "--rm",
+                    *container_run_hardening_flags("producer-cobj"),
+                    "--name", container_name,
+                    "--network", "none",
+                    "--memory", _PRODUCER_MEMORY_LIMIT,
+                    "--cpus", _PRODUCER_CPU_LIMIT,
+                    "--pids-limit", str(_PRODUCER_PIDS_LIMIT),
+                    "-v", f"{to_host_path(tmpdir)}:/cobol",
+                    self.DOCKER_IMAGE,
+                    "cobj", f"/cobol/{program_id}.cob",
+                ]
+
                 result = subprocess.run(
-                    [
-                        "docker", "run", "--rm",
-                        "-v", f"{tmpdir}:/cobol",
-                        self.DOCKER_IMAGE,
-                        "cobj", f"/cobol/{program_id}.cob",
-                    ],
+                    docker_cmd,
                     capture_output=True,
                     text=True,
                     timeout=120,
@@ -99,10 +219,10 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                         producer_identity=self.PRODUCER_IDENTITY,
                         producer_version=self.PRODUCER_VERSION,
                         diagnostics=(
-                            Diagnostic.error(
+                            to_contract_diagnostic(Diagnostic.error(
                                 DiagnosticCode.GENERATION_ERROR,
                                 f"OpenSourceCOBOL4J compilation failed: {result.stderr}",
-                            ),
+                            )),
                         ),
                     )
 
@@ -114,10 +234,10 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                         producer_identity=self.PRODUCER_IDENTITY,
                         producer_version=self.PRODUCER_VERSION,
                         diagnostics=(
-                            Diagnostic.error(
+                            to_contract_diagnostic(Diagnostic.error(
                                 DiagnosticCode.GENERATION_ERROR,
                                 "OpenSourceCOBOL4J did not generate Java file",
-                            ),
+                            )),
                         ),
                     )
 
@@ -135,34 +255,8 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                     entrypoint=program_id,
                     producer_identity=self.PRODUCER_IDENTITY,
                     producer_version=self.PRODUCER_VERSION,
-                    supported_constructs=(
-                        "IDENTIFICATION DIVISION",
-                        "ENVIRONMENT DIVISION",
-                        "FILE-CONTROL",
-                        "DATA DIVISION",
-                        "FILE SECTION",
-                        "WORKING-STORAGE",
-                        "PIC X(n)",
-                        "PIC 9(n)",
-                        "OCCURS",
-                        "OPEN",
-                        "READ",
-                        "WRITE",
-                        "MOVE",
-                        "ADD",
-                        "IF/ELSE",
-                        "PERFORM",
-                        "DISPLAY",
-                        "GO TO",
-                        "STOP RUN",
-                        "STRING",
-                        "UNSTRING",
-                        "SORT",
-                        "CALL",
-                        "INDEXED files",
-                        "RELATIVE files",
-                    ),
-                    unsupported_constructs=(),
+                    supported_constructs=_PRODUCER_SUPPORTED_CONSTRUCTS,
+                    unsupported_constructs=_PRODUCER_UNSUPPORTED_CONSTRUCTS,
                     metadata={
                         "source_hash": self._compute_hash(cobol_source),
                         "standalone_java": False,
@@ -175,27 +269,31 @@ class OpenSourceCOBOL4JProducerAdapter(TransformationProducer):
                 )
 
         except subprocess.TimeoutExpired:
+            # Timeout-clean: the CLI client was killed, so the container
+            # it started may still exist — remove it explicitly.
+            _cleanup_timed_out_container(container_name)
             return TransformationResult(
                 status=TransformationStatus.FAILED,
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
                 diagnostics=(
-                    Diagnostic.error(
+                    to_contract_diagnostic(Diagnostic.error(
                         DiagnosticCode.GENERATION_ERROR,
                         "OpenSourceCOBOL4J compilation timed out",
-                    ),
+                    )),
                 ),
             )
         except Exception as e:
+            _cleanup_timed_out_container(container_name)
             return TransformationResult(
                 status=TransformationStatus.FAILED,
                 producer_identity=self.PRODUCER_IDENTITY,
                 producer_version=self.PRODUCER_VERSION,
                 diagnostics=(
-                    Diagnostic.error(
+                    to_contract_diagnostic(Diagnostic.error(
                         DiagnosticCode.GENERATION_ERROR,
                         f"OpenSourceCOBOL4J adapter error: {e}",
-                    ),
+                    )),
                 ),
             )
 

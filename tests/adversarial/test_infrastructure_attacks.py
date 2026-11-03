@@ -299,7 +299,7 @@ class TestUnavailableInfrastructure:
         verdict = derive_verdict(manifest)
         assert verdict.state == VerdictState.UNAVAILABLE
 
-    def test_all_oracle_executions_failed(self):
+    def test_all_oracle_executions_failed_derives_error_before_unavailable(self):
         """All oracle executions with error/timeout/nonzero → UNAVAILABLE.
         Note: timeout_applied=True triggers ERROR first (step 1), so we use
         status='nonzero_exit' without timeout_applied to reach step 2."""
@@ -422,7 +422,7 @@ class TestUnsupportedArtifactTypes:
                 size_bytes=4,
             )
 
-    def test_check_for_unsupported_directly(self):
+    def test_bypassed_unsupported_artifact_type_derives_unsupported(self):
         """VerdictDeriver._check_for_unsupported detects unsupported types
         in artifact evidence (defense-in-depth, if somehow bypassed)."""
         from engine.verdict.derivation import VerdictDeriver
@@ -494,8 +494,18 @@ class TestNoInfrastructureFailureBecomesVerified:
         ("error", "error", False, False, "ERROR"),
         ("timeout", "timeout", True, True, "ERROR"),
         ("nonzero_exit", "nonzero_exit", False, False, "UNAVAILABLE"),
+    ], ids=[
+        "oracle-error",
+        "candidate-error",
+        "oracle-timeout",
+        "candidate-timeout",
+        "oracle-nonzero-exit",
+        "candidate-nonzero-exit-alone-verifies",
+        "both-error",
+        "both-timeout",
+        "both-nonzero-exit",
     ])
-    def test_infrastructure_states(
+    def test_infrastructure_status_matrix_yields_expected_fail_closed_state(
         self, oracle_status, candidate_status,
         timeout_oracle, timeout_candidate, expected,
     ):

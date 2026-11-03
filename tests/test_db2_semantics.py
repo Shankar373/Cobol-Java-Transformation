@@ -130,7 +130,7 @@ class TestPossibleStatuses:
 
 
 class TestTransactionBoundaries:
-    def test_commit_and_rollback(self):
+    def test_commit_and_rollback_are_transaction_boundaries(self):
         for sql, expected in (("COMMIT", "COMMIT"), ("ROLLBACK", "ROLLBACK")):
             sem = _ANALYZER.analyze_statement(_PARSER.parse_embedded_sql(sql).statements[0])
             assert sem.is_transaction_boundary

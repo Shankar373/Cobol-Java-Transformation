@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import re
 
+from engine.transformation.sql_split import split_sql_statements
+
 
 class UnsupportedTranslationError(ValueError):
     """Raised when a DB2 construct cannot be translated to SQLite."""
@@ -65,7 +67,6 @@ def translate_db2_type(column_type: str) -> str:
             return mapped
         if lowered.startswith((key + "(", key + " ")):
             return mapped
-    raise UnsupportedTranslationError(f"no SQLite mapping for DB2 type {token!r}")
     raise UnsupportedTranslationError(f"no SQLite mapping for DB2 type {token!r}")
 
 
@@ -144,13 +145,8 @@ def _translate_column(raw_column: str) -> str:
             raise UnsupportedTranslationError(
                 f"identity column {name!r} must be integer to translate"
             )
-        if "NOT NULL" in constraints.upper() or re.search(
-            r"\bPRIMARY\s+KEY\b", constraints, re.IGNORECASE
-        ):
-            # PRIMARY KEY / NOT NULL present → keep explicit AUTOINCREMENT PK.
-            new_constraints = "PRIMARY KEY AUTOINCREMENT"
-            return f"{name} {sqlite_type} {new_constraints}"
-
+        # Constraints are replaced either way and both paths yield the same
+        # explicit SQLite identity column, so the condition is not needed.
         return f"{name} {sqlite_type} PRIMARY KEY AUTOINCREMENT"
 
     return " ".join(part for part in (name, sqlite_type, constraints) if part)
@@ -192,28 +188,7 @@ def _strip_select_into(sql: str) -> str:
 
 def _split_statements(text: str) -> list[str]:
     """Split SQL by ';' respecting simple quoted literals."""
-    statements: list[str] = []
-    current: list[str] = []
-    in_quote = False
-    quote_char = ""
-    for ch in text:
-        if in_quote:
-            current.append(ch)
-            if ch == quote_char:
-                in_quote = False
-            continue
-        if ch in ("'", '"'):
-            in_quote = True
-            quote_char = ch
-            current.append(ch)
-        elif ch == ";":
-            statements.append("".join(current))
-            current = []
-        else:
-            current.append(ch)
-    if current:
-        statements.append("".join(current))
-    return [s for s in statements if s.strip()]
+    return [s for s in split_sql_statements(text) if s.strip()]
 
 
 def _split_columns(body: str) -> list[str]:

@@ -70,7 +70,7 @@ class TestLevels:
         assert portable.at_least(Db2CompatibilityLevel.DB2_SEMANTIC)
         assert not Db2CompatibilityLevel.DB2_SEMANTIC.at_least(portable)
 
-    def test_runtime_verified_is_top_level(self):
+    def test_portable_executable_does_not_satisfy_runtime_verified(self):
         assert (
             Db2CompatibilityLevel.DB2_RUNTIME_VERIFIED
             == Db2CompatibilityLevel.DB2_RUNTIME_VERIFIED

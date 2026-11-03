@@ -1,0 +1,237 @@
+# Trust Boundary
+
+This document describes the implemented trust boundary between untrusted
+input and the API response used for certification decisions. It is a
+description of the code, not an aspiration.
+
+## Pipeline
+
+```
+UNTRUSTED INPUT
+    ↓
+api.ingestion           (zip extraction, traversal/drive-letter rejection)
+    ↓
+pipeline evidence build (engine.pipeline)
+    ↓
+EvidenceIntegrityValidator.validate()   ← trust-boundary admission
+    ↓                                     (violations → derive_untrusted,
+    ↓                                      which never returns VERIFIED)
+ValidatedEvidenceManifest
+    ↓
+derive_verdict_validated()  → deterministic Verdict
+    ↓
+Store.update_run            (lifecycle state machine, generation guard)
+    ↓
+serialization.encode_*      (versioned JSON envelope, Phase A seal)
+    ↓
+restart / reload
+    ↓
+Store.get_run               (envelope, schema version, field types, seal
+    ↓                         re-verification — all fail closed)
+Service.get_verdict         (verdict hash must match evidence manifest hash;
+    ↓                         VERIFIED requires a persisted evidence manifest)
+TRUSTED API RESPONSE
+```
+
+## Deterministic decision: nested workload identity
+
+`ExecutionEvidence.workload_id` and `ComparisonEvidence.workload_id` are
+optional; `ArtifactEvidence` has no workload field at all. The validator
+enforces the binding **only when the field is populated** (an explicit,
+mismatched workload id is a `WORKLOAD_BINDING_MISMATCH` violation).
+Evidence without an explicit workload id binds **transitively**:
+artifact → `execution_id` → execution `run_id` → manifest `workload_id`.
+
+This is intentionally valid, because adapters may lack workload context;
+transitive binding is pinned by `TestTransitiveWorkloadBinding` in
+`tests/adversarial/test_phase_a_trust_hardening.py`.
+
+## Evidence seal scope
+
+`EvidenceManifest.sealed_hash` / `manifest_hash` are the hash of the
+canonical evidence graph (`canonical_evidence_graph` in
+`engine/evidence/models.py`). Deliberately excluded:
+
+* `created_at` — construction timestamp, not evidence content;
+* `verdict_evidence` — derivation output, never an input;
+* `sealed_hash` itself;
+* nested `ArtifactIdentity.content_hash` / `size_bytes` / `record_count`
+  — the evidence-level `ArtifactEvidence.content_hash` is authoritative
+  and is covered.
+
+Any in-place mutation of a covered field is detected at decode time
+(fail closed). An attacker who can **rewrite the whole record** —
+evidence graph, re-seal, and verdict — consistently cannot be detected by
+hash chaining alone; database files must be protected by filesystem
+permissions and backups. Authenticated seals are future hardening, not a
+current claim.
+
+## Generated-bundle seal (the on-disk artifact)
+
+The manifest seal above covers the evidence graph, not the bytes a
+customer downloads. `api/artifact_seal.py` covers those:
+
+* `compute_generated_seal(root)` hashes every file of the bundle
+  (chunked SHA-256, sorted POSIX-relative keys); the result is persisted
+  on the run (`runs.generated_seal`). The lifecycle seals **twice** — an
+  interim seal at generation and the authoritative seal at the end of
+  validation, because the validation lane writes into the bundle
+  (e.g. `target/*.jar`), so only the post-validation seal matches the
+  approved bytes.
+* `verify_generated_seal(root, seal_json)` returns `None` when the tree
+  matches the persisted seal exactly, and refuses everything else:
+  `ConflictError` (409) for a missing or malformed seal, an unsupported
+  algorithm, or any difference in the file set / hashes (changed, added
+  or removed files); `ServiceError` (400) when the current tree cannot be
+  hashed at all. Both raise before the operation completes.
+* Enforced at two points only: the customer `APPROVED` decision
+  (`Service.set_run_approval` — a `REJECTED` decision must always work,
+  even for a broken bundle) and `GET /runs/{id}/download`.
+
+Trust anchor: the control-plane store, exactly like every other persisted
+fact — an attacker who can rewrite the database can rewrite the seal too.
+This protects the far likelier case: filesystem substitution of the
+artifact between execution, approval and export.
+
+## Approval requires a VERIFIED verdict (2026-11-01)
+
+`Service.set_run_approval` refuses an `APPROVED` decision with HTTP 409
+unless the run carries a `VERIFIED` verdict, that verdict hash-matches the
+run's evidence manifest (`_check_evidence_verdict_consistency`) and the
+manifest passes integrity validation (`_require_valid_evidence`).  A run
+with no verdict, or a `FAILED` / `PARTIAL` / `UNPROVEN` / `UNAVAILABLE` /
+`UNSUPPORTED` / `ERROR` verdict, can be `REJECTED` but never approved, so
+export (which requires `APPROVED`) is only reachable for proven behaviour.
+Contract: `tests/test_phase12_p4_bl091_approval_workflow.py::TestApprovalRequiresVerified`.
+
+## What a VERIFIED comparison covers (2026-11-01)
+
+`engine/pipeline.py` compares, for every run:
+
+* the **same entry program** on both sides: the service passes the program
+  the generated application enters (`PipelineConfig.oracle_entry_program`)
+  and the oracle refuses an unknown or ambiguous entry instead of selecting a
+  module by file order (Phase 2);
+* the declared contract (default: `STDOUT` + `EXIT_STATUS`), plus
+  `STDOUT`, `STDERR` and `EXIT_STATUS` whenever the contract does not
+  declare them (audit 2026-11-03, V1/V2: every program's observable
+  channels are compared; a fixture's declared contract applies only to an
+  upload byte-identical to that fixture's source, V10);
+* **every file either execution wrote**, declared or not, byte-exactly — in
+  `/workspace/output` (keyed by name) and anywhere in the working directory
+  (keyed `workspace/<path>`, `engine/execution/workspace_files.py`); a file
+  only one side produced is a `MISMATCH` (never an empty match).  The
+  on-disk image of an INDEXED/RELATIVE file is the exception, because the
+  Java organisation is an emulation whose bytes can never equal GnuCOBOL's:
+  * **INDEXED** — the file is certified by its **records**: GnuCOBOL's
+    Berkeley DB B-tree is read page by page on the host
+    (`engine/comparators/indexed_records.py`, no use of the COBOL parser or
+    the generated runtime), the Java emulation `<file>.idx` is decoded, and
+    the two record lists (what a COBOL program reading the file sees, in key
+    order) are compared byte-exactly as one `<file>#records` artifact.  The
+    physical images are not compared; their hashes stay in the execution
+    evidence.  An image the reader does not certify (overflow or duplicate
+    items, encryption, unknown or malformed pages) keeps the rule below;
+  * **RELATIVE** — certified by its **(RRN, record) pairs**: GnuCOBOL's slot
+    file (an 8-byte size and the record area per RRN) is decoded on the
+    host, the record length inferred only when exactly one slot layout fits
+    with a live slot, and compared byte-exactly with the Java emulation
+    `<file>.rel` as one `<file>#records` artifact (a record in the wrong
+    slot is a `MISMATCH`);
+  * an image either reader refuses (or an emulation missing on the Java
+    side) — recorded as an `INCONCLUSIVE` comparison, so the run is
+    `PARTIAL`, never `VERIFIED` (`tests/test_indexed_record_comparison.py`,
+    `tests/test_relative_record_comparison.py`);
+* no implicit normalization: comparators apply `crlf_to_lf` only when a
+  workload declares it, and the policy is recorded in
+  `normalization_applied` (the legacy path and the comparator default used
+  to fold CRLF silently);
+* effects no comparator can observe — non-declarative `EXEC SQL`,
+  `EXEC DLI` / `CALL 'CBLTDLI'`, `EXEC CICS`, `CALL 'MQ…'` — are recorded
+  as `DATABASE_STATE` / `TRANSACTION_EFFECTS` / `MESSAGE_QUEUE_EFFECTS`
+  marker artifacts with an `INCONCLUSIVE` comparison, so derivation yields
+  `UNSUPPORTED`, never `VERIFIED`.  Database-state capture does not exist;
+  until it does, database effects are unproven by construction.
+
+Contract: `tests/test_comparison_contract_strength.py`,
+`tests/test_oracle_entry_binding.py`, `tests/test_stderr_contract.py`,
+`tests/test_workspace_file_contract.py`.
+
+A COBOL source the oracle compiler rejects yields `UNAVAILABLE` with the
+difference "COBOL source does not compile on the oracle (cobc exit N)"
+rather than "Required infrastructure unavailable"
+(`tests/verdict/test_oracle_compile_failure_reason.py`).
+
+A nonzero oracle exit is reference behaviour (`return_code`, compared
+exactly through EXIT_STATUS, which the integrity check then requires) only
+when the source compiled, the program uses the RETURN-CODE register and
+libcob reported no runtime error; any other nonzero oracle exit stays
+`UNAVAILABLE` (`tests/test_return_code.py`).
+
+## Verdict / evidence consistency at retrieval
+
+`Service._check_evidence_verdict_consistency` runs on every
+`GET /runs/{id}/verdict` and `GET /runs/{id}/detail`, and at persist
+time:
+
+* `verdict.evidence_manifest_hash` must equal the evidence manifest's
+  computed hash (a stale verdict from a different run/reset is rejected);
+* a `VERIFIED` verdict with **no** persisted evidence manifest is
+  rejected — certification always requires integrity-sealed evidence.
+
+Non-certifying states (`UNPROVEN`, `FAILED`, `PARTIAL`, `UNAVAILABLE`,
+`UNSUPPORTED`, `ERROR`) may be served without a manifest for backward
+compatibility.
+
+## Raw / unsafe derivation APIs
+
+* `VerdictDeriver.derive()` / `derive_verdict()` accept raw manifests and
+  bypass the validator — retained for tests only; no caller in `api/` or
+  the production pipeline path.
+* `derive_unsafe_from_raw()` is internal-only; the pipeline's error-override
+  path clamps its result through `derive_untrusted()` so it can never
+  certify `VERIFIED`.
+* `engine/modernization/integrated_proof.py` re-validates the evidence
+  manifest instead of trusting the verdict before opening the central
+  certification gate.
+
+## Revalidation and restart
+
+* `POST /runs/{id}/validate` resets only terminal runs (single flight),
+  atomically clearing evidence, verdict and error and incrementing
+  `validation_generation`; stale background workers are rejected on write
+  (`Store.update_run` raises `ConflictError` when the stored generation
+  moved on — a stale update is discarded, never merged).
+* On startup, every run left non-terminal by a restart is failed once
+  (`Store.mark_interrupted_runs` → stage `FAILED`, error
+  "Interrupted by process restart before completion") because its daemon
+  worker cannot survive the restart; the count is logged as
+  `startup.reconciled`.
+* Terminal writes are bounded, not forced: `Service._persist_final`
+  retries `Store.update_run` 3 times (0.05 s doubling backoff), returns
+  whether the write landed, and never raises. Success logs `run.terminal`;
+  exhausting the retries logs `run.terminal_persist_failed` with
+  `run_id`, `stage` and `attempts`.
+* When the retry budget is spent **because a concurrent revalidation
+  bumped `validation_generation`**, the stale write is accepted as lost —
+  forcing it through would clobber the newer attempt. The run then stays
+  non-terminal until the next restart's `Store.mark_interrupted_runs()`
+  marks it `FAILED`, and that reconciliation is now logged loudly:
+  `startup.reconciled`, or `startup.reconcile_failed` if the
+  reconciliation itself throws.
+* Every run lifecycle transition is logged with `run_id` —
+  `run.started`, `run.revalidating`, `run.missing`, `run.failed`,
+  `run.terminal`, `run.terminal_persist_failed` (grep lines in
+  `docs/operations/RUNBOOK.md`); the database remains the source of
+  truth, the log is the trail.
+* Restart is a fresh `Store`/`Service` over the same SQLite file; all
+  decode-time and retrieval-time guards re-run.
+
+## Runtime-success alone cannot certify
+
+`VERIFIED` requires: all artifacts compared, at least one comparison,
+every comparison result in `{MATCH, MISMATCH, INCONCLUSIVE}` (unknown
+results derive `ERROR`), complete executions, and — at derivation — a
+clean `EvidenceIntegrityValidator` pass. Zero executed checks derive
+`UNPROVEN`; incomplete or tampered evidence clamps through
+`derive_untrusted` to `ERROR` (never `VERIFIED`).

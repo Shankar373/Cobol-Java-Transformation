@@ -212,20 +212,20 @@ class TestNativeJavaProof:
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
         source = result.generated_files[0].source_code
-        # Default input dir uses /workspace/input path when no CLI arg provided
-        assert '"/workspace/input"' in source
-        assert '"/claims.dat"' in source
-        assert '"/payments.dat"' in source
+        # The ASSIGN paths are opened and read as written (statement lowering;
+        # the template's directory arguments went with the lanes, audit T5).
+        assert 'CobolFileIo.open("/workspace/input/claims.dat", "INPUT", 0);' in source
+        assert 'CobolFileIo.readNext("/workspace/input/claims.dat")' in source
+        assert 'CobolFileIo.readNext("/workspace/input/payments.dat")' in source
 
     def test_writes_actual_output_files(self, cobol_source: str):
         """Generated Java writes actual workload output paths."""
         producer = TransformationProducer()
         result = producer.transform(cobol_source)
         source = result.generated_files[0].source_code
-        # Default output dir uses /workspace/output path when no CLI arg provided
-        assert '"/workspace/output"' in source
-        assert '"/report.txt"' in source
-        assert '"/settlement.dat"' in source
+        assert 'CobolFileIo.open("/workspace/output/report.txt", "OUTPUT", 0);' in source
+        assert 'CobolFileIo.write("/workspace/output/report.txt",' in source
+        assert 'CobolFileIo.write("/workspace/output/settlement.dat",' in source
 
     def test_uses_standard_java_libraries(self, cobol_source: str):
         """Generated Java uses only standard Java libraries."""
@@ -295,137 +295,79 @@ class TestClaimsInputVariation:
         lines = [l for l in content.strip().split("\n") if l.strip()]
         assert len(lines) == 5
 
+    @staticmethod
+    def _run_generated(cobol_source: str, claims: str, payments: str) -> tuple:
+        """Compile and run the generated Java on the given input files.
+
+        The program opens its ASSIGN paths (``/workspace/input/...``,
+        ``/workspace/output/...``); the generated source is pointed at a
+        temporary directory instead (audit T5: the removed template lane
+        took the directories as arguments, so these tests passed paths the
+        lowered program never reads).  Returns (exit, stdout, outputs).
+        """
+        if not os.environ.get("RUN_DOCKER_TESTS"):
+            pytest.skip("Docker tests disabled")
+        result = TransformationProducer().transform(cobol_source)
+        assert result.success, result.errors
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_dir, output_dir = root / "input", root / "output"
+            input_dir.mkdir()
+            output_dir.mkdir()
+            (input_dir / "claims.dat").write_text(claims, encoding="utf-8")
+            (input_dir / "payments.dat").write_text(payments, encoding="utf-8")
+            java_code = result.generated_files[0].source_code
+            assert '"/workspace/input/claims.dat"' in java_code
+            java_code = (java_code
+                         .replace('"/workspace/input/', f'"{input_dir.as_posix()}/')
+                         .replace('"/workspace/output/', f'"{output_dir.as_posix()}/'))
+            java_path = root / "Claims.java"
+            java_path.write_text(java_code, encoding="utf-8")
+            compiled = subprocess.run(
+                ["javac", "-encoding", "UTF-8", "-d", str(root), str(java_path)],
+                capture_output=True, text=True, timeout=60,
+            )
+            assert compiled.returncode == 0, compiled.stderr
+            run = subprocess.run(
+                ["java", "-cp", str(root), "Claims"],
+                capture_output=True, text=True, timeout=60, cwd=str(root),
+            )
+            outputs = {p.name: p.read_text(encoding="utf-8")
+                       for p in sorted(output_dir.iterdir())}
+            return run.returncode, run.stdout, outputs
+
     def test_generated_java_handles_alternate_input(self, cobol_source: str):
         """Generated Java produces correct output when given alternate input."""
-        if not os.environ.get("RUN_DOCKER_TESTS"):
-            pytest.skip("Docker tests disabled")
-
-        producer = TransformationProducer()
-        result = producer.transform(cobol_source)
-        assert result.success
-
-        java_code = result.generated_files[0].source_code
-
-        # Create alternate input: single approved claim with matching payment
-        alt_claims = "C001|John Doe|20240115|1200|A|GEN|"
-        alt_payments = "P001|C001|20240201|1200|BANK"
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            input_dir = tmpdir / "input"
-            output_dir = tmpdir / "output"
-            input_dir.mkdir()
-            output_dir.mkdir()
-            (input_dir / "claims.dat").write_text(alt_claims)
-            (input_dir / "payments.dat").write_text(alt_payments)
-
-            # Write and compile
-            java_path = tmpdir / "Claims.java"
-            java_path.write_text(java_code)
-            compile_result = subprocess.run(
-                ["javac", str(java_path)],
-                capture_output=True, text=True, timeout=30,
-            )
-            assert compile_result.returncode == 0, f"Compilation failed: {compile_result.stderr}"
-
-            # Run with classpath, passing input/output dirs as CLI args
-            run_result = subprocess.run(
-                ["java", "-cp", str(tmpdir), "Claims",
-                 str(input_dir), str(output_dir)],
-                capture_output=True, text=True, timeout=30,
-                cwd=str(tmpdir),
-            )
-
-            # Verify output artifacts exist
-            assert (output_dir / "report.txt").exists()
-            assert (output_dir / "settlement.dat").exists()
-
-            # Verify summary output
-            stdout = run_result.stdout
-            assert "TOTAL_CLAIMS=01" in stdout
-            assert "APPROVED=01" in stdout
-
-            # Verify settlement file content
-            settle_content = (output_dir / "settlement.dat").read_text()
-            assert "C001" in settle_content
-            assert "PAID_IN_FULL" in settle_content
+        code, stdout, outputs = self._run_generated(
+            cobol_source,
+            # Amounts right-justified as in the fixture: a left-justified
+            # "1200 " is not certified and stops the run (KNOWN_ISSUES).
+            "C001|John Doe   |20240115| 1200|A|GENERAL\n",
+            "P001|C001|20240201| 1200|BANK\n",
+        )
+        assert code == 0
+        assert sorted(outputs) == ["report.txt", "settlement.dat"]
+        assert "TOTAL_CLAIMS=01" in stdout.splitlines()
+        assert "APPROVED=01" in stdout.splitlines()
+        assert "C001" in outputs["settlement.dat"]
+        assert "PAID_IN_FULL" in outputs["settlement.dat"]
 
     def test_generated_java_rejects_invalid_input(self, cobol_source: str):
-        """Generated Java handles empty input gracefully."""
-        if not os.environ.get("RUN_DOCKER_TESTS"):
-            pytest.skip("Docker tests disabled")
-
-        producer = TransformationProducer()
-        result = producer.transform(cobol_source)
-        assert result.success
-
-        java_code = result.generated_files[0].source_code
-
-        # Empty input
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            input_dir = tmpdir / "input"
-            output_dir = tmpdir / "output"
-            input_dir.mkdir()
-            output_dir.mkdir()
-            (input_dir / "claims.dat").write_text("")
-            (input_dir / "payments.dat").write_text("")
-
-            java_path = tmpdir / "Claims.java"
-            java_path.write_text(java_code)
-            subprocess.run(
-                ["javac", str(java_path)],
-                capture_output=True, text=True, timeout=30,
-            )
-
-            run_result = subprocess.run(
-                ["java", "-cp", str(tmpdir), "Claims",
-                 str(input_dir), str(output_dir)],
-                capture_output=True, text=True, timeout=30,
-                cwd=str(tmpdir),
-            )
-
-            # Should handle empty input without crash
-            assert run_result.returncode == 0
-            assert "TOTAL_CLAIMS=00" in run_result.stdout
+        """Generated Java handles empty input files without a crash."""
+        code, stdout, outputs = self._run_generated(cobol_source, "", "")
+        assert code == 0
+        assert "TOTAL_CLAIMS=00" in stdout.splitlines()
+        assert "C0" not in outputs["settlement.dat"]
 
     def test_generated_java_batch_consistency(self, cobol_source: str):
         """Running generated Java twice with same input produces identical output."""
-        if not os.environ.get("RUN_DOCKER_TESTS"):
-            pytest.skip("Docker tests disabled")
-
-        producer = TransformationProducer()
-        result = producer.transform(cobol_source)
-        java_code = result.generated_files[0].source_code
-
-        outputs = []
-        for _ in range(2):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmpdir = Path(tmpdir)
-                input_dir = tmpdir / "input"
-                output_dir = tmpdir / "output"
-                input_dir.mkdir()
-                output_dir.mkdir()
-                shutil.copy(INPUT_DIR / "claims.dat", input_dir / "claims.dat")
-                shutil.copy(INPUT_DIR / "payments.dat", input_dir / "payments.dat")
-
-                java_path = tmpdir / "Claims.java"
-                java_path.write_text(java_code)
-                subprocess.run(
-                    ["javac", str(java_path)],
-                    capture_output=True, text=True, timeout=30,
-                )
-                subprocess.run(
-                    ["java", "-cp", str(tmpdir), "Claims",
-                     str(input_dir), str(output_dir)],
-                    capture_output=True, text=True, timeout=30,
-                    cwd=str(tmpdir),
-                )
-
-                settle = (output_dir / "settlement.dat").read_text()
-                outputs.append(settle)
-
-        assert outputs[0] == outputs[1], "Identical input should produce identical output"
+        claims = (INPUT_DIR / "claims.dat").read_text(encoding="utf-8")
+        payments = (INPUT_DIR / "payments.dat").read_text(encoding="utf-8")
+        first = self._run_generated(cobol_source, claims, payments)
+        second = self._run_generated(cobol_source, claims, payments)
+        assert first[0] == 0
+        assert "TOTAL_CLAIMS=10" in first[1].splitlines()
+        assert first == second, "Identical input should produce identical output"
 
 
 # ---------------------------------------------------------------------------

@@ -229,7 +229,7 @@ class TestVerdictContractLoading:
         assert contract.is_valid_state("ERROR")
         assert not contract.is_valid_state("PASS")
 
-    def test_validate_derivation(self):
+    def test_validate_derivation_rejects_zero_checks_and_missing_evidence(self):
         contract = load_verdict_contract(VALID_VERDICT_CONTRACT_DATA)
         # Zero checks cannot become VERIFIED
         assert not contract.validate_derivation(executed_checks=0, has_evidence=True)
@@ -306,7 +306,7 @@ class TestContractValidator:
         with pytest.raises(ContractValidationError, match="Missing contracts"):
             validator.require_all_contracts()
 
-    def test_no_contract_error(self):
+    def test_require_artifact_contract_on_empty_registry_raises_no_contract_error(self):
         registry = ContractRegistry()
         validator = ContractValidator(registry=registry)
         with pytest.raises(NoContractError, match="ARTIFACT"):
@@ -327,7 +327,7 @@ class TestContractValidator:
         with pytest.raises(ContractValidationError, match="Unsupported artifact type"):
             validator.validate_artifact_type("INDEXED")
 
-    def test_validate_comparator(self):
+    def test_validate_comparator_accepts_matching_id_and_type(self):
         registry = ContractRegistry(
             artifact=load_artifact_contract(VALID_ARTIFACT_CONTRACT_DATA),
         )

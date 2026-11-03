@@ -19,3 +19,31 @@ application and orchestrates the complete modernization flow:
 This package does NOT transform COBOL itself. It orchestrates existing
 transformers, validates capabilities, and assembles results.
 """
+
+from engine.modernization.modernization_planner import (
+    ModernizationPlanner,
+    ModernizationPlan,
+    ProgramPlan,
+    CallRelationship,
+    CopybookPlan,
+    FileDependencyPlan,
+    EntryProgram,
+    ModernizationStatus,
+    BlockingReason,
+    TransformationStrategy,
+    ValidationStrategy,
+)
+
+__all__ = [
+    "ModernizationPlanner",
+    "ModernizationPlan",
+    "ProgramPlan",
+    "CallRelationship",
+    "CopybookPlan",
+    "FileDependencyPlan",
+    "EntryProgram",
+    "ModernizationStatus",
+    "BlockingReason",
+    "TransformationStrategy",
+    "ValidationStrategy",
+]

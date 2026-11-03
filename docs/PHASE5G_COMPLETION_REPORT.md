@@ -1,4 +1,5 @@
 # Phase 5G Completion Report
+> > **HISTORICAL REPORT (Master README §78, labeled 2026-10-21):** this document is evidence of the repository state at its own recorded commit/date only. It is not a current status claim — current status lives in `opencode.md`, `docs/BACKLOG.md` and the current capability/verification documents. Content is unchanged; only this label was added.
 
 ## Date: 2026-09-16
 

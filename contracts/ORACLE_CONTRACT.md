@@ -1,9 +1,11 @@
+> **CURRENT IMPLEMENTATION STATUS:** The GnuCOBOL oracle/execution implementation exists in the current repository. This contract remains normative.
+
 # ORACLE CONTRACT — V1
 
 > **Status:** AUTHORITATIVE (approved via ADR-0001 / PD-01). This contract is drafted
 > and validated; implementation is a later phase. Contract version: **1.0**.
-> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../decisions/PHASE1B_OWNER_APPROVALS.md)
-> → [ADR-0001](../decisions/ADR-0001_0004.md) → this contract.
+> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../docs/decisions/PHASE1B_OWNER_APPROVALS.md)
+> → [ADR-0001](../docs/decisions/ADR-0001_0004.md) → this contract.
 
 ---
 
@@ -13,8 +15,23 @@ The COBOL Oracle is the authoritative behavioral reference for the original COBO
 application. This contract defines how the platform executes the oracle, what evidence
 it must produce, and the hard rules that make oracle evidence trustworthy.
 
-**V1 authoritative oracle [CONFIRMED — ADR-0001]:** GnuCOBOL 3.1.2.0 +
-Open-COBOL-ESQL 1.4, executed in a Docker image **pinned by digest**.
+**V1 authoritative oracle [CONFIRMED — ADR-0001]:** GnuCOBOL 3.1.2.0,
+executed in a Docker image **pinned by digest**. (The image is named
+`gnucobol-ocesql` for history; Open-COBOL-ESQL is not installed and EXEC SQL
+is UNSUPPORTED.)
+
+**Enforcement (audit 2026-11-03, V5/V6):**
+- `Dockerfile.gnucobol` pins `gnucobol3`, `libcob4` and `libcob4-dev` to
+  `3.1.2-5` and fails the build unless `cobc --version` reports exactly
+  `cobc (GnuCOBOL) 3.1.2.0`.
+- Before any program runs, `DockerOracleAdapter` runs `cobc --version` in the
+  pinned image (once per immutable identity) and refuses to execute when it
+  differs from the declared `compiler_version`; the identity in evidence
+  carries the observed version.
+- Production requires a declared `SYSTEMAOPS_ORACLE_DIGEST`
+  (`api.app.verify_production_oracle_pin`, compose `:?` guard);
+  `scripts/deploy/start-production.sh` resolves it from the deployed image.
+  Development keeps auto-pinning at execution time.
 
 **Never claimed:** z/OS equivalence. Verdicts are scoped to the oracle identity, always.
 
@@ -63,6 +80,14 @@ NEVER inferred from configuration presence, environment variables, or file exist
   fixtures corrupted between runs).
 - **`network none`** — V1 has no SQL (ADR-0007); the oracle container gets no network.
 - **Resource limits** — memory, CPU, pids limits per container.
+- **Hardening flags (BL-135)** — every `docker run` site carries
+  `--security-opt no-new-privileges=true`, `--cap-drop ALL` and an explicit
+  non-root `--user 10001:10001` (the `systemaops` identity from
+  `Dockerfile.production`, so API-created staging trees share one numeric
+  owner). Flags come from the single shared helper
+  `engine/execution/container_hardening.py::container_run_hardening_flags`;
+  `NON_ROOT_EXEMPT_LANES` is empty, so no lane runs as container root, and
+  `tests/test_container_hardening.py` fails the suite if a site drifts.
 - **Hard timeout** — a platform-enforced execution timeout. Timeout is a platform
   failure (`ERROR` verdict state), never PASS.
 - **Cleanup** — the execution workspace is removed after evidence capture.

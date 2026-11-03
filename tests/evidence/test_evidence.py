@@ -27,6 +27,30 @@ from tests.common import make_hash
 # Test fixtures
 # ---------------------------------------------------------------------------
 
+def test_compilation_diagnostics_are_bound_to_manifest(
+    sample_run_id, sample_workload_id, sample_source_identity,
+    sample_oracle_identity, sample_input_identity, sample_execution_evidence,
+):
+    from dataclasses import replace
+    from engine.evidence.integrity import EvidenceIntegrityValidator
+
+    execution = replace(sample_execution_evidence, compilation_diagnostics={
+        "exit_code": "0", "stdout_base64": "", "stderr_base64": "d2FybmluZw==",
+    })
+    manifest = EvidenceManifest(
+        manifest_version="1.0", run_id=sample_run_id,
+        workload_id=sample_workload_id, source_identity=sample_source_identity,
+        candidate_identity=None, oracle_identity=sample_oracle_identity,
+        environment_identities=(), controlled_input=sample_input_identity,
+        execution_evidence=(execution,), artifact_evidence=(), comparison_evidence=(),
+    )
+    altered = replace(manifest, execution_evidence=(replace(
+        execution, compilation_diagnostics={**execution.compilation_diagnostics, "stderr_base64": ""},
+    ),))
+    assert manifest.manifest_hash != altered.manifest_hash
+    validator = EvidenceIntegrityValidator()
+    assert validator._compute_integrity_hash(manifest) != validator._compute_integrity_hash(altered)
+
 @pytest.fixture
 def sample_run_id() -> RunId:
     return RunId(value="run-001")
@@ -85,7 +109,7 @@ def sample_execution_evidence(sample_run_id: RunId) -> ExecutionEvidence:
         stderr_hash=make_hash("stderr"),
         generated_files={},
         source_tree_hash_before=make_hash("source-before"),
-        source_tree_hash_after=make_hash("source-after"),
+        source_tree_hash_after=make_hash("source-before"),
         termination_status="normal",
         timeout_applied=False,
     )
@@ -105,7 +129,7 @@ class TestContentHash:
         h = ContentHash.from_string("test data")
         assert h.verify(b"test data")
 
-    def test_deterministic(self):
+    def test_same_input_content_hashes_are_equal(self):
         h1 = ContentHash.from_string("same")
         h2 = ContentHash.from_string("same")
         assert h1 == h2
@@ -154,7 +178,7 @@ class TestContentAddressedStorage:
 # ---------------------------------------------------------------------------
 
 class TestExecutionEvidence:
-    def test_creation(self, sample_execution_evidence: ExecutionEvidence):
+    def test_created_evidence_keeps_execution_id_and_status(self, sample_execution_evidence: ExecutionEvidence):
         assert sample_execution_evidence.execution_id.value == "exec-001"
         assert sample_execution_evidence.termination_status == "normal"
 
@@ -171,7 +195,7 @@ class TestExecutionEvidence:
 # ---------------------------------------------------------------------------
 
 class TestArtifactEvidence:
-    def test_creation(self, sample_run_id: RunId):
+    def test_created_artifact_evidence_keeps_identity_and_size(self, sample_run_id: RunId):
         artifact = ArtifactIdentity(
             artifact_id="art-001",
             artifact_type="STDOUT",
@@ -196,7 +220,7 @@ class TestArtifactEvidence:
 # ---------------------------------------------------------------------------
 
 class TestComparisonEvidence:
-    def test_creation(self, sample_run_id: RunId):
+    def test_created_comparison_evidence_keeps_match_and_normalization(self, sample_run_id: RunId):
         evidence = ComparisonEvidence(
             comparison_id="comp-001",
             run_id=sample_run_id,
@@ -220,7 +244,7 @@ class TestComparisonEvidence:
 # ---------------------------------------------------------------------------
 
 class TestEvidenceManifest:
-    def test_creation(
+    def test_created_manifest_keeps_version_and_run_id(
         self,
         sample_run_id: RunId,
         sample_workload_id: WorkloadId,
@@ -283,7 +307,7 @@ class TestEvidenceManifest:
         )
         assert manifest1.manifest_hash == manifest2.manifest_hash
 
-    def test_is_complete_incomplete(
+    def test_incomplete_manifest_is_not_complete(
         self,
         sample_run_id: RunId,
         sample_workload_id: WorkloadId,

@@ -1,9 +1,11 @@
+> **CURRENT IMPLEMENTATION STATUS:** Deterministic verdict derivation exists in the current repository. This contract remains normative.
+
 # VERDICT CONTRACT — V1
 
 > **Status:** AUTHORITATIVE (approved via ADR-0004 + ADR-0005 / PD-07). Resolves
 > DR-06, DR-15, DR-30. Contract version: **1.0**. Implementation is a later phase.
-> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../decisions/PHASE1B_OWNER_APPROVALS.md)
-> → [ADR-0004, ADR-0005](../decisions/ADR-0001_0004.md) → this contract.
+> Authority chain: [PHASE1B_OWNER_APPROVALS.md](../docs/decisions/PHASE1B_OWNER_APPROVALS.md)
+> → [ADR-0004, ADR-0005](../docs/decisions/ADR-0001_0004.md) → this contract.
 
 ---
 
@@ -28,7 +30,15 @@ Exactly seven states, no more, no less:
 | `ERROR` | **Validator/platform processing failure** — the validator itself failed to run, crashed, or could not process inputs (including execution timeout). | **No** |
 
 `ERROR` ≠ `UNAVAILABLE` ≠ `FAILED`: platform failure vs missing infrastructure vs
-behavioral divergence. The predecessor conflated these with fatal consequences
+behavioral divergence.
+
+**Precedence in the implementation (`engine/verdict/derivation.py`):** an
+execution that terminated with `error` or timed out derives `ERROR` before
+any other check, so an oracle or candidate that could not run (Docker gone
+mid-run, image identity mismatch, compile/build timeout, Docker's own exit
+125-127) is `ERROR`; `UNAVAILABLE` covers the cases left after that - no
+oracle execution, or an oracle that ran and exited nonzero without the
+program setting RETURN-CODE. The predecessor conflated these with fatal consequences
 (swallowed baseline exceptions became warnings).
 
 ## 3. Core Invariant: Pure Derivation
@@ -99,7 +109,7 @@ A verdict answers "equivalent **under which conditions**" — never an unscoped 
 - stale evidence (per ADR-0008/DR-17: V1 re-executes the oracle fresh every run — no
   baseline reuse — so staleness is structurally excluded, and any detected staleness is
   an invalidating anomaly)
-- mutation-gate failure
+- mutation-gate failure **(DEFERRED: no mutation gate implemented; D-11 approved 2026-10-21, BL-111)**
 - evidence-manifest incompleteness
 - unsupported artifact silently ignored
 
@@ -115,6 +125,12 @@ records, not assumed):
 5. All required comparisons executed and passed — `executed_check_count > 0` and equals
    the contract-declared check set.
 6. Required mutation validation passed (production-path, same comparator stack).
+   **DEFERRED (D-11 approved 2026-10-21, BL-111):** this precondition is not
+   implemented in the derivation layer. The waiver is recorded in
+   `docs/BACKLOG.md` BL-111. Evidence-integrity gates (steps 1-5, 7-9) remain
+   enforced and are the primary protection against false VERIFIED. A future
+   version may add a mutation gate; until then, no verdict may claim mutation
+   validation was performed.
 7. Evidence manifest complete and reconstructable.
 8. No unsupported artifact silently ignored — every exclusion states `UNSUPPORTED`
    explicitly in the verdict.

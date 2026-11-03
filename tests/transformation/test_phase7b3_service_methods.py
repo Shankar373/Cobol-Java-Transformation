@@ -239,7 +239,7 @@ class TestServiceMethodConstruction:
 
 class TestAssignmentGeneration:
 
-    def test_simple_assignment(self):
+    def test_assignment_statement_renders_java_assignment_line(self):
         stmt = JavaAssignment(target="x", expression=JavaLiteral(value="10"))
         method = _make_method(body=(stmt,))
         cls = _make_class(methods=(method,))
@@ -367,7 +367,7 @@ class TestExpressionGeneration:
 
 class TestConditionGeneration:
 
-    def test_simple_if(self):
+    def test_if_statement_renders_java_if_with_condition(self):
         stmt = JavaIf(
             condition=JavaBinaryOp(
                 left=JavaVariableRef(name="x"),
@@ -499,7 +499,7 @@ class TestNestedIf:
 
 class TestArithmeticGeneration:
 
-    def test_addition(self):
+    def test_plus_operator_renders_parenthesized_sum(self):
         expr = JavaBinaryOp(
             left=JavaVariableRef(name="total"),
             operator="+",
@@ -515,7 +515,7 @@ class TestArithmeticGeneration:
         svc = _find_java(files, "Testpgm")
         assert "(total + amount)" in svc.source_code
 
-    def test_subtraction(self):
+    def test_minus_operator_renders_parenthesized_difference(self):
         expr = JavaBinaryOp(
             left=JavaVariableRef(name="balance"),
             operator="-",
@@ -531,7 +531,7 @@ class TestArithmeticGeneration:
         svc = _find_java(files, "Testpgm")
         assert "(balance - debit)" in svc.source_code
 
-    def test_multiplication(self):
+    def test_star_operator_renders_parenthesized_product(self):
         expr = JavaBinaryOp(
             left=JavaVariableRef(name="qty"),
             operator="*",
@@ -547,7 +547,7 @@ class TestArithmeticGeneration:
         svc = _find_java(files, "Testpgm")
         assert "(qty * price)" in svc.source_code
 
-    def test_division(self):
+    def test_slash_operator_renders_parenthesized_quotient(self):
         expr = JavaBinaryOp(
             left=JavaVariableRef(name="sum"),
             operator="/",

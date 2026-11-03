@@ -6,6 +6,7 @@ Only ZIP is active for now.
 
 from __future__ import annotations
 
+import io
 import re
 import zipfile
 from pathlib import Path
@@ -67,7 +68,7 @@ def derive_application_name_from_zip_bytes(
     """
     top_level: set[str] = set()
     try:
-        with zipfile.ZipFile(__import__("io").BytesIO(zip_data)) as zf:
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
             for info in zf.infolist():
                 parts = info.filename.replace("\\", "/").split("/")
                 if parts and parts[0]:

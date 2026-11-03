@@ -30,9 +30,14 @@ from engine.sql.status import (
     SQLCODE_DUPLICATE_KEY,
     Db2SqlStatus,
 )
+from engine.transformation.ir import SqlStatementType
 
 _HOST_RE = re.compile(r":[A-Z][A-Z0-9-]*", re.IGNORECASE)
 _PAIR_RE = re.compile(r":[A-Z][A-Z0-9-]*:[A-Z][A-Z0-9-]*", re.IGNORECASE)
+
+# Statement types the analyzer can produce: anything else is
+# misuse of execute() and fails closed with a named diagnostic.
+_ANALYZED_STATEMENT_TYPES = frozenset(st.value for st in SqlStatementType)
 
 
 @dataclass(frozen=True)
@@ -63,6 +68,10 @@ class _CursorState:
     rows: tuple[tuple, ...] = ()
     columns: tuple[str, ...] = ()
     fetch_index: int = 0
+    # Host-variable bind plan captured when the query was masked at
+    # DECLARE: OPEN binds values against this plan instead of
+    # re-masking the already-masked SQL (which loses every bind entry).
+    bind_info: tuple[tuple[str, str], ...] = ()
 
 
 class Db2ControlledDatabase:
@@ -134,9 +143,25 @@ class Db2ControlledDatabase:
 
         ``semantic_stmt`` is a ``Db2StmtSemantic`` produced by the analyzer.
         ``bindings`` supplies input host variable values by COBOL name.
+        Misuse fails closed: an unanalyzed IR statement or an
+        unknown statement type is rejected with a named diagnostic instead
+        of being misrouted into the DML path.
         """
         bindings = dict(bindings or {})
         stype = semantic_stmt.statement_type
+        if not isinstance(stype, str):
+            raise TypeError(
+                "Db2ControlledDatabase.execute expects an analyzed "
+                f"Db2StmtSemantic (string statement_type); got "
+                f"{type(semantic_stmt).__name__} with statement_type="
+                f"{stype!r} - run it through "
+                "Db2SemanticAnalyzer.analyze_statement first (BL-061)"
+            )
+        if stype not in _ANALYZED_STATEMENT_TYPES:
+            raise ValueError(
+                f"unknown statement_type {stype!r}; expected one of "
+                f"{sorted(_ANALYZED_STATEMENT_TYPES)} (BL-061)"
+            )
 
         if stype == "OPEN_CURSOR":
             return self._open_cursor(cursor_name or semantic_stmt.cursor_name, bindings)
@@ -169,9 +194,12 @@ class Db2ControlledDatabase:
             )
         query_sql = raw[for_match.end():].strip()
         exec_sql = translate_db2_dml(query_sql)
-        masked, _binds = self._mask_host_variables(exec_sql)
+        masked, bind_info = self._mask_host_variables(exec_sql)
         name = semantic_stmt.cursor_name
-        self._cursors[name] = _CursorState(masked_sql=masked)
+        self._cursors[name] = _CursorState(
+            masked_sql=masked,
+            bind_info=tuple(bind_info),
+        )
         return Db2SqlExecutionResult(
             statement_type="DECLARE_CURSOR",
             status=Db2SqlStatus.success(),
@@ -185,7 +213,9 @@ class Db2ControlledDatabase:
         if state is None:
             raise KeyError(f"cursor not declared: {name}")
         masked_sql = state.masked_sql
-        _info, values = self._bind_from_sql(masked_sql, bindings)
+        # Bind the query's host variables from the DECLARE-time bind plan;
+        # values are supplied by the workload at OPEN.
+        values = self._bind_values(list(state.bind_info), bindings)
         try:
             cur = self._connection.execute(masked_sql, values)
         except sqlite3.IntegrityError as exc:
@@ -200,6 +230,7 @@ class Db2ControlledDatabase:
             rows=tuple(rows),
             columns=columns,
             fetch_index=0,
+            bind_info=state.bind_info,
         )
         return Db2SqlExecutionResult(
             statement_type="OPEN_CURSOR",
@@ -233,6 +264,7 @@ class Db2ControlledDatabase:
             rows=state.rows,
             columns=state.columns,
             fetch_index=state.fetch_index + 1,
+            bind_info=state.bind_info,
         )
         return Db2SqlExecutionResult(
             statement_type="FETCH_CURSOR",
@@ -310,8 +342,8 @@ class Db2ControlledDatabase:
         self, semantic_stmt, masked_sql: str, values: list
     ) -> Db2SqlExecutionResult:
         stype = semantic_stmt.statement_type
+        cur = self._connection.execute(masked_sql, values)
         if stype == "SELECT":
-            cur = self._connection.execute(masked_sql, values)
             rows = [tuple(r) for r in cur.fetchall()]
             return Db2SqlExecutionResult(
                 statement_type="SELECT",
@@ -319,7 +351,6 @@ class Db2ControlledDatabase:
                 rows=tuple(rows),
                 translated_sql=masked_sql,
             )
-        cur = self._connection.execute(masked_sql, values)
         return Db2SqlExecutionResult(
             statement_type=stype,
             status=Db2SqlStatus.success(),
@@ -383,13 +414,6 @@ class Db2ControlledDatabase:
             i += 1
         return "".join(result), bind_info
 
-    def _bind_from_sql(
-        self, sql: str, bindings: dict[str, Any]
-    ) -> tuple[list[tuple[str, str]], list]:
-        """Mask host variables and resolve values for the placeholders."""
-        _masked, bind_info = self._mask_host_variables(sql)
-        return bind_info, self._bind_values(bind_info, bindings)
-
     def _bind_values(
         self, bind_info: list[tuple[str, str]], bindings: dict[str, Any]
     ) -> list:
@@ -429,7 +453,7 @@ class Db2ControlledDatabase:
             )
         return Db2SqlExecutionResult(
             statement_type=stype,
-            status=Db2SqlStatus(sqlcode=-1, sqlstate="", message=message),
+            status=Db2SqlStatus.unmapped_error(message),
             note=f"integrity violation outside the mapped subset: {message}",
         )
 
@@ -438,7 +462,7 @@ class Db2ControlledDatabase:
     ) -> Db2SqlExecutionResult:
         return Db2SqlExecutionResult(
             statement_type=stype,
-            status=Db2SqlStatus(sqlcode=-1, sqlstate="", message=str(exc)),
+            status=Db2SqlStatus.unmapped_error(str(exc)),
             translated_sql=sql,
             note=f"operational error on the controlled database: {exc}",
         )

@@ -48,7 +48,7 @@ def seed_full(db: Db2ControlledDatabase) -> None:
 
 
 class TestSchema:
-    def test_schema_and_seed(self):
+    def test_seeded_account_table_has_five_rows_with_alice(self):
         db = build_db()
         seed_full(db)
         assert db.table_row_count("ACCOUNT") == 5

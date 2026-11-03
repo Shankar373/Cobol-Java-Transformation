@@ -53,6 +53,10 @@ class JavaBasicType(Enum):
     INT = "int"
     LONG = "long"
     DOUBLE = "double"
+    #: Decimal-exact fixed-point store for COBOL DECIMAL DISPLAY items.
+    #: BigDecimal preserves the declared scale and reproduces COBOL
+    #: truncation/rounding receiver semantics exactly (P1 numeric contract).
+    DECIMAL = "java.math.BigDecimal"
     STRING = "String"
     BOOLEAN = "boolean"
     CHAR = "char"
@@ -70,7 +74,6 @@ class JavaType:
     class_name: str = ""  # for named types (e.g. "List", "Map")
     is_array: bool = False
     array_element_type: JavaType | None = None
-    is_nullable: bool = False
     generic_type_params: tuple[JavaType, ...] = ()  # e.g. List<String>
 
     @property
@@ -83,6 +86,8 @@ class JavaType:
 
     def to_source(self) -> str:
         """Render type as Java source string."""
+        if self.is_array and self.array_element_type is not None:
+            return f"{self.array_element_type.to_source()}[]"
         if self.basic_type:
             return self.basic_type.value
         if self.class_name:
@@ -114,6 +119,19 @@ class JavaLiteral(JavaExpression):
 class JavaVariableRef(JavaExpression):
     """A reference to a Java variable/field."""
     name: str
+
+
+@dataclass(frozen=True)
+class JavaUnsupportedExpression(JavaExpression):
+    """An expression that the deterministic mapper cannot safely lower.
+
+    This node preserves the original COBOL text and a stable diagnostic
+    reason. Generators must reject it rather than emitting a guessed Java
+    identifier or placeholder that could be mistaken for a valid mapping.
+    """
+
+    source_expression: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -169,6 +187,37 @@ class JavaCast(JavaExpression):
     expression: JavaExpression
 
 
+@dataclass(frozen=True)
+class JavaArrayAccess(JavaExpression):
+    """Array element access (``arr[index]``).
+
+    COBOL subscripts are 1-based, so the mapper emits ``index - 1`` inside
+    the access rather than assuming a 0-based source.
+    """
+    array: JavaExpression
+    index: JavaExpression
+
+
+@dataclass(frozen=True)
+class JavaNewArray(JavaExpression):
+    """Zero-initialised array allocation (``new int[n]`` / ``new int[n][m]``)."""
+    element_type: JavaType
+    dimensions: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class JavaFilledArray(JavaExpression):
+    """Array allocation whose elements all carry ``fill``.
+
+    COBOL initialises every table entry from its VALUE/default fill, so a
+    Java ``new String[n]`` (all nulls) is not equivalent for alphanumeric
+    tables.  Rendered as ``Collections.nCopies(n, fill).toArray(new T[0])``.
+    """
+    element_type: JavaType
+    length: int
+    fill: JavaExpression
+
+
 # ---------------------------------------------------------------------------
 # Java statements
 # ---------------------------------------------------------------------------
@@ -217,6 +266,13 @@ class JavaWhile(JavaStatement):
 
 
 @dataclass(frozen=True)
+class JavaDoWhile(JavaStatement):
+    """Do-while loop (PERFORM UNTIL WITH TEST AFTER)."""
+    condition: JavaExpression
+    body: tuple[JavaStatement, ...] = ()
+
+
+@dataclass(frozen=True)
 class JavaFor(JavaStatement):
     """For loop."""
     init: JavaStatement | None = None
@@ -250,8 +306,14 @@ class JavaThrow(JavaStatement):
 
 @dataclass(frozen=True)
 class JavaBlock(JavaStatement):
-    """A block of statements."""
+    """A block of statements.
+
+    ``scoped`` renders it as a Java ``{ ... }`` block, so locals declared
+    inside (e.g. one UNSTRING's temporaries) cannot collide with another
+    statement's (audit T7).
+    """
     statements: tuple[JavaStatement, ...] = ()
+    scoped: bool = False
 
 
 @dataclass(frozen=True)
@@ -325,6 +387,7 @@ class JavaClass:
     extends: str = ""  # superclass name
     implements: tuple[str, ...] = ()  # interface names
     imports: tuple[str, ...] = ()  # import statements
+    source_copybook: str = ""  # originating COPYBOOK stem (models only)
 
 
 # ---------------------------------------------------------------------------
@@ -453,77 +516,6 @@ class JavaDependency:
     metadata: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Decision-mode metadata
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class JavaStatusCodeMapping:
-    """A status code value and its label, mapped to Java semantics.
-
-    Generator produces: if (statusVar.equals("R")) { result = "REJECTED"; counter++; }
-    All values are source-derived — not invented.
-    """
-    code: str  # e.g. "R", "P", "A"
-    label: str  # e.g. "REJECTED", "PENDING"
-    counter_name: str  # Java variable name for the counter (e.g. "rejected")
-
-
-@dataclass(frozen=True)
-class JavaThresholdRule:
-    """A numeric threshold constant for decision logic.
-
-    Generator produces: static final int THRESHOLD = {value};
-    Value is source-derived — not invented.
-    """
-    field_name: str  # the Java field this threshold applies to
-    operator: str  # ">", "<", ">=", "<="
-    value: int
-    constant_name: str = "THRESHOLD"  # Java constant name
-
-
-@dataclass(frozen=True)
-class JavaSummaryField:
-    """A summary field for aggregate output.
-
-    Generator produces: System.out.println("FIELD=" + String.format("%06d", fieldVar));
-    Width is source-derived from PIC metadata.
-    """
-    field_name: str  # original field name (for display label)
-    java_var_name: str  # Java variable name
-    format_width: int = 0  # from PIC metadata — 0 means no formatting
-    is_numeric: bool = True
-
-
-@dataclass(frozen=True)
-class JavaReportConfig:
-    """Report output configuration for decision-mode generation.
-
-    Generator produces: rpt.println("HEADER"); rpt.printf(...)
-    All values are source-derived.
-    """
-    header: str = ""  # report header text
-    report_file_name: str = ""  # logical name of report output file
-    output_file_name: str = ""  # logical name of secondary output file
-    report_fields: tuple[JavaSummaryField, ...] = ()  # fields in report record
-    output_fields: tuple[JavaSummaryField, ...] = ()  # fields in output record
-    # Record format: field names and literal delimiters for printf
-    report_format_fields: tuple[str, ...] = ()  # alternates: field names and literals
-    output_format_fields: tuple[str, ...] = ()  # alternates: field names and literals
-
-
-@dataclass(frozen=True)
-class JavaMatchOutcome:
-    """Match outcome labels for lookup-based decision logic.
-
-    Generator produces: paid/partial/unpaid counter logic.
-    Labels are source-derived from COBOL MOVE statements.
-    """
-    paid_label: str = ""
-    partial_label: str = ""
-    unpaid_label: str = ""
-
-
 @dataclass(frozen=True)
 class JavaProgram:
     """A single Java program unit within an application.
@@ -551,16 +543,6 @@ class JavaProgram:
     has_sqlstate: bool = False
     has_cics_resp: bool = False
     has_cics_resp2: bool = False
-    # Decision-mode metadata (all source-derived, not invented)
-    status_codes: tuple[JavaStatusCodeMapping, ...] = ()
-    threshold_rules: tuple[JavaThresholdRule, ...] = ()
-    summary_fields: tuple[JavaSummaryField, ...] = ()
-    report_config: JavaReportConfig | None = None
-    match_outcomes: tuple[JavaMatchOutcome, ...] = ()
-    # Generation mode hint (derived from capabilities, preserved for generator)
-    generation_mode: str = ""  # "decision", "file_io", or "minimal"
-    # Input record field names (positional — which fields are parsed from input records)
-    input_record_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

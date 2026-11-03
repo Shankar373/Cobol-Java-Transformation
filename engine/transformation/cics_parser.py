@@ -247,10 +247,17 @@ class CicsParser:
     def _split_statements(self, cics_text: str) -> list[str]:
         """Split CICS text into individual statements.
 
-        CICS commands are separated by periods or newlines.
-        Handles parenthesized expressions (e.g., RESP=(...)).
+        A statement ends at a top-level period or — for the period-less
+        spelling every ``EXEC CICS`` block uses — at a newline whose next
+        content begins a *new* CICS command.  Continuation lines (operands
+        wrapped across lines) join the previous command instead of being
+        dropped as unknown commands (BL-142: a wrapped
+        ``WRITE ...\\n FROM(:REC)\\n RESP(:RC)`` used to lose FROM/RESP).
+        Handles parenthesized expressions and quoted strings; a line inside
+        an unbalanced quote or parenthesis is always a continuation.
         """
-        stmts: list[str] = []
+        # 1) Period split at top level (quotes and parentheses respected).
+        chunks: list[str] = []
         current: list[str] = []
         paren_depth = 0
         in_quote = False
@@ -274,22 +281,67 @@ class CicsParser:
                 paren_depth = max(0, paren_depth - 1)
                 current.append(ch)
             elif ch == "." and paren_depth == 0:
-                stmts.append("".join(current))
-                current = []
-            elif ch == "\n" and paren_depth == 0:
-                # Newline at top level — treat as statement separator
-                text = "".join(current).strip()
-                if text:
-                    stmts.append(text)
+                chunks.append("".join(current))
                 current = []
             else:
                 current.append(ch)
+        chunks.append("".join(current))
 
-        # Last statement (may not end with . or newline)
-        text = "".join(current).strip()
-        if text:
-            stmts.append(text)
+        # 2) Break each chunk only where a new command verb starts a line.
+        stmts: list[str] = []
+        for chunk in chunks:
+            stmts.extend(self._join_continuation_lines(chunk))
+        return stmts
 
+    @staticmethod
+    def _balanced(text: str) -> bool:
+        """True when ``text`` has no open quote or parenthesis."""
+        depth = 0
+        in_quote = False
+        quote_char = ""
+        for ch in text:
+            if in_quote:
+                if ch == quote_char:
+                    in_quote = False
+                continue
+            if ch in ("'", '"'):
+                in_quote = True
+                quote_char = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth = max(0, depth - 1)
+        return not in_quote and depth == 0
+
+    def _join_continuation_lines(self, chunk: str) -> list[str]:
+        """Merge wrapped operand lines into their command.
+
+        A newline starts a *new* statement only when the current statement
+        is balanced (quotes/parentheses closed) and the next line begins
+        with a known CICS command verb; anything else is a continuation
+        line of the command in progress.
+        """
+        stmts: list[str] = []
+        current_lines: list[str] = []
+
+        for raw_line in chunk.split("\n"):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if current_lines:
+                starts_new = (
+                    self._balanced(" ".join(current_lines))
+                    and self._identify_command(line.upper()) is not None
+                )
+                if starts_new:
+                    stmts.append("\n".join(current_lines))
+                    current_lines = [line]
+                else:
+                    current_lines.append(line)
+            else:
+                current_lines.append(line)
+        if current_lines:
+            stmts.append("\n".join(current_lines))
         return stmts
 
     def _identify_command(self, upper: str) -> CicsCommandType | None:

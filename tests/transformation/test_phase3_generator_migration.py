@@ -11,6 +11,10 @@ Categories:
   E. Negative tests (incomplete IR)
   F. Determinism
   G. Multi-program support
+
+The decision/file_io mode tests (direct decision generation, threshold and
+status-code metadata, the lanes' negative cases) were deleted with the
+template lanes (audit T5).
 """
 
 from __future__ import annotations
@@ -33,20 +37,15 @@ from engine.transformation.java_ir import (
     JavaFileResource,
     JavaIf,
     JavaLiteral,
-    JavaMatchOutcome,
     JavaMethod,
     JavaMethodCall,
     JavaMethodCallStatement,
     JavaParameter,
     JavaProgram,
-    JavaReportConfig,
     JavaReturn,
     JavaSqlOperationType,
     JavaDatabaseResource,
-    JavaStatusCodeMapping,
     JavaStringConcat,
-    JavaSummaryField,
-    JavaThresholdRule,
     JavaTransactionBoundary,
     JavaTransactionType,
     JavaType,
@@ -127,7 +126,6 @@ class TestGeneratorIsolation:
         java_program = JavaProgram(
             program_id="SIMPLE-PROGRAM",
             java_class=java_class,
-            generation_mode="minimal",
         )
 
         application = JavaApplication(
@@ -165,116 +163,6 @@ class TestGeneratorIsolation:
             f"Generator has COBOL IR imports at module level: {cobol_imports}"
         )
 
-    def test_direct_decision_mode_generation(self):
-        """Construct decision-mode JavaApplication directly."""
-        java_class = JavaClass(
-            name="Decision_Program",
-            fields=(
-                JavaField(
-                    java_type=JavaType(basic_type=JavaBasicType.STRING),
-                    name="status_code",
-                    initializer=JavaLiteral(value='""'),
-                ),
-                JavaField(
-                    java_type=JavaType(basic_type=JavaBasicType.INT),
-                    name="amount",
-                    initializer=JavaLiteral(value="0"),
-                ),
-                JavaField(
-                    java_type=JavaType(basic_type=JavaBasicType.STRING),
-                    name="category",
-                    initializer=JavaLiteral(value='""'),
-                ),
-            ),
-            methods=(
-                JavaMethod(
-                    name="main",
-                    return_type=JavaType(basic_type=JavaBasicType.VOID),
-                    parameters=(JavaParameter(
-                        java_type=JavaType(
-                            class_name="String", is_array=True,
-                            array_element_type=JavaType(basic_type=JavaBasicType.STRING),
-                        ),
-                        name="args",
-                    ),),
-                    body_statements=(JavaReturn(),),
-                    is_static=True,
-                    exceptions=("Exception",),
-                ),
-            ),
-        )
-
-        java_program = JavaProgram(
-            program_id="DECISION-PROGRAM",
-            java_class=java_class,
-            generation_mode="decision",
-            status_codes=(
-                JavaStatusCodeMapping(code="R", label="REJECTED", counter_name="rejected"),
-                JavaStatusCodeMapping(code="A", label="APPROVED", counter_name="approved"),
-            ),
-            threshold_rules=(
-                JavaThresholdRule(field_name="amount", operator=">", value=500),
-            ),
-            summary_fields=(
-                JavaSummaryField(field_name="totalClaims", java_var_name="totalClaims", format_width=6),
-            ),
-            report_config=JavaReportConfig(
-                header="DECISION REPORT",
-                report_file_name="REPORT-FILE",
-                output_file_name="SETTLE-FILE",
-                report_fields=(),
-                output_fields=(),
-                report_format_fields=(),
-                output_format_fields=(),
-            ),
-            match_outcomes=(
-                JavaMatchOutcome(
-                    paid_label="PAID_IN_FULL",
-                    partial_label="PARTIAL",
-                    unpaid_label="UNPAID",
-                ),
-            ),
-            input_record_fields=("status_code", "amount", "category"),
-            file_resources=(
-                JavaFileResource(
-                    name="INPUT-FILE",
-                    path="/data/input.dat",
-                    access_mode=JavaFileAccessMode.READ,
-                ),
-                JavaFileResource(
-                    name="LOOKUP-FILE",
-                    path="/data/lookup.dat",
-                    access_mode=JavaFileAccessMode.READ,
-                ),
-                JavaFileResource(
-                    name="REPORT-FILE",
-                    path="/data/report.txt",
-                    access_mode=JavaFileAccessMode.WRITE,
-                ),
-                JavaFileResource(
-                    name="SETTLE-FILE",
-                    path="/data/settle.dat",
-                    access_mode=JavaFileAccessMode.WRITE,
-                ),
-            ),
-        )
-
-        application = JavaApplication(
-            application_id="decision",
-            programs=(java_program,),
-        )
-
-        generator = JavaGenerator()
-        files = generator.generate_from_java(application)
-
-        assert len(files) == 1
-        assert "public class Decision_Program" in files[0].source_code
-        assert "static final int THRESHOLD = 500" in files[0].source_code
-        assert '.equals("R")' in files[0].source_code
-        assert '.equals("A")' in files[0].source_code
-        assert "DECISION REPORT" in files[0].source_code
-        assert "rejected" in files[0].source_code
-        assert "approved" in files[0].source_code
 
     def test_direct_multi_program_generation(self):
         """Construct multi-program JavaApplication directly."""
@@ -306,8 +194,8 @@ class TestGeneratorIsolation:
         application = JavaApplication(
             application_id="multi",
             programs=(
-                JavaProgram(program_id="A", java_class=class_a, generation_mode="minimal"),
-                JavaProgram(program_id="B", java_class=class_b, generation_mode="minimal"),
+                JavaProgram(program_id="A", java_class=class_a),
+                JavaProgram(program_id="B", java_class=class_b),
             ),
             dependencies=(
                 JavaDependency(
@@ -414,7 +302,6 @@ class TestDomainNeutral:
                 JavaProgram(
                     program_id="APP-A-MAIN",
                     java_class=class_main,
-                    generation_mode="minimal",
                     file_resources=(
                         JavaFileResource(
                             name="DATA-IN",
@@ -454,7 +341,6 @@ class TestDomainNeutral:
                 JavaProgram(
                     program_id="APP-B-DB",
                     java_class=class_db,
-                    generation_mode="minimal",
                     database_resources=(
                         JavaDatabaseResource(
                             name="CUSTOMERS",
@@ -488,7 +374,6 @@ class TestDomainNeutral:
                 JavaProgram(
                     program_id="APP-C-TX",
                     java_class=class_tx,
-                    generation_mode="minimal",
                     transaction_boundaries=(
                         JavaTransactionBoundary(
                             name="TXN001",
@@ -531,7 +416,6 @@ class TestDomainNeutral:
                 JavaProgram(
                     program_id="APP-D-MIXED",
                     java_class=class_mixed,
-                    generation_mode="minimal",
                     file_resources=(
                         JavaFileResource(
                             name="IN-FILE",
@@ -585,41 +469,15 @@ class TestJavaIRMutation:
         )
         gen = JavaGenerator()
         app_int = JavaApplication(application_id="t", programs=(
-            JavaProgram(program_id="T", java_class=class_int, generation_mode="minimal"),))
+            JavaProgram(program_id="T", java_class=class_int),))
         app_str = JavaApplication(application_id="t", programs=(
-            JavaProgram(program_id="T", java_class=class_string, generation_mode="minimal"),))
+            JavaProgram(program_id="T", java_class=class_string),))
         java_int = gen.generate_from_java(app_int)[0].source_code
         java_str = gen.generate_from_java(app_str)[0].source_code
         assert "static int x" in java_int
         assert "static String x" in java_str
         assert java_int != java_str
 
-    def test_threshold_mutation(self):
-        """Changing threshold changes generated constant."""
-        tc500 = JavaProgram(
-            program_id="T", generation_mode="minimal",
-            java_class=JavaClass(name="T", methods=(
-                JavaMethod(name="main", body_statements=(JavaReturn(),),
-                           is_static=True, exceptions=("Exception",),),),),
-        )
-        tc1000 = JavaProgram(
-            program_id="T", generation_mode="minimal",
-            java_class=JavaClass(name="T", methods=(
-                JavaMethod(name="main", body_statements=(JavaReturn(),),
-                           is_static=True, exceptions=("Exception",),),),),
-        )
-        gen = JavaGenerator()
-        # Both minimal mode, no threshold shown — this tests threshold in metadata
-        # Decision mode would show threshold
-        assert tc500.generation_mode == tc1000.generation_mode
-
-    def test_status_code_mutation(self):
-        """Changing status codes changes generated Java."""
-        sc_r = JavaStatusCodeMapping(code="R", label="REJECTED", counter_name="rejected")
-        sc_x = JavaStatusCodeMapping(code="X", label="EXCLUDED", counter_name="excluded")
-        assert sc_r.code != sc_x.code
-        assert sc_r.label != sc_x.label
-        assert sc_r.counter_name != sc_x.counter_name
 
     def test_file_path_mutation(self):
         """Changing file path changes JavaFileResource."""
@@ -638,7 +496,7 @@ class TestJavaIRMutation:
         app1 = JavaApplication(
             application_id="t",
             programs=(JavaProgram(
-                program_id="A", generation_mode="minimal",
+                program_id="A",
                 java_class=JavaClass(name="A", methods=(
                     JavaMethod(name="main", body_statements=(JavaReturn(),),
                                is_static=True, exceptions=("Exception",),),),),
@@ -647,7 +505,7 @@ class TestJavaIRMutation:
         app2 = JavaApplication(
             application_id="t",
             programs=(JavaProgram(
-                program_id="A", generation_mode="minimal",
+                program_id="A",
                 java_class=JavaClass(name="A", methods=(
                     JavaMethod(name="main", body_statements=(JavaReturn(),),
                                is_static=True, exceptions=("Exception",),),),),
@@ -683,165 +541,6 @@ class TestNegative:
         files = gen.generate_from_java(app)
         assert len(files) == 0
 
-    def test_decision_missing_status_codes(self):
-        """Decision mode without status codes falls back to minimal."""
-        java_class = JavaClass(
-            name="T",
-            methods=(JavaMethod(
-                name="main", body_statements=(JavaReturn(),),
-                is_static=True, exceptions=("Exception",),
-            ),),
-        )
-        app = JavaApplication(
-            application_id="t",
-            programs=(JavaProgram(
-                program_id="T",
-                java_class=java_class,
-                generation_mode="decision",
-                status_codes=(),
-            ),),
-        )
-        gen = JavaGenerator()
-        files = gen.generate_from_java(app)
-        assert len(files) == 1
-        # Should fall back to minimal mode
-        assert "public class T" in files[0].source_code
-
-    def test_decision_missing_threshold(self):
-        """Decision mode without threshold rules raises ValueError."""
-        java_class = JavaClass(
-            name="T",
-            fields=(
-                JavaField(java_type=JavaType(basic_type=JavaBasicType.STRING),
-                           name="s", initializer=JavaLiteral(value='""')),
-                JavaField(java_type=JavaType(basic_type=JavaBasicType.INT),
-                           name="a", initializer=JavaLiteral(value="0")),
-                JavaField(java_type=JavaType(basic_type=JavaBasicType.STRING),
-                           name="c", initializer=JavaLiteral(value='""')),
-            ),
-            methods=(JavaMethod(
-                name="main", body_statements=(JavaReturn(),),
-                is_static=True, exceptions=("Exception",),
-            ),),
-        )
-        app = JavaApplication(
-            application_id="t",
-            programs=(JavaProgram(
-                program_id="T",
-                java_class=java_class,
-                generation_mode="decision",
-                status_codes=(JavaStatusCodeMapping(code="R", label="REJ", counter_name="rej"),),
-                threshold_rules=(),
-                summary_fields=(JavaSummaryField(field_name="x", java_var_name="x"),),
-                report_config=JavaReportConfig(header="HDR"),
-                match_outcomes=(JavaMatchOutcome(paid_label="P", partial_label="Q", unpaid_label="R"),),
-                input_record_fields=("s", "a", "c"),
-                file_resources=(
-                    JavaFileResource(name="I1", path="/d/i1.dat", access_mode=JavaFileAccessMode.READ),
-                    JavaFileResource(name="I2", path="/d/i2.dat", access_mode=JavaFileAccessMode.READ),
-                    JavaFileResource(name="O1", path="/d/o1.dat", access_mode=JavaFileAccessMode.WRITE),
-                    JavaFileResource(name="O2", path="/d/o2.dat", access_mode=JavaFileAccessMode.WRITE),
-                ),
-            ),),
-        )
-        gen = JavaGenerator()
-        with pytest.raises(ValueError, match="threshold"):
-            gen.generate_from_java(app)
-
-    def test_decision_missing_report_header(self):
-        """Decision mode without report header raises ValueError."""
-        java_class = JavaClass(
-            name="T",
-            fields=(
-                JavaField(java_type=JavaType(basic_type=JavaBasicType.STRING),
-                           name="s", initializer=JavaLiteral(value='""')),
-                JavaField(java_type=JavaType(basic_type=JavaBasicType.INT),
-                           name="a", initializer=JavaLiteral(value="0")),
-                JavaField(java_type=JavaType(basic_type=JavaBasicType.STRING),
-                           name="c", initializer=JavaLiteral(value='""')),
-            ),
-            methods=(JavaMethod(
-                name="main", body_statements=(JavaReturn(),),
-                is_static=True, exceptions=("Exception",),
-            ),),
-        )
-        app = JavaApplication(
-            application_id="t",
-            programs=(JavaProgram(
-                program_id="T",
-                java_class=java_class,
-                generation_mode="decision",
-                status_codes=(JavaStatusCodeMapping(code="R", label="REJ", counter_name="rej"),),
-                threshold_rules=(JavaThresholdRule(field_name="a", operator=">", value=500),),
-                summary_fields=(JavaSummaryField(field_name="x", java_var_name="x"),),
-                report_config=JavaReportConfig(header=""),
-                match_outcomes=(JavaMatchOutcome(paid_label="P", partial_label="Q", unpaid_label="R"),),
-                input_record_fields=("s", "a", "c"),
-                file_resources=(
-                    JavaFileResource(name="I1", path="/d/i1.dat", access_mode=JavaFileAccessMode.READ),
-                    JavaFileResource(name="I2", path="/d/i2.dat", access_mode=JavaFileAccessMode.READ),
-                    JavaFileResource(name="O1", path="/d/o1.dat", access_mode=JavaFileAccessMode.WRITE),
-                    JavaFileResource(name="O2", path="/d/o2.dat", access_mode=JavaFileAccessMode.WRITE),
-                ),
-            ),),
-        )
-        gen = JavaGenerator()
-        with pytest.raises(ValueError, match="report header"):
-            gen.generate_from_java(app)
-
-    def test_file_io_missing_input_files(self):
-        """File I/O mode without input files raises ValueError."""
-        java_class = JavaClass(
-            name="T",
-            methods=(JavaMethod(
-                name="main", body_statements=(JavaReturn(),),
-                is_static=True, exceptions=("Exception",),
-            ),),
-        )
-        app = JavaApplication(
-            application_id="t",
-            programs=(JavaProgram(
-                program_id="T",
-                java_class=java_class,
-                generation_mode="file_io",
-                file_resources=(
-                    JavaFileResource(name="O1", path="/d/o1.dat", access_mode=JavaFileAccessMode.WRITE),
-                ),
-            ),),
-        )
-        gen = JavaGenerator()
-        with pytest.raises(ValueError, match="No input files"):
-            gen.generate_from_java(app)
-
-    def test_decision_insufficient_files(self):
-        """Decision mode with < 2 input + 2 output files raises ValueError."""
-        java_class = JavaClass(
-            name="T",
-            methods=(JavaMethod(
-                name="main", body_statements=(JavaReturn(),),
-                is_static=True, exceptions=("Exception",),
-            ),),
-        )
-        app = JavaApplication(
-            application_id="t",
-            programs=(JavaProgram(
-                program_id="T",
-                java_class=java_class,
-                generation_mode="decision",
-                status_codes=(JavaStatusCodeMapping(code="R", label="REJ", counter_name="rej"),),
-                threshold_rules=(JavaThresholdRule(field_name="a", operator=">", value=500),),
-                summary_fields=(JavaSummaryField(field_name="x", java_var_name="x"),),
-                report_config=JavaReportConfig(header="HDR"),
-                match_outcomes=(),
-                file_resources=(
-                    JavaFileResource(name="I1", path="/d/i1.dat", access_mode=JavaFileAccessMode.READ),
-                ),
-            ),),
-        )
-        gen = JavaGenerator()
-        with pytest.raises(ValueError, match="2 input files"):
-            gen.generate_from_java(app)
-
 
 # ============================================================
 # CATEGORY F: Determinism
@@ -872,7 +571,6 @@ class TestDeterminism:
             programs=(JavaProgram(
                 program_id="DET-TEST",
                 java_class=java_class,
-                generation_mode="minimal",
             ),),
         )
         gen = JavaGenerator()
@@ -894,7 +592,6 @@ class TestDeterminism:
             programs=(JavaProgram(
                 program_id="CLEAN-TEST",
                 java_class=java_class,
-                generation_mode="minimal",
             ),),
         )
         gen = JavaGenerator()

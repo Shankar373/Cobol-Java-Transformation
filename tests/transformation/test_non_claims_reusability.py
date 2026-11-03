@@ -155,9 +155,9 @@ class TestNonClaimsReusability:
         # MOVE 100 TO WS-RESULT
         assert "WS_RESULT = 100;" in java_code
         # ADD 50 TO WS-RESULT → WS_RESULT += 50 or WS_RESULT = (WS_RESULT + 50)
-        assert "WS_RESULT += 50;" in java_code or "WS_RESULT = (WS_RESULT + 50)" in java_code
+        assert "WS_RESULT += 50;" in java_code or "WS_RESULT = ((WS_RESULT + 50) % " in java_code
         # ADD 25 TO WS-COUNTER → WS_COUNTER += 25 or WS_COUNTER = (WS_COUNTER + 25)
-        assert "WS_COUNTER += 25;" in java_code or "WS_COUNTER = (WS_COUNTER + 25)" in java_code
+        assert "WS_COUNTER += 25;" in java_code or "WS_COUNTER = ((WS_COUNTER + 25) % " in java_code
 
     def test_simple_calc_if_else(self, cobol_source: str):
         """Generated Java has IF/ELSE for condition."""
@@ -169,8 +169,8 @@ class TestNonClaimsReusability:
         java_code = files[0].source_code
 
         assert "if (WS_AMOUNT > WS_THRESHOLD)" in java_code
-        assert 'WS_STATUS = "APPROVED"' in java_code
-        assert 'WS_STATUS = "REJECTED"' in java_code
+        assert 'WS_STATUS = String.format("%-10s", "APPROVED").substring(0, 10)' in java_code
+        assert 'WS_STATUS = String.format("%-10s", "REJECTED").substring(0, 10)' in java_code
 
     def test_simple_calc_display(self, cobol_source: str):
         """Generated Java has DISPLAY statements with PIC formatting."""
@@ -185,5 +185,5 @@ class TestNonClaimsReusability:
         assert 'String.format("%05d", WS_RESULT)' in java_code
         # PIC 9(3) -> String.format("%03d", WS_COUNTER)
         assert 'String.format("%03d", WS_COUNTER)' in java_code
-        # PIC X(10) alphanumeric -> no formatting
+        # PIC X(10) has its declared width at initialization and MOVE.
         assert 'println("STATUS=" + WS_STATUS' in java_code

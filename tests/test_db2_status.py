@@ -40,13 +40,13 @@ class TestConstants:
 
 
 class TestClassification:
-    def test_success(self):
+    def test_sqlcode_zero_classifies_as_success(self):
         assert classify_sqlcode(0) is Db2SqlCodeCategory.SUCCESS
 
-    def test_no_data(self):
+    def test_sqlcode_100_classifies_as_no_data(self):
         assert classify_sqlcode(100) is Db2SqlCodeCategory.NO_DATA
 
-    def test_errors(self):
+    def test_negative_811_and_803_classify_as_error(self):
         assert classify_sqlcode(-811) is Db2SqlCodeCategory.ERROR
         assert classify_sqlcode(-803) is Db2SqlCodeCategory.ERROR
 
@@ -76,7 +76,7 @@ class TestStatusObject:
         assert (status.sqlcode, status.sqlstate) == (-803, "23505")
         assert status.is_error
 
-    def test_validation_of_fields(self):
+    def test_non_string_sqlcode_and_short_sqlstate_rejected(self):
         import pytest
 
         with pytest.raises(TypeError):
