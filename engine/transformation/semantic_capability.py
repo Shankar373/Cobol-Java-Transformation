@@ -241,7 +241,21 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "EXEC MQI": _unsupported(
         "EXEC MQI (IBM MQ) has no deterministic Java lane: no IR, no mapper "
         "and no MQ runtime; the block is classified UNSUPPORTED by "
-        "detection, never transformed"
+        "detection, never transformed. Note: EXEC MQI is not IBM-documented "
+        "syntax - real MQ programs use CALL 'MQxxx' (see CALL MQI)"
+    ),
+    # The real IBM call forms (roadmap unit 2). Detection looks at the CALL
+    # target literal, which the literal-stripping scan cannot see; see
+    # engine/transformation/subsystem_calls.py.
+    "CALL DLI": _unsupported(
+        "CALL 'CBLTDLI'/'AIBTDLI'/'CEETDLI'/'PLITDLI' (IMS DL/I) has no "
+        "deterministic Java lane: no IR, no mapper and no IMS runtime; the "
+        "call is classified UNSUPPORTED by detection, never transformed"
+    ),
+    "CALL MQI": _unsupported(
+        "CALL 'MQCONN'/'MQOPEN'/'MQGET'/'MQPUT'... (IBM MQ) has no "
+        "deterministic Java lane: no IR, no mapper and no MQ runtime; the "
+        "call is classified UNSUPPORTED by detection, never transformed"
     ),
     "SORT": _unsupported("SORT is not implemented in the deterministic mapper"),
     "MERGE": _unsupported("MERGE is not implemented in the deterministic mapper"),
@@ -738,6 +752,12 @@ def scan_constructs(source: str, *, restrict_to_procedure: bool = True) -> set[s
     for key, pattern in _SOURCE_PATTERNS:
         if pattern.search(text):
             found.add(key)
+    # Real MQ / IMS call forms name their target in a literal, which the
+    # stripped text above no longer has (roadmap unit 2).
+    from engine.transformation.subsystem_calls import find_subsystem_calls
+
+    for call in find_subsystem_calls(source):
+        found.add("CALL MQI" if call.subsystem == "MQ" else "CALL DLI")
     return found
 
 

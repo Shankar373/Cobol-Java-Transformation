@@ -70,6 +70,11 @@ _EXEC_DLI_BLOCK = re.compile(
 # returns the empty tuple) — never a miss, because masking only removes
 # text.
 _EXEC_ANY = re.compile(r"(?<![\w-])EXEC\s+(?:MQI|DLI)\b", re.IGNORECASE)
+# Same contract for the real call forms: a false hit only costs the real pass.
+_CALL_FORM_ANY = re.compile(
+    r"(?<![\w-])CALL\s+['\"](?:MQ[A-Z0-9]+|CBLTDLI|AIBTDLI|CEETDLI|PLITDLI)['\"]",
+    re.IGNORECASE,
+)
 
 # MQ queue-name forms inside an EXEC MQI block.  Alternation order matters:
 # QUEUE is tried before the short Q form so QUEUE('X') cannot double-match.
@@ -153,23 +158,25 @@ def _ims_refs(block_text: str) -> list[tuple[str, str]]:
     return refs
 
 
-def _mq_entry(queue_name: str) -> DependencyLedgerEntry:
+def _mq_entry(
+    queue_name: str, *, role: str = "QUEUE", via: str = "EXEC MQI"
+) -> DependencyLedgerEntry:
     return DependencyLedgerEntry(
-        dependency_id=f"MQ:QUEUE={queue_name}",
+        dependency_id=f"MQ:{role}={queue_name}",
         kind=DependencyKind.MQ,
         visible=True,
         capability_level=CapabilityLevel.UNSUPPORTED,
         proof_state=ProofState.BLOCKED,
         required=True,
         reason=(
-            f"MQ queue {queue_name} is referenced via EXEC MQI; no MQ "
+            f"MQ {role.lower()} {queue_name} is referenced via {via}; no MQ "
             "runtime lane exists, so the dependency is classified "
             "UNSUPPORTED and proof state BLOCKED (fail-closed)"
         ),
     )
 
 
-def _ims_entry(role: str, name: str) -> DependencyLedgerEntry:
+def _ims_entry(role: str, name: str, *, via: str = "EXEC DLI") -> DependencyLedgerEntry:
     return DependencyLedgerEntry(
         dependency_id=f"IMS:{role}={name}",
         kind=DependencyKind.IMS,
@@ -178,11 +185,57 @@ def _ims_entry(role: str, name: str) -> DependencyLedgerEntry:
         proof_state=ProofState.BLOCKED,
         required=True,
         reason=(
-            f"IMS {role} {name} is referenced via EXEC DLI; no IMS "
+            f"IMS {role.lower()} {name} is referenced via {via}; no IMS "
             "runtime lane exists, so the dependency is classified "
             "UNSUPPORTED and proof state BLOCKED (fail-closed)"
         ),
     )
+
+
+def _call_form_entries(source_text: str) -> list[DependencyLedgerEntry]:
+    """Edges for the real IBM call forms (``CALL 'MQOPEN'``, ``CALL 'CBLTDLI'``)."""
+    from engine.transformation.subsystem_calls import (
+        find_subsystem_calls,
+        queue_manager_names,
+        queue_names,
+        unquote,
+        value_literals,
+    )
+
+    calls = find_subsystem_calls(source_text)
+    if not calls:
+        return []
+    values = value_literals(source_text)
+    entries: list[DependencyLedgerEntry] = []
+
+    def resolve(token: str) -> str:
+        if token[:1] in "'\"":
+            return unquote(token).strip()
+        return values.get(token.upper(), "").strip()
+
+    for call in calls:
+        via = f"CALL '{call.name}'"
+        if call.subsystem == "MQ":
+            entries.append(_mq_entry(call.name, role="CALL", via=via))
+            continue
+        entries.append(_ims_entry("CALL", call.name, via=via))
+        if call.args:
+            function = resolve(call.args[0]).upper()
+            if re.fullmatch(r"[A-Z0-9-]{1,8}", function):
+                entries.append(_ims_entry("FUNCTION", function, via=via))
+        if len(call.args) > 1 and call.args[1][:1] not in "'\"":
+            role = "AIB" if call.name == "AIBTDLI" else "PCB"
+            entries.append(_ims_entry(role, call.args[1], via=via))
+        for ssa in call.args[3:]:
+            segment = re.match(r"[A-Za-z0-9#@$-]{1,8}", resolve(ssa))
+            if segment:
+                entries.append(_ims_entry("SEGMENT", segment.group(0).strip().upper(), via=via))
+    if any(c.subsystem == "MQ" for c in calls):
+        for name in queue_names(source_text):
+            entries.append(_mq_entry(name, via="an MQOD OBJECTNAME field"))
+        for name in queue_manager_names(source_text, calls):
+            entries.append(_mq_entry(name, role="QMGR", via="a queue manager name"))
+    return entries
 
 
 def extract_external_dependency_entries(
@@ -195,11 +248,14 @@ def extract_external_dependency_entries(
     block with a queue-name / PCB / segment reference.
     """
     comment_masked = _mask_comments(source_text)
+    by_id: dict[str, DependencyLedgerEntry] = {}
+    if _CALL_FORM_ANY.search(comment_masked):
+        for entry in _call_form_entries(source_text):
+            by_id.setdefault(entry.dependency_id, entry)
     if not _EXEC_ANY.search(comment_masked):
         # Fast path: no EXEC MQI/EXEC DLI anywhere — the common case.
-        return ()
+        return tuple(by_id[key] for key in sorted(by_id))
     block_view = _mask_literals_same_length(comment_masked)
-    by_id: dict[str, DependencyLedgerEntry] = {}
 
     for block in _EXEC_MQI_BLOCK.finditer(block_view):
         span = comment_masked[block.start(1) : block.end(1)]
