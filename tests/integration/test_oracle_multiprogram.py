@@ -309,6 +309,44 @@ class TestDockerOracleExecution:
         assert outcome.stdout == b""
         assert b"span several directories" in outcome.stderr
 
+    def test_nested_return_code_is_compared_not_error(self, tmp_path: Path) -> None:
+        # A nonzero exit reads the modules back to look for RETURN-CODE; in a
+        # nested layout they live under the module directory, and reading
+        # src/<name> raised, turning a real program exit into "error".
+        from engine.domain.identities import RunId
+
+        app = tmp_path / "app"
+        app.mkdir()
+        (app / "RC.cob").write_text(
+            HELLO_COB.replace("PROGRAM-ID. HELLO.", "PROGRAM-ID. RC.").replace(
+                "           STOP RUN.\n",
+                "           MOVE 3 TO RETURN-CODE.\n           STOP RUN.\n",
+            ),
+            encoding="utf-8",
+        )
+        outcome = _make_adapter().execute(RunId(value="run-ora-nested-rc"), str(tmp_path))
+
+        assert outcome.exit_code == 3, outcome.stderr.decode(errors="replace")[:500]
+        assert outcome.termination_status != "error"
+        assert outcome.stdout.decode(errors="replace").splitlines() == ["HELLO-ORACLE"]
+
+    def test_nested_compile_failure_keeps_diagnostics(self, tmp_path: Path) -> None:
+        from engine.domain.identities import RunId
+
+        app = tmp_path / "app"
+        app.mkdir()
+        (app / "BAD.cob").write_text(
+            HELLO_COB.replace("PROGRAM-ID. HELLO.", "PROGRAM-ID. BAD.").replace(
+                'DISPLAY "HELLO-ORACLE".', "DISPLAY UNDECLARED-ITEM."
+            ),
+            encoding="utf-8",
+        )
+        outcome = _make_adapter().execute(RunId(value="run-ora-nested-bad"), str(tmp_path))
+
+        assert outcome.exit_code not in (0, None)
+        assert outcome.termination_status != "error"
+        assert outcome.compilation_diagnostics.get("exit_code") not in (None, "0")
+
     def test_oracle_independent_from_java(self, tmp_path: Path) -> None:
         from engine.domain.identities import RunId
 

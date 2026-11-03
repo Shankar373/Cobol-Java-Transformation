@@ -705,7 +705,7 @@ class DockerOracleAdapter(OracleAdapter):
                         stderr,
                         any(
                             code_mentions(
-                                (Path(tmpdir) / "src" / name).read_text(
+                                (module_dir / name).read_text(
                                     encoding="utf-8", errors="replace"
                                 ),
                                 "RETURN-CODE",

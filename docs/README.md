@@ -13,6 +13,7 @@ Start with the repository [README](../README.md). Current truth, in order:
 | How is it deployed and operated? | [deployment/](deployment/), [operations/](operations/) |
 | Dependencies, licences, supply chain | [supply-chain/DEPENDENCY_AUDIT.md](supply-chain/DEPENDENCY_AUDIT.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [../LICENSE](../LICENSE) |
 | Architecture audit and its change ledger | [audits/ARCHITECTURE_AUDIT_2026-11-01.md](audits/ARCHITECTURE_AUDIT_2026-11-01.md), [audits/CHANGE_LEDGER.md](audits/CHANGE_LEDGER.md) |
+| Full repository audit, findings and action plan (2026-11-03) | [audits/FULL_AUDIT_2026-11-03.md](audits/FULL_AUDIT_2026-11-03.md) |
 | Phase reports (coverage, security, certification) | [reports/PHASE3_COVERAGE_EXPANSION.md](reports/PHASE3_COVERAGE_EXPANSION.md), [reports/](reports/) |
 | Evidence files | [reports/evidence/](reports/evidence/) |
 

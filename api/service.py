@@ -88,6 +88,35 @@ DEFAULT_MAX_CONCURRENT_JOBS = 4
 DEFAULT_MAX_UPLOAD_FILES = 1000
 
 
+def _production_active() -> bool:
+    """True in a ``CONTROL_PLANE_ENV=production`` deployment."""
+    try:
+        from api.app import production_environment_active
+
+        return production_environment_active()
+    except Exception:  # pragma: no cover - defensive fallback
+        return os.environ.get("CONTROL_PLANE_ENV", "").strip().lower() == "production"
+
+
+def _revalidation_candidate(app: ApplicationRecord) -> str | None:
+    """The Java tree a re-validation runs: the generated application.
+
+    An uploaded candidate is an internal/test-only path (A-2). In
+    production it is never used, including here: a run whose generation
+    failed has no ``generated_app_path``, and falling back to an uploaded
+    ``java_candidate_path`` would let hand-written Java be compared with the
+    COBOL oracle, reach VERIFIED and be approved (audit 2026-11-03, F1).
+    """
+    if app.generated_app_path:
+        return app.generated_app_path
+    if _production_active():
+        raise ServiceError(
+            "Re-validation needs the generated application; uploaded Java "
+            "candidates are disabled in production deployments"
+        )
+    return app.java_candidate_path
+
+
 def _cleanup_temp_dir(path: str | Path | None) -> None:
     """Best-effort cleanup of a temporary directory.
 
@@ -684,6 +713,12 @@ class Service:
         an uploaded candidate. Uploaded files are validated only when the
         modernize endpoint is explicitly called with use_uploaded_candidate.
         """
+        if _production_active():
+            # Audit F1: closing modernize(use_uploaded_candidate) alone left
+            # this route feeding revalidation in production.
+            raise ServiceError(
+                "Uploaded Java candidates are disabled in production deployments"
+            )
         app = self.get_application(app_id)
         # Same write-then-cleanup ordering as the COBOL upload —
         # a rejected re-upload must never destroy the previous candidate.
@@ -722,16 +757,7 @@ class Service:
         # even if a caller supplies it, to prevent arbitrary code execution
         # through a user-uploaded JAR/class tree.
         if use_uploaded_candidate:
-            try:
-                from api.app import production_environment_active
-
-                _prod = production_environment_active()
-            except Exception:  # pragma: no cover - defensive fallback
-                _prod = (
-                    os.environ.get("CONTROL_PLANE_ENV", "").strip().lower()
-                    == "production"
-                )
-            if _prod:
+            if _production_active():
                 raise ServiceError(
                     "Uploaded Java candidate execution is disabled in "
                     "production deployments"
@@ -968,7 +994,7 @@ class Service:
         if app is None:
             raise NotFoundError(f"Application {run.application_id!r} not found")
 
-        candidate_path = app.generated_app_path or app.java_candidate_path
+        candidate_path = _revalidation_candidate(app)
         if app.cobol_source_path is None or candidate_path is None:
             raise ServiceError("Run lacks source or candidate paths for re-validation")
 
@@ -1045,7 +1071,7 @@ class Service:
             return
 
         try:
-            candidate_path = app.generated_app_path or app.java_candidate_path
+            candidate_path = _revalidation_candidate(app)
             if app.cobol_source_path is None or candidate_path is None:
                 raise ServiceError(
                     "Run lacks source or candidate paths for re-validation"
@@ -1560,6 +1586,13 @@ class Service:
             app = self.get_application(run.application_id)
             if app.generated_app_path is not None:
                 verify_generated_seal(app.generated_app_path, run.generated_seal)
+            elif _production_active():
+                # Audit F2: in production only a sealed generated bundle
+                # can be signed off; there is nothing else to export.
+                raise ConflictError(
+                    f"Run {run_id!r} cannot be approved: it has no sealed "
+                    "generated application"
+                )
             # Bind the write to the attempt just checked (audit A4).
             expected_generation = run.validation_generation
         record = self._store.set_run_approval(

@@ -388,6 +388,24 @@ class VerticalSlicePipeline:
         comparison_evidence: list[ComparisonEvidence] = []
 
         artifacts = tuple(workload.artifacts)
+        # Stdout and exit status are observable for every program, so every
+        # run compares them even when a declared contract omits them
+        # (audit 2026-11-03, V2): a file-only contract otherwise let a
+        # stdout divergence reach VERIFIED.
+        names = {a.logical_name for a in artifacts}
+        for artifact_type, logical_name, comparator_id in (
+            ("STDOUT", "stdout", "stdout-exact"),
+            ("EXIT_STATUS", "exit-status", "exit-status-exact"),
+        ):
+            if not any(a.artifact_type == artifact_type for a in artifacts):
+                while logical_name in names:
+                    logical_name += "-required"
+                names.add(logical_name)
+                artifacts += (WorkloadArtifact(
+                    logical_name=logical_name,
+                    artifact_type=artifact_type,
+                    comparator_id=comparator_id,
+                ),)
         if (
             not any(a.artifact_type == "STDERR" for a in artifacts)
             and self._source_writes_stderr()

@@ -665,3 +665,41 @@ class TestPipelineIsWorkloadAgnostic:
         content = pipeline_file.read_text()
         assert "payroll" not in content.lower()
         assert "inventory" not in content.lower()
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-11-03 (V2): stdout and exit status are always compared
+# ---------------------------------------------------------------------------
+
+class TestMandatoryStdoutExitStatus:
+    """A contract that declares only a file still compares STDOUT and
+    EXIT_STATUS.  Declared contracts used to need just one artifact, and the
+    API applies a fixture's contract to any upload naming its workload id,
+    so a stdout divergence could hide behind a file-only contract."""
+
+    def test_file_only_contract_still_compares_stdout_and_exit(self) -> None:
+        import sys as _sys
+        fixtures_dir = str(FIXTURES.parent)
+        if fixtures_dir not in _sys.path:
+            _sys.path.insert(0, fixtures_dir)
+
+        from workload_inventory.workload import inventory_workload
+
+        full = inventory_workload()
+        file_only = WorkloadDefinition(
+            workload_id=full.workload_id,
+            description=full.description,
+            artifacts=tuple(
+                a for a in full.artifacts if a.artifact_type == "TEXT_FILE"
+            ),
+        )
+        config = _make_config(
+            workload_id="inventory-file-only",
+            candidate_path=JAVA_CANDIDATE,
+            entrypoint="Inventory",
+            workload=file_only,
+        )
+        result = VerticalSlicePipeline(config).run()
+
+        compared = {ce.artifact_type for ce in result.comparison_evidence}
+        assert {"STDOUT", "EXIT_STATUS", "TEXT_FILE"} <= compared, compared

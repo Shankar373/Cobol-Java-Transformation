@@ -561,3 +561,67 @@ def test_uploaded_candidate_disabled_in_production(monkeypatch):
     )
     assert resp.status_code == 400, resp.text
     assert "disabled in production" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-11-03 (F1): the production gate on uploaded Java also covers
+# the /candidate route and revalidation.  ``modernize`` refused
+# use_uploaded_candidate in production, but /candidate stayed open and
+# revalidate fell back to ``java_candidate_path`` when generation had
+# failed, so hand-written Java could be validated against the COBOL,
+# reach VERIFIED and be approved.
+# ---------------------------------------------------------------------------
+
+_PROD_TOKEN = "y" * 40
+
+
+def _production(monkeypatch) -> dict[str, str]:
+    monkeypatch.setenv("CONTROL_PLANE_ENV", "production")
+    monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", _PROD_TOKEN)
+    return {"Authorization": "Bearer " + _PROD_TOKEN}
+
+
+def test_candidate_upload_disabled_in_production(monkeypatch):
+    headers = _production(monkeypatch)
+    resp = client.post(
+        "/applications", json={"name": "prod-gate-f1", "workload_id": "wl-f1"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = client.post(
+        "/applications/" + resp.json()["id"] + "/candidate",
+        files=[("files", ("Up.java", io.BytesIO(b"public class Up {}"), "text/plain"))],
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "disabled in production" in resp.json()["detail"].lower()
+
+
+def test_revalidate_never_uses_uploaded_candidate_in_production(
+    monkeypatch, tmp_path, _reset_store
+):
+    from api.models import RunStage
+    from api.store import ApplicationRecord, RunRecord
+
+    import uuid
+
+    store = _reset_store
+    suffix = uuid.uuid4().hex[:8]
+    app_id, run_id = "app-f1-" + suffix, "run-f1-" + suffix
+    cobol = tmp_path / "cobol"
+    cobol.mkdir()
+    java = tmp_path / "java"
+    java.mkdir()
+    store.add_application(ApplicationRecord(
+        id=app_id, name="f1-" + suffix, workload_id="wl-f1",
+        description="", java_entrypoint="",
+        cobol_source_path=str(cobol), java_candidate_path=str(java),
+    ))
+    store.add_run(RunRecord(
+        id=run_id, application_id=app_id, workload_id="wl-f1",
+        stage=RunStage.FAILED,
+    ))
+    _production(monkeypatch)
+    with pytest.raises(ServiceError, match="generated"):
+        Service(store).revalidate(run_id)
+    assert store.get_run(run_id).stage == RunStage.FAILED
