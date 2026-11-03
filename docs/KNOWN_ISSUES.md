@@ -17,11 +17,12 @@ Lifecycle/persistence/API security hardening has since been applied on top of th
   generated Java holds `PIC X` fields as Java strings (characters). Input or
   data with multi-byte characters (ACCEPT, MOVE, file records) is outside
   the certified subset: such a run shows a mismatch, never a false VERIFIED.
-- **Oracle compile and run share one timeout (audit V16).** A very slow
-  `cobc` compile counts against the program's time limit and derives ERROR
-  (fail closed). Splitting the budgets needs either a second container per
-  oracle run or an in-container watchdog that keeps stdin for ACCEPT; both
-  change the ground-truth component, so the split is deferred.
+- ~~**Oracle compile and run share one timeout (audit V16).**~~ Fixed:
+  `cobc` has its own budget (`compile_timeout_seconds`, 120 s) and only the
+  program is held to `timeout_seconds`, by an in-container watchdog that
+  keeps the program in the foreground (stdin stays attached for ACCEPT) and
+  leaves a marker file, so a timeout is never inferred from an exit code the
+  program could produce (124, 137). `tests/integration/test_oracle_timeout_split.py`.
 
 > **Reconciliation note (BL-120, 2026-10-21 universal requirements audit):** the two
 > `P0` headings below are Master README §54 **high-risk areas**, not filed P0 defects.

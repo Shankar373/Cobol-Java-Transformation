@@ -77,6 +77,48 @@ def classify_oracle_termination(
     return "nonzero_exit"
 
 
+def oracle_shell_command(
+    *,
+    compile_dir: str,
+    compile_flags: str,
+    compile_units: str,
+    compile_seconds: int,
+    run_seconds: int,
+) -> str:
+    """The ``sh -c`` script run in the oracle container (audit V16).
+
+    ``cobc`` gets its own budget (``timeout -s KILL``; a compile that runs
+    out leaves ``compilation/compile_timeout``).  The program is then
+    ``exec``'d in the foreground - stdin stays attached for ACCEPT and its
+    exit code stays its own - while a background watchdog kills it after
+    ``run_seconds`` and leaves ``compilation/run_timeout``.  A timeout is
+    read from that marker, never inferred from an exit code the program
+    could produce itself.  Needs ``docker run --init``: the program is not
+    PID 1, so the watchdog's SIGKILL is delivered.
+    """
+    return (
+        f"cd {shlex.quote(compile_dir)} && "
+        f"timeout -s KILL {int(compile_seconds)} cobc -x {compile_flags}{compile_units}"
+        f" -o /tmp/oracle_prog "
+        f">/workspace/compilation/stdout 2>/workspace/compilation/stderr; "
+        f"compile_status=$?; "
+        f"printf '%s' \"$compile_status\" >/workspace/compilation/exit_code; "
+        f"if [ $compile_status -ne 0 ]; then "
+        f"if [ $compile_status -eq 137 ]; then : >/workspace/compilation/compile_timeout; fi; "
+        f"cat /workspace/compilation/stdout; "
+        f"cat /workspace/compilation/stderr >&2; exit $compile_status; fi; "
+        f"cd /workspace && "
+        f"( sleep {int(run_seconds)}; : >/workspace/compilation/run_timeout; "
+        f"kill -KILL $$ ) & "
+        f"exec /tmp/oracle_prog"
+    )
+
+
+def oracle_outer_timeout(*, compile_seconds: int, run_seconds: int) -> int:
+    """Host-side limit for the whole container: both budgets plus start-up."""
+    return int(compile_seconds) + int(run_seconds) + 30
+
+
 #: ``cobc --version`` observed per immutable image identity (audit V6).
 #: Keyed by the run reference, which names one image forever, so a cached
 #: answer can never describe a different image.
@@ -695,17 +737,12 @@ class DockerOracleAdapter(OracleAdapter):
                     f"-I {shlex.quote(container_src if d == '.' else container_src + '/' + d)} "
                     for d in self.copybook_dirs(Path(tmpdir, "src"), module_dir)
                 )
-                compile_cmd = (
-                    f"cd {shlex.quote(compile_dir)} && "
-                    f"cobc -x {format_flag}{include_flags}{compile_units} -o /tmp/oracle_prog "
-                    f">/workspace/compilation/stdout 2>/workspace/compilation/stderr; "
-                    f"compile_status=$?; "
-                    f"printf '%s' \"$compile_status\" >/workspace/compilation/exit_code; "
-                    f"if [ $compile_status -ne 0 ]; then "
-                    f"cat /workspace/compilation/stdout; "
-                    f"cat /workspace/compilation/stderr >&2; exit $compile_status; fi; "
-                    f"cd /workspace && "
-                    f"/tmp/oracle_prog"
+                compile_cmd = oracle_shell_command(
+                    compile_dir=compile_dir,
+                    compile_flags=f"{format_flag}{include_flags}",
+                    compile_units=compile_units,
+                    compile_seconds=self._config.compile_timeout_seconds,
+                    run_seconds=self._config.timeout_seconds,
                 )
 
                 # Deterministic container name so the timeout path can
@@ -735,6 +772,9 @@ class DockerOracleAdapter(OracleAdapter):
                 # evidence manifest hashes (empty when none was declared).
                 docker_cmd = [
                     "docker", "run", "--rm", "-i",
+                    # An init process makes the program PID 2, so the run
+                    # watchdog's SIGKILL reaches it (audit V16).
+                    "--init",
                     *container_run_hardening_flags("oracle"),
                     "--name", container_name,
                     "--network", "none",
@@ -760,7 +800,10 @@ class DockerOracleAdapter(OracleAdapter):
                         docker_cmd,
                         input=input_data or b"",
                         capture_output=True,
-                        timeout=self._config.timeout_seconds + 5,
+                        timeout=oracle_outer_timeout(
+                            compile_seconds=self._config.compile_timeout_seconds,
+                            run_seconds=self._config.timeout_seconds,
+                        ),
                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                     )
                     stdout = proc.stdout
@@ -787,6 +830,20 @@ class DockerOracleAdapter(OracleAdapter):
                     )
                     exit_code = None
                     termination = "timeout"
+
+                # The in-container watchdogs leave markers (audit V16):
+                # the program or the compile ran out of its own budget.
+                for marker, budget in (
+                    ("run_timeout", self._config.timeout_seconds),
+                    ("compile_timeout", self._config.compile_timeout_seconds),
+                ):
+                    if termination != "timeout" and (diagnostics_dir / marker).is_file():
+                        stdout = b""
+                        stderr = (
+                            f"Oracle {marker.split('_')[0]} timeout after {budget}s"
+                        ).encode()
+                        exit_code = None
+                        termination = "timeout"
 
                 generated_files: dict[str, bytes] = {}
                 compilation_diagnostics = None

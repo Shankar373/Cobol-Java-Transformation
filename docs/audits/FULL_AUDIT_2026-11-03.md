@@ -149,7 +149,7 @@ medium, **P3** low.
 | V8 | P2 — FIXED | A | `engine/execution/workspace_files.py:121-123` | Output files keyed by base name: `a/x.txt` and `b/x.txt` collide, one is never compared | Key by relative path |
 | V9 | P2 — FIXED | A | `engine/oracle/docker_adapter.py` compile command | Nested layout with copybooks in a sibling directory: oracle has no `-I` → UNAVAILABLE (fails closed) | `-I` per copybook directory |
 | V11 | P2 — FIXED | R | `scripts/e2e/verify_independent.py:40-42` | Independent re-check uses mutable tags, records no digests or project hash, picks an arbitrary jar | Pin by digest, record identities, refuse >1 jar |
-| V12–V18 | P3 — V12/V13/V14/V18 FIXED; V16 accepted; V15 (C2) and V17 (signing) remain | R | see area report | Stale verdict-contract comments (ERROR vs UNAVAILABLE), `target/` package dirs dropped, second-granular run ids, C2 duplication (~230 lines), oracle compile+run share one timeout, unkeyed SHA-256 seal (known L.3.7), broken `fixtures/workload-multiprog/workload.py` | As listed |
+| V12–V18 | P3 — V12/V13/V14/V18 FIXED; V16 FIXED (separate compile/run budgets); V15 (C2) and V17 (signing) remain | R | see area report | Stale verdict-contract comments (ERROR vs UNAVAILABLE), `target/` package dirs dropped, second-granular run ids, C2 duplication (~230 lines), oracle compile+run share one timeout, unkeyed SHA-256 seal (known L.3.7), broken `fixtures/workload-multiprog/workload.py` | As listed |
 
 Verified sound (no finding): verdict derivation (unknown → ERROR, MISMATCH →
 FAILED, INCONCLUSIVE → PARTIAL, zero checks → UNPROVEN); integrity validator

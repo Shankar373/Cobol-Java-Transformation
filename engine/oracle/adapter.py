@@ -44,8 +44,11 @@ class OracleAdapterConfig:
     compiler_version: str
     preprocessor_version: str | None = None
     base_image: str | None = None
-    timeout_seconds: int = 30
+    timeout_seconds: int = 30  # the program's run budget
     image: str = "gnucobol-ocesql:latest"
+    # ``cobc`` has its own budget, so a slow compile is never charged to the
+    # program (audit V16).
+    compile_timeout_seconds: int = 120
 
     def validate(self) -> list[str]:
         """Validate oracle configuration."""
