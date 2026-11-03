@@ -21,9 +21,12 @@ re-checked (treat as likely, not proven).
 with differential verification; **NO-GO** for any production release or
 broadened capability claim until the P0 items in §5 are fixed.
 
-> **Update (same day, post-audit step 2-4):** the three engine P0s T1-T3 are
-> fixed with GnuCOBOL differential tests (see §3). The remaining release
-> condition is the oracle trust anchor (V5/V6, plan step 5).
+> **Update (same day, post-audit steps 2-5):** the three engine P0s T1-T3 are
+> fixed with GnuCOBOL differential tests, and the oracle trust anchor is
+> enforced (V5/V6: pinned packages, observed `cobc --version`, production
+> digest pin) - see §3. Both NO-GO conditions are addressed; a GO decision
+> still waits for plan steps 6-8 (verification gaps, P1/P2 fixes, full
+> regression and certification on the final SHA).
 
 Why not GO:
 - Three SUPPORTED constructs are **silently mistranslated** (T1–T3, reproduced,
@@ -76,6 +79,7 @@ Why not NO-GO:
 | T1 | P0 | `cobol_parser.py`: a separator period ends the sentence and every open IF/EVALUATE scope (`_ends_sentence`), including inline `ELSE …` and `WHEN … stmt.` lines | `tests/integration/test_sentence_scope_oracle.py`: IR test + GnuCOBOL differential over 9 shapes (red before: all 19 sentences folded into the first IF) |
 | T2 | P0 | `cobol_to_java_mapping.py` `expand_condition_names`: top-level split on OR then AND (quotes/parentheses respected), each side mapped with the program; abbreviated relations refused | `tests/integration/test_condition_precedence_oracle.py`: 10 combinations byte-identical to GnuCOBOL (red before) |
 | T3 | P0 | `redefines.py` `write_targets` deny by default (every receiver of every verb; unknown verbs write every name), and the parser guards the base as well as the views; SET resolves to the 88's parent | `tests/transformation/test_redefines_writers.py`: 15 tests (8 red before) |
+| V5/V6 | P1 | Oracle trust anchor: `Dockerfile.gnucobol` pins `gnucobol3`/`libcob4`/`libcob4-dev` 3.1.2-5 and fails unless `cobc --version` is exactly 3.1.2.0; `DockerOracleAdapter` observes `cobc --version` per image identity and refuses a mismatch before any run (identity records the observed version); production requires `SYSTEMAOPS_ORACLE_DIGEST` (API startup gate, compose `:?`, resolved by `start-production.sh` via `oracle_image_digest()`) | `tests/integration/test_oracle_compiler_pin.py` (red before), `tests/test_production_oracle_pin.py`, compose render refuses without the pin |
 | — | — | Corpus regression for T1-T3: 108 generated builds (54 apps x spring_boot/plain_java) byte-identical before and after | snapshot comparison |
 
 ---
@@ -107,8 +111,8 @@ medium, **P3** low.
 
 | ID | Sev | V | file:line | Finding | Recommended fix |
 |---|---|---|---|---|---|
-| V5 | P1 | C | `engine/pipeline.py:107-113`; `Dockerfile.gnucobol:3-15`; `contracts/ORACLE_CONTRACT.md:19,31-36` | Oracle runs `gnucobol-ocesql:latest`; `SYSTEMAOPS_ORACLE_DIGEST` defaults to "" (auto-pin) and no deployment sets it; `apt-get install gnucobol` is unpinned. Contract says digest pinning is mandatory | Require a declared oracle digest in production; pin the gnucobol package version |
-| V6 | P2 | A | `engine/pipeline.py:115` | `compiler_version="3.1.2.0"` is a config literal, never observed; contract says captured from `cobc --version` | Capture and assert `cobc --version` at oracle start |
+| V5 | P1 — FIXED | C | `engine/pipeline.py:107-113`; `Dockerfile.gnucobol:3-15`; `contracts/ORACLE_CONTRACT.md:19,31-36` | Oracle runs `gnucobol-ocesql:latest`; `SYSTEMAOPS_ORACLE_DIGEST` defaults to "" (auto-pin) and no deployment sets it; `apt-get install gnucobol` is unpinned. Contract says digest pinning is mandatory | Require a declared oracle digest in production; pin the gnucobol package version |
+| V6 | P2 — FIXED | A | `engine/pipeline.py:115` | `compiler_version="3.1.2.0"` is a config literal, never observed; contract says captured from `cobc --version` | Capture and assert `cobc --version` at oracle start |
 | V1 | P2 | C | `engine/pipeline.py:396-408` | Candidate STDERR is compared only when the COBOL source writes stderr; sealed scope text says STDERR is an artifact | Always compare STDERR (declared normalisation for JVM noise) or record INCONCLUSIVE; needs a certification run to measure impact |
 | V10 | P2 | C | `api/workload_contract.py:204-229`; `api/app.py:800` | Client-supplied `workload_id` selects a fixture's declared contract for arbitrary uploads (its normalisation and artifact set). False-success part closed by V2 | Bind declared contracts to fixture-backed applications only |
 | V4 | P2 | A | `engine/candidate/docker_java_adapter.py:332-395`; `docker_spring_boot_adapter.py:~470-505` | Compile/Maven timeouts, staging exceptions and Docker 125–127 exits are program failures (FAILED), not infrastructure (ERROR) — B4 incomplete | Classify as infrastructure |

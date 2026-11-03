@@ -459,6 +459,31 @@ def verify_production_auth_configuration() -> None:
         )
 
 
+_ORACLE_PIN = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def verify_production_oracle_pin() -> None:
+    """Refuse a production process whose GnuCOBOL oracle is not pinned.
+
+    The oracle is the ground truth for every verdict. With
+    ``SYSTEMAOPS_ORACLE_DIGEST`` empty the engine auto-pins whatever image
+    the ``gnucobol-ocesql:latest`` tag names at run time, so a rebuilt or
+    replaced oracle would be accepted silently (audit 2026-11-03, V5).
+    ``scripts/deploy/start-production.sh`` resolves the digest of the image
+    it deploys; the engine then refuses any run on a different image.
+    """
+    if deployment_environment() != _PRODUCTION_ENVIRONMENT:
+        return
+    pin = os.environ.get("SYSTEMAOPS_ORACLE_DIGEST", "").strip()
+    if not _ORACLE_PIN.fullmatch(pin):
+        raise RuntimeError(
+            "CONTROL_PLANE_ENV=production requires SYSTEMAOPS_ORACLE_DIGEST to "
+            "be the sha256 identity of the deployed GnuCOBOL oracle image "
+            "(scripts/deploy/start-production.sh resolves it); refusing to "
+            "certify against an unpinned oracle."
+        )
+
+
 @app.middleware("http")
 async def _require_api_token(request: Request, call_next):
     token = _expected_token()
@@ -595,6 +620,7 @@ def _token_matches(provided: str, expected: str) -> bool:
 # Import-time fail-closed gate: a production process without a bearer token
 # (or an unknown CONTROL_PLANE_ENV) aborts here instead of serving.
 verify_production_auth_configuration()
+verify_production_oracle_pin()
 
 
 @app.exception_handler(ApiError)

@@ -43,7 +43,7 @@ and `CONTROL_PLANE_MAX_UPLOAD_FILES` are read in `api/service.py` instead
 | `DOCKER_GID` | Yes (compose `:?`) | none — `start-production.sh` detects it from the socket when unset | group owning `/var/run/docker.sock` on the host, added via `group_add` so the non-root API can reach the daemon; the former silent default `0` (root group) was removed in Phase 4 |
 | `DOCKER_CLI_VERSION` / `DOCKER_CLI_SHA256` | No (build-time `Dockerfile.production` `ARG`s) | `27.3.1` / `9b4f6fe406e50f9085ee474c451e2bb5adb119a03591f467922d3b4e2ddf31d3` | static docker CLI downloaded during the image build; `build-production.sh` passes no `--build-arg`, so the pinned defaults apply and the SHA-256 must match or the build fails |
 | `SYSTEMAOPS_ORACLE_IMAGE` | No | `gnucobol-ocesql:latest` (`engine/pipeline.py`) | oracle-lane image resolved on the host daemon |
-| `SYSTEMAOPS_ORACLE_DIGEST` | No | empty = auto-pin at execution time | declared immutable pin; a mismatch fails closed |
+| `SYSTEMAOPS_ORACLE_DIGEST` | **Production: yes** (API startup check + compose `:?`) | development: empty = auto-pin at execution time; production: `start-production.sh` resolves the deployed oracle image's digest when unset | declared immutable pin of the GnuCOBOL oracle; any other image fails closed (audit V5) |
 
 Test-only: `RUN_DOCKER_TESTS` gates the Docker-dependent tests; `FRONTEND_DIST_DIR`
 retargets the bundle scan described below.

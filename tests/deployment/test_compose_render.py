@@ -37,6 +37,7 @@ def _render_config() -> str | None:
     env.setdefault("ENV_FILE", ".env.production.example")
     env.setdefault("HOST_SANDBOX_STAGING_DIR", str(REPO / "tmp" / "staging"))
     env.setdefault("DOCKER_GID", "999")  # required: no root-group default
+    env.setdefault("SYSTEMAOPS_ORACLE_DIGEST", "sha256:" + "0" * 64)  # required: audit V5
     try:
         proc = subprocess.run(
             ["docker", "compose", "-f", str(COMPOSE), "config"],

@@ -34,6 +34,19 @@ fi
 source ./scripts/deploy/lib-docker-gid.sh
 resolve_docker_gid "$ENV_FILE"
 
+# GnuCOBOL oracle pin (audit V5): the digest of the oracle image being
+# deployed, unless the env file already declares one. The API refuses to
+# start without it and the engine refuses to run any other oracle image.
+if [ -z "${SYSTEMAOPS_ORACLE_DIGEST:-}" ]; then
+  SYSTEMAOPS_ORACLE_DIGEST="$(python3 -c 'from engine.oracle.docker_adapter import oracle_image_digest; print(oracle_image_digest())' 2>/dev/null || true)"
+fi
+case "${SYSTEMAOPS_ORACLE_DIGEST:-}" in
+  sha256:*) ;;
+  *) echo "FATAL: could not resolve the GnuCOBOL oracle image digest (build it: scripts/deploy/build-production.sh)." >&2; exit 1 ;;
+esac
+export SYSTEMAOPS_ORACLE_DIGEST
+echo "Oracle image pinned: $SYSTEMAOPS_ORACLE_DIGEST"
+
 # Host-visible sandbox staging (R1 production execution topology).
 # The engine stages Docker bind-mount sources under /app/sandbox-staging in
 # the API container; the host daemon resolves the same directory at

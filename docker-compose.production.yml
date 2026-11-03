@@ -41,6 +41,10 @@ services:
       # the API itself refuses to start without a token and answers 401 for
       # every unauthenticated request — independent of this compose guard.
       CONTROL_PLANE_ENV: production
+      # The GnuCOBOL oracle is pinned to the image this deployment built
+      # (audit V5): start-production.sh resolves the digest; the API refuses
+      # to start without it and the engine refuses any other image.
+      SYSTEMAOPS_ORACLE_DIGEST: ${SYSTEMAOPS_ORACLE_DIGEST:?SYSTEMAOPS_ORACLE_DIGEST must be the oracle image digest - run scripts/deploy/start-production.sh}
       CONTROL_PLANE_DB: /app/data/control-plane.db
       TMPDIR: /app/tmp
       # Durable artifacts (uploaded COBOL, upload workspaces, the generated

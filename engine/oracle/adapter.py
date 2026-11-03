@@ -1,7 +1,8 @@
 """Oracle adapter interface for the validation engine.
 
 Implements the Oracle Adapter interface and V1 identity model.
-V1 authoritative oracle: GnuCOBOL 3.1.2.0 + Open-COBOL-ESQL 1.4
+V1 authoritative oracle: GnuCOBOL 3.1.2.0 (the ``gnucobol-ocesql`` image name
+is historical; Open-COBOL-ESQL is not installed and EXEC SQL is UNSUPPORTED).
 
 Oracle identity MUST include:
 - adapter identity

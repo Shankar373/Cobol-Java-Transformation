@@ -77,6 +77,31 @@ def classify_oracle_termination(
     return "nonzero_exit"
 
 
+#: ``cobc --version`` observed per immutable image identity (audit V6).
+#: Keyed by the run reference, which names one image forever, so a cached
+#: answer can never describe a different image.
+_OBSERVED_COMPILER_VERSIONS: dict[str, str] = {}
+_COBC_VERSION = re.compile(r"cobc \(GnuCOBOL\)\s+(\S+)")
+
+
+def oracle_image_digest(image: str = "gnucobol-ocesql:latest") -> str:
+    """The sha256 identity the oracle adapter would pin for ``image``.
+
+    The deployment scripts record this as ``SYSTEMAOPS_ORACLE_DIGEST`` so the
+    declared pin is exactly the identity the adapter compares against.
+    """
+    observation = resolve_docker_image_identity(image)
+    if not observation.is_complete:
+        return ""
+    return digest_of_identity(observation.identity)
+
+
+def parse_cobc_version(text: str) -> str:
+    """The version token from ``cobc --version`` output, or ``""``."""
+    match = _COBC_VERSION.search(text)
+    return match.group(1) if match else ""
+
+
 class DockerOracleAdapter(OracleAdapter):
     """Real Docker-backed GnuCOBOL oracle adapter.
 
@@ -167,7 +192,12 @@ class DockerOracleAdapter(OracleAdapter):
         return OracleIdentity(
             oracle_id=self._config.oracle_id,
             image_digest=digest,
-            compiler_version=self._config.compiler_version,
+            # The version observed in the executed image (audit V6); equal
+            # to the declared one, since a mismatch refuses to execute.
+            compiler_version=(
+                _OBSERVED_COMPILER_VERSIONS.get(self._resolved_ref)
+                or self._config.compiler_version
+            ),
             preprocessor_version=self._config.preprocessor_version,
             base_image=self._config.base_image,
         )
@@ -360,6 +390,36 @@ class DockerOracleAdapter(OracleAdapter):
     def _compute_source_hash(self, source_path: str) -> ContentHash:
         return compute_source_tree_hash(source_path)
 
+    def _observed_compiler_version(self, run_ref: str) -> str:
+        """``cobc --version`` inside the pinned image, once per identity.
+
+        The oracle contract records the compiler version "from execution,
+        not assumption"; until the audit it was a config literal, so a
+        rebuilt image with another GnuCOBOL was recorded as 3.1.2.0.
+        """
+        cached = _OBSERVED_COMPILER_VERSIONS.get(run_ref)
+        if cached:
+            return cached
+        try:
+            proc = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    *container_run_hardening_flags("oracle"),
+                    "--network", "none",
+                    run_ref,
+                    "cobc", "--version",
+                ],
+                capture_output=True,
+                timeout=120,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        version = parse_cobc_version(proc.stdout.decode("utf-8", errors="replace"))
+        if proc.returncode == 0 and version:
+            _OBSERVED_COMPILER_VERSIONS[run_ref] = version
+        return version if proc.returncode == 0 else ""
+
     def execute(
         self,
         run_id: RunId,
@@ -434,6 +494,33 @@ class DockerOracleAdapter(OracleAdapter):
                 stderr=(
                     f"Declared oracle image pin {declared_pin} does not match "
                     f"resolved image identity {digest}; refusing to execute"
+                ).encode(),
+                start_time=start_time.isoformat(),
+                end_time=end_time.isoformat(),
+                termination_status="error",
+                timeout_applied=False,
+                source_tree_hash_before=source_hash_before,
+                source_tree_hash_after=source_hash_before,
+                image_digest=digest,
+            )
+
+        # The image must contain the compiler the evidence will name
+        # (audit V6): refuse before any program runs on another version.
+        observed_compiler = self._observed_compiler_version(run_ref)
+        if observed_compiler != self._config.compiler_version:
+            end_time = datetime.now(timezone.utc)
+            return OracleExecutionResult(
+                execution_id=execution_id,
+                run_id=run_id,
+                oracle_id=self._config.oracle_id,
+                status=AdapterStatus.UNAVAILABLE,
+                exit_code=None,
+                stdout=b"",
+                stderr=(
+                    "Oracle compiler version mismatch: declared "
+                    f"{self._config.compiler_version}, observed "
+                    f"{observed_compiler or 'unknown'} (cobc --version in "
+                    f"{run_ref}); refusing to execute"
                 ).encode(),
                 start_time=start_time.isoformat(),
                 end_time=end_time.isoformat(),

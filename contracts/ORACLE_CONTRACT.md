@@ -15,8 +15,23 @@ The COBOL Oracle is the authoritative behavioral reference for the original COBO
 application. This contract defines how the platform executes the oracle, what evidence
 it must produce, and the hard rules that make oracle evidence trustworthy.
 
-**V1 authoritative oracle [CONFIRMED — ADR-0001]:** GnuCOBOL 3.1.2.0 +
-Open-COBOL-ESQL 1.4, executed in a Docker image **pinned by digest**.
+**V1 authoritative oracle [CONFIRMED — ADR-0001]:** GnuCOBOL 3.1.2.0,
+executed in a Docker image **pinned by digest**. (The image is named
+`gnucobol-ocesql` for history; Open-COBOL-ESQL is not installed and EXEC SQL
+is UNSUPPORTED.)
+
+**Enforcement (audit 2026-11-03, V5/V6):**
+- `Dockerfile.gnucobol` pins `gnucobol3`, `libcob4` and `libcob4-dev` to
+  `3.1.2-5` and fails the build unless `cobc --version` reports exactly
+  `cobc (GnuCOBOL) 3.1.2.0`.
+- Before any program runs, `DockerOracleAdapter` runs `cobc --version` in the
+  pinned image (once per immutable identity) and refuses to execute when it
+  differs from the declared `compiler_version`; the identity in evidence
+  carries the observed version.
+- Production requires a declared `SYSTEMAOPS_ORACLE_DIGEST`
+  (`api.app.verify_production_oracle_pin`, compose `:?` guard);
+  `scripts/deploy/start-production.sh` resolves it from the deployed image.
+  Development keeps auto-pinning at execution time.
 
 **Never claimed:** z/OS equivalence. Verdicts are scoped to the oracle identity, always.
 

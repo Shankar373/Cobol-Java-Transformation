@@ -295,6 +295,7 @@ class TestProbesAndAuthResponses:
         code = (
             "import os;os.environ['CONTROL_PLANE_ENV']='production';"
             f"os.environ['CONTROL_PLANE_API_TOKEN']='{_TOKEN}';"
+            "os.environ['SYSTEMAOPS_ORACLE_DIGEST']='sha256:' + 'a' * 64;"
             "from fastapi.testclient import TestClient;import api.app as a;"
             "c=TestClient(a.app);h={'Authorization':'Bearer " + _TOKEN + "'};"
             "print(c.get('/docs',headers=h).status_code,"
