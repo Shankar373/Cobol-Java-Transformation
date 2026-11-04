@@ -35,6 +35,7 @@ PROOFS: dict[str, list[tuple]] = {
                  ("app", "workload-level88", r"^\s+88\s")],
     "SET CONDITION TO TRUE": [("test", "tests/integration/test_structural_oracle_proof.py")],
     "ACCEPT": [("test", "tests/integration/test_accept_oracle_proof.py")],
+    "INSPECT": [("test", "tests/integration/test_inspect_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),
                        ("app", "workload-indexed", r"ACCESS\s+(MODE\s+)?(IS\s+)?DYNAMIC")],
     "ORGANIZATION INDEXED": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),

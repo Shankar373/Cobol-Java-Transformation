@@ -71,6 +71,7 @@ from engine.transformation.ir import (
     Expression,
     InitializeStatement,
     AcceptStatement,
+    InspectStatement,
     FileAccessMode,
     FieldReference,
     FileDefinition,
@@ -2126,6 +2127,10 @@ class CobolParser:
         if upper.startswith("STOP RUN"):
             return StopRunStatement(), start + 1
 
+        # INSPECT — literal TALLYING / REPLACING / CONVERTING subset
+        if upper.startswith("INSPECT "):
+            return self._parse_inspect(lines, start)
+
         # ACCEPT target [FROM source]
         if upper.startswith("ACCEPT "):
             return self._parse_accept(lines, start)
@@ -4044,6 +4049,33 @@ class CobolParser:
             ),
             start + 1,
         )
+
+    def _parse_inspect(self, lines: list[str], start: int) -> tuple[InspectStatement, int]:
+        """Parse INSPECT; the statement ends at a period or at the next statement verb."""
+        from engine.transformation.inspect_statement import parse_inspect
+
+        full_text = lines[start].strip()
+        i = start + 1
+        while i < len(lines) and not full_text.endswith("."):
+            nxt = lines[i].strip()
+            if not nxt:
+                i += 1
+                continue
+            if _SCOPE_TERMINATOR.match(nxt) or _STRING_CONTINUATION_STOP.match(nxt.upper()):
+                break
+            full_text += " " + nxt
+            i += 1
+        target, mode, phrases, reasons = parse_inspect(full_text)
+        for reason in reasons:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"INSPECT {reason} has no certified Java mapping; the statement fails "
+                "closed instead of running with different semantics",
+                location=f"line {start + 1}",
+            )
+        counter = phrases[0].counter if phrases else ""
+        return InspectStatement(target=target, mode=mode, counter=counter,
+                                phrases=phrases, reasons=reasons), i
 
     def _parse_accept(self, lines: list[str], start: int) -> tuple[AcceptStatement, int]:
         """Parse ACCEPT target [FROM source]."""

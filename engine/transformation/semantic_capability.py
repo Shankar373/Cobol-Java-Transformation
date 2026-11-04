@@ -32,6 +32,7 @@ from engine.transformation.ir import (
     DisplayStatement,
     DivideStatement,
     AcceptStatement,
+    InspectStatement,
     ExitProgramStatement,
     GobackStatement,
     InitializeStatement,
@@ -280,7 +281,18 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "alphanumeric, zero for numeric)",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "INSPECT": _unsupported("INSPECT is not implemented in the deterministic mapper"),
+    "INSPECT": _supported(
+        "INSPECT <alphanumeric field> TALLYING <counter> FOR CHARACTERS | ALL lit | "
+        "LEADING lit, REPLACING CHARACTERS | ALL | LEADING | FIRST lit BY lit, and "
+        "CONVERTING lit TO lit, each with optional BEFORE/AFTER INITIAL lit, on an "
+        "elementary DISPLAY PIC X target (counter: unsigned integer DISPLAY, at most 9 "
+        "digits). Literal operands only; phrases apply in source order with marked "
+        "positions, as the oracle does (tests/integration/test_inspect_oracle.py). "
+        "Data-name operands, TRAILING, hex/ALL/HIGH-VALUE/QUOTE operands, a combined "
+        "TALLYING ... REPLACING, several counters, group/table/numeric targets fail closed "
+        "with an unresolvable symbol.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "SEARCH": _unsupported("SEARCH is not implemented in the deterministic mapper"),
     "SET": _unsupported("SET semantics are not implemented in the deterministic mapper"),
     # ``SET <condition-name> TO TRUE`` is a separate, certified statement class:
@@ -562,6 +574,7 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     StopRunStatement.__name__: "STOP RUN",
     ExitProgramStatement.__name__: "EXIT PROGRAM",
     AcceptStatement.__name__: "ACCEPT",
+    InspectStatement.__name__: "INSPECT",
     GobackStatement.__name__: "GOBACK",
     InitializeStatement.__name__: "INITIALIZE",
     StringStatement.__name__: "STRING",

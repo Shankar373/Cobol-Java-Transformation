@@ -81,6 +81,7 @@ from engine.transformation.ir import (
     GobackStatement,
     InitializeStatement,
     AcceptStatement,
+    InspectStatement,
     FieldReference,
     FigurativeConstant,
     Literal,
@@ -1093,6 +1094,36 @@ def _accept_fail_closed_symbol(*reasons: str) -> str:
     value.
     """
     return "UNSUPPORTED_ACCEPT$" + "$".join(reasons)
+
+
+def _inspect_fail_closed_symbol(*reasons: str) -> str:
+    """Java identifier naming an INSPECT form with no certified mapping (see the ACCEPT twin)."""
+    return "UNSUPPORTED_INSPECT$" + "$".join(reasons)
+
+
+def inspect_unsupported_reasons(stmt, program) -> list[str]:
+    """Why an INSPECT statement is outside the certified subset (empty when certified)."""
+    reasons = list(stmt.reasons)
+    item = _find_data_item(program, stmt.target)
+    if (
+        item is None or not item.is_elementary or item.occurs or item.is_numeric
+        or item.usage not in (None, "", "DISPLAY") or item.pic_length <= 0
+    ):
+        reasons.append("TARGET")
+    if stmt.mode == "TALLYING":
+        counter_item = _find_data_item(program, stmt.counter)
+        if (
+            counter_item is None
+            or not counter_item.is_elementary
+            or counter_item.occurs
+            or not counter_item.is_numeric
+            or counter_item.signed
+            or counter_item.decimal_places
+            or counter_item.usage not in (None, "", "DISPLAY")
+            or not 0 < counter_item.pic_length <= 9
+        ):
+            reasons.append("COUNTER")
+    return reasons
 
 
 def _file_fail_closed_symbol(*reasons: str) -> str:
@@ -4062,7 +4093,7 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     StopRunStatement, CallStatement,
     ExitProgramStatement, SetConditionStatement,
     UnstringStatement, GobackStatement, InitializeStatement,
-    AcceptStatement,
+    AcceptStatement, InspectStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
 STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement})
@@ -4651,6 +4682,68 @@ def map_cobol_statement(
                         class_name="CobolStdin",
                         method_name="alnum",
                         arguments=(line_call, width_lit),
+                        is_static=True,
+                    ),
+                ))
+
+    elif isinstance(stmt, InspectStatement):
+        # INSPECT with literal operands; semantics pinned by the GnuCOBOL oracle
+        # (tests/integration/test_inspect_oracle.py).  The target must be an
+        # elementary DISPLAY PIC X item and a TALLYING counter an unsigned integer
+        # DISPLAY item of at most 9 digits; anything else fails closed by name.
+        result.append(JavaComment(text=f"INSPECT {stmt.target}"))
+        java_target = stmt.target.replace("-", "_")
+        counter_item = _find_data_item(program, stmt.counter) if stmt.mode == "TALLYING" else None
+        reasons = inspect_unsupported_reasons(stmt, program)
+        if reasons or stmt.mode not in ("TALLYING", "REPLACING", "CONVERTING"):
+            result.append(JavaAssignment(
+                target=java_target,
+                expression=JavaVariableRef(
+                    name=_inspect_fail_closed_symbol(*(dict.fromkeys(reasons) or ("FORM",)))
+                ),
+            ))
+        else:
+            def _text(value: str) -> JavaLiteral:
+                return JavaLiteral(
+                    value=value, java_type=JavaType(basic_type=JavaBasicType.STRING)
+                )
+
+            phrase_args: list[JavaExpression] = []
+            for phrase in stmt.phrases:
+                phrase_args.extend(_text(v) for v in (
+                    phrase.kind, phrase.pattern, phrase.replacement,
+                    phrase.order, phrase.after, phrase.before,
+                ))
+            if stmt.mode == "TALLYING":
+                counter_name = stmt.counter.replace("-", "_")
+                call = JavaMethodCall(
+                    class_name="CobolInspect",
+                    method_name="tally",
+                    arguments=(
+                        JavaVariableRef(name=java_target),
+                        JavaVariableRef(name=counter_name),
+                        JavaLiteral(
+                            value=str(counter_item.pic_length),
+                            java_type=JavaType(basic_type=JavaBasicType.INT),
+                        ),
+                        *phrase_args,
+                    ),
+                    is_static=True,
+                )
+                result.append(JavaAssignment(
+                    target=counter_name,
+                    expression=JavaCast(
+                        target_type=JavaType(basic_type=JavaBasicType.INT),
+                        expression=call,
+                    ),
+                ))
+            else:
+                result.append(JavaAssignment(
+                    target=java_target,
+                    expression=JavaMethodCall(
+                        class_name="CobolInspect",
+                        method_name="rewrite",
+                        arguments=(JavaVariableRef(name=java_target), *phrase_args),
                         is_static=True,
                     ),
                 ))

@@ -761,6 +761,21 @@ class CapabilityAnalyzer:
             name = type(stmt).__name__
             _note_ir(name, stmt)
 
+            # INSPECT is SUPPORTED only for the certified literal subset on an
+            # elementary DISPLAY PIC X target; otherwise the mapper fails closed.
+            if name == "InspectStatement":
+                from engine.transformation.cobol_to_java_mapping import (
+                    inspect_unsupported_reasons,
+                )
+                why = inspect_unsupported_reasons(stmt, program)
+                if why:
+                    findings.append((
+                        "INSPECT",
+                        CapabilityLevel.UNSUPPORTED,
+                        "INSPECT outside the certified subset (" + ", ".join(sorted(set(why)))
+                        + "); mapper fails closed",
+                    ))
+
             # A COMPUTE whose arithmetic expression cannot be lowered safely
             # must not be reported as SUPPORTED: the mapper now fails closed
             # for malformed/unsupported arithmetic, so the capability verdict

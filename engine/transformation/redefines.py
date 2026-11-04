@@ -302,6 +302,8 @@ def write_targets(stmt: object) -> tuple[str, ...]:
         return _names(get("target"), get("remainder"))
     if name == "InitializeStatement":
         return _names(get("targets"))
+    if name == "InspectStatement":
+        return _names(get("target"), get("counter"))
     if name == "StringStatement":
         return _names(get("target"), get("pointer"))
     if name == "UnstringStatement":

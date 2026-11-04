@@ -764,6 +764,22 @@ class InitializeStatement:
     replacing: str = ""
 
 
+@dataclass(frozen=True)
+class InspectStatement:
+    """INSPECT target TALLYING | REPLACING | CONVERTING ... (literal operands only).
+
+    ``phrases`` carries the parsed phrases (``engine.transformation.inspect_statement``);
+    ``reasons`` names every clause outside the certified subset so the lowering can fail
+    closed by name instead of running with different semantics.
+    """
+
+    target: str = ""
+    mode: str = ""  # TALLYING | REPLACING | CONVERTING | "" (unrecognised form)
+    counter: str = ""
+    phrases: tuple = ()
+    reasons: tuple[str, ...] = ()
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
@@ -792,6 +808,7 @@ Statement = (
     | GobackStatement
     | InitializeStatement
     | AcceptStatement
+    | InspectStatement
 )
 
 

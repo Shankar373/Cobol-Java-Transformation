@@ -222,7 +222,7 @@ Supported subset, with runtime evidence where noted (see
   definition), and no VSAM file-image equivalence exists.
 - JCL/CICS/DB2 runtime equivalence (modeled only; no runtime lane).
 - Dynamic, unresolved, cyclic, or arity-mismatched CALL (fail closed).
-- EXEC SQL / EXEC CICS, SORT, MERGE, INSPECT, SEARCH, SET (other than
+- EXEC SQL / EXEC CICS, SORT, MERGE, SEARCH, SET (other than
   `SET <condition> TO TRUE`), ALTER, NEXT SENTENCE — no deterministic Java
   mapping. (ACCEPT from standard input, INITIALIZE and ON SIZE ERROR with one
   receiver became SUPPORTED with GnuCOBOL proof later — see
