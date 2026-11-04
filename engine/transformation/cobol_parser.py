@@ -35,6 +35,7 @@ from engine.transformation.control_flow import (
     walk_statements,
 )
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
+from engine.transformation.exec_sql import find_includes as find_sql_includes
 from engine.transformation.group_storage import (
     file_record_groups,
     group_move_problem,
@@ -72,6 +73,7 @@ from engine.transformation.ir import (
     InitializeStatement,
     AcceptStatement,
     InspectStatement,
+    ExecSqlStatement,
     FileAccessMode,
     FieldReference,
     FileDefinition,
@@ -787,6 +789,7 @@ class CobolParser:
             report_header=report_header,
             linkage_section=tuple(linkage_section),
             using_parameters=tuple(using_parameters),
+            sql_includes=find_sql_includes(code_lines),
         )
 
         # Validate that input contains a recognizable COBOL structure
@@ -2021,6 +2024,10 @@ class CobolParser:
         """Parse a single statement starting at the given line index."""
         line = lines[start].strip()
         upper = line.upper()
+
+        # EXEC SQL ... END-EXEC: one statement, captured whole before any COBOL verb
+        if re.match(r"EXEC\s+SQL\b", upper):
+            return self._parse_exec_sql(lines, start)
 
         # OPEN
         if upper.startswith("OPEN "):
@@ -4049,6 +4056,29 @@ class CobolParser:
             ),
             start + 1,
         )
+
+    def _parse_exec_sql(self, lines: list[str], start: int) -> tuple[ExecSqlStatement, int]:
+        """Capture one EXEC SQL region as IR; the construct stays refused downstream."""
+        from engine.sql.extractor import parse_sql_blocks
+        from engine.transformation.exec_sql import classify, collect_region
+
+        sql, end, terminated = collect_region(lines, start)
+        facts = classify(sql)
+        block = parse_sql_blocks([sql])[0] if sql.strip() else None
+        self._diagnostics.warning(
+            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+            f"EXEC SQL {facts['kind']} is captured in the IR but has no certified Java "
+            "mapping; the program fails closed",
+            location=f"line {start + 1}",
+        )
+        if not terminated:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "EXEC SQL region has no END-EXEC", location=f"line {start + 1}")
+        return ExecSqlStatement(
+            sql=sql, kind=facts["kind"], inputs=facts["inputs"], outputs=facts["outputs"],
+            indicators=facts["indicators"], whenever=facts["whenever"],
+            include=facts["include"], block=block, terminated=terminated), end
 
     def _parse_inspect(self, lines: list[str], start: int) -> tuple[InspectStatement, int]:
         """Parse INSPECT; the statement ends at a period or at the next statement verb."""

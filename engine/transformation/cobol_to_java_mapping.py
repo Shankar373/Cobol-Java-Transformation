@@ -4130,8 +4130,8 @@ def map_cobol_statement(
     # Fail closed for constructs the mapper does not implement (J-3).  Raising
     # here prevents a false-success transform where unsupported statements
     # would otherwise be silently omitted from the generated Java.
-    from engine.transformation.ir import SqlStatement
-    if isinstance(stmt, SqlStatement):
+    from engine.transformation.ir import ExecSqlStatement, SqlStatement
+    if isinstance(stmt, (SqlStatement, ExecSqlStatement)):
         raise NotImplementedError(
             f"{type(stmt).__name__} has no Java mapping; "
             "construct is classified UNSUPPORTED and must not be "

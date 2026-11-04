@@ -780,6 +780,31 @@ class InspectStatement:
     reasons: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ExecSqlStatement:
+    """One ``EXEC SQL ... END-EXEC`` region.
+
+    Captures the SQL text, its kind, the host variables it reads (``inputs``) and fills
+    (``outputs`` -- the ``INTO`` list), indicator variables, ``WHENEVER`` directives and
+    ``INCLUDE`` members.  There is no Java mapping yet: the mapper refuses it, so the
+    construct stays UNSUPPORTED while the IR is faithful.  ``block`` is the parsed
+    ``EmbeddedSqlBlock`` (statements the SQL parser cannot model stay listed in
+    ``block.unsupported_statements``).
+    """
+
+    sql: str = ""
+    kind: str = ""
+    inputs: tuple[str, ...] = ()
+    outputs: tuple[str, ...] = ()
+    indicators: tuple[str, ...] = ()
+    #: ``(condition, action, label)`` for WHENEVER, else empty.
+    whenever: tuple[str, ...] = ()
+    #: ``INCLUDE`` member (``SQLCA``, a DCLGEN member), else empty.
+    include: str = ""
+    block: object = None
+    terminated: bool = True
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
@@ -809,6 +834,7 @@ Statement = (
     | InitializeStatement
     | AcceptStatement
     | InspectStatement
+    | ExecSqlStatement
 )
 
 
@@ -945,6 +971,8 @@ class CobolProgram:
     entry_points: tuple[str, ...] = ()  # ENTRY statements
     linkage_section: tuple[DataItem, ...] = ()
     using_parameters: tuple[str, ...] = ()
+    #: ``EXEC SQL INCLUDE`` members (SQLCA, DCLGEN host-structure members), source order.
+    sql_includes: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------

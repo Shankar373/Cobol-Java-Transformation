@@ -318,6 +318,7 @@ class ApplicationDiscovery:
                 report_header=program.report_header,
                 linkage_section=program.linkage_section,
                 using_parameters=program.using_parameters,
+                sql_includes=program.sql_includes,
                 called_programs=tuple(c.target for c in calls),
                 copybooks=tuple(cb.copybook_name for cb in copybooks),
                 entry_points=tuple(entry_points),
