@@ -10,6 +10,7 @@
  *   GET    /applications/{id}
  *   POST   /applications/{id}/ingest
  *   GET    /applications/{id}/discovery
+ *   GET    /applications/{id}/estate
  *   POST   /applications/{id}/modernize
  *   GET    /applications/{id}/runs
  *   GET    /runs/{id}
@@ -612,6 +613,45 @@ export async function getDiscovery(
   appId: string,
 ): Promise<DiscoveryResult> {
   return request<DiscoveryResult>(`/applications/${appId}/discovery`);
+}
+
+/** One edge of the estate graph with the proof state that supports it. */
+export interface EstateEdge {
+  source: string;
+  target: string;
+  relation: string;
+  proof_state: 'PROVEN' | 'PARTIAL' | 'BLOCKED' | 'UNPROVEN';
+  evidence: string;
+}
+
+export interface EstateNode {
+  id: string;
+  kind: string;
+  name: string;
+  external: boolean;
+}
+
+export interface EstateSummary {
+  node_count: number;
+  edge_count: number;
+  nodes_by_kind: Record<string, number>;
+  edges_by_relation: Record<string, number>;
+  edges_by_proof_state: Record<string, number>;
+  proven_edge_percent: number;
+  blocked_edges: string[];
+}
+
+export interface EstateResponse {
+  application_id: string;
+  summary: EstateSummary;
+  nodes: EstateNode[];
+  edges: EstateEdge[];
+  discovery_errors: DiscoveryIssue[];
+}
+
+/** Read-only estate graph of an ingested application (roadmap unit 17). */
+export async function getEstate(appId: string): Promise<EstateResponse> {
+  return request<EstateResponse>(`/applications/${appId}/estate`);
 }
 
 /**

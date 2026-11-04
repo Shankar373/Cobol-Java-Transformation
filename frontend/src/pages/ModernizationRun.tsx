@@ -5,6 +5,7 @@ import {
   SectionCard,
   ApprovalPanel,
   Badge,
+  EstatePanel,
   Button,
   VerdictDisplay,
   ValidationScope,
@@ -823,6 +824,11 @@ export function ModernizationRun({
                     </div>
                   </div>
                 )}
+
+                <div data-testid="estate-section">
+                  <div style={subheadingStyle}>Estate</div>
+                  <EstatePanel appId={discovery.application_id} />
+                </div>
 
                 {(discovery.dataset_catalog ?? []).length > 0 && (
                   <div data-testid="dataset-catalog">

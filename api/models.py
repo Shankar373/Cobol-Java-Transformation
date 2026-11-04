@@ -281,6 +281,15 @@ class DiscoveryResponse(BaseModel):
     discovery_errors: list[dict] = Field(default_factory=list)
 
 
+class EstateResponse(BaseModel):
+    """Read-only estate graph of an application: nodes, edges with proof states, and a summary."""
+    application_id: str
+    summary: dict
+    nodes: list[dict]
+    edges: list[dict]
+    discovery_errors: list[dict] = Field(default_factory=list)
+
+
 class RunDetailResponse(BaseModel):
     """Detailed run response including discovery + stage messages."""
     id: str

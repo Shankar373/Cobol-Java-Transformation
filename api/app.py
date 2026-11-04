@@ -90,6 +90,7 @@ from api.models import (
     ArtifactMetadata,
     ComparisonDetail,
     DiscoveryResponse,
+    EstateResponse,
     IngestResponse,
     IntegratedProofResult,
     IntegratedProofResponse,
@@ -982,6 +983,25 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
         total_size_bytes=discovery.total_size_bytes,
         discovery_success=discovery.discovery_success,
         discovery_errors=_public(discovery.discovery_errors),
+    )
+
+
+@app.get("/applications/{app_id}/estate", response_model=EstateResponse)
+def get_application_estate(app_id: str) -> EstateResponse:
+    """Read-only estate graph: programs, copybooks, jobs, datasets and subsystem references."""
+    app = _svc().get_application(app_id)
+    if app.cobol_source_path is None:
+        raise _error(404, "No source has been ingested for this application")
+
+    from api.estate import compute_estate
+
+    body = compute_estate(Path(app.cobol_source_path), app_id)
+    return EstateResponse(
+        application_id=app_id,
+        summary=_public(body["summary"]),
+        nodes=_public(body["nodes"]),
+        edges=_public(body["edges"]),
+        discovery_errors=_public(body["discovery_errors"]),
     )
 
 

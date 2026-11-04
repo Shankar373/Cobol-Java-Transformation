@@ -14,3 +14,4 @@ export { Sidebar } from './Sidebar';
 export { PipelineStepper } from './PipelineStepper';
 export { CopyButton } from './CopyButton';
 export { IntegratedProof } from './IntegratedProof';
+export { EstatePanel } from './EstatePanel';
