@@ -135,6 +135,16 @@ def _run(files: dict[str, str], seed_sql: str, middle: str, tables: tuple[str, .
         shutil.rmtree(work, ignore_errors=True)
 
 
+def run_sql(
+    seed_sql: str, query_sql: str, *, timeout: int = 300, image: str = ORACLE_PG_IMAGE,
+) -> tuple[str, ...]:
+    """Seed a fresh PostgreSQL, run ``query_sql`` and return its rows as text, fields on U+001F."""
+    middle = ('{pg}/psql -h localhost -U postgres -At -F "$(printf \'\\037\')" -d testdb '
+              '-v ON_ERROR_STOP=1 -f /w/query.sql\n').format(pg=_PG)
+    result = _run({"query.sql": query_sql}, seed_sql, middle, (), timeout, image)
+    return tuple(line for line in result.stdout if line != "")
+
+
 def run_cobol(
     source: str, seed_sql: str, tables: tuple[str, ...], *, timeout: int = 300,
     image: str = ORACLE_PG_IMAGE,
