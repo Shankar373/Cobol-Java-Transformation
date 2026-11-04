@@ -454,6 +454,14 @@ def verify_production_auth_configuration() -> None:
             f"'production' and {sorted(v or '(unset)' for v in _KNOWN_NON_PRODUCTION_ENVIRONMENTS)}. "
             "Refusing to start in an unrecognised deployment environment."
         )
+    raw_roles = os.environ.get("CONTROL_PLANE_ROLE_TOKENS")
+    if raw_roles is not None and raw_roles.strip():
+        from api import rbac
+
+        try:
+            rbac.parse_role_tokens(raw_roles)
+        except rbac.RoleConfigError as error:
+            raise RuntimeError(f"Refusing to start: {error}") from error
     token = _expected_token()
     if env == _PRODUCTION_ENVIRONMENT and token is None:
         raise RuntimeError(
@@ -511,6 +519,22 @@ async def _require_api_token(request: Request, call_next):
     # follows is still fully authenticated.
     if request.method == "OPTIONS":
         return await call_next(request)
+    raw_roles = os.environ.get("CONTROL_PLANE_ROLE_TOKENS")
+    if raw_roles is not None and raw_roles.strip():
+        # Role mode (roadmap unit 19): each token carries a role; invalid configuration grants nothing.
+        from api import rbac
+
+        try:
+            role_tokens = rbac.parse_role_tokens(raw_roles)
+        except rbac.RoleConfigError:
+            return _unauthorized(request)
+        role = rbac.role_for_token(_presented_credential(request), role_tokens, token)
+        if role is None:
+            return _unauthorized(request)
+        if not rbac.allows(role, request.method, request.url.path):
+            return _forbidden(request, role)
+        request.state.role = role
+        return await call_next(request)
     if token is None:
         if production_environment_active():
             # Fail closed: a production process without a configured token
@@ -524,17 +548,45 @@ async def _require_api_token(request: Request, call_next):
     return await call_next(request)
 
 
-def _presented_token_matches(request: Request, token: str) -> bool:
+def _presented_credential(request: Request) -> str:
     header = request.headers.get("Authorization", "")
     provided = header[7:] if header.startswith("Bearer ") else ""
-    if not provided:
-        provided = request.headers.get("X-API-Key", "")
+    return provided or request.headers.get("X-API-Key", "")
+
+
+def _presented_token_matches(request: Request, token: str) -> bool:
+    provided = _presented_credential(request)
     return bool(provided) and _token_matches(provided, token)
+
+
+def _forbidden(request: Request, role: str) -> JSONResponse:
+    """403 for an authenticated caller whose role may not do this; audited with the role, never the token."""
+    logger.warning(
+        "authorization failed",
+        extra={
+            "event": "auth.forbidden",
+            "method": request.method,
+            "path": request.url.path,
+            "role": role,
+            "client": request.client.host if request.client else "",
+        },
+    )
+    response = JSONResponse(status_code=403, content={"detail": "Forbidden for this role"})
+    return _apply_security_headers(request, response)
 
 
 def _caller_authenticated(request: Request) -> bool:
     """True when this request would pass the token check of a protected route."""
     token = _expected_token()
+    raw_roles = os.environ.get("CONTROL_PLANE_ROLE_TOKENS")
+    if raw_roles is not None and raw_roles.strip():
+        from api import rbac
+
+        try:
+            role_tokens = rbac.parse_role_tokens(raw_roles)
+        except rbac.RoleConfigError:
+            return False
+        return rbac.role_for_token(_presented_credential(request), role_tokens, token) is not None
     if token is None:
         return not production_environment_active()
     return _presented_token_matches(request, token)
