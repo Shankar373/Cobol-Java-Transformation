@@ -57,14 +57,24 @@ Two stages share one control plane: **generation** (`engine/modernization/pipeli
 Verdicts are `VERIFIED` only when every declared observable matches, `UNAVAILABLE` when the reference cannot run,
 and otherwise fail closed. A build or infrastructure failure is never evidence.
 
-## Roadmap
+## Enterprise roadmap: what exists and what does not
 
-The phased roadmap (JCL job streams, keyed-file breadth, real MQ/IMS call forms, DB2 lowering with a pluggable
-dialect layer and PostgreSQL oracle, subsystem simulators for CICS/IMS/MQ, estate model and portfolio UI,
-decomposition planner, production hardening) is in
-[`docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md`](docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md). Each item ships only
-when its proof and the full CI gate pass; nothing in the roadmap is a claim of current capability. CICS, IMS and MQ
-equivalence can only be proven against a versioned simulator and will be labelled `SIMULATOR_VERIFIED`.
+The 20-unit plan is in [`docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md`](docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md);
+the per-unit result, with the CI, supply-chain and four-runtime certification run that gated each commit, is in
+[`docs/audits/EXECUTION_LEDGER.md`](docs/audits/EXECUTION_LEDGER.md) (a unit is "done" there only when its own
+gates passed). Capability claims live in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
+
+| Area | State |
+|---|---|
+| JCL | Preprocessor (PROC/symbolics/SET), DD binding and dataset catalogue, a Java job launcher with COND, dispositions, GDGs, inline data and native IEFBR14/IEBGENER/IDCAMS. Utility and GDG behaviour is from documented semantics, **not** an IBM/JES oracle |
+| COBOL | ASSIGN ddnames, keyed `ACCESS MODE RANDOM`, `INSPECT` (GnuCOBOL-proven). Not done: `SEARCH`, `SORT`, `MERGE`; numeric-edited PIC is held uncommitted pending authorization |
+| DB2 / SQL | `EXEC SQL` kept as IR; a pluggable `DatabaseDialect` (DB2, PostgreSQL); JDBC generation for a certified subset, equal to an OCESQL + PostgreSQL 14 reference; fixed-width record migration with reconciliation. **Not DB2-verified**; indicators, WHENEVER and dynamic SQL are refused |
+| MQ / IMS / CICS | Versioned simulators SIMMQ-1, SIMDLI-1, SIMCICS-1 with Java twins and conformance suites, label `SIMULATOR_VERIFIED`. **Not wired** into generated code: `EXEC CICS`, `EXEC DLI` and MQ calls stay unsupported |
+| Estate | Dependency graph with a proof state on every edge, read-only API and UI, a decomposition *proposal* for review (no multi-artifact or container generation) |
+| Control plane | Role-based access control on bearer tokens. OIDC, signing keys and Docker socket isolation need the owner: see [`docs/audits/OWNER_DECISIONS.md`](docs/audits/OWNER_DECISIONS.md) |
+
+Verdict labels never overstate: `VERIFIED` (GnuCOBOL oracle), `SIMULATOR_VERIFIED` (equal to an in-repo
+specification), and nothing here can produce an IBM-verified verdict.
 
 ## Quick start
 
