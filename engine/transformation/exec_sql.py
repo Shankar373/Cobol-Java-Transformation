@@ -24,7 +24,7 @@ _WHENEVER = re.compile(
 _INCLUDE = re.compile(r"^INCLUDE\s+([A-Za-z0-9-]+)\s*$", re.IGNORECASE)
 _KINDS = ("SELECT", "INSERT", "UPDATE", "DELETE", "DECLARE", "OPEN", "FETCH", "CLOSE", "COMMIT",
           "ROLLBACK", "PREPARE", "EXECUTE", "CALL", "WHENEVER", "INCLUDE", "SET", "LOCK", "GRANT",
-          "CONNECT", "SAVEPOINT", "RELEASE", "DESCRIBE", "VALUES", "MERGE", "TRUNCATE", "BEGIN",
+          "CONNECT", "DISCONNECT", "SAVEPOINT", "RELEASE", "DESCRIBE", "VALUES", "MERGE", "TRUNCATE", "BEGIN",
           "END")
 
 
@@ -100,3 +100,79 @@ def collect_region(lines: list[str], start: int) -> tuple[str, int, bool]:
         if i >= len(lines):
             return " ".join(p.strip() for p in parts if p.strip()), i, False
         body = lines[i].strip()
+
+
+# ---------------------------------------------------------------------------------------------
+# Statement shapes the JDBC lowering understands (roadmap unit 12b)
+# ---------------------------------------------------------------------------------------------
+
+_HOST_ITEM = re.compile(r"^:([A-Za-z][A-Za-z0-9-]*)(?:\s*:\s*([A-Za-z][A-Za-z0-9-]*))?$")
+_SELECT_INTO = re.compile(r"^(SELECT\b.*?)\s+INTO\s+(.*?)\s+(FROM\b.*)$", re.IGNORECASE | re.DOTALL)
+_CONNECT = re.compile(
+    r"^CONNECT\s+:([A-Za-z][A-Za-z0-9-]*)\s+IDENTIFIED\s+BY\s+:([A-Za-z][A-Za-z0-9-]*)"
+    r"\s+USING\s+:([A-Za-z][A-Za-z0-9-]*)$", re.IGNORECASE)
+_DECLARE = re.compile(r"^DECLARE\s+([A-Za-z][A-Za-z0-9_-]*)\s+CURSOR\s+FOR\s+(SELECT\b.*)$",
+                      re.IGNORECASE | re.DOTALL)
+_OPEN_CLOSE = re.compile(r"^(OPEN|CLOSE)\s+([A-Za-z][A-Za-z0-9_-]*)$", re.IGNORECASE)
+_FETCH = re.compile(r"^FETCH\s+(?:NEXT\s+)?(?:FROM\s+)?([A-Za-z][A-Za-z0-9_-]*)\s+INTO\s+(.*)$",
+                    re.IGNORECASE | re.DOTALL)
+_TX_END = re.compile(r"^(COMMIT|ROLLBACK)(?:\s+WORK)?$", re.IGNORECASE)
+_DISCONNECT = re.compile(r"^DISCONNECT(?:\s+(?:ALL|CURRENT))?$", re.IGNORECASE)
+
+
+def _clean(sql: str) -> str:
+    return " ".join(sql.split()).rstrip(";").strip()
+
+
+def host_list(text: str) -> tuple[tuple[tuple[str, str], ...], bool]:
+    """``(:A, :B:IND)`` -> ((name, indicator), ...); ``False`` when an item is not a host variable."""
+    items = []
+    for part in text.split(","):
+        match = _HOST_ITEM.match(part.strip())
+        if not match:
+            return (), False
+        items.append((match.group(1).upper(), (match.group(2) or "").upper()))
+    return tuple(items), bool(items)
+
+
+def split_select_into(sql: str):
+    """``SELECT cols INTO :a, :b FROM ...`` -> (select without INTO, ((name, indicator), ...)) or None."""
+    match = _SELECT_INTO.match(_clean(sql))
+    if not match:
+        return None
+    targets, ok = host_list(match.group(2))
+    if not ok:
+        return None
+    return f"{match.group(1)} {match.group(3)}", targets
+
+
+def parse_connect(sql: str):
+    match = _CONNECT.match(_clean(sql))
+    return tuple(g.upper() for g in match.groups()) if match else None
+
+
+def parse_declare_cursor(sql: str):
+    match = _DECLARE.match(_clean(sql))
+    return (match.group(1).upper(), match.group(2)) if match else None
+
+
+def parse_cursor_op(sql: str):
+    """``('OPEN'|'CLOSE', name)`` or ``('FETCH', name, ((host, indicator), ...))`` or None."""
+    cleaned = _clean(sql)
+    match = _OPEN_CLOSE.match(cleaned)
+    if match:
+        return match.group(1).upper(), match.group(2).upper()
+    match = _FETCH.match(cleaned)
+    if match:
+        targets, ok = host_list(match.group(2))
+        return ("FETCH", match.group(1).upper(), targets) if ok else None
+    return None
+
+
+def parse_tx_end(sql: str):
+    match = _TX_END.match(_clean(sql))
+    return match.group(1).upper() if match else None
+
+
+def is_disconnect(sql: str) -> bool:
+    return bool(_DISCONNECT.match(_clean(sql)))

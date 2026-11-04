@@ -229,7 +229,18 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "EXEC CICS": _unsupported("EXEC CICS is outside the certified deterministic Java lane"),
-    "EXEC SQL": _unsupported("EXEC SQL requires the separate DB2/SQL semantic lane"),
+    "EXEC SQL": _supported(
+        "EXEC SQL on a PostgreSQL target through JDBC: CONNECT :user IDENTIFIED BY :password "
+        "USING :database, DISCONNECT, singleton SELECT ... INTO, INSERT/UPDATE/DELETE, "
+        "COMMIT/ROLLBACK and DECLARE/OPEN/FETCH/CLOSE cursors, with elementary DISPLAY host "
+        "variables (PIC X, PIC 9, PIC S9(i)V9(s)) and SQLCODE/SQLSTATE; SQLCODE 0/100, row "
+        "effects and database state equal the OCESQL v1.4 + PostgreSQL 14 reference "
+        "(tests/integration/test_sql_jdbc_oracle.py). Not DB2: no DB2 subsystem is available, "
+        "the reference reports its own error SQLCODEs and zero-row UPDATE/DELETE is SQLCODE 0. "
+        "Indicators, WHENEVER, dynamic SQL, CALL, WITH HOLD, untranslatable DB2 syntax and "
+        "other host variables fail closed with an unresolvable symbol.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     # IMS and IBM MQ support was added detection-first: no IR, no mapper, no
     # runtime integration, so absence of IR proves the mapper can never see
     # them.  The evidence text names the subsystem so capability verdicts say

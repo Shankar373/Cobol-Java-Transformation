@@ -95,7 +95,9 @@ class TestParserKeepsTheRegionWhole:
     def test_includes_are_recorded_on_the_program(self):
         program = _parse("")
         assert program.sql_includes == ("SQLCA", "EMPREC")
-        assert [d.name for d in program.working_storage] == ["WS-ID", "WS-NAME", "WS-IND"]
+        # INCLUDE SQLCA brings SQLCODE and SQLSTATE into scope after the declared items
+        assert [d.name for d in program.working_storage] == [
+            "WS-ID", "WS-NAME", "WS-IND", "SQLCODE", "SQLSTATE"]
 
     def test_statements_in_order_with_their_kinds(self):
         program = _parse(
@@ -146,12 +148,23 @@ class TestParserKeepsTheRegionWhole:
         assert "SQLCA" not in program.sql_includes  # the fixture declares SQLCODE directly
 
 
-class TestStillRefused:
-    def test_the_mapper_refuses_the_statement(self):
-        stmt = _sql(_parse("           EXEC SQL COMMIT END-EXEC.\n"))[0]
-        with pytest.raises(NotImplementedError, match="no Java mapping"):
-            map_cobol_statement(stmt)
+class TestOutsideTheCertifiedSubsetStaysRefused:
+    def test_the_db2_fixture_is_still_refused_by_the_analysis(self):
+        # Indicator variables and COMP-3 host variables are outside the certified subset.
+        from engine.transformation.exec_sql_lowering import unsupported_reasons
 
-    def test_the_registry_keeps_exec_sql_unsupported(self):
+        source = (ROOT / "fixtures" / "workload-db2" / "cobol" / "ACCOUNT-DB2.cob").read_text(
+            encoding="utf-8")
+        program = CobolParser().parse(source)
+        assert any(unsupported_reasons(s, program) for s in _sql(program))
+
+    def test_an_unsupported_statement_fails_closed_by_name(self):
+        program = _parse("           EXEC SQL WHENEVER SQLERROR CONTINUE END-EXEC.\n")
+        mapped = map_cobol_statement(_sql(program)[0], program)
+        assert "UNSUPPORTED_EXEC_SQL$" in repr(mapped)
+
+    def test_the_registry_marks_exec_sql_supported_only_for_the_subset(self):
         assert IR_TYPE_TO_CONSTRUCT["ExecSqlStatement"] == "EXEC SQL"
-        assert CONSTRUCT_REGISTRY["EXEC SQL"].level.name == "UNSUPPORTED"
+        entry = CONSTRUCT_REGISTRY["EXEC SQL"]
+        assert entry.level.name == "SUPPORTED"
+        assert "Not DB2" in entry.evidence

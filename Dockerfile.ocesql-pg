@@ -38,10 +38,26 @@ RUN git clone -q https://github.com/opensourcecobol/Open-COBOL-ESQL.git /tmp/oce
     ./configure --prefix=/usr/local >/dev/null && make -j2 >/dev/null && make install >/dev/null && \
     ldconfig && cd / && rm -rf /tmp/ocesql
 
+# Temurin 21 (the certified Java major) and the PostgreSQL JDBC driver, both verified against
+# their publishers' SHA-256 before use, so generated JDBC code runs in the same image and against
+# the same server as the OCESQL reference.
+ARG TEMURIN_URL=https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_x64_linux_hotspot_21.0.5_11.tar.gz
+ARG TEMURIN_SHA256=3c654d98404c073b8a7e66bffb27f4ae3e7ede47d13284c132d40a83144bfd8c
+ARG PGJDBC_URL=https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar
+ARG PGJDBC_SHA256=188976721ead8e8627eb6d8389d500dccc0c9bebd885268a3047180274a6031e
+RUN apt-get update -qq && apt-get install -y --no-install-recommends curl &&     curl -sSfL -o /tmp/jdk.tgz "$TEMURIN_URL" &&     echo "$TEMURIN_SHA256  /tmp/jdk.tgz" | sha256sum -c - &&     mkdir -p /opt/jdk && tar -xzf /tmp/jdk.tgz -C /opt/jdk --strip-components=1 &&     mkdir -p /opt/jdbc &&     curl -sSfL -o /opt/jdbc/postgresql.jar "$PGJDBC_URL" &&     echo "$PGJDBC_SHA256  /opt/jdbc/postgresql.jar" | sha256sum -c - &&     rm -f /tmp/jdk.tgz && apt-get purge -y curl && apt-get autoremove -y -qq &&     rm -rf /var/lib/apt/lists/*
+
 # Smoke-tests: the oracle compiler, the precompiler and the server are exactly what is declared.
 RUN cobc --version | head -1 | grep -qx 'cobc (GnuCOBOL) 3.1.2.0' && \
     test -x /usr/local/bin/ocesql && \
-    /usr/lib/postgresql/14/bin/postgres --version | grep -q 'PostgreSQL) 14\.'
+    /usr/lib/postgresql/14/bin/postgres --version | grep -q 'PostgreSQL) 14\.' && \
+    /opt/jdk/bin/java -version 2>&1 | head -1 | grep -q '"21\.' && \
+    test -s /opt/jdbc/postgresql.jar
 
-ENV PATH=/usr/lib/postgresql/14/bin:$PATH
+# The hardened runner (engine/execution/container_hardening.py) runs every container as
+# 10001:10001 with all capabilities dropped; PostgreSQL's initdb needs that user to exist.
+RUN groupadd -g 10001 runner && useradd -u 10001 -g 10001 -m runner
+
+ENV PATH=/opt/jdk/bin:/usr/lib/postgresql/14/bin:$PATH
+ENV JAVA_HOME=/opt/jdk
 WORKDIR /workspace

@@ -715,7 +715,9 @@ class TestInvalidKeyIntegrationEvidence:
         from engine.transformation.semantic_capability import CONSTRUCT_REGISTRY
 
         assert CONSTRUCT_REGISTRY["EXEC CICS"].level is CapabilityLevel.UNSUPPORTED
-        assert CONSTRUCT_REGISTRY["EXEC SQL"].level is CapabilityLevel.UNSUPPORTED
+        # EXEC SQL became SUPPORTED for a certified PostgreSQL/JDBC subset in roadmap unit 12;
+        # that is a separate lane with its own oracle (tests/integration/test_sql_jdbc_oracle.py).
+        assert CONSTRUCT_REGISTRY["EXEC SQL"].level is CapabilityLevel.SUPPORTED
         assert CONSTRUCT_REGISTRY["SORT"].level is CapabilityLevel.UNSUPPORTED
         # DB2 runtime proof remains a strictly stronger, unavailable-by-design
         # claim above portable SQLite execution (SQLite != DB2).

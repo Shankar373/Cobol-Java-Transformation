@@ -763,6 +763,18 @@ class CapabilityAnalyzer:
 
             # INSPECT is SUPPORTED only for the certified literal subset on an
             # elementary DISPLAY PIC X target; otherwise the mapper fails closed.
+            if name == "ExecSqlStatement":
+                from engine.transformation.exec_sql_lowering import unsupported_reasons
+
+                sql_why = unsupported_reasons(stmt, program)
+                if sql_why:
+                    findings.append((
+                        "EXEC SQL",
+                        CapabilityLevel.UNSUPPORTED,
+                        "EXEC SQL outside the certified subset (" + ", ".join(sorted(set(sql_why)))
+                        + "); mapper fails closed",
+                    ))
+
             if name == "InspectStatement":
                 from engine.transformation.cobol_to_java_mapping import (
                     inspect_unsupported_reasons,

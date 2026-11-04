@@ -178,6 +178,7 @@ class JavaGenerator(JavaSourceRenderer):
         uses_cobol_file_io_stmt = False
         uses_cobol_stdin_stmt = False
         uses_cobol_inspect_stmt = False
+        uses_cobol_sql_stmt = False
 
         for method in java_class.methods:
             method_stmts: list[str] = []
@@ -193,6 +194,8 @@ class JavaGenerator(JavaSourceRenderer):
                         uses_cobol_stdin_stmt = True
                     if "CobolInspect." in stmt_str:
                         uses_cobol_inspect_stmt = True
+                    if "CobolSql." in stmt_str:
+                        uses_cobol_sql_stmt = True
 
             if method.name == "main":
                 main_body = "".join(f"        {s}\n" for s in method_stmts)
@@ -227,6 +230,9 @@ class JavaGenerator(JavaSourceRenderer):
         if uses_cobol_inspect_stmt:
             from engine.transformation.inspect_support_template import COBOL_INSPECT_JAVA
             support_code += "\n" + COBOL_INSPECT_JAVA + "\n"
+        if uses_cobol_sql_stmt:
+            from engine.transformation.sql_support_template import COBOL_SQL_JAVA
+            support_code += "\n" + COBOL_SQL_JAVA + "\n"
         if uses_file_write:
             file_write_imports = (
                 "import java.io.FileWriter;\n"

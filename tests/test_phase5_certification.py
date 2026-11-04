@@ -27,7 +27,8 @@ from engine.transformation.semantic_capability import (
 REPO = Path(__file__).resolve().parents[1]
 EVIDENCE = REPO / "docs" / "reports" / "evidence" / "phase3"
 RUNTIMES = ("spring_boot", "plain_java", "quarkus", "micronaut")
-_ORACLE_MARKERS = ("gnucobol-ocesql", "run_gnucobol", "DockerOracleAdapter")
+# ``ocesql-pg`` is the GnuCOBOL 3.1.2 image extended with OCESQL and PostgreSQL (embedded SQL).
+_ORACLE_MARKERS = ("gnucobol-ocesql", "run_gnucobol", "DockerOracleAdapter", "ocesql-pg")
 
 # construct -> proofs: ("test", path) | ("app", fixture, source regex)
 PROOFS: dict[str, list[tuple]] = {
@@ -36,6 +37,7 @@ PROOFS: dict[str, list[tuple]] = {
     "SET CONDITION TO TRUE": [("test", "tests/integration/test_structural_oracle_proof.py")],
     "ACCEPT": [("test", "tests/integration/test_accept_oracle_proof.py")],
     "INSPECT": [("test", "tests/integration/test_inspect_oracle.py")],
+    "EXEC SQL": [("test", "tests/integration/test_sql_jdbc_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),
                        ("app", "workload-indexed", r"ACCESS\s+(MODE\s+)?(IS\s+)?DYNAMIC")],
     "ORGANIZATION INDEXED": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),

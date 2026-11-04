@@ -25,6 +25,11 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from engine.execution.container_hardening import (
+    container_run_hardening_flags,
+    prepare_host_tree,
+)
+
 ORACLE_PG_IMAGE = "ocesql-pg:latest"
 STATE_MARK = "==STATE=="
 _PG = "/usr/lib/postgresql/14/bin"
@@ -33,24 +38,34 @@ _PG = "/usr/lib/postgresql/14/bin"
 # and PROCEDURE DIVISION (observed with v1.4); a fixed-format comment line is inserted when absent.
 _PROCEDURE = re.compile(r"^(\s*)PROCEDURE\s+DIVISION\b", re.IGNORECASE | re.MULTILINE)
 
-_DRIVER = """set -e
-install -d -o postgres -g postgres /tmp/pg
-su postgres -c "{pg}/initdb -D /tmp/pg/data -A trust >/dev/null"
-su postgres -c "{pg}/pg_ctl -D /tmp/pg/data -l /tmp/pg/log -o '-c listen_addresses=localhost' -w start >/dev/null"
-su postgres -c "{pg}/psql -q -v ON_ERROR_STOP=1 -c 'create database testdb'"
-su postgres -c "{pg}/psql -q -v ON_ERROR_STOP=1 -d testdb -f /w/seed.sql"
+_PREFIX = """set -e
+export PGHOST=localhost
+mkdir -p /tmp/pg
+{pg}/initdb -D /tmp/pg/data -A trust -U postgres >/dev/null
+{pg}/pg_ctl -D /tmp/pg/data -l /tmp/pg/log -w \
+  -o "-c listen_addresses=localhost -c unix_socket_directories=/tmp/pg" start >/dev/null
+{pg}/psql -h localhost -U postgres -q -v ON_ERROR_STOP=1 -c "create database testdb"
+{pg}/psql -h localhost -U postgres -q -v ON_ERROR_STOP=1 -d testdb -f /w/seed.sql
 cd /w
-ocesql prog.cbl prog.cob >/dev/null
+"""
+_COBOL = """ocesql prog.cbl prog.cob >/dev/null
 cobc -x -I /usr/local/share/open-cobol-esql/copy -o prog prog.cob -Q -Wl,--no-as-needed -L/usr/local/lib -locesql
 export LD_LIBRARY_PATH=/usr/local/lib
 set +e
 ./prog
 echo "rc=$?"
 set -e
-echo "{mark}"
+"""
+_JAVA = """mkdir -p out
+javac -nowarn -d out *.java
+set +e
+java -cp out:/opt/jdbc/postgresql.jar {main}
+echo "rc=$?"
+set -e
+"""
+_TAIL = """echo "{mark}"
 {dump}
 """
-
 
 @dataclass(frozen=True)
 class OraclePgResult:
@@ -83,29 +98,28 @@ def dump_command(tables: tuple[str, ...]) -> str:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
             raise ValueError(f"table name {table!r} is not a plain identifier")
         parts.append(
-            f"echo '--{table}'; su postgres -c \"{_PG}/psql -At -d testdb -c "
-            f"'select t::text from {table} t order by t::text'\""
+            f"echo '--{table}'; {_PG}/psql -h localhost -U postgres -At -d testdb -c "
+            f"\"select t::text from {table} t order by t::text\""
         )
     return "\n".join(parts)
 
 
-def run_cobol(
-    source: str, seed_sql: str, tables: tuple[str, ...], *, timeout: int = 300,
-    image: str = ORACLE_PG_IMAGE,
-) -> OraclePgResult:
-    """Compile and run ``source`` through OCESQL against a database seeded with ``seed_sql``."""
+def _run(files: dict[str, str], seed_sql: str, middle: str, tables: tuple[str, ...],
+         timeout: int, image: str) -> OraclePgResult:
     work = Path(tempfile.mkdtemp(prefix="ocesql-pg-"))
     try:
-        (work / "prog.cbl").write_text(with_banner(source), encoding="utf-8", newline="\n")
+        for name, content in files.items():
+            (work / name).write_text(content, encoding="utf-8", newline="\n")
         (work / "seed.sql").write_text(seed_sql, encoding="utf-8", newline="\n")
-        (work / "run.sh").write_text(
-            _DRIVER.format(pg=_PG, mark=STATE_MARK, dump=dump_command(tables)),
-            encoding="utf-8", newline="\n")
+        script = (_PREFIX.format(pg=_PG) + middle
+                  + _TAIL.format(mark=STATE_MARK, dump=dump_command(tables)))
+        (work / "run.sh").write_text(script, encoding="utf-8", newline="\n")
+        prepare_host_tree(work, writable=True)
         done = subprocess.run(
-            ["docker", "run", "--rm", "--network", "none", "-v", f"{work}:/w", image,
-             "bash", "/w/run.sh"],
-            capture_output=True, timeout=timeout, check=False,
-            env=_no_path_conversion(),
+            ["docker", "run", "--rm", "--network", "none",
+             *container_run_hardening_flags("ocesql-pg"),
+             "-v", f"{work}:/w", image, "bash", "/w/run.sh"],
+            capture_output=True, timeout=timeout, check=False, env=_no_path_conversion(),
         )
         if done.returncode != 0:
             raise RuntimeError(
@@ -119,6 +133,23 @@ def run_cobol(
         return OraclePgResult(tuple(out), rc, state, state_hash(state))
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def run_cobol(
+    source: str, seed_sql: str, tables: tuple[str, ...], *, timeout: int = 300,
+    image: str = ORACLE_PG_IMAGE,
+) -> OraclePgResult:
+    """Compile and run ``source`` through OCESQL against a database seeded with ``seed_sql``."""
+    return _run({"prog.cbl": with_banner(source)}, seed_sql, _COBOL, tables, timeout, image)
+
+
+def run_java(
+    sources: dict[str, str], main_class: str, seed_sql: str, tables: tuple[str, ...], *,
+    timeout: int = 300, image: str = ORACLE_PG_IMAGE,
+) -> OraclePgResult:
+    """Compile generated Java (``{file name: source}``) and run it on JDBC against the same seed."""
+    middle = _JAVA.format(main=main_class)
+    return _run(dict(sources), seed_sql, middle, tables, timeout, image)
 
 
 def _no_path_conversion() -> dict[str, str]:

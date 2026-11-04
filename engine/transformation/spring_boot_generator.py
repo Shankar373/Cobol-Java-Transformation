@@ -105,8 +105,10 @@ class SpringBootGenerator(JavaSourceRenderer):
         emitted_cobol_file_io = False
         emitted_cobol_stdin = False
         emitted_cobol_inspect = False
+        emitted_cobol_sql = False
         for service, service_file in zip(application.services, service_files):
-            if emitted_cobol_file_io and emitted_cobol_stdin and emitted_cobol_inspect:
+            if (emitted_cobol_file_io and emitted_cobol_stdin and emitted_cobol_inspect
+                    and emitted_cobol_sql):
                 break
             if not emitted_cobol_file_io and "CobolFileIo." in service_file.source_code:
                 from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
@@ -143,6 +145,17 @@ class SpringBootGenerator(JavaSourceRenderer):
                     path=path,
                 ))
                 emitted_cobol_inspect = True
+            if not emitted_cobol_sql and "CobolSql." in service_file.source_code:
+                from engine.transformation.sql_support_template import COBOL_SQL_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolSql.java"
+                files.append(GeneratedFile(
+                    filename="CobolSql.java",
+                    source_code=f"package {package};\n\n{COBOL_SQL_JAVA}\n",
+                    class_name="CobolSql",
+                    path=path,
+                ))
+                emitted_cobol_sql = True
 
         # Shared copybook models are emitted by the single model loop below
         # (after the adapter implementations): a second loop here appended

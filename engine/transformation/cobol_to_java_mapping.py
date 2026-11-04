@@ -1477,6 +1477,20 @@ def _string_receiver_statements(
     ]
 
 
+def _display_integer_digits(item: DataItem) -> int:
+    """Digits DISPLAY prints for a numeric item's integer part.
+
+    A native-binary ``COMP-5`` integer prints at its storage width, not its PIC width (oracle,
+    GnuCOBOL 3.1.2: ``S9(2)`` 3 digits, ``S9(4)`` 5, ``S9(5)``..``S9(9)`` 10, ``S9(18)`` 20);
+    every other item prints its PIC digits (``COMP`` keeps binary-truncate).
+    """
+    if (item.usage or "").upper() == "COMP-5" and not item.decimal_places:
+        for limit, digits in ((2, 3), (4, 5), (9, 10), (18, 20)):
+            if item.pic_length <= limit:
+                return digits
+    return item.integer_digits
+
+
 def _numeric_display_items(program: CobolProgram) -> list[DataItem]:
     """Numeric items reachable by a ``DISPLAY`` statement, in declaration order.
 
@@ -4094,10 +4108,10 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     StopRunStatement, CallStatement,
     ExitProgramStatement, SetConditionStatement,
     UnstringStatement, GobackStatement, InitializeStatement,
-    AcceptStatement, InspectStatement,
+    AcceptStatement, InspectStatement, ExecSqlStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
-STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement, ExecSqlStatement})
+STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement})
 
 
 def classify_statement_capability(stmt: Statement) -> str:
@@ -4131,8 +4145,8 @@ def map_cobol_statement(
     # Fail closed for constructs the mapper does not implement (J-3).  Raising
     # here prevents a false-success transform where unsupported statements
     # would otherwise be silently omitted from the generated Java.
-    from engine.transformation.ir import ExecSqlStatement, SqlStatement
-    if isinstance(stmt, (SqlStatement, ExecSqlStatement)):
+    from engine.transformation.ir import SqlStatement
+    if isinstance(stmt, SqlStatement):
         raise NotImplementedError(
             f"{type(stmt).__name__} has no Java mapping; "
             "construct is classified UNSUPPORTED and must not be "
@@ -4147,7 +4161,7 @@ def map_cobol_statement(
         for item in _numeric_display_items(program):
             field_display_formats[item.name.replace("-", "_")] = (
                 display_format_spec(
-                    integer_digits=item.integer_digits,
+                    integer_digits=_display_integer_digits(item),
                     decimal_digits=item.decimal_places,
                     signed=item.signed,
                 ),
@@ -4686,6 +4700,12 @@ def map_cobol_statement(
                         is_static=True,
                     ),
                 ))
+
+    elif isinstance(stmt, ExecSqlStatement):
+        # JDBC lowering of the certified embedded-SQL subset (PostgreSQL target); anything
+        # else fails closed by name (engine/transformation/exec_sql_lowering.py).
+        from engine.transformation.exec_sql_lowering import lower as _lower_exec_sql
+        result.extend(_lower_exec_sql(stmt, program))
 
     elif isinstance(stmt, InspectStatement):
         # INSPECT with literal operands; semantics pinned by the GnuCOBOL oracle

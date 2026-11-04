@@ -713,6 +713,7 @@ class CobolParser:
             if fd.record_name and fd.name
         }
         working_storage = self._parse_working_storage(code_lines)
+        working_storage = self._with_sqlca_fields(code_lines, working_storage)
         linkage_section = self._parse_linkage_section(code_lines)
         using_parameters = self._parse_procedure_using(code_lines)
         paragraphs = self._parse_procedure_division(code_lines)
@@ -4057,6 +4058,26 @@ class CobolParser:
             start + 1,
         )
 
+    def _with_sqlca_fields(self, code_lines: list[str], working_storage):
+        """``EXEC SQL INCLUDE SQLCA`` brings SQLCODE and SQLSTATE into scope.
+
+        Only the two fields programs test are modelled, as standalone items (the reference's
+        ``SQLCA`` group is not); a name the program already declares is left alone.
+        """
+        if "SQLCA" not in find_sql_includes(code_lines):
+            return working_storage
+        declared = {item.name.upper() for item in working_storage}
+        wanted = [
+            line for name, line in (
+                ("SQLCODE", "01 SQLCODE PIC S9(9) COMP-5."),
+                ("SQLSTATE", "01 SQLSTATE PIC X(5)."),
+            ) if name not in declared
+        ]
+        if not wanted:
+            return working_storage
+        extra = self._parse_working_storage(["WORKING-STORAGE SECTION.", *wanted])
+        return [*working_storage, *extra]
+
     def _parse_exec_sql(self, lines: list[str], start: int) -> tuple[ExecSqlStatement, int]:
         """Capture one EXEC SQL region as IR; the construct stays refused downstream."""
         from engine.sql.extractor import parse_sql_blocks
@@ -4065,12 +4086,6 @@ class CobolParser:
         sql, end, terminated = collect_region(lines, start)
         facts = classify(sql)
         block = parse_sql_blocks([sql])[0] if sql.strip() else None
-        self._diagnostics.warning(
-            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-            f"EXEC SQL {facts['kind']} is captured in the IR but has no certified Java "
-            "mapping; the program fails closed",
-            location=f"line {start + 1}",
-        )
         if not terminated:
             self._diagnostics.warning(
                 DiagnosticCode.UNSUPPORTED_CONSTRUCT,
