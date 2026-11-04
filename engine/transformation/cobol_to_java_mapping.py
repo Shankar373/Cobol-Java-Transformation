@@ -82,6 +82,7 @@ from engine.transformation.ir import (
     InitializeStatement,
     AcceptStatement,
     InspectStatement,
+    ExecSqlStatement,
     FieldReference,
     FigurativeConstant,
     Literal,
@@ -4096,7 +4097,7 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     AcceptStatement, InspectStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
-STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement})
+STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement, ExecSqlStatement})
 
 
 def classify_statement_capability(stmt: Statement) -> str:
