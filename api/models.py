@@ -290,6 +290,18 @@ class EstateResponse(BaseModel):
     discovery_errors: list[dict] = Field(default_factory=list)
 
 
+class DecompositionResponse(BaseModel):
+    """A proposed split of the application into services, for review; nothing is generated from it."""
+    application_id: str
+    review_required: bool
+    service_count: int
+    services: list[dict]
+    couplings: list[dict]
+    unassigned: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    discovery_errors: list[dict] = Field(default_factory=list)
+
+
 class RunDetailResponse(BaseModel):
     """Detailed run response including discovery + stage messages."""
     id: str

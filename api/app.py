@@ -89,6 +89,7 @@ from api.models import (
     ArtifactsResponse,
     ArtifactMetadata,
     ComparisonDetail,
+    DecompositionResponse,
     DiscoveryResponse,
     EstateResponse,
     IngestResponse,
@@ -1001,6 +1002,28 @@ def get_application_estate(app_id: str) -> EstateResponse:
         summary=_public(body["summary"]),
         nodes=_public(body["nodes"]),
         edges=_public(body["edges"]),
+        discovery_errors=_public(body["discovery_errors"]),
+    )
+
+
+@app.get("/applications/{app_id}/decomposition", response_model=DecompositionResponse)
+def get_application_decomposition(app_id: str) -> DecompositionResponse:
+    """Read-only decomposition proposal; it always requires review and generates nothing."""
+    app = _svc().get_application(app_id)
+    if app.cobol_source_path is None:
+        raise _error(404, "No source has been ingested for this application")
+
+    from api.estate import compute_decomposition
+
+    body = compute_decomposition(Path(app.cobol_source_path), app_id)
+    return DecompositionResponse(
+        application_id=app_id,
+        review_required=body["review_required"],
+        service_count=body["service_count"],
+        services=_public(body["services"]),
+        couplings=_public(body["couplings"]),
+        unassigned=body["unassigned"],
+        notes=body["notes"],
         discovery_errors=_public(body["discovery_errors"]),
     )
 

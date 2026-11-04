@@ -87,3 +87,21 @@ def test_no_workspace_and_unknown_application_are_404():
     created = client.post("/applications", json={"name": "empty", "workload_id": "w"})
     assert client.get(f"/applications/{created.json()['id']}/estate").status_code == 404
     assert client.get("/applications/app-ghost/estate").status_code == 404
+
+
+def test_the_decomposition_proposal_is_read_only_and_needs_review():
+    app_id = _ingested_app({
+        "cobol/ACCOUNT-DB2.cob": DB2_SOURCE.read_text(encoding="utf-8"),
+        "jcl/ACCTJOB.jcl": JCL,
+    })
+    response = client.get(f"/applications/{app_id}/decomposition")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["review_required"] is True and body["service_count"] == 1
+    service = body["services"][0]
+    assert service["programs"] == ["PROGRAM:ACCOUNT-DB2"]
+    assert service["entry_steps"] == ["ACCTJOB.STEP1"]
+    assert any("no code, artifact or container is generated" in n for n in body["notes"])
+    assert response.json() == client.get(f"/applications/{app_id}/decomposition").json()
+    assert client.post(f"/applications/{app_id}/decomposition").status_code == 405
+    assert client.get("/applications/app-ghost/decomposition").status_code == 404

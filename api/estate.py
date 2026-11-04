@@ -5,6 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def compute_decomposition(workspace: Path, application_id: str) -> dict:
+    """Read-only: the decomposition proposal for the application's estate (for human review)."""
+    from engine.estate.decomposition import plan_decomposition
+    from engine.estate.model import Edge, Estate, Node
+
+    body = compute_estate(workspace, application_id)
+    estate = Estate(
+        nodes=[Node(**n) for n in body["nodes"]],
+        edges=[Edge(**e) for e in body["edges"]],
+    )
+    plan = plan_decomposition(estate).to_dict()
+    plan["application_id"] = application_id
+    plan["discovery_errors"] = body["discovery_errors"]
+    return plan
+
+
 def compute_estate(workspace: Path, application_id: str) -> dict:
     """Read-only: discover the workspace, extract the DB2/MQ/IMS/CICS references, build the estate."""
     from api.ingestion import discover_application
