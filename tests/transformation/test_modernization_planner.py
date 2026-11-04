@@ -758,10 +758,12 @@ class TestCapabilityTruthP0:
         assert "UNRESOLVED" in cc.reason
         assert cc.details.get("resolution") == "UNRESOLVED"
 
-    def test_indexed_file_is_outside_certified_boundary(self):
+    def test_indexed_file_with_sequential_access_is_outside_certified_boundary(self):
+        # Roadmap unit 7 certified ACCESS MODE RANDOM (tests/test_keyed_access_modes.py);
+        # SEQUENTIAL access is still refused.
         from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityLevel
         from engine.transformation.ir import CobolApplication, CobolProgram, CobolProgramUnit, FileDefinition, FileDependency, FileOrganization, FileAccessMode, Paragraph
-        program = CobolProgram(program_id="INDEXED-APP", file_definitions=(FileDefinition(name="F", container_path="/tmp/f", record_name="REC", organization=FileOrganization.INDEXED, access_mode=FileAccessMode.RANDOM),), paragraphs=(Paragraph(name="MAIN", statements=()),))
+        program = CobolProgram(program_id="INDEXED-APP", file_definitions=(FileDefinition(name="F", container_path="/tmp/f", record_name="REC", organization=FileOrganization.INDEXED, access_mode=FileAccessMode.SEQUENTIAL),), paragraphs=(Paragraph(name="MAIN", statements=()),))
         unit = CobolProgramUnit(program_id="INDEXED-APP", source_path="MAIN.cob", program=program, file_dependencies=(FileDependency(program_id="INDEXED-APP", file_name="F", operation="READ"),))
         app = CobolApplication(application_id="APP", programs=(unit,))
         report = CapabilityAnalyzer(docker_available=True).analyze(app)

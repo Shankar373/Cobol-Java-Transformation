@@ -358,7 +358,9 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "ACCESS MODE IS DYNAMIC parses to FileAccessMode.DYNAMIC and is "
         "lowered for the certified indexed/relative fixtures (keyed and "
         "sequential access in one run unit, byte-identical to GnuCOBOL 3.1.2). "
-        "ACCESS MODE RANDOM has no registry key and no dedicated oracle proof. "
+        "ACCESS MODE RANDOM is certified by the analyzer gate (no registry key) "
+        "and oracle-proven in tests/integration/test_keyed_random_oracle.py; "
+        "SEQUENTIAL stays refused. "
         "Behavioral equivalence is PROVEN for the certified subset.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),

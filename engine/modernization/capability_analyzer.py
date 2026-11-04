@@ -1308,13 +1308,31 @@ class CapabilityAnalyzer:
         # ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY.
         # Behavioral equivalence (stdout, FILE STATUS, exit code) is PROVEN.
         if definition.organization is not FileOrganization.SEQUENTIAL:
-            if definition.access_mode != FileAccessMode.DYNAMIC:
+            if definition.access_mode not in (FileAccessMode.DYNAMIC, FileAccessMode.RANDOM):
                 return (
                     CapabilityLevel.UNSUPPORTED,
                     f"{definition.organization.value} file {fd.file_name} with "
                     f"ACCESS MODE {definition.access_mode.value} is outside the "
-                    "certified subset (certified: ACCESS MODE DYNAMIC only)",
+                    "certified subset (certified: ACCESS MODE DYNAMIC and RANDOM; "
+                    "SEQUENTIAL changes what a plain READ means and the WRITE-order "
+                    "and REWRITE/DELETE status rules)",
                 )
+            if definition.access_mode == FileAccessMode.RANDOM:
+                from engine.transformation.control_flow import walk_statements
+                from engine.transformation.ir import ReadStatement, StartStatement
+
+                for paragraph in program.paragraphs:
+                    for stmt in walk_statements(paragraph.statements):
+                        sequential_use = isinstance(stmt, StartStatement) or (
+                            isinstance(stmt, ReadStatement) and stmt.read_next
+                        )
+                        if sequential_use and stmt.file_name == fd.file_name:
+                            return (
+                                CapabilityLevel.UNSUPPORTED,
+                                f"{definition.organization.value} file {fd.file_name} is "
+                                "ACCESS MODE RANDOM but the program uses START or READ NEXT, "
+                                "which RANDOM access does not allow",
+                            )
             return (
                 CapabilityLevel.SUPPORTED,
                 f"{definition.organization.value} file {fd.operation} for "
