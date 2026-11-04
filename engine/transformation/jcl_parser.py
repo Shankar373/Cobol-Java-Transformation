@@ -337,14 +337,15 @@ class JclParser:
         params: dict[str, str] = {}
 
         # Check for PGM=
-        pgm_match = re.search(r"PGM=(\S+)", exec_str, re.IGNORECASE)
+        pgm_match = re.search(r"(?<![A-Za-z0-9])PGM=([^,\s]+)", exec_str, re.IGNORECASE)
         if pgm_match:
-            program = pgm_match.group(1).rstrip(",")
+            # the value ends at the next comma: ``PGM=PAY,COND=(4,LT)`` names PAY
+            program = pgm_match.group(1)
 
         # Check for PROC=
-        proc_match = re.search(r"PROC=(\S+)", exec_str, re.IGNORECASE)
+        proc_match = re.search(r"(?<![A-Za-z0-9])PROC=([^,\s]+)", exec_str, re.IGNORECASE)
         if proc_match:
-            procedure = proc_match.group(1).rstrip(",")
+            procedure = proc_match.group(1)
 
         # Parse other parameters
         other_params = self._parse_parameters(exec_str)
