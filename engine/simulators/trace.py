@@ -51,26 +51,34 @@ def compare_traces(left: list[str], right: list[str]) -> TraceDiff:
     return TraceDiff(True, -1, "", "", len(left), len(right))
 
 
-def run_java_trace(
-    script: str, *, timeout: int = 300, image: str = JAVA_IMAGE, source: str = SIMMQ_JAVA,
+def run_java_script(
+    class_name: str, source: str, script: str, *, timeout: int = 300, image: str = JAVA_IMAGE,
 ) -> list[str]:
-    """Run ``script`` through the Java SIMMQ-1 library in a hardened, network-less container."""
-    work = Path(tempfile.mkdtemp(prefix="simmq-"))
+    """Compile ``source`` (one class ``class_name``) and run ``script`` in a hardened, network-less container."""
+    work = Path(tempfile.mkdtemp(prefix="sim-"))
     try:
-        (work / "SimMq.java").write_text(source, encoding="utf-8", newline="\n")
+        (work / f"{class_name}.java").write_text(source, encoding="utf-8", newline="\n")
         (work / "script.txt").write_text(script, encoding="utf-8", newline="\n")
         prepare_host_tree(work, writable=True)
         done = subprocess.run(
-            ["docker", "run", "--rm", "--network", "none", *container_run_hardening_flags("simmq-java"),
+            ["docker", "run", "--rm", "--network", "none", *container_run_hardening_flags("sim-java"),
              "-v", f"{work}:/w", "-w", "/w", image, "sh", "-c",
-             "mkdir -p /tmp/c && javac -nowarn -d /tmp/c SimMq.java && java -cp /tmp/c SimMq script.txt"],
+             f"mkdir -p /tmp/c && javac -nowarn -d /tmp/c {class_name}.java"
+             f" && java -cp /tmp/c {class_name} script.txt"],
             capture_output=True, timeout=timeout, check=False, env=_env(),
         )
         if done.returncode != 0:
-            raise RuntimeError("SimMq Java run failed: " + done.stderr.decode("utf-8", "replace")[-2000:])
+            raise RuntimeError(f"{class_name} Java run failed: " + done.stderr.decode("utf-8", "replace")[-2000:])
         return done.stdout.decode("utf-8").splitlines()
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def run_java_trace(
+    script: str, *, timeout: int = 300, image: str = JAVA_IMAGE, source: str = SIMMQ_JAVA,
+) -> list[str]:
+    """Run an MQ script through the Java SIMMQ-1 library."""
+    return run_java_script("SimMq", source, script, timeout=timeout, image=image)
 
 
 def _env() -> dict[str, str]:
