@@ -42,8 +42,11 @@ class TestPlanning:
         assert plan.runnable, plan.refusals
         first, second = plan.steps
         assert (first.name, first.program, first.main_class) == ("STEP1", "PRODUCER", "Producer")
-        assert first.dds == (("OUTDD", "HR.DATA"), ("TMP", "_tmp/WORK"))  # SYSOUT not bound
-        assert second.dds == (("INDD", "HR.DATA"),)
+        # SYSOUT is not bound; DISP defaults follow JCL (NEW is deleted unless catalogued/kept/passed)
+        assert [(d.name, d.path, d.status, d.normal) for d in first.dds] == [
+            ("OUTDD", "HR.DATA", "NEW", "CATLG"), ("TMP", "_tmp/WORK", "NEW", "PASS")]
+        assert [(d.name, d.path, d.status, d.normal) for d in second.dds] == [
+            ("INDD", "HR.DATA", "SHR", "KEEP")]
         assert second.conds == (CondTest(4, "LT"),)
 
     def test_dataset_paths(self):
@@ -72,15 +75,17 @@ class TestRefusals:
         return "; ".join(plan.refusals)
 
     def test_a_program_that_is_not_in_the_application(self):
-        assert "IEFBR14" in self._reasons("//J JOB\n//S EXEC PGM=IEFBR14\n")
+        assert "SORT" in self._reasons("//J JOB\n//S EXEC PGM=SORT\n")
 
-    def test_inline_data(self):
-        assert "inline data" in self._reasons(
-            "//J JOB\n//S EXEC PGM=PRODUCER\n//SYSIN DD *\n")
+    def test_dummy_dd_on_a_program_step(self):
+        assert "DUMMY" in self._reasons(
+            "//J JOB\n//S EXEC PGM=PRODUCER\n//OUTDD DD DUMMY\n")
 
-    def test_gdg_and_member_datasets(self):
-        assert "GDG" in self._reasons(
-            "//J JOB\n//S EXEC PGM=PRODUCER\n//OUTDD DD DSN=HR.G(+1),DISP=NEW\n")
+    def test_later_generations_and_pds_members(self):
+        assert "(+2)" in self._reasons(
+            "//J JOB\n//S EXEC PGM=PRODUCER\n//OUTDD DD DSN=HR.G(+2),DISP=NEW\n")
+        assert "PDS member" in self._reasons(
+            "//J JOB\n//S EXEC PGM=PRODUCER\n//OUTDD DD DSN=HR.PDS(MEM),DISP=NEW\n")
 
     def test_even_and_only(self):
         assert "COND=EVEN" in self._reasons("//J JOB\n//S EXEC PGM=PRODUCER,COND=EVEN\n")
@@ -113,7 +118,7 @@ class TestRendering:
         source = render_runner(_plan(JOB), "JobSeqRunner")
         assert "public class JobSeqRunner" in source
         assert 'new Step("STEP1", "Producer"' in source
-        assert '{"OUTDD", "HR.DATA"}' in source
+        assert 'new Dd("OUTDD", "HR.DATA", "", 0, "NEW", "CATLG", null, false)' in source
         assert 'new Cond(4, "LT", "")' in source
         assert "gnucobol" not in source.lower()
 

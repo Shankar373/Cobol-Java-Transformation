@@ -208,7 +208,7 @@ class JclParser:
 
             # Check for DD
             if " DD " in rest or rest.upper().startswith("DD "):
-                dd, i = self._parse_dd(rest, i)
+                dd, i = self._parse_dd(rest, i, lines)
                 if steps:
                     # This DD belongs to the current step
                     steps[-1] = JclStep(
@@ -310,7 +310,7 @@ class JclParser:
                 content = next_line[2:].strip()
                 # Check if this is a DD statement
                 if " DD " in content.upper() or content.upper().startswith("DD "):
-                    dd, i = self._parse_dd(content, i)
+                    dd, i = self._parse_dd(content, i, lines)
                     dds.append(dd)
                     continue
                 else:
@@ -357,8 +357,13 @@ class JclParser:
             parameters=params if params else None,
         )
 
-    def _parse_dd(self, line: str, start_idx: int) -> tuple[JclDD, int]:
+    def _parse_dd(
+        self, line: str, start_idx: int, lines: list[str] | None = None,
+    ) -> tuple[JclDD, int]:
         """Parse a DD statement.
+
+        With ``lines`` given, the records of an inline ``DD *`` / ``DD DATA`` stream are
+        collected (up to the ``/*`` delimiter or the next ``//`` statement) and consumed.
 
         Returns:
             (JclDD, next_line_index)
@@ -385,8 +390,11 @@ class JclParser:
         sysout = ""
         is_temporary = False
         is_inline = False
+        is_dummy = False
 
-        if dd_str.upper() == "DATA":
+        if dd_str.upper().startswith("DUMMY"):
+            is_dummy = True
+        elif dd_str.upper() == "DATA":
             is_inline = True
         elif dd_str.upper().startswith("*"):
             is_inline = True
@@ -424,6 +432,16 @@ class JclParser:
         if dataset.startswith("&&") or sysout:
             is_temporary = True
 
+        next_index = start_idx + 1
+        inline_data: list[str] = []
+        if is_inline and lines is not None:
+            while next_index < len(lines) and not lines[next_index].startswith("//"):
+                if lines[next_index].startswith("/*"):
+                    next_index += 1  # the delimiter belongs to the stream
+                    break
+                inline_data.append(lines[next_index])
+                next_index += 1
+
         return (
             JclDD(
                 name=dd_name,
@@ -436,8 +454,10 @@ class JclParser:
                 sysout=sysout,
                 is_temporary=is_temporary,
                 is_inline=is_inline,
+                inline_data=tuple(inline_data),
+                is_dummy=is_dummy,
             ),
-            start_idx + 1,
+            next_index,
         )
 
 

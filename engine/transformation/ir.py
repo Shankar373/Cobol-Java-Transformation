@@ -1187,6 +1187,8 @@ class JclDD:
     sysout: str = ""  # SYSOUT= value
     is_temporary: bool = False  # temporary dataset (SYSOUT=* or DSN=&&...)
     is_inline: bool = False  # inline data (DD * or DD DATA)
+    inline_data: tuple[str, ...] = ()  # the records of a DD * / DD DATA stream
+    is_dummy: bool = False  # DD DUMMY
 
 
 @dataclass(frozen=True)
