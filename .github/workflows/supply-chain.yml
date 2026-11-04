@@ -183,12 +183,13 @@ jobs:
       - name: Build images
         run: |
           bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:scan
+          bash scripts/ci/build-image.sh Dockerfile.ocesql-pg ocesql-pg:scan
           bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:scan
           bash scripts/ci/build-image.sh Dockerfile.production systemaops-api:scan
       - name: Scan images
         run: |
           mkdir -p test-artifacts/supply-chain/trivy
-          for image in gnucobol-ocesql:scan maven-offline-springboot:scan systemaops-api:scan; do
+          for image in gnucobol-ocesql:scan ocesql-pg:scan maven-offline-springboot:scan systemaops-api:scan; do
             name="${image%%:*}"
             docker run --rm \
               -v /var/run/docker.sock:/var/run/docker.sock:ro \

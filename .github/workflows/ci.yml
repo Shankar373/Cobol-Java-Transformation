@@ -124,6 +124,8 @@ jobs:
           cache-dependency-path: requirements-dev.lock
       - name: Build GnuCOBOL oracle image
         run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
+      - name: Build OCESQL + PostgreSQL oracle image
+        run: bash scripts/ci/build-image.sh Dockerfile.ocesql-pg ocesql-pg:latest
       - name: Build project Maven image
         run: bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:latest
       - name: Pull pinned Java execution image

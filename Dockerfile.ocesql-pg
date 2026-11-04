@@ -1,0 +1,47 @@
+# OCESQL + PostgreSQL oracle for embedded SQL (roadmap unit 12).
+# Same immutable base and compiler as Dockerfile.gnucobol, plus:
+#   * Open-COBOL-ESQL (OCESQL) v1.4, pinned by commit, built against GnuCOBOL 3.1.2;
+#   * PostgreSQL 14 (pinned apt version) started inside the container for each test run.
+# The oracle runs the COBOL program through the OCESQL precompiler and libpq against a seeded
+# database; the generated JDBC program must match its stdout and final database state.
+FROM ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        gnucobol3=3.1.2-5 \
+        libcob4=3.1.2-5 \
+        libcob4-dev=3.1.2-5 \
+        libgmp-dev \
+        libdb-dev \
+        libncurses-dev \
+        ca-certificates \
+        git \
+        build-essential \
+        bison \
+        flex \
+        autoconf \
+        automake \
+        libtool \
+        pkgconf \
+        libpq-dev=14.24-0ubuntu0.22.04.1 \
+        postgresql-14=14.24-0ubuntu0.22.04.1 \
+        postgresql-client-14=14.24-0ubuntu0.22.04.1 && \
+    rm -rf /var/lib/apt/lists/*
+
+# OCESQL v1.4, pinned by commit (a moved tag cannot change the oracle).
+ARG OCESQL_COMMIT=14591d82b6423ed76540ced70f1d4752d31882f3
+RUN git clone -q https://github.com/opensourcecobol/Open-COBOL-ESQL.git /tmp/ocesql && \
+    cd /tmp/ocesql && git checkout -q "$OCESQL_COMMIT" && \
+    test "$(git rev-parse HEAD)" = "$OCESQL_COMMIT" && \
+    autoreconf -fi >/dev/null 2>&1 && \
+    ./configure --prefix=/usr/local >/dev/null && make -j2 >/dev/null && make install >/dev/null && \
+    ldconfig && cd / && rm -rf /tmp/ocesql
+
+# Smoke-tests: the oracle compiler, the precompiler and the server are exactly what is declared.
+RUN cobc --version | head -1 | grep -qx 'cobc (GnuCOBOL) 3.1.2.0' && \
+    test -x /usr/local/bin/ocesql && \
+    /usr/lib/postgresql/14/bin/postgres --version | grep -q 'PostgreSQL) 14\.'
+
+ENV PATH=/usr/lib/postgresql/14/bin:$PATH
+WORKDIR /workspace
