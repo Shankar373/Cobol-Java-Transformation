@@ -219,6 +219,7 @@ def lower(stmt, program) -> list:
             item = host_item(program, name)
             java = ref(name)
             java_type = map_pic_to_java_type(item).basic_type
+            value: object
             if not item.is_numeric:
                 value = value_call("str", (number(column), number(item.pic_length), java))
             elif item.decimal_places > 0:

@@ -116,6 +116,7 @@ class SimDli:
             if node is None:
                 return "GE", None
             siblings = node.children
+        assert node is not None  # the path has at least one SSA, checked above
         self._set_position(node, establish_parent=True)
         return OK, node
 

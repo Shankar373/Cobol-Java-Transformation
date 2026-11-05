@@ -1,0 +1,137 @@
+# mypy baseline: errors that existed when the type-check gate was introduced.
+# Format: count<TAB>path|[code]|message. It may only shrink (tools/mypy_gate.py).
+1	api/app.py|[arg-type]|Argument "history" to "ApprovalResponse" has incompatible type "list[dict[Any, Any]]"; expected "list[ApprovalEvent]"
+2	api/app.py|[arg-type]|Argument 1 to "len" has incompatible type "str | None"; expected "Sized"
+1	api/serialization.py|[return-value]|Incompatible return value type (got "object", expected "int")
+1	api/service.py|[arg-type]|Argument "cobol_source_path" to "PipelineConfig" has incompatible type "str | None"; expected "str"
+1	api/service.py|[arg-type]|Argument "source_dir" to "ModernizationConfig" has incompatible type "str | None"; expected "str"
+1	api/service.py|[arg-type]|Argument 1 to "build_dependency_ledger" has incompatible type "object"; expected "ModernizationReport"
+1	api/service.py|[arg-type]|Argument 1 to "validate" of "EvidenceIntegrityValidator" has incompatible type "EvidenceManifest | None"; expected "EvidenceManifest"
+1	api/service.py|[arg-type]|Argument 2 to "update_application_fields" of "Store" has incompatible type "**dict[str, object]"; expected "int | None"
+1	api/service.py|[attr-defined]|"object" has no attribute "application_id"
+2	api/service.py|[attr-defined]|"object" has no attribute "generation_success"
+1	api/service.py|[attr-defined]|"object" has no attribute "overall_capability"
+1	api/store.py|[arg-type]|Argument 1 to "tuple" has incompatible type "object"; expected "Iterable[str]"
+1	engine/candidate/docker_java_adapter.py|[attr-defined]|"CompletedProcess[bytes]" has no attribute "kill"
+1	engine/candidate/docker_java_adapter.py|[attr-defined]|"CompletedProcess[bytes]" has no attribute "wait"
+5	engine/candidate/docker_java_adapter.py|[attr-defined]|Module has no attribute "CREATE_NO_WINDOW"
+1	engine/candidate/docker_spring_boot_adapter.py|[arg-type]|Argument "class_files" to "CompilationResult" has incompatible type "dict[Path, bytes]"; expected "dict[str, bytes]"
+1	engine/candidate/docker_spring_boot_adapter.py|[assignment]|Incompatible types in assignment (expression has type "str", variable has type "Path")
+1	engine/candidate/docker_spring_boot_adapter.py|[attr-defined]|"CompletedProcess[bytes]" has no attribute "kill"
+1	engine/candidate/docker_spring_boot_adapter.py|[attr-defined]|"CompletedProcess[bytes]" has no attribute "wait"
+4	engine/candidate/docker_spring_boot_adapter.py|[attr-defined]|Module has no attribute "CREATE_NO_WINDOW"
+1	engine/candidate/image_provenance.py|[assignment]|Incompatible types in assignment (expression has type "tuple[()]", variable has type "tuple[str]")
+1	engine/candidate/image_provenance.py|[assignment]|Incompatible types in assignment (expression has type "tuple[str, ...]", variable has type "tuple[str]")
+3	engine/candidate/java_adapter.py|[attr-defined]|Module has no attribute "CREATE_NO_WINDOW"
+1	engine/cics/generator.py|[assignment]|Incompatible types in assignment (expression has type "object", variable has type "CicsProgramInteraction")
+1	engine/contracts/models.py|[assignment]|Incompatible types in assignment (expression has type "frozenset[str]", variable has type "set[str]")
+2	engine/docker_cli.py|[attr-defined]|Module has no attribute "CREATE_NO_WINDOW"
+1	engine/execution/container_runner.py|[arg-type]|Argument 1 to "ContainerRun" has incompatible type "bytes | None"; expected "bytes"
+1	engine/execution/container_runner.py|[attr-defined]|Module has no attribute "CREATE_NO_WINDOW"
+1	engine/modernization/capability_analyzer.py|[arg-type]|Argument 1 to "append" of "list" has incompatible type "tuple[FileDefinition, CapabilityLevel, str]"; expected "tuple[FileDependency, CapabilityLevel, str]"
+1	engine/modernization/capability_analyzer.py|[arg-type]|Argument 2 to "_file_capability" of "CapabilityAnalyzer" has incompatible type "FileDefinition"; expected "FileDependency"
+1	engine/modernization/capability_analyzer.py|[assignment]|Incompatible types in assignment (expression has type "ConstructCapability | None", variable has type "ConstructCapability")
+2	engine/modernization/capability_analyzer.py|[assignment]|Incompatible types in assignment (expression has type "FileDependency", variable has type "FileDefinition")
+2	engine/modernization/capability_analyzer.py|[attr-defined]|"FileDefinition" has no attribute "file_name"
+1	engine/modernization/capability_analyzer.py|[attr-defined]|"object" has no attribute "name"
+1	engine/modernization/capability_analyzer.py|[attr-defined]|"object" has no attribute "occurs"
+1	engine/modernization/modernization_planner.py|[assignment]|Incompatible types in assignment (expression has type "tuple[BlockingReason, ...]", variable has type "tuple[BlockingReason]")
+1	engine/modernization/pipeline.py|[assignment]|Incompatible types in assignment (expression has type "tuple[()]", variable has type "list[str]")
+1	engine/modernization/pipeline.py|[assignment]|Incompatible types in assignment (expression has type "tuple[str]", variable has type "list[str]")
+1	engine/oracle/docker_adapter.py|[arg-type]|Argument 1 to "classify_oracle_termination" has incompatible type "int | None"; expected "int"
+1	engine/oracle/docker_adapter.py|[attr-defined]|"CompletedProcess[bytes]" has no attribute "kill"
+1	engine/oracle/docker_adapter.py|[attr-defined]|"CompletedProcess[bytes]" has no attribute "wait"
+3	engine/oracle/docker_adapter.py|[attr-defined]|Module has no attribute "CREATE_NO_WINDOW"
+2	engine/pipeline.py|[arg-type]|Argument 1 has incompatible type "list[bytes] | list[tuple[int, bytes]]"; expected "list[bytes]"
+2	engine/pipeline.py|[arg-type]|Argument 1 has incompatible type "list[bytes] | list[tuple[int, bytes]]"; expected "list[tuple[int, bytes]]"
+1	engine/pipeline.py|[arg-type]|Argument 2 to "compare" of "ExitStatusComparator" has incompatible type "bytes | None"; expected "bytes"
+1	engine/pipeline.py|[arg-type]|Argument 2 to "compare" of "FixedRecordComparator" has incompatible type "bytes | None"; expected "bytes"
+1	engine/pipeline.py|[arg-type]|Argument 2 to "compare" of "StderrComparator" has incompatible type "bytes | None"; expected "bytes"
+1	engine/pipeline.py|[arg-type]|Argument 2 to "compare" of "StdoutComparator" has incompatible type "bytes | None"; expected "bytes"
+1	engine/pipeline.py|[arg-type]|Argument 2 to "compare" of "TextFileComparator" has incompatible type "bytes | None"; expected "bytes"
+3	engine/pipeline.py|[arg-type]|Argument 2 to "compare" of "TypedComparator" has incompatible type "bytes | None"; expected "bytes"
+1	engine/pipeline.py|[attr-defined]|"object" has no attribute "artifact_type"
+3	engine/pipeline.py|[attr-defined]|"object" has no attribute "comparator_id"
+2	engine/pipeline.py|[attr-defined]|"object" has no attribute "differences"
+16	engine/pipeline.py|[attr-defined]|"object" has no attribute "execution_id"
+5	engine/pipeline.py|[attr-defined]|"object" has no attribute "exit_code"
+2	engine/pipeline.py|[attr-defined]|"object" has no attribute "generated_files"
+1	engine/pipeline.py|[attr-defined]|"object" has no attribute "logical_name"
+1	engine/pipeline.py|[attr-defined]|"object" has no attribute "normalization_applied"
+2	engine/pipeline.py|[attr-defined]|"object" has no attribute "result"
+5	engine/pipeline.py|[attr-defined]|"object" has no attribute "stderr"
+5	engine/pipeline.py|[attr-defined]|"object" has no attribute "stdout"
+1	engine/pipeline.py|[attr-defined]|"object" has no attribute "version"
+1	engine/pipeline.py|[union-attr]|Item "None" of "TypedComparator | None" has no attribute "comparator_id"
+1	engine/pipeline.py|[union-attr]|Item "None" of "TypedComparator | None" has no attribute "compare"
+1	engine/sql/execution.py|[arg-type]|Argument 2 to "_capture_outputs" of "Db2ControlledDatabase" has incompatible type "tuple[Any, ...] | None"; expected "tuple[Any, ...]"
+1	engine/sql/harness.py|[arg-type]|Argument 2 to "analyze_program" of "Db2SemanticAnalyzer" has incompatible type "Generator[EmbeddedSqlBlock, None, None]"; expected "tuple[EmbeddedSqlBlock, ...]"
+1	engine/sql/harness.py|[list-item]|List item 0 has incompatible type "tuple[Any, ...] | dict[Any, Any]"; expected "dict[str, Any]"
+1	engine/transformation/application_generator.py|[arg-type]|Argument 1 to "tuple" has incompatible type "tuple[object, ...]"; expected "Iterable[JavaClass]"
+1	engine/transformation/application_generator.py|[attr-defined]|"object" has no attribute "application_id"
+1	engine/transformation/application_generator.py|[attr-defined]|"object" has no attribute "copybooks"
+1	engine/transformation/application_generator.py|[attr-defined]|"object" has no attribute "edges"
+1	engine/transformation/application_generator.py|[attr-defined]|"object" has no attribute "programs"
+1	engine/transformation/cobol_parser.py|[var-annotated]|Need type annotation for "body" (hint: "body: list[<type>] = ...")
+1	engine/transformation/cobol_parser.py|[var-annotated]|Need type annotation for "logical_lines" (hint: "logical_lines: list[<type>] = ...")
+1	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument "left" to "JavaBinaryOp" has incompatible type "tuple[int, bool] | str | None"; expected "JavaExpression"
+1	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument "true_expr" to "JavaTernary" has incompatible type "str"; expected "JavaExpression"
+1	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument "value" to "JavaLiteral" has incompatible type "ConditionNameSpec | None"; expected "str"
+3	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument 1 to "_group_view_expression" has incompatible type "GroupLayout | None"; expected "GroupLayout"
+2	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument 1 to "append" of "list" has incompatible type "tuple[str, str]"; expected "str"
+1	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument 1 to "cobol_reference_to_java_source" has incompatible type "str | Any | None"; expected "str"
+2	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument 1 to "cobol_reference_to_java_source" has incompatible type "str | None"; expected "str"
+1	engine/transformation/cobol_to_java_mapping.py|[arg-type]|Argument 3 to "_string_receiver_statements" has incompatible type "tuple[str, ...]"; expected "list[JavaExpression]"
+4	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "DataItem | None", variable has type "DataItem")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "Expression", variable has type "str")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "JavaExpression", variable has type "tuple[int, bool] | str | None")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "JavaStringConcat", variable has type "JavaMethodCall")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "JavaTernary", variable has type "str")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "JavaUnaryOp", variable has type "JavaBinaryOp")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "JavaUnsupportedExpression", variable has type "JavaLiteral")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "JavaVariableRef", variable has type "JavaLiteral")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "list[str]", variable has type "list[JavaExpression]")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "str | None", variable has type "str")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "str", variable has type "ConditionNameSpec | None")
+1	engine/transformation/cobol_to_java_mapping.py|[assignment]|Incompatible types in assignment (expression has type "tuple[str]", variable has type "list[str]")
+1	engine/transformation/cobol_to_java_mapping.py|[attr-defined]|"JavaExpression" has no attribute "replace"
+1	engine/transformation/cobol_to_java_mapping.py|[attr-defined]|"JavaExpression" has no attribute "split"
+2	engine/transformation/cobol_to_java_mapping.py|[attr-defined]|"tuple[str, ...]" has no attribute "append"
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "body_stmts" already defined on line 5386
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "else_body" already defined on line 4535
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "reasons" already defined on line 4624
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "sources" already defined on line 4290
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "then_body" already defined on line 4532
+1	engine/transformation/cobol_to_java_mapping.py|[operator]|Unsupported operand types for * ("str" and "str")
+2	engine/transformation/cobol_to_java_mapping.py|[operator]|Unsupported operand types for + ("int" and "str")
+2	engine/transformation/cobol_to_java_mapping.py|[operator]|Unsupported operand types for + ("str" and "int")
+1	engine/transformation/cobol_to_java_mapping.py|[operator]|Unsupported operand types for > ("str" and "int")
+1	engine/transformation/cobol_to_java_mapping.py|[return-value]|Incompatible return value type (got "JavaExpression | None", expected "JavaExpression")
+1	engine/transformation/cobol_to_java_mapping.py|[return-value]|Incompatible return value type (got "tuple[int | Any | str, str | bool]", expected "tuple[int, bool] | str | None")
+1	engine/transformation/cobol_to_java_mapping.py|[return-value]|Incompatible return value type (got "tuple[int, bool] | str | None", expected "JavaExpression")
+2	engine/transformation/cobol_to_java_mapping.py|[union-attr]|Item "None" of "DataItem | None" has no attribute "pic_length"
+1	engine/transformation/cobol_to_java_mapping.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "leaves"
+1	engine/transformation/cobol_to_java_mapping.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "length"
+1	engine/transformation/cobol_to_java_mapping.py|[var-annotated]|Need type annotation for "STATEMENT_CAPABILITY_PARTIAL"
+1	engine/transformation/copybook_model.py|[arg-type]|Argument 1 to "append" of "list" has incompatible type "tuple[str | None, str | None]"; expected "tuple[str, str]"
+1	engine/transformation/copybook_model.py|[assignment]|Incompatible types in assignment (expression has type "tuple[tuple[str, str], ...] | None", variable has type "tuple[tuple[str, str], ...]")
+1	engine/transformation/group_storage.py|[assignment]|Incompatible types in assignment (expression has type "str | None", variable has type "str")
+3	engine/transformation/group_storage.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "leaf_names"
+2	engine/transformation/group_storage.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "leaves"
+1	engine/transformation/group_storage.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "writable"
+1	engine/transformation/group_storage.py|[union-attr]|Item "None" of "str | Any | None" has no attribute "upper"
+2	engine/transformation/java_ir.py|[assignment]|Incompatible types in assignment (expression has type "JavaDatabaseResource", variable has type "JavaFileResource")
+2	engine/transformation/java_ir.py|[assignment]|Incompatible types in assignment (expression has type "JavaFileResource", target has type "JavaDatabaseResource")
+2	engine/transformation/java_ir.py|[assignment]|Incompatible types in assignment (expression has type "JavaFileResource", target has type "JavaTransactionBoundary")
+2	engine/transformation/java_ir.py|[assignment]|Incompatible types in assignment (expression has type "JavaTransactionBoundary", variable has type "JavaFileResource")
+1	engine/transformation/redefines.py|[arg-type]|Argument "initial" to "RedefinesView" has incompatible type "str | None"; expected "str"
+1	engine/transformation/redefines.py|[assignment]|Incompatible types in assignment (expression has type "DataItem | None", variable has type "DataItem")
+2	engine/transformation/redefines.py|[index]|Value of type "str | None" is not indexable
+1	engine/transformation/redefines.py|[union-attr]|Item "None" of "str | None" has no attribute "upper"
+1	engine/transformation/spring_boot_generator.py|[arg-type]|Argument 1 to "_generate_adapter_implementation" of "SpringBootGenerator" has incompatible type "SpringBootRepositoryImplementation"; expected "SpringBootAdapterImplementation"
+1	engine/transformation/spring_boot_generator.py|[assignment]|Incompatible types in assignment (expression has type "SpringBootAdapterImplementation", variable has type "SpringBootRepositoryImplementation")
+1	engine/verdict/derivation.py|[var-annotated]|Need type annotation for "differences" (hint: "differences: list[<type>] = ...")
+3	engine/verification/business_invariants.py|[arg-type]|Argument 1 to "_require_source" of "BusinessInvariant" has incompatible type "frozenset[InvariantSource]"; expected "set[InvariantSource]"
+1	engine/verification/business_invariants.py|[assignment]|Incompatible types in assignment (expression has type "object", variable has type "int | None")
+2	engine/verification/business_invariants.py|[call-overload]|No overload variant of "int" matches argument type "object"
+1	engine/verification/business_invariants.py|[var-annotated]|Need type annotation for "expected_lines"

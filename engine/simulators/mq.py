@@ -236,7 +236,7 @@ class SimMq:
         if hconn not in self._connections:
             return MQCC_FAILED, MQRC_HCONN_ERROR
         for queue in self._queues.values():
-            kept = deque()
+            kept: deque = deque()
             for message in queue.messages:
                 if message.taken_by == hconn:
                     continue  # a provisional get becomes final
@@ -250,7 +250,7 @@ class SimMq:
         if hconn not in self._connections:
             return MQCC_FAILED, MQRC_HCONN_ERROR
         for queue in self._queues.values():
-            kept = deque()
+            kept: deque = deque()
             for message in queue.messages:
                 if message.owner == hconn:
                     continue  # a provisional put vanishes

@@ -167,9 +167,10 @@ class SimCics:
                 return NOTFND
             start = key
         else:
-            start = next((k for k in keys if k >= key), None)
-            if start is None:
+            first = next((k for k in keys if k >= key), None)
+            if first is None:
                 return NOTFND
+            start = first
         file.browsing = True
         file.position = start
         file.cursor = None

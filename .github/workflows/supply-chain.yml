@@ -60,6 +60,11 @@ jobs:
           # only) but runs in CI: it is audited too (audit D4 lock split).
           python -m pip_audit -r requirements-dev.lock --format=json --desc \
             | tee test-artifacts/supply-chain/pip-audit-dev.json
+          # The type-check and coverage gates run in CI too (roadmap unit 19): audited like the rest.
+          python -m pip_audit -r requirements-typecheck.lock --format=json --desc \
+            | tee test-artifacts/supply-chain/pip-audit-typecheck.json
+          python -m pip_audit -r requirements-coverage.lock --format=json --desc \
+            | tee test-artifacts/supply-chain/pip-audit-coverage.json
       - name: Python SBOM (CycloneDX)
         run: |
           set -o pipefail
@@ -70,6 +75,12 @@ jobs:
           python -m cyclonedx_py requirements -i requirements-dev.lock \
             --output-format JSON \
             --output-file test-artifacts/supply-chain/sbom-python-dev.cyclonedx.json
+          python -m cyclonedx_py requirements -i requirements-typecheck.lock \
+            --output-format JSON \
+            --output-file test-artifacts/supply-chain/sbom-python-typecheck.cyclonedx.json
+          python -m cyclonedx_py requirements -i requirements-coverage.lock \
+            --output-format JSON \
+            --output-file test-artifacts/supply-chain/sbom-python-coverage.cyclonedx.json
           python -m pip freeze --exclude-editable \
             | tee test-artifacts/supply-chain/pip-freeze.txt
       - name: Upload Python supply-chain artifacts

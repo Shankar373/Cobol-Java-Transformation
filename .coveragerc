@@ -1,0 +1,13 @@
+# Coverage gate configuration (CI job "coverage"). The floor is in ci.yml (--fail-under) and may only rise.
+[run]
+source =
+    api
+    engine
+    tools
+branch = False
+omit =
+    */__pycache__/*
+
+[report]
+show_missing = False
+skip_empty = True

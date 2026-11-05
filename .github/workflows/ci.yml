@@ -70,6 +70,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Set up Java 21 (the certified runtime; some tests compile generated Java on the host)
+        # The runner's default JDK is older and rejects static members in inner classes, which Java 16+ allows.
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -102,6 +108,62 @@ jobs:
         run: python -m pip install --require-hashes -r requirements-lint.lock
       - name: Lint
         run: ruff check .
+
+  typecheck:
+    # Roadmap unit 19: mypy as a ratchet (tools/mypy_gate.py). The errors that existed when the gate was
+    # introduced are recorded in tests/mypy_baseline.txt; a new error fails, and so does a fixed one that is
+    # still listed, so the baseline only shrinks. Code written for the enterprise roadmap must be type-clean.
+    name: Python type check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install the project environment (mypy resolves imports against it)
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Install mypy
+        run: python -m pip install --require-hashes -r requirements-typecheck.lock
+      - name: Type check against the baseline
+        run: python tools/mypy_gate.py --check
+
+  coverage:
+    # Roadmap unit 19: the Docker-free suite under coverage.py with a floor that may only rise.
+    name: Test coverage floor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Install coverage
+        run: python -m pip install --require-hashes -r requirements-coverage.lock
+      - name: Run the suite under coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          coverage run -m pytest -q tests
+      - name: Enforce the coverage floor
+        shell: bash
+        run: |
+          set -o pipefail
+          coverage report --fail-under=0 | tee coverage-report.txt
 
   backend-hermetic:
     # Audit B2: the whole suite without Docker (RUN_DOCKER_TESTS unset), as a
@@ -143,6 +205,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Set up Java 21 (the certified runtime; some tests compile generated Java on the host)
+        # The runner's default JDK is older and rejects static members in inner classes, which Java 16+ allows.
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
