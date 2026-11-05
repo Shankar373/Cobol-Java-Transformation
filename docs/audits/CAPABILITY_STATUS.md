@@ -1,6 +1,6 @@
 # Capability status by evidence class
 
-Each capability of the enterprise roadmap, classified by what is actually true of it. The classes are
+Each capability of the enterprise roadmap, classified by what is actually true of it, as of `impl/enterprise-platform` at `2e0f5c6` (CI 41963301415, supply chain 41963301173). The classes are
 cumulative only where the table says so; a blank is "no", never "unknown".
 
 * **Implemented** -- code exists on `impl/enterprise-platform`.
