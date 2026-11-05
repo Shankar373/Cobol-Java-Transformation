@@ -56,7 +56,7 @@ def test_probe_and_fixture_are_supported() -> None:
         ("05  WS-N              PIC 9(3) OCCURS 5 TIMES.",
          "05  WS-N              PIC 9(3) OCCURS 1 TO 5 DEPENDING ON WS-I."),
         ("05  WS-N              PIC 9(3) OCCURS 5 TIMES.",
-         "05  WS-N              PIC 9(3) OCCURS 5 TIMES INDEXED BY IX."),
+         "05  WS-N              PIC 9(3) OCCURS 5 TIMES ASCENDING KEY IS WS-N."),  # INDEXED BY is certified with SEARCH (unit 9)
     ],
 )
 def test_outside_the_subset_stays_partial(old: str, new: str) -> None:
