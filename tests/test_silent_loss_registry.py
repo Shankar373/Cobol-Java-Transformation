@@ -59,7 +59,7 @@ class TestNoSilentSupportiveClaims:
 
     @pytest.mark.parametrize(
         "key",
-        ["GO TO", "MERGE", "SET",
+        ["GO TO", "SET",
          "ALTER", "EXEC CICS"],
     )
     def test_non_mappable_constructs_are_unsupported(self, key: str) -> None:

@@ -39,7 +39,7 @@ needs_docker = pytest.mark.skipif(not _images_available(), reason="set RUN_DOCKE
 
 
 def _program(fields: list[tuple[str, str, int]], keys: list[tuple[str, str]], missing: bool, dups: bool,
-             grouped: bool) -> str:
+             grouped: bool, inputs: int = 1, verb: str = "SORT") -> str:
     length = sum(width for _, _, width in fields)
     layout = []
     for name, kind, width in fields:
@@ -55,22 +55,39 @@ def _program(fields: list[tuple[str, str, int]], keys: list[tuple[str, str]], mi
         body = [f"          05 {item}" for item in layout]
     # one key per line: the platform reads fixed-format source (columns 8-72), GnuCOBOL -free does not care
     key_lines = [f"               ON {direction} KEY {name}" for name, direction in keys]
-    source = "in.dat" if not missing else "absent.dat"
+    names = [f"IN{n}-FILE" for n in range(inputs)]
+    selects, fds = [], []
+    for n, name in enumerate(names):
+        source = f"in{n}.dat" if not (missing and n == 0) else "absent.dat"
+        selects += [f"           SELECT {name} ASSIGN TO '{source}'", "               ORGANIZATION IS LINE SEQUENTIAL."]
+        fds += [f"       FD {name}.", f"       01 IN{n}-REC PIC X({length})."]
     return "\n".join([
         "       IDENTIFICATION DIVISION.", "       PROGRAM-ID. SRT.", "       ENVIRONMENT DIVISION.",
-        "       INPUT-OUTPUT SECTION.", "       FILE-CONTROL.",
-        f"           SELECT IN-FILE ASSIGN TO '{source}'", "               ORGANIZATION IS LINE SEQUENTIAL.",
+        "       INPUT-OUTPUT SECTION.", "       FILE-CONTROL.", *selects,
         "           SELECT OUT-FILE ASSIGN TO 'out.dat'", "               ORGANIZATION IS LINE SEQUENTIAL.",
         "           SELECT SORT-FILE ASSIGN TO 'sort.tmp'.",
-        "       DATA DIVISION.", "       FILE SECTION.",
-        "       FD IN-FILE.", f"       01 IN-REC PIC X({length}).",
+        "       DATA DIVISION.", "       FILE SECTION.", *fds,
         "       FD OUT-FILE.", f"       01 OUT-REC PIC X({length}).",
         "       SD SORT-FILE.", "       01 SORT-REC.", *body,
         "       PROCEDURE DIVISION.", "       MAIN.",
-        "           SORT SORT-FILE", *key_lines,
+        f"           {verb} SORT-FILE", *key_lines,
         *(["               WITH DUPLICATES IN ORDER"] if dups else []),
-        "               USING IN-FILE GIVING OUT-FILE.",
+        "               USING " + " ".join(names), "               GIVING OUT-FILE.",
         "           DISPLAY 'DONE'.", "           STOP RUN.", ""])
+
+
+def _rows(rng: random.Random, fields, count: int) -> str:
+    length = sum(width for _, _, width in fields)
+    rows = []
+    for _ in range(count):
+        record = ""
+        for _, kind, width in fields:
+            if kind == "9":
+                record += "".join(rng.choice("012") for _ in range(width))
+            else:
+                record += "".join(rng.choice("ABab ") for _ in range(width))
+        rows.append(record[:length].rstrip() if rng.random() < 0.5 else record)
+    return "\n".join(rows) + ("\n" if rows else "")
 
 
 def _case(rng: random.Random):
@@ -82,28 +99,22 @@ def _case(rng: random.Random):
         fields.append((f"F{index}", kind, width))
     chosen = rng.sample(fields, rng.randint(1, min(3, len(fields))))
     keys = [(name, rng.choice(["ASCENDING", "DESCENDING"])) for name, _, _ in chosen]
-    length = sum(width for _, _, width in fields)
-    rows = []
-    for _ in range(rng.choice([0, 1, 2, 5, 30, 80])):
-        record = ""
-        for _, kind, width in fields:
-            if kind == "9":
-                record += "".join(rng.choice("012") for _ in range(width))
-            else:
-                record += "".join(rng.choice("ABab ") for _ in range(width))
-        rows.append(record[:length].rstrip() if rng.random() < 0.5 else record)
+    inputs = rng.choice([1, 1, 2, 3])
+    verb = "MERGE" if inputs > 1 and rng.random() < 0.5 else "SORT"
+    data = [_rows(rng, fields, rng.choice([0, 1, 2, 5, 30, 80])) for _ in range(inputs)]
     return (_program(fields, keys, missing=rng.random() < 0.08, dups=rng.random() < 0.4,
-                     grouped=rng.random() < 0.3), "\n".join(rows) + ("\n" if rows else ""))
+                     grouped=rng.random() < 0.3, inputs=inputs, verb=verb), data)
 
 
-def _run_all(tmp: Path, cases: list[tuple[str, str]]) -> list[tuple[bytes, bytes]]:
+def _run_all(tmp: Path, cases: list[tuple[str, "str | list[str]"]]) -> list[tuple[bytes, bytes]]:
     java_dirs = []
     for index, (source, data) in enumerate(cases):
         directory = tmp / f"c{index:03d}"
         (directory / "cob").mkdir(parents=True)
         (directory / "jv").mkdir()
         for sub in ("cob", "jv"):
-            (directory / sub / "in.dat").write_text(data, encoding="ascii", newline="\n")
+            for n, text in enumerate([data] if isinstance(data, str) else data):
+                (directory / sub / f"in{n}.dat").write_text(text, encoding="ascii", newline="\n")
         (directory / "cob" / "p.cob").write_text(source, encoding="ascii", newline="\n")
         generated = JavaGenerator().generate(CobolParser().parse(source))[0].source_code
         name = re.search(r"public\s+class\s+(\w+)", generated).group(1)
@@ -144,6 +155,15 @@ def test_documented_forms_match_the_oracle(tmp_path):
         # empty input and a missing USING file both give an empty GIVING file and the program goes on
         (_program([("K", "X", 2)], [("K", "ASCENDING")], False, False, False), ""),
         (_program([("K", "X", 2)], [("K", "ASCENDING")], True, False, False), "zz\n"),
+        # MERGE of three inputs, two of them NOT in key order: the oracle concatenates in USING order
+        # and sorts stably
+        (_program([("K", "X", 1), ("R", "X", 1)], [("K", "ASCENDING")], False, False, False, inputs=3,
+                  verb="MERGE"), ["A1\nC1\nB9\nA2\n", "B1\nA3\nC2\n", "A4\nB2\n"]),
+        # MERGE descending with ties across files, and a SORT over two USING files
+        (_program([("K", "X", 1), ("R", "X", 1)], [("K", "DESCENDING")], False, True, False, inputs=2,
+                  verb="MERGE"), ["C1\nB1\nA1\n", "C2\nB2\nA2\n"]),
+        (_program([("K", "9", 1), ("R", "X", 2)], [("K", "ASCENDING")], False, False, False, inputs=2),
+         ["2xx\n0yy\n", "1zz\n0aa\n"]),
     ]
     for (cobol_out, java_out) in _run_all(tmp_path, fixed):
         assert java_out == cobol_out

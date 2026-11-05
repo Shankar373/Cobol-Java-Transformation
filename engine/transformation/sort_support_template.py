@@ -1,7 +1,7 @@
-"""Shared ``CobolSort`` Java support-class template: file-to-file ``SORT ... USING ... GIVING``.
+"""Shared ``CobolSort`` Java support-class template: file-to-file ``SORT`` and ``MERGE`` ... ``USING`` ... ``GIVING``.
 
 Emitted by the plain and Spring Boot generators whenever generated method bodies reference ``CobolSort``.
-It reads every record of the USING file through ``CobolFileIo`` (so ddname and path mapping are the program's
+It reads every record of the USING files (several are joined with ``;`` and read in that order) through ``CobolFileIo`` (so ddname and path mapping are the program's
 own), sorts them with a **stable** sort on the keys, and writes the GIVING file through ``CobolFileIo`` the way
 a MOVE + WRITE does (trailing spaces trimmed on a LINE SEQUENTIAL record).
 
@@ -10,6 +10,8 @@ Behaviour pinned by the GnuCOBOL 3.1.2 differential in ``tests/integration/test_
 * records with equal keys keep their input order;
 * keys compare as characters in ASCII order, which for unsigned DISPLAY numeric keys of equal width is numeric
   order; ``D`` keys reverse the comparison, and later keys break ties of earlier ones;
+* MERGE is the same operation: the USING files concatenated in the order written, then a stable sort, even when
+  an input is not in key order;
 * a USING file that does not exist is an empty input: the GIVING file is still produced, empty, and the
   program goes on (no error).
 
@@ -23,12 +25,14 @@ COBOL_SORT_JAVA = '''final class CobolSort {
 
     static void run(String in, String out, int length, String... keys) {
         java.util.List<String> records = new java.util.ArrayList<>();
-        if ("00".equals(CobolFileIo.open(in, "INPUT", 0))) {
-            String line;
-            while ((line = CobolFileIo.readNext(in)) != null) {
-                records.add(CobolFileIo.pad(line, length, false).substring(0, length));
+        for (String path : in.split(";")) {
+            if ("00".equals(CobolFileIo.open(path, "INPUT", 0))) {
+                String line;
+                while ((line = CobolFileIo.readNext(path)) != null) {
+                    records.add(CobolFileIo.pad(line, length, false).substring(0, length));
+                }
+                CobolFileIo.close(path);
             }
-            CobolFileIo.close(in);
         }
         final boolean[] descending = new boolean[keys.length];
         final int[] offset = new int[keys.length];

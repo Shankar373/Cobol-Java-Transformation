@@ -272,15 +272,23 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "call is classified UNSUPPORTED by detection, never transformed"
     ),
     "SORT": _supported(
-        "SORT sd ON ASCENDING|DESCENDING KEY k... [WITH DUPLICATES IN ORDER] USING f GIVING g between two "
-        "LINE SEQUENTIAL files of one fixed record length, keys elementary alphanumeric or unsigned numeric "
+        "SORT or MERGE sd ON ASCENDING|DESCENDING KEY k... [WITH DUPLICATES IN ORDER] USING f... GIVING g "
+        "between LINE SEQUENTIAL files of one fixed record length (several USING files are concatenated in order, "
+        "MERGE needs two or more), keys elementary alphanumeric or unsigned numeric "
         "DISPLAY items of the SD record, lowered to CobolSort.run (stable sort, ASCII order, a missing USING "
         "file is an empty input). Output equals GnuCOBOL 3.1.2 (tests/integration/test_sort_oracle.py). "
         "INPUT/OUTPUT PROCEDURE, several USING/GIVING files, COLLATING SEQUENCE, record-sequential files, "
-        "signed or binary keys and MERGE fail closed with an unresolvable method name.",
+        "signed or binary keys fail closed with an unresolvable method name.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "MERGE": _unsupported("MERGE is not implemented in the deterministic mapper"),
+    "MERGE": _supported(
+        "MERGE sd ON ASCENDING|DESCENDING KEY k... USING f1 f2... GIVING g, the same certified subset as SORT "
+        "(file_to_file): the USING files are concatenated in the order written and sorted stably, which is what "
+        "GnuCOBOL 3.1.2 does even for inputs that are not in key order (tests/integration/test_sort_oracle.py). "
+        "Procedures, several GIVING files, COLLATING SEQUENCE, record-sequential files and signed or binary keys "
+        "fail closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "ACCEPT": _supported(
         "ACCEPT <field> [FROM CONSOLE|STDIN|SYSIN] consumes one whole "
         "standard-input line per statement through a shared reader: "

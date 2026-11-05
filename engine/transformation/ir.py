@@ -809,7 +809,7 @@ class ExecSqlStatement:
 
 @dataclass(frozen=True)
 class SortStatement:
-    """SORT sd ON ASCENDING|DESCENDING KEY k... USING f GIVING g (file-to-file subset).
+    """SORT or MERGE sd ON ASCENDING|DESCENDING KEY k... USING f... GIVING g (file-to-file subset).
 
     ``reasons`` names every clause outside the certified subset (INPUT/OUTPUT PROCEDURE, several USING or
     GIVING files, COLLATING SEQUENCE, no key) so the lowering fails closed by name.
@@ -820,6 +820,7 @@ class SortStatement:
     using: tuple[str, ...] = ()
     giving: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
+    kind: str = "SORT"  # SORT | MERGE
 
 
 # Union type for all statements

@@ -2141,8 +2141,8 @@ class CobolParser:
         if upper.startswith("STOP RUN"):
             return StopRunStatement(), start + 1
 
-        # SORT sd ... USING f GIVING g
-        if upper.startswith("SORT "):
+        # SORT / MERGE sd ... USING f... GIVING g
+        if upper.startswith(("SORT ", "MERGE ")):
             return self._parse_sort(lines, start)
 
         # INSPECT — literal TALLYING / REPLACING / CONVERTING subset
@@ -4121,15 +4121,16 @@ class CobolParser:
             full_text += " " + nxt
             i += 1
         sort_file, keys, using, giving, reasons = parse_sort(full_text)
+        kind = "MERGE" if full_text.lstrip().upper().startswith("MERGE") else "SORT"
         for reason in reasons:
             self._diagnostics.warning(
                 DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                f"SORT {reason} has no certified Java mapping; the statement fails closed instead "
+                f"{kind} {reason} has no certified Java mapping; the statement fails closed instead "
                 "of running with different semantics",
                 location=f"line {start + 1}",
             )
         return SortStatement(sort_file=sort_file, keys=keys, using=using, giving=giving,
-                             reasons=reasons), i
+                             reasons=reasons, kind=kind), i
 
     def _parse_inspect(self, lines: list[str], start: int) -> tuple[InspectStatement, int]:
         """Parse INSPECT; the statement ends at a period or at the next statement verb."""

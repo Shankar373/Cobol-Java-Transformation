@@ -1,9 +1,9 @@
-"""SORT statement: tokenising the certified file-to-file subset.
+"""SORT and MERGE statements: tokenising the certified file-to-file subset.
 
-``SORT sd {ON ASCENDING|DESCENDING KEY key...}... [WITH DUPLICATES IN ORDER] USING file GIVING file``
+``SORT|MERGE sd {ON ASCENDING|DESCENDING KEY key...}... [WITH DUPLICATES IN ORDER] USING file... GIVING file``
 
 Everything else is recorded as a *reason* and fails closed in the lowering: ``INPUT PROCEDURE`` /
-``OUTPUT PROCEDURE``, several ``USING`` or ``GIVING`` files, ``COLLATING SEQUENCE``, a statement with no key,
+``OUTPUT PROCEDURE``, several ``GIVING`` files, a ``MERGE`` of fewer than two files, ``COLLATING SEQUENCE``, a statement with no key,
 and any text the grammar does not recognise.  ``WITH DUPLICATES IN ORDER`` is accepted because the Java sort
 is stable, as GnuCOBOL's is on the fuzzed inputs (``tests/integration/test_sort_oracle.py``).
 """
@@ -21,7 +21,8 @@ def parse_sort(text: str) -> tuple[str, tuple[tuple[str, str], ...], tuple[str, 
     """``(sort_file, keys, using, giving, reasons)`` for one joined SORT statement."""
     tokens = _TOKEN.findall(text.strip().rstrip("."))
     reasons: list[str] = []
-    if tokens and tokens[0].upper() == "SORT":
+    merge = bool(tokens) and tokens[0].upper() == "MERGE"
+    if tokens and tokens[0].upper() in ("SORT", "MERGE"):
         tokens = tokens[1:]
     if not tokens:
         return "", (), (), (), ("EMPTY",)
@@ -66,8 +67,10 @@ def parse_sort(text: str) -> tuple[str, tuple[tuple[str, str], ...], tuple[str, 
         break
     if not keys:
         reasons.append("NO_KEYS")
-    if len(using) != 1 and "INPUT_PROCEDURE" not in reasons:
+    if not using and "INPUT_PROCEDURE" not in reasons:
         reasons.append("USING_COUNT")
+    if merge and 0 < len(using) < 2:
+        reasons.append("MERGE_NEEDS_TWO_FILES")
     if len(giving) != 1 and "OUTPUT_PROCEDURE" not in reasons:
         reasons.append("GIVING_COUNT")
     return sort_file, tuple(keys), tuple(using), tuple(giving), tuple(dict.fromkeys(reasons))

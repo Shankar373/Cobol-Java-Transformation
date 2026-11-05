@@ -719,9 +719,9 @@ class TestInvalidKeyIntegrationEvidence:
         # that is a separate lane with its own oracle (tests/integration/test_sql_jdbc_oracle.py).
         assert CONSTRUCT_REGISTRY["EXEC SQL"].level is CapabilityLevel.SUPPORTED
         # SORT (file to file) became SUPPORTED in roadmap unit 9 with its own GnuCOBOL oracle
-        # (tests/integration/test_sort_oracle.py); MERGE stays unsupported.
+        # (tests/integration/test_sort_oracle.py), and so did MERGE (same oracle test).
         assert CONSTRUCT_REGISTRY["SORT"].level is CapabilityLevel.SUPPORTED
-        assert CONSTRUCT_REGISTRY["MERGE"].level is CapabilityLevel.UNSUPPORTED
+        assert CONSTRUCT_REGISTRY["MERGE"].level is CapabilityLevel.SUPPORTED
         # DB2 runtime proof remains a strictly stronger, unavailable-by-design
         # claim above portable SQLite execution (SQLite != DB2).
         assert (

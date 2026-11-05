@@ -16,20 +16,26 @@ from engine.transformation.sort_statement import parse_sort
 
 
 def _source(sort: str, *, sd_body: str | None = None, in_org: str = "LINE SEQUENTIAL",
-            out_org: str = "LINE SEQUENTIAL", out_len: int = 10) -> str:
+            out_org: str = "LINE SEQUENTIAL", out_len: int = 10, second_input: bool = True) -> str:
     sd_body = sd_body if sd_body is not None else (
         "          05 S-KEY PIC X(3).\n          05 S-NUM PIC 9(2).\n          05 S-REST PIC X(5).\n")
+    second_select = (
+        "           SELECT IN2-FILE ASSIGN TO 'in2.dat'\n               ORGANIZATION IS LINE SEQUENTIAL.\n"
+        if second_input else "")
+    second_fd = "       FD IN2-FILE.\n       01 IN2-REC PIC X(10).\n" if second_input else ""
     return (
         "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. T.\n       ENVIRONMENT DIVISION.\n"
         "       INPUT-OUTPUT SECTION.\n       FILE-CONTROL.\n"
         f"           SELECT IN-FILE ASSIGN TO 'in.dat'\n               ORGANIZATION IS {in_org}.\n"
-        f"           SELECT OUT-FILE ASSIGN TO 'out.dat'\n               ORGANIZATION IS {out_org}.\n"
-        "           SELECT SORT-FILE ASSIGN TO 'sort.tmp'.\n"
-        "       DATA DIVISION.\n       FILE SECTION.\n"
-        "       FD IN-FILE.\n       01 IN-REC PIC X(10).\n"
-        f"       FD OUT-FILE.\n       01 OUT-REC PIC X({out_len}).\n"
-        f"       SD SORT-FILE.\n       01 SORT-REC.\n{sd_body}"
-        "       PROCEDURE DIVISION.\n       MAIN.\n" + sort + "           STOP RUN.\n")
+        + second_select
+        + f"           SELECT OUT-FILE ASSIGN TO 'out.dat'\n               ORGANIZATION IS {out_org}.\n"
+        + "           SELECT SORT-FILE ASSIGN TO 'sort.tmp'.\n"
+        + "       DATA DIVISION.\n       FILE SECTION.\n"
+        + "       FD IN-FILE.\n       01 IN-REC PIC X(10).\n"
+        + second_fd
+        + f"       FD OUT-FILE.\n       01 OUT-REC PIC X({out_len}).\n"
+        + f"       SD SORT-FILE.\n       01 SORT-REC.\n{sd_body}"
+        + "       PROCEDURE DIVISION.\n       MAIN.\n" + sort + "           STOP RUN.\n")
 
 
 GOOD = (
@@ -61,7 +67,8 @@ class TestParse:
     @pytest.mark.parametrize("text,reason", [
         ("SORT S ON ASCENDING KEY A INPUT PROCEDURE IS P1 GIVING O", "INPUT_PROCEDURE"),
         ("SORT S ON ASCENDING KEY A USING I OUTPUT PROCEDURE IS P2", "OUTPUT_PROCEDURE"),
-        ("SORT S ON ASCENDING KEY A USING I J GIVING O", "USING_COUNT"),
+        ("SORT S ON ASCENDING KEY A GIVING O", "USING_COUNT"),
+        ("MERGE S ON ASCENDING KEY A USING I GIVING O", "MERGE_NEEDS_TWO_FILES"),
         ("SORT S ON ASCENDING KEY A USING I GIVING O P", "GIVING_COUNT"),
         ("SORT S USING I GIVING O", "NO_KEYS"),
         ("SORT S ON ASCENDING KEY A COLLATING SEQUENCE IS X USING I GIVING O", "COLLATING"),
@@ -69,6 +76,48 @@ class TestParse:
     ])
     def test_everything_else_is_named(self, text, reason):
         assert reason in parse_sort(text)[4]
+
+
+class TestSeveralInputsAndMerge:
+    MERGE = ("           MERGE SORT-FILE ON ASCENDING KEY S-KEY\n"
+             "               USING IN-FILE IN2-FILE GIVING OUT-FILE.\n")
+
+    def test_several_using_files_are_parsed_for_sort_and_merge(self):
+        assert parse_sort("SORT S ON ASCENDING KEY A USING I J K GIVING O")[2:] == (
+            ("I", "J", "K"), ("O",), ())
+        assert parse_sort("MERGE S ON ASCENDING KEY A USING I J GIVING O")[2:] == (("I", "J"), ("O",), ())
+
+    def test_merge_reaches_the_ir_with_its_kind(self):
+        stmt = _sort(_program(self.MERGE))
+        assert (stmt.kind, stmt.using, stmt.reasons) == ("MERGE", ("IN-FILE", "IN2-FILE"), ())
+        assert _sort(_program()).kind == "SORT"
+
+    def test_inputs_are_joined_in_the_order_written(self):
+        source = JavaGenerator().generate(_program(self.MERGE))[0].source_code
+        assert 'CobolSort.run("in.dat;in2.dat", "out.dat", 10, "A:0:3")' in source
+        reversed_inputs = self.MERGE.replace("IN-FILE IN2-FILE", "IN2-FILE IN-FILE")
+        assert 'CobolSort.run("in2.dat;in.dat"' in JavaGenerator().generate(
+            _program(reversed_inputs))[0].source_code
+
+    def test_a_sort_with_two_inputs_lowers_too(self):
+        sort = GOOD.replace("USING IN-FILE", "USING IN-FILE IN2-FILE")
+        program = _program(sort)
+        assert unsupported_reasons(_sort(program), program) == []
+
+    @pytest.mark.parametrize("sort,reason", [
+        (MERGE.replace("IN2-FILE", "IN-FILE"), "DUPLICATE_USING"),
+        (MERGE.replace("GIVING OUT-FILE", "GIVING IN2-FILE"), "SAME_FILE"),
+        (MERGE.replace("USING IN-FILE IN2-FILE", "USING IN-FILE NOFILE"), "FILES"),
+    ])
+    def test_merge_refusals(self, sort, reason):
+        program = _program(sort)
+        assert reason in unsupported_reasons(_sort(program), program)
+        assert "UNSUPPORTED_MERGE$" in JavaGenerator().generate(program)[0].source_code
+
+    def test_a_path_with_the_separator_is_refused(self):
+        source = _source(self.MERGE).replace("'in2.dat'", "'a;b.dat'")
+        program = CobolParser().parse(source)
+        assert "PATH" in unsupported_reasons(_sort(program), program)
 
 
 class TestStatementAndFiles:
@@ -134,7 +183,8 @@ class TestLowering:
         assert "UNSUPPORTED_SORT$INPUT_PROCEDURE" in JavaGenerator().generate(program)[0].source_code
 
 
-def test_registry_marks_sort_supported_with_the_subset_named_and_merge_still_refused():
+def test_registry_marks_sort_and_merge_supported_with_the_subset_named():
     assert CONSTRUCT_REGISTRY["SORT"].level.name == "SUPPORTED"
     assert "GnuCOBOL" in CONSTRUCT_REGISTRY["SORT"].evidence
-    assert CONSTRUCT_REGISTRY["MERGE"].level.name == "UNSUPPORTED"
+    assert CONSTRUCT_REGISTRY["MERGE"].level.name == "SUPPORTED"
+    assert "not in key order" in CONSTRUCT_REGISTRY["MERGE"].evidence
