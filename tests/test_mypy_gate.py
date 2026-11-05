@@ -93,6 +93,8 @@ def test_ci_runs_the_suite_under_coverage_with_a_floor():
     runs = "\n".join(s.get("run", "") for s in job["steps"])
     assert "--require-hashes -r requirements-coverage.lock" in runs
     assert "coverage run" in runs and "--fail-under=" in runs
+    floor = int(runs.split("--fail-under=")[1].split()[0])
+    assert floor >= 88, "the coverage floor may only rise (measured 90% on the first run)"
     config = (REPO / ".coveragerc").read_text(encoding="utf-8")
     sources = config.split("source =")[1].split("branch")[0].split()
     assert sources == ["api", "engine", "tools"]  # the code is measured; the tests are not

@@ -31,6 +31,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.bash_support import posix_bash
+
 REPO = Path(__file__).resolve().parent.parent
 SUPPLY_CHAIN = REPO / ".github" / "workflows" / "supply-chain.yml"
 VERIFY_PROD = REPO / "scripts" / "deploy" / "verify-production.sh"
@@ -99,27 +101,6 @@ class TestSupplyChainPipesFailClosed:
 
 
 
-def _posix_bash() -> str:
-    """A bash that really runs POSIX scripts, or skip.
-
-    On Windows ``bash`` on PATH is often the WSL launcher (``C:\\Windows\\System32\\bash.exe``); with no
-    distribution installed it answers exit status 0 to everything, which makes a test about a pipe's exit
-    status meaningless.  A candidate is accepted only if it prints its own ``BASH_VERSION``.
-    """
-    import shutil
-
-    candidates = [shutil.which("bash") or "bash"]
-    for root in ("C:/Program Files/Git", "C:/Program Files (x86)/Git"):
-        candidates += [f"{root}/bin/bash.exe", f"{root}/usr/bin/bash.exe"]
-    for candidate in candidates:
-        try:
-            probe = subprocess.run([candidate, "-c", "echo $BASH_VERSION"], capture_output=True, timeout=20)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if probe.returncode == 0 and probe.stdout.strip():
-            return candidate
-    pytest.skip("no POSIX bash on this host (the 'bash' found is not a working bash)")
-
 
 class TestVerifyProductionPropagatesProbeFailure:
     @staticmethod
@@ -181,14 +162,14 @@ class TestVerifyProductionPropagatesProbeFailure:
             f'{probe_cmd}; rc=$?; touch /tmp/.bl144-probe;'
             " rm -f /tmp/.bl144-probe; exit $rc"
         )
-        proc = subprocess.run([_posix_bash(), "-c", script], capture_output=True)
+        proc = subprocess.run([posix_bash(), "-c", script], capture_output=True)
         assert (proc.returncode != 0) is expect_fail
 
     @pytest.mark.parametrize("probe_cmd", ["false | grep -q probe"])
     def test_old_idiom_masks_failure(self, probe_cmd):
         """Documents WHY the old pattern was a defect (red evidence)."""
         script = f'{probe_cmd}; rm -f /tmp/.bl144-never-there'
-        proc = subprocess.run([_posix_bash(), "-c", script], capture_output=True)
+        proc = subprocess.run([posix_bash(), "-c", script], capture_output=True)
         assert proc.returncode == 0, (
             "expected the old `; rm` tail to mask the failure"
         )

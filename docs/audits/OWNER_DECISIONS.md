@@ -20,6 +20,11 @@ product says so (`docs/CAPABILITY_MATRIX.md`, `docs/audits/EXECUTION_LEDGER.md`)
 | 11 | **Hosting for decomposed services** (Kubernetes, compose, registry) | The decomposition planner proposes boundaries for review (`/applications/{id}/decomposition`) | Where the services run and how they are deployed; no container or manifest is generated today | 18 |
 | 12 | **Merging `impl/enterprise-platform` into `main`** | Every unit is gated by CI, supply chain and four-runtime certification on its own commit | Authorization to merge (history is preserved, no force-push) | all |
 
+## Evaluated and decided without the owner
+
+* **Interrupted-run recovery** stays fail-closed (runs fail with their last stage preserved and can be validated again); re-queueing was rejected because the stages are not idempotent. Reasons: `CAPABILITY_STATUS.md`.
+* **Simulator integration** (MQ / IMS / CICS into generated code) is not safely actionable yet; the prerequisites are listed in `CAPABILITY_STATUS.md`. It also stays blocked on rows 6 and 7 above for any IBM equivalence claim.
+
 ## Not blocked, not done
 
 Independent of the owner, and still open: JCL `SORT`/`IEBCOPY`/`IF` blocks, `SEARCH`/`SORT`/`MERGE` statements,

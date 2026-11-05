@@ -92,6 +92,19 @@ def test_subsystem_references_come_from_the_ledger_entries():
     assert not any("PARAMETER" in e.target for e in edges.values())
 
 
+def test_mq_ims_and_cics_edges_name_the_simulator_without_changing_the_state():
+    edges = _edges(build_estate(DISCOVERY, EXTERNAL))
+    mq = edges[("PROGRAM:PAYROLL", "USES_MQ", "MQ_QUEUE:QUEUE=PAY.IN")]
+    assert mq.proof_state == BLOCKED and "SIMMQ-1" in mq.evidence and "no IBM runtime was run" in mq.evidence
+    ims = edges[("PROGRAM:PAYROLL", "USES_IMS", "IMS_SEGMENT:SEGMENT=EMPSEG")]
+    assert ims.proof_state == BLOCKED and "SIMDLI-1" in ims.evidence
+    cics = edges[("PROGRAM:PAYROLL", "USES_CICS", "CICS_RESOURCE:FILE=ACCT")]
+    assert cics.proof_state == UNPROVEN and "SIMCICS-1" in cics.evidence
+    # DB2 has no simulator: its evidence is untouched
+    db2 = edges[("PROGRAM:PAYROLL", "USES_DB2", "DB2_TABLE:TABLE=EMPLOYEE")]
+    assert "simulator" not in db2.evidence.lower()
+
+
 def test_summary_counts_and_the_blocked_list():
     summary = build_estate(DISCOVERY, EXTERNAL).summary()
     assert summary["edge_count"] == sum(summary["edges_by_proof_state"].values())

@@ -163,7 +163,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          coverage report --fail-under=0 | tee coverage-report.txt
+          coverage report --fail-under=88 | tee coverage-report.txt
 
   backend-hermetic:
     # Audit B2: the whole suite without Docker (RUN_DOCKER_TESTS unset), as a

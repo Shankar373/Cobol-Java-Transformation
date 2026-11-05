@@ -28,6 +28,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from tests.bash_support import posix_bash
+
 REPO = Path(__file__).resolve().parent.parent
 RESTORE = REPO / "scripts" / "backup" / "restore.sh"
 VERIFY_PROD = REPO / "scripts" / "deploy" / "verify-production.sh"
@@ -116,7 +118,7 @@ class TestVerifyProductionAuthCheck:
         a down backend, a 500, a 403 — is recorded as PASS by the old gate.
         """
         # stands in for `curl` against a down backend (non-zero exit)
-        proc = subprocess.run(["bash", "-c", "! false"], capture_output=True)
+        proc = subprocess.run([posix_bash(), "-c", "! false"], capture_output=True)
         assert proc.returncode == 0, (
             "expected `! <failing command>` to exit 0 — the old auth check "
             "recorded PASS whenever curl failed for any reason"

@@ -71,6 +71,7 @@ gates passed). Capability claims live in [`docs/CAPABILITY_MATRIX.md`](docs/CAPA
 | DB2 / SQL | `EXEC SQL` kept as IR; a pluggable `DatabaseDialect` (DB2, PostgreSQL); JDBC generation for a certified subset, equal to an OCESQL + PostgreSQL 14 reference; fixed-width record migration with reconciliation. **Not DB2-verified**; indicators, WHENEVER and dynamic SQL are refused |
 | MQ / IMS / CICS | Versioned simulators SIMMQ-1, SIMDLI-1, SIMCICS-1 with Java twins and conformance suites, label `SIMULATOR_VERIFIED`. **Not wired** into generated code: `EXEC CICS`, `EXEC DLI` and MQ calls stay unsupported |
 | Estate | Dependency graph with a proof state on every edge, read-only API and UI, a decomposition *proposal* for review (no multi-artifact or container generation) |
+| Quality gates | Capability gate, hermetic backend and frontend on Linux **and Windows**, a mypy ratchet (new code type-clean) and a coverage floor (88%, 90% measured); evidence classes per capability in [`docs/audits/CAPABILITY_STATUS.md`](docs/audits/CAPABILITY_STATUS.md) |
 | Control plane | Role-based access control on bearer tokens. OIDC, signing keys and Docker socket isolation need the owner: see [`docs/audits/OWNER_DECISIONS.md`](docs/audits/OWNER_DECISIONS.md) |
 
 Verdict labels never overstate: `VERIFIED` (GnuCOBOL oracle), `SIMULATOR_VERIFIED` (equal to an in-repo

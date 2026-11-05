@@ -26,6 +26,12 @@ NODE_KINDS = ("PROGRAM", "COPYBOOK", "JOB", "STEP", "DATASET", "DB2_TABLE", "MQ_
 #: Utilities the JCL launcher runs natively (roadmap unit 8); documented behaviour, no IBM/JES oracle.
 UTILITIES = frozenset({"IEFBR14", "IEBGENER", "IDCAMS"})
 
+#: Subsystems that have a versioned simulator (engine/simulators). Having one is evidence about the
+#: specification, not about generated code: no lowering calls it, so the edge's state does not change.
+SIMULATORS = {
+    "MQ_QUEUE": "SIMMQ-1", "IMS_SEGMENT": "SIMDLI-1", "CICS_RESOURCE": "SIMCICS-1",
+}
+
 _LEDGER_KINDS = {
     "DB2": ("DB2_TABLE", "USES_DB2"), "MQ": ("MQ_QUEUE", "USES_MQ"), "IMS": ("IMS_SEGMENT", "USES_IMS"),
     "CICS": ("CICS_RESOURCE", "USES_CICS"),
@@ -189,8 +195,13 @@ def build_estate(discovery: dict, external: "dict[str, list[dict]] | None" = Non
             name = str(entry["dependency_id"]).split(":", 1)[-1]
             state = entry.get("proof_state", UNPROVEN)
             state = str(state).split(".")[-1]
+            evidence = entry.get("reason", "")
+            if node_kind in SIMULATORS:
+                evidence = (f"{evidence} A simulator ({SIMULATORS[node_kind]}, SIMULATOR_VERIFIED library) "
+                            "specifies this subsystem; generated code does not call it and no IBM runtime "
+                            "was run.").strip()
             b.edge(pid, b.node(node_kind, name), relation, state if state in PROOF_STATES else UNPROVEN,
-                   entry.get("reason", ""))
+                   evidence)
 
     return Estate(
         nodes=sorted(b.nodes.values(), key=lambda n: (n.kind, n.name)),
