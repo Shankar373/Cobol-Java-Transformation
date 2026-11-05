@@ -233,7 +233,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         }
     }
 
-    /** Explicit READ ... NEXT — same sequential/cursor semantics as read(). */
+    /** Explicit READ ... NEXT: same sequential/cursor semantics as read(). */
     static String readNext(String path) {
         path = map(path);
         return read(path);

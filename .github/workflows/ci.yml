@@ -57,6 +57,31 @@ jobs:
         # no longer matches the import graph (audit B3; it had gone stale).
         run: python tools/dependency_map.py --check
 
+  capability-truth-windows:
+    # Roadmap unit 19: the same Docker-free capability gate on Windows. Engineers and customers run the
+    # control plane and the analysis on Windows; a path-separator, encoding or line-ending regression in the
+    # registry, analyzer or producer surface must fail here, not at a customer. Only the pytest-only gate
+    # runs (no Docker, no runtime stack): the Docker lanes stay on Linux.
+    name: Capability truth gate (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Install test runner only
+        run: python -m pip install --require-hashes -r requirements-gate.lock
+      - name: Verify capability truth
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q $(grep -v '^#' tests/capability_truth.txt | grep -v '^$' | tr -d '\r')
+
   lint:
     # Audit CI-F15: pyflakes (unused names, undefined names) and syntax
     # errors over the Python code; configuration in ruff.toml.
@@ -91,6 +116,32 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Run the suite without Docker
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q -W error::pytest.PytestWarning tests
+
+  backend-hermetic-windows:
+    # Roadmap unit 19: the whole Docker-free suite on Windows, as a Windows developer runs it. Two defects were
+    # found this way: a non-ASCII character in generated Java that only failed under a non-UTF-8 default code
+    # page, and a test that trusted the WSL launcher as bash. Docker lanes stay on Linux.
+    name: Backend hermetic suite (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -165,6 +216,39 @@ jobs:
           path: test-artifacts/**
           if-no-files-found: warn
           retention-days: 30
+
+  frontend-windows:
+    name: Frontend tests, TypeScript, and production build (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run frontend tests
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test
+      - name: Run TypeScript check and production build
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build
 
   frontend:
     name: Frontend tests, TypeScript, and production build

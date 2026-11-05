@@ -107,7 +107,7 @@ class TestNativeJavaRuntime:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             java_file = Path(tmpdir) / "Claims.java"
-            java_file.write_text(java_code)
+            java_file.write_text(java_code, encoding="utf-8")
 
             proc = subprocess.run(
                 ["javac", str(java_file)],
