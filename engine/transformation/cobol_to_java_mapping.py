@@ -82,6 +82,7 @@ from engine.transformation.ir import (
     InitializeStatement,
     AcceptStatement,
     InspectStatement,
+    SortStatement,
     ExecSqlStatement,
     FieldReference,
     FigurativeConstant,
@@ -4108,7 +4109,7 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     StopRunStatement, CallStatement,
     ExitProgramStatement, SetConditionStatement,
     UnstringStatement, GobackStatement, InitializeStatement,
-    AcceptStatement, InspectStatement, ExecSqlStatement,
+    AcceptStatement, InspectStatement, ExecSqlStatement, SortStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
 STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement})
@@ -4706,6 +4707,12 @@ def map_cobol_statement(
         # else fails closed by name (engine/transformation/exec_sql_lowering.py).
         from engine.transformation.exec_sql_lowering import lower as _lower_exec_sql
         result.extend(_lower_exec_sql(stmt, program))
+
+    elif isinstance(stmt, SortStatement):
+        # File-to-file SORT lowered to CobolSort.run; anything else fails closed by name
+        # (engine/transformation/sort_lowering.py).
+        from engine.transformation.sort_lowering import lower as _lower_sort
+        result.extend(_lower_sort(stmt, program))
 
     elif isinstance(stmt, InspectStatement):
         # INSPECT with literal operands; semantics pinned by the GnuCOBOL oracle

@@ -24,7 +24,8 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | Utilities IEFBR14 / IEBGENER / IDCAMS, GDGs, dispositions (8) | yes | yes | | documented-semantics only | with the launcher | no JES/IBM utility oracle; SORT, IEBCOPY, LISTCAT, IDCAMS DEFINE CLUSTER refused |
 | Keyed `ACCESS MODE RANDOM` (7) | yes | yes | GnuCOBOL | | yes | SEQUENTIAL access, ALTERNATE KEY refused |
 | `INSPECT` literal subset (9) | yes | yes | GnuCOBOL (360 fuzzed statements) | | yes | data-name operands, TRAILING |
-| `SEARCH`, `SORT`, `MERGE` (9) | | | | | | not implemented; refused. Prerequisite for SEARCH: INDEXED BY / SET index; SORT needs SD files and collation |
+| `SORT` file to file (9) | yes | yes | GnuCOBOL (100 fuzzed programs) | | yes | INPUT/OUTPUT PROCEDURE, several files, COLLATING, record-sequential, signed/binary keys |
+| `SEARCH`, `MERGE` (9) | | | | | | not implemented; refused. SEARCH needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |
 | `DatabaseDialect` DB2 / PostgreSQL (11) | yes | yes (table-driven) | | | used by the SQL lowering | dialects beyond PostgreSQL: owner decision |

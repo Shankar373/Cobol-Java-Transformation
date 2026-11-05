@@ -775,6 +775,18 @@ class CapabilityAnalyzer:
                         + "); mapper fails closed",
                     ))
 
+            if name == "SortStatement":
+                from engine.transformation.sort_lowering import unsupported_reasons as _sort_reasons
+
+                sort_why = _sort_reasons(stmt, program)
+                if sort_why:
+                    findings.append((
+                        "SORT",
+                        CapabilityLevel.UNSUPPORTED,
+                        "SORT outside the certified subset (" + ", ".join(sorted(set(sort_why)))
+                        + "); mapper fails closed",
+                    ))
+
             if name == "InspectStatement":
                 from engine.transformation.cobol_to_java_mapping import (
                     inspect_unsupported_reasons,

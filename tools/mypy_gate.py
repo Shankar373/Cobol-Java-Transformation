@@ -35,7 +35,9 @@ def normalize(output: str) -> Counter:
         if not match:
             continue
         path = match.group("path").replace("\\", "/")
-        keys[f"{path}|[{match.group('code') or ''}]|{match.group('message')}"] += 1
+        # a line number inside the message ("already defined on line 5393") moves with every edit above it
+        message = re.sub(r"\bon line \d+", "on line N", match.group("message"))
+        keys[f"{path}|[{match.group('code') or ''}]|{message}"] += 1
     return keys
 
 

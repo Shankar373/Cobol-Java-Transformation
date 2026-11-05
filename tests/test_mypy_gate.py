@@ -21,6 +21,7 @@ OUTPUT = r"""
 api\app.py:471: error: Argument 1 to "len" has incompatible type "str | None"; expected "Sized"  [arg-type]
 api/app.py:475: error: Argument 1 to "len" has incompatible type "str | None"; expected "Sized"  [arg-type]
 engine/x.py:9:4: error: Missing return statement  [return]
+engine/x.py:12: error: Name "y" already defined on line 5  [no-redef]
 engine/x.py:12: note: this is a note, not an error
 Found 3 errors in 2 files (checked 5 source files)
 """
@@ -28,7 +29,7 @@ Found 3 errors in 2 files (checked 5 source files)
 #: Modules written for the enterprise roadmap are held to zero type errors: no baseline entry is allowed.
 STRICT = ("engine/simulators/", "engine/estate/", "engine/sql/database_dialect", "engine/sql/migration",
           "engine/sql/oracle_pg", "engine/transformation/exec_sql", "engine/transformation/inspect_",
-          "api/rbac.py", "api/estate.py", "tools/mypy_gate.py")
+          "engine/transformation/sort_", "api/rbac.py", "api/estate.py", "tools/mypy_gate.py")
 
 
 def test_errors_are_normalised_without_line_numbers_or_platform_separators():
@@ -36,6 +37,7 @@ def test_errors_are_normalised_without_line_numbers_or_platform_separators():
     assert keys == Counter({
         'api/app.py|[arg-type]|Argument 1 to "len" has incompatible type "str | None"; expected "Sized"': 2,
         "engine/x.py|[return]|Missing return statement": 1,
+        'engine/x.py|[no-redef]|Name "y" already defined on line N': 1,
     })
 
 

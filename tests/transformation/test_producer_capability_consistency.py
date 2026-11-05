@@ -20,7 +20,7 @@ Scope note — the opensource4j adapter is deliberately excluded from the
 registry-agreement check.  It is an *external* producer: its generated Java
 requires the COBOL runtime ``libcobj.jar`` and is explicitly classified as an
 alternative/benchmark lane, not the deterministic lane the registry describes.
-It legitimately claims constructs (``GO TO``, ``SORT``) that the deterministic
+It legitimately claims constructs (``GO TO``) that the deterministic
 mapper cannot express, because the upstream tool handles them.  Forcing it to
 mirror the registry would falsify its real behaviour, so the registry-vs-external
 divergence is asserted explicitly instead of being erased.
@@ -178,8 +178,9 @@ class TestEveryProducerDeclaredSurface:
 class TestExternalProducerDivergenceIsExplicit:
     """The external lane's divergence must be documented, not accidental.
 
-    The opensource4j adapter claims ``GO TO`` / ``SORT`` as supported while the
-    deterministic registry marks them UNSUPPORTED.  That divergence is correct
+    The opensource4j adapter claims ``GO TO`` as supported while the
+    deterministic registry marks it UNSUPPORTED (``SORT`` stopped diverging when
+    the file-to-file subset was certified, roadmap unit 9).  That divergence is correct
     and expected (an external COBOL runtime handles what our mapper cannot), but
     it must be asserted so nobody "fixes" it by editing the registry.
     """
@@ -200,7 +201,7 @@ class TestExternalProducerDivergenceIsExplicit:
         supported, _ = _declared(OpenSourceCOBOL4JProducerAdapter())
         divergence = sorted(supported & UNSUPPORTED_CONSTRUCTS)
         # The deterministic mapper cannot express these; the external runtime can.
-        assert divergence == ["GO TO", "SORT"], (
+        assert divergence == ["GO TO"], (
             "The external producer's divergence from the deterministic registry "
             f"changed to {divergence}. If this is intentional, update this test "
             "and the lane documentation together; if not, remove the claims."

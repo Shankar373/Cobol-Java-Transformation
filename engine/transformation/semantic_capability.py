@@ -34,6 +34,7 @@ from engine.transformation.ir import (
     AcceptStatement,
     ExecSqlStatement,
     InspectStatement,
+    SortStatement,
     ExitProgramStatement,
     GobackStatement,
     InitializeStatement,
@@ -270,7 +271,15 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "deterministic Java lane: no IR, no mapper and no MQ runtime; the "
         "call is classified UNSUPPORTED by detection, never transformed"
     ),
-    "SORT": _unsupported("SORT is not implemented in the deterministic mapper"),
+    "SORT": _supported(
+        "SORT sd ON ASCENDING|DESCENDING KEY k... [WITH DUPLICATES IN ORDER] USING f GIVING g between two "
+        "LINE SEQUENTIAL files of one fixed record length, keys elementary alphanumeric or unsigned numeric "
+        "DISPLAY items of the SD record, lowered to CobolSort.run (stable sort, ASCII order, a missing USING "
+        "file is an empty input). Output equals GnuCOBOL 3.1.2 (tests/integration/test_sort_oracle.py). "
+        "INPUT/OUTPUT PROCEDURE, several USING/GIVING files, COLLATING SEQUENCE, record-sequential files, "
+        "signed or binary keys and MERGE fail closed with an unresolvable method name.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "MERGE": _unsupported("MERGE is not implemented in the deterministic mapper"),
     "ACCEPT": _supported(
         "ACCEPT <field> [FROM CONSOLE|STDIN|SYSIN] consumes one whole "
@@ -587,6 +596,7 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     ExitProgramStatement.__name__: "EXIT PROGRAM",
     AcceptStatement.__name__: "ACCEPT",
     InspectStatement.__name__: "INSPECT",
+    SortStatement.__name__: "SORT",
     ExecSqlStatement.__name__: "EXEC SQL",
     GobackStatement.__name__: "GOBACK",
     InitializeStatement.__name__: "INITIALIZE",

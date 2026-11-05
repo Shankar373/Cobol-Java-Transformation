@@ -18,12 +18,13 @@ from engine.transformation.cobol_parser import CobolParser
 from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
 from engine.transformation.inspect_support_template import COBOL_INSPECT_JAVA
 from engine.transformation.java_generator import JavaGenerator
+from engine.transformation.sort_support_template import COBOL_SORT_JAVA
 from engine.transformation.sql_support_template import COBOL_SQL_JAVA
 from engine.transformation.stdin_support_template import COBOL_STDIN_JAVA
 
 TEMPLATES = {
     "file io": COBOL_FILE_IO_JAVA, "stdin": COBOL_STDIN_JAVA, "inspect": COBOL_INSPECT_JAVA,
-    "sql": COBOL_SQL_JAVA, "jcl runner": JCL_RUNNER_TEMPLATE, "SimMq": SIMMQ_JAVA, "SimDli": SIMDLI_JAVA,
+    "sql": COBOL_SQL_JAVA, "sort": COBOL_SORT_JAVA, "jcl runner": JCL_RUNNER_TEMPLATE, "SimMq": SIMMQ_JAVA, "SimDli": SIMDLI_JAVA,
     "SimCics": SIMCICS_JAVA,
 }
 

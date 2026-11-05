@@ -179,6 +179,7 @@ class JavaGenerator(JavaSourceRenderer):
         uses_cobol_stdin_stmt = False
         uses_cobol_inspect_stmt = False
         uses_cobol_sql_stmt = False
+        uses_cobol_sort_stmt = False
 
         for method in java_class.methods:
             method_stmts: list[str] = []
@@ -196,6 +197,8 @@ class JavaGenerator(JavaSourceRenderer):
                         uses_cobol_inspect_stmt = True
                     if "CobolSql." in stmt_str:
                         uses_cobol_sql_stmt = True
+                    if "CobolSort." in stmt_str:
+                        uses_cobol_sort_stmt = True
 
             if method.name == "main":
                 main_body = "".join(f"        {s}\n" for s in method_stmts)
@@ -217,7 +220,8 @@ class JavaGenerator(JavaSourceRenderer):
         file_write_helper = ""
         file_write_imports = ""
         support_code = ""
-        uses_cobol_file_io = uses_file_write or uses_cobol_file_io_stmt
+        # CobolSort reads and writes its files through CobolFileIo, so a SORT needs it too
+        uses_cobol_file_io = uses_file_write or uses_cobol_file_io_stmt or uses_cobol_sort_stmt
         if uses_cobol_file_io:
             from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
             support_code = "\n" + COBOL_FILE_IO_JAVA + "\n"
@@ -233,6 +237,9 @@ class JavaGenerator(JavaSourceRenderer):
         if uses_cobol_sql_stmt:
             from engine.transformation.sql_support_template import COBOL_SQL_JAVA
             support_code += "\n" + COBOL_SQL_JAVA + "\n"
+        if uses_cobol_sort_stmt:
+            from engine.transformation.sort_support_template import COBOL_SORT_JAVA
+            support_code += "\n" + COBOL_SORT_JAVA + "\n"
         if uses_file_write:
             file_write_imports = (
                 "import java.io.FileWriter;\n"

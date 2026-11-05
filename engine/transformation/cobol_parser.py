@@ -74,6 +74,7 @@ from engine.transformation.ir import (
     AcceptStatement,
     InspectStatement,
     ExecSqlStatement,
+    SortStatement,
     FileAccessMode,
     FieldReference,
     FileDefinition,
@@ -754,6 +755,7 @@ class CobolParser:
                     record_contains=fd.record_contains,
                     block_contains=fd.block_contains,
                     assign_kind=fd.assign_kind,
+                    is_sort_file=fsd.is_sort_file,
                 ))
             else:
                 merged_files.append(fd)
@@ -1592,6 +1594,7 @@ class CobolParser:
         in_file_section = False
         file_defs: list[FileDefinition] = []
         current_fd: str | None = None
+        current_sort = False
         current_record: str | None = None
         current_items: list[DataItem] = []
         record_lines: list[list[str]] = []
@@ -1602,7 +1605,7 @@ class CobolParser:
                 in_file_section = True
                 continue
             if in_file_section:
-                if upper.startswith("FD "):
+                if upper.startswith(("FD ", "SD ")):
                     if current_fd and current_record:
                         file_defs.append(FileDefinition(
                             name=current_fd,
@@ -1610,7 +1613,9 @@ class CobolParser:
                             record_name=current_record,
                             record_items=tuple(current_items),
                             record_groups=self._record_groups(record_lines),
+                            is_sort_file=current_sort,
                         ))
+                    current_sort = upper.startswith("SD ")
                     parts = line.strip().split()
                     current_fd = parts[1].rstrip(".") if len(parts) >= 2 else None
                     current_record = None
@@ -1670,6 +1675,7 @@ class CobolParser:
                             record_name=current_record,
                             record_items=tuple(current_items),
                             record_groups=self._record_groups(record_lines),
+                            is_sort_file=current_sort,
                         ))
                     break
                 elif record_lines and upper:
@@ -2134,6 +2140,10 @@ class CobolParser:
         # STOP RUN
         if upper.startswith("STOP RUN"):
             return StopRunStatement(), start + 1
+
+        # SORT sd ... USING f GIVING g
+        if upper.startswith("SORT "):
+            return self._parse_sort(lines, start)
 
         # INSPECT — literal TALLYING / REPLACING / CONVERTING subset
         if upper.startswith("INSPECT "):
@@ -4094,6 +4104,32 @@ class CobolParser:
             sql=sql, kind=facts["kind"], inputs=facts["inputs"], outputs=facts["outputs"],
             indicators=facts["indicators"], whenever=facts["whenever"],
             include=facts["include"], block=block, terminated=terminated), end
+
+    def _parse_sort(self, lines: list[str], start: int) -> tuple[SortStatement, int]:
+        """Parse SORT; the statement ends at a period or at the next statement verb."""
+        from engine.transformation.sort_statement import parse_sort
+
+        full_text = lines[start].strip()
+        i = start + 1
+        while i < len(lines) and not full_text.endswith("."):
+            nxt = lines[i].strip()
+            if not nxt:
+                i += 1
+                continue
+            if _SCOPE_TERMINATOR.match(nxt) or _STRING_CONTINUATION_STOP.match(nxt.upper()):
+                break
+            full_text += " " + nxt
+            i += 1
+        sort_file, keys, using, giving, reasons = parse_sort(full_text)
+        for reason in reasons:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"SORT {reason} has no certified Java mapping; the statement fails closed instead "
+                "of running with different semantics",
+                location=f"line {start + 1}",
+            )
+        return SortStatement(sort_file=sort_file, keys=keys, using=using, giving=giving,
+                             reasons=reasons), i
 
     def _parse_inspect(self, lines: list[str], start: int) -> tuple[InspectStatement, int]:
         """Parse INSPECT; the statement ends at a period or at the next statement verb."""

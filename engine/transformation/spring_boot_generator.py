@@ -106,11 +106,14 @@ class SpringBootGenerator(JavaSourceRenderer):
         emitted_cobol_stdin = False
         emitted_cobol_inspect = False
         emitted_cobol_sql = False
+        emitted_cobol_sort = False
         for service, service_file in zip(application.services, service_files):
             if (emitted_cobol_file_io and emitted_cobol_stdin and emitted_cobol_inspect
-                    and emitted_cobol_sql):
+                    and emitted_cobol_sql and emitted_cobol_sort):
                 break
-            if not emitted_cobol_file_io and "CobolFileIo." in service_file.source_code:
+            if not emitted_cobol_file_io and (
+                "CobolFileIo." in service_file.source_code or "CobolSort." in service_file.source_code
+            ):
                 from engine.transformation.file_io_support_template import COBOL_FILE_IO_JAVA
                 package = service.package
                 path = f"src/main/java/{package.replace('.', '/')}/CobolFileIo.java"
@@ -156,6 +159,17 @@ class SpringBootGenerator(JavaSourceRenderer):
                     path=path,
                 ))
                 emitted_cobol_sql = True
+            if not emitted_cobol_sort and "CobolSort." in service_file.source_code:
+                from engine.transformation.sort_support_template import COBOL_SORT_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolSort.java"
+                files.append(GeneratedFile(
+                    filename="CobolSort.java",
+                    source_code=f"package {package};\n\n{COBOL_SORT_JAVA}\n",
+                    class_name="CobolSort",
+                    path=path,
+                ))
+                emitted_cobol_sort = True
 
         # Shared copybook models are emitted by the single model loop below
         # (after the adapter implementations): a second loop here appended

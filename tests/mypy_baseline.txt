@@ -97,11 +97,11 @@
 1	engine/transformation/cobol_to_java_mapping.py|[attr-defined]|"JavaExpression" has no attribute "replace"
 1	engine/transformation/cobol_to_java_mapping.py|[attr-defined]|"JavaExpression" has no attribute "split"
 2	engine/transformation/cobol_to_java_mapping.py|[attr-defined]|"tuple[str, ...]" has no attribute "append"
-1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "body_stmts" already defined on line 5386
-1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "else_body" already defined on line 4535
-1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "reasons" already defined on line 4624
-1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "sources" already defined on line 4290
-1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "then_body" already defined on line 4532
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "body_stmts" already defined on line N
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "else_body" already defined on line N
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "reasons" already defined on line N
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "sources" already defined on line N
+1	engine/transformation/cobol_to_java_mapping.py|[no-redef]|Name "then_body" already defined on line N
 1	engine/transformation/cobol_to_java_mapping.py|[operator]|Unsupported operand types for * ("str" and "str")
 2	engine/transformation/cobol_to_java_mapping.py|[operator]|Unsupported operand types for + ("int" and "str")
 2	engine/transformation/cobol_to_java_mapping.py|[operator]|Unsupported operand types for + ("str" and "int")

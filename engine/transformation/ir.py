@@ -402,6 +402,8 @@ class FileDefinition:
     # DD name (DDNAME: ``ASSIGN TO CUSTFILE``), which the runtime resolves
     # from the environment exactly as GnuCOBOL does (roadmap unit 4).
     assign_kind: str = "LITERAL"
+    # An SD (sort description) entry: the work file of a SORT statement, never opened by the program.
+    is_sort_file: bool = False
 
 
 @dataclass(frozen=True)
@@ -805,6 +807,21 @@ class ExecSqlStatement:
     terminated: bool = True
 
 
+@dataclass(frozen=True)
+class SortStatement:
+    """SORT sd ON ASCENDING|DESCENDING KEY k... USING f GIVING g (file-to-file subset).
+
+    ``reasons`` names every clause outside the certified subset (INPUT/OUTPUT PROCEDURE, several USING or
+    GIVING files, COLLATING SEQUENCE, no key) so the lowering fails closed by name.
+    """
+
+    sort_file: str = ""
+    keys: tuple[tuple[str, str], ...] = ()  # (data-name, ASCENDING | DESCENDING)
+    using: tuple[str, ...] = ()
+    giving: tuple[str, ...] = ()
+    reasons: tuple[str, ...] = ()
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
@@ -835,6 +852,7 @@ Statement = (
     | AcceptStatement
     | InspectStatement
     | ExecSqlStatement
+    | SortStatement
 )
 
 
