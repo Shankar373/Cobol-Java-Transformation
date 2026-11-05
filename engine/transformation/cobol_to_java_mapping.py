@@ -3462,9 +3462,12 @@ def map_cobol_condition_to_java(
     # fallback below would render Java String identity (``==``) instead.
     # Decimal operands need the same, for ``compareTo`` (oracle: ``IF D < 0
     # AND N > 0`` with ``D PIC S9(5)V99`` rendered ``D < 0`` on a BigDecimal).
+    # A subscripted operand (``E(IDX) > 0 OR E(IDX) > 1``) takes the same
+    # route: the textual fallback cannot render a table reference.
     if program is not None and (
         _involves_alphanumeric(condition, program)
         or _involves_decimal(condition, program)
+        or _re.search(r"(?<![\w-])(?!(?:AND|OR|NOT)\s*\()[A-Za-z][\w-]*\(", condition, _re.IGNORECASE) is not None
     ):
         unwrapped = _strip_enclosing_parens(condition)
         for keyword, java_op in (("OR", "||"), ("AND", "&&")):

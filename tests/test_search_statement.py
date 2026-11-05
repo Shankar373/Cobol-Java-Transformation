@@ -101,3 +101,15 @@ def test_varying_an_index_and_a_signed_item_are_refused():
 
 def test_search_without_when_is_refused():
     assert "NO_WHEN" in _reasons("           SEARCH E\n               AT END DISPLAY 'X'\n           END-SEARCH.\n")
+
+
+def test_compound_conditions_over_subscripted_numeric_items_map_atom_by_atom():
+    from engine.transformation.cobol_to_java_mapping import map_cobol_condition_to_java
+    from engine.transformation.java_ir import JavaBinaryOp, JavaUnsupportedExpression
+
+    program = _parse("           DISPLAY 'A'.\n")
+    program = CobolParser().parse(HEAD.replace("PIC X(2) OCCURS", "PIC 9 OCCURS") + "           STOP RUN.\n")
+    for text, operator in (("E(IDX) > 0 OR E(IDX) > 1", "||"), ("E(IDX) = 0 AND E(JDX) < 3", "&&")):
+        mapped = map_cobol_condition_to_java(text, program=program)
+        assert not isinstance(mapped, JavaUnsupportedExpression), text
+        assert isinstance(mapped, JavaBinaryOp) and mapped.operator == operator

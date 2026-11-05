@@ -1,7 +1,7 @@
 """GnuCOBOL oracle differential proof for SEARCH and SET on indexes (certified linear subset).
 
 Each generated program fills an ``OCCURS ... INDEXED BY`` table, then runs a random sequence of ``SET idx``
-(TO, UP BY, DOWN BY), linear ``SEARCH`` statements (one to three single-relation WHEN clauses, optional AT END, optional
+(TO, UP BY, DOWN BY), linear ``SEARCH`` statements (one to three WHEN clauses (a relation, or two joined by OR/AND), optional AT END, optional
 ``VARYING`` an integer item, alphanumeric or numeric tables, an index already past the table) and displays of the
 index.  The program runs under GnuCOBOL 3.1.2 and, as generated Java, under the Java image; standard output must
 be identical.  An index below 1 is not generated: it is outside the certified subset.
@@ -43,7 +43,7 @@ HEAD = """       IDENTIFICATION DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-TABLE.
-          05 WS-ENTRY {pic} OCCURS {n} TIMES INDEXED BY IDX JDX.
+          05 WS-E {pic} OCCURS {n} TIMES INDEXED BY IDX JDX.
        01 WS-V PIC 99 VALUE 0.
        01 WS-N PIC 99 VALUE 0.
        PROCEDURE DIVISION.
@@ -62,13 +62,16 @@ def _quote(kind: str, value: str) -> str:
 
 
 def _condition(kind: str, width: int, rng: random.Random) -> str:
-    # one relation per WHEN: the shared condition mapper refuses OR over subscripted items (fails closed)
-    op = rng.choice(["=", "=", "=", "NOT =", ">", "<"])
-    return f"WS-ENTRY(IDX) {op} {_quote(kind, _literal(kind, width, rng))}"
+    def one() -> str:
+        op = rng.choice(["=", "=", "=", "NOT =", ">", "<"])
+        return f"WS-E(IDX) {op} {_quote(kind, _literal(kind, width, rng))}"
+
+    first = one()
+    return first if rng.random() < 0.75 else f"{first} {rng.choice(['OR', 'AND'])} {one()}"
 
 
 def _search(kind: str, width: int, rng: random.Random, tag: int) -> list[str]:
-    lines = ["           SEARCH WS-ENTRY" + ("" if rng.random() < 0.7 else " VARYING WS-V")]
+    lines = ["           SEARCH WS-E" + ("" if rng.random() < 0.7 else " VARYING WS-V")]
     if rng.random() < 0.7:
         lines.append(f"               AT END DISPLAY 'S{tag} END'")
     for number in range(rng.randint(1, 3)):
@@ -96,7 +99,7 @@ def _program(rng: random.Random) -> str:
     pic = f"PIC X({width})" if kind == "X" else f"PIC 9({width})"
     lines = HEAD.format(pic=pic, n=n).rstrip("\n").split("\n")
     for position in range(1, n + 1):
-        lines.append(f"           MOVE {_quote(kind, _literal(kind, width, rng))} TO WS-ENTRY({position}).")
+        lines.append(f"           MOVE {_quote(kind, _literal(kind, width, rng))} TO WS-E({position}).")
     lines.append("           SET IDX TO 1.")  # an unset index is below 1: outside the certified subset
     for step in range(rng.randint(3, 9)):
         op = rng.choice(["set", "set", "up", "down", "search", "search", "search"])
@@ -153,43 +156,43 @@ FIXED = [
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-TABLE.
-          05 WS-ENTRY PIC X(3) OCCURS 5 TIMES INDEXED BY IDX.
+          05 WS-E PIC X(3) OCCURS 5 TIMES INDEXED BY IDX.
        01 WS-V PIC 9 VALUE 0.
        01 WS-N PIC 9 VALUE 0.
        PROCEDURE DIVISION.
        MAIN.
-           MOVE 'AAA' TO WS-ENTRY(1).
-           MOVE 'BBB' TO WS-ENTRY(2).
-           MOVE 'CCC' TO WS-ENTRY(3).
-           MOVE 'BBB' TO WS-ENTRY(4).
-           MOVE 'EEE' TO WS-ENTRY(5).
+           MOVE 'AAA' TO WS-E(1).
+           MOVE 'BBB' TO WS-E(2).
+           MOVE 'CCC' TO WS-E(3).
+           MOVE 'BBB' TO WS-E(4).
+           MOVE 'EEE' TO WS-E(5).
            SET IDX TO 1.
-           SEARCH WS-ENTRY
+           SEARCH WS-E
                AT END DISPLAY 'T1 NOT FOUND'
-               WHEN WS-ENTRY(IDX) = 'BBB' DISPLAY 'T1 FOUND'
+               WHEN WS-E(IDX) = 'BBB' DISPLAY 'T1 FOUND'
            END-SEARCH.
            SET WS-N TO IDX.
            DISPLAY 'IDX=' WS-N.
-           SEARCH WS-ENTRY
+           SEARCH WS-E
                AT END DISPLAY 'T2 NOT FOUND'
-               WHEN WS-ENTRY(IDX) = 'BBB' DISPLAY 'T2 FOUND'
+               WHEN WS-E(IDX) = 'BBB' DISPLAY 'T2 FOUND'
            END-SEARCH.
            SET IDX UP BY 1.
-           SEARCH WS-ENTRY
+           SEARCH WS-E
                AT END DISPLAY 'T3 NOT FOUND'
-               WHEN WS-ENTRY(IDX) = 'ZZZ' DISPLAY 'T3 FOUND'
+               WHEN WS-E(IDX) = 'ZZZ' DISPLAY 'T3 FOUND'
            END-SEARCH.
            SET WS-N TO IDX.
            DISPLAY 'IDX=' WS-N.
            SET IDX TO 9.
-           SEARCH WS-ENTRY
+           SEARCH WS-E
                AT END DISPLAY 'T4 OUT OF RANGE'
-               WHEN WS-ENTRY(IDX) = 'AAA' DISPLAY 'T4 FOUND'
+               WHEN WS-E(IDX) = 'AAA' DISPLAY 'T4 FOUND'
            END-SEARCH.
            SET IDX TO 3.
-           SEARCH WS-ENTRY VARYING WS-V
+           SEARCH WS-E VARYING WS-V
                AT END DISPLAY 'T5 NOT FOUND'
-               WHEN WS-ENTRY(IDX) = 'EEE' DISPLAY 'T5 FOUND'
+               WHEN WS-E(IDX) = 'EEE' DISPLAY 'T5 FOUND'
            END-SEARCH.
            DISPLAY 'V=' WS-V.
            STOP RUN.

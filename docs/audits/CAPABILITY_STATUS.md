@@ -25,7 +25,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | Keyed `ACCESS MODE RANDOM` (7) | yes | yes | GnuCOBOL | | yes | SEQUENTIAL access, ALTERNATE KEY refused |
 | `INSPECT` literal subset (9) | yes | yes | GnuCOBOL (360 fuzzed statements) | | yes | data-name operands, TRAILING |
 | `SORT` and `MERGE` file to file (9) | yes | yes | GnuCOBOL (7 fixed forms, 100 fuzzed programs, incl. unsorted MERGE inputs) | | yes | INPUT/OUTPUT PROCEDURE, several GIVING files, COLLATING, record-sequential, signed/binary keys |
-| linear `SEARCH` and `SET` on indexes (9) | yes | yes | GnuCOBOL (documented forms, 100 fuzzed programs) | | yes | SEARCH ALL, VARYING an index, group/non-DISPLAY tables, index below 1, SET expressions, OR over subscripted items |
+| linear `SEARCH` and `SET` on indexes (9) | yes | yes | GnuCOBOL (documented forms, 100 fuzzed programs) | | yes | SEARCH ALL, VARYING an index, group/non-DISPLAY tables, index below 1, SET expressions |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |
