@@ -83,6 +83,8 @@ from engine.transformation.ir import (
     AcceptStatement,
     InspectStatement,
     SortStatement,
+    SetIndexStatement,
+    SearchStatement,
     ExecSqlStatement,
     FieldReference,
     FigurativeConstant,
@@ -4110,6 +4112,7 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     ExitProgramStatement, SetConditionStatement,
     UnstringStatement, GobackStatement, InitializeStatement,
     AcceptStatement, InspectStatement, ExecSqlStatement, SortStatement,
+    SetIndexStatement, SearchStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
 STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement})
@@ -4707,6 +4710,17 @@ def map_cobol_statement(
         # else fails closed by name (engine/transformation/exec_sql_lowering.py).
         from engine.transformation.exec_sql_lowering import lower as _lower_exec_sql
         result.extend(_lower_exec_sql(stmt, program))
+
+    elif isinstance(stmt, SetIndexStatement):
+        from engine.transformation.search_lowering import lower_set as _lower_set
+        result.extend(_lower_set(stmt, program))
+
+    elif isinstance(stmt, SearchStatement):
+        # linear SEARCH lowered to a loop over the index; refused forms fail closed by name
+        # (engine/transformation/search_lowering.py)
+        from engine.transformation.search_lowering import lower_search as _lower_search
+        result.extend(_lower_search(
+            stmt, program, lambda nested: map_cobol_statement(nested, program, called_programs)))
 
     elif isinstance(stmt, SortStatement):
         # File-to-file SORT lowered to CobolSort.run; anything else fails closed by name
@@ -5783,6 +5797,18 @@ def map_cobol_data_items_to_fields(
             is_static=True,
             format_width=item.format_width if item.is_numeric else 0,
         ))
+    declared = {f.name for f in fields}
+    for item in items:
+        for index_name in item.indexed_by:
+            java_index = index_name.replace("-", "_")
+            if java_index not in declared:
+                declared.add(java_index)
+                fields.append(JavaField(
+                    java_type=JavaType(basic_type=JavaBasicType.INT),
+                    name=java_index,
+                    initializer=JavaLiteral(value="0"),
+                    is_static=True,
+                ))
     fields.extend(_redefines_buffer_fields(plan))
     return tuple(fields)
 

@@ -201,7 +201,9 @@ class TestSourceDetection:
     def test_generic_set_still_detected(self) -> None:
         from engine.transformation.semantic_capability import scan_constructs
 
-        for clause in ("SET WS-I TO 2.", "SET WS-I UP BY 1."):
+        # the plain index forms (SET idx TO n / UP BY n) are certified (roadmap unit 9): the statement-level
+        # check refuses a non-index target; the source scan still detects every other SET form
+        for clause in ("SET WS-I TO WS-A + 1.", "SET WS-P TO ADDRESS OF WS-X.", "SET WS-I UP BY WS-A + 1."):
             found = scan_constructs(clause)
             assert "SET" in found, (clause, found)
             assert "SET CONDITION TO TRUE" not in found, (clause, found)

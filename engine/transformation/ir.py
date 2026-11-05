@@ -281,6 +281,8 @@ class DataItem:
     # is recorded explicitly rather than silently dropped.
     usage: str | None = None
     children: tuple[DataItem, ...] = ()
+    #: Index names declared by ``OCCURS ... INDEXED BY a b``; each is an occurrence-number item.
+    indexed_by: tuple[str, ...] = ()
 
     @property
     def is_alphanumeric(self) -> bool:
@@ -823,6 +825,40 @@ class SortStatement:
     kind: str = "SORT"  # SORT | MERGE
 
 
+@dataclass(frozen=True)
+class SetIndexStatement:
+    """SET idx... TO value | UP BY n | DOWN BY n, and SET integer-item TO idx (index forms only).
+
+    ``mode`` is TO, UP or DOWN; ``value`` is the raw operand (an integer literal or a name). Whether the
+    names are indexes or integer items is decided with the data division in the lowering.
+    """
+
+    targets: tuple[str, ...] = ()
+    mode: str = "TO"
+    value: str = ""
+
+
+@dataclass(frozen=True)
+class SearchWhen:
+    """One WHEN clause of a SEARCH: its condition text and statements."""
+
+    condition: str = ""
+    body: tuple = ()
+    structured_condition: object = None
+
+
+@dataclass(frozen=True)
+class SearchStatement:
+    """SEARCH table [VARYING item] [AT END ...] WHEN cond ... (linear search; ``SEARCH ALL`` is refused)."""
+
+    table: str = ""
+    varying: str = ""
+    whens: tuple[SearchWhen, ...] = ()
+    at_end: tuple = ()
+    has_at_end: bool = False
+    reasons: tuple[str, ...] = ()
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
@@ -854,6 +890,8 @@ Statement = (
     | InspectStatement
     | ExecSqlStatement
     | SortStatement
+    | SetIndexStatement
+    | SearchStatement
 )
 
 

@@ -304,6 +304,10 @@ def write_targets(stmt: object) -> tuple[str, ...]:
         return _names(get("targets"))
     if name == "SortStatement":
         return ()  # files, never data items
+    if name == "SetIndexStatement":
+        return _names(get("targets"))
+    if name == "SearchStatement":
+        return _names(get("varying"))
     if name == "InspectStatement":
         return _names(get("target"), get("counter"))
     if name == "StringStatement":

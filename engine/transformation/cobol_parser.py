@@ -75,6 +75,9 @@ from engine.transformation.ir import (
     InspectStatement,
     ExecSqlStatement,
     SortStatement,
+    SetIndexStatement,
+    SearchStatement,
+    SearchWhen,
     FileAccessMode,
     FieldReference,
     FileDefinition,
@@ -1742,6 +1745,7 @@ class CobolParser:
                 re.IGNORECASE,
             )
             redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", clauses, re.IGNORECASE)
+            indexed_by = self._indexed_by(clauses)
             usage = _parse_usage_clause(clauses)
             self._note_usage(name, usage)
             occurs_depending_on: str | None = None
@@ -1768,6 +1772,7 @@ class CobolParser:
                 occurs_depending_on=occurs_depending_on,
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
                 usage=usage,
+                indexed_by=indexed_by,
             )))
         # Build the group hierarchy with mutable child lists, then freeze it.
         # The previous implementation rebuilt immutable parents and kept stale
@@ -1807,6 +1812,7 @@ class CobolParser:
                 occurs_depending_on=node.item.occurs_depending_on,
                 redefines=node.item.redefines,
                 usage=node.item.usage,
+                indexed_by=node.item.indexed_by,
                 children=tuple(freeze(child) for child in node.children),
             )
 
@@ -2140,6 +2146,10 @@ class CobolParser:
         # STOP RUN
         if upper.startswith("STOP RUN"):
             return StopRunStatement(), start + 1
+
+        # SEARCH table ... WHEN ...
+        if upper.startswith("SEARCH "):
+            return self._parse_search(lines, start)
 
         # SORT / MERGE sd ... USING f... GIVING g
         if upper.startswith(("SORT ", "MERGE ")):
@@ -3987,6 +3997,29 @@ class CobolParser:
         ):
             self._emit_unparsed("DISPLAY", line)
 
+    _CLAUSE_WORDS = frozenset({
+        "PIC", "PICTURE", "VALUE", "USAGE", "COMP", "COMPUTATIONAL", "BINARY", "DISPLAY", "ASCENDING",
+        "DESCENDING", "KEY", "REDEFINES", "OCCURS", "SYNC", "SYNCHRONIZED", "TIMES", "DEPENDING", "INDEXED",
+    })
+
+    @classmethod
+    def _indexed_by(cls, clauses: str) -> tuple[str, ...]:
+        """Index names of ``OCCURS n [TIMES] INDEXED BY a b`` (empty when there is no INDEXED BY)."""
+        match = re.search(r"\bINDEXED\s+BY\s+(.*)$", clauses, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return ()
+        names: list[str] = []
+        for token in re.split(r"[\s,]+", match.group(1).strip()):
+            word = token.rstrip(".")
+            if not word or word.upper() in cls._CLAUSE_WORDS:
+                break
+            if not re.fullmatch(r"[A-Za-z0-9][\w-]*", word):
+                break
+            names.append(word.upper())
+            if token.endswith("."):
+                break
+        return tuple(names)
+
     def _parse_set(self, lines: list[str], start: int) -> tuple[Statement | None, int]:
         """Parse ``SET <condition-name> TO TRUE`` into IR.
 
@@ -4001,6 +4034,13 @@ class CobolParser:
         )
         if match:
             return SetConditionStatement(target=match.group(1).upper()), start + 1
+        index_form = re.match(
+            r"^SET\s+((?!ADDRESS\b)[A-Z0-9][\w-]*(?:[\s,]+[A-Z0-9][\w-]*)*?)\s+(TO|UP\s+BY|DOWN\s+BY)\s+"
+            r"([A-Z0-9][\w-]*)\s*\.?$", line, re.IGNORECASE)
+        if index_form and index_form.group(3).upper() not in ("TRUE", "FALSE"):
+            mode = index_form.group(2).split()[0].upper()
+            targets = tuple(t.upper() for t in re.split(r"[\s,]+", index_form.group(1)) if t)
+            return SetIndexStatement(targets=targets, mode=mode, value=index_form.group(3).upper()), start + 1
         self._diagnostics.warning(
             DiagnosticCode.UNSUPPORTED_CONSTRUCT,
             f"Skipped unsupported statement: {line[:60]}",
@@ -4104,6 +4144,71 @@ class CobolParser:
             sql=sql, kind=facts["kind"], inputs=facts["inputs"], outputs=facts["outputs"],
             indicators=facts["indicators"], whenever=facts["whenever"],
             include=facts["include"], block=block, terminated=terminated), end
+
+    def _search_arm(self, lines: list[str], i: int, inline: str, sentence_line: str):
+        """Statements of one SEARCH arm: the inline text, then lines up to the next arm or END-SEARCH."""
+        body: list = []
+        if inline.strip():
+            inlined, unparsed = self._parse_inline_statements(inline)
+            body.extend(inlined)
+            for lost in unparsed:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"Inline SEARCH statement did not parse into IR: {lost[:60]}", location="SEARCH")
+        closed = bool(inline.strip()) and self._ends_sentence(sentence_line)
+        while (
+            not closed and i < len(lines)
+            and not lines[i].strip().upper().startswith(("WHEN ", "AT END", "END-SEARCH"))
+        ):
+            stmt, new_i = self._parse_statement(lines, i)
+            if stmt is not None:
+                body.append(stmt)
+            i = max(new_i, i + 1)
+            closed = self._ends_sentence(lines[i - 1])
+        return tuple(body), i, closed
+
+    def _parse_search(self, lines: list[str], start: int) -> tuple[SearchStatement, int]:
+        """Parse a linear SEARCH with its AT END and WHEN arms (SEARCH ALL is recorded and refused)."""
+        header = lines[start].strip().rstrip(".")
+        match = re.match(r"^SEARCH\s+(ALL\s+)?([A-Z0-9][\w-]*)(?:\s+VARYING\s+([A-Z0-9][\w-]*))?\s*$",
+                         header, re.IGNORECASE)
+        reasons: list[str] = []
+        if match is None:
+            reasons.append("HEADER")
+            table, varying = (header.split() + ["", ""])[1], ""
+        else:
+            table, varying = match.group(2).upper(), (match.group(3) or "").upper()
+            if match.group(1):
+                reasons.append("SEARCH_ALL")
+        whens: list[SearchWhen] = []
+        at_end: tuple = ()
+        has_at_end = False
+        i = start + 1
+        closed = self._ends_sentence(lines[start])
+        while not closed and i < len(lines):
+            raw = lines[i].strip()
+            upper = raw.upper()
+            if upper.startswith("END-SEARCH"):
+                i += 1
+                break
+            if upper.startswith("AT END"):
+                has_at_end = True
+                body, i, closed = self._search_arm(lines, i + 1, raw[6:].rstrip("."), raw)
+                at_end = at_end + body
+            elif upper.startswith("WHEN "):
+                condition, inline = split_condition_from_inline_statements(raw[5:].rstrip(".").strip())
+                body, i, closed = self._search_arm(lines, i + 1, inline, raw)
+                whens.append(SearchWhen(
+                    condition=condition, body=body, structured_condition=self._build_condition(condition)))
+            else:
+                break
+        for reason in reasons:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"SEARCH {reason} has no certified Java mapping; the statement fails closed",
+                location=f"line {start + 1}")
+        return SearchStatement(table=table, varying=varying, whens=tuple(whens), at_end=at_end,
+                               has_at_end=has_at_end, reasons=tuple(reasons)), i
 
     def _parse_sort(self, lines: list[str], start: int) -> tuple[SortStatement, int]:
         """Parse SORT; the statement ends at a period or at the next statement verb."""

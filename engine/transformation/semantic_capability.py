@@ -35,6 +35,8 @@ from engine.transformation.ir import (
     ExecSqlStatement,
     InspectStatement,
     SortStatement,
+    SetIndexStatement,
+    SearchStatement,
     ExitProgramStatement,
     GobackStatement,
     InitializeStatement,
@@ -322,7 +324,22 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "with an unresolvable symbol.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "SEARCH": _unsupported("SEARCH is not implemented in the deterministic mapper"),
+    "SEARCH": _supported(
+        "Linear SEARCH table [VARYING item] [AT END ...] WHEN cond ... [END-SEARCH] over a one-dimensional "
+        "DISPLAY elementary OCCURS table with INDEXED BY: starts at the first index as it stands, tests the WHEN "
+        "conditions in order, leaves the index on the match or at n + 1 with AT END, goes straight to AT END when "
+        "the index is already past n, and VARYING an integer item assigns it the index value after each advance. "
+        "Output equals GnuCOBOL 3.1.2 (tests/integration/test_search_oracle.py). SEARCH ALL, VARYING an index, "
+        "group or non-DISPLAY tables, an index below 1 and a statement with no WHEN fail closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
+    "SET INDEX": _supported(
+        "SET idx... TO integer | idx | integer-item, SET idx UP BY / DOWN BY integer | integer-item, and SET "
+        "integer-item TO idx on OCCURS ... INDEXED BY indexes (occurrence numbers kept as int, Java declared "
+        "per index); equal to GnuCOBOL 3.1.2 (tests/integration/test_search_oracle.py). Expressions and the other "
+        "SET forms stay refused.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "SET": _unsupported("SET semantics are not implemented in the deterministic mapper"),
     # ``SET <condition-name> TO TRUE`` is a separate, certified statement class:
     # the parser lowers it to SetConditionStatement and the mapper assigns the
@@ -508,7 +525,8 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "one-dimensional DISPLAY elementary WORKING-STORAGE items referenced "
         "only by subscript is classified SUPPORTED.  OCCURS DEPENDING ON fails "
         "closed with UNSUPPORTED_CONSTRUCT; whole-table references, group or "
-        "multi-dimension tables, INDEXED BY and KEY clauses stay PARTIAL"
+        "multi-dimension tables, ASCENDING/DESCENDING KEY clauses and tables outside the SEARCH / SET INDEX "
+        "subset stay PARTIAL (INDEXED BY with SEARCH and SET on indexes is certified)"
     ),
     "88-LEVEL": _supported(
         "88-level condition names lower to comparisons on their parent "
@@ -605,6 +623,8 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     AcceptStatement.__name__: "ACCEPT",
     InspectStatement.__name__: "INSPECT",
     SortStatement.__name__: "SORT",
+    SetIndexStatement.__name__: "SET INDEX",
+    SearchStatement.__name__: "SEARCH",
     ExecSqlStatement.__name__: "EXEC SQL",
     GobackStatement.__name__: "GOBACK",
     InitializeStatement.__name__: "INITIALIZE",
@@ -661,7 +681,11 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         r"(?<![\w-])SET\s+[A-Z0-9][\w-]*\s+TO\s+TRUE(?![\w-])", re.IGNORECASE,
     )),
     ("SET", re.compile(
-        r"(?<![\w-])SET(?!\s+[A-Z0-9][\w-]*\s+TO\s+TRUE(?![\w-]))(?![\w-])",
+        r"(?<![\w-])SET(?!\s+[A-Z0-9][\w-]*\s+TO\s+TRUE(?![\w-]))"
+        # the certified index forms: SET name... TO|UP BY|DOWN BY <one word> (a TRUE/FALSE or ADDRESS form is not one)
+        r"(?!\s+(?!ADDRESS(?![\w-]))[A-Z0-9][\w-]*(?:[\s,]+[A-Z0-9][\w-]*)*?\s+"
+        r"(?:TO\s+(?!(?:TRUE|FALSE|ADDRESS)(?![\w-]))|(?:UP|DOWN)\s+BY\s+)[A-Z0-9][\w-]*(?!\s*[-+*/(])\s*\.?(?:\s|$))"
+        r"(?![\w-])",
         re.IGNORECASE,
     )),
     ("ALTER", re.compile(r"(?<![\w-])ALTER(?![\w-])", re.IGNORECASE)),

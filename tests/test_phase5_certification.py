@@ -39,6 +39,8 @@ PROOFS: dict[str, list[tuple]] = {
     "INSPECT": [("test", "tests/integration/test_inspect_oracle.py")],
     "SORT": [("test", "tests/integration/test_sort_oracle.py")],
     "MERGE": [("test", "tests/integration/test_sort_oracle.py")],
+    "SEARCH": [("test", "tests/integration/test_search_oracle.py")],
+    "SET INDEX": [("test", "tests/integration/test_search_oracle.py")],
     "EXEC SQL": [("test", "tests/integration/test_sql_jdbc_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),
                        ("app", "workload-indexed", r"ACCESS\s+(MODE\s+)?(IS\s+)?DYNAMIC")],

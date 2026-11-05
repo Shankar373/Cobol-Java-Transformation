@@ -349,8 +349,7 @@ def _certified_data_construct(key: str, program, data_text: str, source_text: st
             )
         return None
     if key == "OCCURS":
-        if re.search(r"(?<![\w-])(?:DEPENDING|INDEXED|ASCENDING|DESCENDING)(?![\w-])",
-                     data_text, re.IGNORECASE):
+        if re.search(r"(?<![\w-])(?:DEPENDING|ASCENDING|DESCENDING)(?![\w-])", data_text, re.IGNORECASE):
             return None
         tables = [i for i in working if i.occurs]
         if not tables or clauses != len(tables):
@@ -386,6 +385,9 @@ def _certified_data_construct(key: str, program, data_text: str, source_text: st
             if token in hidden:
                 return None
             if token in names and (index + 1 >= len(tokens) or tokens[index + 1] != "("):
+                # SEARCH names its table without a subscript (the certified linear form; SEARCH ALL is refused)
+                if index and tokens[index - 1] == "SEARCH":
+                    continue
                 return None
         return (
             "OCCURS tables in this program are fixed-size, one-dimensional "
@@ -774,6 +776,26 @@ class CapabilityAnalyzer:
                         "EXEC SQL outside the certified subset (" + ", ".join(sorted(set(sql_why)))
                         + "); mapper fails closed",
                     ))
+
+            if name == "SetIndexStatement":
+                from engine.transformation.search_lowering import set_reasons as _set_reasons
+
+                set_why = _set_reasons(stmt, program)
+                if set_why:
+                    findings.append((
+                        "SET INDEX", CapabilityLevel.UNSUPPORTED,
+                        "SET outside the certified index forms (" + ", ".join(sorted(set(set_why)))
+                        + "); mapper fails closed"))
+
+            if name == "SearchStatement":
+                from engine.transformation.search_lowering import search_reasons as _search_reasons
+
+                search_why = _search_reasons(stmt, program)
+                if search_why:
+                    findings.append((
+                        "SEARCH", CapabilityLevel.UNSUPPORTED,
+                        "SEARCH outside the certified subset (" + ", ".join(sorted(set(search_why)))
+                        + "); mapper fails closed"))
 
             if name == "SortStatement":
                 from engine.transformation.sort_lowering import unsupported_reasons as _sort_reasons
