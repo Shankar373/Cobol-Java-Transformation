@@ -37,6 +37,9 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     private static final java.util.Map<String, Integer> KEYLEN = new java.util.HashMap<>();
     // ACCESS MODE SEQUENTIAL on indexed files: open mode, key of the last READ, last written key, end state
     private static final java.util.Map<String, String> MODE = new java.util.HashMap<>();
+    // files whose records carry packed / binary bytes: read and written as ISO-8859-1 (one char per byte),
+    // indexed record data persisted as hex
+    private static final java.util.Set<String> BINARY = new java.util.HashSet<>();
     private static final java.util.Map<String, String> LASTKEY = new java.util.HashMap<>();
     private static final java.util.Map<String, String> LASTW = new java.util.HashMap<>();
     private static final java.util.Map<String, String> RSTAT = new java.util.HashMap<>();
@@ -67,6 +70,47 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         }
         String base = System.getenv("COB_FILE_PATH");
         return (base != null && !base.isEmpty()) ? base + "/" + file : file;
+    }
+
+    static void setBinary(String path) {
+        BINARY.add(map(path));
+    }
+
+    private static java.nio.charset.Charset charsetOf(String path) {
+        return BINARY.contains(path) ? java.nio.charset.StandardCharsets.ISO_8859_1
+                : java.nio.charset.Charset.defaultCharset();
+    }
+
+    private static java.io.BufferedWriter wr(String path, boolean append) throws Exception {
+        return new java.io.BufferedWriter(new java.io.OutputStreamWriter(
+            new java.io.FileOutputStream(path, append), charsetOf(path)));
+    }
+
+    private static java.io.BufferedReader rd(String path) throws Exception {
+        return new java.io.BufferedReader(new java.io.InputStreamReader(
+            new java.io.FileInputStream(path), charsetOf(path)));
+    }
+
+    private static String encodeValue(String path, String v) {
+        if (!BINARY.contains(path)) {
+            return v;
+        }
+        StringBuilder h = new StringBuilder();
+        for (int i = 0; i < v.length(); i++) {
+            h.append(String.format("%02x", (int) v.charAt(i) & 0xFF));
+        }
+        return h.toString();
+    }
+
+    private static String decodeValue(String path, String v) {
+        if (!BINARY.contains(path)) {
+            return v;
+        }
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i + 1 < v.length(); i += 2) {
+            b.append((char) Integer.parseInt(v.substring(i, i + 2), 16));
+        }
+        return b.toString();
     }
 
     /** OPEN file: mode INPUT/OUTPUT/I-O/EXTEND; keyLen 0 = sequential, keyLen < 0 = relative (RRN store). */
@@ -103,7 +147,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                     new java.io.File(path).delete();
                     new java.io.File(path + ".idx").delete();
                 } else {
-                    OUT.put(path, new java.io.BufferedWriter(new java.io.FileWriter(path, false)));
+                    OUT.put(path, wr(path, false));
                 }
                 return "00";
             }
@@ -112,7 +156,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                     ensureIndex(path, keyLen);
                     return "00";
                 }
-                IN.put(path, new java.io.BufferedReader(new java.io.FileReader(path)));
+                IN.put(path, rd(path));
                 return "00";
             }
             // I-O / EXTEND
@@ -121,7 +165,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 return "00";
             }
             boolean append = mode.equalsIgnoreCase("EXTEND");
-            OUT.put(path, new java.io.BufferedWriter(new java.io.FileWriter(path, append)));
+            OUT.put(path, wr(path, append));
             return "00";
         } catch (Exception e) {
             return "23";
@@ -414,14 +458,14 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 } else if (first != null) {
                     int sep = first.indexOf('\\u0001');
                     if (sep > 0) {
-                        m.put(first.substring(0, sep), first.substring(sep + 1));
+                        m.put(first.substring(0, sep), decodeValue(path, first.substring(sep + 1)));
                     }
                 }
                 String l;
                 while ((l = r.readLine()) != null) {
                     int sep = l.indexOf('\\u0001');
                     if (sep > 0) {
-                        m.put(l.substring(0, sep), l.substring(sep + 1));
+                        m.put(l.substring(0, sep), decodeValue(path, l.substring(sep + 1)));
                     }
                 }
             } catch (Exception e) {
@@ -443,7 +487,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             for (java.util.Map.Entry<String, String> e : m.entrySet()) {
                 w.write(e.getKey());
                 w.write('\\u0001');
-                w.write(e.getValue());
+                w.write(encodeValue(path, e.getValue()));
                 w.newLine();
             }
         }

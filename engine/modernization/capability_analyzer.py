@@ -520,6 +520,21 @@ def _sequential_access_problem(program, definition) -> str:
     return ""
 
 
+def _is_certified_binary_leaf(program, item, source_text: str = "") -> bool:
+    """A COMP / COMP-3 leaf of an FD record certified for binary bytes (``engine.transformation.binary_record``).
+
+    SYNCHRONIZED adds slack bytes the encoder does not produce, so any SYNC clause in the program disqualifies.
+    """
+    from engine.transformation.binary_record import certified_binary_record, leaf_encoding
+
+    if leaf_encoding(item) is None or re.search(r"(?<![\w-])SYNC(?:HRONIZED)?(?![\w-])", source_text, re.IGNORECASE):
+        return False
+    return any(
+        certified_binary_record(fd) and any(leaf is item for leaf in fd.record_items)
+        for fd in getattr(program, "file_definitions", ()) or ()
+    )
+
+
 class CapabilityAnalyzer:
     """Analyzes a discovered COBOL application against available capabilities.
 
@@ -1187,7 +1202,9 @@ class CapabilityAnalyzer:
                 continue
             if _is_unreferenced_standalone_item(
                 program, item, unit.source_text or ""
-            ) or _is_value_only_item(program, item, unit.source_text or ""):
+            ) or _is_value_only_item(program, item, unit.source_text or "") or _is_certified_binary_leaf(
+                program, item, unit.source_text or ""
+            ):
                 continue
             usage_key = USAGE_TO_CONSTRUCT.get(item.usage, "USAGE")
             usage_items.setdefault(usage_key, []).append(f"{item.name} ({item.usage})")

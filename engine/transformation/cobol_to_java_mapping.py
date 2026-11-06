@@ -30,6 +30,7 @@ import re
 
 from engine.transformation import figurative
 from engine.transformation.source_format import unquote_literal
+from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.control_flow import (
     RUN_UNIT_ENTRY_METHOD,
     RUN_UNIT_EXIT_STATUS_METHOD,
@@ -1637,6 +1638,55 @@ def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaExpression
     )
 
 
+def _leaf_encoding(item):
+    from engine.transformation.binary_record import leaf_encoding
+
+    return leaf_encoding(item)
+
+
+def _binary_leaf_encodings(fd: FileDefinition | None) -> dict:
+    """java field name -> LeafEncoding for the packed / binary leaves of a certified binary record."""
+    if fd is None or not certified_binary_record(fd):
+        return {}
+    found = {}
+    for item in fd.record_items:
+        encoding = _leaf_encoding(item)
+        if encoding is not None and not item.is_group and not item.is_condition_name:
+            found[item.name.replace("-", "_")] = encoding
+    return found
+
+
+def _encode_leaf(value: JavaExpression, encoding) -> JavaExpression:
+    """CobolPacked.packed / binary over the field value (the bytes as ISO-8859-1 characters)."""
+    method = "packed" if encoding.kind == "packed" else "binary"
+    args: list[JavaExpression] = [value, _int_lit(encoding.digits)]
+    if encoding.scale:
+        args.insert(2, _int_lit(encoding.scale))
+    args.append(_bool_lit(encoding.signed))
+    return JavaMethodCall(class_name="CobolPacked", method_name=method, arguments=tuple(args), is_static=True)
+
+
+def _decode_leaf(item: DataItem, window: JavaExpression, encoding) -> JavaExpression:
+    """The field value from the leaf's bytes, typed as ``map_pic_to_java_type`` types the field."""
+    if encoding.scale:
+        if encoding.kind == "packed":
+            return JavaMethodCall(class_name="CobolPacked", method_name="unpackDecimal",
+                                  arguments=(window, _int_lit(encoding.scale)), is_static=True)
+        return JavaMethodCall(class_name="CobolPacked", method_name="unbinaryDecimal",
+                              arguments=(window, _bool_lit(encoding.signed), _int_lit(encoding.scale)),
+                              is_static=True)
+    if encoding.kind == "packed":
+        number: JavaExpression = JavaMethodCall(
+            class_name="CobolPacked", method_name="unpackLong", arguments=(window,), is_static=True)
+    else:
+        number = JavaMethodCall(
+            class_name="CobolPacked", method_name="unbinary",
+            arguments=(window, _bool_lit(encoding.signed)), is_static=True)
+    if item.pic_length > 9:
+        return number
+    return JavaCast(target_type=JavaType(basic_type=JavaBasicType.INT), expression=number)
+
+
 def _record_layout(fd: FileDefinition | None) -> list[tuple[str, int, bool, bool]]:
     """(java_name, width, is_numeric, is_long) per elementary record item.
 
@@ -1650,6 +1700,10 @@ def _record_layout(fd: FileDefinition | None) -> list[tuple[str, int, bool, bool
     layout: list[tuple[str, int, bool, bool]] = []
     for item in fd.record_items:
         if item.is_condition_name or item.is_group:
+            continue
+        encoding = _leaf_encoding(item) if certified_binary_record(fd) else None
+        if encoding is not None:
+            layout.append((item.name.replace("-", "_"), encoding.width, False, False))
             continue
         width = item.format_width if item.is_numeric else item.pic_length
         if width <= 0:
@@ -1837,8 +1891,12 @@ def _assembly_expression(
     layout = _record_layout(fd)
     if layout:
         parts: list[JavaExpression] = []
+        encodings = _binary_leaf_encodings(fd)
         for name, width, numeric, _is_long in layout:
             val: JavaExpression = JavaVariableRef(name=name)
+            if name in encodings:
+                parts.append(_encode_leaf(val, encodings[name]))
+                continue
             if numeric:
                 val = JavaMethodCall(
                     class_name="String",
@@ -1870,8 +1928,10 @@ def _disassembly_statements(
     ]
     if not items:
         return []
+    binary = certified_binary_record(fd)
     widths = [
-        item.format_width if item.is_numeric else item.pic_length
+        (_leaf_encoding(item).width if binary and _leaf_encoding(item) is not None
+         else item.format_width if item.is_numeric else item.pic_length)
         for item in items
     ]
     total = sum(widths)
@@ -1887,9 +1947,11 @@ def _disassembly_statements(
             method_name="substring",
             arguments=(_int_lit(offset), _int_lit(offset + width)),
         )
-        expr: JavaExpression = (
-            _numeric_parse_call(item, window) if item.is_numeric else window
-        )
+        leaf = _leaf_encoding(item) if binary else None
+        if leaf is not None:
+            expr = _decode_leaf(item, window, leaf)
+        else:
+            expr = _numeric_parse_call(item, window) if item.is_numeric else window
         stmts.append(JavaAssignment(target=name, expression=expr))
         offset += width
     return stmts
@@ -5133,6 +5195,9 @@ def map_cobol_statement(
                 text=f"// OPEN {stmt.mode} {stmt.file_name}",
             ))
         else:
+            if certified_binary_record(fd):
+                # packed / binary record bytes: the file is read and written as ISO-8859-1 (one char per byte)
+                result.append(JavaMethodCallStatement(call=_cobol_call("setBinary", _str_lit(path))))
             call = _cobol_call(
                 "open", _str_lit(path), _str_lit(stmt.mode),
                 _int_lit(_open_key_len(fd, program)),

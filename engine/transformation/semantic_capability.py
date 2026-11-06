@@ -494,8 +494,10 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     # parser records the usage on ``DataItem.usage`` and emits a
     # PARTIAL_SUPPORT diagnostic so the narrowing is never silent.
     "COMP": _partial(
-        "COMP (binary) value semantics are mapped; record-area byte encoding "
-        "is not certified"
+        "COMP (binary) value semantics are mapped; the record-area bytes (big-endian, 1/2/4/8 bytes for 1-2/3-4/5-9/"
+        "10-18 digits) are certified only for the leaves of a RECORD SEQUENTIAL or INDEXED file record inside "
+        "engine/transformation/binary_record.py (GnuCOBOL 3.1.2: tests/integration/test_binary_record_oracle.py); "
+        "anywhere else the byte encoding is not certified"
     ),
     "COMP-1": _partial(
         "COMP-1 (single float) value semantics are mapped; byte encoding is "
@@ -506,8 +508,10 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "not certified"
     ),
     "COMP-3": _partial(
-        "COMP-3 (packed decimal) value semantics are mapped; packed sign/byte "
-        "encoding is not certified"
+        "COMP-3 (packed decimal) value semantics are mapped; the packed bytes (digits/2+1 bytes, sign nibble C/D/F) "
+        "are certified only for the leaves of a RECORD SEQUENTIAL or INDEXED file record inside "
+        "engine/transformation/binary_record.py (GnuCOBOL 3.1.2: tests/integration/test_binary_record_oracle.py); "
+        "anywhere else the byte encoding is not certified"
     ),
     "COMP-5": _partial(
         "COMP-5 (native binary) value semantics are mapped; byte encoding is "

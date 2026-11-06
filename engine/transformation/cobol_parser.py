@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
     fall_through_chain,
@@ -1378,7 +1379,8 @@ class CobolParser:
                     and record.pic_length > 0 and record.occurs is None
                     and record.redefines is None and record.usage is None
                 )
-                if not elementary and record.name.upper() not in certified:
+                if (not elementary and record.name.upper() not in certified
+                        and not certified_binary_record(fd)):
                     problem = (
                         f"record {record.name} is not a certified layout (signed, "
                         "scaled or non-DISPLAY fields, FILLER, OCCURS or REDEFINES)"

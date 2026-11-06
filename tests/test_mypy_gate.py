@@ -29,7 +29,7 @@ Found 3 errors in 2 files (checked 5 source files)
 #: Modules written for the enterprise roadmap are held to zero type errors: no baseline entry is allowed.
 STRICT = ("engine/simulators/", "engine/estate/", "engine/sql/database_dialect", "engine/sql/migration",
           "engine/sql/oracle_pg", "engine/transformation/exec_sql", "engine/transformation/inspect_",
-          "engine/transformation/sort_", "engine/transformation/search_", "api/rbac.py", "api/estate.py", "tools/mypy_gate.py")
+          "engine/transformation/sort_", "engine/transformation/search_", "engine/transformation/binary_record", "api/rbac.py", "api/estate.py", "tools/mypy_gate.py")
 
 
 def test_errors_are_normalised_without_line_numbers_or_platform_separators():
