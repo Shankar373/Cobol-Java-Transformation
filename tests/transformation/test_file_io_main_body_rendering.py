@@ -38,7 +38,7 @@ from engine.transformation.java_ir import (
     JavaMethodCallStatement,
     JavaProgram,
     JavaReturn,
-    JavaThrow,
+    JavaTryCatch,
     JavaType,
     JavaVariableRef,
     JavaWhile,
@@ -150,7 +150,7 @@ def test_file_io_main_body_renders_return_statement_regression():
 
 def test_file_io_main_body_fails_closed_with_type_name_for_unmapped_statement():
     """A statement type with no mapping must raise, naming the type."""
-    with pytest.raises(ValueError, match="MISSING_REQUIRED_SEMANTIC.*JavaThrow"):
+    with pytest.raises(ValueError, match="MISSING_REQUIRED_SEMANTIC.*JavaTryCatch"):
         _generate_source(
-            JavaThrow(exception_class="IllegalStateException", message="bad record")
+            JavaTryCatch()
         )

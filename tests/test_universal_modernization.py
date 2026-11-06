@@ -168,7 +168,7 @@ class TestCapabilityAnalysis:
         assert statement_types == classified_types
         assert ir.PerformStatement in STATEMENT_CAPABILITY_SUPPORTED
         assert ir.UnstringStatement in STATEMENT_CAPABILITY_SUPPORTED
-        assert ir.GoToStatement in STATEMENT_CAPABILITY_UNSUPPORTED
+        assert ir.GoToStatement in STATEMENT_CAPABILITY_SUPPORTED  # certified subset (unit 26); the analyzer refuses the rest
 
     def test_report_to_dict(self):
         app = self._get_application()

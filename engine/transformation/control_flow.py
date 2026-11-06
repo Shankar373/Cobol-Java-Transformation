@@ -103,3 +103,69 @@ def performed_paragraphs(paragraphs) -> frozenset[str]:
                     performed.update(names[lo:hi + 1])
                 performed.add(last)
     return frozenset(performed)
+
+
+def goto_plan_reasons(paragraphs, has_linkage: bool = False) -> list[str]:
+    """Why ``GO TO`` cannot be lowered for this program (empty list: certified, or no GO TO at all).
+
+    The certified subset (proven against GnuCOBOL in ``tests/integration/test_goto_oracle.py``): ``GO TO name`` with a
+    defined paragraph, in a program without a LINKAGE section or EXIT PROGRAM; the paragraphs that contain a GO TO are
+    run by a scheduler, either as the run unit or as a plain ``PERFORM first THRU last`` range, and every GO TO inside
+    such a range lands inside it (a jump out of a PERFORM range does not return to the PERFORM, which Java cannot
+    reproduce with calls). A paragraph that contains a GO TO may not be PERFORMed by a simple, TIMES, UNTIL or VARYING
+    PERFORM, because the range would be a single paragraph or looped.
+    """
+    from engine.transformation.ir import ExitProgramStatement, GoToStatement
+
+    names = [p.name.upper() for p in paragraphs]
+    gotos: dict[int, list[GoToStatement]] = {}
+    for index, paragraph in enumerate(paragraphs):
+        found = [s for s in walk_statements(paragraph.statements) if isinstance(s, GoToStatement)]
+        if found:
+            gotos[index] = found
+    if not gotos:
+        return []
+    reasons: list[str] = []
+    if has_linkage:
+        reasons.append("LINKAGE")
+    for paragraph in paragraphs:
+        if any(isinstance(s, ExitProgramStatement) for s in walk_statements(paragraph.statements)):
+            reasons.append("EXIT_PROGRAM")
+            break
+    for index, found in gotos.items():
+        for stmt in found:
+            target = (stmt.target or "").strip().upper()
+            if not target:
+                reasons.append("FORM")
+            elif target not in names:
+                reasons.append("TARGET")
+    for paragraph in paragraphs:
+        for stmt in walk_statements(paragraph.statements):
+            if not isinstance(stmt, PerformStatement):
+                continue
+            first = (stmt.paragraph_name or "").strip().upper()
+            if not first or first not in names:
+                continue
+            last = (stmt.thru_target or "").strip().upper() or first
+            if last not in names:
+                continue
+            lo, hi = names.index(first), names.index(last)
+            inside = [i for i in gotos if lo <= i <= hi]
+            if not inside:
+                continue
+            plain = stmt.until_condition is None and not stmt.body and bool(stmt.thru_target)
+            if not plain:
+                reasons.append("PERFORM_FORM")
+                continue
+            for i in inside:
+                for goto in gotos[i]:
+                    target = (goto.target or "").strip().upper()
+                    if target in names and not lo <= names.index(target) <= hi:
+                        reasons.append("RANGE")
+    return list(dict.fromkeys(reasons))
+
+
+def has_goto(paragraphs) -> bool:
+    from engine.transformation.ir import GoToStatement
+
+    return any(isinstance(s, GoToStatement) for p in paragraphs for s in walk_statements(p.statements))

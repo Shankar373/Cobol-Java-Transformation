@@ -26,6 +26,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | `INSPECT` literal subset (9) | yes | yes | GnuCOBOL (360 fuzzed statements) | | yes | data-name operands, TRAILING |
 | `SORT` and `MERGE` file to file (9) | yes | yes | GnuCOBOL (7 fixed forms, 100 fuzzed programs, incl. unsorted MERGE inputs) | | yes | INPUT/OUTPUT PROCEDURE, several GIVING files, COLLATING, record-sequential, signed/binary keys |
 | linear `SEARCH` and `SET` on indexes (9) | yes | yes | GnuCOBOL (documented forms, 100 fuzzed programs) | | yes | `SEARCH ALL` is certified for `WHEN table(idx) = value` (100 fuzzed programs); refused: other SEARCH ALL conditions, VARYING an index, group/non-DISPLAY tables, index below 1, SET expressions |
+| `GO TO` between paragraphs and plain `EXIT.` (26) | yes | yes | GnuCOBOL (documented form, 100 fuzzed programs) | | yes | DEPENDING, ALTER, jumps out of a PERFORM range, GO TO under simple/TIMES/UNTIL/VARYING PERFORM, LINKAGE programs, EXIT PROGRAM, EXIT PERFORM/PARAGRAPH/SECTION |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |

@@ -40,7 +40,7 @@ GOTO_MAIN = (
     + "       PROCEDURE DIVISION.\n"
     + "       MAIN-PARA.\n"
     + "           DISPLAY \"A\".\n"
-    + "           GO TO MAIN-PARA.\n"
+    + "           GO TO NOWHERE.\n"  # an undefined target stays refused (roadmap unit 26)
 )
 
 
@@ -96,7 +96,7 @@ class TestGoToDiagnostic:
         )
         emitted = "".join(str(getattr(g, "source_code", ""))
                           for g in gen.generated_files)
-        assert "// GO TO MAIN-PARA" in emitted
+        assert "// GO TO NOWHERE" in emitted
 
     def test_commented_go_to_produces_no_diagnostic(self):
         parser = CobolParser()

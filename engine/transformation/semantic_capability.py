@@ -215,7 +215,14 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "(see tests/integration/test_call_passing_mode_oracle_proof.py)",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
-    "GO TO": _unsupported("GO TO has no semantic Java control-flow mapping"),
+    "GO TO": _supported(
+        "GO TO paragraph-name in a program without LINKAGE or EXIT PROGRAM: paragraphs run through the CobolFlow "
+        "scheduler (fall-through, GO TO re-dispatch, STOP RUN / GOBACK end the run unit); GO TO inside a plain "
+        "PERFORM first THRU last range must land inside that range. Output equals GnuCOBOL 3.1.2 "
+        "(tests/integration/test_goto_oracle.py). GO TO DEPENDING ON, altered GO TO, a jump out of a PERFORM range, "
+        "a paragraph with a GO TO under a simple/TIMES/UNTIL/VARYING PERFORM and called programs fail closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "PERFORM TIMES": _supported(
         "PERFORM ... TIMES/VARYING parses into PerformStatement and is mapped "
         "to bounded Java loop semantics",
@@ -666,7 +673,7 @@ _SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("EXEC DLI", re.compile(r"(?<![\w-])EXEC\s+DLI(?![\w-])", re.IGNORECASE)),
     ("EXEC MQI", re.compile(r"(?<![\w-])EXEC\s+MQI(?![\w-])", re.IGNORECASE)),
     ("EVALUATE", re.compile(r"(?<![\w-])EVALUATE(?![\w-])", re.IGNORECASE)),
-    ("GO TO", re.compile(r"(?<![\w-])GO\s+TO(?![\w-])|(?<![\w-])GOTO(?![\w-])", re.IGNORECASE)),
+    # GO TO is decided on the whole program by control_flow.goto_plan_reasons (capability analyzer), not by a pattern
     ("SORT", re.compile(r"(?<![\w-])SORT(?![\w-])", re.IGNORECASE)),
     ("MERGE", re.compile(r"(?<![\w-])MERGE(?![\w-])", re.IGNORECASE)),
     # External utilities / system services — detection-first, same

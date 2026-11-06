@@ -782,6 +782,16 @@ class CapabilityAnalyzer:
                         + "); mapper fails closed",
                     ))
 
+            if name == "GoToStatement":
+                from engine.transformation.control_flow import goto_plan_reasons
+
+                goto_why = goto_plan_reasons(program.paragraphs, bool(program.linkage_section))
+                if goto_why:
+                    findings.append((
+                        "GO TO", CapabilityLevel.UNSUPPORTED,
+                        "GO TO outside the certified subset (" + ", ".join(goto_why)
+                        + "); mapper fails closed"))
+
             if name == "SetIndexStatement":
                 from engine.transformation.search_lowering import set_reasons as _set_reasons
 

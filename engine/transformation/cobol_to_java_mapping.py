@@ -465,6 +465,9 @@ def _state():
         # True while statements are lowered straight into ``main`` (the
         # program was not CALLed); EXIT PROGRAM has no effect there.
         _mapping_state.main_entry = False
+        # True while a program whose GO TOs are certified (control_flow.goto_plan_reasons) is lowered:
+        # paragraphs are run by CobolFlow, GO TO / STOP RUN throw its Goto / Stop errors.
+        _mapping_state.goto_mode = False
     return _mapping_state
 
 
@@ -4104,6 +4107,47 @@ def _expand_thru_range(stmt, program) -> list[str]:
 
 
 
+_PARAGRAPH_TABLE = "COBOL_PARAGRAPHS"
+
+
+def _goto_throw(stmt, program):
+    """``GO TO name`` in a certified program: throw the target's paragraph index (CobolFlow re-dispatches)."""
+    from engine.transformation.java_ir import JavaThrow
+
+    names = [p.name.upper() for p in program.paragraphs]
+    return JavaThrow(exception_class="CobolFlow.Goto", message=str(names.index((stmt.target or "").strip().upper())))
+
+
+def _run_unit_stop():
+    from engine.transformation.java_ir import JavaThrow
+
+    return JavaThrow(exception_class="CobolFlow.Stop")
+
+
+def _thru_calls(stmt, program) -> list:
+    """Calls for ``PERFORM first THRU last``: one call per paragraph, or CobolFlow.range when a GO TO is inside."""
+    from engine.transformation.control_flow import walk_statements
+
+    names = _expand_thru_range(stmt, program)
+    if _state().goto_mode and len(names) > 1 or (_state().goto_mode and names):
+        paragraphs = {p.name.upper(): p for p in program.paragraphs}
+        order = [p.name.upper() for p in program.paragraphs]
+        if any(isinstance(s, GoToStatement)
+               for n in names for s in walk_statements(paragraphs[n.upper()].statements)):
+            return [JavaMethodCallStatement(call=JavaMethodCall(
+                method_name="CobolFlow.range",
+                arguments=(
+                    JavaLiteral(value=str(order.index(names[0].upper()))),
+                    JavaLiteral(value=str(order.index(names[-1].upper()))),
+                    JavaVariableRef(name=_PARAGRAPH_TABLE),
+                )))]
+    return [
+        JavaMethodCallStatement(call=JavaMethodCall(
+            method_name=_paragraph_method_name(program, target), arguments=()))
+        for target in names
+    ]
+
+
 # Mapper-backed capability contract. Keep this alongside the actual mapper so
 # capability analysis cannot silently drift from transformation support.
 STATEMENT_CAPABILITY_SUPPORTED = frozenset({
@@ -4115,10 +4159,10 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     ExitProgramStatement, SetConditionStatement,
     UnstringStatement, GobackStatement, InitializeStatement,
     AcceptStatement, InspectStatement, ExecSqlStatement, SortStatement,
-    SetIndexStatement, SearchStatement,
+    SetIndexStatement, SearchStatement, GoToStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
-STATEMENT_CAPABILITY_UNSUPPORTED = frozenset({GoToStatement})
+STATEMENT_CAPABILITY_UNSUPPORTED: frozenset[type] = frozenset()
 
 
 def classify_statement_capability(stmt: Statement) -> str:
@@ -4557,10 +4601,13 @@ def map_cobol_statement(
         # capability registry classifies the program UNSUPPORTED and the
         # planner blocks before any verdict.  The comment itself stays
         # for traceability per BL-026 acceptance criterion (3).
-        result.append(JavaComment(text=f"// GO TO {stmt.target}"))
+        if _state().goto_mode:
+            result.append(_goto_throw(stmt, program))
+        else:
+            result.append(JavaComment(text=f"// GO TO {stmt.target}"))
 
     elif isinstance(stmt, StopRunStatement):
-        result.append(JavaReturn())
+        result.append(_run_unit_stop() if _state().goto_mode else JavaReturn())
 
     elif isinstance(stmt, ExitProgramStatement):
         # EXIT PROGRAM returns control to the caller — a Java return from the
@@ -4577,7 +4624,7 @@ def map_cobol_statement(
     elif isinstance(stmt, GobackStatement):
         # GOBACK returns control to the caller — a Java return from the
         # generated program body.
-        result.append(JavaReturn())
+        result.append(_run_unit_stop() if _state().goto_mode else JavaReturn())
 
     elif isinstance(stmt, AcceptStatement):
         # ACCEPT <field> [FROM device] — certified stdin subset.
@@ -5489,13 +5536,7 @@ def map_cobol_statement(
                 for s in stmt.body:
                     body_stmts.extend(map_cobol_statement(s, program, called_programs))
             elif times_stmt.thru_target:
-                for target in _expand_thru_range(times_stmt, program):
-                    body_stmts.append(JavaMethodCallStatement(
-                        call=JavaMethodCall(
-                            method_name=_paragraph_method_name(program, target),
-                            arguments=(),
-                        )
-                    ))
+                body_stmts.extend(_thru_calls(times_stmt, program))
             elif stmt.paragraph_name:
                 body_stmts.append(JavaMethodCallStatement(
                     call=JavaMethodCall(
@@ -5557,13 +5598,7 @@ def map_cobol_statement(
         elif stmt.thru_target:
             # PERFORM <first> THRU <last> — execute every paragraph from
             # <first> through <last> inclusive, in source order.
-            for target in _expand_thru_range(stmt, program):
-                result.append(JavaMethodCallStatement(
-                    call=JavaMethodCall(
-                        method_name=_paragraph_method_name(program, target),
-                        arguments=(),
-                    )
-                ))
+            result.extend(_thru_calls(stmt, program))
         else:
             # Simple PERFORM → method call
             result.append(JavaMethodCallStatement(
@@ -6015,6 +6050,22 @@ def map_cobol_program_to_java(
                 fields = fields + (link_field,)
                 existing.add(link_field.name)
 
+    # GO TO: certified programs run their paragraphs through CobolFlow (control_flow.goto_plan_reasons)
+    from engine.transformation.control_flow import goto_plan_reasons, has_goto
+
+    goto_mode = has_goto(program.paragraphs) and not goto_plan_reasons(
+        program.paragraphs, bool(program.linkage_section))
+    _state().goto_mode = goto_mode
+    if goto_mode:
+        table = ", ".join(
+            f"() -> {_paragraph_method_name(program, para.name)}()" for para in program.paragraphs)
+        fields = tuple(fields) + (JavaField(
+            java_type=JavaType(class_name="CobolFlow.Para[]"),
+            name=_PARAGRAPH_TABLE,
+            initializer=JavaVariableRef(name=f"new CobolFlow.Para[]{{{table}}}"),
+            is_static=True,
+        ),)
+
     # Map methods from paragraphs
     methods: list[JavaMethod] = []
     for para in program.paragraphs:
@@ -6045,6 +6096,10 @@ def map_cobol_program_to_java(
     # was not CALLed, then the fall-through chain.
     # Lowered afresh per method so generated locals stay unique per class.
     def _entry_body() -> list[JavaStatement]:
+        if goto_mode:
+            return [JavaMethodCallStatement(call=JavaMethodCall(
+                method_name="CobolFlow.program",
+                arguments=(JavaVariableRef(name=_PARAGRAPH_TABLE),)))]
         state = _state()
         state.main_entry = True
         try:

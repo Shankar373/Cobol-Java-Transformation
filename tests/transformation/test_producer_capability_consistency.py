@@ -178,9 +178,9 @@ class TestEveryProducerDeclaredSurface:
 class TestExternalProducerDivergenceIsExplicit:
     """The external lane's divergence must be documented, not accidental.
 
-    The opensource4j adapter claims ``GO TO`` as supported while the
-    deterministic registry marks it UNSUPPORTED (``SORT`` stopped diverging when
-    the file-to-file subset was certified, roadmap unit 9).  That divergence is correct
+    The opensource4j adapter claimed ``GO TO`` as supported while the deterministic registry marked it
+    UNSUPPORTED (``SORT`` stopped diverging when the file-to-file subset was certified, roadmap unit 9, and ``GO TO``
+    when its subset was certified, unit 26: no divergence is left).  Such a divergence is correct
     and expected (an external COBOL runtime handles what our mapper cannot), but
     it must be asserted so nobody "fixes" it by editing the registry.
     """
@@ -201,7 +201,7 @@ class TestExternalProducerDivergenceIsExplicit:
         supported, _ = _declared(OpenSourceCOBOL4JProducerAdapter())
         divergence = sorted(supported & UNSUPPORTED_CONSTRUCTS)
         # The deterministic mapper cannot express these; the external runtime can.
-        assert divergence == ["GO TO"], (
+        assert divergence == [], (
             "The external producer's divergence from the deterministic registry "
             f"changed to {divergence}. If this is intentional, update this test "
             "and the lane documentation together; if not, remove the claims."

@@ -28,7 +28,8 @@ REPO = Path(__file__).resolve().parents[1]
 EVIDENCE = REPO / "docs" / "reports" / "evidence" / "phase3"
 RUNTIMES = ("spring_boot", "plain_java", "quarkus", "micronaut")
 # ``ocesql-pg`` is the GnuCOBOL 3.1.2 image extended with OCESQL and PostgreSQL (embedded SQL).
-_ORACLE_MARKERS = ("gnucobol-ocesql", "run_gnucobol", "DockerOracleAdapter", "ocesql-pg")
+# ``run_batch`` is tests/batch_oracle.py: it compiles every program with cobc in the gnucobol-ocesql image
+_ORACLE_MARKERS = ("gnucobol-ocesql", "run_gnucobol", "DockerOracleAdapter", "ocesql-pg", "run_batch")
 
 # construct -> proofs: ("test", path) | ("app", fixture, source regex)
 PROOFS: dict[str, list[tuple]] = {
@@ -40,6 +41,7 @@ PROOFS: dict[str, list[tuple]] = {
     "SORT": [("test", "tests/integration/test_sort_oracle.py")],
     "MERGE": [("test", "tests/integration/test_sort_oracle.py")],
     "SEARCH": [("test", "tests/integration/test_search_oracle.py")],
+    "GO TO": [("test", "tests/integration/test_goto_oracle.py")],
     "SET INDEX": [("test", "tests/integration/test_search_oracle.py")],
     "EXEC SQL": [("test", "tests/integration/test_sql_jdbc_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),

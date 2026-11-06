@@ -31,6 +31,8 @@ from typing import TYPE_CHECKING, Any
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
     fall_through_chain,
+    goto_plan_reasons,
+    has_goto,
     performed_paragraphs,
     walk_statements,
 )
@@ -953,6 +955,17 @@ class CobolParser:
         paragraphs = program.paragraphs
         if not paragraphs:
             return
+        if has_goto(paragraphs):
+            reasons = goto_plan_reasons(paragraphs, bool(program.linkage_section))
+            if reasons:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    "GO TO is outside the certified subset (" + ", ".join(reasons)
+                    + "): control flow is lowered to a comment and the program fails closed",
+                    location="GO TO",
+                )
+            else:
+                return  # CobolFlow runs the paragraphs; STOP RUN / GOBACK anywhere end the run unit
         chain = fall_through_chain(paragraphs)
         performed = performed_paragraphs(paragraphs)
         driver = paragraphs[0]
@@ -2143,6 +2156,11 @@ class CobolParser:
         # by the unknown-statement fallthrough.
         if upper.startswith("EXIT PROGRAM"):
             return ExitProgramStatement(), start + 1
+
+        # Plain EXIT is a no-op: it only gives a PERFORM ... THRU range its last paragraph. (EXIT PERFORM, EXIT
+        # PARAGRAPH and EXIT SECTION transfer control and stay unsupported.)
+        if re.fullmatch(r"EXIT\s*\.?", line, re.IGNORECASE):
+            return None, start + 1
 
         # GOBACK — terminate this program and return to the caller.
         # Semantically equivalent to EXIT PROGRAM for the generated Java lane.
@@ -4058,22 +4076,11 @@ class CobolParser:
         """Parse GO TO paragraph-name."""
         line = lines[start].strip()
 
-        match = re.search(r"GO\s+TO\s+(\S+)", line, re.IGNORECASE)
-        target = match.group(1).rstrip(".") if match else ""
-
-        # Diagnostic completeness: the executable jump is lowered to
-        # a comment by the mapper, so it must still carry an explicit
-        # diagnostic naming the construct — the same UNSUPPORTED_CONSTRUCT
-        # channel SORT and INSPECT use.  The verdict is unchanged (the
-        # registry already classifies GO TO UNSUPPORTED) and the mapper
-        # comment stays for traceability.
-        self._diagnostics.warning(
-            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-            f"GO TO is not transformed: control flow is lowered to a comment "
-            f"(target {target or 'unknown'})",
-            location="GO TO",
-        )
-
+        # Only ``GO TO name`` is a certified form (control_flow.goto_plan_reasons); ``GO TO a b DEPENDING ON x``,
+        # ``GO TO.`` (altered) and other shapes get an empty target, which fails closed.  Whether the program as a
+        # whole stays inside the certified subset is decided in ``_validate_control_flow``.
+        match = re.fullmatch(r"GO\s*TO\s+([A-Z0-9][\w-]*)\s*\.?", line, re.IGNORECASE)
+        target = match.group(1).upper() if match else ""
         return GoToStatement(target=target), start + 1
 
     def _parse_initialize(self, lines: list[str], start: int) -> tuple[InitializeStatement, int]:

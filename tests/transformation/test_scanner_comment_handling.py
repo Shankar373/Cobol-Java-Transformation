@@ -34,7 +34,7 @@ def test_comments_debug_lines_and_literals_are_not_scanned() -> None:
 
 def test_real_code_is_still_scanned() -> None:
     source = HEADER + (
-        "           GO TO MAIN.\n"
+        "           ALTER MAIN TO PROCEED TO MAIN.\n"  # GO TO is decided by the program-level plan, not a pattern
         "           STOP RUN.\n"
     )
-    assert "GO TO" in scan_constructs(source)
+    assert "ALTER" in scan_constructs(source)

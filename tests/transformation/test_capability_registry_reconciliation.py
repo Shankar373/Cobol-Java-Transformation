@@ -101,10 +101,16 @@ class TestProducerRegistryReconciliation:
 class TestP0_1RegressionCases:
     """The exact contradictions recorded by roadmap finding P0-1."""
 
-    def test_go_to_is_not_claimed_supported(self) -> None:
-        supported, unsupported = _declared()
-        assert "GO TO" not in supported
-        assert "GO TO" in unsupported
+    def test_go_to_is_claimed_supported_only_for_the_oracle_proven_subset(self) -> None:
+        # P0-1 found GO TO claimed supported with no mapper; since roadmap unit 26 a bounded subset is lowered and
+        # proven against GnuCOBOL, and the registry names that proof (source-only detection stays UNSUPPORTED).
+        from engine.transformation.semantic_capability import CONSTRUCT_REGISTRY, CapabilityLevel
+
+        supported, _ = _declared()
+        assert "GO TO" in supported
+        entry = CONSTRUCT_REGISTRY["GO TO"]
+        assert "tests/integration/test_goto_oracle.py" in entry.evidence
+        assert entry.effective_source_level is CapabilityLevel.UNSUPPORTED
 
     def test_now_supported_verbs_are_not_claimed_unsupported(self) -> None:
         _, unsupported = _declared()

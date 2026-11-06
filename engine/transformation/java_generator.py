@@ -48,6 +48,7 @@ class JavaGenerator(JavaSourceRenderer):
     """
 
     strip_if_condition_parens = True
+    render_throw = True
 
 
     def generate_from_java(self, application: JavaApplication) -> list[GeneratedFile]:
@@ -180,6 +181,7 @@ class JavaGenerator(JavaSourceRenderer):
         uses_cobol_inspect_stmt = False
         uses_cobol_sql_stmt = False
         uses_cobol_sort_stmt = False
+        uses_cobol_flow_stmt = False
 
         for method in java_class.methods:
             method_stmts: list[str] = []
@@ -199,6 +201,8 @@ class JavaGenerator(JavaSourceRenderer):
                         uses_cobol_sql_stmt = True
                     if "CobolSort." in stmt_str:
                         uses_cobol_sort_stmt = True
+                    if "CobolFlow." in stmt_str:
+                        uses_cobol_flow_stmt = True
 
             if method.name == "main":
                 main_body = "".join(f"        {s}\n" for s in method_stmts)
@@ -240,6 +244,9 @@ class JavaGenerator(JavaSourceRenderer):
         if uses_cobol_sort_stmt:
             from engine.transformation.sort_support_template import COBOL_SORT_JAVA
             support_code += "\n" + COBOL_SORT_JAVA + "\n"
+        if uses_cobol_flow_stmt:
+            from engine.transformation.flow_support_template import COBOL_FLOW_JAVA
+            support_code += "\n" + COBOL_FLOW_JAVA + "\n"
         if uses_file_write:
             file_write_imports = (
                 "import java.io.FileWriter;\n"
