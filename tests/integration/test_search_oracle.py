@@ -118,6 +118,51 @@ def _program(rng: random.Random) -> str:
     return "\n".join(lines) + "\n"
 
 
+ALL_HEAD = """       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SRCHALL.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TABLE.
+          05 WS-E {pic} OCCURS {n} TIMES
+             {order} KEY IS WS-E
+             INDEXED BY IDX.
+       01 WS-K {pic} VALUE {first}.
+       01 WS-N PIC 99 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+"""
+
+
+def _all_program(rng: random.Random) -> str:
+    """Binary search over a table that is sorted (with duplicates) or, now and then, not in key order."""
+    n = rng.randint(1, 9)
+    kind = rng.choice(["X", "9"])
+    width = 1 if kind == "9" else rng.choice([1, 2])
+    pic = f"PIC {kind}({width})"
+    descending = rng.random() < 0.35
+    pool = sorted({_literal(kind, width, rng) for _ in range(12)} | {"0" * width, "1" * width})
+    values = [rng.choice(pool) for _ in range(n)]
+    if rng.random() < 0.85:
+        values.sort(reverse=descending)
+    lines = ALL_HEAD.format(pic=pic, n=n, order="DESCENDING" if descending else "ASCENDING",
+                            first=_quote(kind, rng.choice(pool))).rstrip("\n").split("\n")
+    for position, value in enumerate(values, 1):
+        lines.append(f"           MOVE {_quote(kind, value)} TO WS-E({position}).")
+    for step in range(rng.randint(2, 6)):
+        wanted = f"WS-K" if rng.random() < 0.3 else _quote(kind, rng.choice(pool + [_literal(kind, width, rng)]))
+        if wanted == "WS-K":
+            lines.append(f"           MOVE {_quote(kind, rng.choice(pool))} TO WS-K.")
+        lines.append("           SEARCH ALL WS-E")
+        if rng.random() < 0.7:
+            lines.append(f"               AT END DISPLAY 'A{step} END'")
+        lines.append(f"               WHEN WS-E(IDX) = {wanted}")
+        lines.append(f"                   DISPLAY 'A{step} FOUND'")
+        lines.append("           END-SEARCH.")
+        lines += ["           SET WS-N TO IDX.", f"           DISPLAY 'I{step} ' WS-N."]
+    lines.append("           STOP RUN.")
+    return "\n".join(lines) + "\n"
+
+
 def _run_all(tmp: Path, programs: list[str]) -> list[tuple[bytes, bytes]]:
     names = []
     for index, source in enumerate(programs):
@@ -220,4 +265,20 @@ def test_generated_programs_fit_the_fixed_format_margin():
     rng = random.Random(99)
     for _ in range(200):
         for line in _program(rng).splitlines():
+            assert len(line) <= 72, line
+
+
+@needs_docker
+@pytest.mark.parametrize("seed", [11, 12, 13, 14])
+def test_search_all_fuzz_matches_the_oracle(tmp_path, seed):
+    rng = random.Random(seed)
+    programs = [_all_program(rng) for _ in range(25)]
+    mismatches = [i for i, (c, j) in enumerate(_run_all(tmp_path, programs)) if c != j]
+    assert mismatches == [], f"SEARCH ALL cases differ from the oracle: {mismatches}"
+
+
+def test_search_all_programs_fit_the_fixed_format_margin():
+    rng = random.Random(98)
+    for _ in range(200):
+        for line in _all_program(rng).splitlines():
             assert len(line) <= 72, line

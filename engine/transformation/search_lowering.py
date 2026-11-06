@@ -11,7 +11,11 @@ Certified subset, proven against GnuCOBOL 3.1.2 (``tests/integration/test_search
   ``VARYING`` an integer data item: after each advance the item receives the new index value (observed oracle
   behaviour, not a lockstep increment), and stays untouched when the search does not advance.
 
-Not certified, refused by name: ``SEARCH ALL``, ``VARYING`` an index, an index outside ``1..n+1`` at the start of a
+* ``SEARCH ALL table [AT END ...] WHEN table(idx) = value`` on a table declared ``ASCENDING|DESCENDING KEY IS``
+  itself: binary search with ``mid = (lo + hi) / 2`` over ``1..n``, the index left on the match, or on the last
+  element probed when AT END is taken (observed oracle behaviour, also for a table that is not in key order).
+
+Not certified, refused by name: ``VARYING`` an index or ``VARYING`` with ``SEARCH ALL``, an index outside ``1..n+1`` at the start of a
 SEARCH, tables of groups, non-DISPLAY tables, ``SET`` forms with expressions, a statement with no ``WHEN``.
 """
 
@@ -141,6 +145,28 @@ def lower_set(stmt, program) -> list:
 # ---------------------------------------------------------------------------------------- SEARCH
 
 
+def _all_condition(stmt, program) -> str | None:
+    """The comparison value of ``WHEN table(idx) = value`` for SEARCH ALL, or None when the shape differs."""
+    import re
+
+    table = _data_item(program, stmt.table)
+    if table is None or not table.indexed_by or len(stmt.whens) != 1:
+        return None
+    match = re.fullmatch(
+        rf"{re.escape(stmt.table)}\s*\(\s*{re.escape(table.indexed_by[0])}\s*\)\s*=\s*(.+?)\s*",
+        stmt.whens[0].condition.strip(), re.IGNORECASE)
+    if not match:
+        return None
+    value = match.group(1)
+    if re.fullmatch(r"\d+|'[^'\"]*'|\"[^'\"]*\"", value):
+        return value
+    if re.fullmatch(r"[A-Za-z][\w-]*", value) and value.upper() not in index_names(program):
+        item = _data_item(program, value)
+        if item is not None and item.is_elementary and not item.occurs:
+            return value
+    return None
+
+
 def search_reasons(stmt, program) -> list[str]:
     reasons = list(stmt.reasons)
     table = _data_item(program, stmt.table)
@@ -155,6 +181,11 @@ def search_reasons(stmt, program) -> list[str]:
             reasons.append("VARYING")
     if not stmt.whens:
         reasons.append("NO_WHEN")
+    if stmt.is_all:
+        if table is not None and not table.key_order:
+            reasons.append("NO_KEY")
+        if stmt.whens and _all_condition(stmt, program) is None:
+            reasons.append("ALL_WHEN")
     return list(dict.fromkeys(reasons))
 
 
@@ -183,6 +214,9 @@ def lower_search(stmt, program, map_body) -> list:
         return out
     table = _data_item(program, stmt.table)
     index = JavaVariableRef(name=table.indexed_by[0].replace("-", "_"))
+    if stmt.is_all:
+        out.extend(_lower_search_all(stmt, program, table, index, map_body))
+        return out
     found_name = _fresh_io_var("srch")
     found = JavaVariableRef(name=found_name)
     boolean = JavaType(basic_type=JavaBasicType.BOOLEAN)
@@ -218,6 +252,67 @@ def lower_search(stmt, program, map_body) -> list:
             left=JavaUnaryOp(operator="!", operand=found), operator="&&",
             right=JavaBinaryOp(left=index, operator="<=", right=limit)),
         body=chain))
+    if stmt.at_end:
+        at_end = []
+        for nested in stmt.at_end:
+            at_end.extend(map_body(nested))
+        out.append(JavaIf(condition=JavaUnaryOp(operator="!", operand=found), then_body=tuple(at_end)))
+    return out
+
+
+def _lower_search_all(stmt, program, table, index, map_body) -> list:
+    """Binary search: ``mid = (lo + hi) / 2`` over ``1..n``, as GnuCOBOL does (tests/integration/test_search_oracle.py)."""
+    from engine.transformation.cobol_to_java_mapping import _fresh_io_var, map_cobol_condition_to_java
+    from engine.transformation.java_ir import (
+        JavaAssignment,
+        JavaBasicType,
+        JavaBinaryOp,
+        JavaIf,
+        JavaLiteral,
+        JavaLocalVarDecl,
+        JavaType,
+        JavaUnaryOp,
+        JavaVariableRef,
+        JavaWhile,
+    )
+
+    value = _all_condition(stmt, program)
+    assert value is not None  # search_reasons refused every other shape
+    integer = JavaType(basic_type=JavaBasicType.INT)
+    boolean = JavaType(basic_type=JavaBasicType.BOOLEAN)
+
+    def number(text: str):
+        return JavaLiteral(value=text, java_type=integer)
+
+    lo_name, hi_name, found_name = _fresh_io_var("lo"), _fresh_io_var("hi"), _fresh_io_var("srch")
+    lo, hi, found = JavaVariableRef(name=lo_name), JavaVariableRef(name=hi_name), JavaVariableRef(name=found_name)
+    # ascending: a probe below the value moves lo up; descending: a probe above it does
+    before = "<" if table.key_order == "ASCENDING" else ">"
+    probe = f"{stmt.table}({table.indexed_by[0]}) {before} {value}"
+    body = []
+    for nested in stmt.whens[0].body:
+        body.extend(map_body(nested))
+    body.append(JavaAssignment(target=found_name, expression=JavaVariableRef(name="true")))
+    step = JavaIf(
+        condition=map_cobol_condition_to_java(stmt.whens[0].condition, program=program),
+        then_body=tuple(body),
+        else_body=(JavaIf(
+            condition=map_cobol_condition_to_java(probe, program=program),
+            then_body=(JavaAssignment(target=lo_name, expression=JavaBinaryOp(
+                left=index, operator="+", right=number("1"))),),
+            else_body=(JavaAssignment(target=hi_name, expression=JavaBinaryOp(
+                left=index, operator="-", right=number("1"))),)),))
+    out: list = [
+        JavaLocalVarDecl(java_type=integer, name=lo_name, initializer=number("1")),
+        JavaLocalVarDecl(java_type=integer, name=hi_name, initializer=number(str(table.occurs))),
+        JavaLocalVarDecl(java_type=boolean, name=found_name, initializer=JavaVariableRef(name="false")),
+        JavaWhile(
+            condition=JavaBinaryOp(
+                left=JavaUnaryOp(operator="!", operand=found), operator="&&",
+                right=JavaBinaryOp(left=lo, operator="<=", right=hi)),
+            body=(JavaAssignment(target=index.name, expression=JavaBinaryOp(
+                left=JavaBinaryOp(left=lo, operator="+", right=hi), operator="/", right=number("2"))), step)),
+    ]
     if stmt.at_end:
         at_end = []
         for nested in stmt.at_end:

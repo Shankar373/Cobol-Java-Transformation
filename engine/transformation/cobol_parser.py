@@ -1746,6 +1746,10 @@ class CobolParser:
             )
             redef_m = re.search(r"\bREDEFINES\s+([A-Z0-9][\w-]*)", clauses, re.IGNORECASE)
             indexed_by = self._indexed_by(clauses)
+            key_match = re.search(
+                r"\b(ASCENDING|DESCENDING)\s+KEY\s+(?:IS\s+)?([A-Z0-9][\w-]*)", clauses, re.IGNORECASE)
+            key_order = (key_match.group(1).upper()
+                         if key_match and key_match.group(2).upper().rstrip(".") == name.upper() else "")
             usage = _parse_usage_clause(clauses)
             self._note_usage(name, usage)
             occurs_depending_on: str | None = None
@@ -1773,6 +1777,7 @@ class CobolParser:
                 redefines=redef_m.group(1).rstrip(".") if redef_m else None,
                 usage=usage,
                 indexed_by=indexed_by,
+                key_order=key_order,
             )))
         # Build the group hierarchy with mutable child lists, then freeze it.
         # The previous implementation rebuilt immutable parents and kept stale
@@ -1813,6 +1818,7 @@ class CobolParser:
                 redefines=node.item.redefines,
                 usage=node.item.usage,
                 indexed_by=node.item.indexed_by,
+                key_order=node.item.key_order,
                 children=tuple(freeze(child) for child in node.children),
             )
 
@@ -4178,8 +4184,8 @@ class CobolParser:
             table, varying = (header.split() + ["", ""])[1], ""
         else:
             table, varying = match.group(2).upper(), (match.group(3) or "").upper()
-            if match.group(1):
-                reasons.append("SEARCH_ALL")
+            if match.group(1) and match.group(3):
+                reasons.append("ALL_VARYING")
         whens: list[SearchWhen] = []
         at_end: tuple = ()
         has_at_end = False
@@ -4208,7 +4214,8 @@ class CobolParser:
                 f"SEARCH {reason} has no certified Java mapping; the statement fails closed",
                 location=f"line {start + 1}")
         return SearchStatement(table=table, varying=varying, whens=tuple(whens), at_end=at_end,
-                               has_at_end=has_at_end, reasons=tuple(reasons)), i
+                               has_at_end=has_at_end, reasons=tuple(reasons),
+                               is_all=bool(match and match.group(1))), i
 
     def _parse_sort(self, lines: list[str], start: int) -> tuple[SortStatement, int]:
         """Parse SORT; the statement ends at a period or at the next statement verb."""

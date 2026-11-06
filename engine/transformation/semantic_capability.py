@@ -329,8 +329,12 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "DISPLAY elementary OCCURS table with INDEXED BY: starts at the first index as it stands, tests the WHEN "
         "conditions in order, leaves the index on the match or at n + 1 with AT END, goes straight to AT END when "
         "the index is already past n, and VARYING an integer item assigns it the index value after each advance. "
-        "Output equals GnuCOBOL 3.1.2 (tests/integration/test_search_oracle.py). SEARCH ALL, VARYING an index, "
-        "group or non-DISPLAY tables, an index below 1 and a statement with no WHEN fail closed.",
+        "SEARCH ALL table [AT END ...] WHEN table(idx) = literal|item on a table declared ASCENDING|DESCENDING KEY IS "
+        "itself is a binary search (mid = (lo + hi) / 2 over 1..n; the index is left on the match, or on the last "
+        "element probed with AT END, also for a table out of key order). Output equals GnuCOBOL 3.1.2 "
+        "(tests/integration/test_search_oracle.py). VARYING an index, VARYING with SEARCH ALL, other SEARCH ALL "
+        "conditions (several WHENs, AND, ranges), group or non-DISPLAY tables, an index below 1 and a statement "
+        "with no WHEN fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "SET INDEX": _supported(

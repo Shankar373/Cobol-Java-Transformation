@@ -87,9 +87,17 @@ def _reasons(body: str) -> list[str]:
     return search_reasons(search, program)
 
 
-def test_search_all_is_refused_by_name():
-    assert "SEARCH_ALL" in _reasons("           SEARCH ALL E\n               WHEN E(IDX) = 'AB' DISPLAY 'X'\n"
-                                   "           END-SEARCH.\n")
+def test_search_all_needs_a_key_and_the_certified_condition_shape():
+    from engine.transformation.search_lowering import search_reasons
+
+    when = "               WHEN E(IDX) = 'AB' DISPLAY 'X'\n"
+    assert "NO_KEY" in _reasons("           SEARCH ALL E\n" + when + "           END-SEARCH.\n")
+    keyed = HEAD.replace("OCCURS 4 TIMES", "OCCURS 4 TIMES ASCENDING KEY IS E")
+    program = CobolParser().parse(
+        keyed + "           SEARCH ALL E\n               WHEN E(IDX) > 'AB' DISPLAY 'X'\n"
+        "           END-SEARCH.\n           STOP RUN.\n")
+    search = next(s for s in _statements(program) if isinstance(s, SearchStatement))
+    assert search.is_all and search_reasons(search, program) == ["ALL_WHEN"]
 
 
 def test_varying_an_index_and_a_signed_item_are_refused():

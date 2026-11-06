@@ -283,6 +283,8 @@ class DataItem:
     children: tuple[DataItem, ...] = ()
     #: Index names declared by ``OCCURS ... INDEXED BY a b``; each is an occurrence-number item.
     indexed_by: tuple[str, ...] = ()
+    #: ``ASCENDING|DESCENDING KEY IS <this item>`` on an elementary table (SEARCH ALL); empty otherwise.
+    key_order: str = ""
 
     @property
     def is_alphanumeric(self) -> bool:
@@ -857,6 +859,7 @@ class SearchStatement:
     at_end: tuple = ()
     has_at_end: bool = False
     reasons: tuple[str, ...] = ()
+    is_all: bool = False
 
 
 # Union type for all statements

@@ -349,9 +349,13 @@ def _certified_data_construct(key: str, program, data_text: str, source_text: st
             )
         return None
     if key == "OCCURS":
-        if re.search(r"(?<![\w-])(?:DEPENDING|ASCENDING|DESCENDING)(?![\w-])", data_text, re.IGNORECASE):
-            return None
         tables = [i for i in working if i.occurs]
+        # ``ASCENDING|DESCENDING KEY IS <the table item itself>`` is the SEARCH ALL key; any other key clause stays out
+        own_names = "|".join(re.escape(t.name) for t in tables if t.key_order) or "(?!)"
+        cleaned = re.sub(rf"(?<![\w-])(?:ASCENDING|DESCENDING)\s+KEY\s+(?:IS\s+)?(?:{own_names})(?![\w-])", "",
+                         data_text, flags=re.IGNORECASE)
+        if re.search(r"(?<![\w-])(?:DEPENDING|ASCENDING|DESCENDING)(?![\w-])", cleaned, re.IGNORECASE):
+            return None
         if not tables or clauses != len(tables):
             return None
         if any(t.children or t.usage or t.redefines or t.occurs_depending_on for t in tables):
@@ -386,7 +390,8 @@ def _certified_data_construct(key: str, program, data_text: str, source_text: st
                 return None
             if token in names and (index + 1 >= len(tokens) or tokens[index + 1] != "("):
                 # SEARCH names its table without a subscript (the certified linear form; SEARCH ALL is refused)
-                if index and tokens[index - 1] == "SEARCH":
+                if index and (tokens[index - 1] == "SEARCH"
+                              or tokens[index - 2:index] == ["SEARCH", "ALL"]):
                     continue
                 return None
         return (
