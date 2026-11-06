@@ -490,6 +490,30 @@ def _analyze_call_linkage_arity(
     return findings
 
 
+def _key_position_problem(program, definition) -> str:
+    """Why an INDEXED file whose RECORD KEY is not the first field is outside the certified subset ("" otherwise).
+
+    The runtime stores the record key-first, so a key anywhere in the record works for WRITE / READ / REWRITE / DELETE /
+    START; READ ... INTO moves the stored image and would receive the fields in the wrong order, so it is refused.
+    """
+    from engine.transformation.control_flow import walk_statements
+    from engine.transformation.ir import FileOrganization, ReadStatement
+
+    if definition.organization is not FileOrganization.INDEXED or definition.record_key is None:
+        return ""
+    leaves = [i for i in definition.record_items if not i.is_condition_name and not i.is_group]
+    key = next((i for i in leaves if i.name == definition.record_key.field_name), None)
+    if key is None:
+        return f"RECORD KEY {definition.record_key.field_name} is not a single elementary field of the record"
+    if leaves[0] is key:
+        return ""
+    for paragraph in program.paragraphs:
+        for stmt in walk_statements(paragraph.statements):
+            if isinstance(stmt, ReadStatement) and stmt.file_name == definition.name and stmt.into_field:
+                return "READ ... INTO with a RECORD KEY that is not the first field of the record"
+    return ""
+
+
 def _sequential_access_problem(program, definition) -> str:
     """Why an INDEXED file declared ACCESS MODE SEQUENTIAL is outside the certified subset ("" when inside it).
 
@@ -1431,6 +1455,13 @@ class CapabilityAnalyzer:
         # ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY.
         # Behavioral equivalence (stdout, FILE STATUS, exit code) is PROVEN.
         if definition.organization is not FileOrganization.SEQUENTIAL:
+            key_problem = _key_position_problem(program, definition)
+            if key_problem:
+                return (
+                    CapabilityLevel.UNSUPPORTED,
+                    f"{definition.organization.value} file {fd.file_name} is outside the certified subset: "
+                    f"{key_problem}",
+                )
             if (
                 definition.organization is FileOrganization.INDEXED
                 and definition.access_mode is FileAccessMode.SEQUENTIAL

@@ -1638,6 +1638,24 @@ def _numeric_parse_call(item: DataItem, value: JavaExpression) -> JavaExpression
     )
 
 
+def _image_items(fd: FileDefinition | None) -> list:
+    """Elementary record items in *image* order.
+
+    The keyed runtime derives the primary key as the first ``keyLen`` characters of the stored image, so the image of
+    an INDEXED record is assembled key-first and split back into the declared field order on READ; a key that is not
+    the first leaf therefore works (the image is not a VSAM image, and is never compared). Other files keep the
+    declared order.
+    """
+    if fd is None:
+        return []
+    items = [i for i in fd.record_items if not i.is_condition_name and not i.is_group]
+    if fd.organization == FileOrganization.INDEXED and fd.record_key is not None:
+        key = next((i for i in items if i.name == fd.record_key.field_name), None)
+        if key is not None and items and items[0] is not key:
+            return [key] + [i for i in items if i is not key]
+    return items
+
+
 def _leaf_encoding(item):
     from engine.transformation.binary_record import leaf_encoding
 
@@ -1698,9 +1716,7 @@ def _record_layout(fd: FileDefinition | None) -> list[tuple[str, int, bool, bool
     if fd is None:
         return []
     layout: list[tuple[str, int, bool, bool]] = []
-    for item in fd.record_items:
-        if item.is_condition_name or item.is_group:
-            continue
+    for item in _image_items(fd):
         encoding = _leaf_encoding(item) if certified_binary_record(fd) else None
         if encoding is not None:
             layout.append((item.name.replace("-", "_"), encoding.width, False, False))
@@ -1755,6 +1771,16 @@ def _key_expr(
     if fd is not None and fd.relative_key:
         return JavaVariableRef(name=fd.relative_key.replace("-", "_"))
     return _int_lit(0)
+
+
+def _uses_status_runtime(fd, read_next: bool) -> bool:
+    """READ on an INDEXED file whose failure status comes from the runtime (``statusSeq``): every READ of a
+    SEQUENTIAL-access file and READ NEXT of a DYNAMIC one (10 at the end, 46 when there is no position)."""
+    from engine.transformation.ir import FileAccessMode, FileOrganization
+
+    if fd is None or fd.organization != FileOrganization.INDEXED:
+        return False
+    return fd.access_mode == FileAccessMode.SEQUENTIAL or (read_next and fd.access_mode == FileAccessMode.DYNAMIC)
 
 
 def _is_sequential_access_keyed(fd) -> bool:
@@ -1922,10 +1948,7 @@ def _disassembly_statements(
     never break ``substring``; numeric fields are trimmed then parsed
     into int/long exactly as ``map_pic_to_java_type`` typed them.
     """
-    items = [
-        item for item in (fd.record_items if fd is not None else ())
-        if not item.is_condition_name and not item.is_group
-    ]
+    items = _image_items(fd)
     if not items:
         return []
     binary = certified_binary_record(fd)
@@ -5032,7 +5055,7 @@ def map_cobol_statement(
                 call = _cobol_call(
                     "readRecord", _str_lit(path), _int_lit(_record_total_width(fd)),
                 )
-            elif _is_sequential_access_keyed(fd):
+            elif _uses_status_runtime(fd, read_next):
                 call = _cobol_call("readNextSeq", _str_lit(path))
             else:
                 call = _cobol_call("readNext", _str_lit(path))
@@ -5062,7 +5085,7 @@ def map_cobol_statement(
             # sequential cursor READ signals AT END (10).
             fail_status = "23" if (keyed or relative_read) else "10"
             else_body: list[JavaStatement] = []
-            if _is_sequential_access_keyed(fd) and not keyed and (status_var or has_at_end):
+            if _uses_status_runtime(fd, read_next) and not keyed and (status_var or has_at_end):
                 # ACCESS MODE SEQUENTIAL: the runtime names the failure (10 end of file, 46 no next record, 47 not
                 # open for input); AT END runs only for 10
                 seq_status = status_var or _fresh_io_var("seqfs")

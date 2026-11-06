@@ -29,6 +29,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | `GO TO` between paragraphs and plain `EXIT.` (26) | yes | yes | GnuCOBOL (documented form, 100 fuzzed programs) | | yes | DEPENDING, ALTER, jumps out of a PERFORM range, GO TO under simple/TIMES/UNTIL/VARYING PERFORM, LINKAGE programs, EXIT PROGRAM, EXIT PERFORM/PARAGRAPH/SECTION |
 | INDEXED `ACCESS MODE SEQUENTIAL` (and the default) (27) | yes | yes | GnuCOBOL (probes + seeded fuzz over all open modes) | | yes | no FILE STATUS, INVALID KEY scopes, READ KEY IS, ALTERNATE KEY, RELATIVE files; emulated index, not VSAM |
 | COMP / COMP-3 leaves in RECORD SEQUENTIAL / INDEXED file records (28) | yes | yes | GnuCOBOL (byte-identical data files, read-back equal) | | yes | LINE SEQUENTIAL, RELATIVE, COMP-5/1/2, FILLER, REDEFINES, OCCURS, SYNC, binary keys, > 18 digits, negative zero, invalid packed data |
+| INDEXED RECORD KEY at any position; DYNAMIC READ NEXT position rules (29) | yes | yes | GnuCOBOL (seeded fuzz, key at random position) | | yes | READ INTO with a non-first key, group-item keys, ALTERNATE RECORD KEY |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |

@@ -315,8 +315,9 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         int kl = klI == null ? (key == null ? 0 : key.length()) : klI;
         java.util.Map.Entry<String, String> e = m.floorEntry(key);
         if (e == null || !e.getKey().equals(key)) {
-            return null;
+            return null;  // a failed keyed READ leaves the position where it was
         }
+        EOFS.remove(path);
         CURSOR.put(path, e.getKey());
         return pad(e.getKey(), kl, false) + (e.getValue() == null ? "" : e.getValue());
     }
@@ -326,6 +327,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         path = map(path);
         java.util.TreeMap<String, String> m = IDX.get(path);
         if (m == null || m.isEmpty()) {
+            EOFS.add(path);
             return "23";
         }
         String o = (op == null || op.isEmpty()) ? "=" : op;
@@ -342,8 +344,10 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             e = m.lowerEntry(key);
         }
         if (e == null) {
+            EOFS.add(path);
             return "23";
         }
+        EOFS.remove(path);
         // Position the cursor so the NEXT readNext returns e itself:
         // store the predecessor (or clear for the first key).
         java.util.Map.Entry<String, String> prev = m.lowerEntry(e.getKey());
