@@ -29,6 +29,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from engine.transformation.binary_record import certified_binary_record
+from engine.transformation.refmod import REFMOD_ANYWHERE, split_outside_parentheses
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
     fall_through_chain,
@@ -395,6 +396,15 @@ _re_inline_statement = re.compile(
     r"(?<![\w-])(?:" + "|".join(_STATEMENT_LEADING_VERBS) + r")(?![\w-])",
     re.IGNORECASE,
 )
+
+
+# Verbs and clause words that decide which statement a reference modification belongs to
+_REFMOD_VERBS = re.compile(
+    r"(?<![\w-])(MOVE|DISPLAY|IF|WHEN|UNTIL|EVALUATE|ELSE|AND|OR|NOT|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|STRING|"
+    r"UNSTRING|INSPECT|CALL|SET|SEARCH|ACCEPT|INITIALIZE|READ|WRITE|REWRITE|DELETE|START|OPEN|CLOSE|PERFORM|GO|STOP|"
+    r"SORT|MERGE|RETURN|RELEASE|EXEC|VARYING|FROM|BY|GIVING|INTO|USING|REPLACING|TALLYING|DELIMITED|POINTER|WITH|"
+    r"DEPENDING|CONVERTING|REMAINDER|ROUNDED|OF|IN)(?![\w-])")
+_REFMOD_CERTIFIED_VERBS = frozenset({"MOVE", "DISPLAY", "IF", "WHEN", "UNTIL", "EVALUATE", "ELSE", "AND", "OR", "NOT"})
 
 
 def _is_paragraph_name(name: str) -> bool:
@@ -1184,24 +1194,30 @@ class CobolParser:
         or ``WS-REPLACE-COUNT`` are never mistaken for the constructs, and
         ``COPY ... REPLACING`` (a different construct) does not match.
         """
+        governing_verb = ""
         for number, line in enumerate(lines, start=1):
             # Strip a trailing period so a bare reserved word still matches
             # while "LOCAL-STORAGE-FIELD." or "REPLACE-COUNT." cannot.
             candidate = line.rstrip().rstrip(".")
             upper = candidate.upper()
-            # Reference modification (``WS-X(2:3)``) has no Java mapping;
-            # name it here instead of letting the mapper emit Java that
-            # fails at javac (audit T10).
-            if re.search(
-                r"[A-Z0-9][\w-]*\s*\([^()'\"]*:[^()'\"]*\)",
-                self._mask_quoted(upper),
-            ):
-                self._diagnostics.warning(
-                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                    "Reference modification (identifier(offset:length)) is "
-                    "not supported",
-                    location=f"line {number}",
-                )
+            # Reference modification (``WS-X(2:3)``) is certified as a MOVE sender / receiver, a DISPLAY operand and an
+            # operand of a relation in IF / WHEN / UNTIL / EVALUATE (``engine/transformation/refmod.py``); in any other
+            # statement it is named here instead of letting the mapper emit Java that fails at javac (audit T10).
+            masked = self._mask_quoted(upper)
+            for found in REFMOD_ANYWHERE.finditer(masked):
+                before = list(_REFMOD_VERBS.finditer(masked[: found.start()]))
+                verb = before[-1].group(1) if before else governing_verb
+                if verb not in _REFMOD_CERTIFIED_VERBS:
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        "Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and "
+                        "IF / WHEN / UNTIL conditions, not in "
+                        f"{verb or 'this statement'}",
+                        location=f"line {number}",
+                    )
+            verbs_here = list(_REFMOD_VERBS.finditer(masked))
+            if verbs_here:
+                governing_verb = verbs_here[-1].group(1)
             if re.search(r"(?<![\w-])LOCAL-STORAGE(?![\w-])", upper):
                 self._diagnostics.warning(
                     DiagnosticCode.UNSUPPORTED_CONSTRUCT,
@@ -2818,7 +2834,7 @@ class CobolParser:
         match = re.search(r"MOVE\s+(.+?)\s+TO\s+(.+?)(?:\.)?$", line, re.IGNORECASE)
         if match:
             source = match.group(1).strip()
-            targets = tuple(t.rstrip(".,") for t in match.group(2).split() if t.strip(" ,"))
+            targets = tuple(t.rstrip(".,") for t in split_outside_parentheses(match.group(2)) if t.strip(" ,"))
             if any(
                 t.upper() in _STATEMENT_WORDS or not _DATA_REFERENCE.fullmatch(t)
                 for t in targets

@@ -345,6 +345,18 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "with no WHEN fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "REFERENCE MODIFICATION": _supported(
+        "name(start:length) and name(start:) on a plain elementary alphanumeric item, or on the digits of an unsigned "
+        "integer DISPLAY item, with start / length an integer literal, an unsigned integer item or item +/- literal: "
+        "a MOVE sender (padded or truncated like any alphanumeric value), a MOVE receiver (only those characters change; "
+        "literal, item, reference, SPACES, ZEROS or ALL literal as sender), a DISPLAY operand and an operand of an "
+        "alphanumeric relation in IF / WHEN / UNTIL (the shorter operand is padded with spaces). Output equals GnuCOBOL "
+        "3.1.2 (tests/integration/test_refmod_oracle.py). A reference outside the item has no defined COBOL meaning "
+        "(GnuCOBOL reads the adjacent storage) and the generated Java throws IllegalStateException; ADD, COMPUTE, "
+        "STRING, INSPECT and every other statement, numeric or signed or decimal receivers and bases, subscripted bases "
+        "and other start / length expressions fail closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "EXIT PERFORM": _supported(
         "EXIT PERFORM directly inside an inline PERFORM (UNTIL, TIMES, VARYING or a plain inline body) leaves that "
         "loop (Java break), also from nested IF / EVALUATE; DISPLAY ... WITH NO ADVANCING and CONTINUE (as a "

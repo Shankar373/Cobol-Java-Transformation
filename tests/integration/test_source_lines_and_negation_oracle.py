@@ -58,13 +58,21 @@ def test_no_unsupported_statement_diagnostics() -> None:
     assert not [m for m in messages if "unsupported" in m.lower() or "did not parse" in m.lower()], messages
 
 
-def test_reference_modification_is_diagnosed() -> None:
+def test_reference_modification_outside_the_certified_statements_is_diagnosed() -> None:
+    # MOVE, DISPLAY and IF / WHEN / UNTIL relations are certified since roadmap unit 32
+    # (tests/integration/test_refmod_oracle.py); any other statement still names the construct
     parser = CobolParser()
     parser.parse(PROGRAM.replace(
         "           STOP RUN.\n",
-        "           DISPLAY WS-A(1:1).\n           STOP RUN.\n",
+        "           ADD WS-A(1:1) TO WS-A.\n           STOP RUN.\n",
     ))
     assert any("Reference modification" in d.message for d in parser.diagnostics.all)
+    certified = CobolParser()
+    certified.parse(PROGRAM.replace(
+        "           STOP RUN.\n",
+        "           DISPLAY WS-A(1:1).\n           STOP RUN.\n",
+    ))
+    assert not [d for d in certified.diagnostics.all if "Reference modification" in d.message]
 
 
 def test_byte_identical_to_gnucobol(tmp_path: Path) -> None:

@@ -183,6 +183,7 @@ class JavaGenerator(JavaSourceRenderer):
         uses_cobol_sort_stmt = False
         uses_cobol_flow_stmt = False
         uses_cobol_packed_stmt = False
+        uses_cobol_ref_stmt = False
 
         for method in java_class.methods:
             method_stmts: list[str] = []
@@ -206,6 +207,8 @@ class JavaGenerator(JavaSourceRenderer):
                         uses_cobol_flow_stmt = True
                     if "CobolPacked." in stmt_str:
                         uses_cobol_packed_stmt = True
+                    if "CobolRef." in stmt_str:
+                        uses_cobol_ref_stmt = True
 
             if method.name == "main":
                 main_body = "".join(f"        {s}\n" for s in method_stmts)
@@ -247,6 +250,9 @@ class JavaGenerator(JavaSourceRenderer):
         if uses_cobol_sort_stmt:
             from engine.transformation.sort_support_template import COBOL_SORT_JAVA
             support_code += "\n" + COBOL_SORT_JAVA + "\n"
+        if uses_cobol_ref_stmt:
+            from engine.transformation.ref_support_template import COBOL_REF_JAVA
+            support_code += "\n" + COBOL_REF_JAVA + "\n"
         if uses_cobol_packed_stmt:
             from engine.transformation.packed_support_template import COBOL_PACKED_JAVA
             support_code += "\n" + COBOL_PACKED_JAVA + "\n"

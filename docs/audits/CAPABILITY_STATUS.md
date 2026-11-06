@@ -32,6 +32,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | INDEXED RECORD KEY at any position; DYNAMIC READ NEXT position rules (29) | yes | yes | GnuCOBOL (seeded fuzz, key at random position) | | yes | READ INTO with a non-first key, group-item keys, ALTERNATE RECORD KEY |
 | ALTERNATE RECORD KEY, random access (30) | yes | yes | GnuCOBOL (seeded fuzz, 2 alternate keys) | | yes | **START / READ NEXT along an alternate key (browsing)**, numeric/binary keys, ACCESS SEQUENTIAL, no FILE STATUS |
 | `CONTINUE`, `EXIT PERFORM`, `DISPLAY ... WITH NO ADVANCING` (31) | yes | yes | GnuCOBOL (seeded fuzz of nested loops) | | yes | EXIT PERFORM outside an inline PERFORM / inside SEARCH, EXIT PERFORM CYCLE, EXIT PARAGRAPH / SECTION |
+| reference modification `name(start:length)` in MOVE / DISPLAY / IF relations (32) | yes | yes | GnuCOBOL (seeded fuzz) | | yes | ADD / COMPUTE / STRING / INSPECT and other statements, numeric / signed receivers and bases, subscripted bases, references outside the item (runtime exception) |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |

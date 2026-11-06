@@ -31,6 +31,7 @@ import re
 from engine.transformation import figurative
 from engine.transformation.source_format import unquote_literal
 from engine.transformation.alternate_key import alternate_key_problem, alternate_ordinal
+from engine.transformation.refmod import REFMOD_ANYWHERE, parse_refmod
 from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.control_flow import (
     RUN_UNIT_ENTRY_METHOD,
@@ -737,6 +738,195 @@ def _alphanumeric_to_numeric(
     return JavaMethodCall(
         class_name=parse[0], method_name=parse[1], is_static=True, arguments=(checked,),
     )
+
+
+def _refmod_unsupported(text: str, reason: str) -> JavaUnsupportedExpression:
+    return JavaUnsupportedExpression(source_expression=text, reason=f"reference modification: {reason}")
+
+
+def _refmod_int(text: str, program) -> JavaExpression | None:
+    """A reference-modification start / length: an integer literal, an unsigned integer DISPLAY item of at most nine
+    digits, or ``item +/- literal`` (an operator needs its spaces: ``N-1`` is a data name)."""
+    text = (text or "").strip()
+    if re.fullmatch(r"\d+", text):
+        return _int_lit(int(text))
+    match = re.fullmatch(r"([A-Za-z][\w-]*)(?:\s+([+-])\s+(\d+))?", text)
+    if match is None:
+        match = re.fullmatch(r"([A-Za-z][\w-]*)\s*([+])\s*(\d+)", text)
+    if match is None:
+        return None
+    item = _find_data_item(program, match.group(1))
+    if (
+        item is None or not item.is_numeric or item.decimal_places > 0 or item.signed or item.occurs
+        or not 0 < item.pic_length <= 9 or item.usage not in (None, "", "DISPLAY")
+    ):
+        return None
+    reference = JavaVariableRef(name=match.group(1).replace("-", "_"))
+    if match.group(2):
+        return JavaBinaryOp(left=reference, operator=match.group(2), right=_int_lit(int(match.group(3))))
+    return reference
+
+
+def _refmod_base(name: str, program, text: str):
+    """(Java String of the base item, "alnum" | "digits") or an unsupported expression."""
+    item = _find_data_item(program, name)
+    if item is None or item.occurs or _substantive_children(item) or item.usage not in (None, "", "DISPLAY"):
+        return _refmod_unsupported(text, "the base is not a plain elementary DISPLAY item")
+    variable = JavaVariableRef(name=name.replace("-", "_"))
+    if item.is_alphanumeric and item.pic_length > 0:
+        return variable, "alnum"
+    if item.is_numeric and not item.signed and item.decimal_places == 0 and item.pic_length > 0:
+        return JavaMethodCall(
+            class_name="String", method_name="format", is_static=True,
+            arguments=(_str_lit(f"%0{item.pic_length}d"), variable)), "digits"
+    return _refmod_unsupported(text, "a signed, decimal or edited base is not certified")
+
+
+def _refmod_string(text: str, program) -> JavaExpression | None:
+    """The Java String of ``name(start:length)`` (``None`` when ``text`` is not a reference modification)."""
+    ref = parse_refmod(text)
+    if ref is None:
+        return None
+    base = _refmod_base(ref.name, program, text)
+    if isinstance(base, JavaUnsupportedExpression):
+        return base
+    start = _refmod_int(ref.start, program)
+    length = _refmod_int(ref.length, program) if ref.length else None
+    if start is None or (ref.length and length is None):
+        return _refmod_unsupported(text, "start and length must be integer literals, unsigned integer items or item +/- literal")
+    arguments = (base[0], start) if length is None else (base[0], start, length)
+    return JavaMethodCall(
+        class_name="CobolRef", method_name="subRest" if length is None else "sub", arguments=arguments, is_static=True)
+
+
+def _refmod_move_into(source_text: str, source: JavaExpression, target_text: str, program) -> JavaAssignment:
+    """MOVE <source> TO name(start:length): only those characters of the item change."""
+    ref = parse_refmod(target_text)
+    assert ref is not None
+    name = ref.name.replace("-", "_")
+
+    def refuse(reason: str) -> JavaAssignment:
+        return JavaAssignment(target=name, expression=_refmod_unsupported(target_text, reason))
+
+    base = _refmod_base(ref.name, program, target_text)
+    if isinstance(base, JavaUnsupportedExpression) or base[1] != "alnum":
+        return refuse("the receiver must be a plain alphanumeric item")
+    start = _refmod_int(ref.start, program)
+    length = _refmod_int(ref.length, program) if ref.length else None
+    if start is None or (ref.length and length is None):
+        return refuse("start and length must be integer literals, unsigned integer items or item +/- literal")
+    width = JavaMethodCall(object_ref=base[0], method_name="length", arguments=())
+    count: JavaExpression = length if length is not None else JavaBinaryOp(
+        left=JavaBinaryOp(left=width, operator="-", right=start), operator="+", right=_int_lit(1))
+    figurative = parse_figurative_constant(source_text) if isinstance(source_text, str) else None
+    if figurative is not None:
+        kind, fill = figurative
+        pattern = {"SPACES": " ", "ZERO": "0"}.get(kind) if kind != "ALL" else fill
+        if pattern is None:
+            return refuse("only SPACES, ZEROS and ALL literal figurative constants are certified")
+        piece: JavaExpression = JavaMethodCall(
+            class_name="CobolRef", method_name="repeat", arguments=(_str_lit(pattern), count), is_static=True)
+    else:
+        text = (source_text or "").strip()
+        quoted = len(text) >= 2 and text[0] == text[-1] and text[0] in "'\""
+        sender = _find_data_item(program, text) if not quoted and parse_refmod(text) is None else None
+        if not quoted and parse_refmod(text) is None and not (
+                sender is not None and sender.is_alphanumeric and sender.pic_length > 0 and not sender.occurs):
+            return refuse("the sender must be a literal, a plain alphanumeric item or another reference modification")
+        piece = source
+    if length is None:
+        call = JavaMethodCall(
+            class_name="CobolRef", method_name="putRest", arguments=(base[0], start, piece), is_static=True)
+    else:
+        call = JavaMethodCall(
+            class_name="CobolRef", method_name="put", arguments=(base[0], start, length, piece), is_static=True)
+    return JavaAssignment(target=name, expression=call)
+
+
+def _refmod_operand(text: str, program, text_whole: str):
+    """Java String of one side of a relation that involves a reference modification, or an unsupported expression."""
+    text = text.strip()
+    refmod = _refmod_string(text, program)
+    if refmod is not None:
+        return refmod
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        return _str_lit(text[1:-1])
+    figurative = parse_figurative_constant(text)
+    if figurative is not None:
+        return figurative  # handled by the caller (right-hand side only)
+    item = _find_data_item(program, text)
+    if (
+        item is not None and item.is_alphanumeric and item.pic_length > 0 and not item.occurs
+        and not _substantive_children(item) and item.usage in (None, "", "DISPLAY")
+    ):
+        return JavaVariableRef(name=text.replace("-", "_"))
+    return _refmod_unsupported(
+        text_whole, "an operand of a relation is a quoted literal, SPACES, ZEROS, a plain alphanumeric item or a "
+        "reference modification")
+
+
+_REFMOD_RELATIONS = (
+    ("NOT >=", "<"), ("NOT <=", ">"), ("NOT =", "!="), ("NOT >", "<="), ("NOT <", ">="),
+    (">=", ">="), ("<=", "<="), ("=", "=="), (">", ">"), ("<", "<"),
+)
+
+
+def _refmod_relation(condition: str, program) -> JavaExpression | None:
+    """``operand relation operand`` with a reference modification on either side (``None`` for any other condition)."""
+    if not REFMOD_ANYWHERE.search(condition or ""):
+        return None
+    text = condition.strip()
+    # the relational operator is the first one outside parentheses and quotes
+    depth = 0
+    quote = ""
+    split = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and char.isspace() or (depth == 0 and index == 0):
+            rest = text[index:].lstrip()
+            for word, java in _REFMOD_RELATIONS:
+                if re.match(re.escape(word).replace(r"\ ", r"\s+") + r"(?=\s)", rest, re.IGNORECASE):
+                    start = len(text) - len(rest)
+                    split = (start, start + len(word), java)
+                    break
+            if split:
+                break
+        index += 1
+    if split is None:
+        return _refmod_unsupported(text, "only a relation between two operands is certified")
+    left_text, right_text = text[: split[0]].strip(), text[split[1]:].strip()
+    left = _refmod_operand(left_text, program, text)
+    right = _refmod_operand(right_text, program, text)
+    for side in (left, right):
+        if isinstance(side, JavaUnsupportedExpression):
+            return side
+    if isinstance(left, tuple):
+        return _refmod_unsupported(text, "a figurative constant is certified only on the right-hand side")
+    if isinstance(right, tuple):
+        kind, fill = right
+        if kind == "SPACES":
+            right = _str_lit("")
+        elif kind == "ZERO":
+            right = JavaMethodCall(
+                class_name="CobolRef", method_name="repeat",
+                arguments=(_str_lit("0"), JavaMethodCall(object_ref=left, method_name="length", arguments=())),
+                is_static=True)
+        else:
+            return _refmod_unsupported(text, "only SPACES and ZEROS are certified as the figurative operand")
+    return JavaBinaryOp(
+        left=JavaMethodCall(
+            class_name="CobolRef", method_name="compare", arguments=(left, right), is_static=True),
+        operator=split[2], right=_int_lit(0))
 
 
 def _numeric_as_alphanumeric(
@@ -3553,6 +3743,11 @@ def map_cobol_condition_to_java(
             reason="Malformed or unsupported COBOL condition",
         )
     condition = rewrite_sign_conditions(condition)
+    refmod_relation = _refmod_relation(condition, program) if REFMOD_ANYWHERE.search(condition) and not (
+        _split_top_level(condition, "OR").__len__() > 1 or _split_top_level(condition, "AND").__len__() > 1
+        or re.match(r"(?i)^\s*NOT\s", condition)) else None
+    if refmod_relation is not None:
+        return refmod_relation
     # ``NOT <one relation>`` negates the whole relation (audit T9: the
     # textual path below rendered ``IF NOT A = 1`` as ``!A == 1``, which
     # javac rejects).  A NOT over a compound is left to the paths below.
@@ -3587,6 +3782,7 @@ def map_cobol_condition_to_java(
         _involves_alphanumeric(condition, program)
         or _involves_decimal(condition, program)
         or _re.search(r"(?<![\w-])(?!(?:AND|OR|NOT)\s*\()[A-Za-z][\w-]*\(", condition, _re.IGNORECASE) is not None
+        or REFMOD_ANYWHERE.search(condition) is not None
     ):
         unwrapped = _strip_enclosing_parens(condition)
         for keyword, java_op in (("OR", "||"), ("AND", "&&")):
@@ -4336,19 +4532,30 @@ def map_cobol_statement(
             )
 
     if isinstance(stmt, MoveStatement):
-        source = map_cobol_expr_to_java(stmt.source)
+        refmod_source = _refmod_string(stmt.source, program) if isinstance(stmt.source, str) else None
+        source = refmod_source if refmod_source is not None else map_cobol_expr_to_java(stmt.source)
         # The IR stores every destination in ``targets`` (primary first) and
         # mirrors the primary one into ``target``. Emitting ``target`` and
         # then iterating the full tuple would duplicate the primary
         # assignment, so ``targets`` is the authoritative list.
         move_targets = stmt.targets or ((stmt.target,) if stmt.target else ())
         for move_target in move_targets:
+            if parse_refmod(move_target) is not None:
+                result.append(_refmod_move_into(stmt.source, source, move_target, program))
+                continue
             group_statements = _group_move_statements(stmt.source, move_target, program)
             if group_statements is not None:
                 result.extend(group_statements)
                 continue
             expression = source
             item = _find_data_item(program, move_target)
+            if refmod_source is not None and item is not None and item.is_numeric:
+                # a reference-modified sender into a numeric receiver is not certified
+                result.append(JavaAssignment(
+                    target=cobol_reference_to_java_source(move_target),
+                    expression=_refmod_unsupported(stmt.source, "a numeric receiver is not certified"),
+                ))
+                continue
             converted = (
                 _alphanumeric_to_numeric(stmt.source, source, move_target, item, program)
                 if item is not None and item.is_numeric
@@ -4395,7 +4602,10 @@ def map_cobol_statement(
                     # the right, or truncate on the right before any
                     # subsequent use.  A numeric sender contributes its
                     # unsigned digits, not Java's rendering of the number.
-                    characters = _numeric_as_alphanumeric(stmt.source, source, program)
+                    characters = (
+                        None if refmod_source is not None
+                        else _numeric_as_alphanumeric(stmt.source, source, program)
+                    )
                     padded = JavaMethodCall(
                         class_name="String", method_name="format", is_static=True,
                         arguments=(
@@ -4615,6 +4825,10 @@ def map_cobol_statement(
     elif isinstance(stmt, DisplayStatement):
         parts: list[JavaExpression] = []
         for part in stmt.parts:
+            refmod_part = _refmod_string(part, program)
+            if refmod_part is not None:
+                parts.append(refmod_part)
+                continue
             is_quoted = (
                 (part.startswith("'") and part.endswith("'"))
                 or (part.startswith('"') and part.endswith('"'))
