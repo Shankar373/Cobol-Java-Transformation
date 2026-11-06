@@ -1703,6 +1703,18 @@ def _key_expr(
     return _int_lit(0)
 
 
+def _is_sequential_access_keyed(fd) -> bool:
+    """An INDEXED file declared ``ACCESS MODE IS SEQUENTIAL``: a plain READ is READ NEXT and the CobolFileIo
+    ``*Seq`` entry points apply the sequential-access status rules (RELATIVE stays refused by the analyzer)."""
+    from engine.transformation.ir import FileAccessMode, FileOrganization
+
+    return (
+        fd is not None
+        and fd.organization == FileOrganization.INDEXED
+        and fd.access_mode == FileAccessMode.SEQUENTIAL
+    )
+
+
 def _is_relative(fd: FileDefinition | None) -> bool:
     """True when the file uses COBOL RELATIVE organization (RRN-addressed)."""
     if fd is None:
@@ -4924,8 +4936,10 @@ def map_cobol_statement(
         else:
             # Indexed random READ (no NEXT) uses the current record-key field.
             # READ NEXT / sequential uses the cursor. Relative uses RRN.
-            relative_read = _is_relative(fd) and not stmt.read_next
-            if not stmt.key and not relative_read and not stmt.read_next:
+            # On a keyed file declared ACCESS MODE SEQUENTIAL a plain READ *is* READ NEXT.
+            read_next = stmt.read_next or _is_sequential_access_keyed(fd)
+            relative_read = _is_relative(fd) and not read_next
+            if not stmt.key and not relative_read and not read_next:
                 if fd is not None and fd.record_key is not None:
                     key_item = _key_field_item(fd, program)
                     if key_item is not None:
@@ -4940,7 +4954,7 @@ def map_cobol_statement(
             keyed = bool(stmt_key_for_read) or (
                 has_inv and not has_at_end
                 and fd is not None and fd.record_key is not None
-                and not stmt.read_next
+                and not read_next
             )
             read_var = _fresh_io_var("read")
             if relative_read:
@@ -4956,6 +4970,8 @@ def map_cobol_statement(
                 call = _cobol_call(
                     "readRecord", _str_lit(path), _int_lit(_record_total_width(fd)),
                 )
+            elif _is_sequential_access_keyed(fd):
+                call = _cobol_call("readNextSeq", _str_lit(path))
             else:
                 call = _cobol_call("readNext", _str_lit(path))
             result.append(JavaLocalVarDecl(
@@ -4984,7 +5000,24 @@ def map_cobol_statement(
             # sequential cursor READ signals AT END (10).
             fail_status = "23" if (keyed or relative_read) else "10"
             else_body: list[JavaStatement] = []
-            if status_var or has_at_end or has_inv:
+            if _is_sequential_access_keyed(fd) and not keyed and (status_var or has_at_end):
+                # ACCESS MODE SEQUENTIAL: the runtime names the failure (10 end of file, 46 no next record, 47 not
+                # open for input); AT END runs only for 10
+                seq_status = status_var or _fresh_io_var("seqfs")
+                if status_var:
+                    else_body.append(JavaAssignment(
+                        target=status_var, expression=_cobol_call("statusSeq", _str_lit(path))))
+                else:
+                    else_body.append(JavaLocalVarDecl(
+                        java_type=JavaType(basic_type=JavaBasicType.STRING), name=seq_status,
+                        initializer=_cobol_call("statusSeq", _str_lit(path))))
+                at_end_java: list[JavaStatement] = []
+                for s in stmt.at_end_body:
+                    at_end_java.extend(map_cobol_statement(s, program, called_programs))
+                if at_end_java:
+                    else_body.append(JavaIf(
+                        condition=_status_eq(seq_status, "10"), then_body=tuple(at_end_java)))
+            elif status_var or has_at_end or has_inv:
                 if status_var:
                     else_body.append(JavaAssignment(
                         target=status_var, expression=_str_lit(fail_status),
@@ -5075,7 +5108,8 @@ def map_cobol_statement(
                 )
             else:
                 call = _cobol_call(
-                    "write", _str_lit(path), rec_expr, _int_lit(_key_len(fd, program)),
+                    "writeSeq" if _is_sequential_access_keyed(fd) else "write",
+                    _str_lit(path), rec_expr, _int_lit(_key_len(fd, program)),
                 )
             has_inv = bool(stmt.invalid_key_body or stmt.not_invalid_key_body)
             status_var = _bind_status(
@@ -5127,7 +5161,7 @@ def map_cobol_statement(
         else:
             op = stmt.operator or "="
             call = _cobol_call(
-                "start", _str_lit(path), _str_lit(op),
+                "startSeq" if _is_sequential_access_keyed(fd) else "start", _str_lit(path), _str_lit(op),
                 _key_expr(stmt.key, fd, program),
             )
             has_bodies = bool(
@@ -5190,7 +5224,8 @@ def map_cobol_statement(
                 if rec_expr is None:
                     rec_expr = JavaVariableRef(name=content_var)
                 call = _cobol_call(
-                    "rewrite", _str_lit(path), rec_expr, _int_lit(key_len),
+                    "rewriteSeq" if _is_sequential_access_keyed(fd) else "rewrite",
+                    _str_lit(path), rec_expr, _int_lit(key_len),
                 )
                 cond_status = _bind_status(
                     result, status_field, call, need_expr=has_inv,
@@ -5217,6 +5252,8 @@ def map_cobol_statement(
             if _is_relative(fd):
                 rrn_expr = _key_expr("", fd, program)
                 call = _cobol_call("deleteRelative", _str_lit(path), rrn_expr)
+            elif _is_sequential_access_keyed(fd):
+                call = _cobol_call("deleteSeq", _str_lit(path), _int_lit(_key_len(fd, program)))
             else:
                 call = _cobol_call(
                     "delete", _str_lit(path), _key_expr("", fd, program),

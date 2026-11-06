@@ -490,6 +490,36 @@ def _analyze_call_linkage_arity(
     return findings
 
 
+def _sequential_access_problem(program, definition) -> str:
+    """Why an INDEXED file declared ACCESS MODE SEQUENTIAL is outside the certified subset ("" when inside it).
+
+    Certified: FILE STATUS declared, no INVALID KEY / NOT INVALID KEY scope and no READ ... KEY IS / PREVIOUS on the
+    file (the sequential-access status rules are observed through FILE STATUS; INVALID KEY forms are not proven).
+    """
+    from engine.transformation.control_flow import walk_statements
+    from engine.transformation.ir import (
+        DeleteStatement,
+        ReadStatement,
+        RewriteStatement,
+        StartStatement,
+        WriteStatement,
+    )
+
+    if not definition.file_status_field:
+        return "no FILE STATUS clause (an unhandled sequential-access error status would end the run in COBOL)"
+    for paragraph in program.paragraphs:
+        for stmt in walk_statements(paragraph.statements):
+            if not isinstance(stmt, (ReadStatement, WriteStatement, RewriteStatement, DeleteStatement, StartStatement)):
+                continue
+            if getattr(stmt, "file_name", None) != definition.name:
+                continue
+            if getattr(stmt, "invalid_key_body", None) or getattr(stmt, "not_invalid_key_body", None):
+                return "an INVALID KEY / NOT INVALID KEY scope is not certified for sequential access"
+            if isinstance(stmt, ReadStatement) and (stmt.key or getattr(stmt, "read_previous", False)):
+                return "READ ... KEY IS / PREVIOUS is not certified for sequential access"
+    return ""
+
+
 class CapabilityAnalyzer:
     """Analyzes a discovered COBOL application against available capabilities.
 
@@ -1384,6 +1414,26 @@ class CapabilityAnalyzer:
         # ACCESS MODE DYNAMIC, no ALTERNATE RECORD KEY.
         # Behavioral equivalence (stdout, FILE STATUS, exit code) is PROVEN.
         if definition.organization is not FileOrganization.SEQUENTIAL:
+            if (
+                definition.organization is FileOrganization.INDEXED
+                and definition.access_mode is FileAccessMode.SEQUENTIAL
+            ):
+                problem = _sequential_access_problem(program, definition)
+                if problem:
+                    return (
+                        CapabilityLevel.UNSUPPORTED,
+                        f"indexed file {fd.file_name} with ACCESS MODE SEQUENTIAL is outside the certified subset: "
+                        f"{problem}",
+                    )
+                return (
+                    CapabilityLevel.SUPPORTED,
+                    f"indexed file {fd.operation} for {fd.file_name} (ACCESS MODE SEQUENTIAL) is lowered to the "
+                    "CobolFileIo *Seq entry points: a plain READ is READ NEXT, WRITE needs OUTPUT/EXTEND with "
+                    "ascending keys (21), REWRITE/DELETE act on the record last READ (43), a failed START leaves "
+                    "no next record (46); every FILE STATUS equals GnuCOBOL 3.1.2 "
+                    "(tests/integration/test_keyed_sequential_oracle.py). The on-disk index is an emulation, "
+                    "not VSAM.",
+                )
             if definition.access_mode not in (FileAccessMode.DYNAMIC, FileAccessMode.RANDOM):
                 return (
                     CapabilityLevel.UNSUPPORTED,

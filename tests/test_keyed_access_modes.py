@@ -3,7 +3,8 @@
 ``ACCESS MODE IS RANDOM`` on INDEXED and RELATIVE files is certified (proven against
 GnuCOBOL in ``tests/integration/test_keyed_random_oracle.py``) as long as the program does
 not use START or READ NEXT on that file, which RANDOM access does not allow. SEQUENTIAL
-(and the default, which is SEQUENTIAL) stays refused, as does ALTERNATE RECORD KEY.
+(and the default, which is SEQUENTIAL) is certified since unit 27 for the subset in
+``capability_analyzer._sequential_access_problem``; ALTERNATE RECORD KEY stays refused.
 """
 
 from __future__ import annotations
@@ -77,8 +78,35 @@ def test_dynamic_still_allows_start_and_read_next(tmp_path):
 
 
 @pytest.mark.parametrize("access", [SEQUENTIAL, ""])
-def test_sequential_access_stays_refused(tmp_path, access):
-    program = _program(tmp_path, access, KEYED_READ)
+def test_sequential_access_is_certified_with_file_status_and_no_invalid_key_scope(tmp_path, access):
+    # roadmap unit 27 (Stage 1): a plain READ is READ NEXT; status rules proven in test_keyed_sequential_oracle.py
+    program = _program(tmp_path, access, KEYED_READ + START)
+    assert program.level is CapabilityLevel.SUPPORTED
+
+
+@pytest.mark.parametrize("access", [SEQUENTIAL, ""])
+@pytest.mark.parametrize("body, why", [
+    ("           READ KF\n               INVALID KEY DISPLAY \"X\"\n           END-READ\n", "INVALID KEY"),
+    ("           MOVE \"K001\" TO KF-KEY\n           READ KF KEY IS KF-KEY\n", "KEY IS"),
+    ("           MOVE \"K001\" TO KF-KEY\n           DELETE KF RECORD\n"
+     "               INVALID KEY DISPLAY \"X\"\n           END-DELETE\n", "INVALID KEY"),
+])
+def test_sequential_access_forms_outside_the_subset_stay_refused(tmp_path, access, body, why):
+    program = _program(tmp_path, access, body)
     assert program.level is CapabilityLevel.UNSUPPORTED
-    assert "outside the certified subset" in program.reason
-    assert "DYNAMIC and RANDOM" in program.reason
+    assert "ACCESS MODE SEQUENTIAL is outside the certified subset" in program.reason
+    assert why in program.reason
+
+
+def test_sequential_access_without_file_status_stays_refused(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    text = HEAD.format(access=SEQUENTIAL, body=KEYED_READ)
+    text = text.replace("RECORD KEY IS KF-KEY\n               FILE STATUS IS FS.\n", "RECORD KEY IS KF-KEY.\n")
+    assert "FILE STATUS" not in text.split("DATA DIVISION")[0]
+    (src / "KEYED.cob").write_text(text, encoding="utf-8")
+    app = ApplicationDiscovery().discover(src, application_id="unit27")
+    report = CapabilityAnalyzer(docker_available=True).analyze(app, source_root=src)
+    program = next(c for c in report.components if c.component_type == "PROGRAM" and c.component_id == "KEYED")
+    assert program.level is CapabilityLevel.UNSUPPORTED
+    assert "no FILE STATUS clause" in program.reason

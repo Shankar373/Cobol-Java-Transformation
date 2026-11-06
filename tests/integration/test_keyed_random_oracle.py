@@ -5,9 +5,9 @@ WRITE (in any key order), REWRITE and DELETE, and no START / READ NEXT. The gene
 therefore runs the same keyed runtime; this test proves it by running one program on
 GnuCOBOL 3.1.2 and on the generated Java and comparing every FILE STATUS it prints.
 
-``ACCESS MODE IS SEQUENTIAL`` stays refused: it changes what a plain READ means, makes an
-out-of-order WRITE status 21 and REWRITE/DELETE without a prior READ status 43, none of
-which the keyed runtime reproduces.
+``ACCESS MODE IS SEQUENTIAL`` was refused here because it changes what a plain READ means, makes an
+out-of-order WRITE status 21 and REWRITE/DELETE without a prior READ status 43; roadmap unit 27 added
+the ``*Seq`` runtime entry points and proved them in ``test_keyed_sequential_oracle.py``.
 """
 
 from __future__ import annotations

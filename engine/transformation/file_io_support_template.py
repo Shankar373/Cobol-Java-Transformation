@@ -35,6 +35,12 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     private static final java.util.Map<String, java.util.TreeMap<Integer, String>> REL = new java.util.HashMap<>();
     private static final java.util.Map<String, String> CURSOR = new java.util.HashMap<>();
     private static final java.util.Map<String, Integer> KEYLEN = new java.util.HashMap<>();
+    // ACCESS MODE SEQUENTIAL on indexed files: open mode, key of the last READ, last written key, end state
+    private static final java.util.Map<String, String> MODE = new java.util.HashMap<>();
+    private static final java.util.Map<String, String> LASTKEY = new java.util.HashMap<>();
+    private static final java.util.Map<String, String> LASTW = new java.util.HashMap<>();
+    private static final java.util.Map<String, String> RSTAT = new java.util.HashMap<>();
+    private static final java.util.Set<String> EOFS = new java.util.HashSet<>();
 
     private CobolFileIo() {}
 
@@ -66,6 +72,11 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     /** OPEN file: mode INPUT/OUTPUT/I-O/EXTEND; keyLen 0 = sequential, keyLen < 0 = relative (RRN store). */
     static String open(String path, String mode, int keyLen) {
         path = map(path);
+        MODE.put(path, mode.toUpperCase());
+        LASTKEY.remove(path);
+        LASTW.remove(path);
+        RSTAT.remove(path);
+        EOFS.remove(path);
         try {
             if (keyLen < 0) {
                 // RELATIVE organization: records keyed by 1-based RRN.
@@ -472,6 +483,130 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         }
         CURSOR.put(path, foundKey);
         return pad(foundKey, kl, false) + (m.get(foundKey) == null ? "" : m.get(foundKey));
+    }
+
+    /** READ (next) on an ACCESS MODE SEQUENTIAL indexed file; null with statusSeq() 10 (end), 46 (no next record), 47. */
+    static String readNextSeq(String path) {
+        path = map(path);
+        String mode = MODE.get(path);
+        if (!"INPUT".equals(mode) && !"I-O".equals(mode)) {
+            RSTAT.put(path, "47");
+            return null;
+        }
+        if (EOFS.contains(path)) {
+            RSTAT.put(path, "46");
+            return null;
+        }
+        String rec = readNextCursor(path);
+        if (rec == null) {
+            EOFS.add(path);
+            RSTAT.put(path, "10");
+            LASTKEY.remove(path);
+            return null;
+        }
+        Integer klI = KEYLEN.get(path);
+        LASTKEY.put(path, keyOf(rec, klI == null ? 0 : klI));
+        RSTAT.put(path, "00");
+        return rec;
+    }
+
+    /** Status of the last readNextSeq. */
+    static String statusSeq(String path) {
+        String s = RSTAT.get(map(path));
+        return s == null ? "00" : s;
+    }
+
+    /** WRITE on an ACCESS MODE SEQUENTIAL indexed file: OUTPUT/EXTEND only, keys strictly ascending (21), 22 on a duplicate. */
+    static String writeSeq(String path, String rec, int keyLen) {
+        path = map(path);
+        LASTKEY.remove(path);  // any WRITE, even a refused one, ends the "record last READ"
+        String mode = MODE.get(path);
+        if (!"OUTPUT".equals(mode) && !"EXTEND".equals(mode)) {
+            return "48";
+        }
+        String key = keyOf(rec, keyLen);
+        String last = LASTW.get(path);
+        // OUTPUT: not above the last key written is out of order (21, also an equal key); EXTEND: only a lower key is
+        // (an equal key is a duplicate of a record already there: 22)
+        int order = last == null ? 1 : key.compareTo(last);
+        if (order < 0 || (order == 0 && "OUTPUT".equals(mode))) {
+            return "21";
+        }
+        LASTW.put(path, key);  // a key that passed the order check is the new "last", also when it is a duplicate (22)
+        return write(path, rec, keyLen);
+    }
+
+    /** REWRITE the record last READ (43 without one, 49 in INPUT); a changed key moves the record, 22 if that key exists. */
+    static String rewriteSeq(String path, String rec, int keyLen) {
+        path = map(path);
+        if ("INPUT".equals(MODE.get(path))) {
+            return "49";
+        }
+        String lk = LASTKEY.get(path);
+        if (lk == null) {
+            return "43";
+        }
+        try {
+            ensureIndex(path, keyLen);
+            String key = keyOf(rec, keyLen);
+            java.util.TreeMap<String, String> m = IDX.get(path);
+            if (!key.equals(lk)) {
+                if (m.containsKey(key)) {
+                    // the reference behaviour removes the old record first and then fails to insert the new key (22): the record
+                    // is gone and the "record last READ" ends
+                    m.remove(lk);
+                    persistIndex(path);
+                    LASTKEY.remove(path);
+                    return "22";
+                }
+                m.remove(lk);
+            }
+            m.put(key, dataOf(rec, keyLen));
+            persistIndex(path);
+            LASTKEY.remove(path);
+            return "00";
+        } catch (Exception e) {
+            return "30";
+        }
+    }
+
+    /** DELETE the record last READ (43 without one, 49 in INPUT). */
+    static String deleteSeq(String path, int keyLen) {
+        path = map(path);
+        if ("INPUT".equals(MODE.get(path))) {
+            return "49";
+        }
+        String lk = LASTKEY.get(path);
+        if (lk == null) {
+            return "43";
+        }
+        try {
+            ensureIndex(path, keyLen);
+            IDX.get(path).remove(lk);
+            persistIndex(path);
+            LASTKEY.remove(path);
+            return "00";
+        } catch (Exception e) {
+            return "30";
+        }
+    }
+
+    /** START on an ACCESS MODE SEQUENTIAL indexed file; a failed START leaves no next record (READ gives 46). */
+    static String startSeq(String path, String op, String key) {
+        path = map(path);
+        String mode = MODE.get(path);
+        if (!"INPUT".equals(mode) && !"I-O".equals(mode)) {
+            return "47";
+        }
+        String st = start(path, op, key);
+        LASTKEY.remove(path);
+        if ("00".equals(st)) {
+            EOFS.remove(path);
+            RSTAT.remove(path);
+        } else {
+            EOFS.add(path);
+        }
+        return st;
     }
 
     private static String keyOf(String rec, int keyLen) {
