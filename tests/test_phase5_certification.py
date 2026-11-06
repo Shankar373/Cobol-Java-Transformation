@@ -44,6 +44,7 @@ PROOFS: dict[str, list[tuple]] = {
     "GO TO": [("test", "tests/integration/test_goto_oracle.py")],
     "EXIT PERFORM": [("test", "tests/integration/test_small_statements_oracle.py")],
     "REFERENCE MODIFICATION": [("test", "tests/integration/test_refmod_oracle.py")],
+    "PERFORM VARYING AFTER": [("test", "tests/integration/test_varying_oracle.py")],
     "SET INDEX": [("test", "tests/integration/test_search_oracle.py")],
     "EXEC SQL": [("test", "tests/integration/test_sql_jdbc_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),

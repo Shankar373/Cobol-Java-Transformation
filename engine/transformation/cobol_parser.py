@@ -965,7 +965,8 @@ class CobolParser:
                     continue
                 inner = in_loop
                 if isinstance(stmt, PerformStatement) and stmt.body:
-                    inner = True
+                    # a VARYING ... AFTER chain is several nested Java loops: EXIT PERFORM would leave only one of them
+                    inner = not re.search(r"\bAFTER\b", stmt.until_condition or "", re.IGNORECASE)
                 elif isinstance(stmt, SearchStatement):
                     inner = False
                 for value in getattr(stmt, "__dict__", {}).values():

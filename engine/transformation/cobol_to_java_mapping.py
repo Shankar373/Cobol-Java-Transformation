@@ -112,6 +112,7 @@ from engine.transformation.java_ir import (
     JavaArrayAccess,
     JavaAssignment,
     JavaBasicType,
+    JavaBreak,
     JavaBinaryOp,
     JavaBlock,
     JavaCast,
@@ -738,6 +739,87 @@ def _alphanumeric_to_numeric(
     return JavaMethodCall(
         class_name=parse[0], method_name=parse[1], is_static=True, arguments=(checked,),
     )
+
+
+_VARYING_CLAUSE = re.compile(
+    r"^\s*(?:VARYING\s+)?(.+?)\s+FROM\s+(.+?)(?:\s+BY\s+(.+?))?\s+UNTIL\s+(.+?)\s*$", re.IGNORECASE | re.DOTALL)
+
+
+def _varying_clauses(text: str) -> list[tuple[str, str, str, str]] | None:
+    """``(variable, init, step, condition)`` of every clause of ``VARYING v FROM a BY b UNTIL c [AFTER ...]``."""
+    pieces = re.split(r"\s+AFTER\s+", (text or "").strip(), flags=re.IGNORECASE)
+    clauses = []
+    for piece in pieces:
+        match = _VARYING_CLAUSE.match(piece)
+        if match is None:
+            return None
+        clauses.append((match.group(1).strip(), match.group(2).strip(), (match.group(3) or "1").strip(),
+                        match.group(4).strip()))
+    return clauses
+
+
+def _lower_varying_chain(stmt, clauses, program, called_programs) -> list:
+    """PERFORM VARYING a ... [AFTER b ...] [AFTER c ...] with TEST BEFORE or TEST AFTER (GnuCOBOL 3.1.2, pinned by
+    tests/integration/test_varying_oracle.py).
+
+    Every control item is initialised first (also when the outermost test is already true); a level's item is
+    initialised at the start of each iteration of the level above and again right after that level's step, so a start
+    value that depends on an outer item is fresh in every iteration and an item leaves the loop with its FROM value (as
+    computed at the last step of the level above). TEST AFTER
+    runs the body, then tests the level's condition, then increments (the item keeps the value that satisfied it).
+    """
+    variables = []
+    for name, init, step, condition in clauses:
+        item = _find_data_item(program, name)
+        problem = None
+        if (
+            item is None or not item.is_numeric or item.decimal_places > 0 or item.pic_length > 9
+            or "(" in name or item.usage not in (None, "", "DISPLAY")
+        ):
+            problem = "PERFORM VARYING control item must be a declared unsubscripted integer PIC 9(1..9) field"
+        variables.append((name.replace("-", "_"), init, step, condition, problem))
+
+    def initial(index: int) -> JavaStatement:
+        name, init, _, _, problem = variables[index]
+        expression: JavaExpression = (
+            JavaUnsupportedExpression(source_expression=stmt.until_condition, reason=problem)
+            if problem else map_cobol_expr_to_java(init))
+        return JavaAssignment(target=name, expression=expression)
+
+    def increment(index: int) -> JavaStatement:
+        name, _, step, _, _ = variables[index]
+        return JavaAssignment(target=name, expression=JavaBinaryOp(
+            left=JavaVariableRef(name=name), operator="+", right=map_cobol_expr_to_java(step)))
+
+    def done(index: int) -> JavaExpression:
+        return map_cobol_condition_to_java(variables[index][3], program=program)
+
+    body: list[JavaStatement] = []
+    if stmt.body:
+        for s in stmt.body:
+            body.extend(map_cobol_statement(s, program, called_programs))
+    elif stmt.thru_target:
+        body.extend(_thru_calls(stmt, program))
+    elif stmt.paragraph_name:
+        body.append(JavaMethodCallStatement(call=JavaMethodCall(
+            method_name=_paragraph_method_name(program, stmt.paragraph_name), arguments=())))
+
+    count = len(variables)
+
+    def level(index: int) -> JavaStatement:
+        # every deeper item is initialised at the start of each iteration of this level (also when the next level's
+        # loop then runs zero times); this level's step initialises only the next item again
+        entry = [initial(deeper) for deeper in range(index + 1, count)]
+        inner: list[JavaStatement] = list(body) if index == count - 1 else entry + [level(index + 1)]
+        step = [increment(index)] + ([initial(index + 1)] if index + 1 < count else [])
+        if stmt.test_after:
+            return JavaWhile(
+                condition=JavaVariableRef(name="true"),
+                body=tuple(inner + [JavaIf(condition=done(index), then_body=(JavaBreak(),))] + step))
+        return JavaWhile(condition=_negate_condition(done(index)), body=tuple(inner + step))
+
+    # at the start only the first two items are initialised: a third (and deeper) one is initialised inside the loops
+    return [initial(index) for index in range(min(count, 2))] + [level(0)]
 
 
 def _refmod_unsupported(text: str, reason: str) -> JavaUnsupportedExpression:
@@ -5791,7 +5873,13 @@ def map_cobol_statement(
 
     elif isinstance(stmt, PerformStatement):
         # Check for VARYING form
-        if stmt.until_condition and stmt.until_condition.startswith("VARYING "):
+        varying_chain = (
+            _varying_clauses(stmt.until_condition)
+            if stmt.until_condition and stmt.until_condition.startswith("VARYING ") else None
+        )
+        if varying_chain is not None and (len(varying_chain) > 1 or stmt.test_after):
+            result.extend(_lower_varying_chain(stmt, varying_chain, program, called_programs))
+        elif stmt.until_condition and stmt.until_condition.startswith("VARYING "):
             # PERFORM VARYING var FROM init BY step UNTIL condition [inline-body]
             # Parse: "VARYING WS-LOOP-CNT FROM 1 BY 1 UNTIL WS-LOOP-CNT > 5"
             parts = stmt.until_condition.split(" FROM ")

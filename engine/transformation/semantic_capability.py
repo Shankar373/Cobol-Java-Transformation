@@ -345,6 +345,17 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "with no WHEN fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "PERFORM VARYING AFTER": _supported(
+        "PERFORM VARYING a FROM x BY y UNTIL c AFTER b FROM ... AFTER d FROM ... (up to any depth of integer PIC 9(1..9) "
+        "control items, inline or PERFORM paragraph), TEST BEFORE and WITH TEST AFTER, also for a single VARYING item. "
+        "Initialisation pinned against GnuCOBOL 3.1.2 (tests/integration/test_varying_oracle.py): the first two items are "
+        "initialised at the start, every deeper item at the start of each iteration of the level above (also when the next "
+        "level then runs zero times), a level's step initialises only the next item, so items leave the loop with their "
+        "FROM values and a dependent start value is fresh in every iteration; TEST AFTER runs the body, tests, then steps. "
+        "PERFORM p1 THRU p2 VARYING, decimal or subscripted control items and EXIT PERFORM inside an AFTER chain fail "
+        "closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "REFERENCE MODIFICATION": _supported(
         "name(start:length) and name(start:) on a plain elementary alphanumeric item, or on the digits of an unsigned "
         "integer DISPLAY item, with start / length an integer literal, an unsigned integer item or item +/- literal: "
