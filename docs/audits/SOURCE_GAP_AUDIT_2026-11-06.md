@@ -25,8 +25,9 @@ GnuCOBOL 3.1.2 and PostgreSQL 14, so no claim of IBM Enterprise COBOL, DB2, CICS
 ## 2. Files and data (VSAM modernization)
 
 RUNTIME-PROVEN: sequential, LINE SEQUENTIAL, INDEXED (RECORD KEY at any position, `ACCESS` SEQUENTIAL-by-default/RANDOM/DYNAMIC subset; units 27 and 29),
-RELATIVE, FILE STATUS, START, REWRITE, DELETE, INVALID KEY. Open: `ALTERNATE RECORD KEY`, primary key at a non-zero
-offset, `ACCESS MODE SEQUENTIAL` write-order rules, packed/binary/EBCDIC record encodings, VSAM catalog (IDCAMS DEFINE
+RELATIVE, FILE STATUS, START, REWRITE, DELETE, INVALID KEY. Closed in Stage 1: primary key at any offset (29), `ACCESS MODE SEQUENTIAL` rules (27), packed/binary record bytes (28),
+alternate keys for random access (30). Open: browsing along an alternate key (START / READ NEXT: implemented, not certified),
+EBCDIC record encodings, RELATIVE sequential access, VSAM catalog (IDCAMS DEFINE
 CLUSTER) and REPRO as data movement; the keyed side file is a Java-native structure, not VSAM.
 
 ## 3. JCL and DB2

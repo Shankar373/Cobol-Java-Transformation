@@ -30,6 +30,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | INDEXED `ACCESS MODE SEQUENTIAL` (and the default) (27) | yes | yes | GnuCOBOL (probes + seeded fuzz over all open modes) | | yes | no FILE STATUS, INVALID KEY scopes, READ KEY IS, ALTERNATE KEY, RELATIVE files; emulated index, not VSAM |
 | COMP / COMP-3 leaves in RECORD SEQUENTIAL / INDEXED file records (28) | yes | yes | GnuCOBOL (byte-identical data files, read-back equal) | | yes | LINE SEQUENTIAL, RELATIVE, COMP-5/1/2, FILLER, REDEFINES, OCCURS, SYNC, binary keys, > 18 digits, negative zero, invalid packed data |
 | INDEXED RECORD KEY at any position; DYNAMIC READ NEXT position rules (29) | yes | yes | GnuCOBOL (seeded fuzz, key at random position) | | yes | READ INTO with a non-first key, group-item keys, ALTERNATE RECORD KEY |
+| ALTERNATE RECORD KEY, random access (30) | yes | yes | GnuCOBOL (seeded fuzz, 2 alternate keys) | | yes | **START / READ NEXT along an alternate key (browsing)**, numeric/binary keys, ACCESS SEQUENTIAL, no FILE STATUS |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |

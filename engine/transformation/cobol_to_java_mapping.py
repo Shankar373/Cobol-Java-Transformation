@@ -30,6 +30,7 @@ import re
 
 from engine.transformation import figurative
 from engine.transformation.source_format import unquote_literal
+from engine.transformation.alternate_key import alternate_key_problem, alternate_ordinal
 from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.control_flow import (
     RUN_UNIT_ENTRY_METHOD,
@@ -1654,6 +1655,23 @@ def _image_items(fd: FileDefinition | None) -> list:
         if key is not None and items and items[0] is not key:
             return [key] + [i for i in items if i is not key]
     return items
+
+
+def _alternate_specs(fd: FileDefinition | None, program) -> list[tuple[int, int, int, bool]]:
+    """(ordinal, image offset, length, duplicates) of each certified alternate key of an INDEXED file."""
+    if fd is None or not fd.alternate_keys or alternate_key_problem(program, fd):
+        return []
+    specs: list[tuple[int, int, int, bool]] = []
+    items = _image_items(fd)
+    for ordinal, key in enumerate(fd.alternate_keys, 1):
+        offset = 0
+        for item in items:
+            width = item.format_width if item.is_numeric else item.pic_length
+            if (item.name or "").upper() == key.field_name.upper():
+                specs.append((ordinal, offset, width, key.is_duplicated))
+                break
+            offset += width
+    return specs
 
 
 def _leaf_encoding(item):
@@ -5046,6 +5064,12 @@ def map_cobol_statement(
                 call = _cobol_call(
                     "readRelative", _str_lit(path), _key_expr("", fd, program),
                 )
+            elif keyed and fd is not None and alternate_ordinal(fd, stmt_key_for_read) and not alternate_key_problem(
+                    program, fd):
+                call = _cobol_call(
+                    "readAlt", _str_lit(path), _int_lit(alternate_ordinal(fd, stmt_key_for_read)),
+                    _key_expr(stmt_key_for_read, fd, program),
+                )
             elif keyed:
                 call = _cobol_call(
                     "readKey", _str_lit(path),
@@ -5218,6 +5242,10 @@ def map_cobol_statement(
                 text=f"// OPEN {stmt.mode} {stmt.file_name}",
             ))
         else:
+            for ordinal, offset, length, duplicates in _alternate_specs(fd, program):
+                result.append(JavaMethodCallStatement(call=_cobol_call(
+                    "altKey", _str_lit(path), _int_lit(ordinal), _int_lit(offset), _int_lit(length),
+                    _bool_lit(duplicates))))
             if certified_binary_record(fd):
                 # packed / binary record bytes: the file is read and written as ISO-8859-1 (one char per byte)
                 result.append(JavaMethodCallStatement(call=_cobol_call("setBinary", _str_lit(path))))
@@ -5248,10 +5276,16 @@ def map_cobol_statement(
             result.append(JavaComment(text=f"// START {stmt.file_name}"))
         else:
             op = stmt.operator or "="
-            call = _cobol_call(
-                "startSeq" if _is_sequential_access_keyed(fd) else "start", _str_lit(path), _str_lit(op),
-                _key_expr(stmt.key, fd, program),
-            )
+            if fd is not None and alternate_ordinal(fd, stmt.key) and not alternate_key_problem(program, fd):
+                call = _cobol_call(
+                    "startAlt", _str_lit(path), _int_lit(alternate_ordinal(fd, stmt.key)), _str_lit(op),
+                    _key_expr(stmt.key, fd, program),
+                )
+            else:
+                call = _cobol_call(
+                    "startSeq" if _is_sequential_access_keyed(fd) else "start", _str_lit(path), _str_lit(op),
+                    _key_expr(stmt.key, fd, program),
+                )
             has_bodies = bool(
                 stmt.invalid_key_body or stmt.not_invalid_key_body
             )

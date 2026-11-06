@@ -1159,13 +1159,15 @@ class CapabilityAnalyzer:
             entry = CONSTRUCT_REGISTRY[key]
             ir_flag_keys.add(key)
             findings.append((key, entry.level, entry.evidence))
+        from engine.transformation.alternate_key import alternate_key_problem
+
         for fd in program.file_definitions:
-            if fd.alternate_keys:
+            alt_problem = alternate_key_problem(program, fd)
+            if alt_problem:
                 findings.append((
                     "RECORD KEY",
                     CapabilityLevel.UNSUPPORTED,
-                    f"ALTERNATE RECORD KEY on file {fd.name} is parsed but "
-                    "has no alternate-index lowering",
+                    f"ALTERNATE RECORD KEY on file {fd.name} is outside the certified subset: {alt_problem}",
                 ))
 
         # Implicit paragraph fall-through is reproduced on every generation
@@ -1444,11 +1446,13 @@ class CapabilityAnalyzer:
                 "outside the certified file boundary",
             )
 
-        if definition.alternate_keys:
+        from engine.transformation.alternate_key import alternate_key_problem
+
+        alt_problem = alternate_key_problem(program, definition)
+        if alt_problem:
             return (
                 CapabilityLevel.UNSUPPORTED,
-                f"ALTERNATE RECORD KEY on {fd.file_name} has no alternate-"
-                "index lowering",
+                f"ALTERNATE RECORD KEY on {fd.file_name} is outside the certified subset: {alt_problem}",
             )
 
         # Certified subset: INDEXED/RELATIVE with primary key at offset 0,

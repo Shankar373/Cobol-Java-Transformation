@@ -805,6 +805,7 @@ class CobolParser:
         self._validate_program_structure(program, source)
         self._validate_redefines(program)
         self._validate_control_flow(program)
+        self._validate_alternate_keys(program)
         self._validate_group_references(program)
         self._validate_record_sequential(program, code_lines)
         self._validate_unique_data_names(program)
@@ -931,6 +932,19 @@ class CobolParser:
                     location=name,
                 )
             seen.add(name)
+
+    def _validate_alternate_keys(self, program: CobolProgram) -> None:
+        """Name every ALTERNATE RECORD KEY the certified subset does not cover (fail closed, never silent)."""
+        from engine.transformation.alternate_key import alternate_key_problem
+
+        for fd in program.file_definitions:
+            problem = alternate_key_problem(program, fd)
+            if problem:
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"ALTERNATE RECORD KEY on file {fd.name} is recognised but not lowered: {problem}",
+                    location="FILE-CONTROL",
+                )
 
     def _validate_control_flow(self, program: CobolProgram) -> None:
         """Fail closed on run-unit control flow the Java lowering cannot express.
@@ -1524,16 +1538,9 @@ class CobolParser:
                             key_type=FileKeyType.ALTERNATE,
                             is_duplicated=is_dup,
                         ))
-                        # The IR keeps the key, but the mapper builds no
-                        # alternate index.  Name the gap instead of silently
-                        # dropping a declared access path.
-                        self._diagnostics.warning(
-                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                            f"ALTERNATE RECORD KEY IS {alt_name} is recognised "
-                            "but not lowered: the generated runtime builds no "
-                            "alternate index",
-                            location="FILE-CONTROL",
-                        )
+                        # Whether the alternate index is certified depends on the whole program
+                        # (alternate_key.alternate_key_problem): the decision and its UNSUPPORTED_CONSTRUCT
+                        # diagnostic are made after parsing, in _validate_alternate_keys.
 
                 # RELATIVE KEY IS
                 if "RELATIVE KEY" in upper:

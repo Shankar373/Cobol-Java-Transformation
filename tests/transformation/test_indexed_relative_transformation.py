@@ -65,11 +65,15 @@ INDEXED = HEADER.format(pid="IDXDEMO") + (
     "           STOP RUN.\n"
 )
 
-INDEXED_WITH_ALTERNATE = INDEXED.replace(
+# an alternate key in the certified subset (random access; roadmap unit 30)
+INDEXED_WITH_ALTERNATE_CERTIFIED = INDEXED.replace(
     "               RECORD KEY IS IDX-KEY\n",
     "               RECORD KEY IS IDX-KEY\n"
     "               ALTERNATE RECORD KEY IS IDX-DATA\n",
 )
+# browsing along an alternate key (READ NEXT) is implemented but not certified, so it stays refused
+INDEXED_WITH_ALTERNATE = INDEXED_WITH_ALTERNATE_CERTIFIED.replace(
+    "           CLOSE IDX-FILE.\n", "           READ IDX-FILE NEXT.\n           CLOSE IDX-FILE.\n")
 
 RELATIVE = HEADER.format(pid="RELDEMO") + (
     "       ENVIRONMENT DIVISION.\n"
@@ -140,9 +144,13 @@ class TestFileControlParsing:
         parser.parse(INDEXED_WITH_ALTERNATE)
         messages = [d.message for d in parser.diagnostics.all]
         assert any(
-            "ALTERNATE RECORD KEY" in message and "no alternate index" in message
+            "ALTERNATE RECORD KEY" in message and "recognised but not lowered" in message
+            and "READ NEXT" in message
             for message in messages
         ), messages
+        certified = CobolParser()
+        certified.parse(INDEXED_WITH_ALTERNATE_CERTIFIED)
+        assert not [d for d in certified.diagnostics.all if "ALTERNATE RECORD KEY" in d.message]
 
 
 def _program_level(tmp_path: Path, source: str, pid: str) -> CapabilityLevel:
@@ -165,4 +173,10 @@ class TestFileControlVerdicts:
         assert (
             _program_level(tmp_path, INDEXED_WITH_ALTERNATE, "IDXDEMO")
             is CapabilityLevel.UNSUPPORTED
+        )
+
+    def test_alternate_key_program_in_the_certified_subset_is_supported(self, tmp_path: Path) -> None:
+        assert (
+            _program_level(tmp_path, INDEXED_WITH_ALTERNATE_CERTIFIED, "IDXDEMO")
+            is CapabilityLevel.SUPPORTED
         )

@@ -76,9 +76,9 @@ def test_a_key_that_is_not_the_first_field_is_supported_and_read_into_is_refused
 
 def test_a_failed_start_and_end_of_file_leave_no_position_but_a_failed_keyed_read_keeps_it():
     # runtime contract pinned by the GnuCOBOL differential: only START (and the end of the file) clear the position
-    assert COBOL_FILE_IO_JAVA.count("EOFS.add(path);") >= 4
-    assert "a failed keyed READ leaves the position where it was" in COBOL_FILE_IO_JAVA
-    assert 'EOFS.remove(path);\n        CURSOR.put(path, e.getKey());' in COBOL_FILE_IO_JAVA
+    assert COBOL_FILE_IO_JAVA.count("NOPOS.add(path);") >= 4  # every failed START
+    assert "a failed keyed READ names its key as the key of reference" in COBOL_FILE_IO_JAVA
+    assert "clearEof(path);\n        NOPOS.remove(path);\n        REF.remove(path);" in COBOL_FILE_IO_JAVA
 
 
 def test_dynamic_read_next_takes_its_failure_status_from_the_runtime():

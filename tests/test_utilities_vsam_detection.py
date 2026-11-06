@@ -91,9 +91,13 @@ VSAM_PROGRAM = HEADER.format(pid="VSAMDEMO") + (
     "       01  WS-STATUS PIC XX.\n"
     "       PROCEDURE DIVISION.\n"
     "           OPEN I-O VSAM-FILE.\n"
+    "           READ VSAM-FILE NEXT.\n"
     "           CLOSE VSAM-FILE.\n"
     "           STOP RUN.\n"
 )
+
+# the same program without browsing is inside the certified alternate-key subset (roadmap unit 30)
+VSAM_PROGRAM_RANDOM = VSAM_PROGRAM.replace("           READ VSAM-FILE NEXT.\n", "")
 
 RELATIVE_PROGRAM = HEADER.format(pid="RELDEMO") + (
     "       ENVIRONMENT DIVISION.\n"
@@ -249,11 +253,15 @@ class TestCapabilityVerdicts:
     def test_vsam_program_verdict_names_the_constructs(self, tmp_path) -> None:
         program = _program_component(tmp_path, VSAM_PROGRAM, "VSAMDEMO")
         assert program.level is CapabilityLevel.UNSUPPORTED, program
-        # ALTERNATE RECORD KEY is the real blocker: it has no lowering, so the
+        # Browsing along an alternate key (READ NEXT) is the blocker: implemented but not certified, so the
         # program must not inherit the certified indexed subset's SUPPORTED.
         assert "RECORD KEY" in program.reason, program.reason
         assert "ALTERNATE RECORD KEY" in program.reason, program.reason
-        assert "no alternate-index lowering" in program.reason, program.reason
+        assert "READ NEXT on a file with alternate keys is not certified" in program.reason, program.reason
+
+    def test_alternate_key_random_access_program_is_supported(self, tmp_path) -> None:
+        program = _program_component(tmp_path, VSAM_PROGRAM_RANDOM, "VSAMDEMO")
+        assert program.level is CapabilityLevel.SUPPORTED, program
 
     def test_relative_program_without_certified_access_mode_fails_closed(
         self, tmp_path

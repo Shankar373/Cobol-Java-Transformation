@@ -40,10 +40,29 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
     // files whose records carry packed / binary bytes: read and written as ISO-8859-1 (one char per byte),
     // indexed record data persisted as hex
     private static final java.util.Set<String> BINARY = new java.util.HashSet<>();
+    // ALTERNATE RECORD KEY: per path the {offset, length, duplicates} of each alternate key (image offsets),
+    // write sequence numbers (duplicates are ordered by them), the key of reference and the alternate cursor
+    private static final java.util.Map<String, java.util.List<int[]>> ALTS = new java.util.HashMap<>();
+    private static final java.util.Map<String, java.util.Map<String, long[]>> SEQN = new java.util.HashMap<>();
+    // START places the cursor on the selected entry, unread: the next READ NEXT returns it (or, when it was deleted
+    // meanwhile, the entry after its position). PENDOP holds the target's primary key, PENDKEY/PENDSEQ its place in
+    // the alternate order
+    private static final java.util.Map<String, String> PENDOP = new java.util.HashMap<>();
+    private static final java.util.Map<String, String> PENDKEY = new java.util.HashMap<>();
+    private static final java.util.Map<String, Long> PENDSEQ = new java.util.HashMap<>();
+    private static final java.util.Map<String, Long> SEQC = new java.util.HashMap<>();
+    private static final java.util.Map<String, Integer> REF = new java.util.HashMap<>();
+    private static final java.util.Map<String, String> ACURK = new java.util.HashMap<>();
+    private static final java.util.Map<String, Long> ACURS = new java.util.HashMap<>();
+    private static final java.util.Map<String, java.util.Map<Integer, java.util.TreeMap<String, java.util.TreeMap<Long, String>>>> ACACHE
+        = new java.util.HashMap<>();
     private static final java.util.Map<String, String> LASTKEY = new java.util.HashMap<>();
     private static final java.util.Map<String, String> LASTW = new java.util.HashMap<>();
     private static final java.util.Map<String, String> RSTAT = new java.util.HashMap<>();
     private static final java.util.Set<String> EOFS = new java.util.HashSet<>();
+    // a failed START leaves the file with no position (READ NEXT answers 46) until a START or keyed READ succeeds;
+    // unlike the end-of-file state (EOFS: a second consecutive READ NEXT answers 46) no keyed READ clears it
+    private static final java.util.Set<String> NOPOS = new java.util.HashSet<>();
 
     private CobolFileIo() {}
 
@@ -91,6 +110,34 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             new java.io.FileInputStream(path), charsetOf(path)));
     }
 
+    /** Files with alternate keys keep each record's write sequence (16 hex digits) in front of its data. */
+    private static String seqPrefix(String path, String key) {
+        if (!ALTS.containsKey(path)) {
+            return "";
+        }
+        java.util.Map<String, long[]> seqs = SEQN.get(path);
+        long[] all = seqs == null ? null : seqs.get(key);
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < ALTS.get(path).size(); i++) {
+            out.append(String.format("%016x", all == null || i >= all.length ? 0L : all[i]));
+        }
+        return out.toString();
+    }
+
+    private static void putLoaded(String path, java.util.TreeMap<String, String> m, String key, String raw) {
+        int keys = ALTS.containsKey(path) ? ALTS.get(path).size() : 0;
+        if (keys > 0 && raw.length() >= 16 * keys) {
+            long[] all = new long[keys];
+            for (int i = 0; i < keys; i++) {
+                all[i] = Long.parseLong(raw.substring(16 * i, 16 * i + 16), 16);
+                SEQC.merge(path, all[i], Math::max);
+            }
+            SEQN.computeIfAbsent(path, p -> new java.util.HashMap<>()).put(key, all);
+            raw = raw.substring(16 * keys);
+        }
+        m.put(key, decodeValue(path, raw));
+    }
+
     private static String encodeValue(String path, String v) {
         if (!BINARY.contains(path)) {
             return v;
@@ -121,6 +168,23 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         LASTW.remove(path);
         RSTAT.remove(path);
         EOFS.remove(path);
+        NOPOS.remove(path);
+        REF.remove(path);
+        PENDOP.remove(path);
+        PENDKEY.remove(path);
+        for (int i = 1; i <= 3; i++) {
+            PENDOP.remove(path + "#" + i);
+            PENDKEY.remove(path + "#" + i);
+            PENDSEQ.remove(path + "#" + i);
+            ACURK.remove(path + "#" + i);
+            ACURS.remove(path + "#" + i);
+            EOFS.remove(path + "#" + i);
+        }
+        ACACHE.remove(path);
+        if (mode.equalsIgnoreCase("OUTPUT")) {
+            SEQN.remove(path);
+            SEQC.remove(path);
+        }
         try {
             if (keyLen < 0) {
                 // RELATIVE organization: records keyed by 1-based RRN.
@@ -216,9 +280,14 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 if (m.containsKey(key)) {
                     return "22";
                 }
+                String altStatus = altCheckWrite(path, rec, key);
+                if ("22".equals(altStatus)) {
+                    return "22";
+                }
                 m.put(key, dataOf(rec, keyLen));
+                altNoteWrite(path, key);
                 persistIndex(path);
-                return "00";
+                return altStatus == null ? "00" : altStatus;
             }
             java.io.BufferedWriter w = OUT.get(path);
             if (w == null) {
@@ -315,9 +384,17 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         int kl = klI == null ? (key == null ? 0 : key.length()) : klI;
         java.util.Map.Entry<String, String> e = m.floorEntry(key);
         if (e == null || !e.getKey().equals(key)) {
-            return null;  // a failed keyed READ leaves the position where it was
+            // a failed keyed READ names its key as the key of reference; each key keeps its own cursor, and the
+            // end-of-file state of every key is forgotten (the next READ NEXT answers 10 again, not 46)
+            REF.remove(path);
+            clearEof(path);
+            return null;
         }
-        EOFS.remove(path);
+        clearEof(path);
+        NOPOS.remove(path);
+        REF.remove(path);
+        PENDOP.remove(path);
+        PENDKEY.remove(path);
         CURSOR.put(path, e.getKey());
         return pad(e.getKey(), kl, false) + (e.getValue() == null ? "" : e.getValue());
     }
@@ -327,7 +404,8 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         path = map(path);
         java.util.TreeMap<String, String> m = IDX.get(path);
         if (m == null || m.isEmpty()) {
-            EOFS.add(path);
+            REF.remove(path);
+            NOPOS.add(path);
             return "23";
         }
         String o = (op == null || op.isEmpty()) ? "=" : op;
@@ -344,18 +422,16 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             e = m.lowerEntry(key);
         }
         if (e == null) {
-            EOFS.add(path);
+            REF.remove(path);
+            NOPOS.add(path);
             return "23";
         }
-        EOFS.remove(path);
-        // Position the cursor so the NEXT readNext returns e itself:
-        // store the predecessor (or clear for the first key).
-        java.util.Map.Entry<String, String> prev = m.lowerEntry(e.getKey());
-        if (prev != null) {
-            CURSOR.put(path, prev.getKey());
-        } else {
-            CURSOR.remove(path);
-        }
+        clearEof(path);
+        NOPOS.remove(path);
+        REF.remove(path);
+        // the cursor is on the selected record, unread
+        PENDOP.put(path, e.getKey());
+        PENDKEY.put(path, e.getKey());
         return "00";
     }
 
@@ -377,12 +453,18 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             ensureIndex(path, keyLen);
             String key = keyOf(rec, keyLen);
             java.util.TreeMap<String, String> m = IDX.get(path);
+            // a unique alternate key that another record already holds is refused (22) before a missing record (23)
+            String altStatus = altCheckRewrite(path, rec, key);
+            if ("22".equals(altStatus)) {
+                return "22";
+            }
             if (!m.containsKey(key)) {
                 return "23";
             }
+            altNoteRewrite(path, rec, key);
             m.put(key, dataOf(rec, keyLen));
             persistIndex(path);
-            return "00";
+            return altStatus == null ? "00" : altStatus;
         } catch (Exception e) {
             return "23";
         }
@@ -399,6 +481,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 return "23";
             }
             m.remove(key);
+            altNoteDelete(path, key);
             persistIndex(path);
             return "00";
         } catch (Exception e) {
@@ -462,14 +545,14 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 } else if (first != null) {
                     int sep = first.indexOf('\\u0001');
                     if (sep > 0) {
-                        m.put(first.substring(0, sep), decodeValue(path, first.substring(sep + 1)));
+                        putLoaded(path, m, first.substring(0, sep), first.substring(sep + 1));
                     }
                 }
                 String l;
                 while ((l = r.readLine()) != null) {
                     int sep = l.indexOf('\\u0001');
                     if (sep > 0) {
-                        m.put(l.substring(0, sep), decodeValue(path, l.substring(sep + 1)));
+                        putLoaded(path, m, l.substring(0, sep), l.substring(sep + 1));
                     }
                 }
             } catch (Exception e) {
@@ -491,7 +574,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             for (java.util.Map.Entry<String, String> e : m.entrySet()) {
                 w.write(e.getKey());
                 w.write('\\u0001');
-                w.write(encodeValue(path, e.getValue()));
+                w.write(seqPrefix(path, e.getKey()) + encodeValue(path, e.getValue()));
                 w.newLine();
             }
         }
@@ -513,6 +596,10 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         java.util.TreeMap<String, String> m = IDX.get(path);
         if (m == null) {
             return null;
+        }
+        Integer ref = REF.get(path);
+        if (ref != null && ref > 0) {
+            return readNextAlt(path, ref);
         }
         Integer klI = KEYLEN.get(path);
         int kl = klI == null ? 0 : klI;
@@ -541,13 +628,22 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             RSTAT.put(path, "47");
             return null;
         }
-        if (EOFS.contains(path)) {
+        if (NOPOS.contains(path) || EOFS.contains(eofKey(path))) {
             RSTAT.put(path, "46");
             return null;
         }
-        String rec = readNextCursor(path);
+        String rec;
+        String pendKey = eofKey(path);
+        String pendTarget = PENDOP.remove(pendKey);
+        String pendValue = PENDKEY.remove(pendKey);
+        Long pendSeq = PENDSEQ.remove(pendKey);
+        if (pendTarget != null) {
+            rec = resolvePending(path, pendTarget, pendValue, pendSeq);
+        } else {
+            rec = readNextCursor(path);
+        }
         if (rec == null) {
-            EOFS.add(path);
+            EOFS.add(eofKey(path));
             RSTAT.put(path, "10");
             LASTKEY.remove(path);
             return null;
@@ -556,6 +652,47 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         LASTKEY.put(path, keyOf(rec, klI == null ? 0 : klI));
         RSTAT.put(path, "00");
         return rec;
+    }
+
+    private static void clearEof(String path) {
+        EOFS.remove(path);
+        for (int i = 1; i <= 3; i++) {
+            EOFS.remove(path + "#" + i);
+        }
+    }
+
+    /** The end-of-file / no-position flag of the current key of reference (the primary key uses the path itself). */
+    private static String eofKey(String path) {
+        Integer ref = REF.get(path);
+        return ref == null || ref == 0 ? path : path + "#" + ref;
+    }
+
+    /** The entry a START selected: returned when it still exists; when it was deleted meanwhile, the cursor stays at its
+     *  place and the entry after it is returned (null at the end). */
+    private static String resolvePending(String path, String target, String key, Long seq) {
+        Integer ref = REF.get(path);
+        java.util.TreeMap<String, String> m = IDX.get(path);
+        if (ref != null && ref > 0) {
+            String cursorKey = path + "#" + ref;
+            if (m != null && m.containsKey(target)) {
+                // the record is still there: it is the cursor entry, wherever its alternate value has moved it
+                int[] spec = ALTS.get(path).get(ref - 1);
+                String value = altValue(imageOf(path, target), spec);
+                long[] all = SEQN.get(path) == null ? null : SEQN.get(path).get(target);
+                ACURK.put(cursorKey, value);
+                ACURS.put(cursorKey, all == null ? seq : all[ref - 1]);
+                return imageOf(path, target);
+            }
+            ACURK.put(cursorKey, key);
+            ACURS.put(cursorKey, seq);
+            return readNextAlt(path, ref);
+        }
+        if (m != null && m.containsKey(target)) {
+            CURSOR.put(path, target);
+            return imageOf(path, target);
+        }
+        CURSOR.put(path, target);
+        return readNextCursor(path);
     }
 
     /** Status of the last readNextSeq. */
@@ -649,12 +786,270 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         String st = start(path, op, key);
         LASTKEY.remove(path);
         if ("00".equals(st)) {
-            EOFS.remove(path);
+            clearEof(path);
+            NOPOS.remove(path);
             RSTAT.remove(path);
         } else {
-            EOFS.add(path);
+            NOPOS.add(path);
         }
         return st;
+    }
+
+    /** Register alternate key ``ord`` (1-based): its offset and length in the stored (key-first) image. */
+    static void altKey(String path, int ord, int offset, int length, boolean duplicates) {
+        path = map(path);
+        java.util.List<int[]> list = ALTS.computeIfAbsent(path, p -> new java.util.ArrayList<>());
+        while (list.size() < ord) {
+            list.add(null);
+        }
+        list.set(ord - 1, new int[] {offset, length, duplicates ? 1 : 0});
+    }
+
+    private static String imageOf(String path, String key) {
+        Integer klI = KEYLEN.get(path);
+        return pad(key, klI == null ? 0 : klI, false) + IDX.get(path).get(key);
+    }
+
+    private static String altValue(String image, int[] spec) {
+        String v = image.length() >= spec[0] + spec[1] ? image.substring(spec[0], spec[0] + spec[1])
+                : pad(image.length() > spec[0] ? image.substring(spec[0]) : "", spec[1], false);
+        return v;
+    }
+
+    private static java.util.TreeMap<String, java.util.TreeMap<Long, String>> altIndex(String path, int ord) {
+        java.util.Map<Integer, java.util.TreeMap<String, java.util.TreeMap<Long, String>>> perPath =
+            ACACHE.computeIfAbsent(path, p -> new java.util.HashMap<>());
+        java.util.TreeMap<String, java.util.TreeMap<Long, String>> ix = perPath.get(ord);
+        if (ix != null) {
+            return ix;
+        }
+        ix = new java.util.TreeMap<>();
+        int[] spec = ALTS.get(path).get(ord - 1);
+        java.util.Map<String, long[]> seqs = SEQN.computeIfAbsent(path, p -> new java.util.HashMap<>());
+        int keys = ALTS.get(path).size();
+        for (String pk : IDX.get(path).keySet()) {
+            long[] all = seqs.get(pk);
+            if (all == null) {
+                all = new long[keys];
+                for (int i = 0; i < keys; i++) {
+                    all[i] = SEQC.merge(path, 1L, Long::sum);
+                }
+                seqs.put(pk, all);
+            }
+            long seq = all[ord - 1];
+            ix.computeIfAbsent(altValue(imageOf(path, pk), spec), v -> new java.util.TreeMap<>()).put(seq, pk);
+        }
+        perPath.put(ord, ix);
+        return ix;
+    }
+
+    /** null: no alternate key is in conflict; "02": a duplicate of a WITH DUPLICATES key; "22": a duplicate of a unique key. */
+    private static String altCheckWrite(String path, String image, String key) {
+        java.util.List<int[]> list = ALTS.get(path);
+        if (list == null) {
+            return null;
+        }
+        String status = null;
+        for (int ord = 1; ord <= list.size(); ord++) {
+            int[] spec = list.get(ord - 1);
+            if (spec == null) {
+                continue;
+            }
+            java.util.TreeMap<Long, String> same = altIndex(path, ord).get(altValue(image, spec));
+            if (same != null && !same.isEmpty()) {
+                if (spec[2] == 0) {
+                    return "22";
+                }
+                status = "02";
+            }
+        }
+        return status;
+    }
+
+    private static void altNoteWrite(String path, String key) {
+        if (!ALTS.containsKey(path)) {
+            return;
+        }
+        long[] all = new long[ALTS.get(path).size()];
+        for (int i = 0; i < all.length; i++) {
+            all[i] = SEQC.merge(path, 1L, Long::sum);
+        }
+        SEQN.computeIfAbsent(path, p -> new java.util.HashMap<>()).put(key, all);
+        ACACHE.remove(path);
+    }
+
+    private static String altCheckRewrite(String path, String image, String key) {
+        java.util.List<int[]> list = ALTS.get(path);
+        if (list == null) {
+            return null;
+        }
+        String old = IDX.get(path).containsKey(key) ? imageOf(path, key) : null;
+        String status = null;
+        for (int ord = 1; ord <= list.size(); ord++) {
+            int[] spec = list.get(ord - 1);
+            if (spec == null) {
+                continue;
+            }
+            if (old != null && altValue(old, spec).equals(altValue(image, spec))) {
+                continue;  // an unchanged alternate value is neither a duplicate nor a conflict
+            }
+            java.util.TreeMap<Long, String> same = altIndex(path, ord).get(altValue(image, spec));
+            boolean other = false;
+            if (same != null) {
+                for (String pk : same.values()) {
+                    if (!pk.equals(key)) {
+                        other = true;
+                    }
+                }
+            }
+            if (other) {
+                if (spec[2] == 0) {
+                    return "22";
+                }
+                status = "02";
+            }
+        }
+        return status;
+    }
+
+    /** A changed alternate value moves the record to the end of its new duplicate chain (a new write sequence). */
+    private static void altNoteRewrite(String path, String image, String key) {
+        java.util.List<int[]> list = ALTS.get(path);
+        if (list == null) {
+            return;
+        }
+        String old = imageOf(path, key);
+        java.util.Map<String, long[]> seqs = SEQN.computeIfAbsent(path, p -> new java.util.HashMap<>());
+        long[] all = seqs.get(key);
+        if (all == null) {
+            all = new long[list.size()];
+            for (int i = 0; i < all.length; i++) {
+                all[i] = SEQC.merge(path, 1L, Long::sum);
+            }
+            seqs.put(key, all);
+        }
+        for (int i = 0; i < list.size(); i++) {
+            int[] spec = list.get(i);
+            if (spec != null && !altValue(old, spec).equals(altValue(image, spec))) {
+                all[i] = SEQC.merge(path, 1L, Long::sum);
+            }
+        }
+        ACACHE.remove(path);
+    }
+
+    private static void altNoteDelete(String path, String key) {
+        if (!ALTS.containsKey(path)) {
+            return;
+        }
+        java.util.Map<String, long[]> seqs = SEQN.get(path);
+        if (seqs != null) {
+            seqs.remove(key);
+        }
+        ACACHE.remove(path);
+    }
+
+    /** READ ... KEY IS alternate key: the first record with that value; null (position kept) when there is none. */
+    static String readAlt(String path, int ord, String key) {
+        path = map(path);
+        java.util.List<int[]> list = ALTS.get(path);
+        if (list == null || IDX.get(path) == null || ord > list.size() || list.get(ord - 1) == null) {
+            return null;
+        }
+        int[] spec = list.get(ord - 1);
+        String k = pad(key, spec[1], false);
+        java.util.TreeMap<Long, String> same = altIndex(path, ord).get(k);
+        if (same == null || same.isEmpty()) {
+            REF.put(path, ord);  // the key of reference changes, the cursor of that key stays where it was
+            clearEof(path);
+            // a failed alternate READ leaves the cursor on its current entry, unread: READ NEXT returns it again
+            String ck = ACURK.get(path + "#" + ord);
+            Long cs = ACURS.get(path + "#" + ord);
+            java.util.TreeMap<Long, String> at = ck == null ? null : altIndex(path, ord).get(ck);
+            String current = at == null || cs == null ? null : at.get(cs);
+            if (current != null) {
+                PENDOP.put(path + "#" + ord, current);
+                PENDKEY.put(path + "#" + ord, ck);
+                PENDSEQ.put(path + "#" + ord, cs);
+            }
+            return null;
+        }
+        java.util.Map.Entry<Long, String> first = same.firstEntry();
+        REF.put(path, ord);
+        PENDOP.remove(path + "#" + ord);
+        PENDKEY.remove(path + "#" + ord);
+        PENDSEQ.remove(path + "#" + ord);
+        ACURK.put(path + "#" + ord, k);
+        ACURS.put(path + "#" + ord, first.getKey());
+        clearEof(path);
+        NOPOS.remove(path);
+        return imageOf(path, first.getValue());
+    }
+
+    private static String readNextAlt(String path, int ord) {
+        java.util.TreeMap<String, java.util.TreeMap<Long, String>> ix = altIndex(path, ord);
+        String ck = ACURK.get(path + "#" + ord);
+        Long cs = ACURS.get(path + "#" + ord);
+        String nk = null;
+        Long ns = null;
+        String pk = null;
+        if (ck != null) {
+            java.util.TreeMap<Long, String> same = ix.get(ck);
+            java.util.Map.Entry<Long, String> e = same == null ? null : same.higherEntry(cs == null ? -1L : cs);
+            if (e != null) {
+                nk = ck;
+                ns = e.getKey();
+                pk = e.getValue();
+            }
+        }
+        if (pk == null) {
+            java.util.Map.Entry<String, java.util.TreeMap<Long, String>> g = ck == null ? ix.firstEntry() : ix.higherEntry(ck);
+            if (g != null && !g.getValue().isEmpty()) {
+                nk = g.getKey();
+                ns = g.getValue().firstKey();
+                pk = g.getValue().firstEntry().getValue();
+            }
+        }
+        if (pk == null) {
+            return null;
+        }
+        ACURK.put(path + "#" + ord, nk);
+        ACURS.put(path + "#" + ord, ns);
+        return imageOf(path, pk);
+    }
+
+    /** START ... KEY IS = | > | >= alternate key; the next READ NEXT returns the first record at or after it. */
+    static String startAlt(String path, int ord, String op, String key) {
+        path = map(path);
+        java.util.List<int[]> list = ALTS.get(path);
+        if (list == null || IDX.get(path) == null || ord > list.size() || list.get(ord - 1) == null) {
+            return "23";
+        }
+        int[] spec = list.get(ord - 1);
+        String k = pad(key, spec[1], false);
+        java.util.TreeMap<String, java.util.TreeMap<Long, String>> ix = altIndex(path, ord);
+        String o = (op == null || op.isEmpty()) ? "=" : op;
+        java.util.Map.Entry<String, java.util.TreeMap<Long, String>> e;
+        if (o.equals("=")) {
+            e = ix.containsKey(k) ? ix.ceilingEntry(k) : null;
+        } else if (o.equals(">=")) {
+            e = ix.ceilingEntry(k);
+        } else if (o.equals(">")) {
+            e = ix.higherEntry(k);
+        } else {
+            e = null;
+        }
+        if (e == null || e.getValue().isEmpty()) {
+            REF.put(path, ord);
+            NOPOS.add(path);
+            return "23";
+        }
+        clearEof(path);
+        NOPOS.remove(path);
+        REF.put(path, ord);
+        PENDOP.put(path + "#" + ord, e.getValue().firstEntry().getValue());
+        PENDKEY.put(path + "#" + ord, e.getKey());
+        PENDSEQ.put(path + "#" + ord, e.getValue().firstKey());
+        return "00";
     }
 
     private static String keyOf(String rec, int keyLen) {
