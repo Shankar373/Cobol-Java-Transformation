@@ -255,7 +255,7 @@ _READ_ONLY_STATEMENTS = frozenset({
     "DisplayStatement", "IfStatement", "PerformStatement", "OpenStatement",
     "CloseStatement", "DeleteStatement", "StartStatement", "GoToStatement",
     "StopRunStatement", "ExitProgramStatement", "GobackStatement",
-    "ExitStatement", "ContinueStatement", "SqlStatement",
+    "ExitStatement", "ContinueStatement", "SqlStatement", "ExitPerformStatement",
 })
 
 

@@ -42,6 +42,7 @@ PROOFS: dict[str, list[tuple]] = {
     "MERGE": [("test", "tests/integration/test_sort_oracle.py")],
     "SEARCH": [("test", "tests/integration/test_search_oracle.py")],
     "GO TO": [("test", "tests/integration/test_goto_oracle.py")],
+    "EXIT PERFORM": [("test", "tests/integration/test_small_statements_oracle.py")],
     "SET INDEX": [("test", "tests/integration/test_search_oracle.py")],
     "EXEC SQL": [("test", "tests/integration/test_sql_jdbc_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),

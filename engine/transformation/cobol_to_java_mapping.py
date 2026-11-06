@@ -87,6 +87,7 @@ from engine.transformation.ir import (
     SortStatement,
     SetIndexStatement,
     SearchStatement,
+    ExitPerformStatement,
     ExecSqlStatement,
     FieldReference,
     FigurativeConstant,
@@ -4274,7 +4275,7 @@ STATEMENT_CAPABILITY_SUPPORTED = frozenset({
     ExitProgramStatement, SetConditionStatement,
     UnstringStatement, GobackStatement, InitializeStatement,
     AcceptStatement, InspectStatement, ExecSqlStatement, SortStatement,
-    SetIndexStatement, SearchStatement, GoToStatement,
+    SetIndexStatement, SearchStatement, GoToStatement, ExitPerformStatement,
 })
 STATEMENT_CAPABILITY_PARTIAL = frozenset()
 STATEMENT_CAPABILITY_UNSUPPORTED: frozenset[type] = frozenset()
@@ -4676,11 +4677,12 @@ def map_cobol_statement(
             concat = JavaStringConcat(parts=tuple(parts))
             # out.println(...) or System.err.println(...) based on destination
             is_stderr = stmt.destination == "STDERR"
+            print_method = "print" if stmt.no_advancing else "println"
             if is_stderr:
                 result.append(JavaMethodCallStatement(
                     call=JavaMethodCall(
                         object_ref=JavaVariableRef(name="System.err"),
-                        method_name="println",
+                        method_name=print_method,
                         arguments=(concat,),
                     )
                 ))
@@ -4688,7 +4690,7 @@ def map_cobol_statement(
                 result.append(JavaMethodCallStatement(
                     call=JavaMethodCall(
                         object_ref=JavaVariableRef(name="System.out"),
-                        method_name="println",
+                        method_name=print_method,
                         arguments=(concat,),
                     )
                 ))
@@ -4875,6 +4877,12 @@ def map_cobol_statement(
         # else fails closed by name (engine/transformation/exec_sql_lowering.py).
         from engine.transformation.exec_sql_lowering import lower as _lower_exec_sql
         result.extend(_lower_exec_sql(stmt, program))
+
+    elif isinstance(stmt, ExitPerformStatement):
+        # leave the innermost loop; the parser accepts EXIT PERFORM only directly inside an inline PERFORM
+        from engine.transformation.java_ir import JavaBreak as _JavaBreak
+
+        result.append(_JavaBreak())
 
     elif isinstance(stmt, SetIndexStatement):
         from engine.transformation.search_lowering import lower_set as _lower_set

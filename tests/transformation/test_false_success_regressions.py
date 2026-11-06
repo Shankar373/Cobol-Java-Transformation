@@ -334,10 +334,9 @@ EXPECTED_FAIL_CLOSED: dict[str, tuple[str, str]] = {
         _prog("       COPY MISSINGCPY.\n       01 WS-B PIC 9 VALUE 1.", "           DISPLAY WS-B."),
         "COPY MISSINGCPY",
     ),
-    "display_with_no_advancing": (
-        _prog("       01 WS-B PIC 9 VALUE 1.", "           DISPLAY WS-B WITH NO ADVANCING.\n           DISPLAY 'X'."),
-        "DISPLAY",
-    ),
+    # DISPLAY ... WITH NO ADVANCING was refused here until roadmap unit 31 lowered it (print instead of println) and
+    # proved it against GnuCOBOL (tests/integration/test_small_statements_oracle.py); the form that stays refused is
+    # tested in tests/test_small_statements.py.
     "two_statements_on_one_line": (
         _prog("       01 WS-J PIC X(5).", "           MOVE 'AB' TO WS-J DISPLAY WS-J."),
         "MOVE",

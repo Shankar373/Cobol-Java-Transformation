@@ -697,6 +697,7 @@ class DisplayStatement:
     parts: tuple[str, ...] = ()
     destination: str = "STDOUT"
     structured_parts: tuple[Expression, ...] = ()  # structured expressions
+    no_advancing: bool = False  # WITH NO ADVANCING: no line terminator after the operands
 
 
 @dataclass(frozen=True)
@@ -862,6 +863,11 @@ class SearchStatement:
     is_all: bool = False
 
 
+@dataclass(frozen=True)
+class ExitPerformStatement:
+    """EXIT PERFORM: leave the innermost inline PERFORM (the loop's own statement list)."""
+
+
 # Union type for all statements
 Statement = (
     OpenStatement
@@ -895,6 +901,7 @@ Statement = (
     | SortStatement
     | SetIndexStatement
     | SearchStatement
+    | ExitPerformStatement
 )
 
 

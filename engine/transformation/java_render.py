@@ -79,7 +79,7 @@ class JavaSourceRenderer:
         from engine.transformation.java_ir import (
             JavaAssignment, JavaMethodCallStatement, JavaReturn,
             JavaComment, JavaIf, JavaBlock, JavaWhile, JavaDoWhile,
-            JavaFor, JavaThrow, JavaLocalVarDecl,
+            JavaFor, JavaThrow, JavaLocalVarDecl, JavaBreak,
         )
         if isinstance(stmt, JavaAssignment):
             expr_str = self._expr_to_string(stmt.expression)
@@ -99,6 +99,8 @@ class JavaSourceRenderer:
             return "return;"
         if isinstance(stmt, JavaComment):
             return f"// {stmt.text}"
+        if isinstance(stmt, JavaBreak):
+            return "break;"
         if self.render_throw and isinstance(stmt, JavaThrow):
             if stmt.message:
                 return f'throw new {stmt.exception_class}("{stmt.message}");'

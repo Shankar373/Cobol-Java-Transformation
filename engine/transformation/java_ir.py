@@ -282,6 +282,11 @@ class JavaFor(JavaStatement):
 
 
 @dataclass(frozen=True)
+class JavaBreak(JavaStatement):
+    """``break;`` out of the innermost loop (EXIT PERFORM)."""
+
+
+@dataclass(frozen=True)
 class JavaTryCatch(JavaStatement):
     """Try-catch block."""
     try_body: tuple[JavaStatement, ...] = ()

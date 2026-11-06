@@ -37,6 +37,7 @@ from engine.transformation.ir import (
     SortStatement,
     SetIndexStatement,
     SearchStatement,
+    ExitPerformStatement,
     ExitProgramStatement,
     GobackStatement,
     InitializeStatement,
@@ -344,6 +345,14 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "with no WHEN fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "EXIT PERFORM": _supported(
+        "EXIT PERFORM directly inside an inline PERFORM (UNTIL, TIMES, VARYING or a plain inline body) leaves that "
+        "loop (Java break), also from nested IF / EVALUATE; DISPLAY ... WITH NO ADVANCING and CONTINUE (as a "
+        "statement or inside IF / EVALUATE arms) behave as in GnuCOBOL 3.1.2 "
+        "(tests/integration/test_small_statements_oracle.py). EXIT PERFORM outside an inline PERFORM or inside a "
+        "SEARCH, and EXIT PERFORM CYCLE, fail closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "SET INDEX": _supported(
         "SET idx... TO integer | idx | integer-item, SET idx UP BY / DOWN BY integer | integer-item, and SET "
         "integer-item TO idx on OCCURS ... INDEXED BY indexes (occurrence numbers kept as int, Java declared "
@@ -638,6 +647,7 @@ IR_TYPE_TO_CONSTRUCT: dict[str, str] = {
     AcceptStatement.__name__: "ACCEPT",
     InspectStatement.__name__: "INSPECT",
     SortStatement.__name__: "SORT",
+    ExitPerformStatement.__name__: "EXIT PERFORM",
     SetIndexStatement.__name__: "SET INDEX",
     SearchStatement.__name__: "SEARCH",
     ExecSqlStatement.__name__: "EXEC SQL",

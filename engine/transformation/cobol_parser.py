@@ -81,6 +81,7 @@ from engine.transformation.ir import (
     SetIndexStatement,
     SearchStatement,
     SearchWhen,
+    ExitPerformStatement,
     FileAccessMode,
     FieldReference,
     FileDefinition,
@@ -229,7 +230,7 @@ _STATEMENT_LEADING_VERBS: tuple[str, ...] = (
     "MOVE", "ADD", "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE",
     "CALL", "EVALUATE", "PERFORM", "UNSTRING", "STRING", "DISPLAY",
     "SET", "INITIALIZE", "INSPECT", "SEARCH", "IF", "STOP", "EXIT",
-    "GOBACK", "GO", "GOTO", "ACCEPT", "SORT", "MERGE", "ALTER",
+    "GOBACK", "GO", "GOTO", "ACCEPT", "SORT", "MERGE", "ALTER", "CONTINUE",
 )
 
 # A line that can never be STRING continuation text: it begins a
@@ -336,7 +337,12 @@ def _split_statements_on_dashes(text: str) -> list[str]:
     separating ``DISPLAY "A" MOVE X TO Y``.
     """
     masked = CobolParser._mask_quoted(text)
-    matches = list(_re_inline_statement.finditer(masked))
+    # ``EXIT PERFORM`` is one statement: the PERFORM after EXIT is not a new verb
+    matches = [
+        m for m in _re_inline_statement.finditer(masked)
+        if not (m.group(0).upper() == "PERFORM"
+                and re.search(r"(?<![\w-])EXIT\s+$", masked[: m.start()], re.IGNORECASE))
+    ]
     if not matches:
         return [text]
 
@@ -806,6 +812,7 @@ class CobolParser:
         self._validate_redefines(program)
         self._validate_control_flow(program)
         self._validate_alternate_keys(program)
+        self._validate_exit_perform(program)
         self._validate_group_references(program)
         self._validate_record_sequential(program, code_lines)
         self._validate_unique_data_names(program)
@@ -932,6 +939,33 @@ class CobolParser:
                     location=name,
                 )
             seen.add(name)
+
+    def _validate_exit_perform(self, program: CobolProgram) -> None:
+        """EXIT PERFORM leaves the innermost *inline* PERFORM; anywhere else it is named and refused (fail closed)."""
+
+        def visit(statements, in_loop: bool) -> None:
+            for stmt in statements:
+                if isinstance(stmt, ExitPerformStatement) and not in_loop:
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        "EXIT PERFORM outside an inline PERFORM (or inside a SEARCH, whose lowering is a loop "
+                        "of its own) has no certified Java mapping",
+                        location="EXIT PERFORM",
+                    )
+                    continue
+                inner = in_loop
+                if isinstance(stmt, PerformStatement) and stmt.body:
+                    inner = True
+                elif isinstance(stmt, SearchStatement):
+                    inner = False
+                for value in getattr(stmt, "__dict__", {}).values():
+                    if isinstance(value, (tuple, list)):
+                        nested = [v for v in value if hasattr(v, "__dataclass_fields__")]
+                        if nested:
+                            visit(nested, inner)
+
+        for paragraph in program.paragraphs:
+            visit(paragraph.statements, False)
 
     def _validate_alternate_keys(self, program: CobolProgram) -> None:
         """Name every ALTERNATE RECORD KEY the certified subset does not cover (fail closed, never silent)."""
@@ -2170,6 +2204,8 @@ class CobolParser:
         # PARAGRAPH and EXIT SECTION transfer control and stay unsupported.)
         if re.fullmatch(r"EXIT\s*\.?", line, re.IGNORECASE):
             return None, start + 1
+        if re.fullmatch(r"EXIT\s+PERFORM\s*\.?", line, re.IGNORECASE):
+            return ExitPerformStatement(), start + 1
 
         # GOBACK — terminate this program and return to the caller.
         # Semantically equivalent to EXIT PROGRAM for the generated Java lane.
@@ -3168,6 +3204,8 @@ class CobolParser:
                     fragment = fragment[: terminator.start()].strip()
             if not fragment:
                 continue
+            if re.fullmatch(r"CONTINUE\s*\.?", fragment, re.IGNORECASE):
+                continue  # CONTINUE does nothing: it only gives its scope a statement
             synthetic = [fragment]
             stmt, next_i = self._parse_statement(synthetic, 0)
             if stmt is not None and next_i >= len(synthetic):
@@ -3926,6 +3964,13 @@ class CobolParser:
         otherwise the following CALL/PERFORM/EVALUATE would be swallowed.
         """
         line = lines[start].strip()
+        no_advancing = False
+        advancing = re.search(r"\s+(?:WITH\s+)?NO\s+ADVANCING\b", line, re.IGNORECASE)
+        if advancing:
+            no_advancing = True
+            line = (line[: advancing.start()] + line[advancing.end():]).rstrip()
+            if not line.endswith(".") and lines[start].strip().endswith("."):
+                line += "."
         upper = line.upper()
 
         destination = "STDOUT"
@@ -3949,7 +3994,8 @@ class CobolParser:
 
         # Statement already terminated on the opening line — do not continue.
         if line.endswith("."):
-            return DisplayStatement(parts=tuple(parts), destination=destination), start + 1
+            return DisplayStatement(
+                parts=tuple(parts), destination=destination, no_advancing=no_advancing), start + 1
 
         # Keywords that open a new statement (or close a scope) — never
         # DISPLAY continuation. Missing CALL/PERFORM/EVALUATE here was the
@@ -3964,7 +4010,8 @@ class CobolParser:
             "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE", "READ", "OPEN",
             "STRING", "UNSTRING", "SET", "INITIALIZE", "WHEN",
             "AT END", "NOT AT END", "INVALID KEY", "NOT INVALID KEY",
-            "START", "REWRITE", "DELETE",
+            "START", "REWRITE", "DELETE", "CONTINUE", "EXIT", "SEARCH", "SORT", "MERGE", "INSPECT", "ACCEPT",
+            "GOBACK", "GOTO",
             # Arithmetic clause headers: a DISPLAY in an ON SIZE ERROR body
             # read the next `NOT ON SIZE ERROR` line as four operands.
             "ON SIZE ERROR", "NOT ON SIZE ERROR", "SIZE ERROR", "NOT SIZE ERROR",
@@ -3974,6 +4021,13 @@ class CobolParser:
         while i < len(lines):
             l = lines[i].strip()
             u = l.upper()
+            if u.startswith(("WITH NO ADVANCING", "NO ADVANCING")):
+                no_advancing = True
+                if l.endswith("."):
+                    i += 1
+                    break
+                i += 1
+                continue
             if u.startswith("UPON "):
                 destination = self._display_device(
                     u[len("UPON "):].strip().rstrip(".").strip(), lines[i])
@@ -3998,7 +4052,7 @@ class CobolParser:
                 break
             i += 1
 
-        return DisplayStatement(parts=tuple(parts), destination=destination), i
+        return DisplayStatement(parts=tuple(parts), destination=destination, no_advancing=no_advancing), i
 
     # GnuCOBOL 3.1.2 devices (tests/integration/test_display_upon_oracle.py).
     _DISPLAY_DEVICES = {
