@@ -2362,6 +2362,10 @@ def _tokenize_cobol_expr(expr: str):
             tokens.append(ch)
             i += 1
             continue
+        if ch == "*" and expr[i: i + 2] == "**":
+            tokens.append("**")
+            i += 2
+            continue
         if ch in "+-*/":
             tokens.append(ch)
             i += 1
@@ -2395,12 +2399,22 @@ def _parse_cobol_expr_tokens(tokens, pos):
 
 
 def _parse_cobol_term(tokens, pos):
-    node, pos = _parse_cobol_factor(tokens, pos)
+    node, pos = _parse_cobol_power(tokens, pos)
     while pos < len(tokens) and tokens[pos] in ("*", "/"):
         op = tokens[pos]
         pos += 1
-        rhs, pos = _parse_cobol_factor(tokens, pos)
+        rhs, pos = _parse_cobol_power(tokens, pos)
         node = JavaBinaryOp(left=node, operator=op, right=rhs)
+    return node, pos
+
+
+def _parse_cobol_power(tokens, pos):
+    """``base ** exponent``: right-associative (``2 ** 3 ** 2`` is 512), tighter than ``* /`` and looser than a unary
+    sign (``-2 ** 2`` is 4, ``2 ** -2`` is 0.25), as GnuCOBOL 3.1.2 evaluates it."""
+    node, pos = _parse_cobol_factor(tokens, pos)
+    if pos < len(tokens) and tokens[pos] == "**":
+        exponent, pos = _parse_cobol_power(tokens, pos + 1)
+        node = JavaBinaryOp(left=node, operator="**", right=exponent)
     return node, pos
 
 
@@ -2574,6 +2588,8 @@ def _promote_numeric_expression_to_decimal(
                     JavaVariableRef(name="java.math.MathContext.DECIMAL128"),
                 ),
             )
+        if expr.operator == "**":
+            return _power_expression(left, right, expr.right, program)
         return JavaMethodCall(
             class_name="java.math.BigDecimal",
             method_name="valueOf",
@@ -2627,6 +2643,83 @@ def _promote_numeric_expression_to_decimal(
     )
 
 
+def _power_may_be_zero_to_zero(expr: JavaExpression) -> bool:
+    """Whether some ``**`` in the tree can evaluate ``0 ** 0`` at run time (conservative)."""
+
+    def literal(node: JavaExpression) -> float | None:
+        if isinstance(node, JavaLiteral):
+            try:
+                return float(node.value.strip().rstrip("Ll"))
+            except ValueError:
+                return None
+        return None
+
+    if isinstance(expr, JavaBinaryOp):
+        if expr.operator == "**":
+            exponent, base = literal(expr.right), literal(expr.left)
+            safe = (exponent is not None and exponent >= 1) or (base is not None and base != 0)
+            if not safe:
+                return True
+        return _power_may_be_zero_to_zero(expr.left) or _power_may_be_zero_to_zero(expr.right)
+    if isinstance(expr, JavaUnaryOp):
+        return _power_may_be_zero_to_zero(expr.operand)
+    return False
+
+
+def power_problem(expression: str, program, size_error: bool) -> str:
+    """Why the ``**`` in a COMPUTE expression is outside the certified subset ("" when inside it or when there is none)."""
+    if "**" not in (expression or ""):
+        return ""
+    tree = map_cobol_expr_to_java(expression)
+    if isinstance(tree, JavaUnsupportedExpression):
+        return tree.reason
+
+    def walk(node: JavaExpression) -> str:
+        if isinstance(node, JavaBinaryOp):
+            if node.operator == "**" and not _exponent_is_non_negative_integer(node.right, program):
+                return "exponentiation is certified only for non-negative integer exponents"
+            return walk(node.left) or walk(node.right)
+        if isinstance(node, JavaUnaryOp):
+            return walk(node.operand)
+        return ""
+
+    problem = walk(tree)
+    if not problem and size_error and _power_may_be_zero_to_zero(tree):
+        return "exponentiation under ON SIZE ERROR is certified only where 0 ** 0 is impossible"
+    return problem
+
+
+def _exponent_is_non_negative_integer(expr: JavaExpression, program: CobolProgram | None) -> bool:
+    """An exponent that is certainly a non-negative integer: digit literals, unsigned integer items, ``+`` / ``*`` / ``**`` of
+    those. A negative exponent is refused: GnuCOBOL 3.1.2 returns unstable values for it (``2 ** -1`` gave 0.5 in one
+    program and 4.00 in another), so there is no reference behaviour to reproduce."""
+    if isinstance(expr, JavaLiteral):
+        value = expr.value.strip().rstrip("Ll")
+        return value.isdigit()
+    if isinstance(expr, JavaVariableRef):
+        item = _find_data_item(program, expr.name)
+        return bool(
+            item and item.is_numeric and item.decimal_places == 0 and not item.signed and not item.occurs
+            and item.usage in (None, "", "DISPLAY"))
+    if isinstance(expr, JavaBinaryOp) and expr.operator in ("+", "*", "**"):
+        return _exponent_is_non_negative_integer(expr.left, program) and _exponent_is_non_negative_integer(
+            expr.right, program)
+    return False
+
+
+def _power_expression(left: JavaExpression, right: JavaExpression, exponent_source: JavaExpression, program):
+    """``left ** right`` in exact BigDecimal arithmetic (``BigDecimal.pow``) for a non-negative integer exponent. Anything
+    else (a negative or fractional exponent: GnuCOBOL's results are unstable or floating-point) is refused."""
+    if not _exponent_is_non_negative_integer(exponent_source, program):
+        return JavaUnsupportedExpression(
+            source_expression="**",
+            reason="exponentiation is certified only for non-negative integer exponents (digit literals, unsigned "
+            "integer items, + * ** of those); negative and fractional exponents are refused")
+    return JavaMethodCall(
+        object_ref=left, method_name="pow",
+        arguments=(JavaMethodCall(object_ref=right, method_name="intValueExact", arguments=()),))
+
+
 def _expression_requires_fractional_type(
     expr: JavaExpression,
     program: CobolProgram | None,
@@ -2642,6 +2735,8 @@ def _expression_requires_fractional_type(
         item = _find_data_item(program, _array_base_name(expr))
         return bool(item and item.decimal_places > 0)
     if isinstance(expr, JavaBinaryOp):
+        if expr.operator == "**":
+            return True  # exponentiation is always evaluated exactly (BigDecimal.pow)
         return _expression_requires_fractional_type(expr.left, program) or _expression_requires_fractional_type(expr.right, program)
     if isinstance(expr, JavaUnaryOp):
         return _expression_requires_fractional_type(expr.operand, program)
@@ -4865,13 +4960,23 @@ def map_cobol_statement(
         target = cobol_reference_to_java_source(stmt.target)
         expression = (
             _map_cobol_expression_to_java(stmt.expression_expr)
-            if stmt.expression_expr is not None
+            if stmt.expression_expr is not None and "**" not in (stmt.expression or "")
             else map_cobol_expr_to_java(stmt.expression)
         )
         if isinstance(expression, JavaUnsupportedExpression):
             expression = JavaUnsupportedExpression(
                 source_expression=stmt.expression,
                 reason=expression.reason,
+            )
+        elif (
+            (getattr(stmt, "size_error_body", ()) or getattr(stmt, "not_size_error_body", ()))
+            and _power_may_be_zero_to_zero(expression)
+        ):
+            expression = JavaUnsupportedExpression(
+                source_expression=stmt.expression,
+                reason="exponentiation under ON SIZE ERROR is certified only where 0 ** 0 is impossible (a positive "
+                "literal exponent or a non-zero literal base): GnuCOBOL 3.1.2 raises the size-error condition for a "
+                "run-time 0 ** 0 yet still stores 1",
             )
         _emit_arithmetic(result, stmt, target, expression, program, called_programs)
 

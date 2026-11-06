@@ -507,11 +507,14 @@ class TestUnmappedFormsFailClosed:
         assert isinstance(stmt.expression_expr, irmod.IntrinsicCall)
         assert stmt.expression_expr.name == "**"
 
-    def test_exponentiation_emits_a_diagnostic(self):
+    def test_exponentiation_is_certified_for_non_negative_integer_exponents(self):
+        # roadmap unit 34: ** is lowered exactly (tests/test_power.py, tests/integration/test_power_oracle.py); the
+        # parser no longer names it, and every other form is refused when the expression is lowered
         parser = CobolParser()
         parser.parse(_program("COMPUTE WS-A = 2 ** 3"))
-        messages = " ".join(d.message for d in parser.diagnostics.all)
-        assert "xponentiation" in messages
+        assert not [d for d in parser.diagnostics.all if "xponentiation" in d.message]
+        with pytest.raises(ValueError, match="non-negative integer exponents"):
+            _generate(_program("COMPUTE WS-A = 2 ** -1"))
 
     def test_exponentiation_never_yields_an_empty_field_reference(self):
         stmt = _first_statement(_program("COMPUTE WS-A = 2 ** 3"))
@@ -556,8 +559,6 @@ class TestUnmappedFormsFailClosed:
         # report the construct by name, so no wrong value can be produced.
         # The separator is `$` because a COBOL-derived identifier (hyphens ->
         # underscores) can never contain it.
-        code = _generate(_program("COMPUTE WS-A = 2 ** 3"))
-        assert "UNSUPPORTED_INTRINSIC$POWER" in code, code
         code_min = _generate(_program("COMPUTE WS-A = FUNCTION MIN(1, 2)"))
         assert "UNSUPPORTED_INTRINSIC$MIN" in code_min, code_min
 
@@ -568,8 +569,8 @@ class TestUnmappedFormsFailClosed:
         ``MAIN_PARA()``, once in ``main()``), so counting uses is meaningless.
         What matters is that no declaration exists for it anywhere.
         """
-        code = _generate(_program("COMPUTE WS-A = 2 ** 3"))
-        marker = "UNSUPPORTED_INTRINSIC$POWER"
+        code = _generate(_program("COMPUTE WS-A = FUNCTION MIN(1, 2)"))
+        marker = "UNSUPPORTED_INTRINSIC$MIN"
         assert marker in code, code
         declarations = re.findall(
             r"(?:int|long|double|String|float|boolean)\s+" + re.escape(marker), code
@@ -589,15 +590,15 @@ class TestUnmappedFormsFailClosed:
             "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. P.\n"
             "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n"
             "       01 WS-A PIC 9(4).\n"
-            "       01 UNSUPPORTED-INTRINSIC-POWER PIC 9(4).\n"
+            "       01 UNSUPPORTED-INTRINSIC-MIN PIC 9(4).\n"
             "       PROCEDURE DIVISION.\n       MAIN-PARA.\n"
-            "           COMPUTE WS-A = 2 ** 3\n"
+            "           COMPUTE WS-A = FUNCTION MIN(1, 2)\n"
             "           STOP RUN.\n"
         )
         code = _generate(program)
-        assert "UNSUPPORTED_INTRINSIC$POWER" in code, code
+        assert "UNSUPPORTED_INTRINSIC$MIN" in code, code
         declarations = re.findall(
-            r"(?:int|long|double|String|float|boolean)\s+UNSUPPORTED_INTRINSIC\$POWER",
+            r"(?:int|long|double|String|float|boolean)\s+UNSUPPORTED_INTRINSIC\$MIN",
             code,
         )
         assert declarations == [], (declarations, code)
@@ -633,8 +634,10 @@ class TestCapabilityVerdicts:
             tmp_path, "evl", 'EVALUATE WS-A\n        WHEN 1 DISPLAY "X"\n    END-EVALUATE.'
         ) == "SUPPORTED"
 
-    def test_exponentiation_is_never_supported(self, tmp_path):
-        assert _classify_via_discovery(tmp_path, "exp", "COMPUTE WS-A = 2 ** 3.") == "UNSUPPORTED"
+    def test_exponentiation_outside_the_certified_subset_is_never_supported(self, tmp_path):
+        # a non-negative integer exponent is certified since roadmap unit 34; negative and fractional ones are not
+        assert _classify_via_discovery(tmp_path, "exp", "COMPUTE WS-A = 2 ** -1.") == "UNSUPPORTED"
+        assert _classify_via_discovery(tmp_path, "exq", "COMPUTE WS-A = 2 ** 0.5.") == "UNSUPPORTED"
 
     def test_intrinsic_is_never_supported(self, tmp_path):
         assert _classify_via_discovery(

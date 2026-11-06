@@ -851,6 +851,20 @@ class CapabilityAnalyzer:
                         + "); mapper fails closed",
                     ))
 
+            if name == "ComputeStatement" or "**" in " ".join(
+                str(getattr(stmt, field, "")) for field in ("condition", "until_condition", "source", "expression")
+            ):
+                from engine.transformation.cobol_to_java_mapping import power_problem as _power_problem
+
+                if name == "ComputeStatement":
+                    power_why = _power_problem(
+                        stmt.expression, program,
+                        bool(getattr(stmt, "size_error_body", ()) or getattr(stmt, "not_size_error_body", ())))
+                else:
+                    power_why = "exponentiation (**) is certified only as a COMPUTE expression"
+                if power_why:
+                    findings.append(("EXPONENTIATION", CapabilityLevel.UNSUPPORTED, power_why + "; mapper fails closed"))
+
             if name == "GoToStatement":
                 from engine.transformation.control_flow import goto_plan_reasons
 

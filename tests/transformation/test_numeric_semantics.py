@@ -614,7 +614,9 @@ def test_parsed_decimal_pic_length_and_format_width_are_consistent():
 def test_malformed_arithmetic_is_preserved_as_structured_unsupported_expression():
     from engine.transformation.java_ir import JavaUnsupportedExpression
 
-    for expr in ("A +", "A ** B", "(A + B", "A + @"):
+    # "A ** B" is no longer malformed: exponentiation parses (roadmap unit 34); the exponent restrictions are enforced
+    # when the expression is lowered (tests/test_power.py)
+    for expr in ("A +", "A **", "(A + B", "A + @"):
         mapped = map_cobol_expr_to_java(expr)
         assert isinstance(mapped, JavaUnsupportedExpression), (expr, mapped)
         assert mapped.source_expression == expr

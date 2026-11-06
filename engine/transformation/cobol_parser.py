@@ -407,6 +407,46 @@ _REFMOD_VERBS = re.compile(
 _REFMOD_CERTIFIED_VERBS = frozenset({"MOVE", "DISPLAY", "IF", "WHEN", "UNTIL", "EVALUATE", "ELSE", "AND", "OR", "NOT"})
 
 
+_CONTINUATION_TOKEN = re.compile(r"\*\*|[*/+\-]|[()]|[A-Za-z0-9][\w.-]*")
+
+
+def _reads_as_operator_continuation(line: str) -> bool:
+    """A line that starts with ``*`` and reads as ``operator operand [operator operand]...`` (an arithmetic fragment),
+    not as comment text (comment words follow one another without an operator between them)."""
+    text = line.strip().rstrip(".").strip()
+    tokens = _CONTINUATION_TOKEN.findall(text)
+    if not tokens or "".join(tokens) != re.sub(r"\s+", "", text):
+        return False
+    operators = {"**", "*", "/", "+", "-"}
+    position: int | None = 0
+
+    def atom(index: int) -> int | None:
+        if index >= len(tokens):
+            return None
+        if tokens[index] == "(":
+            index += 1
+            end = expression(index)
+            if end is None or end >= len(tokens) or tokens[end] != ")":
+                return None
+            return end + 1
+        if tokens[index] in operators or tokens[index] in "()":
+            return None
+        return index + 1
+
+    def expression(start: int) -> int | None:
+        index = atom(start)
+        while index is not None and index < len(tokens) and tokens[index] in operators:
+            index = atom(index + 1)
+        return index
+
+    # the line starts with the operator that continues the statement
+    if tokens[0] not in operators:
+        return False
+    while position is not None and position < len(tokens) and tokens[position] in operators:
+        position = atom(position + 1)
+    return position == len(tokens)
+
+
 def _is_paragraph_name(name: str) -> bool:
     """True when ``name`` may be a paragraph heading rather than a statement."""
     upper = name.upper()
@@ -637,7 +677,7 @@ class CobolParser:
             r"WITH\s+DEBUGGING\s+MODE", self._mask_quoted(source), re.IGNORECASE
         ) is not None
         # Remove comments and empty lines
-        code_lines = []
+        code_lines: list[str] = []
         for line in lines:
             if fixed_format and len(line) > 6 and re.fullmatch(r"[\d ]{6}", line[:6]):
                 # Column 7 is the indicator area in fixed format whatever
@@ -674,6 +714,17 @@ class CobolParser:
                 if indicator in ("*", "/"):
                     continue  # comment line (column 7 is * or /)
                 cleaned = area_match.group(3).lstrip()
+            if cleaned.startswith("*") and code_lines and not code_lines[-1].rstrip().endswith("."):
+                if _reads_as_operator_continuation(cleaned):
+                    # ``** (E + 1)`` after an unfinished statement is a comment or the rest of the statement and the
+                    # text cannot tell which; dropping it would silently compute another value, so fail closed.
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"A line beginning with '*' ({cleaned[:40]}) follows an unfinished statement: it is a comment "
+                        "or an operator continuation and the parser cannot tell which (put the operator at the end of "
+                        "the previous line)",
+                        location=cleaned[:40],
+                    )
             if cleaned and not cleaned.startswith("*"):
                 code_lines.append(cleaned)
 
@@ -2809,6 +2860,17 @@ class CobolParser:
             nxt = lines[i + 1].strip()
             # Never absorb a comment or a blank line into the expression.
             if not nxt or nxt.startswith("*"):
+                if nxt.startswith("*") and _reads_as_operator_continuation(nxt):
+                    # ``* B`` / ``** (E + 1)`` after an unfinished expression is either a comment or the rest of the
+                    # statement: the text cannot tell them apart. Dropping it silently would compute a different
+                    # value, so the statement is named and the program fails closed.
+                    self._diagnostics.warning(
+                        DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                        f"A line beginning with '*' ({nxt[:40]}) follows an unfinished arithmetic statement: it is a "
+                        "comment or an operator continuation and the parser cannot tell which; the statement fails "
+                        "closed (put the operator at the end of the previous line)",
+                        location=f"line {i + 2}",
+                    )
                 break
             masked = self._mask_quoted(nxt)
             if any(
@@ -4893,17 +4955,11 @@ class CobolParser:
             )
             return IntrinsicCall(name=name, arguments=text)
 
-        # `**` is exponentiation, not two multiplications.  Treating it
-        # as two `*` operators produced `2 * <empty field> * 3` - a wrong
-        # numeric result with no diagnostic.  No exponentiation mapping is
-        # certified, so fail closed explicitly.
+        # `**` is exponentiation (never two multiplications). The structured builder below has no power level, so it
+        # returns a marker; COMPUTE lowers the expression text with the mapper's parser (``_parse_cobol_power``: right
+        # associative, tighter than ``* /``, looser than a unary sign) and evaluates it exactly for integer exponents.
+        # Any other consumer of the marker (and every fractional exponent) fails closed in the mapper.
         if "**" in self._mask_quoted(text):
-            self._diagnostics.warning(
-                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                "Exponentiation (**) is not implemented by the deterministic "
-                "mapper",
-                location="COMPUTE",
-            )
             return IntrinsicCall(name="**", arguments=text)
 
         # Check for numeric literal

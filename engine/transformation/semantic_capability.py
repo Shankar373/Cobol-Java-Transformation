@@ -345,6 +345,16 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "with no WHEN fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "EXPONENTIATION": _supported(
+        "COMPUTE with ** over integer and decimal operands: right-associative, tighter than * and /, looser than a unary "
+        "sign (-2 ** 2 is 4, 2 ** 3 ** 2 is 512), evaluated exactly in BigDecimal (pow) for a non-negative integer "
+        "exponent (digit literal, unsigned integer item, + * ** of those) and then truncated, ROUNDED or size-checked by the "
+        "receiver like any COMPUTE; equal to GnuCOBOL 3.1.2 (tests/integration/test_power_oracle.py). Negative exponents "
+        "are refused because GnuCOBOL 3.1.2 returns unstable values for them (2 ** -1 gave 0.5 in one program and 4.00 in "
+        "another), fractional exponents because it uses floating-point pow; ** outside an arithmetic receiver (a "
+        "condition, MOVE) fails closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "PERFORM VARYING AFTER": _supported(
         "PERFORM VARYING a FROM x BY y UNTIL c AFTER b FROM ... AFTER d FROM ... (up to any depth of integer PIC 9(1..9) "
         "control items, inline or PERFORM paragraph), TEST BEFORE and WITH TEST AFTER, also for a single VARYING item. "

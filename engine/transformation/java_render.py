@@ -208,6 +208,10 @@ class JavaSourceRenderer:
             if self.spaced_cast:
                 return f"({expr.target_type.to_source()}) {inner}"
             return f"({expr.target_type.to_source()})({inner})"
+        if isinstance(expr, JavaBinaryOp) and expr.operator == "**":
+            raise ValueError(
+                "UNSUPPORTED_COBOL_EXPRESSION: exponentiation (**) is certified only as an arithmetic receiver's "
+                "expression (COMPUTE / ADD / ... over integer exponents), not in this position")
         if isinstance(expr, JavaBinaryOp):
             left = self._expr_to_string(expr.left)
             right = self._expr_to_string(expr.right)

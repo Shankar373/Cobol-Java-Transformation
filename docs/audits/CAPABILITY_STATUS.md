@@ -34,6 +34,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | `CONTINUE`, `EXIT PERFORM`, `DISPLAY ... WITH NO ADVANCING` (31) | yes | yes | GnuCOBOL (seeded fuzz of nested loops) | | yes | EXIT PERFORM outside an inline PERFORM / inside SEARCH, EXIT PERFORM CYCLE, EXIT PARAGRAPH / SECTION |
 | reference modification `name(start:length)` in MOVE / DISPLAY / IF relations (32) | yes | yes | GnuCOBOL (seeded fuzz) | | yes | ADD / COMPUTE / STRING / INSPECT and other statements, numeric / signed receivers and bases, subscripted bases, references outside the item (runtime exception) |
 | nested `PERFORM VARYING ... AFTER`, `WITH TEST AFTER` (33) | yes | yes | GnuCOBOL (seeded fuzz + probes) | | yes | THRU range with VARYING, decimal / subscripted control items, EXIT PERFORM inside an AFTER chain |
+| exponentiation `**` in COMPUTE (34) | yes | yes | GnuCOBOL (seeded fuzz + probes) | | yes | negative and fractional exponents, `**` outside COMPUTE, results above 38 digits |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |
