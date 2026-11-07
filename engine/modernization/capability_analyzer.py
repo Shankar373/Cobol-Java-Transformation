@@ -865,6 +865,16 @@ class CapabilityAnalyzer:
                 if power_why:
                     findings.append(("EXPONENTIATION", CapabilityLevel.UNSUPPORTED, power_why + "; mapper fails closed"))
 
+            if name in ("DisplayStatement", "MoveStatement"):
+                from engine.transformation.cobol_to_java_mapping import function_problem as _function_problem
+
+                operands = stmt.parts if name == "DisplayStatement" else (stmt.source,)
+                for operand in operands:
+                    function_why = _function_problem(operand, program) if isinstance(operand, str) else ""
+                    if function_why:
+                        findings.append((
+                            "INTRINSIC FUNCTIONS", CapabilityLevel.UNSUPPORTED, function_why + "; mapper fails closed"))
+
             if name == "GoToStatement":
                 from engine.transformation.control_flow import goto_plan_reasons
 

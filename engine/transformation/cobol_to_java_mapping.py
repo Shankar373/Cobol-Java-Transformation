@@ -31,6 +31,7 @@ import re
 from engine.transformation import figurative
 from engine.transformation.source_format import unquote_literal
 from engine.transformation.alternate_key import alternate_key_problem, alternate_ordinal
+from engine.transformation.intrinsic import parse_function
 from engine.transformation.refmod import REFMOD_ANYWHERE, parse_refmod
 from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.control_flow import (
@@ -945,6 +946,68 @@ def _refmod_operand(text: str, program, text_whole: str):
     return _refmod_unsupported(
         text_whole, "an operand of a relation is a quoted literal, SPACES, ZEROS, a plain alphanumeric item or a "
         "reference modification")
+
+
+def _function_argument(call, program, text: str):
+    """The Java String of the argument of a certified intrinsic function, or an unsupported expression."""
+    argument = call.argument.strip()
+    refmod = _refmod_string(argument, program)
+    if refmod is not None:
+        return refmod
+    if len(argument) >= 2 and argument[0] == argument[-1] and argument[0] in "'\"":
+        return _str_lit(argument[1:-1])
+    item = _find_data_item(program, argument)
+    if (
+        item is not None and item.is_alphanumeric and item.pic_length > 0 and not item.occurs
+        and not _substantive_children(item) and item.usage in (None, "", "DISPLAY")
+    ):
+        return JavaVariableRef(name=argument.replace("-", "_"))
+    return _refmod_unsupported(
+        text, "the argument of an intrinsic function is a quoted literal, a plain alphanumeric item or a "
+        "reference modification")
+
+
+def _function_length(call, program) -> int | None:
+    """FUNCTION LENGTH of a quoted literal or a plain alphanumeric item (``None`` for any other argument)."""
+    argument = call.argument.strip()
+    if len(argument) >= 2 and argument[0] == argument[-1] and argument[0] in "'\"":
+        return len(argument[1:-1])
+    ref = parse_refmod(argument)
+    item = _find_data_item(program, ref.name if ref is not None else argument)
+    if not (
+        item is not None and item.is_alphanumeric and item.pic_length > 0 and not item.occurs
+        and not _substantive_children(item) and item.usage in (None, "", "DISPLAY")
+    ):
+        return None
+    if ref is None:
+        return item.pic_length
+    if ref.length:
+        return int(ref.length) if ref.length.isdigit() and int(ref.length) > 0 else None
+    return item.pic_length - int(ref.start) + 1 if ref.start.isdigit() else None
+
+
+def _function_string(text: str, program) -> JavaExpression | None:
+    """The Java String of a certified string function (``None`` when ``text`` is not one; LENGTH is numeric)."""
+    call = parse_function(text)
+    if call is None or call.name == "LENGTH":
+        return None
+    argument = _function_argument(call, program, text)
+    if isinstance(argument, JavaUnsupportedExpression):
+        return argument
+    method = {"UPPER-CASE": "upper", "LOWER-CASE": "lower", "REVERSE": "reverse", "TRIM": "trim"}[call.name]
+    arguments = (argument, _str_lit(call.trim)) if call.name == "TRIM" else (argument,)
+    return JavaMethodCall(class_name="CobolRef", method_name=method, arguments=arguments, is_static=True)
+
+
+def function_problem(text: str, program) -> str:
+    """Why a certified-shape intrinsic function operand is outside the certified subset ("" when inside it)."""
+    call = parse_function(text)
+    if call is None:
+        return ""
+    if call.name == "LENGTH":
+        return "" if _function_length(call, program) is not None else "LENGTH is certified for a literal or a plain item"
+    result = _function_string(text, program)
+    return result.reason if isinstance(result, JavaUnsupportedExpression) else ""
 
 
 _REFMOD_RELATIONS = (
@@ -4709,7 +4772,19 @@ def map_cobol_statement(
             )
 
     if isinstance(stmt, MoveStatement):
+        move_function = parse_function(stmt.source) if isinstance(stmt.source, str) else None
+        function_source: JavaExpression | None = None
+        if move_function is not None and move_function.name == "LENGTH":
+            size = _function_length(move_function, program)
+            if size is None:
+                function_source = _refmod_unsupported(stmt.source, "LENGTH is certified for a literal or a plain item")
+            else:
+                stmt = _dc_replace(stmt, source=str(size))
+        elif move_function is not None:
+            function_source = _function_string(stmt.source, program)
         refmod_source = _refmod_string(stmt.source, program) if isinstance(stmt.source, str) else None
+        if function_source is not None:
+            refmod_source = function_source
         source = refmod_source if refmod_source is not None else map_cobol_expr_to_java(stmt.source)
         # The IR stores every destination in ``targets`` (primary first) and
         # mirrors the primary one into ``target``. Emitting ``target`` and
@@ -5013,6 +5088,15 @@ def map_cobol_statement(
         parts: list[JavaExpression] = []
         for part in stmt.parts:
             refmod_part = _refmod_string(part, program)
+            function_call = parse_function(part)
+            if function_call is not None and function_call.name == "LENGTH":
+                size = _function_length(function_call, program)
+                refmod_part = (
+                    _str_lit(f"{size:09d}" if parse_refmod(function_call.argument.strip()) else str(size)) if size is not None
+                    else _refmod_unsupported(part, "LENGTH is certified for a literal or a plain item")
+                )
+            elif function_call is not None:
+                refmod_part = _function_string(part, program)
             if refmod_part is not None:
                 parts.append(refmod_part)
                 continue

@@ -355,6 +355,15 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "condition, MOVE) fails closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "INTRINSIC FUNCTIONS": _supported(
+        "FUNCTION UPPER-CASE / LOWER-CASE / REVERSE / TRIM [LEADING | TRAILING] / LENGTH over a quoted literal, a plain "
+        "alphanumeric DISPLAY item or a reference modification, as a DISPLAY operand or a MOVE sender (into an "
+        "alphanumeric receiver; LENGTH also into a numeric one); equal to GnuCOBOL 3.1.2 "
+        "(tests/integration/test_intrinsic_oracle.py): TRIM of all spaces is empty, LENGTH of a plain item or literal "
+        "displays unpadded and of a reference modification as nine digits. Every other function, argument or context "
+        "(IF, COMPUTE, EVALUATE, numeric arguments, group items) fails closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "PERFORM VARYING AFTER": _supported(
         "PERFORM VARYING a FROM x BY y UNTIL c AFTER b FROM ... AFTER d FROM ... (up to any depth of integer PIC 9(1..9) "
         "control items, inline or PERFORM paragraph), TEST BEFORE and WITH TEST AFTER, also for a single VARYING item. "

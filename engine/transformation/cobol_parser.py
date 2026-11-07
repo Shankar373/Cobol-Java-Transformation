@@ -29,6 +29,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from engine.transformation.binary_record import certified_binary_record
+from engine.transformation.intrinsic import FUNCTION_OPERAND, parse_function
 from engine.transformation.refmod import REFMOD_ANYWHERE, split_outside_parentheses
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
@@ -2890,6 +2891,13 @@ class CobolParser:
             parts.append(nxt)
         return " ".join(parts), i + 1
 
+    def _move_source_expression(self, source: str) -> Expression:
+        """The MOVE sender as an expression; a certified intrinsic function is kept as a call without a diagnostic."""
+        function = parse_function(source)
+        if function is not None:
+            return IntrinsicCall(name=function.name, arguments=source)
+        return self._build_expression(source)
+
     def _parse_move(self, lines: list[str], start: int) -> tuple[MoveStatement, int]:
         """Parse MOVE source TO target statement."""
         line, end = self._join_arithmetic_continuation(lines, start)
@@ -2912,7 +2920,7 @@ class CobolParser:
                 source=source,
                 target=target,
                 targets=targets,
-                source_expr=self._build_expression(source),
+                source_expr=self._move_source_expression(source),
                 target_ref=FieldReference(name=target) if target else None,
             ), end
 
@@ -4063,13 +4071,18 @@ class CobolParser:
         if parts_match:
             parts_str = parts_match.group(1).strip()
             self._check_display_operands(parts_str, lines[start])
-            for token in re.findall(r'"([^"]+)"|\'([^\']+)\'|([A-Z][\w-]*(?:\s*\([^()]*\))?)', parts_str, re.IGNORECASE):
+            for token in re.findall(
+                r'"([^"]+)"|\'([^\']+)\'|(' + FUNCTION_OPERAND + r')|([A-Z][\w-]*(?:\s*\([^()]*\))?)',
+                parts_str, re.IGNORECASE,
+            ):
                 if token[0]:
                     parts.append(f'"{token[0]}"')
                 elif token[1]:
                     parts.append(f"'{token[1]}'")
                 elif token[2]:
                     parts.append(token[2])
+                elif token[3]:
+                    parts.append(token[3])
 
         # Statement already terminated on the opening line — do not continue.
         if line.endswith("."):
@@ -4155,7 +4168,23 @@ class CobolParser:
         statement on the line) became bogus data-name operands.
         """
         body = re.sub(r"(?i)\s+UPON\s+\S+\s*\.?\s*$", "", text.strip()).rstrip(".")
+        for call in re.findall(FUNCTION_OPERAND, body, re.IGNORECASE):
+            if parse_function(call) is None:
+                name = call.split("(", 1)[0].split()[-1].upper()
+                self._diagnostics.warning(
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                    f"Intrinsic function {name} (or this argument form) is not implemented by the deterministic mapper",
+                    location=name,
+                )
+        body = re.sub(FUNCTION_OPERAND, " ", body, flags=re.IGNORECASE)
         leftover = re.sub(r'"[^"]*"|\'[^\']*\'', " ", body)
+        if re.search(r"(?<![\w-])FUNCTION(?![\w-])", leftover, re.IGNORECASE):
+            # a function without an argument list (``FUNCTION RANDOM``, ``FUNCTION PI``) is not certified
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "An intrinsic function without an argument list is not implemented by the deterministic mapper",
+                location="FUNCTION",
+            )
         words = re.findall(r"[A-Z][\w-]*(?:\s*\([^()]*\))?", leftover, re.IGNORECASE)
         residue = re.sub(r"[A-Z][\w-]*(?:\s*\([^()]*\))?", " ", leftover, flags=re.IGNORECASE)
         if residue.replace(",", " ").strip() or any(

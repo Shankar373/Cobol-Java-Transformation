@@ -47,6 +47,36 @@ COBOL_REF_JAVA = '''final class CobolRef {
         return out.substring(0, (int) length);
     }
 
+    /** FUNCTION UPPER-CASE / LOWER-CASE / REVERSE (same length as the argument) */
+    static String upper(String value) {
+        return value.toUpperCase(java.util.Locale.ROOT);
+    }
+
+    static String lower(String value) {
+        return value.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    static String reverse(String value) {
+        return new StringBuilder(value).reverse().toString();
+    }
+
+    /** FUNCTION TRIM: spaces removed at the ``mode`` end(s); an all-space argument gives the empty string */
+    static String trim(String value, String mode) {
+        int from = 0;
+        int to = value.length();
+        if (!mode.equals("TRAILING")) {
+            while (from < to && value.charAt(from) == ' ') {
+                from++;
+            }
+        }
+        if (!mode.equals("LEADING")) {
+            while (to > from && value.charAt(to - 1) == ' ') {
+                to--;
+            }
+        }
+        return value.substring(from, to);
+    }
+
     /** ``length`` copies of ``ch`` (a figurative constant moved to a reference-modified receiver) */
     static String fill(char ch, long length) {
         StringBuilder out = new StringBuilder();
