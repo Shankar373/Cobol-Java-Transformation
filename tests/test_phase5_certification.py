@@ -47,6 +47,7 @@ PROOFS: dict[str, list[tuple]] = {
     "PERFORM VARYING AFTER": [("test", "tests/integration/test_varying_oracle.py")],
     "EXPONENTIATION": [("test", "tests/integration/test_power_oracle.py")],
     "INTRINSIC FUNCTIONS": [("test", "tests/integration/test_intrinsic_oracle.py")],
+    "QUALIFIED NAMES": [("test", "tests/integration/test_qualified_oracle.py")],
     "SET INDEX": [("test", "tests/integration/test_search_oracle.py")],
     "EXEC SQL": [("test", "tests/integration/test_sql_jdbc_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),

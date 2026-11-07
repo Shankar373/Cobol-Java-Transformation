@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.intrinsic import FUNCTION_OPERAND, parse_function
+from engine.transformation.qualified_names import resolve_qualified_names
 from engine.transformation.refmod import REFMOD_ANYWHERE, split_outside_parentheses
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
@@ -735,6 +736,9 @@ class CobolParser:
         # separated by commas.  Only pseudo-text (==...==) operands are
         # supported; bare-word operands fail closed with a diagnostic.
         code_lines = self._apply_replace_directives(code_lines)
+        code_lines, qualification_problems = resolve_qualified_names(code_lines)
+        for problem in qualification_problems:
+            self._diagnostics.warning(DiagnosticCode.UNSUPPORTED_CONSTRUCT, problem, location="OF/IN")
 
         # Parse divisions
         # These clauses continue an operation header; they are not new

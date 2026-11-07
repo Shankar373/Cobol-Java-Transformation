@@ -364,6 +364,15 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "(IF, COMPUTE, EVALUATE, numeric arguments, group items) fails closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "QUALIFIED NAMES": _supported(
+        "A data name declared under several groups (working storage, linkage, file records) with references qualified "
+        "by OF / IN (A OF G, A IN S OF G, partial chains): each declaration gets a unique deterministic name "
+        "(A-OF-S-OF-G) and each qualified reference is resolved against the declared ancestor chains; equal to GnuCOBOL "
+        "3.1.2 (tests/integration/test_qualified_oracle.py). An unqualified reference to a duplicated name, a "
+        "qualification that matches no item or several, and a duplicated name in a REDEFINES / DEPENDING ON clause "
+        "fail closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "PERFORM VARYING AFTER": _supported(
         "PERFORM VARYING a FROM x BY y UNTIL c AFTER b FROM ... AFTER d FROM ... (up to any depth of integer PIC 9(1..9) "
         "control items, inline or PERFORM paragraph), TEST BEFORE and WITH TEST AFTER, also for a single VARYING item. "
