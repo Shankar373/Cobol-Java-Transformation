@@ -220,7 +220,9 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "GO TO paragraph-name in a program without LINKAGE or EXIT PROGRAM: paragraphs run through the CobolFlow "
         "scheduler (fall-through, GO TO re-dispatch, STOP RUN / GOBACK end the run unit); GO TO inside a plain "
         "PERFORM first THRU last range must land inside that range. Output equals GnuCOBOL 3.1.2 "
-        "(tests/integration/test_goto_oracle.py). GO TO DEPENDING ON, altered GO TO, a jump out of a PERFORM range, "
+        "(tests/integration/test_goto_oracle.py). GO TO a b c DEPENDING ON n (n an integer item; an out-of-range value falls "
+        "through) is lowered to an IF chain of plain GO TOs. Altered GO TO, a subscripted or qualified selector, a jump "
+        "out of a PERFORM range, "
         "a paragraph with a GO TO under a simple/TIMES/UNTIL/VARYING PERFORM and called programs fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),

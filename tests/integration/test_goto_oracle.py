@@ -132,3 +132,39 @@ def test_generated_programs_fit_the_fixed_format_margin():
     for _ in range(200):
         for line in _program(rng).splitlines():
             assert len(line) <= 72, line
+
+
+def _depending_program(rng: random.Random) -> str:
+    """Main-line paragraphs whose ``GO TO a b c DEPENDING ON WS-X`` jumps forward or backward (bounded by the step
+    counter); WS-X goes past the list and below 1, where control falls through."""
+    count = rng.randint(3, 6)
+    names = [f"D{i}" for i in range(count)]
+    lines = HEAD.format(x=rng.randint(0, 6)).rstrip("\n").split("\n")
+    for name in names:
+        lines += [f"       {name}.", "           ADD 1 TO WS-STEPS.", "           IF WS-STEPS > 25",
+                  "               GO TO FINISH", "           END-IF.", f"           DISPLAY '{name} ' WS-X."]
+        for _ in range(rng.randint(1, 2)):
+            targets = " ".join(rng.choice(names + ["FINISH"]) for _ in range(rng.randint(1, 4)))
+            form = rng.choice(["one", "split", "inner", "on"])
+            if form == "one":
+                lines.append(f"           GO TO {targets} DEPENDING ON WS-X.")
+            elif form == "split":
+                lines += [f"           GO TO {targets}", "               DEPENDING ON WS-X."]
+            elif form == "inner":
+                lines += [f"           IF WS-X > {rng.randint(0, 3)}", f"               GO TO {targets} DEPENDING WS-X",
+                          "           END-IF."]
+            else:
+                lines.append(f"           GO TO {targets} DEPENDING WS-X.")
+            lines.append(f"           ADD {rng.randint(0, 2)} TO WS-X.")
+            lines.append("           DISPLAY 'FALL'.")
+    lines += ["       FINISH.", "           DISPLAY 'END ' WS-STEPS ' ' WS-X.", "           STOP RUN."]
+    return "\n".join(lines) + "\n"
+
+
+@needs_docker
+@pytest.mark.parametrize("seed", [501, 502, 503, 504])
+def test_go_to_depending_matches_the_oracle(tmp_path, seed):
+    rng = random.Random(seed)
+    programs = [_depending_program(rng) for _ in range(25)]
+    mismatches = [i for i, (c, j) in enumerate(run_batch(tmp_path, programs)) if c != j]
+    assert mismatches == [], f"cases differ from the oracle: {mismatches}"

@@ -72,8 +72,16 @@ def test_goto_in_a_paragraph_performed_by_a_simple_perform_is_refused():
 def test_undefined_target_and_depending_form_are_refused():
     program, _ = _parse("       MAIN-PARA.\n           GO TO NOWHERE.\n")
     assert goto_plan_reasons(program.paragraphs) == ["TARGET"]
+    # GO TO a b DEPENDING ON n is certified since roadmap unit 38 (an IF chain of plain GO TOs); an undefined target and
+    # a subscripted selector stay refused
     program, _ = _parse("       MAIN-PARA.\n           GO TO A-PARA B-PARA DEPENDING ON N.\n"
                         "       A-PARA.\n           DISPLAY 'A'.\n       B-PARA.\n           DISPLAY 'B'.\n")
+    assert goto_plan_reasons(program.paragraphs) == []
+    program, _ = _parse("       MAIN-PARA.\n           GO TO A-PARA NOWHERE DEPENDING ON N.\n"
+                        "       A-PARA.\n           DISPLAY 'A'.\n")
+    assert goto_plan_reasons(program.paragraphs) == ["TARGET"]
+    program, _ = _parse("       MAIN-PARA.\n           GO TO A-PARA DEPENDING ON N(1).\n"
+                        "       A-PARA.\n           DISPLAY 'A'.\n")
     assert "FORM" in goto_plan_reasons(program.paragraphs)
 
 
@@ -96,3 +104,14 @@ def test_plain_exit_is_a_no_op_but_exit_perform_stays_unsupported():
     assert diagnostics == []
     _, diagnostics = _parse("       MAIN-PARA.\n           EXIT PERFORM.\n           STOP RUN.\n")
     assert any("EXIT PERFORM" in d for d in diagnostics)
+
+
+def test_go_to_depending_lowers_to_an_if_chain_of_plain_go_tos():
+    program, diagnostics = _parse("       MAIN-PARA.\n           GO TO A-PARA B-PARA\n               DEPENDING ON N.\n"
+                                  "           DISPLAY 'FALL'.\n       A-PARA.\n           DISPLAY 'A'.\n"
+                                  "       B-PARA.\n           DISPLAY 'B'.\n")
+    assert diagnostics == []
+    first = program.paragraphs[0].statements[0]
+    assert first.condition == "N = 1" and first.then_body[0].target == "A-PARA"
+    assert first.else_body[0].condition == "N = 2" and first.else_body[0].then_body[0].target == "B-PARA"
+    assert len(program.paragraphs[0].statements) == 2  # the DISPLAY after it is the fall-through

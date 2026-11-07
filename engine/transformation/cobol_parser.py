@@ -3345,6 +3345,7 @@ class CobolParser:
         """Lower EVALUATE/WHEN into nested IF statements."""
         subject = lines[start].strip()[len("EVALUATE "):].rstrip(".").strip()
         arms = []
+        arm_has_text: list[bool] = []
         i = start + 1
         while i < len(lines):
             u = lines[i].strip().upper()
@@ -3373,12 +3374,15 @@ class CobolParser:
                         location="EVALUATE",
                     )
             closed = bool(inline) and self._ends_sentence(when_line)
+            # statement text (even CONTINUE, which has no IR) means the arm is not stacked with the next WHEN
+            arm_has_text.append(bool(inline))
             while (
                 not closed
                 and i < len(lines)
                 and not lines[i].strip().upper().startswith(("WHEN ", "END-EVALUATE"))
             ):
                 stmt, new_i = self._parse_statement(lines, i)
+                arm_has_text[-1] = True
                 if stmt is not None:
                     body.append(stmt)
                 i = max(new_i, i + 1)
@@ -3394,7 +3398,7 @@ class CobolParser:
         pending: list[str] = []
         for position, (arm_spec, arm_body) in enumerate(arms):
             pending.append(arm_spec)
-            if arm_body or position == len(arms) - 1:
+            if arm_body or arm_has_text[position] or position == len(arms) - 1:
                 stacked.append((_STACK_SEPARATOR.join(pending), arm_body))
                 pending = []
         arms = stacked
@@ -4320,9 +4324,37 @@ class CobolParser:
         )
         return None, start + 1
 
-    def _parse_goto(self, lines: list[str], start: int) -> tuple[GoToStatement, int]:
-        """Parse GO TO paragraph-name."""
+    def _parse_goto(self, lines: list[str], start: int) -> tuple[Any, int]:
+        """Parse GO TO paragraph-name, and ``GO TO a b c DEPENDING ON x`` (an IF chain of plain GO TOs)."""
         line = lines[start].strip()
+        next_line = lines[start + 1].strip() if start + 1 < len(lines) else ""
+        if re.search(r"(?<![\w-])DEPENDING(?![\w-])", line, re.IGNORECASE) or (
+            not line.rstrip().endswith(".")
+            and (
+                not re.fullmatch(r"GO\s*TO\s+[A-Z0-9][\w-]*", line, re.IGNORECASE)
+                or re.match(r"DEPENDING(?![\w-])", next_line, re.IGNORECASE)
+            )
+        ):
+            joined, after = self._join_arithmetic_continuation(lines, start)
+            depending = re.fullmatch(
+                r"GO\s*TO\s+((?:[A-Z0-9][\w-]*\s+)+?)DEPENDING\s+(?:ON\s+)?([A-Z][\w-]*)\s*\.?",
+                joined.strip(), re.IGNORECASE,
+            )
+            if depending is not None:
+                targets = depending.group(1).split()
+                selector = depending.group(2)
+                chain: Any = None
+                for number in range(len(targets), 0, -1):
+                    condition = f"{selector} = {number}"
+                    chain = IfStatement(
+                        condition=condition,
+                        then_body=(GoToStatement(target=targets[number - 1].upper()),),
+                        else_body=(chain,) if chain is not None else (),
+                        structured_condition=self._build_condition(condition),
+                    )
+                return chain, after
+            if re.search(r"(?<![\w-])DEPENDING(?![\w-])", joined, re.IGNORECASE):
+                return GoToStatement(target=""), after
 
         # Only ``GO TO name`` is a certified form (control_flow.goto_plan_reasons); ``GO TO a b DEPENDING ON x``,
         # ``GO TO.`` (altered) and other shapes get an empty target, which fails closed.  Whether the program as a
