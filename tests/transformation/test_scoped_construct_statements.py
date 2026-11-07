@@ -426,17 +426,23 @@ class TestWhenAlso:
         assert "UNSUPPORTED_EVALUATE_ALSO" in code
         assert "WS_A == 2" not in code
 
-    def test_multiple_subjects_are_diagnosed(self):
-        parser = CobolParser()
-        try:
-            parser.parse(_program(
-                "EVALUATE WS-A ALSO WS-A",
-                "    WHEN 1 ALSO 2",
-                '        DISPLAY "LOW"',
-                "END-EVALUATE",
-            ))
-        except Exception:
-            return  # refusing by exception is also fail-closed
+    def test_multiple_subjects_are_certified_since_roadmap_unit_37(self):
+        # EVALUATE a ALSO b with one object per subject is lowered (tests/integration/test_evaluate_oracle.py); a WHEN
+        # with a different number of objects than the EVALUATE has subjects is still diagnosed
+        parser, stmt = self._parse(
+            "EVALUATE WS-A ALSO WS-A",
+            "    WHEN 1 ALSO 2",
+            '        DISPLAY "LOW"',
+            "END-EVALUATE",
+        )
+        assert not any("ALSO" in d.message for d in parser.diagnostics.all)
+        assert "UNSUPPORTED-EVALUATE-ALSO" not in stmt.condition
+        parser, stmt = self._parse(
+            "EVALUATE WS-A ALSO WS-A",
+            "    WHEN 1",
+            '        DISPLAY "LOW"',
+            "END-EVALUATE",
+        )
         assert any("ALSO" in d.message for d in parser.diagnostics.all)
 
     def test_plain_when_values_still_work(self):

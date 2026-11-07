@@ -373,6 +373,13 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "EVALUATE ALSO": _supported(
+        "EVALUATE a ALSO b [ALSO c] with WHEN x ALSO y [ALSO z] (a value, a THRU range or ANY per subject; TRUE as a "
+        "subject with a condition as its object), stacked WHEN clauses sharing one statement list, and WHEN OTHER; "
+        "equal to GnuCOBOL 3.1.2 (tests/integration/test_evaluate_oracle.py). A WHEN with a different number of "
+        "objects than subjects, EVALUATE FALSE and a NOT object fail closed.",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "PERFORM VARYING AFTER": _supported(
         "PERFORM VARYING a FROM x BY y UNTIL c AFTER b FROM ... AFTER d FROM ... (up to any depth of integer PIC 9(1..9) "
         "control items, inline or PERFORM paragraph), TEST BEFORE and WITH TEST AFTER, also for a single VARYING item. "

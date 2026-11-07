@@ -17,6 +17,28 @@ from engine.transformation.java_ir import JavaBasicType
 _JAVA_LITERAL_SUFFIX_RE = re.compile(r"^[+-]?\d+[Ll]$")
 
 
+
+def _wrapped_in_one_pair(text: str) -> bool:
+    """True when the first ``(`` of ``text`` is closed by its last character (``(a) || (b)`` is not wrapped)."""
+    if not (text.startswith("(") and text.endswith(")")):
+        return False
+    depth = 0
+    quote = ""
+    for index, char in enumerate(text):
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index == len(text) - 1
+    return False
+
+
 class JavaSourceRenderer:
     """Renders Java IR statements and expressions to Java source text."""
 
@@ -107,7 +129,7 @@ class JavaSourceRenderer:
             return f"throw new {stmt.exception_class}();"
         if isinstance(stmt, JavaIf):
             cond = self._expr_to_string(stmt.condition)
-            if self.strip_if_condition_parens and cond.startswith("(") and cond.endswith(")"):
+            if self.strip_if_condition_parens and _wrapped_in_one_pair(cond):
                 cond = cond[1:-1]
             lines = [f"if ({cond}) {{"]
             lines.extend(self._nested(stmt.then_body))

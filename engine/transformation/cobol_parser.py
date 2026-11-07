@@ -331,6 +331,42 @@ _re_intrinsic = re.compile(
 )
 
 
+_STACK_SEPARATOR = "\x00WHEN\x00"
+
+
+def _is_other(spec: str) -> bool:
+    """A WHEN OTHER (or all-ANY) arm, also when stacked with other WHENs: the arm then matches everything."""
+    return any(
+        piece.strip().upper() == "OTHER" or all(part.upper() == "ANY" for part in _split_also(piece))
+        for piece in spec.split(_STACK_SEPARATOR)
+    )
+
+
+def _split_also(text: str) -> list[str]:
+    """``a ALSO b`` split at ALSO outside parentheses and quotes."""
+    parts: list[str] = []
+    depth = 0
+    quote = ""
+    current: list[str] = []
+    words = re.split(r"(\s+)", text.strip())
+    for word in words:
+        if not quote:
+            depth += word.count("(") - word.count(")")
+        for char in word:
+            if quote:
+                if char == quote:
+                    quote = ""
+            elif char in "'\"":
+                quote = char
+        if word.upper() == "ALSO" and depth <= 0 and not quote:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(word)
+    parts.append("".join(current).strip())
+    return parts
+
+
 def _split_statements_on_dashes(text: str) -> list[str]:
     """Split inline statement text on the separators between COBOL statements.
 
@@ -3352,7 +3388,21 @@ class CobolParser:
             arms.append((spec, tuple(body)))
             if closed:
                 break
+        # ``WHEN 1`` directly followed by ``WHEN 2 stmt`` stacks the two: both values run ``stmt`` (an arm with no
+        # statement of its own shares the next arm's)
+        stacked: list[tuple[str, tuple[Any, ...]]] = []
+        pending: list[str] = []
+        for position, (arm_spec, arm_body) in enumerate(arms):
+            pending.append(arm_spec)
+            if arm_body or position == len(arms) - 1:
+                stacked.append((_STACK_SEPARATOR.join(pending), arm_body))
+                pending = []
+        arms = stacked
         def cond(spec):
+            if _STACK_SEPARATOR in spec:
+                return " OR ".join(
+                    "OTHER" if _is_other(piece) else f"({cond(piece)})" for piece in spec.split(_STACK_SEPARATOR)
+                )
             if subject.strip().upper() == "TRUE":
                 # EVALUATE TRUE treats each WHEN clause as a Boolean
                 # condition rather than an equality against the subject.
@@ -3366,14 +3416,37 @@ class CobolParser:
             # the old reading of ALSO as alternative values invented a
             # meaning for it (audit T14).  Refuse with a diagnostic and an
             # unresolvable operand so generation fails closed.
-            if re.search(r"(?<![\w-])ALSO(?![\w-])", f"{subject} {spec}", re.IGNORECASE):
+            subjects = _split_also(subject)
+            objects = _split_also(spec)
+            if len(subjects) != len(objects) or len(subjects) > 1:
+                return also_condition(subjects, objects)
+            return object_condition(subject, spec)
+
+        def also_condition(subjects: list[str], objects: list[str]) -> str:
+            # EVALUATE a ALSO b / WHEN x ALSO y: the WHEN matches when every object matches its subject; ANY matches
+            # everything. A different number of objects than subjects is not valid COBOL (and a lone ALSO is refused).
+            refusal = ""
+            if len(subjects) != len(objects):
+                refusal = "the WHEN has a different number of objects than the EVALUATE has subjects"
+            elif any(sub.strip().upper() == "FALSE" for sub in subjects):
+                refusal = "EVALUATE FALSE is not supported"
+            elif any(re.match(r"(?i)NOT\b", obj.strip()) for obj in objects):
+                refusal = "a NOT object is not supported"
+            if refusal:
                 self._diagnostics.warning(
-                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                    "EVALUATE ... ALSO (multiple selection subjects/objects) "
-                    "is not supported",
-                    location="EVALUATE",
-                )
-                return f"{subject} = UNSUPPORTED-EVALUATE-ALSO"
+                    DiagnosticCode.UNSUPPORTED_CONSTRUCT, f"EVALUATE ... ALSO: {refusal}", location="EVALUATE")
+                return f"{subjects[0]} = UNSUPPORTED-EVALUATE-ALSO"
+            parts = []
+            for sub, obj in zip(subjects, objects, strict=True):
+                if obj.strip().upper() == "ANY":
+                    continue
+                if sub.strip().upper() == "TRUE":
+                    parts.append(f"({obj.strip()})")
+                else:
+                    parts.append(f"({object_condition(sub.strip(), obj.strip())})")
+            return " AND ".join(parts) if parts else "OTHER"
+
+        def object_condition(subject: str, spec: str) -> str:
             alternatives: list[str] = []
             for group in (spec,):
                 tokens = group.split()
@@ -3403,10 +3476,10 @@ class CobolParser:
             if idx >= len(arms):
                 return None
             spec, body = arms[idx]
-            if spec.upper() == "OTHER":
+            if _is_other(spec):
                 return IfStatement(condition="OTHER", then_body=body)
             condition = cond(spec)
-            if idx + 1 < len(arms) and arms[idx + 1][0].upper() == "OTHER":
+            if idx + 1 < len(arms) and _is_other(arms[idx + 1][0]):
                 return IfStatement(condition=condition, then_body=body, else_body=arms[idx + 1][1],
                                    structured_condition=self._build_condition(condition))
             nested = build(idx + 1)

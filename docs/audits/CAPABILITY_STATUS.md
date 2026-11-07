@@ -37,6 +37,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | exponentiation `**` in COMPUTE (34) | yes | yes | GnuCOBOL (seeded fuzz + probes) | | yes | negative and fractional exponents, `**` outside COMPUTE, results above 38 digits |
 | intrinsic functions UPPER-CASE / LOWER-CASE / REVERSE / TRIM / LENGTH (35) | yes | yes | GnuCOBOL (seeded fuzz) | | yes | other functions, functions in conditions / COMPUTE, numeric or group arguments, nesting |
 | qualified names `A OF G` / `A IN G` (36) | yes | yes | GnuCOBOL (seeded fuzz + FD case) | | yes | ambiguous or unqualified duplicates, REDEFINES / DEPENDING ON on a duplicated name, subscripted qualifiers, CORRESPONDING |
+| EVALUATE ... ALSO and stacked WHEN (37) | yes | yes | GnuCOBOL (seeded fuzz) | | yes | count mismatch, EVALUATE FALSE, NOT objects |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |
