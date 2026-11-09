@@ -32,6 +32,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from engine.jcl.assembly import JOB_RUNNER_RUNTIMES, JobAssembly, assemble_job_runners, has_jcl_members
 from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityReport
 from engine.modernization.transformation_plan import (
     TransformationPlan,
@@ -124,6 +125,9 @@ class ModernizationReport:
     # Assembly: the runtime-target project directory and entry point
     generated_project_dir: str = ""
     generated_entrypoint: str = ""
+    # JCL jobs found in the source tree, one record per job (roadmap unit 39): the runner class written into the
+    # project, or the refusals that kept a job from getting one
+    jcl_jobs: tuple[JobAssembly, ...] = ()
     # Runtime target this report was produced for (evidence identity).
     target_runtime: str = "spring_boot"
 
@@ -154,6 +158,7 @@ class ModernizationReport:
                 "target_runtime": self.target_runtime,
                 "project_dir": self.generated_project_dir,
                 "entrypoint": self.generated_entrypoint,
+                "jcl_jobs": [job.to_dict() for job in self.jcl_jobs],
             },
             "limitations": list(self.limitations),
             "recommendations": list(self.recommendations),
@@ -462,6 +467,7 @@ class UniversalModernizationPipeline:
             )
             report.limitations = ("Transformation failed",) + report.generation_errors
             return report
+        report.jcl_jobs = self._assemble_job_runners(outcome.project_dir, source_path, gen_result.program_ids)
         if progress:
             progress("ASSEMBLY_COMPLETED")
 
@@ -469,6 +475,24 @@ class UniversalModernizationPipeline:
         report.limitations, report.recommendations = self._derive_limitations(report)
 
         return report
+
+    def _assemble_job_runners(
+        self, project_dir: Path, source_path: Path, program_ids: tuple[str, ...]
+    ) -> tuple[JobAssembly, ...]:
+        """Write a JCL job runner next to the generated programs (command-line runtimes only)."""
+        if self._config.target_runtime not in JOB_RUNNER_RUNTIMES:
+            return ()
+        from engine.transformation.java_generator import JavaGenerator
+
+        namer = JavaGenerator()
+        classes = {
+            program_id.upper(): namer._to_java_class_name(program_id)
+            for program_id in program_ids
+        }
+        try:
+            return assemble_job_runners(source_path, project_dir, classes)
+        except Exception as e:  # a JCL planning failure must not discard the generated programs
+            return (JobAssembly(job="<jcl>", runner_class="", refusals=(f"JCL planning failed: {e}",)),)
 
     def _assemble_spring_boot(
         self,
@@ -567,6 +591,15 @@ class UniversalModernizationPipeline:
                 "produced per workload by the verification pipeline (no "
                 "universal equivalence claim)"
             )
+
+        for job in report.jcl_jobs:
+            if not job.runnable:
+                limitations.append(
+                    f"JCL job {job.job} has no generated runner: " + "; ".join(job.refusals))
+        if self._config.target_runtime not in JOB_RUNNER_RUNTIMES and has_jcl_members(self._config.source_dir):
+            limitations.append(
+                f"target_runtime={self._config.target_runtime}: the JCL job runner is generated only for the "
+                "command-line runtimes (plain_java, quarkus, micronaut, jakarta_ee)")
 
         if not limitations:
             limitations = ("No limitations identified",)

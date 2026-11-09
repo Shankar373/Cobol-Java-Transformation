@@ -39,6 +39,7 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | qualified names `A OF G` / `A IN G` (36) | yes | yes | GnuCOBOL (seeded fuzz + FD case) | | yes | ambiguous or unqualified duplicates, REDEFINES / DEPENDING ON on a duplicated name, subscripted qualifiers, CORRESPONDING |
 | EVALUATE ... ALSO and stacked WHEN (37) | yes | yes | GnuCOBOL (seeded fuzz) | | yes | count mismatch, EVALUATE FALSE, NOT objects |
 | GO TO ... DEPENDING ON (38) | yes | yes | GnuCOBOL (seeded fuzz) | | yes | subscripted or qualified selector, altered GO TO |
+| JCL job runner generated with the application (39) | yes | yes | GnuCOBOL (one fixture) + simulator-grade JCL | | yes | Spring Boot target, IF/THEN/ELSE, PDS members, validation-lane execution |
 | `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |

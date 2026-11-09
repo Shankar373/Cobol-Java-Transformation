@@ -300,13 +300,18 @@ class OrchestrationResult:
     files: dict[str, str]  # runner class name -> Java source, runnable jobs only
 
 
+def runner_class_name(job_name: str) -> str:
+    """The Java class name of the runner of job ``job_name``."""
+    return "Job" + re.sub(r"[^A-Za-z0-9]", "", job_name.title()) + "Runner"
+
+
 def orchestrate(app: JclApplication, program_classes: dict[str, str]) -> OrchestrationResult:
     """Plan every job of ``app``; render a runner for each job that can be run."""
     plans = tuple(plan_job(job, program_classes) for job in app.jobs)
     files: dict[str, str] = {}
     for plan in plans:
         if plan.runnable:
-            name = "Job" + re.sub(r"[^A-Za-z0-9]", "", plan.job.title()) + "Runner"
+            name = runner_class_name(plan.job)
             files[name] = render_runner(plan, name)
     return OrchestrationResult(plans, files)
 
