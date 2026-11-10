@@ -34,9 +34,9 @@ def test_corpus_generation_within_budget():
         total += elapsed
         generated += ok
     assert total < GENERATION_TOTAL_BUDGET_S, total
-    # Same outcome as the certified corpus: 44 VERIFIED applications plus
+    # Same outcome as the certified corpus: 45 VERIFIED applications plus
     # workload-studentproc (generates; the oracle rejects its source).
-    assert generated == 45
+    assert generated == 46
 
 
 def test_read_endpoints_latency_within_budget(monkeypatch):

@@ -280,6 +280,14 @@ class DataItem:
     # the record-area byte *encoding* of the non-DISPLAY usages is not, so it
     # is recorded explicitly rather than silently dropped.
     usage: str | None = None
+    # Numeric-edited item (``PIC ZZ,ZZ9.99``): stored as the edited character
+    # string of ``pic_length`` characters (``pic_type`` is ALPHANUMERIC, so
+    # DISPLAY, MOVE to PIC X, STRING and group views treat it as text).
+    # ``edit_pic`` is the picture with repeat counts expanded; a MOVE of a
+    # number into the item runs it through ``CobolEdit``.  See
+    # ``engine.transformation.numeric_edited`` for the certified subset.
+    edit_pic: str | None = None
+    blank_when_zero: bool = False
     children: tuple[DataItem, ...] = ()
     #: Index names declared by ``OCCURS ... INDEXED BY a b``; each is an occurrence-number item.
     indexed_by: tuple[str, ...] = ()
