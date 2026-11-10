@@ -84,3 +84,14 @@ def test_the_jcl_ledger_entry_is_proven_only_with_every_job_verified():
     assert jcl_ledger_entry("FULL").proof_state is ProofState.PARTIAL
     assert jcl_ledger_entry("PARTIAL", verified).proof_state is ProofState.BLOCKED
 
+
+
+def test_container_scripts_run_under_a_permissive_umask(monkeypatch, tmp_path):
+    """Files the container user creates in the staging tree must stay removable by the host user (CI run 42778068175)."""
+    from engine.jcl import job_lane
+
+    seen: list[str] = []
+    monkeypatch.setattr(job_lane, "run_container", lambda command, **kw: seen.append(command[-1]))
+    job_lane._run("img", tmp_path, "mkdir -p /w/bin && true", lane="oracle", name="n", seconds=1)
+    assert seen == [job_lane.CONTAINER_UMASK_PREFIX + "mkdir -p /w/bin && true"]
+    assert job_lane.CONTAINER_UMASK_PREFIX.startswith("umask 000")

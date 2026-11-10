@@ -104,8 +104,16 @@ def _cleanup(name: str) -> tuple[bool, str]:
     return proc.returncode == 0, proc.stderr.decode(errors="replace").strip()
 
 
+#: The container user (uid 10001) creates directories and files inside the bind-mounted staging tree. Without a
+#: permissive umask they are 0755/0644 and owned by that uid, so the host user that runs the lane cannot delete
+#: them: ``TemporaryDirectory`` cleanup answers the ``PermissionError`` with a ``chmod`` it may not perform
+#: (``EPERM``), which withheld the proof of every job on a Linux host.
+CONTAINER_UMASK_PREFIX = "umask 000 && "
+
+
 def _run(image_ref: str, work: Path, script: str, *, lane: str, name: str, seconds: int):
     prepare_host_tree(work, writable=True)
+    script = CONTAINER_UMASK_PREFIX + script
     command = [
         "docker", "run", "--rm", "--init", *container_run_hardening_flags(lane), "--name", name,
         "--network", "none", "--memory", "1g", "--cpus", "2", "--pids-limit", "256",
