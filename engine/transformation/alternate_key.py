@@ -77,9 +77,10 @@ def alternate_key_problem(program: object, fd: FileDefinition) -> str:
         for stmt in walk_statements(paragraph.statements):
             if not isinstance(stmt, (ReadStatement, StartStatement)) or stmt.file_name != fd.name:
                 continue
-            if BROWSING_GATE_ENABLED and isinstance(stmt, StartStatement):
-                return "START on a file with alternate keys is not certified (browsing along a key)"
-            if BROWSING_GATE_ENABLED and stmt.read_next:
+            if isinstance(stmt, StartStatement):
+                if BROWSING_GATE_ENABLED:
+                    return "START on a file with alternate keys is not certified (browsing along a key)"
+            elif BROWSING_GATE_ENABLED and stmt.read_next:
                 return "READ NEXT on a file with alternate keys is not certified (browsing along a key)"
             key = (stmt.key or "").strip().upper()
             if key and key not in keys:
