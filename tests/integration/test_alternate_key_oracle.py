@@ -40,7 +40,7 @@ HEAD = """       IDENTIFICATION DIVISION.
 """
 
 
-def _program(rng: random.Random) -> str:
+def _program(rng: random.Random, browsing: bool = False) -> str:
     names = ["KEYF", "AKD", "AKU", "DAT"][: rng.randint(3, 4)]
     rng.shuffle(names)
     if "KEYF" not in names or "AKD" not in names or "AKU" not in names:
@@ -72,7 +72,10 @@ def _program(rng: random.Random) -> str:
     lines += ["           CLOSE KF", "           OPEN I-O KF", '           DISPLAY "open2 " FS']
     for step in range(rng.randint(5, 14)):
         label = f"s{step}"
-        op = rng.choice(["rkey", "ralt", "ralt", "rewrite", "delete", "write"])
+        if browsing:
+            op = rng.choice(["rkey", "ralt", "next", "next", "start", "startp", "rewrite", "delete", "write"])
+        else:
+            op = rng.choice(["rkey", "ralt", "ralt", "rewrite", "delete", "write"])
         if op == "rkey":
             lines += [f'           MOVE "{key()}" TO KEYF', "           READ KF",
                       f'           DISPLAY "{label} rk " FS {shown}']

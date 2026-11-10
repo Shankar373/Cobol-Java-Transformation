@@ -26,6 +26,9 @@ from engine.transformation.ir import (
 
 MAX_ALTERNATE_KEYS = 3
 
+#: Browsing (START / READ NEXT) is refused until its differential sweep is clean; the sweep lifts this switch.
+BROWSING_GATE_ENABLED = True
+
 
 def alternate_key_names(fd: FileDefinition) -> list[str]:
     return [key.field_name.upper() for key in fd.alternate_keys]
@@ -74,9 +77,9 @@ def alternate_key_problem(program: object, fd: FileDefinition) -> str:
         for stmt in walk_statements(paragraph.statements):
             if not isinstance(stmt, (ReadStatement, StartStatement)) or stmt.file_name != fd.name:
                 continue
-            if isinstance(stmt, StartStatement):
+            if BROWSING_GATE_ENABLED and isinstance(stmt, StartStatement):
                 return "START on a file with alternate keys is not certified (browsing along a key)"
-            if stmt.read_next:
+            if BROWSING_GATE_ENABLED and stmt.read_next:
                 return "READ NEXT on a file with alternate keys is not certified (browsing along a key)"
             key = (stmt.key or "").strip().upper()
             if key and key not in keys:

@@ -218,6 +218,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             if (mode.equalsIgnoreCase("INPUT")) {
                 if (keyLen > 0) {
                     ensureIndex(path, keyLen);
+                    placeAtOpen(path);
                     return "00";
                 }
                 IN.put(path, rd(path));
@@ -226,6 +227,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             // I-O / EXTEND
             if (keyLen > 0) {
                 ensureIndex(path, keyLen);
+                placeAtOpen(path);
                 return "00";
             }
             boolean append = mode.equalsIgnoreCase("EXTEND");
@@ -233,6 +235,17 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             return "00";
         } catch (Exception e) {
             return "23";
+        }
+    }
+
+    /** OPEN INPUT / I-O of an indexed file that holds records puts the cursor on its first record, unread (as the
+     *  oracle does): a record written afterwards below that key is never reached by READ NEXT, and when the record is
+     *  deleted first the READ NEXT returns the one after it. An empty file has no position until the first READ NEXT. */
+    private static void placeAtOpen(String path) {
+        java.util.TreeMap<String, String> m = IDX.get(path);
+        if (m != null && !m.isEmpty()) {
+            PENDOP.put(path, m.firstKey());
+            PENDKEY.put(path, m.firstKey());
         }
     }
 
@@ -385,9 +398,9 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         java.util.Map.Entry<String, String> e = m.floorEntry(key);
         if (e == null || !e.getKey().equals(key)) {
             // a failed keyed READ names its key as the key of reference; each key keeps its own cursor, and the
-            // end-of-file state of every key is forgotten (the next READ NEXT answers 10 again, not 46)
+            // end-of-file condition survives it: after a READ NEXT reached the end (10) the next READ NEXT answers 46
+            // (oracle-pinned, tests/integration/test_alternate_key_browse_oracle.py)
             REF.remove(path);
-            clearEof(path);
             return null;
         }
         clearEof(path);
@@ -959,22 +972,30 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         String k = pad(key, spec[1], false);
         java.util.TreeMap<Long, String> same = altIndex(path, ord).get(k);
         if (same == null || same.isEmpty()) {
-            REF.put(path, ord);  // the key of reference changes, the cursor of that key stays where it was
-            clearEof(path);
-            // a failed alternate READ leaves the cursor on its current entry, unread: READ NEXT returns it again
-            String ck = ACURK.get(path + "#" + ord);
-            Long cs = ACURS.get(path + "#" + ord);
-            java.util.TreeMap<Long, String> at = ck == null ? null : altIndex(path, ord).get(ck);
-            String current = at == null || cs == null ? null : at.get(cs);
-            if (current != null) {
-                PENDOP.put(path + "#" + ord, current);
-                PENDKEY.put(path + "#" + ord, ck);
-                PENDSEQ.put(path + "#" + ord, cs);
+            // the key of reference changes, the cursor of that key stays where it was; a failed alternate READ does
+            // not clear the end-of-file condition, which holds for the file whatever the key: the next READ NEXT
+            // answers 46 when an earlier READ NEXT reached the end (oracle-pinned)
+            boolean atEnd = EOFS.contains(path);
+            for (int i = 1; i <= 3 && !atEnd; i++) {
+                atEnd = EOFS.contains(path + "#" + i);
             }
+            REF.put(path, ord);
+            if (atEnd) {
+                EOFS.add(eofKey(path));
+            }
+            // a failed alternate READ leaves the cursor where it was: an entry a START selected stays unread (its
+            // pending mark is kept), an entry a READ already returned stays consumed, so READ NEXT continues after it
             return null;
         }
         java.util.Map.Entry<Long, String> first = same.firstEntry();
         REF.put(path, ord);
+        // a successful alternate READ consumes the primary cursor's unread position (the first record at OPEN): a
+        // later READ NEXT along the primary key continues after it (oracle-pinned, tests/integration/test_alternate_key_browse_oracle.py)
+        String primaryPending = PENDOP.remove(path);
+        PENDKEY.remove(path);
+        if (primaryPending != null) {
+            CURSOR.put(path, primaryPending);
+        }
         PENDOP.remove(path + "#" + ord);
         PENDKEY.remove(path + "#" + ord);
         PENDSEQ.remove(path + "#" + ord);
