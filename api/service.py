@@ -365,6 +365,7 @@ def _proof_payload(
     runtime,
     jcl_status: str,
     extra_dependencies: tuple = (),
+    jcl_verification: tuple = (),
 ) -> dict:
     """Assemble the auditable integrated-proof payload.
 
@@ -387,6 +388,7 @@ def _proof_payload(
         runtime,
         extra_dependencies=extra_dependencies,
         jcl_status=jcl_status,
+        jcl_verification=tuple(jcl_verification),
     )
     central_status, reasons = evaluate_central_status(
         ledger,
@@ -1521,6 +1523,7 @@ class Service:
         # UniversalModernizationPipeline report are both already available;
         # revalidation re-persists here so a refreshed verdict never leaves
         # a stale proof behind.
+        self._run_job_lane(app, run, java_dir)
         self._persist_integrated_proof(app, run, result)
 
         # Re-seal after validation: build/execution run inside this phase
@@ -1539,6 +1542,36 @@ class Service:
         run.generated_seal = seal
 
         self._store.update_run(run)
+
+    def _run_job_lane(self, app: ApplicationRecord, run: RunRecord, java_dir: Path) -> None:
+        """Execute the generated JCL job runners against the GnuCOBOL reference run (roadmap unit 40).
+
+        Stores ``run.modernization_report["jcl_verification"]``: one record per job. The lane never fails the run; a
+        job it cannot run is ``UNAVAILABLE`` with the reason, and the integrated proof keeps the JCL entry unproven.
+        """
+        from engine.jcl.assembly import JobAssembly
+        from engine.jcl.job_lane import verify_jobs
+
+        run_report = run.modernization_report or {}
+        records = ((run_report.get("pipeline_report") or {}).get("assembly") or {}).get("jcl_jobs") or ()
+        source = self._run_source(run, app)
+        if not records or not source:
+            run_report.pop("jcl_verification", None)
+            run.modernization_report = run_report
+            return
+        assemblies = tuple(
+            JobAssembly(
+                job=str(r.get("job", "")), runner_class=str(r.get("runner_class", "")),
+                refusals=tuple(r.get("refusals") or ()), source=str(r.get("source", "")))
+            for r in records
+        )
+        try:
+            results = verify_jobs(source, java_dir, assemblies)
+        except Exception:  # noqa: BLE001 - the lane withholds proof, never fails the validation
+            logger.exception("JCL job lane failed for run %s", run.id)
+            results = ()
+        run_report["jcl_verification"] = [r.to_dict() for r in results]
+        run.modernization_report = run_report
 
     def _persist_integrated_proof(
         self,
@@ -1567,6 +1600,7 @@ class Service:
             runtime_evidence_from_result(result),
             jcl_status,
             extra_dependencies=_external_dependency_entries_for_source(source),
+            jcl_verification=tuple(run_report.get("jcl_verification") or ()),
         )
         run_report["integrated_proof"] = proof
         # Bind the proof to the validation generation it was computed under:
@@ -1919,6 +1953,7 @@ class Service:
             runtime,
             jcl_status,
             extra_dependencies=_external_dependency_entries_for_source(source),
+            jcl_verification=tuple(run_report.get("jcl_verification") or ()),
         )
 
     def get_run_report(self, run_id: str) -> dict:

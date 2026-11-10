@@ -1,0 +1,27 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GENDATA.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT OUT-FILE ASSIGN TO OUTDD
+               ORGANIZATION IS LINE SEQUENTIAL.
+       DATA DIVISION.
+       FILE SECTION.
+       FD OUT-FILE.
+       01 OUT-REC.
+           05 OUT-NAME PIC X(8).
+           05 OUT-AMT PIC 9(4).
+       PROCEDURE DIVISION.
+           OPEN OUTPUT OUT-FILE
+           MOVE "ALICE" TO OUT-NAME
+           MOVE 100 TO OUT-AMT
+           WRITE OUT-REC
+           MOVE "BOB" TO OUT-NAME
+           MOVE 200 TO OUT-AMT
+           WRITE OUT-REC
+           MOVE "CAROL" TO OUT-NAME
+           MOVE 300 TO OUT-AMT
+           WRITE OUT-REC
+           CLOSE OUT-FILE
+           DISPLAY "GENDATA WROTE 3"
+           STOP RUN.

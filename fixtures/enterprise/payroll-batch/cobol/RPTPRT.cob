@@ -1,0 +1,23 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RPTPRT.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT IN-FILE ASSIGN TO INDD
+               ORGANIZATION IS LINE SEQUENTIAL.
+       DATA DIVISION.
+       FILE SECTION.
+       FD IN-FILE.
+       01 IN-REC PIC X(12).
+       WORKING-STORAGE SECTION.
+       01 EOF-FLAG PIC X VALUE "N".
+       PROCEDURE DIVISION.
+           OPEN INPUT IN-FILE
+           PERFORM UNTIL EOF-FLAG = "Y"
+               READ IN-FILE
+                   AT END MOVE "Y" TO EOF-FLAG
+                   NOT AT END DISPLAY "LINE [" IN-REC "]"
+               END-READ
+           END-PERFORM
+           CLOSE IN-FILE
+           STOP RUN.

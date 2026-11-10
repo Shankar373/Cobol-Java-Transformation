@@ -298,14 +298,32 @@ def _proof_state_for(
     )
 
 
-def jcl_ledger_entry(jcl_status: str) -> DependencyLedgerEntry:
+def jcl_ledger_entry(jcl_status: str, verification: tuple[dict, ...] = ()) -> DependencyLedgerEntry:
     """Ledger entry for the JCL lane.
 
-    JCL modernization success only reaches PARTIAL: the job stream is parsed
-    and classified, but this repository has no JCL runtime lane, so a FULL
-    status can never be PROVEN.  Anything short of FULL is BLOCKED.
+    Without job-lane evidence JCL modernization success only reaches PARTIAL: the job stream is parsed and classified
+    but never executed, so a FULL status can never be PROVEN.  Anything short of FULL is BLOCKED.
+
+    ``verification`` is the job lane's result (``engine.jcl.job_lane.JobVerification.to_dict()`` per job). When the
+    status is FULL and every job ran on both sides with identical output, exit status and datasets, the entry is
+    PROVEN, and the reason keeps the grade of that proof: GnuCOBOL programs under the documented JCL semantics, not an
+    IBM JES run.
     """
     full = jcl_status == "FULL"
+    if full and verification and all(v.get("verdict") == "VERIFIED" for v in verification):
+        return DependencyLedgerEntry(
+            dependency_id=f"JCL:{jcl_status}",
+            kind=DependencyKind.JCL,
+            visible=True,
+            capability_level=CapabilityLevel.PARTIAL,
+            proof_state=ProofState.PROVEN,
+            required=True,
+            reason=(
+                f"{len(verification)} job(s) executed as generated Java runners and as a GnuCOBOL reference run with "
+                "identical output, exit status and datasets; the JCL semantics are the documented subset "
+                "(simulator-grade), not an IBM JES result"
+            ),
+        )
     return DependencyLedgerEntry(
         dependency_id=f"JCL:{jcl_status}",
         kind=DependencyKind.JCL,
@@ -328,6 +346,7 @@ def build_dependency_ledger(
     *,
     extra_dependencies: tuple[DependencyLedgerEntry, ...] = (),
     jcl_status: str = "NOT_PRESENT",
+    jcl_verification: tuple[dict, ...] = (),
 ) -> tuple[DependencyLedgerEntry, ...]:
     """Derive one ledger entry per declared dependency in the report.
 
@@ -389,7 +408,7 @@ def build_dependency_ledger(
         entries.append(entry)
 
     if jcl_status not in ("", "NOT_PRESENT"):
-        entry = jcl_ledger_entry(jcl_status)
+        entry = jcl_ledger_entry(jcl_status, jcl_verification)
         if entry.dependency_id not in seen:
             seen.add(entry.dependency_id)
             entries.append(entry)
