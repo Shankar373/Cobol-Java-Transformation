@@ -2078,11 +2078,11 @@ class CobolParser:
                     location=name,
                 )
             if edited is not None:
-                for clause, pattern, present in (
-                    ("VALUE", None, value_m is not None),
-                    ("OCCURS", None, occurs_m is not None),
-                    ("REDEFINES", None, redef_m is not None),
-                    ("USAGE", None, usage is not None),
+                for clause, present in (
+                    ("VALUE", value_m is not None),
+                    ("OCCURS", occurs_m is not None),
+                    ("REDEFINES", redef_m is not None),
+                    ("USAGE", usage is not None),
                 ):
                     if present:
                         self._diagnostics.warning(
