@@ -51,6 +51,10 @@ from engine.transformation.group_storage import (
     uncertified_file_records,
 )
 from engine.transformation.figurative import parse_figurative_constant
+from engine.transformation.numeric_edited import (
+    UnsupportedEditedPicture,
+    parse_numeric_edited,
+)
 from engine.transformation.redefines import build_redefines_plan, write_targets
 from engine.transformation.semantic_capability import canonical_usage
 from engine.transformation.sign_conditions import rewrite_sign_conditions
@@ -912,6 +916,7 @@ class CobolParser:
         # Validate that input contains a recognizable COBOL structure
         self._validate_program_structure(program, source)
         self._validate_redefines(program)
+        self._validate_numeric_edited_uses(program)
         self._validate_control_flow(program)
         self._validate_alternate_keys(program)
         self._validate_exit_perform(program)
@@ -1187,6 +1192,130 @@ class CobolParser:
                     "(GnuCOBOL decodes them compiler-specifically)"
                 )
         return None
+
+    def _validate_numeric_edited_uses(self, program: CobolProgram) -> None:
+        """Name every use of a numeric-edited item outside the certified ones.
+
+        Certified (``tests/integration/test_numeric_edited_oracle.py``): a
+        MOVE of a number (numeric item, numeric literal, ZERO) into the item;
+        DISPLAY of it; MOVE of it into an alphanumeric item (a character
+        copy); it as a STRING sending item.  Everything else - arithmetic,
+        conditions, other writers, MOVE of text into it, MOVE of it into a
+        numeric item (de-editing), INITIALIZE of a group holding it - has no
+        certified lowering and is reported so the program is classified
+        UNSUPPORTED instead of generating Java that treats the edited text
+        as a number.
+        """
+        def collect(items, out):
+            for item in items:
+                out[item.name.upper()] = item
+                collect(getattr(item, "children", ()) or (), out)
+
+        by_name: dict[str, DataItem] = {}
+        collect(program.working_storage, by_name)
+        collect(program.linkage_section, by_name)
+        for fd in program.file_definitions:
+            collect(fd.record_items, by_name)
+        edited = {n for n, item in by_name.items() if item.edit_pic}
+        if not edited:
+            return
+
+        def base_of(name: str) -> str:
+            return name.split("(", 1)[0].strip().upper()
+
+        def numeric_sender(source: object) -> bool:
+            text = str(source or "").strip()
+            if re.fullmatch(r"[+-]?\d*\.?\d+", text):
+                return True
+            if text.upper() in ("ZERO", "ZEROS", "ZEROES"):
+                return True
+            item = by_name.get(base_of(text))
+            return bool(item and item.is_numeric and not item.edit_pic)
+
+        def leaves(item):
+            kids = getattr(item, "children", ()) or ()
+            if not kids:
+                yield item
+            for kid in kids:
+                yield from leaves(kid)
+
+        def statement_text(stmt) -> str:
+            pieces: list[str] = []
+            for field in getattr(stmt, "__dataclass_fields__", {}):
+                value = getattr(stmt, field, None)
+                if isinstance(value, str):
+                    pieces.append(value)
+                elif isinstance(value, (tuple, list)):
+                    pieces.extend(v for v in value if isinstance(v, str))
+            return " ".join(pieces).upper()
+
+        def mentions(stmt) -> set[str]:
+            text = statement_text(stmt)
+            return {
+                name for name in edited
+                if re.search(rf"(?<![A-Z0-9-]){re.escape(name)}(?![A-Z0-9-])", text)
+            }
+
+        def walk(statements):
+            for stmt in statements:
+                yield stmt
+                for attr in (
+                    "body", "then_body", "else_body", "at_end_body",
+                    "not_at_end_body", "invalid_key_body",
+                    "not_invalid_key_body", "size_error_body",
+                    "not_size_error_body",
+                ):
+                    nested = getattr(stmt, attr, None)
+                    if nested:
+                        yield from walk(nested)
+
+        def refuse(name: str, why: str) -> None:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"numeric-edited item {name}: {why} has no certified lowering",
+                location=name,
+            )
+
+        for para in program.paragraphs:
+            for stmt in walk(para.statements):
+                verb = type(stmt).__name__.replace("Statement", "").upper()
+                written = {
+                    base_of(t) for t in dict.fromkeys(write_targets(stmt))
+                } & edited
+                for name in sorted(written):
+                    if verb == "MOVE" and numeric_sender(stmt.source):
+                        continue
+                    if verb == "MOVE":
+                        refuse(name, "MOVE of text or an edited value into it")
+                    else:
+                        refuse(name, f"{verb} writing it (only a MOVE of a number is certified)")
+                if verb == "INITIALIZE":
+                    for target in write_targets(stmt):
+                        item = by_name.get(base_of(target))
+                        if item is not None and any(
+                            leaf.edit_pic for leaf in leaves(item)
+                        ):
+                            refuse(item.name.upper(), "INITIALIZE of an item that holds it")
+                read = mentions(stmt) - written
+                if not read or verb in ("DISPLAY", "INITIALIZE"):
+                    continue
+                if verb == "STRING":
+                    continue  # sending item: its characters (target handled above)
+                if verb == "MOVE" and base_of(stmt.source) in read:
+                    targets = stmt.targets or ((stmt.target,) if stmt.target else ())
+                    bad = [
+                        t for t in targets
+                        if (lambda item: item is None or item.is_numeric or item.edit_pic)(
+                            by_name.get(base_of(t))
+                        )
+                    ]
+                    if not bad:
+                        continue
+                    for name in sorted(read):
+                        refuse(name, "MOVE into a numeric or edited item (de-editing)")
+                    continue
+                for name in sorted(read):
+                    refuse(name, f"use in {verb} (only MOVE, DISPLAY and STRING are certified)")
 
     def _validate_redefines(self, program: CobolProgram) -> None:
         """Name every REDEFINES the deterministic lane cannot certify.
@@ -1886,10 +2015,34 @@ class CobolParser:
                     location=name,
                 )
                 continue
+            pic = re.search(
+                r"\bPIC(?:TURE)?\s+(?:IS\s+)?(\S+?)\.?(?=\s|$)", clauses, re.IGNORECASE
+            )
+            edited = None
+            if pic:
+                try:
+                    edited = parse_numeric_edited(pic.group(1))
+                except UnsupportedEditedPicture as exc:
+                    raise CobolParseError(
+                        f"Unsupported numeric-edited PIC clause: {pic.group(1).upper()} ({exc})"
+                    ) from exc
+            if edited is not None:
+                pic_type, pic_length, decimals = (
+                    PicType.ALPHANUMERIC, edited.width, 0
+                )
+            elif pic:
+                pic_type, pic_length, decimals = self._parse_pic_details(pic.group(1))
+            else:
+                pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
+            blank_when_zero = bool(re.search(
+                r"\bBLANK\s+(?:WHEN\s+)?ZEROE?S?\b", clauses, re.IGNORECASE
+            ))
             for clause, pattern in (
                 ("JUSTIFIED", r"\bJUST(?:IFIED)?\b"),
                 ("BLANK WHEN ZERO", r"\bBLANK\s+(?:WHEN\s+)?ZEROE?S?\b"),
             ):
+                if clause == "BLANK WHEN ZERO" and edited is not None and not edited.has_star:
+                    continue  # certified for numeric-edited items (not with *)
                 if re.search(pattern, clauses, re.IGNORECASE):
                     self._diagnostics.warning(
                         DiagnosticCode.UNSUPPORTED_CONSTRUCT,
@@ -1897,11 +2050,6 @@ class CobolParser:
                         "content and has no certified lowering",
                         location=name,
                     )
-            pic = re.search(r"\bPIC(?:TURE)?\s+([A-Z0-9()V+\-]+)", clauses, re.IGNORECASE)
-            if pic:
-                pic_type, pic_length, decimals = self._parse_pic_details(pic.group(1))
-            else:
-                pic_type, pic_length, decimals = PicType.ALPHANUMERIC, 0, 0
             value_m = re.search(r"(?:^|\s)VALUE\s+(.+?)(?=\s+(?:PIC|OCCURS|REDEFINES|VALUE)\b|\.$|$)", clauses, re.IGNORECASE)
             occurs_m = re.search(r"\bOCCURS\s+(\d+)", clauses, re.IGNORECASE)
             odo_m = re.search(
@@ -1929,10 +2077,26 @@ class CobolParser:
                     "lowering",
                     location=name,
                 )
+            if edited is not None:
+                for clause, pattern, present in (
+                    ("VALUE", None, value_m is not None),
+                    ("OCCURS", None, occurs_m is not None),
+                    ("REDEFINES", None, redef_m is not None),
+                    ("USAGE", None, usage is not None),
+                ):
+                    if present:
+                        self._diagnostics.warning(
+                            DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                            f"{clause} on numeric-edited item {name} has no "
+                            "certified lowering",
+                            location=name,
+                        )
             parsed.append((level, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
-                signed=self._pic_is_signed(pic.group(1)) if pic else False,
+                edit_pic=edited.expanded if edited is not None else None,
+                blank_when_zero=bool(edited is not None and blank_when_zero),
+                signed=self._pic_is_signed(pic.group(1)) if pic and edited is None else False,
                 value=(
                     rest[value_m.start(1):value_m.end(1)].strip().rstrip(".")
                     if value_m else None
@@ -1984,6 +2148,8 @@ class CobolParser:
                 usage=node.item.usage,
                 indexed_by=node.item.indexed_by,
                 key_order=node.item.key_order,
+                edit_pic=node.item.edit_pic,
+                blank_when_zero=node.item.blank_when_zero,
                 children=tuple(freeze(child) for child in node.children),
             )
 

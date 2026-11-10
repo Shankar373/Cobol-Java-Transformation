@@ -661,6 +661,63 @@ def _group_move_statements(source: str, target: str, program) -> list[JavaStatem
     ]
 
 
+def _edited_default(item: DataItem) -> JavaExpression:
+    """Initial value of a numeric-edited item: the edited zero (oracle-pinned:
+    an uninitialised ``PIC ZZ,ZZ9.99`` item displays ``     0.00``)."""
+    return _edit_call(
+        JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.DECIMAL)),
+        0, item,
+    )
+
+
+def _edit_call(value: JavaExpression, scale: int, item: DataItem) -> JavaExpression:
+    return JavaMethodCall(
+        class_name="CobolEdit", method_name="edit", is_static=True,
+        arguments=(
+            value,
+            _int_lit(scale),
+            _str_lit(item.edit_pic or ""),
+            JavaLiteral(value="true" if item.blank_when_zero else "false"),
+        ),
+    )
+
+
+def _edited_move_expression(
+    source: str,
+    source_expr: JavaExpression,
+    item: DataItem,
+    program,
+) -> JavaExpression:
+    """MOVE of a number into a numeric-edited item (certified subset).
+
+    The sender is a numeric literal, ZERO, or a numeric item; ``CobolEdit``
+    receives its exact value and its declared scale (GnuCOBOL aligns the
+    sender's digits on the decimal point and truncates, never rounds).
+    Anything else is refused here too - the parser already reports it.
+    """
+    text = source.strip()
+    if re.fullmatch(r"[+-]?\d*\.?\d+", text):
+        scale = len(text.split(".", 1)[1]) if "." in text else 0
+        return _edit_call(
+            _promote_numeric_expression_to_decimal(source_expr, program), scale, item
+        )
+    if text.upper() in ("ZERO", "ZEROS", "ZEROES"):
+        return _edit_call(
+            JavaLiteral(value="0", java_type=JavaType(basic_type=JavaBasicType.DECIMAL)),
+            0, item,
+        )
+    sender = _find_data_item(program, text)
+    if sender is not None and sender.is_numeric and not sender.edit_pic:
+        return _edit_call(
+            _promote_numeric_expression_to_decimal(source_expr, program),
+            sender.decimal_places, item,
+        )
+    return JavaUnsupportedExpression(
+        source_expression=f"MOVE {source} TO {item.name}",
+        reason="only a number may be moved into a numeric-edited item",
+    )
+
+
 def _alphanumeric_to_numeric(
     source: str,
     source_expr: JavaExpression,
@@ -4801,6 +4858,17 @@ def map_cobol_statement(
                 continue
             expression = source
             item = _find_data_item(program, move_target)
+            if item is not None and item.edit_pic:
+                result.append(JavaAssignment(
+                    target=cobol_reference_to_java_source(move_target),
+                    expression=(
+                        # a reference-modified sender into an edited receiver is not certified
+                        _refmod_unsupported(stmt.source, "an edited receiver is not certified")
+                        if refmod_source is not None
+                        else _edited_move_expression(stmt.source, source, item, program)
+                    ),
+                ))
+                continue
             if refmod_source is not None and item is not None and item.is_numeric:
                 # a reference-modified sender into a numeric receiver is not certified
                 result.append(JavaAssignment(
@@ -6473,7 +6541,10 @@ def map_cobol_data_items_to_fields(
             default = '"' + _java_quote(view.initial) + '"'
         else:
             default = map_pic_to_java_default(item)
-        if dimensions:
+        if item.edit_pic and not dimensions:
+            java_type = element_type
+            initializer = _edited_default(item)
+        elif dimensions:
             java_type = _array_java_type(element_type, dimensions)
             initializer = _array_initializer(element_type, dimensions, default)
         else:

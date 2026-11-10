@@ -110,11 +110,25 @@ class SpringBootGenerator(JavaSourceRenderer):
         emitted_cobol_flow = False
         emitted_cobol_packed = False
         emitted_cobol_ref = False
+        emitted_cobol_edit = False
         for service, service_file in zip(application.services, service_files):
             if (emitted_cobol_file_io and emitted_cobol_stdin and emitted_cobol_inspect
                     and emitted_cobol_sql and emitted_cobol_sort and emitted_cobol_flow
-                    and emitted_cobol_packed and emitted_cobol_ref):
+                    and emitted_cobol_packed and emitted_cobol_ref and emitted_cobol_edit):
                 break
+            if not emitted_cobol_edit and "CobolEdit." in service_file.source_code:
+                # Numeric-edited MOVE / initialiser references the shared
+                # CobolEdit helper; emit it in the referencing service's package.
+                from engine.transformation.edit_support_template import COBOL_EDIT_JAVA
+                package = service.package
+                path = f"src/main/java/{package.replace('.', '/')}/CobolEdit.java"
+                files.append(GeneratedFile(
+                    filename="CobolEdit.java",
+                    source_code=f"package {package};\n\n{COBOL_EDIT_JAVA}\n",
+                    class_name="CobolEdit",
+                    path=path,
+                ))
+                emitted_cobol_edit = True
             if not emitted_cobol_file_io and (
                 "CobolFileIo." in service_file.source_code or "CobolSort." in service_file.source_code
             ):

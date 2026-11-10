@@ -159,11 +159,11 @@ def test_supported_construct_is_proven_against_gnucobol(construct):
 
 
 def test_certified_corpus_is_the_accepted_one():
-    # 44 of 54 on each of the four runtimes, all re-checked AGREE.
+    # 45 of 55 on each of the four runtimes, all re-checked AGREE.
     certified = _certified_apps()
-    assert len(certified) == 44
+    assert len(certified) == 45
     for runtime in RUNTIMES:
-        assert len(_jsonl(f"runtime_corpus_{runtime}.jsonl")) == 54
+        assert len(_jsonl(f"runtime_corpus_{runtime}.jsonl")) == 55
 
 
 def test_partial_claims_found_false_are_not_supported():

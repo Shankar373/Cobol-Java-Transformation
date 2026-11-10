@@ -184,6 +184,9 @@ class JavaGenerator(JavaSourceRenderer):
         uses_cobol_flow_stmt = False
         uses_cobol_packed_stmt = False
         uses_cobol_ref_stmt = False
+        # Field initialisers (the edited zero of a numeric-edited item) call
+        # CobolEdit too, so the declarations count as well as the statements.
+        uses_cobol_edit = "CobolEdit." in declarations
 
         for method in java_class.methods:
             method_stmts: list[str] = []
@@ -209,6 +212,8 @@ class JavaGenerator(JavaSourceRenderer):
                         uses_cobol_packed_stmt = True
                     if "CobolRef." in stmt_str:
                         uses_cobol_ref_stmt = True
+                    if "CobolEdit." in stmt_str:
+                        uses_cobol_edit = True
 
             if method.name == "main":
                 main_body = "".join(f"        {s}\n" for s in method_stmts)
@@ -259,6 +264,11 @@ class JavaGenerator(JavaSourceRenderer):
         if uses_cobol_flow_stmt:
             from engine.transformation.flow_support_template import COBOL_FLOW_JAVA
             support_code += "\n" + COBOL_FLOW_JAVA + "\n"
+        if uses_cobol_edit:
+            # Numeric-edited MOVE (and the edited zero initialiser) call the
+            # shared CobolEdit helper; emit it next to the program class.
+            from engine.transformation.edit_support_template import COBOL_EDIT_JAVA
+            support_code += "\n" + COBOL_EDIT_JAVA + "\n"
         if uses_file_write:
             file_write_imports = (
                 "import java.io.FileWriter;\n"
