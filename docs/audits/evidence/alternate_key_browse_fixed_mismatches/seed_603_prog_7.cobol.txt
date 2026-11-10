@@ -1,0 +1,15 @@
+open 00
+w0 00
+w1 00
+w2 02
+open2 00
+s0 rk 23 AA K3 w2 U1
+s1 ra 23 BB K3 w2 U1
+s2 s 00
+s3 rk 00 AA K2 w2 U1
+s4 ra 23 CC K2 w2 U1
+s5 n 10 CC K2 w2 U1
+s6 sp 00
+s7 rk 00 DD K4 w1 U7
+s8 s 00
+s9 d 23

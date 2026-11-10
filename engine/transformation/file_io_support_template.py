@@ -400,7 +400,18 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             // a failed keyed READ names its key as the key of reference; each key keeps its own cursor, and the
             // end-of-file condition survives it: after a READ NEXT reached the end (10) the next READ NEXT answers 46
             // (oracle-pinned, tests/integration/test_alternate_key_browse_oracle.py)
+            boolean atEnd = endReachedOnAnyKey(path);
+            // an alternate-key START still pending when a primary READ fails: the primary cursor goes back to its
+            // current record, unread, so the next READ NEXT returns that record again (oracle-pinned)
+            Integer along = REF.get(path);
+            if (along != null && along > 0 && PENDOP.containsKey(path + "#" + along) && CURSOR.get(path) != null) {
+                PENDOP.put(path, CURSOR.get(path));
+                PENDKEY.put(path, CURSOR.get(path));
+            }
             REF.remove(path);
+            if (atEnd) {
+                EOFS.add(path);
+            }
             return null;
         }
         clearEof(path);
@@ -408,6 +419,16 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         REF.remove(path);
         PENDOP.remove(path);
         PENDKEY.remove(path);
+        // a successful primary READ consumes an alternate-key START that is still pending: the alternate cursor stays
+        // on that entry, read, and a later READ NEXT along that key continues after it (oracle-pinned)
+        for (int i = 1; i <= 3; i++) {
+            String pendKey = PENDKEY.remove(path + "#" + i);
+            Long pendSeq = PENDSEQ.remove(path + "#" + i);
+            if (PENDOP.remove(path + "#" + i) != null && pendKey != null && pendSeq != null) {
+                ACURK.put(path + "#" + i, pendKey);
+                ACURS.put(path + "#" + i, pendSeq);
+            }
+        }
         CURSOR.put(path, e.getKey());
         return pad(e.getKey(), kl, false) + (e.getValue() == null ? "" : e.getValue());
     }
@@ -664,7 +685,20 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         Integer klI = KEYLEN.get(path);
         LASTKEY.put(path, keyOf(rec, klI == null ? 0 : klI));
         RSTAT.put(path, "00");
+        Integer along = REF.get(path);
+        if (along != null && along > 0) {
+            consumePrimaryPending(path);  // reading along an alternate key, not START alone, consumes it
+        }
         return rec;
+    }
+
+    /** True when a READ NEXT reached the end along any key: the condition holds for the file, not for one key. */
+    private static boolean endReachedOnAnyKey(String path) {
+        boolean atEnd = EOFS.contains(path);
+        for (int i = 1; i <= 3 && !atEnd; i++) {
+            atEnd = EOFS.contains(path + "#" + i);
+        }
+        return atEnd;
     }
 
     private static void clearEof(String path) {
@@ -687,12 +721,13 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         java.util.TreeMap<String, String> m = IDX.get(path);
         if (ref != null && ref > 0) {
             String cursorKey = path + "#" + ref;
-            if (m != null && m.containsKey(target)) {
-                // the record is still there: it is the cursor entry, wherever its alternate value has moved it
-                int[] spec = ALTS.get(path).get(ref - 1);
-                String value = altValue(imageOf(path, target), spec);
+            int[] spec = ALTS.get(path).get(ref - 1);
+            if (m != null && m.containsKey(target) && altValue(imageOf(path, target), spec).equals(key)) {
+                // the record is still there with the value the START selected: it is the cursor entry. A record whose
+                // alternate value was changed since (REWRITE) has left the entry, like a deleted one: the cursor stays
+                // at its place and the READ NEXT continues after it (oracle-pinned)
                 long[] all = SEQN.get(path) == null ? null : SEQN.get(path).get(target);
-                ACURK.put(cursorKey, value);
+                ACURK.put(cursorKey, key);
                 ACURS.put(cursorKey, all == null ? seq : all[ref - 1]);
                 return imageOf(path, target);
             }
@@ -975,10 +1010,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
             // the key of reference changes, the cursor of that key stays where it was; a failed alternate READ does
             // not clear the end-of-file condition, which holds for the file whatever the key: the next READ NEXT
             // answers 46 when an earlier READ NEXT reached the end (oracle-pinned)
-            boolean atEnd = EOFS.contains(path);
-            for (int i = 1; i <= 3 && !atEnd; i++) {
-                atEnd = EOFS.contains(path + "#" + i);
-            }
+            boolean atEnd = endReachedOnAnyKey(path);
             REF.put(path, ord);
             if (atEnd) {
                 EOFS.add(eofKey(path));
@@ -989,13 +1021,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         }
         java.util.Map.Entry<Long, String> first = same.firstEntry();
         REF.put(path, ord);
-        // a successful alternate READ consumes the primary cursor's unread position (the first record at OPEN): a
-        // later READ NEXT along the primary key continues after it (oracle-pinned, tests/integration/test_alternate_key_browse_oracle.py)
-        String primaryPending = PENDOP.remove(path);
-        PENDKEY.remove(path);
-        if (primaryPending != null) {
-            CURSOR.put(path, primaryPending);
-        }
+        consumePrimaryPending(path);
         PENDOP.remove(path + "#" + ord);
         PENDKEY.remove(path + "#" + ord);
         PENDSEQ.remove(path + "#" + ord);
@@ -1004,6 +1030,17 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
         clearEof(path);
         NOPOS.remove(path);
         return imageOf(path, first.getValue());
+    }
+
+    /** Reading along an alternate key (a successful alternate READ, or a READ NEXT that returns a record) consumes the
+     *  primary cursor's unread position (the first record at OPEN): a later READ NEXT along the primary key continues after it (oracle-pinned,
+     *  tests/integration/test_alternate_key_browse_oracle.py). */
+    private static void consumePrimaryPending(String path) {
+        String primaryPending = PENDOP.remove(path);
+        PENDKEY.remove(path);
+        if (primaryPending != null) {
+            CURSOR.put(path, primaryPending);
+        }
     }
 
     private static String readNextAlt(String path, int ord) {

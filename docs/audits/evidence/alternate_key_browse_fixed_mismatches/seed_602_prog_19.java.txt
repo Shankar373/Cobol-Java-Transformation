@@ -1,0 +1,19 @@
+open 00
+w0 00
+w1 22
+w2 00
+w3 00
+w4 02
+w5 22
+open2 00
+s0 sp 23
+s1 s 00
+s2 rk 00 BB w3 U2 K1
+s3 s 00
+s4 rw 02
+s5 w 22
+s6 d 23
+s7 n 00 BB r4 U5 K2
+s8 n 10 BB r4 U5 K2
+s9 n 46 BB r4 U5 K2
+s10 sp 00

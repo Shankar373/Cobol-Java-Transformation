@@ -74,7 +74,9 @@ def test_the_lowering_registers_the_keys_and_reads_through_the_alternate_index()
     ({"status": ""}, "no FILE STATUS clause"),
     ({"fields": "           05 KF-ALT PIC X(2).\n"}, "KF-UNQ is not a single elementary field"),
     ({"fields": "           05 KF-ALT PIC 9(2).\n           05 KF-UNQ PIC X(2).\n"}, "is numeric"),
-    ({"extra": "           START KF KEY >= KF-ALT\n"}, "START on a file with alternate keys is not certified"),
+    ({"extra": "           START KF KEY < KF-ALT\n"}, "START ... KEY < KF-ALT is not certified"),
+    ({"extra": "           START KF KEY <= KF-KEY\n"}, "START ... KEY <= KF-KEY is not certified"),
+    ({"extra": "           START KF KEY >= KF-DATA\n"}, "is not a record key"),
     ({"extra": "           READ KF KEY IS KF-DATA\n"}, "is not a record key"),
 ])
 def test_forms_outside_the_subset_are_refused_by_name(kwargs, why):
@@ -107,3 +109,41 @@ def test_the_runtime_template_defines_the_alternate_key_contract():
     # 02 for a duplicate of a WITH DUPLICATES key, 22 for a unique one, write order ranks duplicates
     assert 'status = "02";' in COBOL_FILE_IO_JAVA and 'return "22";' in COBOL_FILE_IO_JAVA
     assert "no position" in COBOL_FILE_IO_JAVA and "NOPOS" in COBOL_FILE_IO_JAVA
+
+
+BROWSING = "           START KF KEY >= KF-ALT\n           READ KF NEXT\n           READ KF NEXT\n"
+
+
+@pytest.mark.parametrize("extra", [
+    BROWSING,
+    "           START KF KEY = KF-UNQ\n           START KF KEY > KF-KEY\n           READ KF NEXT\n",
+    "           START KF KEY < KF-KEY\n           READ KF NEXT\n",
+])
+def test_browsing_in_the_proven_shape_is_certified(extra):
+    program, diagnostics = _program(extra=extra)
+    assert diagnostics == [] and alternate_key_problem(program, program.file_definitions[0]) == ""
+
+
+@pytest.mark.parametrize("kwargs, why", [
+    ({"access": "RANDOM", "extra": BROWSING}, "only with ACCESS MODE DYNAMIC"),
+    ({"fields": "           05 KF-ALT PIC X(3).\n           05 KF-UNQ PIC X(2).\n", "extra": BROWSING},
+     "three or four PIC X(2) fields"),
+    ({"fields": "           05 KF-ALT PIC X(2).\n           05 KF-UNQ PIC X(2).\n           05 F1 PIC X(2).\n"
+                "           05 F2 PIC X(2).\n", "extra": BROWSING}, "three or four PIC X(2) fields"),
+    ({"extra": "           CLOSE KF\n           OPEN INPUT KF\n" + BROWSING}, "opened OUTPUT or I-O, not INPUT"),
+    ({"extra": "           READ KF NEXT AT END DISPLAY \"END\"\n           END-READ\n"}, "AT END / INVALID KEY phrases"),
+    ({"extra": "           READ KF NEXT INTO KF-REC\n"}, "without READ ... INTO"),
+])
+def test_browsing_outside_the_proven_shape_is_refused_by_name(kwargs, why):
+    program, _ = _program(**kwargs)
+    problem = alternate_key_problem(program, program.file_definitions[0])
+    assert why in problem, problem
+
+
+def test_browsing_needs_exactly_two_alternate_keys_one_duplicate_and_one_unique():
+    one = _source(extra=BROWSING).replace("               ALTERNATE RECORD KEY IS KF-UNQ\n", "")
+    program = CobolParser().parse(one)
+    assert "exactly two alternate keys" in alternate_key_problem(program, program.file_definitions[0])
+    two_duplicates = _source(extra=BROWSING).replace("KF-UNQ\n", "KF-UNQ WITH DUPLICATES\n", 1)
+    program = CobolParser().parse(two_duplicates)
+    assert "one WITH DUPLICATES and one unique" in alternate_key_problem(program, program.file_definitions[0])

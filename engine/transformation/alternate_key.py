@@ -6,11 +6,15 @@ Certified, proven against GnuCOBOL 3.1.2 in ``tests/integration/test_alternate_k
   DISPLAY leaf of the record (WITH DUPLICATES or not) that is not the primary key;
 * WRITE (status 02 for a duplicate of a WITH DUPLICATES key, 22 for a duplicate of a unique one), REWRITE, DELETE and
   ``READ ... KEY IS <primary or alternate key>`` (the first duplicate, in write order);
+* browsing (START, READ NEXT) in the shape ``tests/integration/test_alternate_key_browse_oracle.py`` sweeps against
+  GnuCOBOL 3.1.2 (18 seeds, 450 programs, 0 mismatches): ACCESS MODE DYNAMIC, exactly two alternate keys (one WITH
+  DUPLICATES, one unique), every field of the record ``PIC X(2)``, FILE STATUS only (no AT END / INVALID KEY phrases, no
+  READ INTO), files opened OUTPUT or I-O, START with ``= > >=`` on an alternate key and ``= > >= <`` on the primary key;
 * refused by name: other access modes, no FILE STATUS, binary (COMP / COMP-3) records, a key that is not a leaf, a
-  numeric alternate key, ``READ ... KEY IS`` naming a field that is not a record key, and **any START or READ NEXT on
-  the file**. Browsing along an alternate key is implemented in ``CobolFileIo`` but not certified: a wider differential
-  sweep (150 programs) found about 5% whose READ NEXT after a *failed* keyed READ or START lands on a different record
-  or status (46 versus 10) than GnuCOBOL, because the position state of its per-key cursors is not fully reproduced.
+  numeric alternate key, ``READ ... KEY IS`` naming a field that is not a record key, and every browsing program outside
+  the shape above (the reason names what differs). Browsing was first refused after a 150-program sweep found about 5%
+  of programs whose READ NEXT after a *failed* keyed READ or START landed on a different record or status than
+  GnuCOBOL; the position rules the sweeps established are pinned in ``tests/integration``.
 """
 
 from __future__ import annotations
@@ -20,14 +24,17 @@ from engine.transformation.ir import (
     FileAccessMode,
     FileDefinition,
     FileOrganization,
+    OpenStatement,
     ReadStatement,
     StartStatement,
 )
 
 MAX_ALTERNATE_KEYS = 3
 
-#: Browsing (START / READ NEXT) is refused until its differential sweep is clean; the sweep lifts this switch.
-BROWSING_GATE_ENABLED = True
+#: START operators the browsing sweep covers, per key kind; any other operator is refused.
+PROVEN_START_ON_ALTERNATE = ("=", ">", ">=")
+PROVEN_START_ON_PRIMARY = ("=", ">", ">=", "<")
+PROVEN_KEY_WIDTH = 2
 
 
 def alternate_key_names(fd: FileDefinition) -> list[str]:
@@ -39,6 +46,43 @@ def alternate_ordinal(fd: FileDefinition, name: str) -> int:
     wanted = (name or "").strip().upper()
     names = alternate_key_names(fd)
     return names.index(wanted) + 1 if wanted in names else 0
+
+
+def _browsing_shape_problem(fd: FileDefinition, leaves: list, statements: list) -> str:
+    """Why browsing (START / READ NEXT) on this file is outside the shape the sweep proved ("" when inside it)."""
+    if fd.access_mode is not FileAccessMode.DYNAMIC:
+        return "browsing along a key is certified only with ACCESS MODE DYNAMIC"
+    if len(fd.alternate_keys) != 2 or sorted(k.is_duplicated for k in fd.alternate_keys) != [False, True]:
+        return "browsing is certified only with exactly two alternate keys, one WITH DUPLICATES and one unique"
+    if not 3 <= len(leaves) <= 4 or any(not (i.is_alphanumeric and i.pic_length == PROVEN_KEY_WIDTH) for i in leaves):
+        return f"browsing is certified only for records of three or four PIC X({PROVEN_KEY_WIDTH}) fields"
+    for stmt in statements:
+        if isinstance(stmt, OpenStatement):
+            if stmt.mode.upper() not in ("OUTPUT", "I-O"):
+                return f"browsing is certified only for files opened OUTPUT or I-O, not {stmt.mode.upper()}"
+        elif isinstance(stmt, ReadStatement):
+            if stmt.at_end_body or stmt.not_at_end_body or stmt.invalid_key_body or stmt.not_invalid_key_body:
+                return "browsing is certified with FILE STATUS only: AT END / INVALID KEY phrases are not"
+            if stmt.into_field:
+                return "browsing is certified without READ ... INTO"
+        elif stmt.invalid_key_body or stmt.not_invalid_key_body:
+            return "browsing is certified with FILE STATUS only: INVALID KEY phrases on START are not"
+    return ""
+
+
+def _start_problem(stmt: StartStatement, primary: str, alternate_names: list[str]) -> str:
+    key = (stmt.key or "").strip().upper()
+    operator = (stmt.operator or "=").strip()
+    proven: tuple[str, ...]
+    if key in alternate_names:
+        proven = PROVEN_START_ON_ALTERNATE
+    elif key == primary:
+        proven = PROVEN_START_ON_PRIMARY
+    else:
+        return f"START KEY {key} is not a record key"
+    if operator not in proven:
+        return f"START ... KEY {operator} {key} is not certified (proven: {', '.join(proven)})"
+    return ""
 
 
 def alternate_key_problem(program: object, fd: FileDefinition) -> str:
@@ -73,16 +117,28 @@ def alternate_key_problem(program: object, fd: FileDefinition) -> str:
         if leaf.is_numeric:
             return f"alternate key {name} is numeric (only alphanumeric alternate keys are certified)"
     keys = {primary, *names}
-    for paragraph in getattr(program, "paragraphs", ()):
-        for stmt in walk_statements(paragraph.statements):
-            if not isinstance(stmt, (ReadStatement, StartStatement)) or stmt.file_name != fd.name:
-                continue
-            if isinstance(stmt, StartStatement):
-                if BROWSING_GATE_ENABLED:
-                    return "START on a file with alternate keys is not certified (browsing along a key)"
-            elif BROWSING_GATE_ENABLED and stmt.read_next:
-                return "READ NEXT on a file with alternate keys is not certified (browsing along a key)"
-            key = (stmt.key or "").strip().upper()
-            if key and key not in keys:
-                return f"READ ... KEY IS {key} is not a record key"
+    statements = [
+        stmt
+        for paragraph in getattr(program, "paragraphs", ())
+        for stmt in walk_statements(paragraph.statements)
+        if isinstance(stmt, (ReadStatement, StartStatement, OpenStatement)) and stmt.file_name == fd.name
+    ]
+    browses = any(
+        isinstance(stmt, StartStatement) or (isinstance(stmt, ReadStatement) and stmt.read_next)
+        for stmt in statements
+    )
+    if browses:
+        problem = _browsing_shape_problem(fd, leaves, statements)
+        if problem:
+            return problem
+    for stmt in statements:
+        if isinstance(stmt, OpenStatement):
+            continue
+        if isinstance(stmt, StartStatement):
+            problem = _start_problem(stmt, primary, names)
+            if problem:
+                return problem
+        key = (stmt.key or "").strip().upper()
+        if key and key not in keys:
+            return f"READ ... KEY IS {key} is not a record key"
     return ""
