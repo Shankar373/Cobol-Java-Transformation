@@ -41,7 +41,6 @@ Commit SHAs and the CI / supply-chain / certification run IDs for every row are 
 | GO TO ... DEPENDING ON (38) | yes | yes | GnuCOBOL (seeded fuzz) | | yes | subscripted or qualified selector, altered GO TO |
 | JCL job runner generated with the application (39) | yes | yes | GnuCOBOL (one fixture) + simulator-grade JCL | | yes | Spring Boot target, IF/THEN/ELSE, PDS members, validation-lane execution |
 | JCL job verification lane (40) | yes | yes | GnuCOBOL reference driver + simulator-grade JCL | | yes | IDCAMS / GDG jobs, IF/THEN/ELSE, abends, Spring Boot target, job-driven replacement of the standalone entry lane |
-| `SEARCH` (9) | | | | | | not implemented; refused. Needs INDEXED BY / SET index support |
 | Numeric-edited PIC (9) | WIP, uncommitted | partly | | | no | **authorization to merge** (`feat/phase3-coverage`) |
 | `EXEC SQL` as IR (10) | yes | yes | | | analysis only | |
 | `DatabaseDialect` DB2 / PostgreSQL (11) | yes | yes (table-driven) | | | used by the SQL lowering | dialects beyond PostgreSQL: owner decision |

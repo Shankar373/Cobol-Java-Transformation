@@ -505,11 +505,12 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
     "RECORD KEY": _supported(
         "RECORD KEY IS parses to FileDefinition.record_key and supplies the "
         "key length for keyed OPEN/WRITE/READ/REWRITE/DELETE/START. Certified "
-        "subset: a primary key beginning at offset 0 in the record area "
-        "(byte-identical to GnuCOBOL 3.1.2 in both shipped fixtures). "
-        "ALTERNATE RECORD KEY is parsed but never lowered to an alternate "
-        "index and is reported UNSUPPORTED per instance. Behavioral "
-        "equivalence is PROVEN for the certified subset.",
+        "subset: a primary key at any position in the record area (roadmap "
+        "unit 29) and an ALTERNATE RECORD KEY for random access (unit 30), "
+        "byte-identical to GnuCOBOL 3.1.2 in seeded fuzz. START / READ "
+        "NEXT on a file with alternate keys is refused by name (known ~5% "
+        "divergence in the position after a failed keyed READ). "
+        "Behavioral equivalence is PROVEN for the certified subset only.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "ROUNDED": _supported(
