@@ -230,7 +230,7 @@ def _create_uploaded_app(name: str) -> str:
 
     resp = client.post(
         "/applications",
-        json={"name": name, "workload_id": "wl-single-flight"},
+        json={ "target_runtime": "spring_boot","name": name, "workload_id": "wl-single-flight"},
     )
     app_id = resp.json()["id"]
     upload = client.post(

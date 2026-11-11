@@ -29,6 +29,7 @@ describe('API client', () => {
     const result = await createApplication({
       name: 'test',
       workload_id: 'wl-1',
+      target_runtime: 'quarkus',
     });
 
     expect(result.id).toBe('app-123');

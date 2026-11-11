@@ -43,7 +43,7 @@ def _zip(entries: dict[str, str]) -> bytes:
 
 
 def _ingested_app(entries: dict[str, str]) -> str:
-    response = client.post("/applications", json={"name": "estate", "workload_id": "estate-wl"})
+    response = client.post("/applications", json={ "target_runtime": "spring_boot","name": "estate", "workload_id": "estate-wl"})
     assert response.status_code == 201, response.text
     app_id = response.json()["id"]
     ingest = client.post(
@@ -84,7 +84,7 @@ def test_the_endpoint_is_read_only_and_repeatable():
 
 
 def test_no_workspace_and_unknown_application_are_404():
-    created = client.post("/applications", json={"name": "empty", "workload_id": "w"})
+    created = client.post("/applications", json={ "target_runtime": "spring_boot","name": "empty", "workload_id": "w"})
     assert client.get(f"/applications/{created.json()['id']}/estate").status_code == 404
     assert client.get("/applications/app-ghost/estate").status_code == 404
 

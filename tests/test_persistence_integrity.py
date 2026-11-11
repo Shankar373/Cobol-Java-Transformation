@@ -275,7 +275,7 @@ class TestFailClosedDecoding:
     def test_corrupt_string_list_rejected(self, _reset_store):
         store = _reset_store
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-1",
                 name="n",
                 description="",

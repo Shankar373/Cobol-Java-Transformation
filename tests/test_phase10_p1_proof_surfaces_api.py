@@ -77,7 +77,7 @@ def fresh_service():
 
 
 def _seed_run_with_report(svc, report: dict) -> object:
-    app_rec = svc.create_application(
+    app_rec = svc.create_application( target_runtime="spring_boot",
         name="proof-p1", description="", workload_id="wl-proof",
         java_entrypoint="Main",
     )
@@ -154,7 +154,7 @@ class TestArtifactsFailClosed:
 
     def test_invalid_manifest_fails_artifacts_closed(self, fresh_service):
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="artifacts-p1", description="", workload_id="wl-art",
             java_entrypoint="Main",
         )
@@ -180,7 +180,7 @@ class TestArtifactsFailClosed:
 
     def test_valid_manifest_still_serves_artifacts(self, fresh_service):
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="artifacts-ok", description="", workload_id="wl-art",
             java_entrypoint="Main",
         )
@@ -202,7 +202,7 @@ class TestFallbackCarriesPlatformEdges:
         svc = fresh_service
         (tmp_path / "PLATFORM.cob").write_text(PLATFORM_COBOL, encoding="utf-8")
 
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="platform-app", description="", workload_id="wl-platform",
             java_entrypoint="Main",
         )

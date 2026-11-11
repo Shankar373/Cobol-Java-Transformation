@@ -53,7 +53,7 @@ def _reset_store():
 
 def _create_and_upload_app(name: str = "async-test") -> str:
     """Create an app and upload COBOL source, return app_id."""
-    app_resp = client.post("/applications", json={
+    app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
         "name": name,
         "workload_id": f"wl-{name}",
     })
@@ -313,7 +313,7 @@ class TestModernizeEndpoint:
         assert resp.status_code == 404
 
     def test_modernize_no_upload_returns_400(self):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "no-upload",
             "workload_id": "wl-noup",
         })

@@ -130,8 +130,8 @@ export interface ApplicationCreate {
   description?: string;
   workload_id: string;
   java_entrypoint?: string;
-  /** spring_boot (default), plain_java, quarkus or micronaut (audit FE-08). */
-  target_runtime?: string;
+  /** Required, chosen by the user: spring_boot, plain_java, quarkus or micronaut (audit FE-08). */
+  target_runtime: string;
 }
 
 /** One row of the server's runtime registry (GET /runtimes). */

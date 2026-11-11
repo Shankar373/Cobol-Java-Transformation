@@ -117,7 +117,7 @@ class TestHealth:
 
 class TestCreateApplication:
     def test_create_returns_201(self, fresh_service):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "test-app",
             "workload_id": "wl-test",
         })
@@ -129,7 +129,7 @@ class TestCreateApplication:
         assert body["java_entrypoint"] == "Main"
 
     def test_create_with_description(self, fresh_service):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "desc-app",
             "workload_id": "wl-desc",
             "description": "A test application",
@@ -138,14 +138,14 @@ class TestCreateApplication:
         assert resp.json()["description"] == "A test application"
 
     def test_create_empty_name_fails(self, fresh_service):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "",
             "workload_id": "wl-x",
         })
         assert resp.status_code == 422
 
     def test_create_missing_workload_id_fails(self, fresh_service):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "no-wl",
         })
         assert resp.status_code == 422
@@ -157,7 +157,7 @@ class TestCreateApplication:
 
 class TestUploadSource:
     def test_upload_returns_201(self, fresh_service):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "upload-test",
             "workload_id": "wl-upload",
         })
@@ -180,7 +180,7 @@ class TestUploadSource:
         assert resp.status_code == 404
 
     def test_upload_multiple_files(self, fresh_service):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "multi",
             "workload_id": "wl-multi",
         })
@@ -207,7 +207,7 @@ class TestModernize:
         assert resp.status_code == 404
 
     def test_modernize_no_upload_returns_400(self, fresh_service):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "no-upload",
             "workload_id": "wl-noup",
         })
@@ -218,7 +218,7 @@ class TestModernize:
         assert "No COBOL source" in resp.json()["detail"]
 
     def test_modernize_with_source_returns_202(self, fresh_service, sample_cobol_bytes):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "mod-test",
             "workload_id": "wl-mod",
         })
@@ -250,7 +250,7 @@ class TestGetRun:
     @patch.object(Service, "_generate_application", _mock_generate)
     @patch.object(Service, "_run_validation", _mock_validation)
     def test_get_run_after_modernize(self, fresh_service, sample_cobol_bytes):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "run-test",
             "workload_id": "wl-run",
         })
@@ -283,7 +283,7 @@ class TestGetArtifacts:
     @patch.object(Service, "_generate_application", _mock_generate)
     @patch.object(Service, "_run_validation", _mock_validation)
     def test_artifacts_after_modernize(self, fresh_service, sample_cobol_bytes):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "art-test",
             "workload_id": "wl-art",
         })
@@ -318,7 +318,7 @@ class TestGetVerdict:
     @patch.object(Service, "_generate_application", _mock_generate)
     @patch.object(Service, "_run_validation", _mock_validation)
     def test_verdict_after_modernize(self, fresh_service, sample_cobol_bytes):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "verdict-test",
             "workload_id": "wl-verd",
         })
@@ -360,7 +360,7 @@ class TestValidateRun:
     @patch.object(Service, "_generate_application", _mock_generate)
     @patch.object(Service, "_run_validation", _mock_validation)
     def test_validate_after_modernize(self, fresh_service, sample_cobol_bytes):
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "val-test",
             "workload_id": "wl-val",
         })
@@ -399,7 +399,7 @@ class TestFullLifecycle:
     @patch.object(Service, "_run_validation", _mock_validation)
     def test_create_upload_modernize_verdict(self, fresh_service, sample_cobol_bytes):
         # 1. Create application
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "lifecycle",
             "workload_id": "wl-lifecycle",
         })

@@ -103,7 +103,7 @@ def persistent_db(tmp_path):
     app_mod._service = svc
 
     store.add_application(
-        ApplicationRecord(
+        ApplicationRecord( target_runtime="spring_boot",
             id="app-persist-trust",
             name="persist-trust",
             description="",

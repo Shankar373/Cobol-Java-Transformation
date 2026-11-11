@@ -43,7 +43,8 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
   const [name, setName] = useState('');
   const [workloadId, setWorkloadId] = useState('');
   const [description, setDescription] = useState('');
-  const [targetRuntime, setTargetRuntime] = useState('spring_boot');
+  // No default: the user must choose the runtime; nothing is pre-selected or picked automatically.
+  const [targetRuntime, setTargetRuntime] = useState('');
   // The server's registry decides which runtimes may be chosen (only the
   // certified ones); the built-in list covers the moment before it answers.
   const [runtimeOptions, setRuntimeOptions] = useState<
@@ -59,9 +60,8 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
           .map((r) => ({ value: r.key, label: r.label, note: r.note }));
         if (certified.length === 0) return;
         setRuntimeOptions(certified);
-        setTargetRuntime((current) =>
-          certified.some((r) => r.value === current) ? current : certified[0].value,
-        );
+        // A choice the server does not offer is cleared, never replaced by another runtime.
+        setTargetRuntime((current) => (certified.some((r) => r.value === current) ? current : ''));
       })
       .catch(() => {
         // Unreachable server: keep the built-in certified list.
@@ -124,7 +124,7 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
     setNameAutoFilled(false);
   };
 
-  const canSubmit = !!name && !!workloadId && !!zipFile && !loading;
+  const canSubmit = !!name && !!workloadId && !!zipFile && !!targetRuntime && !loading;
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
@@ -351,7 +351,11 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
                   style={inputStyle}
                   value={targetRuntime}
                   onChange={(e) => setTargetRuntime(e.target.value)}
+                  required
                 >
+                  <option value="" disabled>
+                    Select a runtime…
+                  </option>
                   {runtimeOptions.map((r) => (
                     <option key={r.value} value={r.value} title={r.note}>{r.label}</option>
                   ))}

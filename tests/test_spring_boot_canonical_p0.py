@@ -88,7 +88,7 @@ def _await_terminal(svc: Service, run_id: str, timeout_s: float = 180.0):
 
 
 def _make_app(svc: Service, files: dict[str, str]) -> str:
-    app = svc.create_application(
+    app = svc.create_application( target_runtime="spring_boot",
         name="spring-app", description="d", workload_id="wl-spring",
         java_entrypoint="Main",
     )

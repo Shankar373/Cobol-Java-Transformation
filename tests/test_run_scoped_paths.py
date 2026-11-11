@@ -44,7 +44,7 @@ def _two_runs(store: Store, tmp_path: Path):
     bundle_a = _tree(tmp_path, f"pipeline-output-{run_a}-x", {"pom.xml": "a", "A.java": "a"})
     bundle_b = _tree(tmp_path, f"pipeline-output-{run_b}-y", {"pom.xml": "b", "B.java": "b"})
     app_id = f"app-{sfx}"
-    store.add_application(ApplicationRecord(
+    store.add_application(ApplicationRecord( target_runtime="spring_boot",
         id=app_id, name=f"paths-{sfx}", workload_id="wl-paths", description="",
         java_entrypoint="", cobol_source_path=str(src_b),
         generated_app_path=str(bundle_b), generated_entrypoint="EntryB",
@@ -137,7 +137,7 @@ def test_run_detail_serves_the_snapshot_and_the_runs_files(store, tmp_path, monk
 def test_modernize_records_the_source_on_the_run(store, tmp_path, monkeypatch):
     sfx = uuid.uuid4().hex[:8]
     src = _tree(tmp_path, "src", {"P.cob": "P"})
-    store.add_application(ApplicationRecord(
+    store.add_application(ApplicationRecord( target_runtime="spring_boot",
         id=f"app-{sfx}", name=f"m-{sfx}", workload_id="wl-m", description="",
         java_entrypoint="", cobol_source_path=str(src),
     ))
@@ -149,7 +149,7 @@ def test_modernize_records_the_source_on_the_run(store, tmp_path, monkeypatch):
 
 def test_store_round_trip_generation_binding_and_reset(store, tmp_path):
     sfx = uuid.uuid4().hex[:8]
-    store.add_application(ApplicationRecord(
+    store.add_application(ApplicationRecord( target_runtime="spring_boot",
         id=f"app-{sfx}", name=f"s-{sfx}", workload_id="wl", description="",
         java_entrypoint="",
     ))

@@ -270,7 +270,7 @@ class TestCorsDenyByDefault:
 
         # The actual request is still gated.
         assert client.get("/applications").status_code == 401
-        assert client.post("/applications", json={}).status_code == 401
+        assert client.post("/applications", json={ "target_runtime": "spring_boot",}).status_code == 401
 
 
 # ---------------------------------------------------------------------------

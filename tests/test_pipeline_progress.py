@@ -279,7 +279,7 @@ class TestAsyncAPIStagePersistence:
     """End-to-end: mock pipeline stages are visible via API polling."""
 
     def _create_and_upload_app(self) -> str:
-        app_resp = client.post("/applications", json={
+        app_resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "progress-test",
             "workload_id": "wl-progress",
         })

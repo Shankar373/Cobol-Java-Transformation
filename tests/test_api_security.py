@@ -50,7 +50,7 @@ def _reset_store():
 
 def _create_app(name: str, workload_id: str = "wl-upload-safety") -> str:
     resp = client.post(
-        "/applications", json={"name": name, "workload_id": workload_id}
+        "/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": workload_id}
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -308,7 +308,7 @@ class TestUploadLimits:
 
         resp = client.post(
             "/applications",
-            json={"name": "json-too-big", "workload_id": "wl-upload-safety"},
+            json={ "target_runtime": "spring_boot","name": "json-too-big", "workload_id": "wl-upload-safety"},
         )
 
         assert resp.status_code == 413
@@ -539,7 +539,7 @@ def test_uploaded_candidate_disabled_in_production(monkeypatch):
     monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", "x" * 40)
     headers = {"Authorization": "Bearer " + "x" * 40}
 
-    resp = client.post("/applications", json={"name": "prod-gate-a2", "workload_id": "wl-upload-safety"}, headers=headers)
+    resp = client.post("/applications", json={ "target_runtime": "spring_boot","name": "prod-gate-a2", "workload_id": "wl-upload-safety"}, headers=headers)
     assert resp.status_code == 201, resp.text
     app_id = resp.json()["id"]
 
@@ -584,7 +584,7 @@ def _production(monkeypatch) -> dict[str, str]:
 def test_candidate_upload_disabled_in_production(monkeypatch):
     headers = _production(monkeypatch)
     resp = client.post(
-        "/applications", json={"name": "prod-gate-f1", "workload_id": "wl-f1"},
+        "/applications", json={ "target_runtime": "spring_boot","name": "prod-gate-f1", "workload_id": "wl-f1"},
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
@@ -612,7 +612,7 @@ def test_revalidate_never_uses_uploaded_candidate_in_production(
     cobol.mkdir()
     java = tmp_path / "java"
     java.mkdir()
-    store.add_application(ApplicationRecord(
+    store.add_application(ApplicationRecord( target_runtime="spring_boot",
         id=app_id, name="f1-" + suffix, workload_id="wl-f1",
         description="", java_entrypoint="",
         cobol_source_path=str(cobol), java_candidate_path=str(java),

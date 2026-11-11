@@ -100,7 +100,7 @@ def _restart(db_path: str) -> Service:
 
 
 def _create_app(name: str = "persist-app", workload: str = "wl-persist") -> str:
-    resp = client.post("/applications", json={
+    resp = client.post("/applications", json={ "target_runtime": "spring_boot",
         "name": name, "workload_id": workload,
     })
     assert resp.status_code == 201

@@ -86,7 +86,7 @@ def _await_terminal(svc: Service, run_id: str, timeout_s: float = 180.0):
 
 
 def _make_app(svc: Service, files: dict[str, str]) -> str:
-    app = svc.create_application(
+    app = svc.create_application( target_runtime="spring_boot",
         name="single-pass", description="d", workload_id="wl-sp",
         java_entrypoint="Main",
     )
@@ -279,7 +279,7 @@ class TestAsyncPreserved:
         client = TestClient(app_mod.app)
 
         app_id = client.post(
-            "/applications", json={"name": "sp-async", "workload_id": "wl-sp"}
+            "/applications", json={ "target_runtime": "spring_boot","name": "sp-async", "workload_id": "wl-sp"}
         ).json()["id"]
         client.post(
             f"/applications/{app_id}/upload",
@@ -317,7 +317,7 @@ class TestDynamicNamePreserved:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("namedapp/ALPHA.cob", ALPHA)
-        app = svc.create_application(
+        app = svc.create_application( target_runtime="spring_boot",
             name="application", description="d", workload_id="wl-sp",
             java_entrypoint="Main",
         )

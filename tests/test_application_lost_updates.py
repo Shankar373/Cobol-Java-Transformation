@@ -46,7 +46,7 @@ def _reset_store():
 
 def _create_app(name: str = "lost-update-app") -> str:
     resp = client.post(
-        "/applications", json={"name": name, "workload_id": "wl-lu"}
+        "/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": "wl-lu"}
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -56,7 +56,7 @@ class TestStorePartialUpdate:
     def test_update_application_fields_changes_only_named_columns(self):
         store = Store()
         rec = store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-partial",
                 name="before",
                 description="keep me",
@@ -75,7 +75,7 @@ class TestStorePartialUpdate:
     def test_update_application_fields_unknown_column_rejected(self):
         store = Store()
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-unk", name="x", description="", workload_id="wl",
                 java_entrypoint="M",
             )
@@ -86,7 +86,7 @@ class TestStorePartialUpdate:
     def test_update_application_fields_requires_at_least_one_field(self):
         store = Store()
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-empty", name="x", description="", workload_id="wl",
                 java_entrypoint="M",
             )
@@ -102,7 +102,7 @@ class TestStorePartialUpdate:
     def test_update_application_fields_encodes_program_id_lists(self):
         store = Store()
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-lists", name="x", description="", workload_id="wl",
                 java_entrypoint="M",
             )
@@ -117,7 +117,7 @@ class TestStorePartialUpdate:
     def test_legacy_full_row_update_still_works(self):
         store = Store()
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-legacy", name="x", description="d",
                 workload_id="wl", java_entrypoint="M",
             )

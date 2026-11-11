@@ -57,7 +57,7 @@ def _reset_store():
 
 def _create_app(name: str, workload_id: str = "wl-bl091") -> str:
     resp = client.post(
-        "/applications", json={"name": name, "workload_id": workload_id}
+        "/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": workload_id}
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -454,7 +454,7 @@ class TestApprovalPersistence:
         db = tmp_path / "control.db"
         store = Store(db)
         app_rec = store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-1",
                 name="n",
                 description="",
@@ -493,7 +493,7 @@ class TestApprovalPersistence:
 
         store = Store(tmp_path / "control.db")
         app_rec = store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-1",
                 name="n",
                 description="",

@@ -74,7 +74,7 @@ def _run_generate(service, monkeypatch, *, probe_result: bool) -> dict:
         lambda *args, **kwargs: probe_result,
     )
 
-    app = ApplicationRecord(
+    app = ApplicationRecord( target_runtime="spring_boot",
         id="app-docker-honesty",
         name="docker-honesty",
         description="",

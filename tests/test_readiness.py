@@ -150,7 +150,7 @@ class TestProbeDatabase:
 
         store = Store(db_path=tmp_path / "probe3.db")
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-probe",
                 name="probe",
                 description="",

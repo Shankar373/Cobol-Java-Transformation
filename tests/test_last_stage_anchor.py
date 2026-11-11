@@ -215,7 +215,7 @@ class TestRunDetailExposure:
     def test_get_run_detail_exposes_last_stage(self, tmp_path):
         store = Store(tmp_path / "detail.db")
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-anchor",
                 name="anchor-app",
                 description="",
@@ -250,7 +250,7 @@ class TestRunDetailExposure:
         """NULL means 'no anchor' — callers must fall back, not guess."""
         store = Store(tmp_path / "no-anchor.db")
         store.add_application(
-            ApplicationRecord(
+            ApplicationRecord( target_runtime="spring_boot",
                 id="app-none",
                 name="none-app",
                 description="",

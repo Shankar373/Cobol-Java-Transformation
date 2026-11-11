@@ -54,7 +54,7 @@ def test_read_endpoints_latency_within_budget(monkeypatch):
     client = TestClient(app_module.app)
     created = []
     for i in range(50):
-        response = client.post("/applications", json={
+        response = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": f"perf-{i}", "workload_id": "perf", "java_entrypoint": "Main",
         })
         assert response.status_code == 201

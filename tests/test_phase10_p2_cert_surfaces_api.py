@@ -178,7 +178,7 @@ class TestComparisonsPairCheck:
         self, fresh_service
     ):
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="cmp-p2", description="", workload_id="wl-cmp",
             java_entrypoint="Main",
         )
@@ -198,7 +198,7 @@ class TestComparisonsPairCheck:
 
     def test_comparisons_refuse_hash_mismatched_pair(self, fresh_service):
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="cmp-p2-mismatch", description="", workload_id="wl-cmp",
             java_entrypoint="Main",
         )
@@ -214,7 +214,7 @@ class TestComparisonsPairCheck:
 
     def test_comparisons_still_serve_without_a_verdict(self, fresh_service):
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="cmp-p2-clean", description="", workload_id="wl-cmp",
             java_entrypoint="Main",
         )

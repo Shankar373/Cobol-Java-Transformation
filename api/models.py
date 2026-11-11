@@ -64,8 +64,9 @@ class ApplicationCreate(BaseModel):
     )
     # Runtime target for this application.  Validated fail-closed by the
     # service against SUPPORTED_TARGET_RUNTIMES — unknown values are
-    # rejected, never silently defaulted to another target.
-    target_runtime: str = Field(default="spring_boot", min_length=1, max_length=64)
+    # rejected, never silently defaulted to another target.  Required: the user
+    # chooses the runtime; a request without one is a 422, not a Spring Boot app.
+    target_runtime: str = Field(min_length=1, max_length=64)
 
 
 class RuntimeTargetResponse(BaseModel):
@@ -84,7 +85,7 @@ class ApplicationResponse(BaseModel):
     description: str
     workload_id: str
     java_entrypoint: str
-    target_runtime: str = "spring_boot"
+    target_runtime: str
     cobol_source_path: str | None = None
     java_candidate_path: str | None = None
     generated_app_path: str | None = None

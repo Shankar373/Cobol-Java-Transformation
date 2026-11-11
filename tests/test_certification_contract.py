@@ -54,7 +54,7 @@ def _reset_store():
 
 def _create_app(name: str, workload_id: str) -> str:
     resp = client.post(
-        "/applications", json={"name": name, "workload_id": workload_id}
+        "/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": workload_id}
     )
     assert resp.status_code == 201, resp.text
     app_id = resp.json()["id"]
@@ -71,7 +71,7 @@ def _create_fixture_app(name: str, workload_id: str, fixture: str) -> str:
     from pathlib import Path
 
     resp = client.post(
-        "/applications", json={"name": name, "workload_id": workload_id}
+        "/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": workload_id}
     )
     assert resp.status_code == 201, resp.text
     app_id = resp.json()["id"]
@@ -296,7 +296,7 @@ class TestVerdictReportsContract:
         self, name: str, workload_id: str, contract_id: str | None
     ) -> str:
         resp = client.post(
-            "/applications", json={"name": name, "workload_id": workload_id}
+            "/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": workload_id}
         )
         app_id = resp.json()["id"]
         run = RunRecord(

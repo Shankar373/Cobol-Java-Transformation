@@ -174,27 +174,27 @@ class TestStoreUniqueName:
 
     def test_unique_name_appends_2(self):
         store = Store()
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="a1", name="my-app", description="", workload_id="w1", java_entrypoint="Main",
         ))
         assert store.unique_name("my-app") == "my-app-2"
 
     def test_unique_name_appends_3(self):
         store = Store()
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="a1", name="my-app", description="", workload_id="w1", java_entrypoint="Main",
         ))
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="a2", name="my-app-2", description="", workload_id="w2", java_entrypoint="Main",
         ))
         assert store.unique_name("my-app") == "my-app-3"
 
     def test_unique_name_skips_existing(self):
         store = Store()
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="a1", name="my-app", description="", workload_id="w1", java_entrypoint="Main",
         ))
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="a2", name="my-app-3", description="", workload_id="w3", java_entrypoint="Main",
         ))
         # my-app taken, my-app-2 free
@@ -202,7 +202,7 @@ class TestStoreUniqueName:
 
     def test_unique_name_ignores_different_app(self):
         store = Store()
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="a1", name="other-app", description="", workload_id="w1", java_entrypoint="Main",
         ))
         assert store.unique_name("my-app") == "my-app"

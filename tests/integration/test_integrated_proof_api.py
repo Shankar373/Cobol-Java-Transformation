@@ -150,7 +150,7 @@ def _seed_proof_run():
     populated so the endpoint's primary read path is exercised.
     """
     svc = _app_service()
-    app_rec = svc.create_application(
+    app_rec = svc.create_application( target_runtime="spring_boot",
         name="proof-test", description="", workload_id="wl-proof",
         java_entrypoint="Main",
     )
@@ -294,7 +294,7 @@ class TestServiceProofPersistence:
         from engine.modernization.integrated_proof import RuntimeLaneEvidence
 
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="proof-roundtrip", description="", workload_id="wl-proof",
             java_entrypoint="Main",
         )
@@ -331,7 +331,7 @@ class TestServiceProofPersistence:
         from api.errors import NotFoundError
 
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="proof-404", description="", workload_id="wl-proof",
             java_entrypoint="Main",
         )
@@ -583,7 +583,7 @@ class TestMqImsEdgeWiring:
         from types import SimpleNamespace
 
         svc = fresh_service
-        app_rec = svc.create_application(
+        app_rec = svc.create_application( target_runtime="spring_boot",
             name="proof-edges",
             description="",
             workload_id="wl-edges",

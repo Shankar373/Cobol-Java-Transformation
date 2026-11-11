@@ -52,7 +52,7 @@ def call_chain_source():
 
 
 def _app(service: Service, source: Path, entrypoint: str):
-    app = service.create_application(
+    app = service.create_application( target_runtime="spring_boot",
         name="entry-resolution",
         description="",
         workload_id="integrated",
@@ -163,7 +163,7 @@ def test_discovery_failure_degrades_instead_of_raising(service):
 
 
 def test_no_source_returns_declared_value(service):
-    app = service.create_application(
+    app = service.create_application( target_runtime="spring_boot",
         name="no-source", description="", workload_id="integrated",
         java_entrypoint="Main",
     )

@@ -174,7 +174,7 @@ class TestUploadWorkspaceIsDurable:
     ):
         monkeypatch.setenv(WORKSPACE_DIR_ENV, str(tmp_path / "work"))
         svc = Service(Store(db_path=tmp_path / "upload-durable.db"))
-        app = svc.create_application(
+        app = svc.create_application( target_runtime="spring_boot",
             name="durable-upload", description="d",
             workload_id="wl-durable", java_entrypoint="Main",
         )
@@ -221,7 +221,7 @@ class TestGenerationOutputIsDurable:
 
         store = Store(db_path=tmp_path / "gen-durable.db")
         svc = Service(store)
-        app = ApplicationRecord(
+        app = ApplicationRecord( target_runtime="spring_boot",
             id="app-gen-durable", name="gen-durable", description="",
             workload_id="wl-gen-durable", java_entrypoint="Main",
             cobol_source_path="/source",

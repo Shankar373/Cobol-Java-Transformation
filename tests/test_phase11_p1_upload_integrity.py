@@ -48,7 +48,7 @@ def _reset_store():
 
 def _create_app(name: str, workload_id: str = "wl-phase11-p1") -> str:
     resp = client.post(
-        "/applications", json={"name": name, "workload_id": workload_id}
+        "/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": workload_id}
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]

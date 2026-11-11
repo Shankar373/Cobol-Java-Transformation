@@ -20,7 +20,7 @@ from api.store import ApplicationRecord, Store
 
 def _app(store: Store, app_id: str = "app-oc") -> ApplicationRecord:
     return store.add_application(
-        ApplicationRecord(
+        ApplicationRecord( target_runtime="spring_boot",
             id=app_id,
             name="before",
             description="desc",

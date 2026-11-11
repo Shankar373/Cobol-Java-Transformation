@@ -21,5 +21,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test-setup.ts',
     css: true,
+    // the polling tests legitimately wait ~3s for a real timer; 5s (the default) left no room under CPU contention
+    testTimeout: 20000,
   },
 });

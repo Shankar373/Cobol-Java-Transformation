@@ -223,6 +223,12 @@ describe('NewModernization auto-fill from ZIP', () => {
     });
 
     const submitBtn = screen.getByRole('button', { name: /Start Modernization/ });
+    // nothing is pre-selected: the button stays disabled until the user picks a runtime
+    expect(submitBtn).toBeDisabled();
+    fireEvent.click(submitBtn);
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Target runtime'), { target: { value: 'micronaut' } });
+    expect(submitBtn).not.toBeDisabled();
     fireEvent.click(submitBtn);
 
     expect(onSubmit).toHaveBeenCalledWith({
@@ -230,7 +236,7 @@ describe('NewModernization auto-fill from ZIP', () => {
       workloadId: 'wl-submit-app',
       description: '',
       zipFile: file,
-      targetRuntime: 'spring_boot',
+      targetRuntime: 'micronaut',
     });
   });
 });

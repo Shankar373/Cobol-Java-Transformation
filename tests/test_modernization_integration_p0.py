@@ -144,7 +144,7 @@ def _await_terminal(svc: Service, run_id: str, timeout_s: float = 180.0):
 
 
 def _make_app(svc: Service, files: dict[str, str]) -> str:
-    app = svc.create_application(
+    app = svc.create_application( target_runtime="spring_boot",
         name="int-app", description="d", workload_id="wl-int", java_entrypoint="Main"
     )
     svc.upload_cobol_source(
@@ -335,7 +335,7 @@ class TestDownloadProvenance:
         client = _fresh_client()
         app_id = client.post(
             "/applications",
-            json={"name": "dl", "workload_id": "wl-dl"},
+            json={ "target_runtime": "spring_boot","name": "dl", "workload_id": "wl-dl"},
         ).json()["id"]
         client.post(
             f"/applications/{app_id}/upload",
@@ -372,7 +372,7 @@ class TestDownloadProvenance:
         client = _fresh_client()
         app_id = client.post(
             "/applications",
-            json={"name": "up-only", "workload_id": "wl-up"},
+            json={ "target_runtime": "spring_boot","name": "up-only", "workload_id": "wl-up"},
         ).json()["id"]
         client.post(
             f"/applications/{app_id}/upload",

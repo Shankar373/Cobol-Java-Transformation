@@ -77,7 +77,7 @@ def _create_run_with_bundle(
     from api.service import Service
 
     app_id = client.post(
-        "/applications", json={"name": "sub-app", "workload_id": "wl-sub"}
+        "/applications", json={ "target_runtime": "spring_boot","name": "sub-app", "workload_id": "wl-sub"}
     ).json()["id"]
     upload = client.post(
         f"/applications/{app_id}/upload",
@@ -328,7 +328,7 @@ class TestApprovalRefusesSubstitutedBundle:
         from api.service import Service
 
         app_id = client.post(
-            "/applications", json={"name": "no-bundle", "workload_id": "wl"}
+            "/applications", json={ "target_runtime": "spring_boot","name": "no-bundle", "workload_id": "wl"}
         ).json()["id"]
         client.post(
             f"/applications/{app_id}/upload",

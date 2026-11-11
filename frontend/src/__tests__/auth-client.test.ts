@@ -70,7 +70,7 @@ describe('API client bearer-token auth', () => {
     );
 
     setApiToken(null);
-    await createApplication({ name: 't', workload_id: 'wl' });
+    await createApplication({ name: 't', workload_id: 'wl', target_runtime: 'plain_java' });
 
     const init = capturedInit();
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
@@ -103,7 +103,7 @@ describe('API client bearer-token auth', () => {
     );
 
     setApiToken('sekret-token');
-    await createApplication({ name: 't', workload_id: 'wl' });
+    await createApplication({ name: 't', workload_id: 'wl', target_runtime: 'plain_java' });
 
     const init = capturedInit();
     const headers = new Headers(init?.headers);

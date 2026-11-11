@@ -43,9 +43,9 @@ describe('422 validation detail rendering', () => {
     ]);
 
     await expect(
-      createApplication({ name: '', workload_id: 'wl-demo' }),
+      createApplication({ name: '', workload_id: 'wl-demo', target_runtime: 'plain_java' }),
     ).rejects.toBeInstanceOf(ApiError);
-    await createApplication({ name: '', workload_id: 'wl-demo' }).catch((err: unknown) => {
+    await createApplication({ name: '', workload_id: 'wl-demo', target_runtime: 'plain_java' }).catch((err: unknown) => {
       expect(err).toBeInstanceOf(ApiError);
       const message = (err as ApiError).message;
       expect(message).not.toContain('[object Object]');
@@ -57,7 +57,7 @@ describe('422 validation detail rendering', () => {
   it('keeps backend-authored string detail unchanged', async () => {
     stub422('Rejection reason is required');
 
-    await createApplication({ name: 'x', workload_id: 'wl-demo' }).catch((err: unknown) => {
+    await createApplication({ name: 'x', workload_id: 'wl-demo', target_runtime: 'plain_java' }).catch((err: unknown) => {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).message).toBe('Rejection reason is required');
     });
@@ -66,7 +66,7 @@ describe('422 validation detail rendering', () => {
   it('renders object-shaped detail without collapsing it', async () => {
     stub422({ reason: 'too small', limit: 1 });
 
-    await createApplication({ name: 'x', workload_id: 'wl-demo' }).catch((err: unknown) => {
+    await createApplication({ name: 'x', workload_id: 'wl-demo', target_runtime: 'plain_java' }).catch((err: unknown) => {
       expect(err).toBeInstanceOf(ApiError);
       const message = (err as ApiError).message;
       expect(message).not.toContain('[object Object]');

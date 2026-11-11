@@ -78,11 +78,11 @@ class TestPolicy:
 class TestEnforcement:
     def test_a_viewer_reads_but_cannot_start_work(self, roles):
         assert client.get("/applications", headers=_auth(VIEWER)).status_code == 200
-        denied = client.post("/applications", json={"name": "x", "workload_id": "w"}, headers=_auth(VIEWER))
+        denied = client.post("/applications", json={ "target_runtime": "spring_boot","name": "x", "workload_id": "w"}, headers=_auth(VIEWER))
         assert denied.status_code == 403 and denied.json() == {"detail": "Forbidden for this role"}
 
     def test_an_operator_starts_work_but_cannot_approve(self, roles):
-        created = client.post("/applications", json={"name": "x", "workload_id": "w"}, headers=_auth(OPERATOR))
+        created = client.post("/applications", json={ "target_runtime": "spring_boot","name": "x", "workload_id": "w"}, headers=_auth(OPERATOR))
         assert created.status_code == 201
         denied = client.post("/runs/run-1/approval", json={"state": "APPROVED"}, headers=_auth(OPERATOR))
         assert denied.status_code == 403
@@ -102,7 +102,7 @@ class TestEnforcement:
 
     def test_the_legacy_shared_token_is_the_administrator_in_role_mode(self, roles, monkeypatch):
         monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", ADMIN)
-        assert client.post("/applications", json={"name": "y", "workload_id": "w"},
+        assert client.post("/applications", json={ "target_runtime": "spring_boot","name": "y", "workload_id": "w"},
                            headers=_auth(ADMIN)).status_code == 201
         assert client.post("/runs/run-ghost/approval", json={"state": "APPROVED"},
                            headers=_auth(ADMIN)).status_code != 403
@@ -122,5 +122,5 @@ class TestEnforcement:
         monkeypatch.setenv("CONTROL_PLANE_API_TOKEN", ADMIN)
         assert client.get("/applications", headers=_auth(ADMIN)).status_code == 200
         assert client.get("/applications", headers=_auth(VIEWER)).status_code == 401
-        assert client.post("/applications", json={"name": "z", "workload_id": "w"},
+        assert client.post("/applications", json={ "target_runtime": "spring_boot","name": "z", "workload_id": "w"},
                            headers=_auth(ADMIN)).status_code == 201

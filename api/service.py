@@ -502,7 +502,7 @@ class Service:
         description: str,
         workload_id: str,
         java_entrypoint: str,
-        target_runtime: str = "spring_boot",
+        target_runtime: str,
     ) -> ApplicationRecord:
         try:
             RuntimeTargetConfig(target_runtime=target_runtime)

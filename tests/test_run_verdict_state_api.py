@@ -45,7 +45,7 @@ def _fresh_service(tmp_path):
 
 
 def _seed_runs(svc) -> None:
-    app_rec = ApplicationRecord(
+    app_rec = ApplicationRecord( target_runtime="spring_boot",
         id="app-verdict-state",
         name="verdict-state",
         description="",

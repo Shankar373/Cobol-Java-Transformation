@@ -242,7 +242,7 @@ class TestProductSurface:
         app_mod._store = svc_mod._store = store
         app_mod._service = svc_mod._service = svc
         (tmp_path / f"{name}.cob").write_text(source, encoding="utf-8")
-        app = svc.create_application(
+        app = svc.create_application( target_runtime="spring_boot",
             name=f"calls-{name}", description="", workload_id="wl-calls", java_entrypoint="Main"
         )
         app.cobol_source_path = str(tmp_path)

@@ -202,12 +202,16 @@ export default function App() {
     workloadId: string;
     description: string;
     zipFile: File;
-    targetRuntime?: string;
+    targetRuntime: string;
   }) => {
+    if (!data.targetRuntime) {
+      setSubmitError('Choose a target runtime before starting a modernization.');
+      return;
+    }
     setCreating(true);
     setSubmitError(null);
     const submitKey = [
-      data.name, data.workloadId, data.targetRuntime ?? '', data.zipFile.name,
+      data.name, data.workloadId, data.targetRuntime, data.zipFile.name,
       data.zipFile.size, data.zipFile.lastModified,
     ].join('|');
     try {
@@ -219,7 +223,7 @@ export default function App() {
           name: data.name,
           workload_id: data.workloadId,
           description: data.description,
-          ...(data.targetRuntime ? { target_runtime: data.targetRuntime } : {}),
+          target_runtime: data.targetRuntime,
         });
         pendingApp.current = { key: submitKey, app };
         setApplications((prev) => [...prev, app]);

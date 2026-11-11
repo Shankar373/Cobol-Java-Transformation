@@ -312,7 +312,7 @@ class TestApprovalAuditTrail:
         from api.store import ApplicationRecord, RunRecord, Store
 
         store = Store()
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="app-1", name="a", description="", workload_id="w",
             java_entrypoint="Main",
         ))
@@ -337,7 +337,7 @@ class TestInputBounds:
     def test_entrypoint_names_accepted(self, value):
         from api.models import ApplicationCreate
 
-        ApplicationCreate(name="n", workload_id="w", java_entrypoint=value)
+        ApplicationCreate( target_runtime="spring_boot",name="n", workload_id="w", java_entrypoint=value)
 
     @pytest.mark.parametrize("value", ["a;rm -rf /", "$(id)", "x y", "`id`", "a|b"])
     def test_entrypoint_shell_syntax_rejected(self, value):
@@ -346,7 +346,7 @@ class TestInputBounds:
         from api.models import ApplicationCreate
 
         with pytest.raises(ValidationError):
-            ApplicationCreate(name="n", workload_id="w", java_entrypoint=value)
+            ApplicationCreate( target_runtime="spring_boot",name="n", workload_id="w", java_entrypoint=value)
 
     def test_free_text_fields_are_bounded(self):
         from pydantic import ValidationError
@@ -354,7 +354,7 @@ class TestInputBounds:
         from api.models import ApplicationCreate, ApprovalRequest
 
         with pytest.raises(ValidationError):
-            ApplicationCreate(name="n", workload_id="w", description="d" * 4097)
+            ApplicationCreate( target_runtime="spring_boot",name="n", workload_id="w", description="d" * 4097)
         with pytest.raises(ValidationError):
             ApprovalRequest(decision="APPROVED", approver="")
         with pytest.raises(ValidationError):
@@ -537,7 +537,7 @@ class TestAuditApiFollowUps:
         monkeypatch.setattr(app_module, "_store", store)
         monkeypatch.setattr(app_module, "_service", Service(store))
         suffix = uuid.uuid4().hex[:8]
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="app-f3-" + suffix, name="f3-" + suffix, description="",
             workload_id="wl-f3", java_entrypoint="",
         ))
@@ -623,7 +623,7 @@ class TestAuditApiFollowUps:
         store = Store()
         svc = Service(store)
         suffix = uuid.uuid4().hex[:8]
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="app-f5-" + suffix, name="f5-" + suffix, description="",
             workload_id="wl-f5", java_entrypoint="",
         ))
@@ -646,7 +646,7 @@ class TestAuditApiFollowUps:
 
         store = Store()
         suffix = uuid.uuid4().hex[:8]
-        store.add_application(ApplicationRecord(
+        store.add_application(ApplicationRecord( target_runtime="spring_boot",
             id="app-f10-" + suffix, name="f10-" + suffix, description="",
             workload_id="w", java_entrypoint="",
         ))

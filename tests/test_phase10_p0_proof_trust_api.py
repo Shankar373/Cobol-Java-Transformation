@@ -113,7 +113,7 @@ def fresh_service():
 
 def _seed_run_with_report(svc, report: dict, *, terminal: bool = True) -> tuple:
     """Create app + run whose modernization_report is ``report``."""
-    app_rec = svc.create_application(
+    app_rec = svc.create_application( target_runtime="spring_boot",
         name="proof-p0", description="", workload_id="wl-proof",
         java_entrypoint="Main",
     )

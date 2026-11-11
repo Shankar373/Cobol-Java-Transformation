@@ -145,7 +145,7 @@ def test_applications_assembled_into_single_artifact(tmp_path) -> None:
 def test_modernize_generates_and_requires_no_upload(tmp_path, store, svc) -> None:
     """Normal modernize: discovery -> transformation -> validation of the
     GENERATED artifact - with NO uploaded Java candidate present."""
-    app = svc.create_application(
+    app = svc.create_application( target_runtime="spring_boot",
         name="p0", description="d", workload_id="wl", java_entrypoint=""
     )
     ws = ingest_zip(_zip_bytes([("src/ALPHA.cob", ALPHA)]), app.id)

@@ -145,7 +145,7 @@ class ApplicationRecord:
     workload_id: str
     java_entrypoint: str
     # The runtime target this application is modernized for.
-    target_runtime: str = "spring_boot"
+    target_runtime: str
     cobol_source_path: str | None = None
     java_candidate_path: str | None = None
     # Discovery provenance: PROGRAM-IDs seen by ApplicationDiscovery.
@@ -1057,7 +1057,7 @@ class Store:
             description=row["description"] or "",
             workload_id=row["workload_id"] or "",
             java_entrypoint=row["java_entrypoint"] or "Main",
-            target_runtime=row["target_runtime"] or "spring_boot",
+            target_runtime=row["target_runtime"],
             cobol_source_path=row["cobol_source_path"],
             java_candidate_path=row["java_candidate_path"],
             discovered_program_ids=serialization.decode_str_list(

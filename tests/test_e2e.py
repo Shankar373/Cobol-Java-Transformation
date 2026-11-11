@@ -83,7 +83,7 @@ class TestArithRealE2E:
 
     def test_arith_verified_through_api(self):
         # 1. Create application
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "arith-real",
             "workload_id": "arith",
             "java_entrypoint": "Arithmetic",
@@ -154,7 +154,7 @@ class TestArithRealE2E:
 
     def test_arith_candidate_upload_auto_entrypoint(self):
         """Verify entrypoint is auto-detected from uploaded Java file."""
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "arith-auto",
             "workload_id": "arith",
         })
@@ -197,7 +197,7 @@ class TestTransformRealE2E:
     """
 
     def test_transform_produces_real_verdict(self):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "arith-transform",
             "workload_id": "arith",
             "java_entrypoint": "Arithmetic",
@@ -249,7 +249,7 @@ class TestFileWorkloadThroughApi:
     """
 
     def test_file_workload_generates_compares_and_certifies(self):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "file-write-read-transform",
             "workload_id": "file-write-read",
             "java_entrypoint": "FILE-WRITE-READ",
@@ -315,7 +315,7 @@ class TestErrorPaths:
     """Verify error handling for missing/invalid inputs."""
 
     def test_missing_candidate_upload(self):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "no-candidate",
             "workload_id": "wl-nc",
         })
@@ -333,7 +333,7 @@ class TestErrorPaths:
         assert resp.status_code == 202
 
     def test_no_cobol_source_fails(self):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "no-source",
             "workload_id": "wl-ns",
         })
@@ -363,7 +363,7 @@ class TestRunLifecycle:
     """Verify run stages transition correctly."""
 
     def test_run_completes_with_all_stages(self):
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "lifecycle",
             "workload_id": "wl-lc",
         })
@@ -393,7 +393,7 @@ class TestRunLifecycle:
 
     def test_verdict_rendering_fields(self):
         """Verify all verdict fields needed by the UI are present."""
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "render",
             "workload_id": "wl-r",
         })
@@ -456,7 +456,7 @@ class TestZipIngestionE2E:
 
     def test_ingest_zip_discovery(self):
         """Upload ZIP, run discovery, verify structure."""
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "arith-zip",
             "workload_id": "arith-zip",
         })
@@ -481,7 +481,7 @@ class TestZipIngestionE2E:
 
     def test_ingest_zip_then_modernize(self):
         """Full ZIP ingestion pipeline: ingest -> modernize -> verdict."""
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "arith-zip-mod",
             "workload_id": "arith",
             "java_entrypoint": "Arithmetic",
@@ -514,7 +514,7 @@ class TestZipIngestionE2E:
 
     def test_download_after_modernize_returns_zip_content_type(self):
         """Download generated ZIP after modernization."""
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "dl-test",
             "workload_id": "dl",
             "java_entrypoint": "Arithmetic",
@@ -558,7 +558,7 @@ class TestZipIngestionE2E:
 
     def test_invalid_zip_rejected(self):
         """Uploading a non-ZIP file should fail with a clear error."""
-        resp = client.post("/applications", json={
+        resp = client.post("/applications", json={ "target_runtime": "spring_boot",
             "name": "bad-zip",
             "workload_id": "bz",
         })

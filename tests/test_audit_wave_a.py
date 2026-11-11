@@ -32,7 +32,7 @@ def _reset_store():
 
 
 def _create_app(name: str) -> str:
-    resp = client.post("/applications", json={"name": name, "workload_id": "wl-wave-a"})
+    resp = client.post("/applications", json={ "target_runtime": "spring_boot","name": name, "workload_id": "wl-wave-a"})
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 

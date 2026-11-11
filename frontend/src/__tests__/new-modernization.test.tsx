@@ -42,7 +42,7 @@ describe('NewModernization product flow', () => {
     expect(screen.getByText('Detected from uploaded archive')).toBeInTheDocument();
   });
 
-  it('starts modernization with name, workload and ZIP only', () => {
+  it('starts modernization with name, workload, ZIP and the runtime the user chose', () => {
     const onSubmit = vi.fn();
     render(<NewModernization onSubmit={onSubmit} />);
 
@@ -51,10 +51,15 @@ describe('NewModernization product flow', () => {
     fireEvent.change(fileInput, { target: { files: [zip] } });
 
     fireEvent.click(screen.getByText(/Start Modernization/));
+    expect(onSubmit).not.toHaveBeenCalled(); // no runtime chosen yet
+
+    fireEvent.change(screen.getByLabelText('Target runtime'), { target: { value: 'plain_java' } });
+    fireEvent.click(screen.getByText(/Start Modernization/));
 
     expect(onSubmit).toHaveBeenCalledOnce();
     const payload = onSubmit.mock.calls[0][0];
     expect(payload.zipFile).toBe(zip);
+    expect(payload.targetRuntime).toBe('plain_java');
     expect(payload.name).toBeTruthy();
     expect(payload.workloadId).toBeTruthy();
     expect(payload).not.toHaveProperty('candidate');
