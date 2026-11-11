@@ -128,6 +128,10 @@ def main() -> int:
     app_now = _ if isinstance(_, dict) else {}
     step("the application still carries the chosen runtime", app_now.get("target_runtime") == args.runtime)
     status, raw = api.call("GET", f"/runs/{run_id}/download")
+    step("download is refused until the run is approved (409)", status == 409, str(status))
+    status, _ = api.json("POST", f"/runs/{run_id}/approval", {"decision": "APPROVED", "approver": "staging-e2e"})
+    step("approve the run", status == 200, str(status))
+    status, raw = api.call("GET", f"/runs/{run_id}/download")
     step("download the generated project", status == 200, f"{status} {len(raw)} bytes")
     if status == 200:
         names = zipfile.ZipFile(io.BytesIO(raw)).namelist()
