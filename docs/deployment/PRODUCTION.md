@@ -203,6 +203,54 @@ and TLS `/ready` via nginx, sandbox image presence,
 `--network none` execution, sandbox staging topology, and that
 `/applications` returns 401 unauthenticated.
 
+## Staging / evaluation deployment (localhost only, verified 2026-11-11)
+
+A complete, reproducible recipe that was executed end to end against commit `7c5f8f6` (details and results:
+`docs/PROTOTYPE_HANDOFF.md`). It is **not** a public deployment: the edge listens on `127.0.0.1` only.
+
+```bash
+# 0. an EXACT commit, LF line endings (on Windows use `git -c core.autocrlf=false archive`), on a Linux filesystem
+git -c core.autocrlf=false archive <SHA> | tar -x -C ~/stage/src && cd ~/stage/src
+
+# 1. frontend bundle and images (a NEW tag per release; build-production.sh retries transient network errors)
+(cd frontend && npm ci && npm run build)
+./scripts/deploy/build-production.sh stg-<SHA>      # also writes test-artifacts/docker-image-provenance.stg-<SHA>.json
+
+# 2. secrets and TLS (never committed): a >= 32 character token and a certificate whose SAN covers the name you use
+python3 -c "import secrets; print(secrets.token_urlsafe(48))" > ~/stage/token
+mkdir -p deployment/tls && openssl req -x509 -newkey rsa:2048 -nodes -days 30   -keyout deployment/tls/privkey.pem -out deployment/tls/fullchain.pem -subj "/CN=localhost"   -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"          # staging only: use your CA's certificate in production
+cp .env.production.example .env.production
+#   set CONTROL_PLANE_API_TOKEN=<token>, IMAGE_TAG=stg-<SHA>, HTTPS_PORT=8443, HTTPS_BIND=127.0.0.1,
+#   HOST_SANDBOX_STAGING_DIR=<absolute host path>; chmod 600 .env.production
+
+# 3. start (run as root once so the staging directory can be chowned to uid 10001), then verify
+sudo ENV_FILE=.env.production IMAGE_TAG=stg-<SHA> ./scripts/deploy/start-production.sh
+CURL_CA_BUNDLE=$PWD/deployment/tls/fullchain.pem ./scripts/deploy/verify-production.sh .env.production   # self-signed: trust it, never -k
+
+# 4. a complete modernization over HTTPS with an explicit runtime (exit 0 only if every step passed)
+python3 scripts/deploy/staging_e2e.py --base https://127.0.0.1:8443 --token-file ~/stage/token   --ca deployment/tls/fullchain.pem --cobol-dir fixtures/workload-balance-check/cobol --runtime quarkus
+```
+
+Things the drills established (each is pinned by `tests/test_deploy_staging_contracts.py`):
+
+* **The user chooses the runtime.** `POST /applications` requires `target_runtime` (`plain_java`, `spring_boot`,
+  `quarkus` or `micronaut`; 422 without it, 400 for an unknown or uncertified one). There is no default anywhere:
+  the UI starts on "Select a runtime" with Start disabled, and the chosen runtime is what is generated and executed.
+* **Image provenance must reach the API container.** The candidate adapter verifies the Maven build image against
+  `test-artifacts/docker-image-provenance.json`; the image ships no `test-artifacts/`, so compose mounts the record
+  written by `build-production.sh` (`IMAGE_PROVENANCE_PATH`, default `./test-artifacts/docker-image-provenance.${IMAGE_TAG}.json`).
+  `start-production.sh` refuses to start without it and `verify-production.sh` checks the adapter is `AVAILABLE`.
+  Without it every run ended in verdict `ERROR`.
+* `HTTPS_BIND` (default `0.0.0.0`) selects the edge interface; use `127.0.0.1` for anything that must stay off the network.
+* The nginx healthcheck probes its own loopback listener without verifying a hostname certificate.
+* Downloads of a run's generated project stay `409` until the run is approved (`POST /runs/{id}/approval`).
+* Restart keeps all data; `backup.sh` (use `QUIESCE=1`) / `restore.sh` round-trip verified (a record created after the
+  backup is gone after the restore); `rollback.sh <PREVIOUS_TAG>` switches the API image and re-verifies (an inherited
+  `IMAGE_TAG` is ignored). Rollback needs the provenance record for the target tag to exist.
+* On Windows + WSL keep the checkout on the WSL filesystem (not `/mnt/c`): a Linux daemon cannot use `\wsl.localhost\...` paths.
+* Image builds on GitHub runners retry five times and, if the runner cannot resolve `archive.ubuntu.com`, fall back to
+  `mirrors.edge.kernel.org` (same archive, same pinned package versions, verified identical 144-package set).
+
 ## Files
 
 - `Dockerfile.production` — API image (`HEALTHCHECK` → `/ready`)

@@ -1,6 +1,9 @@
 # Documentation index
 
-Start with the repository [README](../README.md). Current truth, in order:
+Start with the repository [README](../README.md). For the state of the implementation branch
+(`impl/enterprise-platform`): exact verified commit, workflow links, test and certification results, staging
+deployment, limitations, the open-PR audit and owner decisions, read [PROTOTYPE_HANDOFF.md](PROTOTYPE_HANDOFF.md) first.
+Current truth, in order:
 
 | Question | Document |
 |---|---|
@@ -19,6 +22,13 @@ Start with the repository [README](../README.md). Current truth, in order:
 | Archived README (dated snapshots, full command reference) | [archive/README_2026-11-03.md](archive/README_2026-11-03.md) |
 | Phase reports (coverage, security, certification) | [reports/PHASE3_COVERAGE_EXPANSION.md](reports/PHASE3_COVERAGE_EXPANSION.md), [reports/](reports/) |
 | Evidence files | [reports/evidence/](reports/evidence/) |
+| Differential-sweep evidence (alternate-key browsing, CORRESPONDING) | [audits/evidence/](audits/evidence/) |
+| Deployment recipe, staging drill, backup / restore / rollback | [deployment/PRODUCTION.md](deployment/PRODUCTION.md), [operations/](operations/) |
+
+The status documents `PROJECT_STATUS.md`, `VERIFICATION_STATUS.md`, `CONTRACT_STATUS.md` and
+`SYSTEMAOPS_PRODUCT_STATUS.md` are dated snapshots (each carries a banner). Three superseded duplicates
+(`CURRENT_DELIVERY_STATUS.md`, `reports/CURRENT_PROJECT_STATE.md`, `reports/EXECUTION_LEDGER.md`) were removed on
+2026-11-11; they remain in git history. Do not read commit SHAs or run numbers in the snapshots as current.
 
 Everything else in `docs/` (phase completion reports, feature matrices,
 audits from October 2026) is dated history: each says so in a banner, and

@@ -6,12 +6,19 @@ SystemaOps does not use an LLM anywhere in analysis, transformation or verificat
 rule-based and reproducible; every claim of behavioural equivalence is backed by a recorded comparison against a
 reference run (the GnuCOBOL oracle); everything it cannot prove fails closed and is reported by name.
 
-> **Current baseline:** `main` @ `b0c1f6b` (merge of PR #9). The certified corpus on this tree is
-> **44 of 54 applications VERIFIED on each of four Java runtimes** (`spring_boot`, `plain_java`, `quarkus`,
-> `micronaut` command mode), 9 refused by name, 1 UNAVAILABLE (GnuCOBOL rejects the source), every VERIFIED
-> result independently re-checked (AGREE 44/44). Evidence: [`docs/reports/PHASE5_FINAL_CERTIFICATION.md`](docs/reports/PHASE5_FINAL_CERTIFICATION.md).
-> The audit that produced this README: [`docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md`](docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md);
+> **Where things stand.** Work happens on `impl/enterprise-platform` (`main` is at `b0c1f6b`, the Phase 5 baseline, and is
+> not touched without the owner's approval). The exact verified commit, its workflow links, test counts, the staging
+> deployment, limitations and the open-PR audit are in [`docs/PROTOTYPE_HANDOFF.md`](docs/PROTOTYPE_HANDOFF.md).
+> The certified corpus on that branch is **45 of 55 applications VERIFIED on each of four Java runtimes**
+> (`spring_boot`, `plain_java`, `quarkus`, `micronaut` command mode), 9 refused by name, 1 UNAVAILABLE (GnuCOBOL rejects
+> the source), every VERIFIED result independently re-checked (AGREE 45/45); on `main` it is 44 of 54
+> ([`docs/reports/PHASE5_FINAL_CERTIFICATION.md`](docs/reports/PHASE5_FINAL_CERTIFICATION.md) records that earlier baseline).
+> The audit behind the roadmap: [`docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md`](docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md);
 > the running record of work: [`docs/audits/EXECUTION_LEDGER.md`](docs/audits/EXECUTION_LEDGER.md).
+>
+> **Prototype, not a product.** It is a working deterministic core with documented limits; it is **not certified for
+> production** and makes **no IBM equivalence claim** (the only reference runtimes are GnuCOBOL 3.1.2, OCESQL + PostgreSQL 14
+> and in-repo simulators).
 
 ## What SystemaOps is
 
@@ -67,12 +74,12 @@ gates passed). Capability claims live in [`docs/CAPABILITY_MATRIX.md`](docs/CAPA
 | Area | State |
 |---|---|
 | JCL | Preprocessor (PROC/symbolics/SET), DD binding and dataset catalogue, a Java job launcher with COND, dispositions, GDGs, inline data and native IEFBR14/IEBGENER/IDCAMS. Utility and GDG behaviour is from documented semantics, **not** an IBM/JES oracle |
-| COBOL | ASSIGN ddnames, keyed `ACCESS MODE RANDOM`, `INSPECT` (literal subset), file-to-file `SORT`/`MERGE`, linear `SEARCH` and `SEARCH ALL`, `GO TO`, reference modification, qualified names, `**`, a few intrinsic functions, VSAM-style keyed files with alternate keys (random access) and packed/binary record bytes - all GnuCOBOL-proven on four runtimes. Not done: `SORT` INPUT/OUTPUT PROCEDURE with `RELEASE`/`RETURN`, `OCCURS DEPENDING ON`, `NEXT SENTENCE`, EBCDIC data, alternate-key browsing, VSAM ESDS/RRDS; numeric-edited PIC is held uncommitted pending authorization |
+| COBOL | ASSIGN ddnames, keyed `ACCESS MODE RANDOM`, `INSPECT` (literal subset), file-to-file `SORT`/`MERGE`, linear `SEARCH` and `SEARCH ALL`, `GO TO`, reference modification, qualified names, `**`, a few intrinsic functions, numeric-edited PICTURE, VSAM-style keyed files with alternate keys and packed/binary record bytes - GnuCOBOL-proven. **Narrow shapes only**: alternate-key browsing (`START` / `READ NEXT`: ACCESS DYNAMIC, two alternate keys, one duplicate and one unique, `PIC X(2)` fields, FILE STATUS only), `NEXT SENTENCE` (last statement of a branch of a single `IF ... ELSE` sentence), `MOVE` / `ADD` / `SUBTRACT CORRESPONDING` (single-line statement between two groups). Not done: `SORT` INPUT/OUTPUT PROCEDURE with `RELEASE`/`RETURN`, `OCCURS DEPENDING ON`, EBCDIC data, `INSPECT` with data-name operands, VSAM ESDS/RRDS |
 | DB2 / SQL | `EXEC SQL` kept as IR; a pluggable `DatabaseDialect` (DB2, PostgreSQL); JDBC generation for a certified subset, equal to an OCESQL + PostgreSQL 14 reference; fixed-width record migration with reconciliation. **Not DB2-verified**; indicators, WHENEVER and dynamic SQL are refused |
 | MQ / IMS / CICS | Versioned simulators SIMMQ-1, SIMDLI-1, SIMCICS-1 with Java twins and conformance suites, label `SIMULATOR_VERIFIED`. **Not wired** into generated code: `EXEC CICS`, `EXEC DLI` and MQ calls stay unsupported |
 | Estate | Dependency graph with a proof state on every edge, read-only API and UI, a decomposition *proposal* for review (no multi-artifact or container generation) |
 | Quality gates | Capability gate, hermetic backend and frontend on Linux **and Windows**, a mypy ratchet (new code type-clean) and a coverage floor (88%, 90% measured); evidence classes per capability in [`docs/audits/CAPABILITY_STATUS.md`](docs/audits/CAPABILITY_STATUS.md) |
-| Control plane | Role-based access control on bearer tokens. OIDC, signing keys and Docker socket isolation need the owner: see [`docs/audits/OWNER_DECISIONS.md`](docs/audits/OWNER_DECISIONS.md) |
+| Control plane | One shared bearer token by default; optional role tokens (`viewer` / `operator` / `approver`, `CONTROL_PLANE_ROLE_TOKENS`). The approver name on an approval is caller-supplied text, not a verified identity. OIDC, signing keys and Docker socket isolation need the owner: see [`docs/audits/OWNER_DECISIONS.md`](docs/audits/OWNER_DECISIONS.md) |
 
 Verdict labels never overstate: `VERIFIED` (GnuCOBOL oracle), `SIMULATOR_VERIFIED` (equal to an in-repo
 specification), and nothing here can produce an IBM-verified verdict.
@@ -94,6 +101,13 @@ curl http://localhost:8000/ready         # 200 when database/workspace/staging a
 cd frontend && npm ci && npm run dev     # open http://localhost:5173/app/
 ```
 
+**Choosing a runtime.** There is no default: `POST /applications` requires `target_runtime` (`plain_java`, `spring_boot`,
+`quarkus` or `micronaut`), the UI starts on "Select a runtime" and Start stays disabled until one is chosen, and the chosen
+runtime is the one generated and executed (`tests/test_runtime_selection.py`).
+
+**Tests** (verified commands): backend hermetic `python -m pytest -q` (Docker suites skip without `RUN_DOCKER_TESTS=1`);
+frontend `cd frontend && npm test && npm run lint && npm run build`; lint `ruff check .`; types `python tools/mypy_gate.py`.
+
 **Docker execution lanes** (needed for real end-to-end runs; the same commands CI uses):
 
 ```bash
@@ -102,6 +116,9 @@ docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:late
 python scripts/record_docker_image_provenance.py     # required whenever the Maven image is rebuilt
 RUN_DOCKER_TESTS=1 python -m pytest -q tests/test_e2e.py
 ```
+
+A localhost-only staging deployment (TLS, secrets, restart, backup / restore, rollback, an end-to-end check over HTTPS) is
+documented in [`docs/deployment/PRODUCTION.md`](docs/deployment/PRODUCTION.md) and was executed; results are in the handoff.
 
 The full command reference, troubleshooting and the exact pinned image digests are archived with the previous
 README in [`docs/archive/README_2026-11-03.md`](docs/archive/README_2026-11-03.md) and maintained in
