@@ -9,9 +9,9 @@ cd "$(dirname "$0")/../.."
 TAG="${1:-production}"
 RUNTIME_DIGEST="$(python3 -c 'from engine.candidate.docker_spring_boot_adapter import DockerSpringBootConfig; print(DockerSpringBootConfig().runtime_digest)')"
 
-docker build --pull -f Dockerfile.production -t "systemaops-api:${TAG}" .
-docker build --pull -f Dockerfile.gnucobol -t gnucobol-ocesql:latest .
-docker build --pull -f Dockerfile.maven-offline -t maven-offline-springboot:latest .
+bash scripts/ci/build-image.sh Dockerfile.production "systemaops-api:${TAG}"
+bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
+bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:latest
 docker pull "$RUNTIME_DIGEST"
 docker tag "$RUNTIME_DIGEST" eclipse-temurin:21-jdk
 
