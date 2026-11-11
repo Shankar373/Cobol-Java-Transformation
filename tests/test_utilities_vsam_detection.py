@@ -253,11 +253,11 @@ class TestCapabilityVerdicts:
     def test_vsam_program_verdict_names_the_constructs(self, tmp_path) -> None:
         program = _program_component(tmp_path, VSAM_PROGRAM, "VSAMDEMO")
         assert program.level is CapabilityLevel.UNSUPPORTED, program
-        # Browsing along an alternate key (READ NEXT) is the blocker: implemented but not certified, so the
+        # READ NEXT on one alternate key is outside the single certified shape (two alternate keys, one duplicate), so the
         # program must not inherit the certified indexed subset's SUPPORTED.
         assert "RECORD KEY" in program.reason, program.reason
         assert "ALTERNATE RECORD KEY" in program.reason, program.reason
-        assert "READ NEXT on a file with alternate keys is not certified" in program.reason, program.reason
+        assert "browsing is certified only with exactly two alternate keys" in program.reason, program.reason
 
     def test_alternate_key_random_access_program_is_supported(self, tmp_path) -> None:
         program = _program_component(tmp_path, VSAM_PROGRAM_RANDOM, "VSAMDEMO")

@@ -145,7 +145,7 @@ class TestFileControlParsing:
         messages = [d.message for d in parser.diagnostics.all]
         assert any(
             "ALTERNATE RECORD KEY" in message and "recognised but not lowered" in message
-            and "READ NEXT" in message
+            and "browsing is certified only with exactly two alternate keys" in message
             for message in messages
         ), messages
         certified = CobolParser()
