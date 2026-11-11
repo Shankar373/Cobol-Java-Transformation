@@ -3533,6 +3533,7 @@ class CobolParser:
             # `WHEN 1 DISPLAY "ONE"`.  Without this split the statement text
             # was absorbed into `spec`, turning it into a bogus comparison
             # operand and silently dropping an executable statement.
+            before_split = spec
             spec, inline = split_condition_from_inline_statements(spec)
             if inline:
                 inlined, unparsed = self._parse_inline_statements(inline)
@@ -3543,9 +3544,12 @@ class CobolParser:
                         f"Inline WHEN statement did not parse into IR: {lost[:60]}",
                         location="EVALUATE",
                     )
-            closed = bool(inline) and self._ends_sentence(when_line)
+            # ``WHEN 1 CONTINUE``: the splitter treats a bare CONTINUE as structure and returns no statement text,
+            # but it is the arm's statement - the arm must not be stacked with the next WHEN
+            has_text = bool(inline) or bool(re.search(r"(?<![\w-])CONTINUE\s*\.?\s*$", before_split, re.IGNORECASE))
+            closed = has_text and self._ends_sentence(when_line)
             # statement text (even CONTINUE, which has no IR) means the arm is not stacked with the next WHEN
-            arm_has_text.append(bool(inline))
+            arm_has_text.append(has_text)
             while (
                 not closed
                 and i < len(lines)
@@ -3720,6 +3724,8 @@ class CobolParser:
                 )
 
         current_section = "then" if inline_else is None else "else"
+        # An IF takes one ELSE; a second ELSE at this level belongs to the IF this one is nested in
+        seen_else = inline_else is not None
 
         # A period closes a scope opened on its own line: in
         # `IF A > 1 DISPLAY "YES".` the period ends the statement, so the IF
@@ -3737,7 +3743,10 @@ class CobolParser:
                 # The IF was already closed on its own line; nothing more is in scope.
                 break
 
+            if u.startswith("ELSE") and seen_else:
+                break
             if u.startswith("ELSE"):
+                seen_else = True
                 # `ELSE` may carry its statement inline
                 # (`ELSE MOVE 9 TO WS-B`).  Skipping the whole line dropped
                 # that statement with no diagnostic.

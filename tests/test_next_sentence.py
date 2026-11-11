@@ -48,3 +48,22 @@ def test_the_parser_reports_a_refused_shape_as_unsupported():
     parser = CobolParser()
     parser.parse(src)
     assert any("NEXT SENTENCE is recognised but not lowered" in d.message for d in parser.diagnostics.all)
+
+
+def _parse(body: str):
+    src = ("       IDENTIFICATION DIVISION.\n       PROGRAM-ID. CT.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n"
+           "       01 A PIC 9 VALUE 1.\n       01 B PIC 9 VALUE 0.\n       PROCEDURE DIVISION.\n" + body
+           + "           STOP RUN.\n")
+    return CobolParser().parse(src).paragraphs[0].statements
+
+
+def test_the_second_else_of_a_nested_if_belongs_to_the_outer_if():
+    outer = _parse('           IF A = 1\n               IF B = 1\n                   CONTINUE\n               ELSE\n'
+                   '                   DISPLAY "IN"\n               ELSE\n                   DISPLAY "OUT".\n')[0]
+    inner = outer.then_body[0]
+    assert len(inner.else_body) == 1 and len(outer.else_body) == 1
+
+
+def test_a_continue_arm_of_an_evaluate_is_not_stacked_with_the_next_when():
+    stmt = _parse('           EVALUATE A\n               WHEN 1 CONTINUE\n               WHEN OTHER DISPLAY "O".\n')[0]
+    assert stmt.condition.startswith("A = 1") and stmt.then_body == () and len(stmt.else_body) == 1
