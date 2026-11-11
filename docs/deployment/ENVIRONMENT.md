@@ -82,9 +82,11 @@ scripts), so use the UI on trusted machines. **Sign out** in the sidebar
 (shown while a token is stored) removes it and clears the history fetched
 with it; a build-time token (2) cannot be signed out.
 
-There is no login UI and no per-user identity: the token is the same
-deployment-level control documented for the backend (no RBAC — carried
-limitation D-5).
+There is no login UI and no per-user identity in the browser: the UI sends the one token it holds.
+The backend can map several tokens to the roles `viewer`, `operator` and `approver` (`CONTROL_PLANE_ROLE_TOKENS`,
+`api/rbac.py`; the shared `CONTROL_PLANE_API_TOKEN` is the `approver` in that mode), but the approver name
+recorded on an approval is caller-supplied text, not a verified identity (OIDC is an owner decision, see
+`docs/audits/OWNER_DECISIONS.md`).
 
 CORS methods are restricted to `GET,POST` and only when the allowlist is
 non-empty (`api/app.py`). Security headers (HSTS, `nosniff`, `DENY`
