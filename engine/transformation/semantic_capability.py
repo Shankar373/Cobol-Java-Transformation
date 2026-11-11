@@ -508,8 +508,10 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "subset: a primary key at any position in the record area (roadmap "
         "unit 29) and an ALTERNATE RECORD KEY for random access (unit 30), "
         "byte-identical to GnuCOBOL 3.1.2 in seeded fuzz. START / READ "
-        "NEXT on a file with alternate keys is refused by name (known ~5% "
-        "divergence in the position after a failed keyed READ). "
+        "NEXT along an alternate key is certified for one proven shape "
+        "only (ACCESS DYNAMIC, two alternate keys - one WITH DUPLICATES, "
+        "one unique -, PIC X(2) fields, FILE STATUS only; 450 swept programs "
+        "equal to GnuCOBOL) and refused by name outside it. "
         "Behavioral equivalence is PROVEN for the certified subset only.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
