@@ -382,6 +382,15 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         "objects than subjects, EVALUATE FALSE and a NOT object fail closed.",
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
+    "CORRESPONDING": _supported(
+        "MOVE / ADD / SUBTRACT CORRESPONDING a TO|FROM b between two group items on one line: expanded before parsing "
+        "(qualified_names.py) into one plain statement per pair of same-named elementary items with the same "
+        "qualification below the two groups, in source order; items with OCCURS or REDEFINES, a group paired with an "
+        "elementary item, ROUNDED / SIZE ERROR, a wrapped or nested statement and a group-name that is ambiguous fail "
+        "closed; ADD / SUBTRACT use the numeric pairs only. Equal to GnuCOBOL 3.1.2 "
+        "(tests/integration/test_corresponding_oracle.py).",
+        source_only=CapabilityLevel.UNSUPPORTED,
+    ),
     "PERFORM VARYING AFTER": _supported(
         "PERFORM VARYING a FROM x BY y UNTIL c AFTER b FROM ... AFTER d FROM ... (up to any depth of integer PIC 9(1..9) "
         "control items, inline or PERFORM paragraph), TEST BEFORE and WITH TEST AFTER, also for a single VARYING item. "

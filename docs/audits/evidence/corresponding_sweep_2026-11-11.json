@@ -1,0 +1,38 @@
+{
+  "feature": "MOVE / ADD / SUBTRACT CORRESPONDING (roadmap unit 41, stage 1)",
+  "date": "2026-11-11",
+  "oracle": "GnuCOBOL 3.1.2.0 (gnucobol-ocesql image) vs generated Java, standard output compared byte for byte",
+  "generator": "tests/integration/test_corresponding_oracle.py::_program (20 programs per seed)",
+  "runs": [
+    {"seed": 601, "programs": 20, "mismatches": 0},
+    {"seed": 602, "programs": 20, "mismatches": 0},
+    {"seed": 603, "programs": 20, "mismatches": 0},
+    {"seed": 604, "programs": 20, "mismatches": 0},
+    {"seed": 801, "programs": 20, "mismatches": 0, "note": "held out: never run during development"},
+    {"seed": 802, "programs": 20, "mismatches": 0, "note": "held out"},
+    {"seed": 803, "programs": 20, "mismatches": 0, "note": "held out"}
+  ],
+  "total_programs": 140,
+  "total_mismatches": 0,
+  "hermetic_tests": "tests/test_corresponding.py: 5 passed",
+  "supported_and_proven": [
+    "MOVE / ADD / SUBTRACT CORRESPONDING (and CORR) between two group items on a single line",
+    "pairing by name and by qualification below the two groups, in source order",
+    "overlapping names, nested subgroups of the same name, different sizes and kinds (alphanumeric, unsigned, signed, decimal)",
+    "names present in one group only, and names at a different level in the other (do not correspond)",
+    "ADD / SUBTRACT use the numeric pairs only"
+  ],
+  "refused_by_name_not_lowered": [
+    "OCCURS or REDEFINES items", "ROUNDED / SIZE ERROR", "a statement wrapped over several lines",
+    "a statement nested inside another statement (for example inside IF)", "an operand that is not a group",
+    "an unknown group name", "a name that is a group in one operand and elementary in the other",
+    "an ambiguous group name"
+  ],
+  "unverified": [
+    "behaviour on IBM Enterprise COBOL (no IBM evidence exists)",
+    "FILLER and 88-level interaction beyond what the generator produces",
+    "groups more than three levels deep; more than three groups per program",
+    "COMP / COMP-3 / edited items as CORRESPONDING members (generator uses display items only)"
+  ],
+  "log_files": "development machine scratch logs; per-program output hashes were not recorded for this sweep"
+}

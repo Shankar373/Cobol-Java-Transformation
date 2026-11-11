@@ -50,6 +50,7 @@ PROOFS: dict[str, list[tuple]] = {
     "QUALIFIED NAMES": [("test", "tests/integration/test_qualified_oracle.py")],
     "EVALUATE ALSO": [("test", "tests/integration/test_evaluate_oracle.py")],
     "NEXT SENTENCE": [("test", "tests/integration/test_next_sentence_oracle.py")],
+    "CORRESPONDING": [("test", "tests/integration/test_corresponding_oracle.py")],
     "SET INDEX": [("test", "tests/integration/test_search_oracle.py")],
     "EXEC SQL": [("test", "tests/integration/test_sql_jdbc_oracle.py")],
     "ACCESS DYNAMIC": [("test", "tests/integration/test_indexed_relative_oracle_proof.py"),
