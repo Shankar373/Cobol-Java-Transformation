@@ -37,7 +37,14 @@ for attempt in $(seq 1 "$attempts"); do
     network=(--network host)
     echo "attempt $attempt/$attempts: building $tag on the host network" >&2
   fi
-  if docker build --pull "${network[@]}" -f "$dockerfile" -t "$tag" .; then
+  args=()
+  # The Ubuntu mirror fallback: only when this runner cannot resolve archive.ubuntu.com, only from the second
+  # attempt, only for a Dockerfile that declares ARG APT_MIRROR. Same archive content and signatures.
+  if [ "$attempt" -gt 1 ] && ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && grep -q '^ARG APT_MIRROR' "$dockerfile"; then
+    args=(--build-arg APT_MIRROR=azure.archive.ubuntu.com)
+    echo "attempt $attempt/$attempts: archive.ubuntu.com does not resolve here; apt uses azure.archive.ubuntu.com" >&2
+  fi
+  if docker build --pull "${network[@]}" "${args[@]}" -f "$dockerfile" -t "$tag" .; then
     exit 0
   fi
   if [ "$attempt" -lt "$attempts" ]; then

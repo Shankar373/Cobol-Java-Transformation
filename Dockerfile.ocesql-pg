@@ -7,6 +7,11 @@
 FROM ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Optional apt mirror, used ONLY by scripts/ci/build-image.sh when the runner cannot resolve archive.ubuntu.com
+# (GitHub runner DNS outage, 2026-11-11). Same Ubuntu archive content: the pinned package versions below and apt's
+# signature verification are unchanged; empty (the default) leaves the base image's sources untouched.
+ARG APT_MIRROR=""
+RUN if [ -n "$APT_MIRROR" ]; then         sed -i -E "s#https?://(archive|security)\.ubuntu\.com#http://${APT_MIRROR}#g" /etc/apt/sources.list;     fi
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         gnucobol3=3.1.2-5 \
