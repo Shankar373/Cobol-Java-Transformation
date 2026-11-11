@@ -68,7 +68,7 @@ docker run --rm \
 # uniquely (docs/deployment/PRODUCTION.md), so a hard-coded :production recorded "api image tag not found" for them.
 TAG="${IMAGE_TAG:-}"
 if [ -z "$TAG" ] && [ -f "${ENV_FILE:-.env.production}" ]; then
-  TAG="$(sed -n 's/^IMAGE_TAG=//p' "${ENV_FILE:-.env.production}" | tail -n 1 | tr -d '')"
+  TAG="$(sed -n 's/^IMAGE_TAG=//p' "${ENV_FILE:-.env.production}" | tail -n 1 | tr -d '\r')"
 fi
 TAG="${TAG:-production}"
 docker image inspect "systemaops-api:${TAG}" > "$DEST/api-image.json" 2>/dev/null || echo '{"warning":"api image tag not found"}' > "$DEST/api-image.json"
