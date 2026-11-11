@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.intrinsic import FUNCTION_OPERAND, parse_function
+from engine.transformation.next_sentence import rewrite_next_sentence
 from engine.transformation.qualified_names import resolve_qualified_names
 from engine.transformation.refmod import REFMOD_ANYWHERE, split_outside_parentheses
 from engine.transformation.control_flow import (
@@ -777,6 +778,9 @@ class CobolParser:
         # supported; bare-word operands fail closed with a diagnostic.
         code_lines = self._apply_replace_directives(code_lines)
         code_lines, qualification_problems = resolve_qualified_names(code_lines)
+        code_lines, next_sentence_problems = rewrite_next_sentence(code_lines)
+        for problem in next_sentence_problems:
+            self._diagnostics.warning(DiagnosticCode.UNSUPPORTED_CONSTRUCT, problem, location="NEXT SENTENCE")
         for problem in qualification_problems:
             self._diagnostics.warning(DiagnosticCode.UNSUPPORTED_CONSTRUCT, problem, location="OF/IN")
 

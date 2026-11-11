@@ -435,7 +435,12 @@ CONSTRUCT_REGISTRY: dict[str, ConstructCapability] = {
         source_only=CapabilityLevel.UNSUPPORTED,
     ),
     "ALTER": _unsupported("ALTER is outside the certified deterministic subset"),
-    "NEXT SENTENCE": _unsupported("NEXT SENTENCE is not represented by the procedure IR"),
+    "NEXT SENTENCE": _supported(
+        "NEXT SENTENCE as the last statement of a branch of a single IF ... ELSE sentence (or alone) with no scope "
+        "terminator in the sentence is rewritten to CONTINUE before parsing (next_sentence.py); nested IF, EVALUATE, "
+        "SEARCH, PERFORM, file phrases, an END-IF in the sentence and statements after it in its branch fail closed "
+        "(tests/integration/test_next_sentence_oracle.py)",
+    ),
     "GOBACK": _supported(
         "GOBACK terminates the generated program and returns to the caller, "
         "lowered to a Java return from the current method",
