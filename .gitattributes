@@ -15,3 +15,6 @@
 # bytes, never line-ending converted (tests/test_indexed_record_comparison.py).
 tests/data/indexed_bdb/*.DAT binary
 tests/data/relative/*.DAT binary
+
+# sourced by bash (start-production.sh): a CRLF checkout broke `source` (staging run, 2026-11-11)
+.env*.example text eol=lf

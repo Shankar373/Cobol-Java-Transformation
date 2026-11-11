@@ -120,13 +120,15 @@ def main() -> int:
     print("  verdict_state:", detail.get("verdict_state"), " generated_files:", len(detail.get("generated_files") or []))
     status, verdict = api.json("GET", f"/runs/{run_id}/verdict")
     step("verdict is readable", status == 200, str(status))
+    state = verdict.get("state") if isinstance(verdict, dict) else None
+    step("the oracle comparison verdict is VERIFIED", state == "VERIFIED", f"state={state}")
     if isinstance(verdict, dict):
         print("  verdict:", json.dumps({k: verdict[k] for k in list(verdict)[:8]}, default=str)[:400])
     status, _ = api.json("GET", f"/applications/{app_id}")
     app_now = _ if isinstance(_, dict) else {}
     step("the application still carries the chosen runtime", app_now.get("target_runtime") == args.runtime)
     status, raw = api.call("GET", f"/runs/{run_id}/download")
-    step("download the generated project", status in (200, 403, 409), f"{status} {len(raw)} bytes")
+    step("download the generated project", status == 200, f"{status} {len(raw)} bytes")
     if status == 200:
         names = zipfile.ZipFile(io.BytesIO(raw)).namelist()
         pom = next((n for n in names if n.endswith("pom.xml")), None)

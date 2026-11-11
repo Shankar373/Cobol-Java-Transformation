@@ -77,6 +77,10 @@ services:
     volumes:
       - control-plane-data:/app/data
       - control-plane-work:/app/workspaces
+      # Image provenance: the candidate adapter verifies the Maven build image against this record (written by
+      # scripts/deploy/build-production.sh) and is UNAVAILABLE - every run ends in ERROR - without it, because
+      # the image deliberately ships no test-artifacts/. start-production.sh refuses to start without the file.
+      - ${IMAGE_PROVENANCE_PATH:-./test-artifacts/docker-image-provenance.${IMAGE_TAG:-production}.json}:/app/test-artifacts/docker-image-provenance.json:ro
       # Host-visible sandbox staging: HOST_SANDBOX_STAGING_DIR MUST be an
       # absolute host path (same value the engine translates to). The host
       # directory must exist and be writable by uid/gid 10001 (the API user)
@@ -177,7 +181,9 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null https://127.0.0.1/health || exit 1"]
+      # Loopback probe of the container's own listener: the certificate is issued for a hostname, never for 127.0.0.1,
+      # so verification cannot succeed here (and does not need to - nothing leaves the container).
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://127.0.0.1/health || exit 1"]
       interval: 30s
       timeout: 5s
       start_period: 10s
