@@ -4,8 +4,8 @@ Branch: `impl/enterprise-platform` (never merged into `main`). Written 2026-11-1
 evidence cited below; nothing here is asserted without a commit, a workflow run or a command output behind it.
 
 **Verdict: READY WITH DOCUMENTED LIMITATIONS (prototype).** **Production readiness: NOT READY** (section 9).
-The prototype verdict applies to the certified commit `cefa768` (section 1), whose three required workflows are green
-(section 3). Commits made after it are listed in section 2 with the state of their workflows at the time of writing.
+The prototype verdict applies to the certified commit `407e601` (section 1), whose three required workflows are green
+(section 3); the earlier certified commit `cefa768` is green too.
 
 ## 1. What this is
 
@@ -14,11 +14,12 @@ supported COBOL / VSAM subset, generates a Java project for one of four runtimes
 Micronaut), runs the original COBOL under GnuCOBOL 3.1.2 and the generated Java in sandbox containers, and compares
 stdout, stderr and exit status. Anything it cannot prove is refused by name, not approximated.
 
-* **Certified commit: `cefa768`** - all three required workflows succeeded on it (section 3). Its code is identical to
-  `fc419cb`; `cefa768` only regenerates `docs/audits/DEPENDENCY_MAP.md`.
-* Commits after it are not covered by that certification: three documentation deletions pushed by another session (`91648d7`,
-  `cfe2064`, `f61d205`), CORRESPONDING (`8a9f6ac`), `a3bb8cd`, `0d61f2c` and the documentation / handoff commit that contains this file. Their
-  workflows were still running when this was written; read their conclusions in GitHub Actions before relying on them.
+* **Certified commit: `407e601`** - all three required workflows succeeded on it (section 3). It contains everything in section 2:
+  the CORRESPONDING feature (`8a9f6ac`), the runtime-selection and deployment fixes, and the documentation reconciliation.
+  `cefa768` (before CORRESPONDING) is also fully green. `a3bb8cd` and `0d61f2c` have no workflow run of their own; they are
+  covered by `407e601`.
+* This file records those results, so it is committed afterwards in a documentation-only commit with its own workflow runs;
+  read that commit's conclusions in GitHub Actions (the branch head).
 * Evidence classes used: `VERIFIED` (GnuCOBOL 3.1.2 differential), SQL via OCESQL + PostgreSQL 14, and
   `SIMULATOR_VERIFIED` (in-repo simulators). **There is no IBM runtime evidence, so no IBM equivalence is claimed.**
 
@@ -54,25 +55,28 @@ All runs: <https://github.com/Shankar373/Cobol-Java-Transformation/actions>
 | Commit | SystemaOps CI | Supply chain | Four-runtime certification |
 |---|---|---|---|
 | `fc419cb` | run 43049525627: **every job green except the Linux Capability truth gate**, which failed only because `DEPENDENCY_MAP.md` was stale (fixed by `cefa768`) | run 43049525619 success | run 43049525614 success |
-| **`cefa768` (certified)** | run 43061320217: **success, all 10 jobs** | run 43061320347: **success** | run 43061320287: **success, all four runtime jobs** |
+| **`407e601` (certified, includes CORRESPONDING)** | run 43071564188: **success, all 10 jobs** | run 43071563913: **success** | run 43071563815: **success, all four runtime jobs** |
+| `8a9f6ac` (CORRESPONDING) | run 43071267633: **success, all 10 jobs** | run 43071267644: success | run 43071267672: success |
+| `cefa768` (previous certified commit) | run 43061320217: **success, all 10 jobs** | run 43061320347: **success** | run 43061320287: **success, all four runtime jobs** |
 
-Run URLs: `https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/<id>` for 43061320217 (CI), 43061320347 (supply chain),
-43061320287 (certification), 43049525627, 43049525619, 43049525614 (`fc419cb`).
+Run URLs: `https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/<id>` for 43071564188 (CI), 43071563913 (supply chain),
+43071563815 (certification) of `407e601`; 43071267633, 43071267644, 43071267672 (`8a9f6ac`); 43061320217, 43061320347, 43061320287
+(`cefa768`); 43049525627, 43049525619, 43049525614 (`fc419cb`, red only on the stale dependency map, fixed by `cefa768`).
 
-Test evidence on `cefa768` (run 43061320217, read from the job logs):
+Test evidence on `407e601` (run 43071564188, read from the job logs):
 
-* Docker lane (backend + GnuCOBOL / Java oracle suites): **6176 passed**, 52 min 53 s.
-* Backend hermetic (Linux): 5568 passed, 608 skipped; (Windows): 5558 passed, 618 skipped.
-* Capability truth gate: 1312 passed, 89 skipped, 3 deselected on Linux and on Windows; coverage floor job green; lint and
+* Docker lane (backend + GnuCOBOL / Java oracle suites): **6187 passed**, 1 h 11 min (6176 on `cefa768`; the difference is the CORRESPONDING tests).
+* Backend hermetic (Linux): 5575 passed, 612 skipped; (Windows): 5565 passed, 622 skipped.
+* Capability truth gate: 1313 passed, 89 skipped, 3 deselected on Linux and on Windows; coverage floor job green; lint and
   the type check ratchet (209 known errors, no new class) green.
 * Frontend: 22 files, **192 tests passed** on Linux and Windows, TypeScript clean, production build and bundle-secret guard OK.
-* Certification (each of spring_boot, plain_java, quarkus, micronaut, run 43061320287): 55 applications, **45 `VERIFIED`,
+* Certification (each of spring_boot, plain_java, quarkus, micronaut, run 43071563815): 55 applications, **45 `VERIFIED`,
   1 `UNAVAILABLE`, 9 with no verdict (refused by name)**; independent verifier **AGREE 45/45**; `CERTIFIED`.
 * GnuCOBOL differential sweeps run during this effort: alternate-key browsing 18 seeds / 450 programs / 0 mismatches
   (`docs/audits/evidence/alternate_key_browse_sweep_2026-11-11.json`); NEXT SENTENCE 100 programs / 0 mismatches; CONTINUE
   fix 60 programs / 0 mismatches; CORRESPONDING 7 seeds / 140 programs / 0 mismatches
   (`docs/audits/evidence/corresponding_sweep_2026-11-11.json`).
-* Local checks on the post-certification commits: hermetic transformation + capability + CORRESPONDING suites 2308 passed,
+* Local checks before the CORRESPONDING commit: hermetic transformation + capability + CORRESPONDING suites 2308 passed,
   55 skipped (Docker-only); ruff clean; type ratchet clean.
 
 CI infrastructure note: runs of `f0418a1`, `442d5f5`, `ff4fce2` failed because the GitHub runner resolver
@@ -141,8 +145,8 @@ JCL, IMS, MQ and CICS exist as simulators or runners with limited coverage and a
   proven: a single-line statement between two groups, pairing by name and qualification in source order, nested same-name
   subgroups, alphanumeric / unsigned / signed / decimal items (140 programs, 7 seeds including 3 held out, 0 mismatches). Refused by
   name: OCCURS / REDEFINES, ROUNDED / SIZE ERROR, wrapped or nested statements, non-group operands, ambiguous names. Unverified:
-  COMP / COMP-3 / edited members, more than three levels or groups, IBM behaviour. Its own CI result is in GitHub Actions
-  for `8a9f6ac` (not certified here). The original uncommitted work is still backed up on branch
+  COMP / COMP-3 / edited members, more than three levels or groups, IBM behaviour. CI, supply chain and certification are green on
+  `8a9f6ac` and `407e601`. The original uncommitted work is still backed up on branch
   `backup/corresponding-wip-2026-11-10` (`48e4226`).
 * Real customer programs have not been tested; the corpus is the repository's own fixtures.
 * Local keyed-file Docker suites were never run on the development machine (memory); the CI Docker lane (6176 passed) is the evidence.
@@ -218,7 +222,7 @@ Corpus certification (four runtimes) runs in GitHub Actions for commits tagged `
 
 ## 12. Next recommended engineering actions
 
-1. Read the conclusions of the workflows for `8a9f6ac` and the documentation commit in GitHub Actions; fix any failure at its root cause.
+1. Read the conclusions of the workflows on the branch head (the documentation commit that records these results) in GitHub Actions.
 2. Owner review of the PR audit (section 8), then close #8, #6, #10, #11, #12 and the four Actions bumps; fold the Python and frontend
    bumps into one re-locked, fully tested dependency PR against this branch; decide #1 and #3.
 3. Remaining Level 1 work: INSPECT with data-name operands, SORT procedures with RELEASE / RETURN, OCCURS DEPENDING ON, EBCDIC,
