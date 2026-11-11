@@ -247,7 +247,9 @@ def test_ci_image_builds_retry_transient_registry_errors():
         text = workflow.read_text(encoding="utf-8")
         assert "docker build" not in text, workflow.name
     script = (REPO / "scripts" / "ci" / "build-image.sh").read_text(encoding="utf-8")
-    assert "for attempt in 1 2 3" in script and "set -euo pipefail" in script
+    assert 'attempts=5' in script and 'seq 1 "$attempts"' in script and "set -euo pipefail" in script
+    # a DNS outage inside the build network is retried on the host network, reported, and still fails the job
+    assert "--network host" in script and "dns_report" in script and "exit 1" in script
 
 
 def test_workflow_pipelines_into_tee_keep_the_command_status():
