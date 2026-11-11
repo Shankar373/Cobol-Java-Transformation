@@ -18,6 +18,7 @@ and `CONTROL_PLANE_MAX_UPLOAD_FILES` are read in `api/service.py` instead
 | `CONTROL_PLANE_ENV` | **Yes** in production (`production`) | unset = development | Fail-closed production gate: `production` refuses to start without `CONTROL_PLANE_API_TOKEN` and answers 401 on every non-`/health`, non-`/ready` route even if startup was bypassed; an unrecognised value aborts startup; `development`/`dev`/`test` keep dev parity |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | **Yes** | — | host paths; certbot/ACME or org CA; never commit |
 | `HTTPS_PORT` | No | 443 | host bind for :443 |
+| `HTTPS_BIND` | No | 0.0.0.0 | interface the edge listens on; set `127.0.0.1` for a localhost-only staging or evaluation deployment |
 | `FRONTEND_DIST_PATH` | No | `./frontend/dist` (compose default) | `npm run build` output mounted into nginx; no built dist = API-only mode |
 | `CONTROL_PLANE_MAX_REQUEST_BYTES` | No | 52428800 (50m) | must stay ≤ nginx `client_max_body_size` |
 | `CONTROL_PLANE_MAX_FILE_BYTES` | No | 10485760 | per-file cap |
