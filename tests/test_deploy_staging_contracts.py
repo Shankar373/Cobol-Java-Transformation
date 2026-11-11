@@ -44,3 +44,21 @@ def test_verify_resolves_the_oracle_pin_when_run_standalone():
 
 def test_env_examples_are_checked_out_with_lf():
     assert ".env*.example text eol=lf" in _text(".gitattributes")
+
+
+def test_backup_records_the_deployed_tag_not_a_hardcoded_production_tag():
+    backup = _text("scripts/backup/backup.sh")
+    assert 'docker image inspect "systemaops-api:${TAG}"' in backup
+    assert 'docker-image-provenance.${TAG}.json' in backup
+    assert "systemaops-api:production" not in backup.replace("api image tag", "")
+
+
+def test_wsl_path_translation_is_limited_to_windows_drive_mounts():
+    # a path on WSL's own filesystem is valid to a Linux (Docker Desktop WSL-integration) daemon as it is
+    for name in ("scripts/backup/backup.sh", "scripts/backup/restore.sh"):
+        assert '[[ "$1" == /mnt/[a-z]/* ]]' in _text(name), name
+
+
+def test_rollback_ignores_an_inherited_image_tag():
+    rollback = _text("scripts/deploy/rollback.sh")
+    assert rollback.index("unset IMAGE_TAG") < rollback.index("up -d --remove-orphans --wait api")

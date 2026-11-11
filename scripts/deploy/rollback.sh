@@ -19,6 +19,9 @@ resolve_docker_gid "$ENV_FILE"
 # file with the requested tag and pass that instead. Removed on exit;
 # it contains the API token. Kept relative to the repo root so both the
 # POSIX shell and the Windows docker.exe resolve it to the same file.
+# A shell-exported IMAGE_TAG (left over from start-production.sh, say) overrides the env file in compose and turned the
+# rollback into a silent no-op (staging drill, 2026-11-11); the tag comes from the derived env file only.
+unset IMAGE_TAG
 ROLLBACK_ENV=".env.rollback.$$"
 # Owner-only: the copy carries the API token.
 ( umask 077; sed "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" "$ENV_FILE" > "$ROLLBACK_ENV" )

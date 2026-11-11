@@ -21,7 +21,7 @@ fi
 # (/mnt/<drive>/...) are not understood by the Windows Docker daemon, so
 # translate through wslpath when available.
 host_path() { # host_path <path>
-  if command -v wslpath >/dev/null 2>&1; then
+  if command -v wslpath >/dev/null 2>&1 && [[ "$1" == /mnt/[a-z]/* ]]; then
     wslpath -w "$1"
   else
     echo "$1"

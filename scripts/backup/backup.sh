@@ -29,7 +29,7 @@ chmod 700 "$DEST"
 # path before mounting. On a native Linux host wslpath is unavailable and
 # the path is already a valid host path.
 host_path() { # host_path <path>
-  if command -v wslpath >/dev/null 2>&1; then
+  if command -v wslpath >/dev/null 2>&1 && [[ "$1" == /mnt/[a-z]/* ]]; then
     wslpath -w "$1"
   else
     echo "$1"
@@ -64,8 +64,15 @@ docker run --rm \
   alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc tar -czf /out/workspaces.tar.gz -C /work .
 
 # 3. Release identity: what code produced this data.
-docker image inspect systemaops-api:production > "$DEST/api-image.json" 2>/dev/null || echo '{"warning":"api image tag not found"}' > "$DEST/api-image.json"
-cp test-artifacts/docker-image-provenance.production.json "$DEST/" 2>/dev/null || true
+# The deployed tag: IMAGE_TAG from the environment, else from the env file, else "production". Releases are tagged
+# uniquely (docs/deployment/PRODUCTION.md), so a hard-coded :production recorded "api image tag not found" for them.
+TAG="${IMAGE_TAG:-}"
+if [ -z "$TAG" ] && [ -f "${ENV_FILE:-.env.production}" ]; then
+  TAG="$(sed -n 's/^IMAGE_TAG=//p' "${ENV_FILE:-.env.production}" | tail -n 1 | tr -d '')"
+fi
+TAG="${TAG:-production}"
+docker image inspect "systemaops-api:${TAG}" > "$DEST/api-image.json" 2>/dev/null || echo '{"warning":"api image tag not found"}' > "$DEST/api-image.json"
+cp "test-artifacts/docker-image-provenance.${TAG}.json" "$DEST/" 2>/dev/null || true
 echo "$STAMP" > "$DEST/STAMP.txt"
 
 # 4. Verify the backup is *restorable*, not merely present: a gzip of an
