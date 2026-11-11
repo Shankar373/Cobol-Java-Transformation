@@ -20,6 +20,11 @@ check() { # check <label> <command...>
 # shellcheck source=scripts/deploy/lib-docker-gid.sh
 source ./scripts/deploy/lib-docker-gid.sh
 resolve_docker_gid "$ENV_FILE"
+# Standalone runs (not exec'd by start-production.sh) must resolve the oracle pin the same way, or compose cannot render.
+if [ -z "${SYSTEMAOPS_ORACLE_DIGEST:-}" ]; then
+  SYSTEMAOPS_ORACLE_DIGEST="$(python3 -c 'from engine.oracle.docker_adapter import oracle_image_digest; print(oracle_image_digest())' 2>/dev/null || true)"
+fi
+export SYSTEMAOPS_ORACLE_DIGEST
 check "compose config renders" docker compose -f docker-compose.production.yml --env-file "$ENV_FILE" config
 # Derive the api container from compose instead of hardcoding the
 # project-name-dependent id (systemaops-production-api-1): a renamed
@@ -37,6 +42,8 @@ check "TLS /health via nginx" curl -fsS --max-time 10 "https://127.0.0.1:${PORT}
 # Readiness, not liveness: 503 here means the control plane cannot persist
 # writes (SQLite/workspace/staging) even though the process is up.
 check "TLS /ready via nginx (readiness)" curl -fsS --max-time 10 "https://127.0.0.1:${PORT}/ready"
+check "image provenance record mounted in the api container"   bash -c "test -n '${API_CONTAINER}' && docker exec '${API_CONTAINER}' test -s /app/test-artifacts/docker-image-provenance.json"
+check "candidate adapter AVAILABLE (build and runtime identities verified)"   bash -c "test -n '${API_CONTAINER}' && docker exec -w /app -e PYTHONPATH=/app '${API_CONTAINER}' python -c 'from engine.candidate.factory import candidate_adapter_for_target as f; import sys; sys.exit(0 if f(\"spring_boot\").available else 1)'"
 check "sandbox image gnucobol present" docker image inspect gnucobol-ocesql:latest
 check "sandbox image maven present" docker image inspect maven-offline-springboot:latest
 check "sandbox image java runtime present" docker image inspect eclipse-temurin:21-jdk

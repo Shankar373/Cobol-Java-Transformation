@@ -354,7 +354,7 @@ export function NewModernization({ onSubmit, loading, onNavigate }: NewModerniza
                   required
                 >
                   <option value="" disabled>
-                    Select a runtime…
+                    Select a runtimeâ€¦
                   </option>
                   {runtimeOptions.map((r) => (
                     <option key={r.value} value={r.value} title={r.note}>{r.label}</option>

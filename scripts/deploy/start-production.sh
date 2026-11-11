@@ -28,6 +28,14 @@ if [ ! -f "${TLS_CERT_PATH:-./deployment/tls/fullchain.pem}" ] || [ ! -f "${TLS_
   exit 1
 fi
 
+# Image provenance record written by build-production.sh for this IMAGE_TAG (mounted into the api container, which
+# verifies the Maven build image against it). Without it the candidate adapter is UNAVAILABLE and every run errors.
+PROVENANCE="${IMAGE_PROVENANCE_PATH:-./test-artifacts/docker-image-provenance.${IMAGE_TAG}.json}"
+if [ ! -f "$PROVENANCE" ]; then
+  echo "FATAL: image provenance record $PROVENANCE not found - run scripts/deploy/build-production.sh ${IMAGE_TAG} first." >&2
+  exit 1
+fi
+
 # Group owning the daemon socket (compose requires DOCKER_GID; no silent
 # fallback to the root group). Shared with every compose entry point.
 # shellcheck source=scripts/deploy/lib-docker-gid.sh
@@ -64,7 +72,8 @@ if ! chown 10001:10001 "$HOST_SANDBOX_STAGING_DIR" 2>/dev/null; then
   echo "WARN: could not chown $HOST_SANDBOX_STAGING_DIR to 10001:10001 (run as root once: chown 10001:10001 '$HOST_SANDBOX_STAGING_DIR')." >&2
   echo "WARN: continuing — verify-production.sh will fail closed if the API user cannot write there." >&2
 fi
-chmod 0755 "$HOST_SANDBOX_STAGING_DIR"
+# Not fatal: a re-run as a non-root user finds the directory already owned by 10001 (chmod then fails, harmlessly).
+chmod 0755 "$HOST_SANDBOX_STAGING_DIR" 2>/dev/null || [ "$(stat -c %a "$HOST_SANDBOX_STAGING_DIR")" = "755" ]
 
 # Preflight: validate daemon reachability and the rendered stack BEFORE
 # mutating anything. Without this, a stopped daemon or an unrenderable
