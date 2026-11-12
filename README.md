@@ -124,6 +124,21 @@ The full command reference, troubleshooting and the exact pinned image digests a
 README in [`docs/archive/README_2026-11-03.md`](docs/archive/README_2026-11-03.md) and maintained in
 [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/deployment/`](docs/deployment/).
 
+## Validation summary and what is not proven
+
+`GET /runs/{id}/validation-summary` (JSON, or `?format=markdown`) returns a deterministic per-run summary: Conversion
+(SUCCESS/FAIL), Compilation (PASS/FAIL, with the JDK recorded in the evidence; the build and run image uses JDK 21 and the
+generated projects target Java 21, above the required 17), Runtime (PASS/FAIL), Business equivalence
+(PASS/WARNING/FAIL/NOT_EVALUATED, from the comparator results only), the named unsupported constructs and the warnings.
+Every field is derived from stored evidence; a field with no evidence is `NOT_RUN` or `NOT_EVALUATED`, never PASS, and a
+build failure is Compilation FAIL, not a verdict. A run whose build could not even start (for example a local Maven image
+that does not match the pinned image identity, see `docs/PROTOTYPE_HANDOFF.md`) also shows Compilation FAIL.
+
+**Not proven:** equivalence holds only for the recorded comparison input, against GnuCOBOL 3.1.2 - there is **no IBM runtime
+evidence** and no universal COBOL compatibility claim. **Jakarta EE is not certified** (a generation profile only).
+**Quarkus and Micronaut are certified in command mode only** (no HTTP, no native image). **REST/HTTP behaviour of a
+generated application is not verified.** The product is a prototype; production readiness is NOT READY.
+
 ## Verification and CI
 
 - **CI** (`.github/workflows/ci.yml`): capability-truth gate, lint, hermetic backend suite, the Docker/GnuCOBOL-oracle

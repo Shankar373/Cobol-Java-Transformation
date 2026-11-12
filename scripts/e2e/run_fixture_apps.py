@@ -110,6 +110,11 @@ def run_app(name: str, cobol_dir: Path) -> dict:
         rec["verdict_differences"] = json.dumps(vj.get("differences"))[:600]
     else:
         rec["verdict_http"] = v.status_code
+    vs = client.get(f"/runs/{run_id}/validation-summary")
+    if vs.status_code == 200:
+        rec["validation_summary"] = vs.json()
+    else:
+        rec["validation_summary_http"] = vs.status_code
     rec_run = store.get_run(run_id)
     app_rec = store.get_application(app_id)
     rec["entry"] = getattr(app_rec, "generated_entrypoint", None)

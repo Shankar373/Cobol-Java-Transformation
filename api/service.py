@@ -1870,6 +1870,46 @@ class Service:
             for c in run.evidence_manifest.comparison_evidence
         ]
 
+    def get_validation_summary(self, run_id: str) -> dict:
+        """Return the deterministic validation summary for a run.
+
+        Derived by ``engine.verification.validation_summary`` only from the
+        gated verdict and comparisons, the candidate's execution evidence and
+        the stored report; a run with no verdict yet raises ``NotFoundError``.
+        """
+        from engine.verification.validation_summary import build_validation_summary
+
+        run = self.get_run(run_id)
+        if run.verdict is None:
+            raise NotFoundError("No verdict available for this run")
+        verdict = self.get_verdict(run_id)
+        verdict["comparisons"] = self.get_comparisons(run_id)
+        evidence: dict | None = None
+        manifest = run.evidence_manifest
+        if manifest is not None:
+            evidence = {
+                "execution_evidence": [
+                    {
+                        "runtime_id": e.runtime_id,
+                        "execution_phase": e.execution_phase,
+                        "termination_status": e.termination_status,
+                        "exit_code": e.exit_code,
+                    }
+                    for e in manifest.execution_evidence
+                ],
+                "environment_identities": [
+                    {"runtime_id": env.runtime_id, "java_version": env.java_version}
+                    for env in manifest.environment_identities
+                ],
+            }
+        try:
+            report: dict | None = self.get_run_report(run_id)
+        except NotFoundError:
+            report = None
+        return build_validation_summary(
+            run_id=run.id, verdict=verdict, evidence=evidence, report=report,
+        )
+
     def list_applications(self) -> list[ApplicationRecord]:
         """Return all applications ordered by creation time."""
         return self._store.list_applications()

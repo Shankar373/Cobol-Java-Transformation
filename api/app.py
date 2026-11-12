@@ -17,6 +17,7 @@ Endpoints:
   GET    /runs/{id}/verdict                      — verdict
   GET    /runs/{id}/report                       — modernization report
   GET    /runs/{id}/integrated-proof             — integrated proof status
+  GET    /runs/{id}/validation-summary           — deterministic validation summary (JSON or ?format=markdown)
   GET    /runs/{id}/approval                     — approval state + history
   POST   /runs/{id}/approval                     — approve (VERIFIED only) or reject
   GET    /runs/{id}/download                     — download generated ZIP
@@ -65,7 +66,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -1230,6 +1231,23 @@ def get_run_report(run_id: str) -> ModernizationReportResponse:
         application_id=run.application_id,
         report=_public(report),
     )
+
+
+@app.get("/runs/{run_id}/validation-summary")
+def get_run_validation_summary(run_id: str, format: str = "json"):
+    """Deterministic validation summary: Conversion, Compilation (with the JDK),
+    Runtime, Business equivalence, named unsupported constructs, warnings and
+    what is not proven.  Every field is derived from stored evidence; a run
+    without a verdict answers 404.  ``?format=markdown`` renders the same data.
+    """
+    from engine.verification.validation_summary import render_markdown
+
+    if format not in ("json", "markdown"):
+        raise _error(422, "format must be 'json' or 'markdown'")
+    summary = _public(_svc().get_validation_summary(run_id))
+    if format == "markdown":
+        return PlainTextResponse(render_markdown(summary), media_type="text/markdown")
+    return summary
 
 
 @app.get("/runs/{run_id}/integrated-proof", response_model=IntegratedProofResponse)

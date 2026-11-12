@@ -22,6 +22,23 @@ changes are documentation-only. Evidence on the audit commit `f0fb581`: SystemaO
 [43172901037](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43172901037): success on all four runtimes, 45/55 VERIFIED each, AGREE 45/45. The handoff
 commit that records this is itself docs-only and does not re-trigger certification; its code is identical to `f0fb581`.
 
+## 0b. Validation summary and the local "candidate exit -1" diagnosis (2026-11-12)
+
+`GET /runs/{id}/validation-summary` (`engine/verification/validation_summary.py`, tests in
+`tests/verification/test_validation_summary.py`) derives Conversion, Compilation (with the recorded JDK), Runtime and Business
+equivalence from stored evidence only; see the README section "Validation summary and what is not proven". JDK used: the Maven
+build image and the pinned `eclipse-temurin:21-jdk` runtime run OpenJDK 21.0.12 and the generated poms set
+`maven.compiler.release` 21 (floor required: 17).
+
+A local `plain_java` run of `fixtures/workload-arithmetic` ended ERROR with the candidate at exit -1. **Root cause (proven):**
+not a Windows bug. The adapter refuses to build when the local Maven image id differs from the identity pinned in
+`test-artifacts/docker-image-provenance.json` (local `sha256:2300...` vs pinned `sha256:aea0...`); the candidate is then
+recorded as a build that did not complete, and the platform compares an empty candidate. With the pin satisfied (checked by
+overriding the expected identity in memory, no file changed) the same project builds and prints the oracle's output with exit 0.
+Fix for a developer: after rebuilding the Maven image run `python scripts/record_docker_image_provenance.py` (CI does this in
+`certification.yml`). It is intentionally fail-closed, so no code change was made; the summary shows it as Compilation FAIL with
+the stated basis.
+
 ## 1. What this is
 
 A deterministic, rule-based COBOL to Java modernization platform with **no LLM anywhere in the pipeline**. It parses a

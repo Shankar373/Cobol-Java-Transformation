@@ -57,10 +57,17 @@ def main(argv: list[str]) -> int:
 
     if args.out_dir:
         args.out_dir.mkdir(parents=True, exist_ok=True)
+        summaries = [{"app": r["app"], "target_runtime": args.runtime, "validation_summary": r["validation_summary"]}
+                     for r in results if r.get("validation_summary")]
+        with (args.out_dir / f"validation_summaries_{args.runtime}.jsonl").open(
+                "w", encoding="utf-8", newline="\n") as fh:
+            for row in summaries:
+                fh.write(json.dumps(row, sort_keys=True) + "\n")
         with (args.out_dir / f"certification_corpus_{args.runtime}.jsonl").open(
                 "w", encoding="utf-8", newline="\n") as fh:
             for record in results:
                 record.pop("generated_app_path", None)
+                record.pop("validation_summary", None)  # kept in validation_summaries_<runtime>.jsonl
                 fh.write(json.dumps(record) + "\n")
         (args.out_dir / f"certification_corpus_{args.runtime}_independent.jsonl").write_text(
             args.independent.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
