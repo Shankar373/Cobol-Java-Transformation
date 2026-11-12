@@ -1,5 +1,7 @@
 # Phase 5F.2: Hardcoded Semantics Audit
 
+> **HISTORICAL SNAPSHOT (2026-11-12 audit):** a dated report kept as evidence of the state at its own date. It is not a current status document; the live record is `docs/PROTOTYPE_HANDOFF.md`, `docs/audits/EXECUTION_LEDGER.md` and `docs/FINAL_MASTER_AUDIT_REPORT.md`.
+
 ## Forensic Audit Date: Phase 5F.2 Forensic Closure
 
 ## Complete Semantics Table

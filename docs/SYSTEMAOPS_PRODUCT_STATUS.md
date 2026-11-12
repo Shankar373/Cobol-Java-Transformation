@@ -10,7 +10,8 @@
 > **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
 > below are a *dated snapshot* of the state when this document was written, not a
 > live pointer. The current verified commit, its CI run IDs and their conclusions are
-> recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
+> recorded in `docs/PROTOTYPE_HANDOFF.md` and `docs/audits/EXECUTION_LEDGER.md` (the live record as of the
+> 2026-11-12 audit; `opencode.md` and `docs/BACKLOG.md` are historical).
 > Do not treat the SHAs/CI numbers below as current without checking those two files.
 
 Canonical product status and positioning document for SystemaOps.

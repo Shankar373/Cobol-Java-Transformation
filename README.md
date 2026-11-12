@@ -37,9 +37,9 @@ capabilities that decompose cleanly become independently deployable services. Da
 | COBOL batch programs | **Certified subset** | Deterministic lowering to Java on 4 runtimes; compared with GnuCOBOL on stdout, stderr, exit status and files |
 | Sequential, indexed, relative files | **Proven, narrow** | Emulated side files with FILE STATUS; not real VSAM |
 | Static CALL, copybooks, multi-program | **Certified subset** | In-process calls inside one generated application |
-| JCL | **Analysis only** | Parsed, linked to programs and datasets, reported; no Java is generated from JCL |
-| DB2 / EXEC SQL | **Detected and blocked** | Programs using it are classified UNSUPPORTED; a SQLite-backed experiment exists but is not part of the product |
-| CICS, IMS, MQ | **Detected and blocked** | Dependencies are listed in the ledger; no transformation or runtime |
+| JCL | **Partial** | Parsed, linked to programs and datasets; a bounded job runner executes the step programs and its verification lane compares them with GnuCOBOL (step programs only; JCL itself has no IBM reference) |
+| DB2 / EXEC SQL | **Certified bounded subset, not DB2** | A documented EXEC SQL subset lowers to JDBC and is compared against OCESQL + PostgreSQL 14; DB2 behaviour is unverified and anything outside the subset is blocked by name |
+| CICS, IMS, MQ | **Simulator only, blocked in the product** | Python/Java simulator libraries exist (SIMULATOR_VERIFIED against their own specs); `EXEC CICS`, DL/I and MQI programs are classified UNSUPPORTED and no transformation or runtime is wired in |
 | VSAM utilities (IDCAMS), GDG | **Not supported** | Classified UNSUPPORTED |
 | Hybrid / decomposed output, PostgreSQL targets | **Roadmap** | Not implemented; no claim is made |
 | Application servers (Jakarta EE server, WildFly, Liberty ...) | **Not supported** | `jakarta_ee` produces a plain jar and is outside the certified four |

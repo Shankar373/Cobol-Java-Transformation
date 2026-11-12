@@ -23,7 +23,7 @@
 | `3cf0a09` | test: cover discovery diagnostics | tests |
 | `6a7f37d` | revert: keep ingestion diagnostic test off main | tests |
 | `a923c65` | Add pytest configuration with Docker detection and graceful skipping | `pytest.ini` |
-| `f9dd9b9` | Add evidence-based read-only SystemaOps audit report | `SYSTEMAOPS_COMPLETE_READ_ONLY_AUDIT.md` (new) |
+| `f9dd9b9` | Add evidence-based read-only SystemaOps audit report | `SYSTEMAOPS_COMPLETE_READ_ONLY_AUDIT.md` (now `docs/archive/`; new) |
 
 ### 1.4 Pull requests
 - **PR #2** `fix: align capabilities with semantic transformation support` — base `main`, head `codex/universal-core` (`b058b8c`), state **open**, `mergeable_state = dirty`, 530 files / +103709 / −8896. Remains **unmerged** pending human authorization (BL-015). Not merged by this remediation.

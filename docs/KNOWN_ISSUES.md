@@ -3,7 +3,8 @@
 > **Baseline note (BL-009, 2026-10-10):** the commit SHA and CI run IDs recorded
 > below are a *dated snapshot* of the state when this document was written, not a
 > live pointer. The current verified commit, its CI run IDs and their conclusions are
-> recorded in `opencode.md` (live checkpoint) and `docs/BACKLOG.md` (defect log).
+> recorded in `docs/PROTOTYPE_HANDOFF.md` and `docs/audits/EXECUTION_LEDGER.md` (the live record as of the
+> 2026-11-12 audit; `opencode.md` and `docs/BACKLOG.md` are historical).
 > Do not treat the SHAs/CI numbers below as current without checking those two files.
 
 Known-issues baseline (dated snapshot of 2026-10-10; corrected 2026-10-16, Phase 12 F-02): fedb7dd0c55163d711a9c8abc7333e4e3fc3cba4 (Phase A), Push CI #417 / PR CI #418 GREEN — live baseline/CI: `opencode.md`.

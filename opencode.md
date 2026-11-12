@@ -1,5 +1,7 @@
 # opencode.md — SystemaOps Live Implementation Checkpoint
 
+> **HISTORICAL SNAPSHOT (2026-11-12 audit):** a dated report kept as evidence of the state at its own date. It is not a current status document; the live record is `docs/PROTOTYPE_HANDOFF.md`, `docs/audits/EXECUTION_LEDGER.md` and `docs/FINAL_MASTER_AUDIT_REPORT.md`.
+
 > **Record policy:** session blocks are ordered **newest first**. A block below
 > the newest one is a *historical* record of what was true when it was written;
 > where an older block contradicts the newest block, the newest block (and the

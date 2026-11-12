@@ -1,5 +1,7 @@
 # SystemaOps Modernization Platform
 
+> **HISTORICAL SNAPSHOT (2026-11-12 audit):** a dated report kept as evidence of the state at its own date. It is not a current status document; the live record is `docs/PROTOTYPE_HANDOFF.md`, `docs/audits/EXECUTION_LEDGER.md` and `docs/FINAL_MASTER_AUDIT_REPORT.md`.
+
 ## Master Implementation README
 
 **Document Type:** Master Engineering Specification  
