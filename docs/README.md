@@ -34,4 +34,5 @@ The status documents `PROJECT_STATUS.md`, `VERIFICATION_STATUS.md`, `CONTRACT_ST
 
 Everything else in `docs/` (phase completion reports, feature matrices,
 audits from October 2026) is dated history: each says so in a banner, and
-older root-level reports live in [reports/archive/](reports/archive/).
+older root-level reports live in [reports/archive/](reports/archive/). On 2026-11-12 the dated reports and plans that
+nothing referenced were deleted (listed in [FINAL_MASTER_AUDIT_REPORT.md](FINAL_MASTER_AUDIT_REPORT.md)); git history has them.

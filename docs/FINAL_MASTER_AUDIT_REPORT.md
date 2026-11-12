@@ -15,7 +15,7 @@ blockers (G-01 to G-04) and open in-scope items remain.
 - That dirty tree's numeric-edited source, tests, oracle truth and fuzz files are **byte-identical** to the copies committed
   on impl (`b756493`), so no work is at risk; one fixture (`EDITED.cob`) differs. The rest is an older line of CI/doc edits,
   regenerated evidence jsonl, a tsbuildinfo cache and three loose helper scripts. The owner approved discarding it on 2026-11-12 after the backup was re-verified; it is now clean (G-18 closed).
-- impl worktree: clean and in sync with its remote; ignored files are caches and build output only. 1179 tracked files, 174
+- impl worktree: clean and in sync with its remote; ignored files are caches and build output only. 1179 tracked files (at audit time), 174
   Markdown. A pattern scan for AWS/GitHub/OpenAI-style keys and private-key headers found nothing, and no databases, logs,
   `.env` files or build output are tracked (`.env.production.example` and `test-artifacts/docker-image-provenance.json`
   are deliberate).
@@ -57,8 +57,8 @@ or infrastructure, so none was changed here; the blockers are in the register an
 | Stale pointers fixed | BL-009 note in CONTRACT_STATUS, KNOWN_ISSUES, PROJECT_STATUS, SYSTEMAOPS_PRODUCT_STATUS, VERIFICATION_STATUS now names PROTOTYPE_HANDOFF and EXECUTION_LEDGER |
 | Banners added | PHASE5A_FORENSIC_VERIFICATION, PHASE5D1_COMPLETION_REPORT, PHASE5E_OPEN_SOURCE_TRANSFORMER_EVALUATION, PHASE5F1/5F2_HARDCODED_SEMANTICS_AUDIT, PHASE1C_FINAL_VALIDATION_REPORT, opencode.md, MASTER_IMPLEMENTATION_README.md |
 | Moved (1) | `SYSTEMAOPS_COMPLETE_READ_ONLY_AUDIT.md` to `docs/archive/`; its one reference in FORENSIC_REMEDIATION_REPORT is annotated |
-| Deleted (0) | None. The two proposed duplicates (`docs/reports/archive/EXECUTION_LEDGER.md`, `TRUSTED_ARTIFACT_SIGNING_PROPOSAL.md`) diverge from their live counterparts, so unique content could not be proven preserved. Test-gated docs were not restructured |
-| Links | 0 broken relative links across 174 files (scripted) |
+| Deleted (63, 2026-11-12, owner-approved) | Historical reports and plans that no other file, script or test references, and whose findings are superseded by this audit: 12 `docs/PHASE5*` reports, matrices and audits plus `PHASE1C_FINAL_VALIDATION_REPORT` and `FORENSIC_REMEDIATION_REPORT`, 7 `docs/decisions/PHASE*` plans, 2 `docs/audits` gap audits, 6 October `docs/reports` execution/L6.1 reports, and 35 of the 42 files in `docs/reports/archive/`. Everything stays in git history. Kept: anything still referenced, the two diverging duplicates (`reports/archive/EXECUTION_LEDGER.md`, `TRUSTED_ARTIFACT_SIGNING_PROPOSAL.md`), test-gated docs and all current specs/contracts |
+| Links | 0 broken relative links across 174 files at audit time; re-checked after the 2026-11-12 deletions: 0 broken across the remaining 118 |
 | Classification | about 12 current authoritative, 14 operational, 17 contract/spec, 30 audit evidence, 90 historical, 4 duplicate candidates, 3 obsolete candidates, 0 empty |
 
 Not done: `PROJECT_LICENSE_DECISION.md` was not moved (7 references, churn without value); the `docs/PHASE*` reports were

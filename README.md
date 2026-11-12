@@ -6,19 +6,42 @@ SystemaOps does not use an LLM anywhere in analysis, transformation or verificat
 rule-based and reproducible; every claim of behavioural equivalence is backed by a recorded comparison against a
 reference run (the GnuCOBOL oracle); everything it cannot prove fails closed and is reported by name.
 
-> **Where things stand.** Work happens on `impl/enterprise-platform` (`main` is at `b0c1f6b`, the Phase 5 baseline, and is
-> not touched without the owner's approval). The exact verified commit, its workflow links, test counts, the staging
-> deployment, limitations and the open-PR audit are in [`docs/PROTOTYPE_HANDOFF.md`](docs/PROTOTYPE_HANDOFF.md).
-> The certified corpus on that branch is **45 of 55 applications VERIFIED on each of four Java runtimes**
-> (`spring_boot`, `plain_java`, `quarkus`, `micronaut` command mode), 9 refused by name, 1 UNAVAILABLE (GnuCOBOL rejects
-> the source), every VERIFIED result independently re-checked (AGREE 45/45); on `main` it is 44 of 54
-> ([`docs/reports/PHASE5_FINAL_CERTIFICATION.md`](docs/reports/PHASE5_FINAL_CERTIFICATION.md) records that earlier baseline).
-> The audit behind the roadmap: [`docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md`](docs/audits/ENTERPRISE_ALIGNMENT_AUDIT.md);
-> the running record of work: [`docs/audits/EXECUTION_LEDGER.md`](docs/audits/EXECUTION_LEDGER.md).
->
-> **Prototype, not a product.** It is a working deterministic core with documented limits; it is **not certified for
-> production** and makes **no IBM equivalence claim** (the only reference runtimes are GnuCOBOL 3.1.2, OCESQL + PostgreSQL 14
-> and in-repo simulators).
+## At a glance
+
+**What it does.** You upload a COBOL (and JCL) project as a ZIP. SystemaOps analyses it, converts it to Java with fixed
+rules, runs the original under GnuCOBOL and the generated Java in Docker on the same input, compares stdout, stderr, exit
+status and output files, and gives a verdict with the evidence behind it. Anything it cannot convert or prove is refused
+or flagged by name; a failed build or an unavailable reference is never counted as a pass.
+
+**What you can rely on today.**
+
+| | |
+|---|---|
+| Certified subset | COBOL batch programs, sequential/indexed/relative files, copybooks, static CALL, a bounded EXEC SQL subset |
+| Evidence | 45 of 55 fixture applications VERIFIED on each of four Java runtimes (`plain_java`, `spring_boot`, `quarkus` and `micronaut` in command mode); 9 refused by name; 1 UNAVAILABLE (GnuCOBOL rejects the source); every VERIFIED result independently re-checked (45/45 agree) |
+| Per-run report | `GET /runs/{id}/validation-summary`: conversion, compilation (JDK recorded), runtime, business equivalence, unsupported constructs, warnings |
+| Runs on | FastAPI backend + React UI, GnuCOBOL 3.1.2 oracle and Java 21 in Docker; tested on Linux and Windows |
+
+**What it is not.** A prototype for a controlled pilot, **not production-ready** (shared bearer tokens, SQLite, in-process
+jobs, Docker socket mounted in the API container). No IBM runtime evidence, so no IBM equivalence claim; no universal
+COBOL support. CICS, IMS and MQ exist only as simulators and are blocked in the product; Git ingestion, VSAM and
+decomposed or PostgreSQL-target output are not implemented. Jakarta EE is not certified, and Quarkus and Micronaut are
+command mode only. Full list: [Validation summary and what is not proven](#validation-summary-and-what-is-not-proven).
+
+**Where to read next.**
+
+| If you want | Read |
+|---|---|
+| The current state, exact verified commit, CI links, limits and owner decisions | [`docs/PROTOTYPE_HANDOFF.md`](docs/PROTOTYPE_HANDOFF.md) |
+| What is proven, partial or unsupported, per construct | [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md), [`docs/SEMANTIC_PROOF_MATRIX.md`](docs/SEMANTIC_PROOF_MATRIX.md) |
+| Open gaps and blockers, ranked | [`docs/FINAL_GAP_REGISTER.md`](docs/FINAL_GAP_REGISTER.md) |
+| The independent audit of the whole repository | [`docs/FINAL_MASTER_AUDIT_REPORT.md`](docs/FINAL_MASTER_AUDIT_REPORT.md) |
+| Which documents are current and which are history | [`docs/README.md`](docs/README.md) |
+| To run it | [Quick start](#quick-start) |
+
+Branch note: work happens on `impl/enterprise-platform`; `main` is an earlier baseline (44 of 54 applications, commit
+`b0c1f6b`) and is not changed without the owner's approval. Older dated reports under `docs/` (names starting `PHASE*`) are
+historical snapshots, not the current status.
 
 ## What SystemaOps is
 
