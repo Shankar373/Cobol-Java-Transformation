@@ -1,7 +1,8 @@
 # Final gap register (2026-11-12 audit)
 
 Branch `impl/enterprise-platform`, audited base `4c11615` (three required workflows green on it: CI 43083693262,
-corpus certification 43083693133, supply chain 43083693218). Classes: FV fixed and verified; FNV fixed, not yet verified
+corpus certification 43083693133, supply chain 43083693218); audit commit `f0fb581` is green too (CI 43143318343,
+supply chain 43143318364, corpus certification dispatched manually 43172901037). Classes: FV fixed and verified; FNV fixed, not yet verified
 by CI; OPEN open, in scope; OWNER owner decision; EXT external dependency; ACCEPT accepted limitation.
 
 | ID | Sev | Module | Gap | Evidence | Status |
@@ -23,7 +24,8 @@ by CI; OPEN open, in scope; OWNER owner decision; EXT external dependency; ACCEP
 | G-15 | LOW | Generation | `application_generator.py:204-209` falls back to the first discovered program class if the requested entry is not matched. | agent audit | OPEN |
 | G-16 | LOW | Code comments | Parser/IR comments still say `SEARCH ALL` is refused while `search_lowering.py` lowers a bounded form. | `cobol_parser.py:4643`, `ir.py:863` | OPEN (comment-only) |
 | G-17 | LOW | Tests | No test cross-checks corpus counts quoted in docs against evidence. | no such test | OPEN |
-| G-18 | INFO | Repo state | The original checkout (`feat/phase3-coverage`) still carries uncommitted numeric-edited WIP. Its source and tests are byte-identical to what is committed on `impl` (`b756493`); only one fixture file differs. It also holds loose helper scripts (`run_captruth.py`, `apply_unsupported_expression_fix.py`, `stage_backlog_bl155.py`). Not touched. | diff run during the audit | OWNER (discard or archive that tree) |
+| G-18 | INFO | Repo state | Old checkout `feat/phase3-coverage` (base `d68331f`, 23 modified + 10 untracked, **untouched**). Verified backup: `C:/pwv/backup-phase3-dirty-2026-11-12/` (`dirty.tar` 35 entries + `tracked.diff`, SHA-256 in `SHA256SUMS`; backup lives outside the repo, on this machine only). Findings: numeric-edited source, tests, oracle truth and fuzz are byte-identical to impl `b756493`; `EDITED.cob` differs only in line endings; parser/mapper/generator/IR edits are already in impl (161 of 166 added parser lines present, the rest refactored); the `apply_unsupported_expression_fix.py` target (`JavaUnsupportedExpression` and its test) is already in impl; `stage_backlog_bl155.py` and `run_captruth.py` are local operator helpers (BL-155 is already in `docs/BACKLOG.md`); regenerated phase3 evidence jsonl and `docker-image-provenance.json` are local run output. No unique work remains (the Windows-lane candidate, G-20, was withdrawn: impl has it). | OWNER: approve discarding the tree (backup verified); nothing was deleted |
+| G-20 | - | CI | **Withdrawn (correction).** An earlier pass called the old checkout's Windows hermetic lane unique work. impl already has `capability-truth-windows` and `backend-hermetic-windows` (ci.yml:60, :196), both green in CI 43143318343; the old checkout's edit was an earlier variant under a different job name. Nothing unique remains to port. | CI 43143318343 job list | CLOSED |
 | G-19 | INFO | Tooling | ruff/mypy are not installed in this machine's venvs, so lint/type gates were not run locally; they run in CI. | local env | ACCEPT |
 
 Accepted deviations from the audit brief: no file was deleted. The two archive duplicates

@@ -6,8 +6,7 @@ and equal to `origin/impl/enterprise-platform`; clean tree). Companions:
 [PROTOTYPE_HANDOFF.md](PROTOTYPE_HANDOFF.md).
 
 **Verdict: READY FOR CONTROLLED PILOT - DOCUMENTED LIMITATIONS.** Not "ready for engineering handoff": production
-blockers (G-01 to G-04) and open in-scope items remain, and CI for this audit's own commit had not completed when this
-was written.
+blockers (G-01 to G-04) and open in-scope items remain.
 
 ## A. Baseline and repository forensics
 
@@ -68,14 +67,22 @@ structure and its headline claims were verified against CI.
 
 ## J. Validation actually run
 
-- impl at `4c11615`, required workflows all success: CI 43083693262, corpus certification 43083693133 (four runtimes,
-  45/55 VERIFIED, AGREE 45/45), supply chain 43083693218.
+- Audited code base `4c11615`, all required workflows success: CI 43083693262, corpus certification 43083693133 (four
+  runtimes, 45/55 VERIFIED, AGREE 45/45), supply chain 43083693218.
+- Audit commit `f0fb581` (docs-only on `4c11615`): SystemaOps CI [43143318343](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43143318343) success, 10/10 jobs (incl.
+  the Windows hermetic suite and Windows capability gate); supply chain [43143318364](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43143318364) success; corpus
+  certification [43143318348](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43143318348) **skipped by design** - `certification.yml:43` runs only on
+  `workflow_dispatch` or a `[certify]` commit message, and this commit carries neither. It was therefore dispatched manually
+  on the exact HEAD: [43172901037](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43172901037) success, `quarkus`, `micronaut`, `plain_java`, `spring_boot` each
+  55 apps, 45 VERIFIED, 9 refused by name (None), 1 UNAVAILABLE, independent AGREE 45/45, CERTIFIED. That is a fresh
+  certification of `f0fb581`'s code (byte-identical engine to `4c11615`), not a carry-over.
 - Local: `test_silent_loss_registry`, `test_third_party_notices`, `test_ci_deployment_security`, `test_lint_baseline` -
   21 passed after the documentation edits. A full hermetic local run was started and not awaited (about 14 % per 20
   minutes); the project's convention is CI for full suites.
 - Not run locally: ruff, mypy (not installed in the available venvs), frontend build/tests, Docker corpus, production
-  compose staging, backup/restore, container scan. For those, the CI results above are the evidence, and they pre-date this
-  documentation-only change.
+  compose staging, backup/restore, container scan. For those, the CI results above on `f0fb581` are the evidence (lint, type
+  check, coverage floor, frontend build and the Docker suite are CI jobs; backup/restore and staging are covered only by
+  their static contract tests and the earlier staging evidence in the handoff, not rerun).
 
 ## K-N. Remaining work
 

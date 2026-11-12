@@ -15,7 +15,12 @@ A repository-wide audit of `4c11615` found the certified subset sound and the ro
 LIMITATIONS**; production NOT READY. Metrics (judgement-based, weights stated there): certified subset 74/100, full
 enterprise roadmap about 45 %, documentation coverage 81 % strict. `4c11615` is docs-only on top of `407e601`; the
 corpus certification of record for both is run 43083693133 (45/55 VERIFIED x 4 runtimes, AGREE 45/45). The audit's own
-changes are documentation-only, so that code-certification evidence carries over from the ancestor.
+changes are documentation-only. Evidence on the audit commit `f0fb581`: SystemaOps CI
+[43143318343](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43143318343) success (10/10 jobs), supply chain
+[43143318364](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43143318364) success, and corpus certification, skipped on push by design (it needs
+`[certify]` or a manual dispatch), run manually on that exact HEAD as
+[43172901037](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43172901037): success on all four runtimes, 45/55 VERIFIED each, AGREE 45/45. The handoff
+commit that records this is itself docs-only and does not re-trigger certification; its code is identical to `f0fb581`.
 
 ## 1. What this is
 
