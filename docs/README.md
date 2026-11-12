@@ -3,6 +3,8 @@
 Start with the repository [README](../README.md). For the state of the implementation branch
 (`impl/enterprise-platform`): exact verified commit, workflow links, test and certification results, staging
 deployment, limitations, the open-PR audit and owner decisions, read [PROTOTYPE_HANDOFF.md](PROTOTYPE_HANDOFF.md) first.
+
+Final audit (2026-11-12): [FINAL_MASTER_AUDIT_REPORT.md](FINAL_MASTER_AUDIT_REPORT.md), [FINAL_GAP_REGISTER.md](FINAL_GAP_REGISTER.md), [FINAL_DOCUMENTATION_COVERAGE.md](FINAL_DOCUMENTATION_COVERAGE.md).
 Current truth, in order:
 
 | Question | Document |

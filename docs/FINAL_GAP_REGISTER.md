@@ -1,0 +1,31 @@
+# Final gap register (2026-11-12 audit)
+
+Branch `impl/enterprise-platform`, audited base `4c11615` (three required workflows green on it: CI 43083693262,
+corpus certification 43083693133, supply chain 43083693218). Classes: FV fixed and verified; FNV fixed, not yet verified
+by CI; OPEN open, in scope; OWNER owner decision; EXT external dependency; ACCEPT accepted limitation.
+
+| ID | Sev | Module | Gap | Evidence | Status |
+|---|---|---|---|---|---|
+| G-01 | HIGH | Deployment / sandbox | `docker-compose.production.yml:97` mounts `/var/run/docker.sock` into the API container (host-root equivalent if the API is compromised). | `docs/security/DOCKER_SOCKET_HARDENING.md` documents it as accepted risk | OWNER + EXT (rootless Docker / remote sandbox host / gVisor) |
+| G-02 | HIGH | RBAC | Authentication is three static bearer tokens (>= 32 chars). No users, OIDC, rotation, revocation or per-resource ownership. Only ~2 test files target RBAC directly. | `api/rbac.py`, `api/app.py:507-545` | OWNER + EXT (identity provider) |
+| G-03 | MEDIUM | Evidence | Artifact seal is a hash, not a signature; no key custody, no image signing. | `docs/decisions/L3_7_TRUSTED_SIGNING_DECISION_RECORD.md` (BLOCKED) | OWNER + EXT (keys/KMS) |
+| G-04 | MEDIUM | Persistence / jobs | SQLite only; background jobs are daemon threads (`api/service.py:457-486`), not durable. Restart marks runs interrupted. | `api/store.py`, `service.py:964` | ACCEPT for pilot; OPEN for production |
+| G-05 | MEDIUM | API | With no token configured outside production the API is open (`api/app.py:539-545`). Production config refuses trivial/absent tokens. | `tests/test_production_auth_env` | ACCEPT (dev mode only) |
+| G-06 | MEDIUM | Ingestion | Git ingestion is not implemented (`api/ingestion.py:5`); the UI correctly offers no Git import. | `frontend/src/__tests__/new-modernization.test.tsx:23` | OPEN (roadmap) |
+| G-07 | HIGH (claim) | Oracle | The reference is GnuCOBOL 3.1.2 and OCESQL + PostgreSQL 14. No IBM Enterprise COBOL, JCL or DB2 evidence exists; no IBM equivalence is claimed. | `README.md`, `docs/CAPABILITY_MATRIX.md` | EXT (IBM runtime/licence) |
+| G-08 | HIGH (scope) | CICS/IMS/MQ | Simulator libraries only, verified against their own specs; `EXEC CICS`, DL/I and MQI stay UNSUPPORTED in the product gate (`semantic_capability.py:244`). | `engine/simulators/*`, `engine/cics/*` | OPEN (Stage 3 roadmap) |
+| G-09 | MEDIUM (scope) | VSAM | No VSAM engine: INDEXED/RELATIVE emulation plus IDCAMS/IEBGENER/IEFBR14 emulation; ESDS/RRDS/DEFINE CLUSTER refused. | `engine/jcl/*` | OPEN (Stage 1) |
+| G-10 | MEDIUM | Docs | README/CAPABILITY_MATRIX/SEMANTIC_PROOF_MATRIX contradicted each other on JCL, DB2/SQL, CICS/IMS/MQ and ALTERNATE RECORD KEY. | audit of README.md:40-42, CAPABILITY_MATRIX.md:99,104,117, SEMANTIC_PROOF_MATRIX.md:78 | FNV (this audit; CI pending) |
+| G-11 | LOW | Docs | Five status files pointed to `opencode.md`/`BACKLOG.md` as the live record; that record is `PROTOTYPE_HANDOFF.md` + `audits/EXECUTION_LEDGER.md`. | BL-009 notes | FNV |
+| G-12 | LOW | Docs | Six PHASE reports and the root `opencode.md`/`MASTER_IMPLEMENTATION_README.md` had no historical banner. | classification in the audit report | FNV |
+| G-13 | LOW | Docs | Committed `docs/reports/evidence/phase5/*` is the 44/54 baseline; the current 45/55 run (CI 43083693133, `AGREE 45/45` on all four runtimes) lives only in CI artifacts. | CI log vs `certification_summary_*.txt` | OPEN (refresh evidence in a certify-triggering commit) |
+| G-14 | MEDIUM | Parser | Record-to-file binding falls back to a `-REC` to `-FILE` name rewrite when no FD owns the record (`cobol_parser.py` ~2862, ~2972): a heuristic where the project rule is fail-closed. | agent audit | OPEN - needs a design decision and a differential test |
+| G-15 | LOW | Generation | `application_generator.py:204-209` falls back to the first discovered program class if the requested entry is not matched. | agent audit | OPEN |
+| G-16 | LOW | Code comments | Parser/IR comments still say `SEARCH ALL` is refused while `search_lowering.py` lowers a bounded form. | `cobol_parser.py:4643`, `ir.py:863` | OPEN (comment-only) |
+| G-17 | LOW | Tests | No test cross-checks corpus counts quoted in docs against evidence. | no such test | OPEN |
+| G-18 | INFO | Repo state | The original checkout (`feat/phase3-coverage`) still carries uncommitted numeric-edited WIP. Its source and tests are byte-identical to what is committed on `impl` (`b756493`); only one fixture file differs. It also holds loose helper scripts (`run_captruth.py`, `apply_unsupported_expression_fix.py`, `stage_backlog_bl155.py`). Not touched. | diff run during the audit | OWNER (discard or archive that tree) |
+| G-19 | INFO | Tooling | ruff/mypy are not installed in this machine's venvs, so lint/type gates were not run locally; they run in CI. | local env | ACCEPT |
+
+Accepted deviations from the audit brief: no file was deleted. The two archive duplicates
+(`docs/reports/archive/EXECUTION_LEDGER.md`, `TRUSTED_ARTIFACT_SIGNING_PROPOSAL.md`) diverge from their live counterparts
+(a distinct dated record; 162 differing lines), so unique content could not be proven preserved.

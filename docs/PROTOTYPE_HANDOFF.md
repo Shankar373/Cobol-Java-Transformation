@@ -7,6 +7,16 @@ evidence cited below; nothing here is asserted without a commit, a workflow run 
 The prototype verdict applies to the certified commit `407e601` (section 1), whose three required workflows are green
 (section 3); the earlier certified commit `cefa768` is green too.
 
+## 0. Final audit addendum (2026-11-12)
+
+A repository-wide audit of `4c11615` found the certified subset sound and the roadmap far from complete. Read
+[FINAL_MASTER_AUDIT_REPORT.md](FINAL_MASTER_AUDIT_REPORT.md), [FINAL_GAP_REGISTER.md](FINAL_GAP_REGISTER.md) and
+[FINAL_DOCUMENTATION_COVERAGE.md](FINAL_DOCUMENTATION_COVERAGE.md). Verdict: **READY FOR CONTROLLED PILOT - DOCUMENTED
+LIMITATIONS**; production NOT READY. Metrics (judgement-based, weights stated there): certified subset 74/100, full
+enterprise roadmap about 45 %, documentation coverage 81 % strict. `4c11615` is docs-only on top of `407e601`; the
+corpus certification of record for both is run 43083693133 (45/55 VERIFIED x 4 runtimes, AGREE 45/45). The audit's own
+changes are documentation-only, so that code-certification evidence carries over from the ancestor.
+
 ## 1. What this is
 
 A deterministic, rule-based COBOL to Java modernization platform with **no LLM anywhere in the pipeline**. It parses a
