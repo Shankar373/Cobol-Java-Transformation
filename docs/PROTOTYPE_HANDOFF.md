@@ -39,6 +39,17 @@ Fix for a developer: after rebuilding the Maven image run `python scripts/record
 `certification.yml`). It is intentionally fail-closed, so no code change was made; the summary shows it as Compilation FAIL with
 the stated basis.
 
+Evidence for the summary feature (all verified, none estimated):
+- Code commit `801d231` (`[certify]`): corpus certification [43188835053](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43188835053) success on all four runtimes; its
+  summaries are committed in `docs/reports/evidence/validation_summaries/` (46 per runtime, 45 PASS/PASS/PASS/PASS plus one
+  Compilation FAIL / NOT_EVALUATED, identical on the four runtimes, JDK 21.0.12 in every row).
+- CI on `801d231` ([43188835001](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43188835001)) **failed** at "Dependency map is current" (I regenerated the map while the new
+  module was untracked). Fixed in `af79342`; this is the only failing gate and it was a documentation-artifact defect, not a code defect.
+- `af79342`: SystemaOps CI [43198594347](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43198594347) success 10/10, supply chain [43198594348](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43198594348) success,
+  corpus certification skipped by design (no `[certify]`; the code is identical to `801d231`).
+- Local checks run before pushing: pinned ruff 0.14.0 clean; mypy ratchet clean (209 known); dependency map current;
+  validation-summary tests 22 passed; API/gate focused set 166 passed.
+
 ## 1. What this is
 
 A deterministic, rule-based COBOL to Java modernization platform with **no LLM anywhere in the pipeline**. It parses a
