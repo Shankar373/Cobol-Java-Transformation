@@ -50,6 +50,10 @@ Evidence for the summary feature (all verified, none estimated):
 - Local checks run before pushing: pinned ruff 0.14.0 clean; mypy ratchet clean (209 known); dependency map current;
   validation-summary tests 22 passed; API/gate focused set 166 passed.
 
+## 0c. Old checkout disposition (2026-11-12)
+
+The old `feat/phase3-coverage` checkout (23 modified + 10 untracked) was discarded on the owner's instruction after its backup was re-verified (`dirty.tar` and `tracked.diff` SHA-256 OK; same 33 paths as the live tree). It is now clean at `d68331f`. The backup is outside the repo, on the audit machine only: `C:/pwv/backup-phase3-dirty-2026-11-12/`. No unique work was lost (see G-18 in `FINAL_GAP_REGISTER.md`).
+
 ## 1. What this is
 
 A deterministic, rule-based COBOL to Java modernization platform with **no LLM anywhere in the pipeline**. It parses a

@@ -14,7 +14,7 @@ blockers (G-01 to G-04) and open in-scope items remain.
   branch. It was left untouched; the audit ran in the `impl/enterprise-platform` worktree (`C:/pwv/impl`).
 - That dirty tree's numeric-edited source, tests, oracle truth and fuzz files are **byte-identical** to the copies committed
   on impl (`b756493`), so no work is at risk; one fixture (`EDITED.cob`) differs. The rest is an older line of CI/doc edits,
-  regenerated evidence jsonl, a tsbuildinfo cache and three loose helper scripts. Disposition is an owner decision (G-18).
+  regenerated evidence jsonl, a tsbuildinfo cache and three loose helper scripts. The owner approved discarding it on 2026-11-12 after the backup was re-verified; it is now clean (G-18 closed).
 - impl worktree: clean and in sync with its remote; ignored files are caches and build output only. 1179 tracked files, 174
   Markdown. A pattern scan for AWS/GitHub/OpenAI-style keys and private-key headers found nothing, and no databases, logs,
   `.env` files or build output are tracked (`.env.production.example` and `test-artifacts/docker-image-provenance.json`
@@ -86,6 +86,6 @@ structure and its headline claims were verified against CI.
 
 ## K-N. Remaining work
 
-Open in scope: G-13, G-14, G-15, G-16, G-17. Owner/external: G-01 to G-03, G-07, G-18. Roadmap: G-06, G-08, G-09.
+Open in scope: G-13, G-14, G-15, G-16, G-17. Owner/external: G-01 to G-03, G-07. Roadmap: G-06, G-08, G-09.
 Recommended next phase: owner decisions on G-01 and G-02, then durable jobs and a real identity provider, then Stage 1
 VSAM depth.
