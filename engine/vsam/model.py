@@ -133,8 +133,23 @@ CAPABILITIES: tuple[Capability, ...] = (
     Capability("records.variable_length_rdw", None, "PARTIAL", "DETERMINISTIC_TEST",
                "RDW parsing in engine.vsam.reconcile; record-sequential variable files are compared with GnuCOBOL "
                "(workload-record-sequential), spanned records are not supported"),
-    Capability("records.packed_binary_fields", None, "IMPLEMENTED_AND_VERIFIED", _G,
-               "COMP / COMP-3 fields compared with GnuCOBOL (workload-comp, workload-comp3, workload-binary-values)"),
+    Capability("records.packed_binary_fields", None, "PARTIAL", _G,
+               "COMP / COMP-3 values are compared with GnuCOBOL (workload-comp*, workload-binary-values); the record-area "
+               "BYTES of COMP, COMP-5 and COMP-3 fields are checked against records GnuCOBOL wrote, in its default and "
+               "IBM dialects (tests/integration/test_vsam_layout_oracle.py); real IBM output has not been read and "
+               "COMP-5 byte order is platform dependent (bytes are copied, never reordered)"),
+    Capability("layout.derivation_from_cobol_record", None, "PARTIAL", _G,
+               "engine.vsam.layout derives offsets and lengths of DISPLAY, COMP, COMP-5, COMP-3, SIGN SEPARATE, fixed "
+               "OCCURS and an explicitly selected REDEFINES alternative; every derived field is read back from "
+               "GnuCOBOL-written records in two dialects. Refused by name: OCCURS DEPENDING ON, SYNCHRONIZED, COMP-1/2, "
+               "an unselected REDEFINES, several FD records without a choice, a COPY inside an FD"),
+    Capability("records.variable_length_conversion", None, "NOT_IMPLEMENTED", "NONE",
+               "reconcile can split RDW records but conversion and migration are fixed-length only; "
+               "migrate_dataset refuses a variable-length dataset by name"),
+    Capability("migration.layout_driven_pipeline", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
+               "engine.vsam.migrate: layout -> field-aware conversion -> rejected ledger -> KSDS order -> independent "
+               "reconciliation -> machine-readable report; ASCII to EBCDIC cp037, fixed records, KSDS/ESDS/sequential; "
+               "no reader other than our own reconciliation has consumed the converted data"),
     Capability("migration.reconciliation_report", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
                "engine.vsam.reconcile: counts, rejected records, duplicate keys, key set, ordering and hashes"),
     Capability("migration.field_aware_conversion_and_restart", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",

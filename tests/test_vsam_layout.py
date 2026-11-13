@@ -333,3 +333,17 @@ def test_national_pictures_are_refused_by_the_parser_before_any_layout_exists():
 
     with pytest.raises(CobolParseError, match="Unsupported PIC"):
         CobolParser().parse(fd_source("01 REC.", "   05 F PIC N(4)."))
+
+
+# --- usage is part of the layout (COMP is big-endian, COMP-5 native byte order) ---------------------------------------------------
+
+def test_fields_record_their_usage_and_comp_and_comp5_get_different_identities():
+    comp = layout_for("01 REC.", "   05 N PIC S9(4) COMP.")
+    comp5 = layout_for("01 REC.", "   05 N PIC S9(4) COMP-5.")
+    packed = layout_for("01 REC.", "   05 N PIC S9(4) COMP-3.")
+    plain = layout_for("01 REC.", "   05 N PIC S9(4).")
+    assert [l.fields[0].usage for l in (comp, comp5, packed, plain)] == ["COMP", "COMP-5", "COMP-3", ""]
+    # same size and kind, different byte-order semantics: they must not share an identity
+    assert comp.fields[0].length == comp5.fields[0].length and comp.fields[0].kind is comp5.fields[0].kind
+    assert comp.identity != comp5.identity
+    assert comp5.to_dict()["fields"][0]["usage"] == "COMP-5"

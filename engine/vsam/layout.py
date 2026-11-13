@@ -51,6 +51,9 @@ class LayoutField:
     offset: int
     length: int
     kind: FieldKind
+    # COBOL USAGE ("" = DISPLAY).  Kept because it carries byte-order semantics the size does not:
+    # COMP is big-endian, COMP-5 is native byte order.  Binary bytes are copied, never reordered.
+    usage: str = ""
 
 
 @dataclass(frozen=True)
@@ -87,7 +90,7 @@ class RecordLayout:
             "binary_width_model": self.binary_width_model,
             "overlay_selection": [list(pair) for pair in self.overlay_selection],
             "fields": [{"path": f.path, "source": f.source, "level": f.level, "offset": f.offset,
-                        "length": f.length, "kind": f.kind.value} for f in self.fields],
+                        "length": f.length, "kind": f.kind.value, "usage": f.usage} for f in self.fields],
             "diagnostics": [{"code": d.code, "path": d.path, "message": d.message} for d in self.diagnostics],
             "identity": self.identity,
         }
@@ -97,7 +100,7 @@ def _identity(record_name: str, length: int, model: str, selection: tuple[tuple[
               fields: tuple[LayoutField, ...], diagnostics: tuple[LayoutDiagnostic, ...]) -> str:
     canonical = json.dumps({
         "record": record_name, "length": length, "model": model, "selection": [list(p) for p in selection],
-        "fields": [[f.path, f.offset, f.length, f.kind.value] for f in fields],
+        "fields": [[f.path, f.offset, f.length, f.kind.value, f.usage] for f in fields],
         "diagnostics": [[d.code, d.path] for d in diagnostics],
     }, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -158,7 +161,7 @@ class _Deriver:
                 return None
             length, kind = sized
             if emit is not None:
-                emit.append(LayoutField(path, item.name, item.level, offset, length, kind))
+                emit.append(LayoutField(path, item.name, item.level, offset, length, kind, item.usage or ""))
             return length
 
         slots: list[dict] = []

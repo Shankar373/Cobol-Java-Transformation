@@ -142,7 +142,7 @@ def test_without_a_primary_key_the_key_checks_are_skipped_and_the_result_is_only
     report = reconcile_migration(sequential_source, src, ksds("DST"), dst)
     # sequential source has no primary key -> keys unchecked, content still compared as a multiset
     # keys were not checked, so this must not read as a full reconciliation
-    assert report.status == "RECONCILED_PARTIAL" and any("no primary key" in w for w in report.warnings)
+    assert report.status == "RECONCILED_PARTIAL" and any("only one of source and destination" in w for w in report.warnings)
 
 
 # --- reconciliation: every failure is named ----------------------------------------------
@@ -276,7 +276,8 @@ def test_reordered_sequential_destination_is_not_reconciled():
     dst = _data("0003", "0001", "0002")
     report = reconcile_migration(seq("SRC"), src, seq("DST"), dst)
     assert report.status == "FAILED" and any("different order" in f for f in report.failures)
-    assert reconcile_migration(seq("SRC"), src, seq("DST"), src).status == "RECONCILED_PARTIAL"
+    # neither side has a key, so nothing is skipped: arrival order and content are compared exactly
+    assert reconcile_migration(seq("SRC"), src, seq("DST"), src).status == "RECONCILED"
 
 
 def test_rejected_first_occurrence_does_not_make_the_kept_duplicate_a_failure():

@@ -148,8 +148,10 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
     keys_checked = False
     key = source.primary_key
     dkey = destination.primary_key
-    if key is None or dkey is None:
-        warnings.append("no primary key on source or destination: key set and key order were not checked")
+    if key is None and dkey is None:
+        keys_checked = True  # neither dataset has a key: there is nothing to skip (order and content are compared exactly)
+    elif key is None or dkey is None:
+        warnings.append("only one of source and destination has a primary key: key set and key order were not checked")
     else:
         keys_checked = True
         seen_any: dict[bytes, int] = {}
