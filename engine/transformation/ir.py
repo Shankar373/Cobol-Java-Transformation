@@ -293,6 +293,13 @@ class DataItem:
     indexed_by: tuple[str, ...] = ()
     #: ``ASCENDING|DESCENDING KEY IS <this item>`` on an elementary table (SEARCH ALL); empty otherwise.
     key_order: str = ""
+    #: Clauses that change storage size or placement, recorded so a record layout can be derived
+    #: honestly (ADR-0009).  Lowering does not use them; the defaults reproduce the earlier IR.
+    #: ``SIGN IS LEADING|TRAILING`` ("" when absent); ``SEPARATE [CHARACTER]`` adds one byte.
+    sign_position: str = ""
+    sign_separate: bool = False
+    synchronized: bool = False  # SYNC / SYNCHRONIZED: slack bytes for alignment
+    justified: bool = False  # JUSTIFIED / JUST RIGHT
 
     @property
     def is_alphanumeric(self) -> bool:

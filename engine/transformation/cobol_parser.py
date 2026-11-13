@@ -2106,9 +2106,18 @@ class CobolParser:
                             "certified lowering",
                             location=name,
                         )
+            sign_found = (
+                re.search(r"\bSIGN\s+(?:IS\s+)?(LEADING|TRAILING)\b", clauses, re.IGNORECASE)
+                or re.search(r"\b(LEADING|TRAILING)\s+SEPARATE\b", clauses, re.IGNORECASE)
+            )
+            sign_position = sign_found.group(1).upper() if sign_found else ""
             parsed.append((level, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
+                sign_position=sign_position,
+                sign_separate=bool(sign_position and re.search(r"\bSEPARATE\b", clauses, re.IGNORECASE)),
+                synchronized=bool(re.search(r"\bSYNC(?:HRONIZED)?\b", clauses, re.IGNORECASE)),
+                justified=bool(re.search(r"\bJUST(?:IFIED)?\b", clauses, re.IGNORECASE)),
                 edit_pic=edited.expanded if edited is not None else None,
                 blank_when_zero=bool(edited is not None and blank_when_zero),
                 signed=self._pic_is_signed(pic.group(1)) if pic and edited is None else False,
@@ -2165,6 +2174,10 @@ class CobolParser:
                 key_order=node.item.key_order,
                 edit_pic=node.item.edit_pic,
                 blank_when_zero=node.item.blank_when_zero,
+                sign_position=node.item.sign_position,
+                sign_separate=node.item.sign_separate,
+                synchronized=node.item.synchronized,
+                justified=node.item.justified,
                 children=tuple(freeze(child) for child in node.children),
             )
 
