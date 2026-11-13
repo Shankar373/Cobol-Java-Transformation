@@ -184,3 +184,45 @@ def test_a_tampered_destination_is_reported_failed():
 def test_the_migration_is_deterministic():
     src = record(7, "K002", -300) + record(-5, "K001", 12345)
     assert json.dumps(migrate(src)[1].to_dict(), sort_keys=True) == json.dumps(migrate(src)[1].to_dict(), sort_keys=True)
+
+
+def _fd(record_lines: str):
+    tail = "       PROCEDURE DIVISION."+"\n"+"       MAIN-PARA."+"\n"+"           STOP RUN."+"\n"
+    source = FD.split("       01 REC.")[0] + record_lines + tail
+    return CobolParser().parse(source).file_definitions[0]
+
+
+# --- review findings (keys over binary fields, mismatched target layout, over-long record) -------------------------------
+
+def test_a_primary_key_over_a_binary_field_is_refused_when_platforms_differ():
+    from engine.vsam.layout import derive_file_layout as derive
+    from engine.vsam.model import KeyKind
+
+    fd = ("       01 REC.\n          05 N PIC S9(2) COMP.\n          05 T PIC X(4).\n")
+    src = derive(_fd(fd), binary_width_model=IBM_Z.width_model)
+    dst = derive(_fd(fd), binary_width_model=GNU.width_model)
+    defn = DatasetDefinition("K", Organization.KSDS, record_length=src.record_length, encoding=Encoding.ASCII,
+                             primary_key=KeyDefinition(0, 2, kind=KeyKind.BINARY))
+    out, report = migrate_dataset(defn, b"\x00\x01abcd", src, Encoding.EBCDIC_CP037, target_layout=dst,
+                                  source_platform=IBM_Z, target_platform=GNU)
+    assert out == b"" and report.state == "REFUSED" and any("binary field" in f and "key" in f for f in report.failures)
+
+
+def test_a_target_layout_that_differs_without_binary_fields_is_refused():
+    from engine.vsam.layout import derive_file_layout as derive
+
+    plain = derive(_fd("       01 REC.\n          05 T PIC X(4).\n"), binary_width_model=IBM_Z.width_model)
+    longer = derive(_fd("       01 REC.\n          05 T PIC X(6).\n"), binary_width_model=IBM_Z.width_model)
+    defn = DatasetDefinition("S", Organization.SEQUENTIAL, record_length=4, encoding=Encoding.ASCII)
+    out, report = migrate_dataset(defn, b"abcd", plain, Encoding.EBCDIC_CP037, target_layout=longer)
+    assert out == b"" and report.state == "REFUSED" and any("target layout" in f for f in report.failures)
+
+
+def test_convert_record_between_rejects_a_record_longer_than_the_layout():
+    import pytest as _pytest
+    from engine.vsam.layout import derive_file_layout as derive
+    from engine.vsam.platform import convert_record_between
+
+    layout = derive(_fd("       01 REC.\n          05 T PIC X(4).\n"), binary_width_model=IBM_Z.width_model)
+    with _pytest.raises(ValueError, match="length"):
+        convert_record_between(b"abcdXX", layout, layout, IBM_Z, IBM_Z, Encoding.ASCII, Encoding.EBCDIC_CP037)

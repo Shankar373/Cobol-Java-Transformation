@@ -144,7 +144,7 @@ def test_the_extreme_values_of_each_width_round_trip():
 
 def test_a_record_shorter_than_the_layout_is_rejected():
     src, dst = both(GNU, IBM_Z, "01 REC.", "   05 N PIC S9(4) COMP.", "   05 T PIC X(3).")
-    with pytest.raises(ValueError, match="too short"):
+    with pytest.raises(ValueError, match="record length"):
         convert_record_between(b"\x00\x01", src, dst, GNU, IBM_Z, "ASCII", "ASCII")
 
 

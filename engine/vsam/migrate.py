@@ -133,6 +133,26 @@ def _mapped_key(key: KeyDefinition, source: RecordLayout, target: RecordLayout, 
     return replace(key, offset=key.offset + shifts.pop())
 
 
+def _binary_key_failures(layout: RecordLayout, target: RecordLayout, source_platform: BinaryRepresentation,
+                         target_platform: BinaryRepresentation, primary: KeyDefinition | None,
+                         alternates: tuple[KeyDefinition, ...]) -> list[str]:
+    """A key over a binary field whose width or byte order changes between the platforms would not hold the
+    source key's bytes (or sort order) afterwards: refused rather than re-keyed by guesswork.  When the field
+    is represented identically on both platforms the key is unaffected."""
+    def order(plat: BinaryRepresentation, usage: str):
+        return plat.comp5_byte_order if usage == "COMP-5" else plat.comp_byte_order
+
+    changed = {s.path for s, t in zip(layout.fields, target.fields)
+               if s.kind is FieldKind.BINARY and (s.length != t.length
+                                                  or order(source_platform, s.usage) is not order(target_platform, s.usage))}
+    keys = ([("primary key", primary)] if primary is not None else []) + [
+        (f"alternate key {i}", k) for i, k in enumerate(alternates, start=1)]
+    return [f"the {label} (offset {k.offset}, length {k.length}) overlaps the binary field {spec.name}: a key "
+            "over a binary field cannot be migrated between platforms (width and byte order change)"
+            for label, k in keys for spec in layout.field_specs()
+            if spec.name in changed and spec.offset < k.offset + k.length and k.offset < spec.offset + spec.length]
+
+
 def _plan(source: DatasetDefinition, layout: RecordLayout, encoding: Encoding, target_layout: RecordLayout | None,
           source_platform: BinaryRepresentation | None, target_platform: BinaryRepresentation | None,
           require_rba_preserved: bool = False) -> _Plan:
@@ -168,6 +188,11 @@ def _plan(source: DatasetDefinition, layout: RecordLayout, encoding: Encoding, t
                             f"missing: {', '.join(missing)}")
         else:
             failures += check_layout_pair(layout, target, source_platform, target_platform)  # type: ignore[arg-type]
+    elif target_layout is not None and target_layout is not layout and (
+            target_layout.record_length != layout.record_length or target_layout.fields != layout.fields):
+        failures.append("a target layout that differs from the source layout is only accepted for binary "
+                        "layouts (with explicit platforms): without binary fields the record is copied "
+                        "field by field and cannot change shape")
 
     mapped_key, mapped_alt = source.primary_key, source.alternate_keys
     if not failures:
@@ -178,8 +203,11 @@ def _plan(source: DatasetDefinition, layout: RecordLayout, encoding: Encoding, t
                     if (key.kind.value == "CHARACTER") != (spec.kind is FieldKind.DISPLAY):
                         failures.append(f"the {key.kind.value.lower()} primary key (offset {key.offset}, length "
                                         f"{key.length}) overlaps the {spec.kind.value} field {spec.name}")
+        if binary and not failures:
+            failures += _binary_key_failures(layout, target, source_platform, target_platform,  # type: ignore[arg-type]
+                                             source.primary_key, source.alternate_keys)
         if not failures:
-            mapped = []
+            mapped: list[str] = []
             if key is not None:
                 mapped_key = _mapped_key(key, layout, target, "primary key", mapped)
             mapped_alt = tuple(_mapped_key(k, layout, target, f"alternate key {i}", mapped)

@@ -223,3 +223,26 @@ def test_existing_inline_fd_behaviour_is_unchanged(tmp_path):
     unit = unit_of(discover(tmp_path, program(RECORD)))
     assert errors(unit) == [] and unit.program.file_definitions[0].record_name == "CUST-REC"
     assert [c.copybook_name for c in unit.copybooks] == []
+
+
+# --- review findings -------------------------------------------------------------------------------------------------------
+
+def test_the_same_member_in_an_fd_and_in_working_storage_is_still_merged_for_working_storage(tmp_path):
+    src = program("           COPY SHARED.\n").replace("       01 WS-X PIC X.\n", "       COPY SHARED.\n")
+    unit = unit_of(discover(tmp_path, src, {"SHARED.cpy": RECORD}))
+    assert [c.upper() for c in unit.program.copybooks].count("SHARED") == 1      # the WORKING-STORAGE use survives
+    assert unit.program.file_definitions[0].record_name == "CUST-REC"
+
+
+def test_fixed_format_sequence_numbers_do_not_hide_the_file_section(tmp_path):
+    numbered = "".join(f"{i * 100:06d}{line[6:]}\n" if line.startswith("      ") else line + "\n"
+                       for i, line in enumerate(program("           COPY CUSTREC.\n").splitlines(), start=1))
+    unit = unit_of(discover(tmp_path, numbered, {"CUSTREC.cpy": RECORD}))
+    assert unit.program.file_definitions[0].record_name == "CUST-REC"
+
+
+def test_an_exponential_copy_fanout_is_stopped_by_the_expansion_limit(tmp_path):
+    members = {f"C{i}.cpy": f"       COPY C{i + 1}.\n       COPY C{i + 1}.\n" for i in range(40)}
+    members["C40.cpy"] = RECORD
+    unit = unit_of(discover(tmp_path, program("       COPY C0.\n"), members))
+    assert any(d.startswith("COPYBOOK_EXPANSION_LIMIT") for d in unit.parse_diagnostics)

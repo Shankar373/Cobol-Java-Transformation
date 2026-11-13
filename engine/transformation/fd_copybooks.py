@@ -32,9 +32,10 @@ from engine.transformation.copybook_resolver import (
     resolve_copybook,
 )
 
-_FILE_SECTION = re.compile(r"(?im)^[ \t]*FILE[ \t]+SECTION[ \t]*\.")
+_SEQ = r"(?:\d{6})?"  # fixed-format sequence number area (columns 1-6)
+_FILE_SECTION = re.compile(r"(?im)^" + _SEQ + r"[ \t]*FILE[ \t]+SECTION[ \t]*\.")
 _SECTION_END = re.compile(
-    r"(?im)^[ \t]*(?:(?:WORKING-STORAGE|LINKAGE|LOCAL-STORAGE|SCREEN|COMMUNICATION|REPORT)[ \t]+SECTION[ \t]*\."
+    r"(?im)^" + _SEQ + r"[ \t]*(?:(?:WORKING-STORAGE|LINKAGE|LOCAL-STORAGE|SCREEN|COMMUNICATION|REPORT)[ \t]+SECTION[ \t]*\."
     r"|PROCEDURE[ \t]+DIVISION\b)"
 )
 _CHAIN = ("FILE SECTION",)

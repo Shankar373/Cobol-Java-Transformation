@@ -119,8 +119,8 @@ def convert_record_between(record: bytes, source_layout: RecordLayout, target_la
     problems = check_layout_pair(source_layout, target_layout, source_platform, target_platform)
     if problems:
         raise ValueError("; ".join(problems))
-    if len(record) < source_layout.record_length:
-        raise ValueError(f"record is too short: {len(record)} bytes, layout needs {source_layout.record_length}")
+    if len(record) != source_layout.record_length:
+        raise ValueError(f"record length {len(record)} bytes, layout needs {source_layout.record_length}")
 
     reason = check_record(record, source_layout.field_specs())  # packed-decimal validity
     if reason:

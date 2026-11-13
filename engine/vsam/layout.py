@@ -34,6 +34,7 @@ from engine.vsam.convert import FieldKind, FieldSpec
 
 # Hostile or accidental layouts must be refused by arithmetic, before any field object exists.
 MAX_LAYOUT_FIELDS = 100_000  # fields after OCCURS expansion
+MAX_DIAGNOSTICS = 200
 MAX_RECORD_BYTES = 1_048_576  # far above the 32,760-byte record of a typical VSAM/QSAM data set
 
 
@@ -123,11 +124,18 @@ class _Deriver:
         self.selection = dict(selection)
         self.used: set[str] = set()
         self.diagnostics: list[LayoutDiagnostic] = []
+        self._seen: set[LayoutDiagnostic] = set()
 
     def diag(self, code: str, path: str, message: str) -> None:
         entry = LayoutDiagnostic(code, path, message)
-        if entry not in self.diagnostics:  # the sizing passes revisit items; report each problem once
+        if entry in self._seen:  # the sizing passes revisit items; report each problem once
+            return
+        self._seen.add(entry)
+        if len(self.diagnostics) < MAX_DIAGNOSTICS:  # bounded: a hostile record cannot grow the report without limit
             self.diagnostics.append(entry)
+        elif len(self.diagnostics) == MAX_DIAGNOSTICS:
+            self.diagnostics.append(LayoutDiagnostic(
+                "DIAGNOSTICS_TRUNCATED", "", f"more than {MAX_DIAGNOSTICS} problems; the rest are not listed"))
 
     # -- sizes -------------------------------------------------------------------------------
     def _elementary(self, item: DataItem, path: str) -> tuple[int, FieldKind] | None:
