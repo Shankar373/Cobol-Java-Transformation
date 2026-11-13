@@ -395,6 +395,16 @@ class UniversalModernizationPipeline:
             )
             return report
 
+        if not plan.entrypoint_resolved:
+            # The generator would refuse the same application (G-15); refuse it here, at
+            # planning, so no oracle request is built from an entry nobody established.
+            report.generation_errors = (plan.oracle.entry_diagnostic,)
+            report.limitations = (
+                "Transformation blocked: the application entrypoint is not established",
+                plan.oracle.entry_diagnostic,
+            )
+            return report
+
         if progress:
             progress("TRANSFORMING")
         try:

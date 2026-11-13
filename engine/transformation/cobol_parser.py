@@ -4727,7 +4727,11 @@ class CobolParser:
         return tuple(body), i, closed
 
     def _parse_search(self, lines: list[str], start: int) -> tuple[SearchStatement, int]:
-        """Parse a linear SEARCH with its AT END and WHEN arms (SEARCH ALL is recorded and refused)."""
+        """Parse a SEARCH with its AT END and WHEN arms.
+
+        ``SEARCH ALL`` is recorded with ``is_all``; ``search_lowering`` lowers the bounded
+        equality form and refuses the other shapes by name (``reasons``).
+        """
         header = lines[start].strip().rstrip(".")
         match = re.match(r"^SEARCH\s+(ALL\s+)?([A-Z0-9][\w-]*)(?:\s+VARYING\s+([A-Z0-9][\w-]*))?\s*$",
                          header, re.IGNORECASE)

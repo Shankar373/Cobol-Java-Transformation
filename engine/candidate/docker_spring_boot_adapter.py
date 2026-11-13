@@ -30,6 +30,7 @@ Security model:
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import subprocess
@@ -45,6 +46,7 @@ from engine.candidate.adapter import (
     CompilationResult,
 )
 from engine.candidate.image_provenance import (
+    describe_identity_problem,
     DEFAULT_PROVENANCE_PATH,
     DockerImageObservation,
     digest_of_identity,
@@ -68,6 +70,9 @@ from engine.execution.workspace_files import (
     collect_generated_files,
     read_sandbox_file,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -123,6 +128,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
         )
         self._java_version = ""
         self._maven_version = ""
+        self._unavailable_reason = ""
 
         if self._docker_available:
             self._build_observation = self._resolve_build_observation()
@@ -145,8 +151,21 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 if build_verified and runtime_verified
                 else AdapterStatus.UNAVAILABLE
             )
+            if self._status is AdapterStatus.UNAVAILABLE:
+                # The pin is enforced exactly as before; this only records why, so an image
+                # mismatch is not mistaken for an application problem (G-21).
+                self._unavailable_reason = "; ".join(filter(None, (
+                    describe_identity_problem(
+                        "build image", self._config.build_image, self._expected_build_identity(),
+                        self._build_observation, False),
+                    describe_identity_problem(
+                        "runtime image", self._config.runtime_image, self._config.runtime_digest,
+                        self._runtime_observation, True),
+                )))
+                logger.warning("Spring Boot candidate lane unavailable: %s", self._unavailable_reason)
         else:
             self._status = AdapterStatus.UNAVAILABLE
+            self._unavailable_reason = "Docker daemon is not reachable"
 
     def _expected_build_identity(self) -> str:
         """Return the explicit provisioned build identity, if any."""
@@ -278,6 +297,15 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
             return ""
 
     @property
+    def unavailable_reason(self) -> str:
+        """Why the lane is UNAVAILABLE ("" when it is available)."""
+        return self._unavailable_reason
+
+    def _not_available_message(self) -> str:
+        reason = self._unavailable_reason
+        return f"Docker or Maven image not available: {reason}" if reason else "Docker or Maven image not available"
+
+    @property
     def available(self) -> bool:
         return self._status == AdapterStatus.AVAILABLE
 
@@ -350,7 +378,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
             return CompilationResult(
                 success=False,
                 class_files={},
-                compilation_errors=("Docker or Maven image not available",),
+                compilation_errors=(self._not_available_message(),),
                 infrastructure_error=True,
             )
 
@@ -564,7 +592,7 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
                 status=AdapterStatus.UNAVAILABLE,
                 exit_code=None,
                 stdout=b"",
-                stderr=b"Docker or Maven image not available",
+                stderr=self._not_available_message().encode(),
                 start_time=start_time.isoformat(),
                 end_time=end_time.isoformat(),
                 termination_status="error",

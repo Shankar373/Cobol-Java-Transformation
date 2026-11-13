@@ -860,7 +860,12 @@ class SearchWhen:
 
 @dataclass(frozen=True)
 class SearchStatement:
-    """SEARCH table [VARYING item] [AT END ...] WHEN cond ... (linear search; ``SEARCH ALL`` is refused)."""
+    """SEARCH [ALL] table [VARYING item] [AT END ...] WHEN cond ...
+
+    ``is_all`` marks ``SEARCH ALL``.  It is lowered only in the bounded form certified in
+    ``search_lowering`` (an equality ``WHEN table(idx) = value`` on a table declared with a
+    KEY clause); every other ``SEARCH ALL`` shape carries ``reasons`` and is refused by name.
+    """
 
     table: str = ""
     varying: str = ""

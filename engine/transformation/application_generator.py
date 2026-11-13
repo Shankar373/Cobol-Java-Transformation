@@ -29,6 +29,8 @@ from engine.transformation.copybook_model import (
     generate_copybook_model_sources,
     prepare_application_copybooks,
 )
+from engine.transformation.entrypoint import normalise as _normalise
+from engine.transformation.entrypoint import resolve_entrypoint
 from engine.transformation.ir import CobolApplication
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator
 from engine.transformation.java_ir import JavaApplication, JavaClass
@@ -57,15 +59,6 @@ class ApplicationGenerationResult:
     # Copybook preparation diagnostics (resolution/merge notes). Errors
     # here fail generation deterministically (see generate()).
     copybook_diagnostics: tuple[str, ...] = ()
-
-
-def _normalise(name: str) -> str:
-    """Normalise a program-id / class name for comparison.
-
-    Case-, dash-, underscore- and whitespace-insensitive ("ALPHA-1",
-    "Alpha_1" and "alpha1" all compare equal).
-    """
-    return re.sub(r"[-_\s]+", "", name or "").upper()
 
 
 class ApplicationGenerator:
@@ -218,52 +211,7 @@ class ApplicationGenerator:
             for f in files
             if f.class_name != "ServiceRegistry" and f.class_name not in exclude
         ]
-        if not program_classes:
-            return "", "No program class is available to be the application entrypoint"
-        listing = ", ".join(sorted(program_classes))
-
-        requested_class = requested.strip() if requested else ""
-        if requested_class:
-            matches = [
-                name for name in program_classes
-                if _normalise(name) == _normalise(requested_class)
-            ]
-            if len(matches) == 1:
-                return matches[0], ""
-            if not matches:
-                return "", (
-                    f"Requested entrypoint '{requested_class}' matches no program "
-                    f"(programs: {listing})"
-                )
-            return "", (
-                f"Requested entrypoint '{requested_class}' is ambiguous: "
-                f"{len(matches)} programs share that name"
-            )
-
-        if len(program_classes) == 1:
-            return program_classes[0], ""
-
-        # a program that calls itself (recursion) is still a root
-        called = {
-            _normalise(target) for source, target in call_edges
-            if _normalise(source) != _normalise(target)
-        }
-        roots = [
-            name for name in program_classes
-            if _normalise(name) not in called
-        ]
-        if len(roots) == 1:
-            return roots[0], ""
-        if not roots:
-            return "", (
-                "No entrypoint can be derived: every program is the target of "
-                f"a CALL (programs: {listing}); request one explicitly"
-            )
-        return "", (
-            "Entrypoint is ambiguous: no entrypoint was requested and "
-            f"{len(roots)} programs are not called by any other "
-            f"({', '.join(sorted(roots))}); request one explicitly"
-        )
+        return resolve_entrypoint(program_classes, requested, call_edges)
 
     @staticmethod
     def write_to_directory(

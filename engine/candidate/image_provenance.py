@@ -208,6 +208,36 @@ def verify_image_identity(
     return observed.identity == expected
 
 
+def describe_identity_problem(
+    label: str,
+    image_ref: str,
+    expected_identity: str,
+    observed: DockerImageObservation,
+    require_repo_digest: bool,
+) -> str:
+    """Why ``verify_image_identity`` refuses this image, or ``""`` when it accepts it.
+
+    Mirrors the checks of ``verify_image_identity`` one for one (the tests pin that they
+    agree) and only adds words: the expected and observed identity and the remedy.  It never
+    changes a decision and never suggests accepting a different digest.
+    """
+    expected = (expected_identity or "").strip()
+    if not expected:
+        return (f"{label} {image_ref} has no pinned identity (provide "
+                "test-artifacts/docker-image-provenance.json by running "
+                "scripts/record_docker_image_provenance.py)")
+    if not observed.identity:
+        return f"{label} {image_ref} was not found locally (docker image inspect returned no identity)"
+    if require_repo_digest and observed.identity_kind != REPO_DIGEST:
+        return (f"{label} {image_ref} has no repo digest (observed {observed.identity_kind} "
+                f"{observed.identity}); pull it by its pinned digest {expected}")
+    if observed.identity != expected:
+        return (f"{label} {image_ref} identity {observed.identity} does not equal the pinned identity "
+                f"{expected}; rebuild or re-pull the image and run "
+                "scripts/record_docker_image_provenance.py to record the new identity - the pin is enforced")
+    return ""
+
+
 @dataclass(frozen=True)
 class DockerImageProvenance:
     """Auditable expected identities for one Docker deployment."""

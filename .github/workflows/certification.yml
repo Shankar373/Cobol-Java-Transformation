@@ -77,6 +77,13 @@ jobs:
             --build-image maven-offline-springboot:latest \
             --runtime-image eclipse-temurin:21-jdk \
             --output test-artifacts/docker-image-provenance.json
+      - name: Capture toolchain identity for the evidence
+        run: |
+          mkdir -p certification/provenance
+          cp test-artifacts/docker-image-provenance.json certification/provenance/docker-image-provenance.json
+          ORACLE_IMAGE=gnucobol-ocesql:latest
+          printf '{"image": "%s", "id": "%s"}\n' "$ORACLE_IMAGE" \
+            "$(docker image inspect --format '{{.Id}}' "$ORACLE_IMAGE")" > certification/oracle_image.json
       - name: Run the corpus through the API
         env:
           E2E_OUT: certification/e2e.jsonl
@@ -95,11 +102,49 @@ jobs:
             --results certification/e2e.jsonl \
             --independent certification/independent.jsonl \
             --out-dir certification/evidence | tee certification/summary.txt
+      - name: Record run identity
+        if: always()
+        run: python -m tools.certification_run_summary runtime-identity --runtime "${{ matrix.runtime }}" --out-dir certification
       - name: Upload certification evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: certification-${{ matrix.runtime }}
           path: certification/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  summarize:
+    # G-25: one machine-checked summary for THIS run.  Identity comes from the workflow
+    # environment (GITHUB_SHA, GITHUB_RUN_ID), never from an argument; the job fails unless all
+    # four runtimes uploaded complete, consistent evidence for this commit.  It publishes an
+    # artifact only - nothing is pushed to the branch.
+    name: Certification summary (exact run)
+    needs: certify
+    if: ${{ always() && needs.certify.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Download the runtime evidence of this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: certification-*
+          path: artifacts
+      - name: Aggregate and verify the four runtimes
+        run: python -m tools.certification_run_summary run-summary --artifacts artifacts --out certification_summary/certification_summary.json
+      - name: Upload the exact-run summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exact-run-certification-summary
+          path: certification_summary/**
           if-no-files-found: warn
           retention-days: 90

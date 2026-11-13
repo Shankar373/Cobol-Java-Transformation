@@ -50,7 +50,27 @@ def _load(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _fixture_files(repo: Path, app: str) -> list[Path]:
+def _tracked_fixture_listing(repo: Path) -> dict[str, list[Path]] | None:
+    """Git-tracked files under ``fixtures/``, grouped by application, from one ``git ls-files``.
+
+    ``None`` when the tree is not a git checkout (the caller then walks the directory).
+    """
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-z", "--", "fixtures"],
+            capture_output=True, check=True, timeout=120).stdout.decode("utf-8")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    grouped: dict[str, list[Path]] = {}
+    for name in listed.split("\0"):
+        parts = name.split("/")
+        if len(parts) >= 3 and parts[0] == "fixtures":
+            grouped.setdefault(parts[1], []).append(repo / name)
+    return grouped or None
+
+
+def _fixture_files(repo: Path, app: str,
+                   listing: dict[str, list[Path]] | None = None) -> list[Path]:
     """The files of one fixture directory that belong to the repository.
 
     Tracked files when the tree is a git checkout (so untracked leftovers such as
@@ -60,15 +80,10 @@ def _fixture_files(repo: Path, app: str) -> list[Path]:
     root = repo / "fixtures" / app
     if not root.is_dir():
         return []
-    try:
-        listed = subprocess.run(
-            ["git", "-C", str(repo), "ls-files", "-z", "--", f"fixtures/{app}"],
-            capture_output=True, check=True, timeout=60).stdout.decode("utf-8")
-    except (OSError, subprocess.SubprocessError):
-        listed = ""
-    tracked = [repo / name for name in listed.split("\0") if name]
-    if tracked:
-        return _by_posix_path([p for p in tracked if p.is_file()], repo)
+    if listing is None:
+        listing = _tracked_fixture_listing(repo)
+    if listing is not None and listing.get(app):
+        return _by_posix_path([p for p in listing[app] if p.is_file()], repo)
     return _by_posix_path(
         [p for p in root.rglob("*")
          if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"], repo)
@@ -87,9 +102,10 @@ def _by_posix_path(paths: list[Path], repo: Path) -> list[Path]:
 def fixture_manifest(repo: Path, applications: list[str]) -> dict:
     """Hash every repository file of every corpus application's fixture directory."""
     entries: list[str] = []
+    listing = _tracked_fixture_listing(repo)
     for app in sorted(applications):
         root = repo / "fixtures" / app
-        files = _fixture_files(repo, app)
+        files = _fixture_files(repo, app, listing)
         entries.append(f"{app}\0<dir:{'present' if root.is_dir() else 'missing'}>")
         for path in files:
             rel = path.relative_to(repo / "fixtures").as_posix()
@@ -103,6 +119,15 @@ def _runtime_block(repo: Path, runtime: str) -> tuple[dict, list[str]]:
     corpus_path = repo / CORPUS_DIR / f"runtime_corpus_{runtime}.jsonl"
     indep_path = repo / CORPUS_DIR / f"runtime_corpus_{runtime}_independent.jsonl"
     summaries_path = repo / SUMMARIES_DIR / f"validation_summaries_{runtime}.jsonl"
+    return runtime_block_from_files(
+        corpus_path, indep_path, summaries_path,
+        (f"{CORPUS_DIR}/{corpus_path.name}", f"{CORPUS_DIR}/{indep_path.name}",
+         f"{SUMMARIES_DIR}/{summaries_path.name}"))
+
+
+def runtime_block_from_files(corpus_path: Path, indep_path: Path, summaries_path: Path,
+                             evidence_names: tuple[str, str, str]) -> tuple[dict, list[str]]:
+    """One runtime's totals, refusals, independent re-check and evidence hashes from its three files."""
     corpus = _load(corpus_path)
     independent = _load(indep_path)
     summaries = _load(summaries_path)
@@ -141,9 +166,9 @@ def _runtime_block(repo: Path, runtime: str) -> tuple[dict, list[str]]:
         "jdk_versions": jdks,
         "reference": references,
         "evidence_sha256": {
-            f"{CORPUS_DIR}/{corpus_path.name}": sha256_normalised(corpus_path),
-            f"{CORPUS_DIR}/{indep_path.name}": sha256_normalised(indep_path),
-            f"{SUMMARIES_DIR}/{summaries_path.name}": sha256_normalised(summaries_path),
+            evidence_names[0]: sha256_normalised(corpus_path),
+            evidence_names[1]: sha256_normalised(indep_path),
+            evidence_names[2]: sha256_normalised(summaries_path),
         },
     }
     block["status"] = (
@@ -197,8 +222,9 @@ def build_summary(*, commit_sha: str, run_id: str, repo: Path = REPO,
 def check_summary(summary: dict, repo: Path = REPO) -> list[str]:
     """Problems found when recomputing ``summary`` from the evidence files."""
     problems: list[str] = []
+    listing = _tracked_fixture_listing(repo)
     for app in summary.get("fixtures", {}).get("applications", []):
-        if not _fixture_files(repo, app):
+        if not _fixture_files(repo, app, listing):
             problems.append(f"fixtures/{app}: directory is missing or empty, so its content is not covered by the manifest hash")
     if summary.get("schema") != SCHEMA or summary.get("schema_version") != SCHEMA_VERSION:
         return [f"unsupported schema {summary.get('schema')!r} v{summary.get('schema_version')!r}"]

@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from engine.transformation.entrypoint import resolve_entrypoint
 from engine.modernization.capability_analyzer import (
     CapabilityLevel,
     CapabilityReport,
@@ -74,9 +75,14 @@ class AssemblyPlan:
 class OraclePlan:
     """Plan for GnuCOBOL oracle execution."""
     source_format: str  # "free" or "fixed"
-    entry_program: str
+    entry_program: str  # "" unless entry_resolution is "RESOLVED"
     link_modules: tuple[str, ...] = ()
     input_files: tuple[str, ...] = ()
+    # RESOLVED: the entry was requested and matched exactly, or the CALL graph proves a
+    # single root.  UNRESOLVED: no entry could be established (entry_program is "" and
+    # entry_diagnostic says why); an unresolved plan must not be run on an oracle.
+    entry_resolution: str = "RESOLVED"
+    entry_diagnostic: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,12 +97,21 @@ class TransformationPlan:
     skipped_programs: int
 
     @property
+    def entrypoint_resolved(self) -> bool:
+        return self.oracle.entry_resolution == "RESOLVED" and bool(self.oracle.entry_program)
+
+    @property
     def has_transformations(self) -> bool:
         return any(c.action == TransformationAction.TRANSFORM for c in self.components)
 
     def to_dict(self) -> dict:
         return {
             "application_id": self.application_id,
+            "oracle": {
+                "entry_program": self.oracle.entry_program,
+                "entry_resolution": self.oracle.entry_resolution,
+                "entry_diagnostic": self.oracle.entry_diagnostic,
+            },
             "total_programs": self.total_programs,
             "transformable_programs": self.transformable_programs,
             "skipped_programs": self.skipped_programs,
@@ -213,7 +228,7 @@ class TransformationPlanGenerator:
                 ))
 
         # Resolve entrypoint
-        resolved_entry = self._resolve_entrypoint(application, components, entrypoint)
+        resolved_entry, entry_diagnostic = self._resolve_entrypoint(application, components, entrypoint)
 
         # Count stats
         programs = [c for c in components if c.component_type == "PROGRAM"]
@@ -233,6 +248,8 @@ class TransformationPlanGenerator:
         oracle = OraclePlan(
             source_format="free",
             entry_program=resolved_entry,
+            entry_resolution="RESOLVED" if resolved_entry else "UNRESOLVED",
+            entry_diagnostic=entry_diagnostic,
         )
 
         return TransformationPlan(
@@ -322,32 +339,17 @@ class TransformationPlanGenerator:
         application: CobolApplication,
         components: list[ComponentPlan],
         requested: str,
-    ) -> str:
-        """Resolve the entrypoint program.
+    ) -> tuple[str, str]:
+        """Resolve the entrypoint program: ``(program_id, "")`` or ``("", reason)``.
 
-        First tries transformable programs; falls back to any program
-        in the graph so the oracle plan always has an entry point.
+        The same fail-closed rule as the generator (``engine.transformation.entrypoint``):
+        a requested entry must match exactly one program; with none requested the CALL graph
+        must prove a single root.  There is no fallback to the first (transformable) program:
+        a plan whose entry cannot be established carries no entry and says why.  Copybooks
+        and CALL components are never candidates.
         """
-        all_programs = [
-            c for c in components if c.component_type == "PROGRAM"
-        ]
-        transformable = [
-            c for c in all_programs
-            if c.action == TransformationAction.TRANSFORM
-        ]
-
-        # Prefer explicit request
-        if requested:
-            for c in all_programs:
-                if c.component_id.upper() == requested.upper():
-                    return c.component_id
-
-        # Prefer transformable
-        if transformable:
-            return transformable[0].component_id
-
-        # Fall back to any program (for oracle plan even when SKIP)
-        if all_programs:
-            return all_programs[0].component_id
-
-        return ""
+        programs = [c.component_id for c in components if c.component_type == "PROGRAM"]
+        edges = tuple(
+            (e.source, e.target) for e in application.edges if e.edge_type == "CALL"
+        )
+        return resolve_entrypoint(programs, requested, edges)
