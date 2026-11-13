@@ -54,10 +54,27 @@ Ingestion -> COPY -> parser/IR -> FD discovery -> layout -> capability assessmen
 `ApplicationDiscovery` already parsed with COPY-in-FD expanded. Tests: `tests/test_vsam_assess.py` (11) and
 `tests/test_vsam_discovery_integration.py` (5, one through the HTTP route).
 
-Migration plan, conversion, Java-side access, reconciliation and evidence: **library only** (`engine/vsam/migrate*.py`).
-There is no data-upload or migration endpoint. One would need size limits, storage and access control, which were not designed
-in this stage. **Recorded limitation, not a closed gap.** No Java program has consumed migrated data, so
-Java-side access is not claimed.
+**Update (second Stage 1 pass, commits after `086a446`, not yet covered by the CI table below):**
+
+* **Migration API.** `POST /applications/{id}/vsam/migrate` (dataset upload plus a JSON options field),
+  `GET .../vsam/migrations/{id}` (stored report) and `GET .../vsam/migrations/{id}/download` (the converted dataset, served
+  only for a RECONCILED migration whose stored bytes still match their hash). Layout, keys and organization come from the
+  application's own discovered FD, never from the request; the request chooses encodings, platforms and, for a multi-record FD,
+  the record. Ids are deterministic, a refusal is a stored named result with no artifact, upload bounds and the existing role
+  rules apply. Tests: `tests/test_vsam_migration_api.py` (15). Artifacts are files under the workspace root, **not** rows in the
+  sqlite store; there is no resume, cancel or listing endpoint, no audit event and no cleanup.
+* **Java-side consumption (bounded).** `tests/integration/test_vsam_java_consumer.py`: a mainframe-form fixed sequential dataset
+  (DISPLAY, COMP, COMP-3) is migrated by the real pipeline; the generated Java and the GnuCOBOL oracle read the migrated file and
+  print identical output equal to the values the records were built from. Not covered: indexed or variable datasets, COMP-5.
+* **Independent reader.** `tests/integration/test_vsam_consumer_oracle.py`: GnuCOBOL reads a migrated EBCDIC to ASCII dataset
+  (COMP, COMP-5, COMP-3) and shows the original values; a control shows the raw bytes do not.
+* **Big-endian lane.** `docker/gnucobol-s390x` (Ubuntu 22.04, GnuCOBOL 3.1.2 on `linux/s390x` under QEMU) and
+  `tests/integration/test_vsam_s390x_oracle.py`: records written on s390x, converted to the x86 representation, equal the records
+  x86 wrote byte for byte, and back. Two presets were added (`GNUCOBOL_S390X_DEFAULT`, `GNUCOBOL_S390X_IBM_DIALECT`). Linux on
+  s390x is not z/OS. The image is not yet built or run by CI, so those tests skip there.
+
+Still **not** done: resume/cancel and store-backed persistence over the API, KSDS or variable Java consumption, alternate index
+structures, GnuCOBOL 3.2 and VBISAM lanes, the code-reviewer and architect reviews.
 
 ## 5. Independent reviews
 
