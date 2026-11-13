@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import collections
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from engine.vsam.collation import collation_key, is_ascending, key_bytes
@@ -102,7 +103,17 @@ def _identity(dataset: DatasetDefinition, data: bytes) -> dict:
 
 def reconcile_migration(source: DatasetDefinition, source_data: bytes,
                         destination: DatasetDefinition, destination_data: bytes,
-                        rejected: tuple[RejectedRecord, ...] = ()) -> ReconciliationReport:
+                        rejected: tuple[RejectedRecord, ...] = (),
+                        translate: Callable[[bytes], bytes] | None = None,
+                        validate_record: Callable[[bytes], str | None] | None = None,
+                        ) -> ReconciliationReport:
+    """Reconcile a migration.
+
+    ``translate`` maps one source record to its destination form (see
+    ``engine.vsam.convert``); with it, record content is compared even when the
+    encodings differ.  ``validate_record`` returns a reason when a record is
+    provably invalid; a rejection it confirms is independently justified.
+    """
     failures: list[str] = []
     warnings: list[str] = []
     failures += [f"invalid source definition: {p}" for p in source.validate()]
@@ -119,13 +130,21 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
             failures.append(f"source record {number} is listed as rejected {times} times")
     valid_rejected = {n for n in rejected_numbers if 1 <= n <= len(src)}
     kept = [(i + 1, record) for i, record in enumerate(src) if (i + 1) not in valid_rejected]
+    justified_rejections: set[int] = set()
+    if validate_record is not None:
+        justified_rejections |= {n for n in valid_rejected if validate_record(src[n - 1]) is not None}
+    translated: list[bytes] | None = None
+    if translate is not None:
+        try:
+            translated = [translate(record) for _, record in kept]
+        except ValueError as exc:
+            failures.append(f"a kept source record cannot be translated: {exc}")
 
     if len(dst) != len(kept):
         failures.append(f"destination holds {len(dst)} record(s); source {len(src)} minus "
                         f"{len(valid_rejected)} rejected = {len(kept)} expected")
 
     duplicate_keys = 0
-    justified_rejections: set[int] = set()
     keys_checked = False
     key = source.primary_key
     dkey = destination.primary_key
@@ -147,13 +166,17 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
                     failures.append(f"source record {number} repeats the primary key of record {seen_kept[k]} "
                                     "and was not rejected")
                 seen_kept.setdefault(k, number)
-        try:
-            expected = collections.Counter(
-                collation_key(key_bytes(r, key), key, source.encoding, destination.encoding) for _, r in kept)
-        except (UnicodeDecodeError, UnicodeEncodeError) as exc:
-            failures.append(f"a source key has no counterpart in {destination.encoding.value}: {exc.reason}")
-            expected = collections.Counter()
-            keys_checked = False
+        if translated is not None:
+            expected = collections.Counter(key_bytes(t, dkey) for t in translated)
+        else:
+            try:
+                expected = collections.Counter(
+                    collation_key(key_bytes(r, key), key, source.encoding, destination.encoding)
+                    for _, r in kept)
+            except (UnicodeDecodeError, UnicodeEncodeError) as exc:
+                failures.append(f"a source key has no counterpart in {destination.encoding.value}: {exc.reason}")
+                expected = collections.Counter()
+                keys_checked = False
         actual_keys = [key_bytes(r, dkey) for r in dst]
         actual = collections.Counter(actual_keys)
         if keys_checked:
@@ -177,10 +200,12 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
                 if not ordered:
                     failures.append(f"destination records are not in {destination.encoding.value} key order")
 
-    content_compared = source.encoding is destination.encoding and \
-        source.record_format is destination.record_format and source.record_length == destination.record_length
+    content_compared = translated is not None or (
+        source.encoding is destination.encoding
+        and source.record_format is destination.record_format
+        and source.record_length == destination.record_length)
     if content_compared:
-        kept_records = [record for _, record in kept]
+        kept_records = translated if translated is not None else [record for _, record in kept]
         if destination.organization is Organization.KSDS:
             # a KSDS is reordered by key; its order was checked above
             same_content = collections.Counter(kept_records) == collections.Counter(dst)
@@ -201,7 +226,8 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
     unverified = sorted(valid_rejected - justified_rejections)
     if unverified:
         warnings.append(f"{len(unverified)} rejected record(s) were not independently justified "
-                        f"(first: record {unverified[0]}); only a repeated primary key is verified here")
+                        f"(first: record {unverified[0]}); only a repeated primary key or a record the "
+                        "supplied validator rejects is verified here")
 
     fully_checked = content_compared and keys_checked and not unverified
     status = "FAILED" if failures else ("RECONCILED" if fully_checked else "RECONCILED_PARTIAL")

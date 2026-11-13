@@ -77,8 +77,8 @@ Tested (37 tests): clean migration; lost, substituted, changed and reordered rec
 without deliberate rejection; duplicate destination keys; rejecting a nonexistent or repeated record; truncated record;
 invalid definitions; ASCII-to-EBCDIC with correct and wrong destination order; RDW corruption; determinism.
 
-Not done: field-level translation (EBCDIC DISPLAY to ASCII with COMP-3 and binary fields preserved) from a COBOL record
-layout; REDEFINES and OCCURS handling; restart after an interrupted migration; hashing at volume. Next task below.
+Done after this section was first written: field-level translation, restart and independent confirmation of rejections (section 6). Not done: deriving the layout from the COBOL
+record description, REDEFINES and OCCURS, variable-length input, hashing at volume.
 
 ## 5. Fixtures for the Stage 1 proof
 
@@ -99,14 +99,22 @@ layout; REDEFINES and OCCURS handling; restart after an interrupted migration; h
 
 ## 6. Progress and next smallest slice
 
-Done in this change: semantic model and capability classes, EBCDIC key collation, migration reconciliation report (all
-`IMPLEMENTED_NOT_RUNTIME_VERIFIED`, `DETERMINISTIC_TEST`), G-14 (file ownership no longer guessed), G-15 and G-17.
+Done: semantic model and capability classes, EBCDIC key collation, migration reconciliation report, **field-aware conversion with
+restart** (`engine/vsam/convert.py`), G-14 (file ownership no longer guessed), G-15 and G-17. All new Stage 1 code is
+`IMPLEMENTED_NOT_RUNTIME_VERIFIED`, `DETERMINISTIC_TEST`.
 
-Next smallest independently verifiable slice: a field-aware migration converter driven by the existing COBOL record
-layout (`FileDefinition.record_groups`) that translates DISPLAY fields between EBCDIC and ASCII, copies COMP-3 and binary
-fields untouched, and feeds `reconcile_migration` so content can be compared (`RECONCILED` instead of
-`RECONCILED_PARTIAL`), with a checkpoint file so an interrupted run resumes at a recorded record number. Differential
-evidence is limited to GnuCOBOL reading the converted file; IBM validation of EBCDIC data stays `EXTERNAL_DEPENDENCY`.
+The converter translates DISPLAY fields between ASCII and EBCDIC cp037 from a caller-supplied field layout that must cover the whole
+record, copies packed (COMP-3) and binary fields byte for byte, and rejects a record - with a reason, never silently - when a DISPLAY byte
+has no counterpart or a packed field has a non-decimal digit or invalid sign. `sort_for_ksds` loads a KSDS in the destination's own
+key order. `convert_dataset` can stop and resume: it re-converts the records already written and refuses to continue if the partial
+output differs. With the converter as `translate` and its checks as `validate_record`, `reconcile_migration` compares record content
+across encodings and confirms rejections independently, so a clean migration reads `RECONCILED` instead of `RECONCILED_PARTIAL`
+(`tests/test_vsam_convert.py`, 29 tests).
+
+Next smallest slice (needs a decision before coding): derive the field layout from `FileDefinition.record_groups` (PIC and USAGE) instead of
+a caller-supplied list, including `REDEFINES` and `OCCURS` (today those must be declared by hand); then run GnuCOBOL on a converted
+file and compare, which is the first differential evidence for converted data. EBCDIC data validated against a real mainframe stays
+`EXTERNAL_DEPENDENCY`.
 
 ## 7. Awaiting IBM validation (`REQUIRES_OWNER_OR_CUSTOMER_INPUT`)
 

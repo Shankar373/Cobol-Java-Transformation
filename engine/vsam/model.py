@@ -137,6 +137,10 @@ CAPABILITIES: tuple[Capability, ...] = (
                "COMP / COMP-3 fields compared with GnuCOBOL (workload-comp, workload-comp3, workload-binary-values)"),
     Capability("migration.reconciliation_report", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
                "engine.vsam.reconcile: counts, rejected records, duplicate keys, key set, ordering and hashes"),
+    Capability("migration.field_aware_conversion_and_restart", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
+               "engine.vsam.convert: DISPLAY fields translated cp037 <-> ASCII, packed and binary copied, unconvertible "
+               "records rejected with reasons, KSDS load order, resume after interruption; fixed-length records only, "
+               "layout supplied by the caller, no GnuCOBOL or IBM comparison of converted data yet"),
     Capability("idcams.define_gdg_repro_delete_setmaxcc", None, "PARTIAL", "DOCUMENTED_SEMANTICS",
                "engine.jcl.orchestrator native subset; reference runner refuses IDCAMS, so no oracle comparison"),
     Capability("idcams.define_cluster_listcat_bldindex_alter", None, "NOT_IMPLEMENTED", "NONE",
