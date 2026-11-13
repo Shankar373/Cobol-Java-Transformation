@@ -347,3 +347,71 @@ def test_fields_record_their_usage_and_comp_and_comp5_get_different_identities()
     assert comp.fields[0].length == comp5.fields[0].length and comp.fields[0].kind is comp5.fields[0].kind
     assert comp.identity != comp5.identity
     assert comp5.to_dict()["fields"][0]["usage"] == "COMP-5"
+
+
+# --- resource limits (security review): a hostile layout must be refused, not expanded ------------------------------------------
+
+def test_a_huge_occurs_is_refused_without_expanding_it():
+    import time
+
+    started = time.monotonic()
+    layout = layout_for("01 REC.", "   05 T PIC X OCCURS 99999999 TIMES.")
+    assert "OCCURS_TOO_LARGE" in codes(layout) and not layout.supported and layout.fields == ()
+    assert time.monotonic() - started < 5          # decided by arithmetic, not by creating 10**8 fields
+
+
+def test_nested_occurs_multiplies_towards_the_limit():
+    layout = layout_for("01 REC.", "   05 A OCCURS 9999 TIMES.", "      10 B PIC X OCCURS 9999 TIMES.")
+    assert "OCCURS_TOO_LARGE" in codes(layout)
+
+
+def test_the_field_limit_is_exact():
+    from engine.vsam.layout import MAX_LAYOUT_FIELDS
+
+    ok = layout_for("01 REC.", f"   05 T PIC X OCCURS {MAX_LAYOUT_FIELDS} TIMES.")
+    assert ok.supported and len(ok.fields) == MAX_LAYOUT_FIELDS
+    over = layout_for("01 REC.", f"   05 T PIC X OCCURS {MAX_LAYOUT_FIELDS + 1} TIMES.")
+    assert "OCCURS_TOO_LARGE" in codes(over)
+
+
+def test_a_record_longer_than_the_limit_is_refused():
+    from engine.vsam.layout import MAX_RECORD_BYTES
+
+    layout = layout_for("01 REC.", f"   05 BIG PIC X({MAX_RECORD_BYTES + 1}).")
+    assert "RECORD_TOO_LARGE" in codes(layout) and not layout.supported
+    assert layout_for("01 REC.", f"   05 BIG PIC X({MAX_RECORD_BYTES}).").supported
+
+
+# --- independent review: group-level clauses, duplicate names, duplicate diagnostics ----------------------------------------------
+
+@pytest.mark.parametrize("group_clause,child", [
+    ("COMP-3", "10 M PIC S9(3)."),
+    ("COMP", "10 M PIC S9(4)."),
+    ("SIGN IS LEADING SEPARATE", "10 N PIC S9(3)."),
+    ("SIGN IS TRAILING", "10 N PIC S9(3)."),
+])
+def test_a_usage_or_sign_clause_on_a_group_is_refused_because_children_would_inherit_it(group_clause, child):
+    layout = layout_for("01 R.", f"   05 H {group_clause}.", f"      {child}")
+    assert "GROUP_CLAUSE_INHERITED" in codes(layout) and not layout.supported
+    assert layout.diagnostics[0].path == "R.H"
+
+
+def test_the_same_clause_on_the_elementary_item_is_still_fine():
+    assert layout_for("01 R.", "   05 H.", "      10 M PIC S9(3) COMP-3.").supported
+
+
+def test_duplicate_filler_names_get_unique_paths_in_declaration_order():
+    layout = layout_for("01 R.", "   05 FILLER PIC X(2).", "   05 A PIC X.", "   05 FILLER PIC X(3).",
+                        "   05 FILLER PIC X(1).")
+    assert [f.path for f in layout.fields] == ["R.FILLER", "R.A", "R.FILLER#2", "R.FILLER#3"]
+    assert len({f.path for f in layout.fields}) == len(layout.fields)
+
+
+def test_a_refusal_is_reported_once_not_once_per_internal_pass():
+    layout = layout_for("01 R.", "   05 GRP.", "      10 BAD PIC S9(4) COMP SYNC.", "   05 OK PIC X.")
+    assert [d.code for d in layout.diagnostics] == ["SYNCHRONIZED"]
+    redef = layout_for("01 R.", "   05 A PIC X(8).", "   05 B REDEFINES A PIC X(3).", "   05 C REDEFINES A PIC X(8).")
+    assert len({(d.code, d.path) for d in redef.diagnostics}) == len(redef.diagnostics)
+
+
+# --- resource limits: the cap is checked before any field is created --------------------------------------------------------------

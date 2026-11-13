@@ -184,3 +184,31 @@ def test_the_cics_fixture_programs_no_longer_report_a_fabricated_file_problem(pr
     assert not any("FILE SECTION" in m or "owning file" in m for m in errors), errors
     assert any("EXEC CICS" in m for m in cics_warnings(parser))
     assert "EXEC CICS" in scan_constructs((FIXTURE / program).read_text(encoding="utf-8"))
+
+
+def test_statement_text_after_end_exec_on_the_same_line_is_never_dropped_silently():
+    parser, _ = parse("           EXEC CICS RETURN END-EXEC MOVE 1 TO WS-RESP.\n")
+    assert any("END-EXEC" in m and "followed by" in m for m in messages(parser, "error"))
+
+
+def test_text_after_the_end_exec_of_a_multi_line_block_is_reported_too():
+    parser, _ = parse(
+        "           EXEC CICS READ DATASET('X') INTO(WS-BUF)\n"
+        "           END-EXEC MOVE 1 TO WS-RESP.\n"
+    )
+    assert any("followed by" in m for m in messages(parser, "error"))
+
+
+def test_a_period_after_end_exec_is_not_trailing_text():
+    parser, _ = parse("           EXEC CICS RETURN END-EXEC.\n")
+    assert messages(parser, "error") == []
+
+
+def test_exec_cics_inside_an_inline_if_is_named():
+    parser, _ = parse("           IF WS-RESP = 0 EXEC CICS RETURN END-EXEC END-IF.\n")
+    assert any("EXEC CICS" in m and "inside" in m for m in cics_warnings(parser))
+
+
+def test_a_string_literal_mentioning_exec_cics_mid_line_is_not_a_region():
+    parser, _ = parse("           IF WS-RESP = 0 DISPLAY 'EXEC CICS RETURN END-EXEC' END-IF.\n")
+    assert cics_warnings(parser) == []

@@ -32,6 +32,11 @@ from engine.transformation.ir import DataItem, FileDefinition
 from engine.vsam.convert import FieldKind, FieldSpec
 
 
+# Hostile or accidental layouts must be refused by arithmetic, before any field object exists.
+MAX_LAYOUT_FIELDS = 100_000  # fields after OCCURS expansion
+MAX_RECORD_BYTES = 1_048_576  # far above the 32,760-byte record of a typical VSAM/QSAM data set
+
+
 class BinaryWidthModel(str, Enum):
     IBM_2_4_8 = "IBM_2_4_8"  # 1-4 digits: 2 bytes, 5-9: 4, 10-18: 8
     GNUCOBOL_1_2_4_8 = "GNUCOBOL_1_2_4_8"  # 1-2 digits: 1 byte, 3-4: 2, 5-9: 4, 10-18: 8
@@ -114,7 +119,9 @@ class _Deriver:
         self.diagnostics: list[LayoutDiagnostic] = []
 
     def diag(self, code: str, path: str, message: str) -> None:
-        self.diagnostics.append(LayoutDiagnostic(code, path, message))
+        entry = LayoutDiagnostic(code, path, message)
+        if entry not in self.diagnostics:  # the sizing passes revisit items; report each problem once
+            self.diagnostics.append(entry)
 
     # -- sizes -------------------------------------------------------------------------------
     def _elementary(self, item: DataItem, path: str) -> tuple[int, FieldKind] | None:
@@ -155,6 +162,12 @@ class _Deriver:
 
     def _element(self, item: DataItem, path: str, offset: int, emit: list[LayoutField] | None) -> int | None:
         """Size of one occurrence of ``item``; appends its fields to ``emit`` when given."""
+        if item.children and (item.usage or item.sign_position or item.sign_separate or item.synchronized):
+            clause = item.usage or ("SYNCHRONIZED" if item.synchronized else "SIGN")
+            self.diag("SYNCHRONIZED" if clause == "SYNCHRONIZED" else "GROUP_CLAUSE_INHERITED", path,
+                      f"{clause} on the group {item.name} would apply to every child; the IR cannot tell a child's own "
+                      "DISPLAY from an inherited usage, so the layout is refused")
+            return None
         if not item.children:
             sized = self._elementary(item, path)
             if sized is None:
@@ -168,10 +181,18 @@ class _Deriver:
         by_name: dict[str, dict] = {}
         cursor = offset
         failed = False
+        seen_names: dict[str, int] = {}
+        paths: dict[int, str] = {}
         for child in item.children:
             if child.level in (66, 88):
                 continue
-            child_path = f"{path}.{child.name}"
+            seen_names[child.name] = seen_names.get(child.name, 0) + 1
+            nth = seen_names[child.name]
+            paths[id(child)] = f"{path}.{child.name}" + (f"#{nth}" if nth > 1 else "")  # FILLER, FILLER#2, ...
+        for child in item.children:
+            if child.level in (66, 88):
+                continue
+            child_path = paths[id(child)]
             total = self._total(child, child_path)
             if total is None:
                 failed = True
@@ -196,33 +217,34 @@ class _Deriver:
         for slot in slots:
             alts: list[DataItem] = slot["alts"]
             if len(alts) == 1:
-                chosen: DataItem | None = alts[0]
+                active = alts[0]
             else:
-                chosen = self._choose(alts, slot, path)
-                if chosen is None:
+                picked = self._choose(alts, slot, path, paths)
+                if picked is None:
                     failed = True
                     continue
+                active = picked
             if emit is not None:
-                self._place(chosen, f"{path}.{chosen.name}", slot["start"], emit)
+                self._place(active, paths[id(active)], slot["start"], emit)
         return None if failed else cursor - offset
 
-    def _choose(self, alts: list[DataItem], slot: dict, path: str) -> DataItem | None:
+    def _choose(self, alts: list[DataItem], slot: dict, path: str, paths: dict[int, str]) -> DataItem | None:
         target = alts[0].name
         names = ", ".join(a.name for a in alts)
         choice = self.selection.get(target)
         if choice is None:
-            self.diag("OVERLAY_UNSELECTED", f"{path}.{target}",
+            self.diag("OVERLAY_UNSELECTED", paths[id(alts[0])],
                       f"{target} is redefined (alternatives: {names}); name the active one - the first is never assumed")
             return None
         self.used.add(target)
         chosen = next((a for a in alts if a.name == choice), None)
         if chosen is None:
-            self.diag("OVERLAY_SELECTION_INVALID", f"{path}.{target}",
+            self.diag("OVERLAY_SELECTION_INVALID", paths[id(alts[0])],
                       f"{choice} is not one of the alternatives for {target} ({names})")
             return None
-        size = self._total(chosen, f"{path}.{chosen.name}")
+        size = self._total(chosen, paths[id(chosen)])
         if size is not None and size < slot["size"]:
-            self.diag("OVERLAY_PARTIAL_COVER", f"{path}.{chosen.name}",
+            self.diag("OVERLAY_PARTIAL_COVER", paths[id(chosen)],
                       f"{chosen.name} covers {size} of the {slot['size']} redefined bytes; the rest would be untranslated")
             return None
         return chosen
@@ -237,6 +259,21 @@ class _Deriver:
             self._element(item, element_path, offset + (index - 1) * element, emit)
 
 
+def _field_count(item: DataItem, cap: int) -> int:
+    """Upper bound of the fields ``item`` expands to, stopping early above ``cap`` (no field is created)."""
+    repeat = item.occurs or 1
+    if not item.children:
+        return min(repeat, cap)
+    inner = 0
+    for child in item.children:
+        if child.level in (66, 88):
+            continue
+        inner += _field_count(child, cap)
+        if inner > cap:
+            return cap + 1
+    return min(inner * repeat, cap + 1) if inner else 0
+
+
 def derive_layout(record: DataItem, *, binary_width_model: BinaryWidthModel,
                   overlay_selection: Mapping[str, str] | None = None) -> RecordLayout:
     """Derive the byte layout of one 01 record (``binary_width_model`` is required)."""
@@ -245,6 +282,14 @@ def derive_layout(record: DataItem, *, binary_width_model: BinaryWidthModel,
     deriver = _Deriver(model, selection)
     fields: list[LayoutField] = []
     total = deriver._total(record, record.name)
+    if total is not None and _field_count(record, MAX_LAYOUT_FIELDS + 1) > MAX_LAYOUT_FIELDS:
+        deriver.diag("OCCURS_TOO_LARGE", record.name,
+                     f"OCCURS expansion would create more than {MAX_LAYOUT_FIELDS} fields; refused before expansion")
+        total = None
+    if total is not None and total > MAX_RECORD_BYTES:
+        deriver.diag("RECORD_TOO_LARGE", record.name,
+                     f"the record is {total} bytes, above the {MAX_RECORD_BYTES}-byte limit")
+        total = None
     if total is not None:
         deriver._place(record, record.name, 0, fields)
     for target in sorted(set(selection) - deriver.used):

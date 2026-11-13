@@ -59,11 +59,11 @@ def record_ownership(file_definitions: Iterable[FileDefinition]) -> RecordOwners
     ambiguous = {record: tuple(sorted(fds)) for record, fds in declared.items() if len(fds) > 1}
 
     families: dict[str, set[str]] = {}
-    for record, fds in declared.items():
+    for record, record_fds in declared.items():
         found = _RENAMED.fullmatch(record)
         if found and found.group(1) not in declared:
-            families.setdefault(found.group(1), set()).update(fds)
-    for base, fds in families.items():
-        if len(fds) > 1:
-            ambiguous[base] = tuple(sorted(fds))
+            families.setdefault(found.group(1), set()).update(record_fds)
+    for base, family_fds in families.items():
+        if len(family_fds) > 1:
+            ambiguous[base] = tuple(sorted(family_fds))
     return RecordOwnership(owners, ambiguous, file_records, buffer_record)

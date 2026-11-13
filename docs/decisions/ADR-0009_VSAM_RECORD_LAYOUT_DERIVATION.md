@@ -37,7 +37,14 @@ tree). Three facts about that IR decide the design:
 6. `REDEFINES`: an overlay is derived only when the caller names the active alternative for it; the others occupy the same bytes
    and are not translated. Without a selection the layout is refused (never the first alternative by declaration order).
 7. Fixed `OCCURS` (also nested) is expanded element by element (`NAME(1)`, `NAME(2)` ...) from exact element sizes.
-8. The layout must cover the record exactly, with `FILLER` as an explicit DISPLAY field; the conversion's existing coverage
+8. A `USAGE`, `SIGN` or `SYNCHRONIZED` clause on a **group** is refused (`GROUP_CLAUSE_INHERITED` / `SYNCHRONIZED`): children would inherit it
+   and the IR cannot tell a child's own `DISPLAY` from an inherited usage.
+9. Hard limits, checked by arithmetic before any field exists (a hostile or accidental `OCCURS 99999999` must not be expanded):
+   `MAX_LAYOUT_FIELDS = 100,000` fields after `OCCURS` expansion (`OCCURS_TOO_LARGE`) and `MAX_RECORD_BYTES = 1,048,576` (`RECORD_TOO_LARGE`).
+10. Field paths are unique: a repeated sibling name (typically `FILLER`) becomes `FILLER`, `FILLER#2`, ...; each refusal is reported once.
+11. Each field records its `USAGE`, because byte order is part of the meaning: COMP is big-endian, COMP-5 is native order. Binary bytes are copied, never
+    reordered (gap G-27). A `REDEFINES` selection is keyed by the redefined item's name, so two same-named targets in different groups share one selection.
+12. The layout must cover the record exactly, with `FILLER` as an explicit DISPLAY field; the conversion's existing coverage
    validation stays the second check.
 
 ## Alternatives considered
@@ -53,7 +60,8 @@ tree). Three facts about that IR decide the design:
 
 - Positive: the migration is driven by the same COBOL source as the program; every field has provenance; unsupported layouts fail by
   name; the layout has an identity that goes into the migration report.
-- Negative: byte sizes are documented-semantics evidence only until a reference run exists; the IR change touches the parser (new
+- Negative: byte sizes are checked against GnuCOBOL (default and `-std=ibm` dialects, `tests/integration/test_vsam_layout_oracle.py`) but not against IBM
+  Enterprise COBOL; the IR change touches the parser (new
   fields, no behaviour change).
 - Risk: a dialect or compiler option the model does not know (for example `TRUNC(BIN)` effects on storage, `ARITH(EXTEND)`, a site
   `SIGN` default) yields a wrong layout. Mitigation: the binary model is explicit, every refusal is named, and the `reconcile_migration`

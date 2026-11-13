@@ -18,7 +18,6 @@ claims are made exclusively by the validation pipeline (see engine/pipeline).
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,7 +28,6 @@ from engine.transformation.copybook_model import (
     generate_copybook_model_sources,
     prepare_application_copybooks,
 )
-from engine.transformation.entrypoint import normalise as _normalise
 from engine.transformation.entrypoint import resolve_entrypoint
 from engine.transformation.ir import CobolApplication
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator

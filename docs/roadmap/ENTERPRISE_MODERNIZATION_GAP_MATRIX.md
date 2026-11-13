@@ -11,14 +11,16 @@ the environment that produced the proof. Nothing is `IBM_RUNTIME_VERIFIED`. Sour
 | Area | Status | Evidence | Main gap | Plan |
 |---|---|---|---|---|
 | COBOL batch subset (arithmetic, control flow, strings, tables, copybooks, static CALL) | IMPLEMENTED_AND_VERIFIED | GnuCOBOL 3.1.2 differential, 45 of 55 corpus applications on 4 runtimes | not universal COBOL; no IBM Enterprise COBOL run | extend by construct with differential tests |
-| File ownership and entrypoint selection (G-14, G-15) | IMPLEMENTED_AND_VERIFIED | unit and regression tests; corpus unchanged | residual G-22..G-24 | close residuals |
+| File ownership and entrypoint selection (G-14, G-15, G-22, G-23, G-24) | IMPLEMENTED_AND_VERIFIED | unit and regression tests; corpus unchanged | `COPY` inside an FD (G-26) | close G-26 |
 | Sequential, indexed, relative files | IMPLEMENTED_AND_VERIFIED (bounded) | GnuCOBOL differential | not VSAM; alternate keys one shape | [Stage 1](STAGE_1_VSAM_IMPLEMENTATION_PLAN.md) |
 | VSAM KSDS (IBM behaviour) | PARTIAL | GnuCOBOL INDEXED only | ordering above ASCII, RBA, spanned, CI/CA | Stage 1 + IBM |
 | VSAM ESDS | NOT_IMPLEMENTED | none | no local reference | Stage 1; EXTERNAL_DEPENDENCY |
 | VSAM RRDS | PARTIAL | GnuCOBOL RELATIVE | slot reuse, variable RRDS | Stage 1 |
 | IDCAMS | PARTIAL (`DELETE`, `DEFINE GDG`, `REPRO`, `SET MAXCC`); `DEFINE CLUSTER`/`LISTCAT`/`BLDINDEX`/`ALTER` NOT_IMPLEMENTED | documented semantics, no oracle | no cluster catalogue | Stage 1 |
 | EBCDIC key collation | IMPLEMENTED_NOT_RUNTIME_VERIFIED | deterministic tests (`engine/vsam/collation.py`) | no EBCDIC run | Stage 1 |
-| Migration reconciliation report | IMPLEMENTED_NOT_RUNTIME_VERIFIED | deterministic tests (`engine/vsam/reconcile.py`) | no field-level translation, no restart, no volume test | Stage 1 next slice |
+| Migration reconciliation report | IMPLEMENTED_NOT_RUNTIME_VERIFIED | deterministic tests (`engine/vsam/reconcile.py`) | no volume test | Stage 1 |
+| Record layout derived from the COBOL record description | PARTIAL | GnuCOBOL differential, default and `-std=ibm` dialects (`tests/integration/test_vsam_layout_oracle.py`) | not IBM; ODO, SYNC, floating point, unselected REDEFINES refused; COMP-5 byte order (G-27); `COPY` in an FD (G-26) | Stage 1 |
+| Layout-driven migration with restart and report | IMPLEMENTED_NOT_RUNTIME_VERIFIED | deterministic tests + GnuCOBOL-written input (`engine/vsam/migrate.py`) | fixed-length only (G-28); no RBA, RRDS slots or alternate indexes; no independent reader of the converted data | Stage 1 |
 | SQL to fixed-width data migration | IMPLEMENTED_AND_VERIFIED (subset) | `engine/sql/migration.py` tests | not Db2 | Stage 2 |
 | Packed and binary numeric data | IMPLEMENTED_AND_VERIFIED | GnuCOBOL differential | EBCDIC data | Stage 1 |
 
@@ -45,7 +47,7 @@ the environment that produced the proof. Nothing is `IBM_RUNTIME_VERIFIED`. Sour
 | Persistence and jobs | PARTIAL | SQLite; in-process daemon threads | a worker or process restart loses running jobs; no leases, retry or idempotency (G-04) | design and migration plan |
 | Observability | PARTIAL | structured evidence per run | no correlation IDs across services, alerts, retention policy | design |
 | Performance and DR | NOT_IMPLEMENTED | none | no load, failover or restore test at scale | Stage 4 |
-| Certification evidence | IMPLEMENTED_AND_VERIFIED | `certification_summary.json` derived from evidence, README counts checked (G-17) | CI does not emit it per run (G-25) | engineering |
+| Certification evidence | IMPLEMENTED_AND_VERIFIED (committed summary); exact-run summary in CI PENDING FIRST RUN | `certification_summary.json` (G-17); `certification_run_summary.py` + `summarize` job (G-25) | first real run's artifact not yet seen | engineering |
 
 ## Dependencies and licences
 

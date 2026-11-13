@@ -40,6 +40,9 @@ SCHEMA = "systemaops.certification_run_summary"
 SCHEMA_VERSION = 1
 ARTIFACT_PREFIX = "certification-"
 PROVENANCE_FIELDS = ("build_identity", "build_image_id", "runtime_identity", "runtime_image_id")
+_IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")
+_REPO_IDENTITY = re.compile(r"[\w./-]+@sha256:[0-9a-f]{64}")
+_CERTIFIED_LINE = re.compile(r"; CERTIFIED$")
 _SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -54,9 +57,12 @@ def identity_from_env(env: Mapping[str, str]) -> dict:
         raise IdentityError("GITHUB_SHA is missing or is not a full 40-character lowercase hex SHA")
     if not run_id.isdigit():
         raise IdentityError("GITHUB_RUN_ID is missing or is not numeric")
+    attempt = env.get("GITHUB_RUN_ATTEMPT", "")
+    if not attempt.isdigit():
+        raise IdentityError("GITHUB_RUN_ATTEMPT is missing or is not numeric")
     return {
         "commit_sha": sha, "run_id": run_id,
-        "run_number": env.get("GITHUB_RUN_NUMBER", ""), "run_attempt": env.get("GITHUB_RUN_ATTEMPT", ""),
+        "run_number": env.get("GITHUB_RUN_NUMBER", ""), "run_attempt": attempt,
         "workflow": env.get("GITHUB_WORKFLOW", ""), "repository": env.get("GITHUB_REPOSITORY", ""),
     }
 
@@ -73,7 +79,7 @@ def write_runtime_identity(out_dir: Path, runtime: str, env: Mapping[str, str], 
     identity = identity_from_env(env)
     data = {
         "runtime": runtime, "commit_sha": identity["commit_sha"], "run_id": identity["run_id"],
-        "run_number": identity["run_number"],
+        "run_number": identity["run_number"], "run_attempt": identity["run_attempt"],
         "fixture_manifest": fixture_manifest(repo, _expected_applications(repo)),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -123,22 +129,31 @@ def _runtime_result(artifacts: Path, runtime: str, identity: dict, expected_apps
         if stored.get("run_id") != identity["run_id"]:
             problems.append(f"{runtime}: artifact belongs to run id {stored.get('run_id')!r}, "
                             f"this is run {identity['run_id']}")
+        if stored.get("run_attempt") != identity["run_attempt"]:
+            problems.append(f"{runtime}: artifact is from attempt {stored.get('run_attempt')!r} of the run, "
+                            f"this is attempt {identity['run_attempt']}")
         if stored.get("fixture_manifest") != expected_manifest:
             problems.append(f"{runtime}: fixture manifest differs from the checkout being certified")
 
     verdict_line = (root / "summary.txt").read_text(encoding="utf-8").strip().splitlines()
     last = verdict_line[-1] if verdict_line else ""
-    if not last.endswith("CERTIFIED") or last.endswith("NOT CERTIFIED"):
+    if not _CERTIFIED_LINE.search(last):
         problems.append(f"{runtime}: the runtime job did not certify ({last or 'empty summary.txt'})")
 
     evidence = root / "evidence"
     names = tuple(f"{ARTIFACT_PREFIX}{runtime}/evidence/{n}" for n in (
         f"certification_corpus_{runtime}.jsonl", f"certification_corpus_{runtime}_independent.jsonl",
         f"validation_summaries_{runtime}.jsonl"))
-    block, apps = runtime_block_from_files(
-        evidence / f"certification_corpus_{runtime}.jsonl",
-        evidence / f"certification_corpus_{runtime}_independent.jsonl",
-        evidence / f"validation_summaries_{runtime}.jsonl", names)
+    try:
+        block, apps = runtime_block_from_files(
+            evidence / f"certification_corpus_{runtime}.jsonl",
+            evidence / f"certification_corpus_{runtime}_independent.jsonl",
+            evidence / f"validation_summaries_{runtime}.jsonl", names)
+        run_verdicts = {r["app"]: r.get("verdict")
+                        for r in _load(evidence / f"certification_corpus_{runtime}.jsonl")}
+    except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
+        problems.append(f"{runtime}: evidence is unreadable ({type(exc).__name__}: {str(exc)[:80]})")
+        return None, problems
 
     counts = collections.Counter(apps)
     duplicates = sorted(a for a, n in counts.items() if n > 1)
@@ -149,8 +164,6 @@ def _runtime_result(artifacts: Path, runtime: str, identity: dict, expected_apps
         extra = sorted(set(counts) - set(expected_apps))
         problems.append(f"{runtime}: application set differs from the accepted evidence "
                         f"(missing {absent[:5]}, unexpected {extra[:5]})")
-    run_verdicts = {r["app"]: r.get("verdict")
-                    for r in _load(evidence / f"certification_corpus_{runtime}.jsonl")}
     differing = sorted(a for a in set(run_verdicts) & set(accepted) if run_verdicts[a] != accepted[a])
     if differing:
         problems.append(f"{runtime}: verdicts differ from the accepted evidence for {', '.join(differing[:5])}")
@@ -160,12 +173,16 @@ def _runtime_result(artifacts: Path, runtime: str, identity: dict, expected_apps
         problems.append(f"{runtime}: unexpected verdict values {block['totals']['other']}")
 
     provenance = _read_json(root / "provenance" / "docker-image-provenance.json") or {}
-    missing_fields = [f for f in PROVENANCE_FIELDS if not provenance.get(f)]
+    patterns = {"build_identity": _REPO_IDENTITY, "runtime_identity": _REPO_IDENTITY,
+                "build_image_id": _IMAGE_ID, "runtime_image_id": _IMAGE_ID}
+    missing_fields = [f for f in PROVENANCE_FIELDS
+                      if not patterns[f].fullmatch(str(provenance.get(f) or ""))]
     if missing_fields:
-        problems.append(f"{runtime}: image provenance lacks {', '.join(missing_fields)}")
+        problems.append(f"{runtime}: image provenance lacks a valid digest for {', '.join(missing_fields)}")
     oracle = _read_json(root / "oracle_image.json") or {}
-    if not str(oracle.get("id", "")).startswith("sha256:"):
-        problems.append(f"{runtime}: oracle image identity is missing")
+    oracle_ok = bool(_IMAGE_ID.fullmatch(str(oracle.get("id", ""))))
+    if not oracle_ok:
+        problems.append(f"{runtime}: oracle image identity is missing or is not a sha256 digest")
     jdks = block["jdk_versions"]
     if not jdks:
         problems.append(f"{runtime}: JDK version is not recorded in the validation summaries")
@@ -179,7 +196,7 @@ def _runtime_result(artifacts: Path, runtime: str, identity: dict, expected_apps
         "runtime_image_id": provenance.get("runtime_image_id"),
         "oracle_image": oracle.get("image"), "oracle_image_id": oracle.get("id"),
         "jdk": jdks[0] if len(jdks) == 1 else None,
-        "complete": not missing_fields and str(oracle.get("id", "")).startswith("sha256:") and len(jdks) == 1,
+        "complete": not missing_fields and oracle_ok and len(jdks) == 1,
     }
     return block, problems
 
@@ -194,7 +211,10 @@ def build_run_summary(artifacts: Path, env: Mapping[str, str], repo: Path = REPO
     for runtime in RUNTIMES:
         accepted = {r["app"]: r.get("verdict")
                     for r in _load(repo / CORPUS_DIR / f"runtime_corpus_{runtime}.jsonl")}
-        block, found = _runtime_result(artifacts, runtime, identity, expected_apps, expected_manifest, accepted)
+        if sorted(accepted) != sorted(expected_apps):
+            problems.append(f"{runtime}: the accepted evidence covers a different application set than "
+                            f"{RUNTIMES[0]}'s; the runtimes cannot be certified against one fixture manifest")
+        block, found = _runtime_result(artifacts, runtime, identity, list(accepted), expected_manifest, accepted)
         runtimes[runtime] = block
         problems += found
     provenance_complete = all(b is not None and b["toolchain"]["complete"] for b in runtimes.values())
@@ -208,6 +228,7 @@ def build_run_summary(artifacts: Path, env: Mapping[str, str], repo: Path = REPO
         "problems": problems,
         "certified": not problems,
         "not_proven": [
+            "the evidence is self-attested by this workflow's own jobs and is not independently signed or tamper-proof",
             "no IBM runtime evidence; equivalence is against GnuCOBOL 3.1.2 for the recorded inputs",
             "quarkus and micronaut are certified in command mode only; jakarta_ee is not certified",
         ],

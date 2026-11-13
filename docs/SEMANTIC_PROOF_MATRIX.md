@@ -164,3 +164,11 @@ record-to-file binding uses only the FILE SECTION (no `-REC` to `-FILE` guess; a
 error), and application entrypoint selection requires an exact match or a single proven call-graph root (no first-program
 fallback). Evidence class: unit and regression tests plus the unchanged corpus verdicts; neither is a new GnuCOBOL
 differential row. The Stage 1 VSAM model (`engine/vsam/`) is `DETERMINISTIC_TEST` evidence only and adds no row here.
+
+## Update 2026-11-13 (second sprint)
+
+No row above changes. New evidence that is **not** a COBOL-semantics row: the record-area byte layout of DISPLAY, COMP, COMP-5, COMP-3 and
+`SIGN SEPARATE` fields, fixed `OCCURS` and a `REDEFINES` overlay was compared with records written by GnuCOBOL 3.1.2 in two dialects
+(`GNUCOBOL_DIFFERENTIAL`, `tests/integration/test_vsam_layout_oracle.py`). It supports the dataset-migration tooling in `engine/vsam/`, not the
+program lowering, and says nothing about IBM Enterprise COBOL. The planner entrypoint rule and the shared FD-ownership rule are covered by unit and
+regression tests plus the unchanged corpus verdicts; neither is a new GnuCOBOL row.

@@ -75,3 +75,24 @@ def test_group_children_carry_their_own_clauses():
     ])
     a, b = items[0].children
     assert a.sign_separate is True and b.sign_separate is False
+
+
+@pytest.mark.parametrize("entry", [
+    "B REDEFINES SYNC-AREA PIC X(3).",
+    "B REDEFINES SYNCHRONIZED-AREA PIC X(3).",
+    "B PIC X(3) REDEFINES JUST-RIGHT-AREA.",
+    "C PIC S9 SIGN LEADING REDEFINES SEPARATE-X.",
+    "D PIC X OCCURS 3 TIMES INDEXED BY SYNC-IX.",
+    "E PIC X OCCURS 1 TO 5 TIMES DEPENDING ON SEPARATE-COUNT.",
+])
+def test_hyphenated_data_names_inside_other_clauses_are_not_clause_words(entry):
+    it = item(entry)
+    assert it.synchronized is False and it.justified is False
+    assert it.sign_separate is False
+    expected_position = "LEADING" if entry.startswith("C ") else ""
+    assert it.sign_position == expected_position
+
+
+def test_separate_counts_only_inside_a_sign_clause():
+    assert item("A PIC S9(3) SIGN IS LEADING SEPARATE.").sign_separate is True
+    assert item("A PIC S9(3) SEPARATE.").sign_separate is False      # not a sign clause, so not recorded

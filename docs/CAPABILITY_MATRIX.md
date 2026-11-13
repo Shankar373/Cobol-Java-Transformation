@@ -271,3 +271,19 @@ provenance audit.
   `docs/roadmap/STAGE_1_VSAM_IMPLEMENTATION_PLAN.md` and `docs/roadmap/ENTERPRISE_MODERNIZATION_GAP_MATRIX.md`.
 - Known parser caveat: the inner `READ` / `WRITE DATASET(...)` of an `EXEC CICS` block is read as a COBOL file verb (gap G-22);
   such programs are refused by the capability gate, so no verdict is affected.
+
+## Update 2026-11-13 (second sprint)
+
+- **`EXEC CICS` blocks are one refused region (G-22).** The inner `READ`/`WRITE DATASET(...)` are never parsed as COBOL file verbs; CICS stays
+  UNSUPPORTED. Tests: `tests/transformation/test_exec_cics_parsing.py`.
+- **File ownership is one shared rule (G-23).** Parser and discovery use `engine/transformation/file_ownership.py`; a record declared under several
+  FDs is reported ambiguous by name. A `COPY` inside an FD leaves the FD with no record (G-26) and is refused.
+- **The entrypoint is resolved by one rule in the planner and the generator (G-24).** An application with no single proven root cannot be
+  modernised without an explicit `java_entrypoint`; the plan says UNRESOLVED and the pipeline refuses it. Certified corpus: unchanged.
+- **Record layouts for dataset migration (Stage 1, not a product capability).** `engine/vsam/layout.py` derives offsets and lengths of DISPLAY, COMP,
+  COMP-5, COMP-3, `SIGN SEPARATE`, fixed `OCCURS` and an explicitly selected `REDEFINES` alternative from the COBOL record description. Evidence:
+  `GNUCOBOL_DIFFERENTIAL` - a COBOL program wrote records in GnuCOBOL's default and `-std=ibm` dialects and every field was decoded at the derived
+  position (`tests/integration/test_vsam_layout_oracle.py`, 6 tests). Not IBM: no Enterprise COBOL output has been read. COMP-5 byte order is
+  platform dependent (G-27). Refused by name: `OCCURS DEPENDING ON`, `SYNCHRONIZED`, `COMP-1`/`COMP-2`, an unselected `REDEFINES`.
+- **Correction:** the byte *encoding* of COMP/COMP-3 record-area fields was previously described as verified by the value fixtures. Those fixtures
+  compare values only; the byte layout is now checked by the differential above, and the capability row `records.packed_binary_fields` is PARTIAL.

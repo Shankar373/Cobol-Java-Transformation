@@ -104,6 +104,10 @@ class DockerSpringBootCandidateAdapter(CandidateAdapter):
     Execution phase: java -jar inside disposable Docker container.
     """
 
+    # Class-level default: subclasses and tests that construct the adapter without __init__ must not fail
+    # when a message asks for the reason (G-21).
+    _unavailable_reason: str = ""
+
     @property
     def network_policy(self) -> str:
         """Both the Maven build and the runtime container run with `--network none`.

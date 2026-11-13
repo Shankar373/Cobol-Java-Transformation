@@ -164,3 +164,30 @@ def test_the_pipeline_refuses_an_unresolved_plan_before_generating(tmp_path):
     assert report.generated_project_dir == ""
     assert any("ambiguous" in e for e in report.generation_errors)
     assert any("ambiguous" in limitation for limitation in report.limitations)
+
+
+def test_the_pipeline_refuses_when_the_generated_entry_disagrees_with_the_plan(tmp_path, monkeypatch):
+    from engine.transformation.application_generator import ApplicationGenerationResult
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "ONLY.cob").write_text(source("ONLY"), encoding="utf-8")
+    pipeline = UniversalModernizationPipeline(ModernizationConfig(
+        source_dir=str(src), output_dir=str(tmp_path / "out"), application_id="disagree",
+        entrypoint="", docker_available=True, target_runtime="plain_java"))
+    monkeypatch.setattr(pipeline._generator, "generate",
+                        lambda *a, **k: ApplicationGenerationResult(success=True, entrypoint="Other"))
+    report = pipeline.execute()
+    assert report.generated_project_dir == ""
+    assert any("disagree" in e for e in report.generation_errors)
+
+
+def test_a_plan_over_a_skipped_program_keeps_the_established_root_but_is_not_generated(tmp_path):
+    (tmp_path / "root.cob").write_text(source("ROOT", ("LEAF",)).replace(
+        "           GOBACK.\n", "           EXEC CICS RETURN END-EXEC.\n           GOBACK.\n"), encoding="utf-8")
+    (tmp_path / "leaf.cob").write_text(source("LEAF"), encoding="utf-8")
+    report = UniversalModernizationPipeline(ModernizationConfig(
+        source_dir=str(tmp_path), output_dir=str(tmp_path / "out"), application_id="skipped-root",
+        entrypoint="", docker_available=True, target_runtime="plain_java")).execute()
+    assert report.generated_project_dir == ""
+    assert any("non-transformable programs" in e for e in report.generation_errors)

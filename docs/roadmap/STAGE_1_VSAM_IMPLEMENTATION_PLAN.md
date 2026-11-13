@@ -99,22 +99,34 @@ record description, REDEFINES and OCCURS, variable-length input, hashing at volu
 
 ## 6. Progress and next smallest slice
 
-Done: semantic model and capability classes, EBCDIC key collation, migration reconciliation report, **field-aware conversion with
-restart** (`engine/vsam/convert.py`), G-14 (file ownership no longer guessed), G-15 and G-17. All new Stage 1 code is
-`IMPLEMENTED_NOT_RUNTIME_VERIFIED`, `DETERMINISTIC_TEST`.
+Done (all offline and deterministic; none is IBM-verified):
 
-The converter translates DISPLAY fields between ASCII and EBCDIC cp037 from a caller-supplied field layout that must cover the whole
-record, copies packed (COMP-3) and binary fields byte for byte, and rejects a record - with a reason, never silently - when a DISPLAY byte
-has no counterpart or a packed field has a non-decimal digit or invalid sign. `sort_for_ksds` loads a KSDS in the destination's own
-key order. `convert_dataset` can stop and resume: it re-converts the records already written and refuses to continue if the partial
-output differs. With the converter as `translate` and its checks as `validate_record`, `reconcile_migration` compares record content
-across encodings and confirms rejections independently, so a clean migration reads `RECONCILED` instead of `RECONCILED_PARTIAL`
-(`tests/test_vsam_convert.py`, 29 tests).
+| Piece | Module | Evidence |
+|---|---|---|
+| dataset model, per-capability classes | `engine/vsam/model.py` | `DETERMINISTIC_TEST` |
+| EBCDIC key collation | `engine/vsam/collation.py` | `DETERMINISTIC_TEST` |
+| independent reconciliation (counts, keys, order, content, hashes, justified rejections) | `engine/vsam/reconcile.py` | `DETERMINISTIC_TEST` |
+| field-aware conversion with restart | `engine/vsam/convert.py` | `DETERMINISTIC_TEST` |
+| **record layout derived from the COBOL record description** | `engine/vsam/layout.py`, [ADR-0009](../decisions/ADR-0009_VSAM_RECORD_LAYOUT_DERIVATION.md) | **`GNUCOBOL_DIFFERENTIAL`** (default and `-std=ibm` dialects) |
+| **layout-driven migration pipeline and report** | `engine/vsam/migrate.py` | `DETERMINISTIC_TEST` + GnuCOBOL-written input |
 
-Next smallest slice (needs a decision before coding): derive the field layout from `FileDefinition.record_groups` (PIC and USAGE) instead of
-a caller-supplied list, including `REDEFINES` and `OCCURS` (today those must be declared by hand); then run GnuCOBOL on a converted
-file and compare, which is the first differential evidence for converted data. EBCDIC data validated against a real mainframe stays
-`EXTERNAL_DEPENDENCY`.
+The differential (`tests/integration/test_vsam_layout_oracle.py`) writes two records with a COBOL program covering DISPLAY, scaled decimals, COMP at
+2/4/9/18 digits, COMP-5, COMP-3, `SIGN LEADING/TRAILING SEPARATE`, a fixed `OCCURS`, and a `REDEFINES` overlay, compiled with `-std=default`
+(binary-size 1-2-4-8) and `-std=ibm` (2-4-8); the layout is derived from the same source text and every field is decoded at its derived offset. It also
+found that COMP-5 is native byte order (G-27).
+
+Layout rules: DISPLAY = digits or characters; `SIGN SEPARATE` +1 byte; COMP-3 = digits // 2 + 1; COMP/COMP-5 by an explicit width model with no default;
+fixed `OCCURS` expanded per element; a `REDEFINES` only with the active alternative named. Refused by name: `OCCURS DEPENDING ON`, `SYNCHRONIZED`,
+`COMP-1`/`COMP-2`, an unselected `REDEFINES`, several FD records without a choice, a `COPY` inside an FD (G-26). The parser now records the `SIGN`,
+`SYNCHRONIZED` and `JUSTIFIED` clauses it used to drop.
+
+Migration states: `RECONCILED` is the only success; `RECONCILED_PARTIAL`, `FAILED`, `REFUSED` and `INTERRUPTED` are not. Scope: ASCII to EBCDIC cp037,
+fixed-length records, KSDS / ESDS (arrival order) / sequential; variable-length datasets, RRDS, RBA addressing and alternate indexes are refused or
+listed under `unsupported_semantics` (G-28).
+
+Next smallest slice: variable-length (RDW) conversion that preserves each record's descriptor word, with its own GnuCOBOL differential (a variable
+`RECORDING MODE`/`RECORD VARYING` file); then a `COPY`-in-FD fix (G-26) so FD copybook records are ownable and derivable. EBCDIC data validated against
+a real mainframe, COMP-5 byte order on a big-endian target, and `SYNCHRONIZED` data remain `EXTERNAL_DEPENDENCY`.
 
 ## 7. Awaiting IBM validation (`REQUIRES_OWNER_OR_CUSTOMER_INPUT`)
 

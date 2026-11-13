@@ -38,6 +38,7 @@ from engine.modernization.transformation_plan import (
     TransformationPlan,
     TransformationPlanGenerator,
 )
+from engine.transformation.entrypoint import normalise
 from engine.transformation.application_discovery import ApplicationDiscovery
 from engine.transformation.application_generator import ApplicationGenerator
 from engine.transformation.ir import CobolApplication
@@ -416,6 +417,13 @@ class UniversalModernizationPipeline:
             if not gen_result.success:
                 report.generation_errors = gen_result.errors
                 report.limitations = ("Transformation failed",) + gen_result.errors
+                return report
+            if normalise(gen_result.entrypoint) != normalise(plan.oracle.entry_program):
+                # The oracle would run one program and the Java another: never proceed.
+                message = (f"Entrypoint disagreement: the plan established {plan.oracle.entry_program!r} "
+                           f"but generation selected {gen_result.entrypoint!r}")
+                report.generation_errors = (message,)
+                report.limitations = ("Transformation blocked: planner and generator disagree", message)
                 return report
             if gen_result.java_application is None:
                 report.generation_errors = ("Transformation produced no Java application",)

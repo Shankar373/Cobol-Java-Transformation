@@ -58,7 +58,7 @@ def make_artifacts(root: Path, manifest: dict, env: dict = ENV) -> Path:
         (d / "oracle_image.json").write_text(json.dumps(ORACLE), encoding="utf-8")
         (d / "run_identity.json").write_text(json.dumps({
             "runtime": runtime, "commit_sha": env["GITHUB_SHA"], "run_id": env["GITHUB_RUN_ID"],
-            "fixture_manifest": manifest}), encoding="utf-8")
+            "run_attempt": env["GITHUB_RUN_ATTEMPT"], "fixture_manifest": manifest}), encoding="utf-8")
     return root
 
 
@@ -107,6 +107,7 @@ def test_the_summary_is_deterministic_and_verifiable(tmp_path, manifest):
 @pytest.mark.parametrize("env", [
     {}, {"GITHUB_SHA": SHA}, {"GITHUB_RUN_ID": RUN_ID},
     {**ENV, "GITHUB_SHA": "abc"}, {**ENV, "GITHUB_SHA": "A" * 40}, {**ENV, "GITHUB_RUN_ID": "run-1"},
+    {k: v for k, v in ENV.items() if k != "GITHUB_RUN_ATTEMPT"}, {**ENV, "GITHUB_RUN_ATTEMPT": "first"},
 ])
 def test_missing_or_malformed_workflow_identity_is_refused(tmp_path, manifest, env):
     root = make_artifacts(tmp_path / "artifacts", manifest)
@@ -399,3 +400,70 @@ def test_the_summary_is_uploaded_even_when_aggregation_fails():
     assert upload["if"] == "always()" and upload["with"]["name"] == "exact-run-certification-summary"
     download = next(s for s in steps if "download-artifact" in s.get("uses", ""))
     assert download["with"]["pattern"] == "certification-*"
+
+
+# --- independent review and security review ----------------------------------------------------------------------------------------
+
+def test_an_artifact_from_another_attempt_of_the_same_run_is_a_problem(tmp_path, manifest):
+    def mutate(root):
+        p = root / "certification-quarkus" / "run_identity.json"
+        data = json.loads(p.read_text())
+        data["run_attempt"] = "2"
+        p.write_text(json.dumps(data))
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert not summary["certified"] and any("quarkus" in p and "attempt" in p for p in summary["problems"])
+    assert summary["identity"]["run_attempt"] == "1"
+
+
+@pytest.mark.parametrize("line", [
+    "plain_java: 55 apps; independent AGREE 45/45; UNCERTIFIED",
+    "plain_java: 55 apps; independent AGREE 45/45; NOT FULLY CERTIFIED",
+    "plain_java: 55 apps; independent AGREE 45/45; NOT CERTIFIED",
+    "CERTIFIED but not really",
+    "",
+])
+def test_only_the_exact_certified_line_shape_counts(tmp_path, manifest, line):
+    def mutate(root):
+        (root / "certification-plain_java" / "summary.txt").write_text(line + "\n", encoding="utf-8")
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert not summary["certified"] and any("did not certify" in p for p in summary["problems"])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("build_identity", "maven-offline-springboot@latest"), ("runtime_identity", "eclipse-temurin@sha256:short"),
+    ("build_image_id", "not-a-digest"), ("runtime_image_id", "sha256:" + "G" * 64),
+])
+def test_image_provenance_must_be_real_digests_not_just_non_empty(tmp_path, manifest, field, value):
+    def mutate(root):
+        p = root / "certification-spring_boot" / "provenance" / "docker-image-provenance.json"
+        data = json.loads(p.read_text())
+        data[field] = value
+        p.write_text(json.dumps(data))
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert not summary["certified"] and any("spring_boot" in p and field in p for p in summary["problems"])
+
+
+def test_an_oracle_image_id_must_be_a_digest(tmp_path, manifest):
+    def mutate(root):
+        (root / "certification-quarkus" / "oracle_image.json").write_text(json.dumps({"image": "x", "id": "sha256:zz"}))
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert not summary["certified"] and any("quarkus" in p and "oracle image" in p for p in summary["problems"])
+
+
+@pytest.mark.parametrize("name,content", [
+    ("evidence/certification_corpus_plain_java.jsonl", "{not json\n"),
+    ("evidence/certification_corpus_plain_java.jsonl", '{"verdict": "VERIFIED"}\n'),
+    ("evidence/certification_corpus_plain_java_independent.jsonl", "[1, 2]\n"),
+    ("evidence/validation_summaries_plain_java.jsonl", "oops\n"),
+])
+def test_malformed_evidence_is_a_problem_in_a_written_summary_not_a_crash(tmp_path, manifest, name, content):
+    def mutate(root):
+        (root / "certification-plain_java" / name).write_text(content, encoding="utf-8")
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert summary["certified"] is False
+    assert any("plain_java" in p and "unreadable" in p for p in summary["problems"])
+
+
+def test_the_summary_states_that_its_evidence_is_self_attested(tmp_path, manifest):
+    summary, _ = build(tmp_path, manifest)
+    assert any("self-attested" in line for line in summary["not_proven"])

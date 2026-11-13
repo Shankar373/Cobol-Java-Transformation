@@ -2053,7 +2053,7 @@ class CobolParser:
                 r"\bBLANK\s+(?:WHEN\s+)?ZEROE?S?\b", clauses, re.IGNORECASE
             ))
             for clause, pattern in (
-                ("JUSTIFIED", r"\bJUST(?:IFIED)?\b"),
+                ("JUSTIFIED", r"(?<![\w-])JUST(?:IFIED)?(?![\w-])"),
                 ("BLANK WHEN ZERO", r"\bBLANK\s+(?:WHEN\s+)?ZEROE?S?\b"),
             ):
                 if clause == "BLANK WHEN ZERO" and edited is not None and not edited.has_star:
@@ -2106,18 +2106,20 @@ class CobolParser:
                             "certified lowering",
                             location=name,
                         )
+            # Clause words are bounded by (?<![\w-]) / (?![\w-]) so a data name such as SYNC-AREA or
+            # SEPARATE-X inside REDEFINES / INDEXED BY / DEPENDING ON is never read as a clause.
             sign_found = (
-                re.search(r"\bSIGN\s+(?:IS\s+)?(LEADING|TRAILING)\b", clauses, re.IGNORECASE)
-                or re.search(r"\b(LEADING|TRAILING)\s+SEPARATE\b", clauses, re.IGNORECASE)
+                re.search(r"(?<![\w-])SIGN\s+(?:IS\s+)?(LEADING|TRAILING)(?![\w-])", clauses, re.IGNORECASE)
+                or re.search(r"(?<![\w-])(LEADING|TRAILING)\s+SEPARATE(?![\w-])", clauses, re.IGNORECASE)
             )
             sign_position = sign_found.group(1).upper() if sign_found else ""
             parsed.append((level, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
                 sign_position=sign_position,
-                sign_separate=bool(sign_position and re.search(r"\bSEPARATE\b", clauses, re.IGNORECASE)),
-                synchronized=bool(re.search(r"\bSYNC(?:HRONIZED)?\b", clauses, re.IGNORECASE)),
-                justified=bool(re.search(r"\bJUST(?:IFIED)?\b", clauses, re.IGNORECASE)),
+                sign_separate=bool(sign_position and re.search(r"(?<![\w-])SEPARATE(?![\w-])", clauses, re.IGNORECASE)),
+                synchronized=bool(re.search(r"(?<![\w-])SYNC(?:HRONIZED)?(?![\w-])", clauses, re.IGNORECASE)),
+                justified=bool(re.search(r"(?<![\w-])JUST(?:IFIED)?(?![\w-])", clauses, re.IGNORECASE)),
                 edit_pic=edited.expanded if edited is not None else None,
                 blank_when_zero=bool(edited is not None and blank_when_zero),
                 signed=self._pic_is_signed(pic.group(1)) if pic and edited is None else False,
@@ -2411,6 +2413,12 @@ class CobolParser:
         # DELETE are CICS commands, never COBOL file verbs (G-22).
         if re.match(r"EXEC\s+CICS\b", upper):
             return self._parse_exec_cics(lines, start)
+        if re.search(r"(?<![\w-])EXEC\s+CICS(?![\w-])", _mask_literal_contents(upper)):
+            # inside a compound statement (for example an inline IF): name it, never miss it
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "EXEC CICS inside a compound statement is not lowered: EXEC CICS is outside the "
+                "certified deterministic Java lane", location=f"line {start + 1}")
 
         # OPEN
         if upper.startswith("OPEN "):
@@ -4666,12 +4674,14 @@ class CobolParser:
         parts: list[str] = []
         i = start
         terminated = False
+        trailing = ""
         while True:
             if body.startswith("*"):  # a comment line inside the block
                 body = ""
             end = re.search(r"\bEND-EXEC\b", _mask_literal_contents(body), re.IGNORECASE)
             if end:
                 parts.append(body[: end.start()])
+                trailing = body[end.end():].strip().strip(".").strip()
                 terminated = True
                 i += 1
                 break
@@ -4692,6 +4702,11 @@ class CobolParser:
             self._diagnostics.error(
                 DiagnosticCode.PARSE_ERROR,
                 f"EXEC CICS {command} region has no END-EXEC", location=where)
+        elif trailing:
+            self._diagnostics.error(
+                DiagnosticCode.PARSE_ERROR,
+                f"EXEC CICS {command} END-EXEC is followed by statement text on the same line "
+                f"({trailing[:40]}); it is not parsed", location=where)
         else:
             self._diagnostics.warning(
                 DiagnosticCode.UNSUPPORTED_CONSTRUCT,
