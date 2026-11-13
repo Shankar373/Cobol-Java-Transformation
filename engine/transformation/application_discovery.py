@@ -53,6 +53,7 @@ from engine.transformation.ir import (
     normalize_cobol_name,
 )
 from engine.transformation.diagnostics import DiagnosticCode
+from engine.transformation.fd_copybooks import expand_fd_copybooks
 from engine.transformation.file_ownership import record_ownership
 from engine.transformation.source_format import compiler_visible_text
 
@@ -288,8 +289,13 @@ class ApplicationDiscovery:
             )
 
         try:
-            program = self._parser.parse(source)
-            parse_diagnostics = _collected_diagnostics()
+            # COPY statements inside the FILE SECTION are expanded before parsing (G-26): the FD's
+            # record belongs to the file, so it must be in the FD when the parser reads it.
+            expansion = expand_fd_copybooks(
+                source, copybook_dirs or (source_root, cobol_file.parent))
+            program = self._parser.parse(expansion.source)
+            parse_diagnostics = _collected_diagnostics() + tuple(
+                f"{d.code}: {d.message}" for d in expansion.errors)
 
             # Extract dependencies from source
             calls = self._extract_calls(source, program.program_id)
@@ -321,7 +327,10 @@ class ApplicationDiscovery:
                 using_parameters=program.using_parameters,
                 sql_includes=program.sql_includes,
                 called_programs=tuple(c.target for c in calls),
-                copybooks=tuple(cb.copybook_name for cb in copybooks),
+                copybooks=tuple(
+                    cb.copybook_name for cb in copybooks
+                    if cb.copybook_name.upper() not in expansion.consumed
+                ),
                 entry_points=tuple(entry_points),
             )
 
