@@ -79,6 +79,24 @@ def assess_file_definition(fd: FileDefinition) -> dict:
     }
 
 
+def _failed(fd: FileDefinition, exc: Exception) -> dict:
+    return {
+        "file": fd.name, "organization": fd.organization.value, "access_mode": fd.access_mode.value,
+        "record_key": "", "alternate_keys": [], "record_layouts": [],
+        "migration": {"status": "ERROR", "reasons": [f"assessment failed: {type(exc).__name__}: {exc}"], "notes": []},
+        "evidence": dict(EVIDENCE),
+    }
+
+
 def assess_program(program: CobolProgram) -> list[dict]:
-    """The assessment of every FD of ``program``, in declaration order."""
-    return [assess_file_definition(fd) for fd in program.file_definitions]
+    """The assessment of every FD of ``program``, in declaration order.
+
+    One FD that cannot be assessed is reported as an ``ERROR`` verdict; it never stops discovery of the rest.
+    """
+    results: list[dict] = []
+    for fd in program.file_definitions:
+        try:
+            results.append(assess_file_definition(fd))
+        except Exception as exc:  # noqa: BLE001 - an assessment bug must not break ingestion
+            results.append(_failed(fd, exc))
+    return results

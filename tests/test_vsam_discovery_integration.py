@@ -102,3 +102,19 @@ def test_the_api_discovery_endpoint_returns_the_assessment(tmp_path, monkeypatch
     assert body.status_code == 200, body.text
     program = body.json()["cobol_programs"][0]
     assert {f["file"] for f in program["vsam_assessment"]} == {"CUST-FILE", "LEDGER"}
+
+
+def test_an_assessment_failure_in_one_fd_does_not_stop_discovery(tmp_path, monkeypatch):
+    import engine.vsam.assess as assess
+
+    def boom(fd):
+        raise RuntimeError("layout bug")
+
+    monkeypatch.setattr(assess, "assess_file_definition", boom)
+    (tmp_path / "CUSTPGM.cob").write_text(CUSTOMER, encoding="utf-8")
+    (tmp_path / "CUSTREC.cpy").write_text(CUSTREC, encoding="utf-8")
+    result = discover_application(tmp_path, "vsam-demo").to_dict()
+    (program,) = result["cobol_programs"]                              # the program is still discovered
+    assert result["discovery_errors"] == []
+    assert {f["migration"]["status"] for f in program["vsam_assessment"]} == {"ERROR"}
+    assert all("layout bug" in " ".join(f["migration"]["reasons"]) for f in program["vsam_assessment"])

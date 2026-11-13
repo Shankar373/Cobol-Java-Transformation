@@ -36,6 +36,9 @@ from engine.vsam.model import (
 from engine.vsam.platform import PLATFORMS, BinaryRepresentation
 
 MAX_DATASET_BYTES = 50 * 1024 * 1024
+#: Bump when conversion, layout or platform behaviour changes: it is part of every migration id, so a changed engine
+#: never answers a request with a result stored by an older one.
+ENGINE_VERSION = "vsam-2026-11-signed-zoned"
 _ALLOWED_OPTIONS = frozenset({"file", "record", "organization", "record_format", "source_encoding",
                               "destination_encoding", "source_platform", "target_platform"})
 _ID = re.compile(r"vm-[0-9a-f]{16}")
@@ -125,10 +128,13 @@ def _key(layout: RecordLayout, field_name: str, unique: bool, label: str) -> Key
 
 def _plan(workspace: Path, options: dict) -> _Plan:
     fd = _find_fd(workspace, options["file"])
-    organization = options.get("organization") or (
-        "KSDS" if fd.organization is FileOrganization.INDEXED else
-        "SEQUENTIAL" if fd.organization is FileOrganization.SEQUENTIAL else "RRDS")
+    compatible = {FileOrganization.INDEXED: ("KSDS",), FileOrganization.SEQUENTIAL: ("SEQUENTIAL", "ESDS"),
+                  FileOrganization.RELATIVE: ("RRDS",)}[fd.organization]
+    organization = options.get("organization") or compatible[0]
     org = _enum(Organization, organization, "organization")
+    if organization not in compatible:
+        raise VsamRequestError(f"organization {organization!r} does not fit the {fd.organization.value} file "
+                               f"{fd.name} (allowed: {', '.join(compatible)})")
     record_format = _enum(RecordFormat, options.get("record_format") or "FIXED", "record_format")
     source_encoding = _enum(Encoding, options.get("source_encoding") or "", "source_encoding")
     destination = _enum(Encoding, options.get("destination_encoding") or "", "destination_encoding")
@@ -164,9 +170,18 @@ def _plan(workspace: Path, options: dict) -> _Plan:
                  source_platform, target_platform, destination)
 
 
-def migration_id(app_id: str, data: bytes, options: dict) -> str:
-    canonical = json.dumps(options, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(f"{app_id}\n{canonical}\n".encode() + hashlib.sha256(data).digest()).hexdigest()
+def migration_id(app_id: str, data: bytes, options: dict, plan: _Plan) -> str:
+    """Deterministic id: the same application, dataset, options, layouts, platforms and engine give the same id,
+    and anything that could change the result gives a different one."""
+    identity = json.dumps({
+        "app": app_id, "options": options, "engine": ENGINE_VERSION,
+        "source_layouts": [layout.identity for layout in plan.source_layouts],
+        "target_layouts": [layout.identity for layout in plan.target_layouts],
+        "definition": repr(plan.definition),
+        "platforms": [plan.source_platform.to_dict() if plan.source_platform else None,
+                      plan.target_platform.to_dict() if plan.target_platform else None],
+    }, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(identity.encode() + b"|" + hashlib.sha256(data).digest()).hexdigest()
     return f"vm-{digest[:16]}"
 
 
@@ -192,8 +207,12 @@ def execute(workspace: Path, app_id: str, data: bytes, options: dict) -> tuple[d
     rejected = body.get("rejected") or []
     body["rejected_truncated"] = len(rejected) > MAX_REPORTED_REJECTIONS
     body["rejected"] = rejected[:MAX_REPORTED_REJECTIONS]
-    body.update({"migration_id": migration_id(app_id, data, options), "application_id": app_id, "file": plan.fd.name,
-                 "options": dict(options), "success": bool(report.success),
+    body.update({"migration_id": migration_id(app_id, data, options, plan), "application_id": app_id,
+                 "file": plan.fd.name, "options": dict(options), "success": bool(report.success),
+                 "complete": bool(report.success) and body.get("rejected_record_count", 0) == 0,
+                 "engine_version": ENGINE_VERSION,
+                 "source_layout_sha256": hashlib.sha256(
+                     "".join(layout.identity for layout in plan.source_layouts).encode()).hexdigest(),
                  "output_sha256": hashlib.sha256(output).hexdigest(), "output_bytes": len(output)})
     return body, (output if report.success else b"")
 

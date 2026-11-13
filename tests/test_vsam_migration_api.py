@@ -221,3 +221,58 @@ def test_store_writes_are_atomic_no_partial_files_are_left(client):
     post(client, customer("A001", "alpha"))
     names = {p.name for p in Path(vsam_migration._root()).rglob("*") if p.is_file()}
     assert names == {"output.dat", "report.json"}
+
+
+# --- architecture review findings ----------------------------------------------------------------------------------------
+
+def test_a_refused_migration_can_be_rerun_after_the_cobol_source_is_fixed(client, tmp_path):
+    """The id is tied to the application's layout, so a fixed source gets its own id instead of colliding forever."""
+    workspace = tmp_path / "src"
+    broken = PROGRAM.replace("COPY CUSTREC.", "COPY MISSING.")
+    (workspace / "CUSTPGM.cob").write_text(broken, encoding="utf-8")
+    refused = post(client, customer("A001", "alpha"))
+    assert refused.status_code == 400                                   # unresolvable FD: refused before any id exists
+    (workspace / "CUSTPGM.cob").write_text(PROGRAM, encoding="utf-8")
+    ok = post(client, customer("A001", "alpha"))
+    assert ok.status_code == 201 and ok.json()["success"] is True
+
+
+def test_the_same_dataset_gets_a_different_id_when_the_layout_changes(client, tmp_path):
+    first = post(client, customer("A001", "alpha")).json()["migration_id"]
+    (tmp_path / "src" / "CUSTREC.cpy").write_text(CUSTREC.replace("PIC X(20)", "PIC X(20) "), encoding="utf-8")
+    assert post(client, customer("A001", "alpha")).json()["migration_id"] == first      # identical layout: same id
+    (tmp_path / "src" / "CUSTREC.cpy").write_text(CUSTREC.replace("CUST-NAME PIC X(20)", "CUST-NAME PIC X(19)\n          05 PAD PIC X"),
+                                                  encoding="utf-8")
+    assert post(client, customer("A001", "alpha")).json()["migration_id"] != first      # different layout identity
+
+
+def test_the_organization_option_cannot_downgrade_an_indexed_file(client):
+    response = post(client, customer("A001", "alpha"), organization="SEQUENTIAL")
+    assert response.status_code == 400 and "organization" in response.text
+
+
+def test_a_relative_file_is_refused_over_the_api(client, tmp_path):
+    (tmp_path / "src" / "CUSTPGM.cob").write_text(PROGRAM.replace(
+        "ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS CUST-ID.",
+        "ORGANIZATION IS RELATIVE\n               ACCESS MODE IS DYNAMIC\n               RELATIVE KEY IS WS-REL."), encoding="utf-8")
+    response = post(client, customer("A001", "alpha"))
+    assert response.status_code in (201, 400) and "RRDS" in response.text
+
+
+def test_the_report_states_the_layout_and_engine_it_came_from(client):
+    body = post(client, customer("A001", "alpha")).json()
+    assert body["engine_version"] and body["layout"]["identity"] and body["source_layout_sha256"]
+    assert body["complete"] is True                                      # no rejected records
+
+
+def test_a_migration_with_rejected_records_is_not_complete(client):
+    body = post(client, customer("A001", "alpha") + customer("B002", "b", bal=bytes([0x1A, 0, 0, 0, 0x0C]))).json()
+    assert body["success"] is True and body["complete"] is False and body["rejected_record_count"] == 1
+
+
+def test_downloading_converted_data_needs_the_operator_role_not_viewer():
+    from api import rbac
+
+    assert rbac.required_role("GET", "/applications/app-1/vsam/migrations/vm-0123456789abcdef/download") == "operator"
+    assert rbac.required_role("GET", "/applications/app-1/vsam/migrations/vm-0123456789abcdef") == "viewer"
+    assert rbac.required_role("POST", "/applications/app-1/vsam/migrate") == "operator"

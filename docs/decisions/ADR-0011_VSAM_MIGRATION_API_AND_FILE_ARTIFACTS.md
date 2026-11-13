@@ -1,0 +1,43 @@
+# ADR-0011: VSAM migration API with file-based artifacts (interim)
+
+**Date**: 2026-11-13
+**Status**: proposed (interim design; owner review pending)
+**Deciders**: engineering (autonomous Stage 1 execution)
+
+## Context
+
+The VSAM migration engine was library-only. The product workflow needs a way to submit a dataset for a file the application
+declares, read the result and download the converted data, using the control plane's existing upload bounds, roles and
+workspace conventions.
+
+## Decision
+
+`api/vsam_migration.py` plus three routes: `POST /applications/{id}/vsam/migrate`, `GET .../vsam/migrations/{id}` and
+`GET .../vsam/migrations/{id}/download`. Layout, keys and organization are derived from the application's own discovered FD
+(the `organization` option may only pick a compatible one). The migration id is a hash of the application, options, dataset,
+source and target layout identities, the dataset definition, the platforms and `ENGINE_VERSION`, so equal ids mean equal
+results. Artifacts are two files per id (`report.json` written last, `output.dat`) under the workspace root, written
+atomically, never overwritten with a different result, and the download is served only for a RECONCILED result whose stored
+bytes still match their hash and only to the operator role (converted data is customer data).
+
+## Alternatives Considered
+
+- **Rows in the sqlite Store**: the right end state (restart-safe job state, listing, audit, run-active coordination), but it
+  needs a schema migration and job-slot integration that were not designed in this stage. Not chosen now.
+- **A background job with polling**: needed for large datasets and for resume/cancel; the synchronous bounded request (10 MB
+  per file by default, two concurrent migrations) is the smaller step.
+- **Letting the request supply layout and keys**: rejected, it would let a caller migrate data under a layout the
+  application does not declare.
+
+## Consequences
+
+Positive: refusals are stored, named and never downloadable; ids cannot collide across layouts or engine versions; no new
+dependency or database.
+
+Negative / open (interim limits): no resume or cancel endpoint, no listing, no audit events, no cleanup of old artifacts, no
+coordination with re-ingest or run state (a migration reads the live source directory), a per-process concurrency limit, an
+integrity hash that is not signed, and the assessment (`engine/vsam/assess.py`) and the API plan separately so discovery can
+disagree with the API (for example group RECORD KEYs and multi-record FDs). Moving the planning into `engine/vsam/` and the
+records into the Store is the follow-up before this is relied on beyond Stage 1.
+
+Related: ADR-0010 (platform, FD COPY, RDW) supersedes the statement in ADR-0009 that binary bytes are copied and never reordered.

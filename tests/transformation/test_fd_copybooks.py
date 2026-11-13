@@ -246,3 +246,17 @@ def test_an_exponential_copy_fanout_is_stopped_by_the_expansion_limit(tmp_path):
     members["C40.cpy"] = RECORD
     unit = unit_of(discover(tmp_path, program("       COPY C0.\n"), members))
     assert any(d.startswith("COPYBOOK_EXPANSION_LIMIT") for d in unit.parse_diagnostics)
+
+
+def test_many_fanout_copies_in_one_file_section_share_one_expansion_budget(tmp_path):
+    from engine.transformation import copybook_model
+    from engine.transformation.fd_copybooks import expand_fd_copybooks
+
+    members = {f"C{i}.cpy": f"       COPY C{i + 1}.\n       COPY C{i + 1}.\n" for i in range(12)}
+    members["C12.cpy"] = RECORD
+    for name, text in members.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    src = program("".join("           COPY C0.\n" for _ in range(40)))
+    result = expand_fd_copybooks(src, (tmp_path,))
+    assert len(result.source) <= copybook_model.MAX_EXPANDED_CHARS * 2          # not 40 x the budget
+    assert any(d.code == "COPYBOOK_EXPANSION_LIMIT" for d in result.diagnostics)

@@ -93,19 +93,29 @@ def run_cobol(tmp_path: Path, data: bytes) -> list[str]:
     return run.stdout.decode("latin-1").splitlines()
 
 
-def run_java(tmp_path: Path, data: bytes) -> list[str]:
-    work = tmp_path / "java"
+def build_java(tmp_path: Path, name: str) -> Path:
+    """Transform and compile the program; any failure here is a failure of the product, never an expected outcome."""
+    work = tmp_path / name
     work.mkdir()
     result = TransformationProducer().transform(program(), "RDR")
     assert result.success is True, result.errors
     for generated in result.generated_files:
         (work / generated.filename).write_text(generated.source_code, encoding="utf-8")
-    (work / "F.DAT").write_bytes(data)
     compiled = subprocess.run(["javac", "-nowarn", "-d", str(work), *[str(work / g.filename) for g in result.generated_files]],
                               capture_output=True, timeout=120)
     assert compiled.returncode == 0, compiled.stderr.decode(errors="replace")
-    run = subprocess.run(["java", "-Dline.separator=\n", "-cp", str(work), result.generated_files[0].class_name],
-                         capture_output=True, timeout=60, cwd=work)
+    (work / "CLASS").write_text(result.generated_files[0].class_name, encoding="utf-8")
+    return work
+
+
+def run_built_java(work: Path, data: bytes) -> subprocess.CompletedProcess:
+    (work / "F.DAT").write_bytes(data)
+    return subprocess.run(["java", "-Dline.separator=" + chr(10), "-cp", str(work), (work / "CLASS").read_text(encoding="utf-8")],
+                          capture_output=True, timeout=60, cwd=work)
+
+
+def run_java(tmp_path: Path, data: bytes) -> list[str]:
+    run = run_built_java(build_java(tmp_path, "java"), data)
     assert run.returncode == 0, run.stderr.decode(errors="replace")
     return run.stdout.decode().splitlines()
 
@@ -131,10 +141,12 @@ def test_the_generated_java_reads_the_migrated_file_exactly_like_the_cobol_oracl
 
 
 def test_the_generated_java_does_not_read_the_unmigrated_mainframe_bytes_as_the_same_values(tmp_path):
-    """Control: the migration is what makes the file readable, so the comparison above cannot pass vacuously."""
+    """Control: the migration is what makes the file readable, so the comparison above cannot pass vacuously.
+
+    The build is asserted first, so a broken transform or compile fails this test instead of passing it; only the run on
+    foreign bytes may fail or print something else."""
     need_lane()
-    try:
-        java = run_java(tmp_path, mainframe_bytes())
-    except AssertionError:
-        return                                            # the Java refused or failed on foreign data: also "not the same"
-    assert java != expected()
+    work = build_java(tmp_path, "control")
+    run = run_built_java(work, mainframe_bytes())
+    shown = run.stdout.decode(errors="replace").splitlines() if run.returncode == 0 else None
+    assert shown != expected()

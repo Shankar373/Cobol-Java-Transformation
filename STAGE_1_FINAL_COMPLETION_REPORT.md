@@ -58,8 +58,8 @@ Ingestion -> COPY -> parser/IR -> FD discovery -> layout -> capability assessmen
 
 * **Migration API.** `POST /applications/{id}/vsam/migrate` (dataset upload plus a JSON options field),
   `GET .../vsam/migrations/{id}` (stored report) and `GET .../vsam/migrations/{id}/download` (the converted dataset, served
-  only for a RECONCILED migration whose stored bytes still match their hash). Layout, keys and organization come from the
-  application's own discovered FD, never from the request; the request chooses encodings, platforms and, for a multi-record FD,
+  only for a RECONCILED migration whose stored bytes still match their hash). Layout and keys come from the
+  application's own discovered FD and the organization must fit it (the option can only pick a compatible one); the request chooses encodings, platforms and, for a multi-record FD,
   the record. Ids are deterministic, a refusal is a stored named result with no artifact, upload bounds and the existing role
   rules apply. Tests: `tests/test_vsam_migration_api.py` (15). Artifacts are files under the workspace root, **not** rows in the
   sqlite store; there is no resume, cancel or listing endpoint, no audit event and no cleanup.
@@ -82,8 +82,8 @@ structures, GnuCOBOL 3.2 and VBISAM lanes, the code-reviewer and architect revie
 |---|---|
 | python-reviewer | 1 HIGH (key over a width-changing binary field), 7 MEDIUM, 7 LOW |
 | security-reviewer | 0 CRITICAL, 2 HIGH (copybook dropped from WORKING-STORAGE; unbounded COPY fan-out), 4 MEDIUM, 3 LOW |
-| code-reviewer, architect, tdd-guide | **not invoked** in this stage (the python and security reviewers were); TDD followed manually (RED recorded before each fix) |
-| ADR | not written for the new decisions (platform model, FD expansion, RDW scope); documented in the gap register and module docstrings instead. **Open follow-up.** |
+| code-reviewer, architect | **invoked** (second pass). code-reviewer: 1 HIGH (signed zoned DISPLAY translated as text, fixed and GnuCOBOL-verified), 5 MEDIUM, 5 LOW. architect: 1 BLOCKER (migration id not tied to the source layout or engine version, fixed), 6 SHOULD (some fixed, see section 9), no engine-to-api import. tdd-guide: **not invoked**; RED was recorded manually before each fix. database-reviewer, java-reviewer: not invoked |
+| ADR | ADR-0010 (platform, FD COPY, RDW scope) and ADR-0011 (migration API and interim file artifacts) written, both **proposed**, no owner review; ADR-0009 marked superseded in part |
 
 Fixed after review, each with a regression test that failed first: keys over binary fields whose width or byte order changes
 are refused; a mismatched non-binary target layout is refused; `convert_record_between` requires an exact record length;
@@ -132,6 +132,20 @@ The full local hermetic suite was not re-run after the review fixes; the CI run 
 
 ## 9. Security and architecture observations
 
-The migration library is not reachable remotely; only discovery assessment is. Discovery reaches COPY expansion on uploaded
-input, now bounded. Fail-closed throughout: unsupported or ambiguous input yields REFUSED/BLOCKED with named reasons.
-`engine/vsam/migrate_variable.py` and `fd_copybooks.py` import private helpers from sibling modules (coupling noted by review).
+Reachability: discovery runs COPY expansion and the per-FD assessment on uploaded input (now bounded and isolated per FD), and
+`POST /applications/{id}/vsam/migrate` runs the migration engine on an uploaded dataset (operator role, 10 MB per file by default, two
+concurrent migrations per process). Fail-closed throughout: unsupported or ambiguous input yields REFUSED/BLOCKED with named reasons.
+
+Known design debt (also in ADR-0011), not closed in this stage:
+
+* migration records are files, not Store rows: no listing, audit, cleanup, resume/cancel or coordination with re-ingest;
+* the integrity hash beside an artifact is not signed;
+* `engine/vsam/assess.py` and `api/vsam_migration.py` plan separately, so discovery can disagree with the API (group RECORD KEYs,
+  multi-record FDs, record format);
+* COMP truncation is hard-coded (`TRUNC(STD)`-like); z/OS `TRUNC(BIN)` data, `NUMPROC` and float formats need representation
+  facets before any IBM_ZOS data is relied on, and platform evidence is a free-text string, not a structured level;
+* an alternate CHARACTER key over a packed or binary field is not rejected;
+* `reconcile` re-applies the same conversion it checks, so it proves accounting, ordering and duplicate handling; correctness of the
+  conversion rests on the GnuCOBOL differential tests;
+* `success` stays true when records were rejected under the stated policy; the API report adds `complete` (no rejections);
+* `migrate.py` and `migrate_variable.py` share private helpers and some duplicated reporting code.

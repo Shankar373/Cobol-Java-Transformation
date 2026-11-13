@@ -1,5 +1,7 @@
 # ADR-0009 — Record layout derivation for dataset migration
 
+> **Superseded in part (2026-11-13):** the statement that binary bytes are copied and never reordered is replaced by ADR-0010 (explicit source and target platforms with width and byte-order conversion), and layouts are now checked against GnuCOBOL-written records (see ADR-0010 and `tests/integration/test_vsam_layout_oracle*.py`).
+
 **Status:** **PROPOSED** (engineering proposal; the platform owner has not confirmed it - see "Owner questions")
 
 **Date:** 2026-11-13 · **Related:** [Stage 1 plan](../roadmap/STAGE_1_VSAM_IMPLEMENTATION_PLAN.md), `engine/vsam/convert.py`, gap register G-09

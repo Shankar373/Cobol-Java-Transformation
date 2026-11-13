@@ -127,6 +127,9 @@ CAPABILITIES: tuple[Capability, ...] = (
                "engine.vsam.collation orders EBCDIC cp037 keys by byte value; no IBM or GnuCOBOL EBCDIC run"),
     Capability("esds.entry_sequence_rba", Organization.ESDS, "NOT_IMPLEMENTED", "NONE",
                "GnuCOBOL has no ESDS or RBA addressing, so no local reference exists; needs an IBM environment"),
+    Capability("esds.entry_order_migration", Organization.ESDS, "PARTIAL", "DETERMINISTIC_TEST",
+               "an ESDS is migrated in entry order (migrate_dataset, migrate_variable_dataset) with a warning that RBA "
+               "addressing is not modelled; a migration that requires RBA identity is refused"),
     Capability("rrds.relative_record_number", Organization.RRDS, "PARTIAL", _G,
                "ORGANIZATION RELATIVE verified against GnuCOBOL on a bounded shape (workload-relative*); "
                "IBM RRDS slot reuse, variable RRDS and file-status details are not established"),
@@ -157,13 +160,16 @@ CAPABILITIES: tuple[Capability, ...] = (
                "reconciliation -> machine-readable report; ASCII<->EBCDIC cp037 in either direction, fixed records, "
                "KSDS/ESDS/sequential, unique and duplicate alternate keys validated (index structures not built), "
                "per-FD assessment attached to discovery (engine.vsam.assess); "
-               "no reader other than our own reconciliation has consumed the converted data"),
+               "converted data was read back by independent consumers: GnuCOBOL 3.1.2 and 3.2.0 (test_vsam_consumer_oracle.py) "
+               "and the generated Java for a DISPLAY/COMP/COMP-3 sequential file (test_vsam_java_consumer.py); the "
+               "reconciliation re-applies the same conversion, so it proves accounting and ordering, not correctness"),
     Capability("migration.reconciliation_report", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
                "engine.vsam.reconcile: counts, rejected records, duplicate keys, key set, ordering and hashes"),
     Capability("migration.field_aware_conversion_and_restart", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
-               "engine.vsam.convert: DISPLAY fields translated cp037 <-> ASCII, packed and binary copied, unconvertible "
-               "records rejected with reasons, KSDS load order, resume after interruption; fixed-length records only, "
-               "layout supplied by the caller, no GnuCOBOL or IBM comparison of converted data yet"),
+               "engine.vsam.convert: DISPLAY text translated cp037 <-> ASCII, signed zoned DISPLAY numerics converted as "
+               "numbers (overpunch, GnuCOBOL-verified), packed copied after validation, binary fields width- and "
+               "order-converted between explicit platforms, unconvertible records rejected with reasons, KSDS load order, "
+               "resume after interruption; fixed-length records here (variable: engine.vsam.migrate_variable); no IBM comparison"),
     Capability("idcams.define_gdg_repro_delete_setmaxcc", None, "PARTIAL", "DOCUMENTED_SEMANTICS",
                "engine.jcl.orchestrator native subset; reference runner refuses IDCAMS, so no oracle comparison"),
     Capability("idcams.define_cluster_listcat_bldindex_alter", None, "NOT_IMPLEMENTED", "NONE",

@@ -20,6 +20,7 @@ from pathlib import Path
 
 from engine.transformation.copybook_model import (
     CopybookDiagnostic,
+    MAX_EXPANDED_CHARS,
     _apply_replacing,
     _expand_copybook_text,
     _find_copy_statements,
@@ -68,6 +69,7 @@ def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...]) -> FdCopyExp
 
     diagnostics: list[CopybookDiagnostic] = []
     consumed: list[str] = []
+    budget = [MAX_EXPANDED_CHARS]  # one budget for the whole FILE SECTION, not one per COPY statement
     masked_region = _mask_comments(region)
     pieces: list[str] = []
     cursor = 0
@@ -92,7 +94,7 @@ def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...]) -> FdCopyExp
             diagnostics.append(CopybookDiagnostic(
                 level="ERROR", code="COPYBOOK_UNRESOLVED", message=f"Missing COPY target: {target} (in FILE SECTION)"))
             continue
-        text = _apply_replacing(_expand_copybook_text(resolved.path, search_dirs, _CHAIN, diagnostics), tuple(pairs))
+        text = _apply_replacing(_expand_copybook_text(resolved.path, search_dirs, _CHAIN, diagnostics, budget), tuple(pairs))
         pieces.append(text if text.endswith("\n") else text + "\n")
         consumed.append(target.upper())
     pieces.append(region[cursor:])
