@@ -49,6 +49,12 @@ _WIDTHS = {
 }
 
 
+def _overpunch(item: DataItem, numeric: bool, kind: FieldKind) -> str:
+    if not (numeric and item.signed and kind is FieldKind.DISPLAY and not item.sign_separate):
+        return ""
+    return "LEADING" if item.sign_position == "LEADING" else "TRAILING"
+
+
 @dataclass(frozen=True)
 class LayoutField:
     path: str  # dotted COBOL path, with (n) subscripts for OCCURS elements
@@ -64,6 +70,10 @@ class LayoutField:
     signed: bool = False
     digits: int = 0
     decimals: int = 0
+    # where the sign is overpunched in a signed zoned DISPLAY numeric ("TRAILING" or "LEADING"); "" when the field
+    # has no inline sign (unsigned, SIGN SEPARATE, packed, binary, text).  Needed so the sign is converted as a
+    # sign, not translated as a character.
+    sign_overpunch: str = ""
 
 
 @dataclass(frozen=True)
@@ -92,7 +102,7 @@ class RecordLayout:
         if self.diagnostics:
             raise ValueError("layout is not supported: " + "; ".join(
                 f"{d.code} at {d.path or self.record_name}" for d in self.diagnostics))
-        return tuple(FieldSpec(f.path, f.offset, f.length, f.kind) for f in self.fields)
+        return tuple(FieldSpec(f.path, f.offset, f.length, f.kind, f.sign_overpunch) for f in self.fields)
 
     def to_dict(self) -> dict:
         return {
@@ -111,7 +121,7 @@ def _identity(record_name: str, length: int, model: str, selection: tuple[tuple[
               fields: tuple[LayoutField, ...], diagnostics: tuple[LayoutDiagnostic, ...]) -> str:
     canonical = json.dumps({
         "record": record_name, "length": length, "model": model, "selection": [list(p) for p in selection],
-        "fields": [[f.path, f.offset, f.length, f.kind.value, f.usage, f.signed, f.digits, f.decimals]
+        "fields": [[f.path, f.offset, f.length, f.kind.value, f.usage, f.signed, f.digits, f.decimals, f.sign_overpunch]
                    for f in fields],
         "diagnostics": [[d.code, d.path] for d in diagnostics],
     }, sort_keys=True)
@@ -192,7 +202,8 @@ class _Deriver:
                 emit.append(LayoutField(path, item.name, item.level, offset, length, kind, item.usage or "",
                                         item.signed if numeric else False,
                                         item.pic_length if numeric else 0,
-                                        item.decimal_places if numeric else 0))
+                                        item.decimal_places if numeric else 0,
+                                        _overpunch(item, numeric, kind)))
             return length
 
         slots: list[dict] = []

@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from engine.vsam.convert import FieldKind, check_record
+from engine.vsam.convert import FieldKind, check_record, translate_display
 from engine.vsam.layout import BinaryWidthModel, LayoutField, RecordLayout
 from engine.vsam.model import Encoding
 
@@ -141,12 +141,7 @@ def convert_record_between(record: bytes, source_layout: RecordLayout, target_la
     for src, dst in zip(source_layout.fields, target_layout.fields):
         chunk = record[src.offset:src.offset + src.length]
         if src.kind is FieldKind.DISPLAY and source_encoding is not destination_encoding:
-            try:
-                chunk = (chunk.decode("cp037").encode("ascii") if source_encoding is Encoding.EBCDIC_CP037
-                         else chunk.decode("ascii").encode("cp037"))
-            except (UnicodeDecodeError, UnicodeEncodeError) as exc:
-                raise ValueError(f"field {src.path}: byte has no counterpart in {destination_encoding.value}: "
-                                 f"{exc.reason}") from exc
+            chunk = translate_display(chunk, src.path, src.sign_overpunch, source_encoding, destination_encoding)
         elif src.kind is FieldKind.BINARY:
             value = _decode(chunk, src, source_platform)
             try:

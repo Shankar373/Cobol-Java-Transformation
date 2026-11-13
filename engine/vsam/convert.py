@@ -43,6 +43,7 @@ class FieldSpec:
     offset: int
     length: int
     kind: FieldKind = FieldKind.DISPLAY
+    sign: str = ""  # "TRAILING" / "LEADING": a sign overpunched in a zoned DISPLAY digit
 
 
 def validate_layout(fields: tuple[FieldSpec, ...], record_length: int) -> tuple[str, ...]:
@@ -80,6 +81,46 @@ def check_record(record: bytes, fields: tuple[FieldSpec, ...]) -> str | None:
     return None
 
 
+def translate_display(chunk: bytes, name: str, sign: str, source: Encoding, destination: Encoding) -> bytes:
+    """Translate one DISPLAY field between ASCII and EBCDIC cp037; a field with an overpunched sign is converted as a number.
+
+    GnuCOBOL's ASCII form: positive = plain digits, negative = the sign digit shifted to ``p``..``y`` (0x70 + digit).
+    EBCDIC: digits are zone F, the sign byte is zone C (or F) for positive and D for negative.  Anything else is rejected.
+    """
+    if not sign:
+        try:
+            return (chunk.decode("cp037").encode("ascii") if source is Encoding.EBCDIC_CP037
+                    else chunk.decode("ascii").encode("cp037"))
+        except (UnicodeDecodeError, UnicodeEncodeError) as exc:
+            raise ValueError(f"field {name}: byte has no counterpart in {destination.value}: {exc.reason}") from exc
+    sign_index = 0 if sign == "LEADING" else len(chunk) - 1
+    digits: list[int] = []
+    negative = False
+    for index, byte in enumerate(chunk):
+        if source is Encoding.EBCDIC_CP037:
+            zone, digit = byte >> 4, byte & 0xF
+            valid = digit <= 9 and (zone == 0xF or (index == sign_index and zone in (0xC, 0xD)))
+            if index == sign_index:
+                negative = zone == 0xD
+        else:
+            digit = byte - 0x30
+            if index == sign_index and 0x70 <= byte <= 0x79:
+                digit, negative = byte - 0x70, True
+            valid = 0 <= digit <= 9
+        if not valid:
+            raise ValueError(f"field {name}: byte 0x{byte:02X} is not a valid {sign.lower()} signed zoned digit in "
+                             f"{source.value}")
+        digits.append(digit)
+    out = bytearray()
+    for index, digit in enumerate(digits):
+        marked = index == sign_index
+        if destination is Encoding.ASCII:
+            out.append(0x70 + digit if marked and negative else 0x30 + digit)
+        else:
+            out.append(((0xD0 if negative else 0xC0) if marked else 0xF0) + digit)
+    return bytes(out)
+
+
 def convert_record(record: bytes, fields: tuple[FieldSpec, ...], source: Encoding, destination: Encoding) -> bytes:
     """Convert one record; raises ``ValueError`` naming the field that cannot be converted."""
     reason = check_record(record, fields)
@@ -89,14 +130,7 @@ def convert_record(record: bytes, fields: tuple[FieldSpec, ...], source: Encodin
     for spec in fields:
         chunk = record[spec.offset:spec.offset + spec.length]
         if spec.kind is FieldKind.DISPLAY and source is not destination:
-            try:
-                if source is Encoding.EBCDIC_CP037:
-                    chunk = chunk.decode("cp037").encode("ascii")
-                else:
-                    chunk = chunk.decode("ascii").encode("cp037")
-            except (UnicodeDecodeError, UnicodeEncodeError) as exc:
-                raise ValueError(f"field {spec.name}: byte has no counterpart in {destination.value}: "
-                                 f"{exc.reason}") from exc
+            chunk = translate_display(chunk, spec.name, spec.sign, source, destination)
         out[spec.offset:spec.offset + spec.length] = chunk
     return bytes(out)
 

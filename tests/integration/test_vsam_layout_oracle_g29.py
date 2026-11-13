@@ -17,7 +17,7 @@ import pytest
 from engine.transformation.cobol_parser import CobolParser
 from engine.vsam.layout import BinaryWidthModel, derive_file_layout
 
-ORACLE_IMAGE = "gnucobol-ocesql:latest"
+ORACLE_IMAGE = os.environ.get("VSAM_ORACLE_IMAGE", "gnucobol-ocesql:latest")  # override: same differential on another compiler image
 MODELS = [("default", BinaryWidthModel.GNUCOBOL_1_2_4_8), ("ibm", BinaryWidthModel.IBM_2_4_8)]
 
 RECORD = """\

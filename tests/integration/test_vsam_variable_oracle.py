@@ -21,7 +21,7 @@ from engine.vsam.layout import BinaryWidthModel, derive_file_layout
 from engine.vsam.migrate_variable import migrate_variable_dataset
 from engine.vsam.model import DatasetDefinition, Encoding, Organization, RecordFormat
 
-ORACLE_IMAGE = "gnucobol-ocesql:latest"
+ORACLE_IMAGE = os.environ.get("VSAM_ORACLE_IMAGE", "gnucobol-ocesql:latest")  # override: same differential on another compiler image
 
 RECORDS = """\
        01 HDR.

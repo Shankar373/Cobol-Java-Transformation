@@ -27,7 +27,7 @@ from engine.vsam.migrate import migrate_dataset
 from engine.vsam.model import DatasetDefinition, Encoding, Organization
 from engine.vsam.platform import platform
 
-IMAGE = "gnucobol-ocesql:latest"
+IMAGE = os.environ.get("VSAM_ORACLE_IMAGE", "gnucobol-ocesql:latest")  # override: same differential on another compiler image
 IBM_Z, X86 = platform("IBM_ZOS"), platform("GNUCOBOL_X86_DEFAULT")
 
 RECORD = ("       01 REC.\n          05 ID-X PIC X(4).\n          05 QD   PIC 9(5).\n"

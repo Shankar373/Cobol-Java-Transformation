@@ -24,7 +24,7 @@ from engine.vsam.layout import BinaryWidthModel, derive_file_layout
 from engine.vsam.model import Encoding
 from engine.vsam.platform import convert_record_between, platform
 
-X86_IMAGE = "gnucobol-ocesql:latest"
+X86_IMAGE = os.environ.get("VSAM_ORACLE_IMAGE", "gnucobol-ocesql:latest")  # override: same differential on another compiler image
 S390X_IMAGE = "gnucobol-s390x:local"
 
 RECORD = """\
