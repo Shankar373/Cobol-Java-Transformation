@@ -358,7 +358,8 @@ class TestMissingJavaApplication:
             # success=True but no JavaApplication: must still fail cleanly.
             programs = tuple(u.program_id for u in application.programs)
             return ApplicationGenerationResult(
-                success=True, program_ids=programs, java_application=None
+                success=True, program_ids=programs, entrypoint=entrypoint,
+                java_application=None
             )
 
 
