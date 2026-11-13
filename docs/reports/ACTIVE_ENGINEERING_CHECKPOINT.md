@@ -71,6 +71,14 @@ Behaviour to note for the owner: an application whose programs have no single ca
 longer be modernized from the UI, which never sends an entrypoint. It must be given `java_entrypoint`. This is the intended fail-closed result of
 G-15, and no certified corpus application is affected (all 55 verdicts unchanged).
 
+## Final state (2026-11-13)
+
+- Head `2ed124c966e94da255d7677195d64f897edaf8c4` (code identical to `4a90d2d`): corpus certification run 43405692405 success on that exact SHA
+  (all four runtimes 55 apps, 45 VERIFIED, 9 refused, 1 UNAVAILABLE, AGREE 45/45); supply chain 43405692597 success; CI 43405692271 had 9 of 10
+  jobs green when last read, Docker job pending. `801047b` CI (43399142871) all 10 jobs success.
+- Stage 1 delivered: model, collation, reconciliation, field-aware conversion with restart (`engine/vsam/`, 71 tests). Stage 2-4: plans only.
+- Details and hashes: `EXACT_HEAD_ENTERPRISE_BASELINE.md`.
+
 ## Open items
 
 G-22 `EXEC CICS` inner verbs read as file verbs; G-23 discovery owner map; G-24 plan-level entry metadata fallback; G-25 CI does not
@@ -78,8 +86,8 @@ emit the summary; G-13 (phase5 evidence files), G-16; owner/external G-01..G-03,
 
 ## Next exact action
 
-1. When CI, supply chain and certification on `a3ad2f0` finish, record run ids and results in `EXACT_HEAD_ENTERPRISE_BASELINE.md`
-   and the final report; apply any real defect from the independent review.
-2. Then: field-aware migration converter (Stage 1 next slice), fix G-22, emit the summary from CI (G-25).
+1. Confirm the Docker job of CI 43405692271 (and the CI of the following docs commit) finished green.
+2. Then, each with its own certification: derive the converter's field layout from `FileDefinition.record_groups` (PIC/USAGE, REDEFINES, OCCURS) and compare a
+   converted file under GnuCOBOL; fix G-22 (`EXEC CICS` inner verbs); emit the certification summary from CI (G-25).
 
-Last updated: 2026-11-13, after pushing `a3ad2f0`, before CI completion.
+Last updated: 2026-11-13, after certification of the final head `2ed124c`.

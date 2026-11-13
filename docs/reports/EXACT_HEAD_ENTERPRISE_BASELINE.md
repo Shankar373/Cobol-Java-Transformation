@@ -17,17 +17,14 @@ Run links: `https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs
 | `06d7b03b` | fixes for both failures above | **failure** so far, 43397714066: the manifest-hash test, which depended on platform path ordering, failed in the Linux hermetic suite and the coverage floor; Windows hermetic passed; its Docker job was still running when this was written (PENDING) | success, 43397714109 | success, [43397714086](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43397714086) |
 | `801047b8` | platform-independent manifest ordering | **success**, [43399142871](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43399142871): all 10 jobs, including the Docker/GnuCOBOL job, the Linux and Windows hermetic suites and the coverage floor | success, 43399142343 | skipped (no `[certify]` tag), 43399142766 |
 | `4a90d2d1` | Stage 1 field-aware conversion, docs | PENDING, 43400942381: 9 of 10 jobs success (both hermetic suites, coverage floor, lint, type check, gates, frontend); the Docker job was still running when this was written | success, 43400942506 | skipped (no `[certify]` tag), 43400942378 |
+| `2ed124c9` | docs only on top of `4a90d2d`, tagged `[certify]`: **the exact final code head** | PENDING, [43405692271](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43405692271): 9 of 10 jobs success, Docker job running when written | success, 43405692597 | **success**, [43405692405](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43405692405) |
 
 The three CI failures (`a3ad2f0`, `b44b86a`, `06d7b03`) were defects of mine, found only in CI, and fixed in the next commit each time (details in the checkpoint). None was
 fixed by weakening or skipping a test.
 
-**Is the exact head corpus-certified?** `4a90d2d` was not (certification runs only on `[certify]` commits and manual dispatch). The commit that
-carries this report is tagged `[certify]` so its own certification run exists; its result is not in this file (a file cannot hold the result of the
-commit that contains it) and is reported in the final report and the checkpoint. The certification of record is run 43397714086 on `06d7b03`. Between `06d7b03` and the head, `engine/` and `api/` changed
-only inside `engine/vsam/` (three files, offline modules not on any product path); everything else is tests, tools, evidence and
-documents. Treat that as "certified code plus an unconnected module", not as a fresh certification of the head.
+**Is the exact head corpus-certified?** Yes, for the head `2ed124c`: run 43405692405 ran on exactly that SHA (all four jobs success; section 2). The only commit after it adds this file's update and the checkpoint (documents only), so its code is identical. `4a90d2d` and `801047b` were not certified themselves; `engine/` and `api/` changed between `06d7b03` and the head only inside `engine/vsam/` (offline modules on no product path).
 
-## 2. Certification result (run 43397714086, commit `06d7b03`, all four jobs success)
+## 2. Certification result (run 43405692405, commit `2ed124c9`, all four jobs success)
 
 Evidence downloaded from the run's artifacts and compared with `docs/reports/evidence/phase3/*`.
 
@@ -38,7 +35,7 @@ Evidence downloaded from the run's artifacts and compared with `docs/reports/evi
 | quarkus (command mode) | 55 | 45 | 9 | 1 | AGREE 45/45 | yes |
 | micronaut (command mode) | 55 | 45 | 9 | 1 | AGREE 45/45 | yes |
 
-The same counts, with the same per-application verdicts, were obtained on `b44b86a` (run 43388072287).
+The same counts, with the same per-application verdicts, were obtained on `06d7b03` (run 43397714086) and `b44b86a` (run 43388072287).
 
 Refused by name (9, no verdict, from the capability gate): `workload-by-value`, `workload-call-linkage`, `workload-cics`,
 `workload-claims`, `workload-db2`, `workload-dynamic-call`, `workload-dynamic-call-valid`, `workload-multiprog`,
@@ -60,18 +57,18 @@ Refused by name (9, no verdict, from the capability gate): `workload-by-value`, 
 - Reference: GnuCOBOL 3.1.2. JDK recorded in the evidence: `openjdk version "21.0.12.1" 2026-08-18 LTS` (required floor 17).
 - Image digests: **not captured** for this run. The workflow records `docker-image-provenance.json` but does not upload it, so the
   summary states `image_identities: null` (gap G-25). The committed `test-artifacts/docker-image-provenance.json` is from an older build.
-- Evidence artifact hashes (SHA-256, CRLF normalised; first 16 hex digits) for run 43397714086:
+- Evidence artifact hashes (SHA-256, CRLF normalised; first 16 hex digits) for run 43405692405:
 
 | Runtime | `certification_corpus_*.jsonl` | `*_independent.jsonl` | `validation_summaries_*.jsonl` |
 |---|---|---|---|
-| plain_java | 15603e02032d6eac | deb062efb0bc81a8 | f3d45b0dd16910ee |
-| spring_boot | 79092dc35f59091f | 715f59775604214e | 7fb66bf94e7ce17c |
-| quarkus | 447a83824b614edc | 4172bd0addaca6e3 | 41557168d4d31bd3 |
-| micronaut | 7e0027e31d447f26 | 293b836dfa3aa7df | a59b5705ed52714c |
+| plain_java | 833b0ff63b51e15a | ca763867b9a398bb | 33f061a71391e323 |
+| spring_boot | 5c6a43caa784c269 | e5046a807471d7a3 | aadde7132c6ff7a9 |
+| quarkus | 66252fde91e635ad | 2534e087749c3444 | 31db0351dee0bd5a |
+| micronaut | 52cfff29ff75b88e | eb2fd42084668398 | 7b96d0d3f03e158e |
 
 - Machine-checked summary: [`docs/reports/evidence/certification/certification_summary.json`](evidence/certification/certification_summary.json),
   built by `tools/certification_summary.py` for run 43188835053 on `801d2315` from the committed evidence. Its commit and run id are
-  asserted by whoever built it (no evidence file records them). It has not yet been rebuilt for run 43397714086; the committed accepted
+  asserted by whoever built it (no evidence file records them). It has not been rebuilt for runs 43397714086 or 43405692405; the committed accepted
   evidence is unchanged and equals both runs' verdicts.
 
 ## 3. Local verification (this work)
