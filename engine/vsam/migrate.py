@@ -50,6 +50,7 @@ class MigrationReport:
     source_platform: dict = field(default_factory=dict)
     target_platform: dict = field(default_factory=dict)
     binary_conversions: tuple[dict, ...] = ()
+    alternate_indexes: tuple[dict, ...] = ()
     record_format: str = "FIXED"
     source_encoding: str = ""
     destination_encoding: str = ""
@@ -73,6 +74,7 @@ class MigrationReport:
             "target_layout": self.target_layout,
             "source_platform": self.source_platform, "target_platform": self.target_platform,
             "binary_conversions": list(self.binary_conversions),
+            "alternate_indexes": list(self.alternate_indexes),
             "record_format": self.record_format,
             "source_encoding": self.source_encoding, "destination_encoding": self.destination_encoding,
             "source_record_count": self.source_record_count,
@@ -132,12 +134,19 @@ def _mapped_key(key: KeyDefinition, source: RecordLayout, target: RecordLayout, 
 
 
 def _plan(source: DatasetDefinition, layout: RecordLayout, encoding: Encoding, target_layout: RecordLayout | None,
-          source_platform: BinaryRepresentation | None, target_platform: BinaryRepresentation | None) -> _Plan:
+          source_platform: BinaryRepresentation | None, target_platform: BinaryRepresentation | None,
+          require_rba_preserved: bool = False) -> _Plan:
     failures: list[str] = []
     if source.record_format is not RecordFormat.FIXED:
         failures.append("variable-length datasets are not migrated: record descriptor words are not converted")
     if source.organization is Organization.RRDS:
-        failures.append("RRDS migration is not modelled: relative slots and their reuse are not represented")
+        failures.append("RRDS migration is BLOCKED: the unload format (slot numbering, empty slots, slot reuse) "
+                        "needs an IBM VSAM reference that is not available, so relative-slot semantics cannot be "
+                        "preserved or verified")
+    if source.organization is Organization.ESDS and require_rba_preserved:
+        failures.append("ESDS relative byte addresses (RBA) cannot be preserved: records are migrated in entry "
+                        "order and the RBAs of the target are not the source's; a migration that depends on RBA "
+                        "identity is refused")
     if source.encoding is not Encoding.ASCII or encoding is not Encoding.EBCDIC_CP037:
         failures.append(f"only an ASCII source migrated to EBCDIC_CP037 is supported "
                         f"(ASCII source required, got {source.encoding.value} -> {encoding.value})")
@@ -222,7 +231,8 @@ def _caveats(source: DatasetDefinition) -> tuple[tuple[str, ...], tuple[str, ...
     if source.organization is Organization.ESDS:
         warnings.append("ESDS: records migrated in entry order; RBA addressing is not modelled")
     if source.alternate_keys:
-        unsupported.append(f"{len(source.alternate_keys)} alternate index(es) are not rebuilt or checked")
+        unsupported.append(f"{len(source.alternate_keys)} alternate index(es) are not built (the uniqueness and "
+                           "duplicates of each key are validated and reported, the index structure is not created)")
     return tuple(warnings), tuple(unsupported)
 
 
@@ -257,6 +267,14 @@ def _reconciled_report(source: DatasetDefinition, source_data: bytes, plan: _Pla
     recon = reconcile_migration(source, source_data, plan.destination, destination_data, rejected,
                                 translate=convert, validate_record=check)
     warnings, unsupported = _caveats(source)
+    destination_records, _ = split_records(destination_data, plan.destination)
+    indexes = tuple(
+        {"index": i, "offset": k.offset, "length": k.length, "unique": k.unique,
+         "distinct_keys": len({r[k.offset:k.offset + k.length] for r in destination_records}),
+         "duplicate_records": len(destination_records) - len({r[k.offset:k.offset + k.length]
+                                                              for r in destination_records}),
+         "records": len(destination_records)}
+        for i, k in enumerate(plan.destination.alternate_keys, start=1))
     return MigrationReport(
         state=recon.status, failures=recon.failures, warnings=warnings + recon.warnings,
         unsupported_semantics=unsupported,
@@ -270,6 +288,7 @@ def _reconciled_report(source: DatasetDefinition, source_data: bytes, plan: _Pla
         source_sha256=recon.source_sha256, destination_sha256=recon.destination_sha256,
         checkpoint=_checkpoint(destination_data, total_read if total_read is not None else recon.source_record_count,
                                resumed_from),
+        alternate_indexes=indexes,
         **_identity_blocks(plan))
 
 
@@ -288,7 +307,8 @@ def reconcile_destination(source: DatasetDefinition, source_data: bytes, layout:
 def migrate_dataset(source: DatasetDefinition, data: bytes, layout: RecordLayout, destination_encoding: Encoding,
                     *, target_layout: RecordLayout | None = None, source_platform: BinaryRepresentation | None = None,
                     target_platform: BinaryRepresentation | None = None, partial_output: bytes = b"",
-                    resume_after: int = 0, stop_after: int | None = None) -> tuple[bytes, MigrationReport]:
+                    resume_after: int = 0, stop_after: int | None = None,
+                    require_rba_preserved: bool = False) -> tuple[bytes, MigrationReport]:
     """Migrate ``data``; returns ``(destination bytes, report)``.
 
     Nothing is converted when the input is outside the stated scope (``REFUSED``, empty bytes).
@@ -297,7 +317,8 @@ def migrate_dataset(source: DatasetDefinition, data: bytes, layout: RecordLayout
     says where to resume); ``partial_output`` / ``resume_after`` resume it and are refused when the
     partial output is not exactly the conversion of the first records.
     """
-    plan = _plan(source, layout, destination_encoding, target_layout, source_platform, target_platform)
+    plan = _plan(source, layout, destination_encoding, target_layout, source_platform, target_platform,
+                 require_rba_preserved)
     failures = list(plan.failures)
     records, structural = split_records(data, source) if not failures else ([], [])
     failures += structural
@@ -328,20 +349,37 @@ def migrate_dataset(source: DatasetDefinition, data: bytes, layout: RecordLayout
     rejected = list(converted.rejected)
     output = converted.output
     key = plan.destination.primary_key
-    if source.organization is Organization.KSDS and key is not None:
+    unique_alternates = [(i, k) for i, k in enumerate(plan.destination.alternate_keys, start=1) if k.unique]
+    if source.organization in (Organization.KSDS, Organization.ESDS) and (key is not None or unique_alternates):
         rejected_numbers = {r.record_number for r in rejected}
         kept = [n for n in range(1, len(records) + 1) if n not in rejected_numbers]
         pieces = [output[i:i + target_length] for i in range(0, len(output), target_length)]
-        seen: set[bytes] = set()
-        survivors: list[bytes] = []
-        for number, piece in zip(kept, pieces):
-            stored_key = piece[key.offset:key.offset + key.length]
-            if stored_key in seen:
-                rejected.append(RejectedRecord(number, "duplicate primary key (first occurrence kept)"))
-            else:
-                seen.add(stored_key)
-                survivors.append(piece)
-        output = sort_for_ksds(b"".join(survivors), target_length, key.offset, key.length)
+        survivors: list[tuple[int, bytes]] = list(zip(kept, pieces))
+        if source.organization is Organization.KSDS and key is not None:
+            seen: set[bytes] = set()
+            unique: list[tuple[int, bytes]] = []
+            for number, piece in survivors:
+                stored_key = piece[key.offset:key.offset + key.length]
+                if stored_key in seen:
+                    rejected.append(RejectedRecord(number, "duplicate primary key (first occurrence kept)"))
+                else:
+                    seen.add(stored_key)
+                    unique.append((number, piece))
+            survivors = unique
+        for index, akey in unique_alternates:
+            held: set[bytes] = set()
+            unique = []
+            for number, piece in survivors:
+                stored = piece[akey.offset:akey.offset + akey.length]
+                if stored in held:
+                    rejected.append(RejectedRecord(number, f"duplicate unique alternate key {index} (first occurrence kept)"))
+                else:
+                    held.add(stored)
+                    unique.append((number, piece))
+            survivors = unique
+        output = b"".join(piece for _, piece in survivors)
+        if source.organization is Organization.KSDS and key is not None:
+            output = sort_for_ksds(output, target_length, key.offset, key.length)
     report = _reconciled_report(source, data, plan, destination_encoding, output, tuple(rejected),
                                 resumed_from=resume_after, total_read=converted.records_read)
     return output, report

@@ -202,6 +202,30 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
                 if not ordered:
                     failures.append(f"destination records are not in {destination.encoding.value} key order")
 
+    # Unique alternate keys: a kept record may not repeat the key of an earlier kept record; a rejection of
+    # such a repeat is independently justified.  A record rejected for another reason holds no key.
+    for index, akey in enumerate(source.alternate_keys, start=1):
+        if not akey.unique:
+            continue
+        held: dict[bytes, int] = {}
+        for number, record in enumerate(src, start=1):
+            stored = key_bytes(record, akey)
+            rejected_now = number in valid_rejected
+            if stored in held:
+                if rejected_now:
+                    justified_rejections.add(number)
+                else:
+                    failures.append(f"source record {number} repeats unique alternate key {index} of record "
+                                    f"{held[stored]} and was not rejected")
+            elif not rejected_now:
+                held[stored] = number
+    for index, akey in enumerate(destination.alternate_keys, start=1):
+        if akey.unique:
+            counts = collections.Counter(key_bytes(r, akey) for r in dst)
+            repeated = sum(n - 1 for n in counts.values() if n > 1)
+            if repeated:
+                failures.append(f"destination has {repeated} duplicate key(s) for unique alternate key {index}")
+
     content_compared = translated is not None or (
         source.encoding is destination.encoding
         and source.record_format is destination.record_format
