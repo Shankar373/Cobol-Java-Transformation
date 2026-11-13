@@ -331,8 +331,8 @@ def derive_file_layout(file_definition: FileDefinition, *, binary_width_model: B
     if not groups:
         return _refused(fd, model, selection, LayoutDiagnostic(
             "FD_NO_RECORD", fd,
-            f"FD {fd} declares no record (a COPY inside an FD is not merged into the FD's record; "
-            "pass the materialised copybook record to derive_layout)"))
+            f"FD {fd} declares no record (an unresolved COPY inside the FD leaves it without one; "
+            "resolve the copybook so discovery can expand it)"))
     names = ", ".join(g.name for g in groups)
     if len(groups) > 1 and not record_name:
         return _refused(fd, model, selection, LayoutDiagnostic(

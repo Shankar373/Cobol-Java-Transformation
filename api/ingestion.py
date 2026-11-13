@@ -292,6 +292,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
     """
     from engine.transformation.application_discovery import ApplicationDiscovery
     from engine.transformation.jcl_discovery import JclDiscovery
+    from engine.vsam.assess import assess_program
 
     result = DiscoveryResult(application_id=application_id)
 
@@ -319,6 +320,7 @@ def discover_application(workspace: Path, application_id: str) -> DiscoveryResul
                 ],
                 "copybooks": [cb.copybook_name for cb in unit.copybooks],
                 "entry_points": list(unit.entry_points),
+                "vsam_assessment": assess_program(unit.program),
             }
             result.cobol_programs.append(prog_info)
 
