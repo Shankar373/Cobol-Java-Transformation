@@ -99,7 +99,19 @@ before migration. A GnuCOBOL pass does **not** establish IBM VSAM or IBM Enterpr
 
 ## 8. Final CI
 
-Recorded after the PR run: see the section added below once CI has completed.
+Code head `52e0608832372ad94d681340bc6a207ebfe2b017` (PR #28, branch `stage1/vsam-completion`):
+
+| Workflow | Run | Result |
+|---|---|---|
+| SystemaOps CI | [43441968285](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43441968285) | **success**, every job including both hermetic suites, the Docker job, lint, type check, coverage floor and frontend |
+| Corpus certification (GnuCOBOL, all runtimes) | [43441968326](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43441968326) | **success**; the `exact-run-certification-summary` artifact was downloaded and read: certified=True, identity `52e0608...`, run 43441968326, attempt 1 |
+| Supply chain | 43441968361 | success |
+
+The certification `not_proven` list is unchanged: the evidence is self-attested, there is no IBM runtime evidence (equivalence is
+against GnuCOBOL 3.1.2 for the recorded inputs), and Quarkus and Micronaut are certified in command mode only.
+
+This report and ADR-0010 were committed after that head as a docs-only change; the code and tests are those of `52e0608`.
+The full local hermetic suite was not re-run after the review fixes; the CI run above is the first full run of the final code.
 
 ## 9. Security and architecture observations
 
