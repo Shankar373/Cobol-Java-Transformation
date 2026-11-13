@@ -98,6 +98,20 @@ def _required_files(runtime: str) -> tuple[str, ...]:
     )
 
 
+def _identity_matches_kind(provenance: dict, prefix: str, allowed: dict[str, re.Pattern[str]]) -> bool:
+    """The ``<prefix>_identity`` has the form its declared ``<prefix>_identity_kind`` requires.
+
+    A locally built image has no repo digest: its identity is its image id (kind ``image-id``) and must
+    equal ``<prefix>_image_id``.  A registry image is pinned by ``name@sha256:...`` (kind ``repo-digest``).
+    """
+    kind = str(provenance.get(f"{prefix}_identity_kind") or "")
+    value = str(provenance.get(f"{prefix}_identity") or "")
+    pattern = allowed.get(kind)
+    if pattern is None or not pattern.fullmatch(value):
+        return False
+    return kind != "image-id" or value == provenance.get(f"{prefix}_image_id")
+
+
 def _read_json(path: Path) -> dict | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -173,10 +187,13 @@ def _runtime_result(artifacts: Path, runtime: str, identity: dict, expected_apps
         problems.append(f"{runtime}: unexpected verdict values {block['totals']['other']}")
 
     provenance = _read_json(root / "provenance" / "docker-image-provenance.json") or {}
-    patterns = {"build_identity": _REPO_IDENTITY, "runtime_identity": _REPO_IDENTITY,
-                "build_image_id": _IMAGE_ID, "runtime_image_id": _IMAGE_ID}
-    missing_fields = [f for f in PROVENANCE_FIELDS
-                      if not patterns[f].fullmatch(str(provenance.get(f) or ""))]
+    missing_fields = [f for f in ("build_image_id", "runtime_image_id")
+                      if not _IMAGE_ID.fullmatch(str(provenance.get(f) or ""))]
+    if not _identity_matches_kind(provenance, "build", {"repo-digest": _REPO_IDENTITY, "image-id": _IMAGE_ID}):
+        missing_fields.append("build_identity")
+    # the runtime image is always pinned by repo digest (the adapter refuses anything else)
+    if not _identity_matches_kind(provenance, "runtime", {"repo-digest": _REPO_IDENTITY}):
+        missing_fields.append("runtime_identity")
     if missing_fields:
         problems.append(f"{runtime}: image provenance lacks a valid digest for {', '.join(missing_fields)}")
     oracle = _read_json(root / "oracle_image.json") or {}
@@ -192,7 +209,9 @@ def _runtime_result(artifacts: Path, runtime: str, identity: dict, expected_apps
     block["toolchain"] = {
         "build_image": provenance.get("build_image"), "build_identity": provenance.get("build_identity"),
         "build_image_id": provenance.get("build_image_id"),
+        "build_identity_kind": provenance.get("build_identity_kind"),
         "runtime_image": provenance.get("runtime_image"), "runtime_identity": provenance.get("runtime_identity"),
+        "runtime_identity_kind": provenance.get("runtime_identity_kind"),
         "runtime_image_id": provenance.get("runtime_image_id"),
         "oracle_image": oracle.get("image"), "oracle_image_id": oracle.get("id"),
         "jdk": jdks[0] if len(jdks) == 1 else None,

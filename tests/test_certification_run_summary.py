@@ -29,6 +29,7 @@ ENV = {"GITHUB_SHA": SHA, "GITHUB_RUN_ID": RUN_ID, "GITHUB_RUN_NUMBER": "17", "G
 PROVENANCE = {
     "build_identity": "maven-offline-springboot@sha256:" + "1" * 64, "build_image_id": "sha256:" + "1" * 64,
     "runtime_identity": "eclipse-temurin@sha256:" + "2" * 64, "runtime_image_id": "sha256:" + "2" * 64,
+    "build_identity_kind": "repo-digest", "runtime_identity_kind": "repo-digest",
     "runtime_image": "eclipse-temurin:21-jdk", "build_image": "maven-offline-springboot:latest",
 }
 ORACLE = {"image": "gnucobol-ocesql:latest", "id": "sha256:" + "3" * 64}
@@ -467,3 +468,52 @@ def test_malformed_evidence_is_a_problem_in_a_written_summary_not_a_crash(tmp_pa
 def test_the_summary_states_that_its_evidence_is_self_attested(tmp_path, manifest):
     summary, _ = build(tmp_path, manifest)
     assert any("self-attested" in line for line in summary["not_proven"])
+
+
+# --- the real CI provenance: a locally built image has no repo digest, its identity is the image id ------------------------------
+
+def _write_provenance(root, runtime, **changes):
+    p = root / f"certification-{runtime}" / "provenance" / "docker-image-provenance.json"
+    data = json.loads(p.read_text())
+    data.update(changes)
+    p.write_text(json.dumps(data))
+
+
+def test_a_locally_built_build_image_identified_by_its_image_id_is_accepted(tmp_path, manifest):
+    """Observed in the first real run: build_identity_kind is "image-id" and build_identity is the sha256 image id."""
+    image_id = "sha256:" + "e" * 64
+
+    def mutate(root):
+        for runtime in cs.RUNTIMES:
+            _write_provenance(root, runtime, build_identity=image_id, build_identity_kind="image-id",
+                              build_image_id=image_id, build_repo_digests=[])
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert summary["certified"] is True and summary["problems"] == []
+    toolchain = summary["runtimes"]["plain_java"]["toolchain"]
+    assert toolchain["build_identity_kind"] == "image-id" and toolchain["build_identity"] == image_id
+    assert toolchain["runtime_identity_kind"] == "repo-digest"
+
+
+@pytest.mark.parametrize("changes", [
+    {"build_identity_kind": "image-id", "build_identity": "sha256:" + "d" * 64},          # differs from build_image_id
+    {"build_identity_kind": "repo-digest", "build_identity": "sha256:" + "1" * 64},        # kind says repo digest, value is an id
+    {"build_identity_kind": "image-id", "build_identity": "maven-offline-springboot@sha256:" + "1" * 64},
+    {"build_identity_kind": "mystery"},
+    {"build_identity_kind": ""},
+])
+def test_the_build_identity_must_match_its_declared_kind(tmp_path, manifest, changes):
+    def mutate(root):
+        _write_provenance(root, "quarkus", **changes)
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert not summary["certified"] and any("quarkus" in p and "build_identity" in p for p in summary["problems"])
+
+
+@pytest.mark.parametrize("changes", [
+    {"runtime_identity_kind": "image-id", "runtime_identity": "sha256:" + "2" * 64},      # the runtime image must be pinned by repo digest
+    {"runtime_identity_kind": ""},
+])
+def test_the_runtime_image_must_be_pinned_by_repo_digest(tmp_path, manifest, changes):
+    def mutate(root):
+        _write_provenance(root, "micronaut", **changes)
+    summary, _ = build(tmp_path, manifest, mutate=mutate)
+    assert not summary["certified"] and any("micronaut" in p and "runtime_identity" in p for p in summary["problems"])
