@@ -136,19 +136,27 @@ CAPABILITIES: tuple[Capability, ...] = (
     Capability("records.packed_binary_fields", None, "PARTIAL", _G,
                "COMP / COMP-3 values are compared with GnuCOBOL (workload-comp*, workload-binary-values); the record-area "
                "BYTES of COMP, COMP-5 and COMP-3 fields are checked against records GnuCOBOL wrote, in its default and "
-               "IBM dialects (tests/integration/test_vsam_layout_oracle.py); real IBM output has not been read and "
-               "COMP-5 byte order is platform dependent (bytes are copied, never reordered)"),
+               "IBM dialects (tests/integration/test_vsam_layout_oracle.py); real IBM output has not been read.  "
+               "Between platforms with an explicit binary representation (engine.vsam.platform: IBM_ZOS documented only, "
+               "two GnuCOBOL presets differential-verified) binary fields are converted in width and byte order; "
+               "without explicit platforms a layout with binary fields is refused"),
     Capability("layout.derivation_from_cobol_record", None, "PARTIAL", _G,
                "engine.vsam.layout derives offsets and lengths of DISPLAY, COMP, COMP-5, COMP-3, SIGN SEPARATE, fixed "
                "OCCURS and an explicitly selected REDEFINES alternative; every derived field is read back from "
                "GnuCOBOL-written records in two dialects. Refused by name: OCCURS DEPENDING ON, SYNCHRONIZED, COMP-1/2, "
-               "an unselected REDEFINES, several FD records without a choice, a COPY inside an FD"),
-    Capability("records.variable_length_conversion", None, "NOT_IMPLEMENTED", "NONE",
-               "reconcile can split RDW records but conversion and migration are fixed-length only; "
-               "migrate_dataset refuses a variable-length dataset by name"),
+               "an unselected REDEFINES, several FD records without a choice.  A COPY inside an FD is expanded in place by "
+               "discovery (engine.transformation.fd_copybooks) so the FD has its record; an unresolvable member is an ERROR"),
+    Capability("records.variable_length_conversion", None, "PARTIAL", _G,
+               "engine.vsam.migrate_variable: IBM RDW framing (length including the descriptor), sequential and ESDS "
+               "datasets, layouts chosen by exact payload length (unique lengths), no binary fields, restart, independent "
+               "reconciliation; payloads of two layouts differential-checked against GnuCOBOL-written records (re-framed, "
+               "GnuCOBOL's own header differs).  Refused by name: variable KSDS, RRDS, binary fields in variable layouts, "
+               "spanned records"),
     Capability("migration.layout_driven_pipeline", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
                "engine.vsam.migrate: layout -> field-aware conversion -> rejected ledger -> KSDS order -> independent "
-               "reconciliation -> machine-readable report; ASCII to EBCDIC cp037, fixed records, KSDS/ESDS/sequential; "
+               "reconciliation -> machine-readable report; ASCII<->EBCDIC cp037 in either direction, fixed records, "
+               "KSDS/ESDS/sequential, unique and duplicate alternate keys validated (index structures not built), "
+               "per-FD assessment attached to discovery (engine.vsam.assess); "
                "no reader other than our own reconciliation has consumed the converted data"),
     Capability("migration.reconciliation_report", None, "IMPLEMENTED_NOT_RUNTIME_VERIFIED", "DETERMINISTIC_TEST",
                "engine.vsam.reconcile: counts, rejected records, duplicate keys, key set, ordering and hashes"),
