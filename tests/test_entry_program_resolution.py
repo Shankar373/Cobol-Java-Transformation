@@ -169,3 +169,35 @@ def test_no_source_returns_declared_value(service):
     )
     assert app.cobol_source_path is None
     assert service._resolve_entry_program(app) == "Main"
+
+@pytest.fixture
+def two_independent_programs(tmp_path):
+    """Two programs and no CALL between them: no single entry can be derived."""
+    for name in ("ALPHA", "BETA"):
+        (tmp_path / f"{name}.cob").write_text(
+            "       IDENTIFICATION DIVISION.\n"
+            f"       PROGRAM-ID. {name}.\n"
+            "       PROCEDURE DIVISION.\n"
+            "       MAIN-PARA.\n"
+            f"           DISPLAY '{name}'.\n"
+            "           STOP RUN.\n",
+            encoding="utf-8",
+        )
+    return tmp_path
+
+
+def test_placeholder_is_not_forwarded_when_no_single_entry_exists(service, two_independent_programs):
+    """G-15: "Main" was never a request, so an ambiguous application gets no entry
+    (and the generator then reports the ambiguity), not a bogus 'Main'."""
+    assert service._resolve_entry_program(_app(service, two_independent_programs, "Main")) == ""
+    assert service._resolve_entry_program(_app(service, two_independent_programs, "")) == ""
+
+
+def test_explicit_unknown_entry_is_forwarded_so_the_generator_refuses_it_by_name(
+    service, two_independent_programs,
+):
+    assert service._resolve_entry_program(_app(service, two_independent_programs, "NOPE")) == "NOPE"
+
+
+def test_explicit_valid_entry_is_resolved_among_independent_programs(service, two_independent_programs):
+    assert service._resolve_entry_program(_app(service, two_independent_programs, "beta")) == "BETA"

@@ -1293,7 +1293,12 @@ class Service:
         if len(roots) == 1:
             return roots[0]
 
-        return declared
+        # Discovery succeeded and proves no single entry.  The placeholder
+        # default ("Main") was never a request, so it is not forwarded as one:
+        # the generator then reports the real ambiguity instead of "Main
+        # matches no program".  An explicit non-placeholder value is forwarded
+        # and refused by name (G-15).
+        return "" if declared.lower() == "main" else declared
 
     def _generate_application(
         self,

@@ -27,6 +27,7 @@ import collections
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -49,12 +50,35 @@ def _load(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _fixture_files(repo: Path, app: str) -> list[Path]:
+    """The files of one fixture directory that belong to the repository.
+
+    Tracked files when the tree is a git checkout (so untracked leftovers such as
+    ``__pycache__`` from a local test run cannot change the hash); otherwise every
+    file except Python bytecode caches.
+    """
+    root = repo / "fixtures" / app
+    if not root.is_dir():
+        return []
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-z", "--", f"fixtures/{app}"],
+            capture_output=True, check=True, timeout=60).stdout.decode("utf-8")
+    except (OSError, subprocess.SubprocessError):
+        listed = ""
+    tracked = sorted(repo / name for name in listed.split("\0") if name)
+    if tracked:
+        return [p for p in tracked if p.is_file()]
+    return sorted(p for p in root.rglob("*")
+                  if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc")
+
+
 def fixture_manifest(repo: Path, applications: list[str]) -> dict:
-    """Hash every file of every corpus application's fixture directory."""
+    """Hash every repository file of every corpus application's fixture directory."""
     entries: list[str] = []
     for app in sorted(applications):
         root = repo / "fixtures" / app
-        files = sorted(p for p in root.rglob("*") if p.is_file()) if root.is_dir() else []
+        files = _fixture_files(repo, app)
         entries.append(f"{app}\0<dir:{'present' if root.is_dir() else 'missing'}>")
         for path in files:
             rel = path.relative_to(repo / "fixtures").as_posix()
@@ -163,8 +187,7 @@ def check_summary(summary: dict, repo: Path = REPO) -> list[str]:
     """Problems found when recomputing ``summary`` from the evidence files."""
     problems: list[str] = []
     for app in summary.get("fixtures", {}).get("applications", []):
-        root = repo / "fixtures" / app
-        if not root.is_dir() or not any(p.is_file() for p in root.rglob("*")):
+        if not _fixture_files(repo, app):
             problems.append(f"fixtures/{app}: directory is missing or empty, so its content is not covered by the manifest hash")
     if summary.get("schema") != SCHEMA or summary.get("schema_version") != SCHEMA_VERSION:
         return [f"unsupported schema {summary.get('schema')!r} v{summary.get('schema_version')!r}"]

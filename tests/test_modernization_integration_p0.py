@@ -145,7 +145,10 @@ def _await_terminal(svc: Service, run_id: str, timeout_s: float = 180.0):
 
 def _make_app(svc: Service, files: dict[str, str]) -> str:
     app = svc.create_application( target_runtime="spring_boot",
-        name="int-app", description="d", workload_id="wl-int", java_entrypoint="Main"
+        name="int-app", description="d", workload_id="wl-int",
+        # these tests prove wiring, not entrypoint choice; several have two
+        # independent programs, so the entry is requested (G-15: never guessed)
+        java_entrypoint="ALPHA"
     )
     svc.upload_cobol_source(
         app.id, {name: content.encode() for name, content in files.items()}
@@ -335,7 +338,7 @@ class TestDownloadProvenance:
         client = _fresh_client()
         app_id = client.post(
             "/applications",
-            json={ "target_runtime": "spring_boot","name": "dl", "workload_id": "wl-dl"},
+            json={ "target_runtime": "spring_boot","name": "dl", "workload_id": "wl-dl", "java_entrypoint": "ALPHA"},
         ).json()["id"]
         client.post(
             f"/applications/{app_id}/upload",

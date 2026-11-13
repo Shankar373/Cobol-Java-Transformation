@@ -56,6 +56,21 @@ Not reproducible as stated: "one duplicate keeps the plain name after renaming" 
 Not detectable offline by design: edits to the asserted `commit_sha` / `workflow_run_id` (no evidence file records them); the summary
 now says to verify them with `gh run view`. Not changed: the plan-level entry metadata (G-24) and the destination key `kind` check.
 
+## CI findings on a3ad2f0 and b44b86a (both failed the SystemaOps CI workflow; certification and supply chain succeeded)
+
+Two real defects of mine, found only in CI, fixed in the next commit:
+1. `certification_summary.json` fixture manifest hash included five untracked `__pycache__/*.pyc` files from local test runs, so it did not
+   reproduce on a clean checkout (3 jobs: coverage floor, hermetic Linux, hermetic Windows, plus the Docker job's copy of the test). The
+   manifest now covers git-tracked files only (no-git fallback skips bytecode caches).
+2. Seven Docker-lane-marked but Docker-free tests (`tests/test_modernization_integration_p0.py` x6, `tests/test_spring_boot_canonical_p0.py` x1)
+   send the UI placeholder `Main` for two independent programs; since G-15 that is refused. They test wiring, so they now request `ALPHA`.
+   The API no longer forwards the placeholder as a request when discovery proves no single entry, so the generator reports the real
+   ambiguity. My earlier "full hermetic" local run did not set `RUN_DOCKER_TESTS=1`, so it skipped those tests; that is how it was missed.
+
+Behaviour to note for the owner: an application whose programs have no single call-graph root (for example two independent programs) can no
+longer be modernized from the UI, which never sends an entrypoint. It must be given `java_entrypoint`. This is the intended fail-closed result of
+G-15, and no certified corpus application is affected (all 55 verdicts unchanged).
+
 ## Open items
 
 G-22 `EXEC CICS` inner verbs read as file verbs; G-23 discovery owner map; G-24 plan-level entry metadata fallback; G-25 CI does not

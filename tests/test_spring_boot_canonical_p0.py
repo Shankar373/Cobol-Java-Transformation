@@ -90,7 +90,8 @@ def _await_terminal(svc: Service, run_id: str, timeout_s: float = 180.0):
 def _make_app(svc: Service, files: dict[str, str]) -> str:
     app = svc.create_application( target_runtime="spring_boot",
         name="spring-app", description="d", workload_id="wl-spring",
-        java_entrypoint="Main",
+        # wiring test with independent programs: the entry is requested (G-15)
+        java_entrypoint="ALPHA",
     )
     svc.upload_cobol_source(
         app.id, {name: content.encode() for name, content in files.items()}
