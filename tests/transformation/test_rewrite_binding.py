@@ -214,3 +214,92 @@ class TestOwnershipIsAFileSectionFact:
             CONVENTIONAL, "    WRITE ACCT-REC FROM WS-BUF.\n    READ ACCT-FILE.\n"
         )
         assert not parser.diagnostics.errors
+
+
+THREE_RECORD_FD = """IDENTIFICATION DIVISION.
+PROGRAM-ID. TST.
+ENVIRONMENT DIVISION.
+FILE-CONTROL.
+SELECT IN-F ASSIGN TO "I.DAT".
+DATA DIVISION.
+FILE SECTION.
+FD IN-F.
+01 REC-A PIC X(5).
+01 REC-B PIC X(5).
+01 REC-C PIC X(5).
+WORKING-STORAGE SECTION.
+01 WS-BUF PIC X(5).
+PROCEDURE DIVISION.
+MAIN.
+"""
+
+THREE_FDS_SAME_RECORD = """IDENTIFICATION DIVISION.
+PROGRAM-ID. TST.
+ENVIRONMENT DIVISION.
+FILE-CONTROL.
+SELECT A ASSIGN TO "A.DAT".
+SELECT B ASSIGN TO "B.DAT".
+SELECT C ASSIGN TO "C.DAT".
+DATA DIVISION.
+FILE SECTION.
+FD A.
+01 REC PIC X(5).
+FD B.
+01 REC PIC X(5).
+FD C.
+01 REC PIC X(5).
+WORKING-STORAGE SECTION.
+01 WS-BUF PIC X(5).
+PROCEDURE DIVISION.
+MAIN.
+"""
+
+UNRELATED_NAMES = """IDENTIFICATION DIVISION.
+PROGRAM-ID. TST.
+ENVIRONMENT DIVISION.
+FILE-CONTROL.
+SELECT A ASSIGN TO "A.DAT".
+SELECT B ASSIGN TO "B.DAT".
+DATA DIVISION.
+FILE SECTION.
+FD A.
+01 REC-XREF PIC X(5).
+FD B.
+01 REC-OF-FOO PIC X(5).
+WORKING-STORAGE SECTION.
+01 WS-BUF PIC X(5).
+PROCEDURE DIVISION.
+MAIN.
+"""
+
+
+class TestReviewFindings:
+    def test_read_binds_the_fds_buffer_record_not_a_middle_01(self):
+        from engine.transformation.ir import ReadStatement
+
+        parser, statements = _parse(THREE_RECORD_FD, "    READ IN-F.\n")
+        read = [s for s in statements if isinstance(s, ReadStatement)][0]
+        assert read.record_name == "REC-C"  # the FD's record_name, as everywhere else
+        assert not parser.diagnostics.errors
+
+    def test_every_01_of_a_three_record_fd_is_an_owner_key(self):
+        _, statements = _parse(
+            THREE_RECORD_FD,
+            "    WRITE REC-A FROM WS-BUF.\n    WRITE REC-B FROM WS-BUF.\n    WRITE REC-C FROM WS-BUF.\n",
+        )
+        assert [s.file_name for s in statements if isinstance(s, WriteStatement)] == ["IN-F"] * 3
+
+    def test_a_record_declared_under_three_fds_is_ambiguous(self):
+        parser, statements = _parse(THREE_FDS_SAME_RECORD, "    WRITE REC FROM WS-BUF.\n")
+        write = [s for s in statements if isinstance(s, WriteStatement)][0]
+        assert write.file_name == ""
+        assert any("ambiguous" in e.message and all(f in e.message for f in ("A", "B", "C"))
+                   for e in parser.diagnostics.errors)
+
+    def test_unrelated_names_sharing_a_prefix_do_not_cause_a_false_ambiguity_message(self):
+        parser, statements = _parse(UNRELATED_NAMES, "    WRITE REC FROM WS-BUF.\n")
+        write = [s for s in statements if isinstance(s, WriteStatement)][0]
+        assert write.file_name == ""
+        errors = [e.message for e in parser.diagnostics.errors]
+        assert any("no FD in the FILE SECTION declares this record" in m for m in errors)
+        assert not any("ambiguous" in m for m in errors)

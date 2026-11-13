@@ -135,13 +135,14 @@ def test_identical_migration_reconciles_and_reports_every_fact():
     assert d["source"]["name"] == "SRC" and d["destination"]["name"] == "DST" and d["failures"] == []
 
 
-def test_destination_may_be_reordered_only_if_still_in_key_order():
+def test_without_a_primary_key_the_key_checks_are_skipped_and_the_result_is_only_partial():
     src = _data("0002", "0001")  # source not in key order (a load file)
     dst = _data("0001", "0002")
     sequential_source = DatasetDefinition("SRC", Organization.SEQUENTIAL, record_length=10)
     report = reconcile_migration(sequential_source, src, ksds("DST"), dst)
     # sequential source has no primary key -> keys unchecked, content still compared as a multiset
-    assert report.status == "RECONCILED" and any("no primary key" in w for w in report.warnings)
+    # keys were not checked, so this must not read as a full reconciliation
+    assert report.status == "RECONCILED_PARTIAL" and any("no primary key" in w for w in report.warnings)
 
 
 # --- reconciliation: every failure is named ----------------------------------------------
@@ -262,3 +263,51 @@ def test_report_is_deterministic():
     a = reconcile_migration(ksds(), src, ksds("D"), src).to_dict()
     b = reconcile_migration(ksds(), src, ksds("D"), src).to_dict()
     assert a == b
+
+
+# --- review findings (independent review of a3ad2f0) ---------------------------------------------
+
+def seq(name="S", length=10):
+    return DatasetDefinition(name, Organization.SEQUENTIAL, record_length=length)
+
+
+def test_reordered_sequential_destination_is_not_reconciled():
+    src = _data("0001", "0002", "0003")
+    dst = _data("0003", "0001", "0002")
+    report = reconcile_migration(seq("SRC"), src, seq("DST"), dst)
+    assert report.status == "FAILED" and any("different order" in f for f in report.failures)
+    assert reconcile_migration(seq("SRC"), src, seq("DST"), src).status == "RECONCILED_PARTIAL"
+
+
+def test_rejected_first_occurrence_does_not_make_the_kept_duplicate_a_failure():
+    src = _data("0001", "0001", "0002")  # record 1 rejected, record 2 (same key) kept
+    report = reconcile_migration(ksds(), src, ksds("D"), _data("0001", "0002"),
+                                 rejected=(RejectedRecord(1, "bad record"),))
+    assert not any("repeats the primary key" in f for f in report.failures)
+
+
+def test_a_kept_record_that_repeats_a_kept_key_still_fails():
+    src = _data("0001", "0001")
+    report = reconcile_migration(ksds(), src, ksds("D"), src)
+    assert any("repeats the primary key of record 1" in f for f in report.failures)
+
+
+def test_a_rejection_the_tool_cannot_justify_is_not_a_full_reconciliation():
+    src = _data("0001", "0002")
+    lost = reconcile_migration(ksds(), src, ksds("D"), _data("0001"),
+                               rejected=(RejectedRecord(2, "dropped by migrator"),))
+    assert lost.status == "RECONCILED_PARTIAL" and not lost.reconciled
+    assert any("not independently justified" in w for w in lost.warnings)
+    dup = _data("0001", "0001")
+    justified = reconcile_migration(ksds(), dup, ksds("D"), _data("0001"),
+                                    rejected=(RejectedRecord(2, "duplicate key"),))
+    assert justified.status == "RECONCILED"
+
+
+def test_keys_with_no_counterpart_in_the_other_encoding_fail_instead_of_raising():
+    ascii_ds = ksds("SRC")
+    ebcdic_ds = ksds("DST", encoding=Encoding.EBCDIC_CP037)
+    src = b"\xe9" + b"001" + b"payload".ljust(6)  # byte >= 0x80 is not ASCII
+    dst = to_stored_bytes("A001payload"[:10].ljust(10), Encoding.EBCDIC_CP037)
+    report = reconcile_migration(ascii_ds, src, ebcdic_ds, dst)
+    assert report.status == "FAILED" and any("no counterpart in EBCDIC_CP037" in f for f in report.failures)

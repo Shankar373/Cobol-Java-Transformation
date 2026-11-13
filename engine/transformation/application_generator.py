@@ -243,7 +243,11 @@ class ApplicationGenerator:
         if len(program_classes) == 1:
             return program_classes[0], ""
 
-        called = {_normalise(target) for _, target in call_edges}
+        # a program that calls itself (recursion) is still a root
+        called = {
+            _normalise(target) for source, target in call_edges
+            if _normalise(source) != _normalise(target)
+        }
         roots = [
             name for name in program_classes
             if _normalise(name) not in called

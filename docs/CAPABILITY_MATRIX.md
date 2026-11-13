@@ -254,3 +254,20 @@ on that date — the capability-truth block parsed straight out of `.github/work
 or job outcomes. See `docs/verification/RUNTIME_PROOF_MATRIX.md` for per-workload runtime
 proof and `docs/audits/DOCKER_RUNTIME_IMAGE_AUDIT_2026-10-22.md` for the image
 provenance audit.
+
+## Update 2026-11-13 (proof-integrity fixes and Stage 1 slice; commit a3ad2f0)
+
+- **File ownership is a FILE SECTION fact (G-14).** `WRITE` / `REWRITE` bind to the FD that declares the record (every 01 of
+  every FD); `READ` takes its record from the file's FD. A record no FD declares, or several FDs declare, is refused with a
+  named diagnostic. The `-REC` to `-FILE` naming fallback no longer exists. Tests: `tests/transformation/test_rewrite_binding.py`.
+- **The entrypoint is never guessed (G-15).** A requested entrypoint must match exactly one program; with none requested the
+  call graph must prove a single root; otherwise generation is refused naming the candidates. Tests:
+  `tests/transformation/test_entrypoint_selection.py`. Corpus effect: none (the multi-root fixtures were already refused).
+- **Certification numbers are checked against evidence (G-17).** `docs/reports/evidence/certification/certification_summary.json`
+  and `tests/test_certification_summary.py`.
+- **Stage 1 model (new, not a product capability).** `engine/vsam/`: dataset model with per-capability classes, EBCDIC key
+  collation and a migration reconciliation report. Status `IMPLEMENTED_NOT_RUNTIME_VERIFIED`, evidence `DETERMINISTIC_TEST`;
+  ESDS and RBA/RRN addressing are `NOT_IMPLEMENTED`; nothing is `IBM_RUNTIME_VERIFIED`. See
+  `docs/roadmap/STAGE_1_VSAM_IMPLEMENTATION_PLAN.md` and `docs/roadmap/ENTERPRISE_MODERNIZATION_GAP_MATRIX.md`.
+- Known parser caveat: the inner `READ` / `WRITE DATASET(...)` of an `EXEC CICS` block is read as a COBOL file verb (gap G-22);
+  such programs are refused by the capability gate, so no verdict is affected.

@@ -10,7 +10,7 @@ Architecture:
         ↓
     InternalNativeJavaProducer (experimental, test-only)
     OpenSourceCOBOL4JProducerAdapter (alternative)
-    Future producers (LLM, commercial, etc.)
+    Future deterministic producers (rule-based or licensed; never an LLM)
         ↓
     TransformationResult
         ↓

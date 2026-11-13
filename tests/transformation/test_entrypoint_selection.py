@@ -150,3 +150,15 @@ def test_generate_derives_the_root_of_a_call_chain(tmp_path):
 def test_placeholder_does_not_rescue_an_ambiguous_application(tmp_path, requested):
     result = _generate(tmp_path, {"first": _program("FIRST"), "second": _program("SECOND")}, requested)
     assert result.success is False and result.entrypoint == ""
+
+
+def test_a_self_calling_program_is_still_a_root():
+    files = _files("Zeta", "Alpha")
+    # Alpha calls itself (recursion) and nothing else calls Alpha; Zeta calls Alpha.
+    # Alpha is called by Zeta, so Zeta is the single root even with the self edge.
+    assert select(files, "", call_edges=(("Alpha", "Alpha"), ("Zeta", "Alpha"))) == ("Zeta", "")
+    # Only a self edge: both programs are uncalled roots, so this stays ambiguous (never guessed).
+    entry, error = select(files, "", call_edges=(("Alpha", "Alpha"),))
+    assert entry == "" and "ambiguous" in error
+    # A lone recursive root with a callee: the recursion must not hide it.
+    assert select(_files("Main", "Leaf"), "", call_edges=(("Main", "Main"), ("Main", "Leaf"))) == ("Main", "")

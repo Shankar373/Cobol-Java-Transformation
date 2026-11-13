@@ -600,6 +600,7 @@ class CobolParser:
         # never a naming convention.
         self._record_owner_ambiguous: dict[str, tuple[str, ...]] = {}
         self._file_records: dict[str, tuple[str, ...]] = {}
+        self._file_buffer_record: dict[str, str] = {}
 
     @property
     def diagnostics(self) -> DiagnosticCollector:
@@ -711,6 +712,7 @@ class CobolParser:
         self._record_owner = {}
         self._record_owner_ambiguous = {}
         self._file_records = {}
+        self._file_buffer_record = {}
         # Text that cannot be read faithfully (a continuation line that
         # continues nothing or resumes an open literal without a quote; a
         # literal holding both quote characters) is refused: never guess.
@@ -840,9 +842,14 @@ class CobolParser:
         # more than one FD declares, has no provable owner and is refused.
         owners: dict[str, list[str]] = {}
         for fd in file_section:
-            records = [fd.record_name] if fd.record_name else []
-            records += [g.name for g in fd.record_groups if g.name]
+            # Declaration order: the 01 groups; the buffer record is the one
+            # FileDefinition.record_name names (the last 01), as everywhere else.
+            records = [g.name for g in fd.record_groups if g.name]
+            if fd.record_name and fd.record_name not in records:
+                records.append(fd.record_name)
             self._file_records[fd.name] = tuple(dict.fromkeys(records))
+            if fd.record_name:
+                self._file_buffer_record[fd.name] = fd.record_name
             for record in dict.fromkeys(records):
                 if fd.name and fd.name not in owners.setdefault(record, []):
                     owners[record].append(fd.name)
@@ -2824,9 +2831,8 @@ class CobolParser:
         file_name = raw_file
 
         # The record comes from the file's own FD, never from its name.
-        records = self._file_records.get(file_name, ())
-        record_name = records[-1] if records else ""
-        if file_name and not records:
+        record_name = self._file_buffer_record.get(file_name, "")
+        if file_name and not record_name:
             self._diagnostics.error(
                 DiagnosticCode.UNDEFINED_FILE,
                 f"READ {file_name}: no FD in the FILE SECTION declares this "
@@ -2913,10 +2919,11 @@ class CobolParser:
             # The qualified-name pass renames a record declared twice
             # (``NAME`` -> ``NAME-X``, ``NAME-OF-...``), so the bare name is
             # no longer an owner key even though several FDs declare it.
+            pattern = re.compile(re.escape(record_name) + r"(?:-X)+")
             renamed = {
                 fd
                 for declared, fd in self._record_owner.items()
-                if declared.startswith((record_name + "-X", record_name + "-OF-"))
+                if pattern.fullmatch(declared)
             }
             fds = tuple(sorted(renamed)) if len(renamed) > 1 else None
         if fds:

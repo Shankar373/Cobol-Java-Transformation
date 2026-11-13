@@ -125,43 +125,72 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
                         f"{len(valid_rejected)} rejected = {len(kept)} expected")
 
     duplicate_keys = 0
+    justified_rejections: set[int] = set()
+    keys_checked = False
     key = source.primary_key
     dkey = destination.primary_key
     if key is None or dkey is None:
         warnings.append("no primary key on source or destination: key set and key order were not checked")
     else:
-        seen: dict[bytes, int] = {}
+        keys_checked = True
+        seen_any: dict[bytes, int] = {}
+        seen_kept: dict[bytes, int] = {}
         for number, record in enumerate(src, start=1):
             k = key_bytes(record, key)
-            if k in seen:
+            if k in seen_any:
                 duplicate_keys += 1
-                if number not in valid_rejected:
-                    failures.append(f"source record {number} repeats the primary key of record {seen[k]} "
+                if number in valid_rejected:
+                    justified_rejections.add(number)  # a repeated key is provably a reason to reject
+            seen_any.setdefault(k, number)
+            if number not in valid_rejected:
+                if k in seen_kept:
+                    failures.append(f"source record {number} repeats the primary key of record {seen_kept[k]} "
                                     "and was not rejected")
-            else:
-                seen[k] = number
-        expected = collections.Counter(
-            collation_key(key_bytes(r, key), key, source.encoding, destination.encoding) for _, r in kept)
+                seen_kept.setdefault(k, number)
+        try:
+            expected = collections.Counter(
+                collation_key(key_bytes(r, key), key, source.encoding, destination.encoding) for _, r in kept)
+        except (UnicodeDecodeError, UnicodeEncodeError) as exc:
+            failures.append(f"a source key has no counterpart in {destination.encoding.value}: {exc.reason}")
+            expected = collections.Counter()
+            keys_checked = False
         actual_keys = [key_bytes(r, dkey) for r in dst]
         actual = collections.Counter(actual_keys)
-        missing = sum((expected - actual).values())
-        unexpected = sum((actual - expected).values())
-        if missing:
-            failures.append(f"{missing} source key(s) are missing from the destination")
-        if unexpected:
-            failures.append(f"{unexpected} destination key(s) have no source record")
+        if keys_checked:
+            missing = sum((expected - actual).values())
+            unexpected = sum((actual - expected).values())
+            if missing:
+                failures.append(f"{missing} source key(s) are missing from the destination")
+            if unexpected:
+                failures.append(f"{unexpected} destination key(s) have no source record")
         if dkey.unique and any(n > 1 for n in actual.values()):
             failures.append(f"destination has {sum(n - 1 for n in actual.values() if n > 1)} duplicate "
                             "primary key(s) in a unique-key dataset")
-        if destination.organization is Organization.KSDS and not is_ascending(
-                [collation_key(k, dkey, destination.encoding, destination.encoding) for k in actual_keys]):
-            failures.append(f"destination records are not in {destination.encoding.value} key order")
+        if destination.organization is Organization.KSDS:
+            try:
+                ordered = is_ascending(
+                    [collation_key(k, dkey, destination.encoding, destination.encoding) for k in actual_keys])
+            except (UnicodeDecodeError, UnicodeEncodeError) as exc:
+                ordered = False
+                failures.append(f"a destination key cannot be ordered in {destination.encoding.value}: {exc.reason}")
+            else:
+                if not ordered:
+                    failures.append(f"destination records are not in {destination.encoding.value} key order")
 
     content_compared = source.encoding is destination.encoding and \
         source.record_format is destination.record_format and source.record_length == destination.record_length
     if content_compared:
-        expected_records = collections.Counter(record for _, record in kept)
-        if expected_records != collections.Counter(dst):
+        kept_records = [record for _, record in kept]
+        if destination.organization is Organization.KSDS:
+            # a KSDS is reordered by key; its order was checked above
+            same_content = collections.Counter(kept_records) == collections.Counter(dst)
+        else:
+            # sequential and entry-sequenced datasets keep arrival order
+            same_content = kept_records == dst
+            if not same_content and collections.Counter(kept_records) == collections.Counter(dst):
+                failures.append("destination records are the source records in a different order")
+                same_content = True
+        if not same_content:
             failures.append("destination record content differs from the source records")
     else:
         warnings.append("record content was not compared: encoding or record format differs and no field "
@@ -169,8 +198,13 @@ def reconcile_migration(source: DatasetDefinition, source_data: bytes,
     if valid_rejected:
         warnings.append(f"{len(valid_rejected)} source record(s) were rejected on purpose "
                         f"({'; '.join(sorted({r.reason for r in rejected})[:3])})")
+    unverified = sorted(valid_rejected - justified_rejections)
+    if unverified:
+        warnings.append(f"{len(unverified)} rejected record(s) were not independently justified "
+                        f"(first: record {unverified[0]}); only a repeated primary key is verified here")
 
-    status = "FAILED" if failures else ("RECONCILED" if content_compared else "RECONCILED_PARTIAL")
+    fully_checked = content_compared and keys_checked and not unverified
+    status = "FAILED" if failures else ("RECONCILED" if fully_checked else "RECONCILED_PARTIAL")
     return ReconciliationReport(
         status=status, source=_identity(source, source_data), destination=_identity(destination, destination_data),
         source_record_count=len(src), destination_record_count=len(dst),

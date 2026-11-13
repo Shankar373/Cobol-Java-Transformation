@@ -12,6 +12,8 @@ Current truth, in order:
 | What is certified, and what is not? | [reports/PHASE5_FINAL_CERTIFICATION.md](reports/PHASE5_FINAL_CERTIFICATION.md) |
 | Can it be released / what blocks production? | [reports/PHASE5_RELEASE_READINESS.md](reports/PHASE5_RELEASE_READINESS.md) |
 | Which COBOL constructs are supported, with which proof? | [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md), [SEMANTIC_PROOF_MATRIX.md](SEMANTIC_PROOF_MATRIX.md) |
+| What does a real enterprise modernization need, and what is the staged plan? | [research/REAL_ENTERPRISE_COBOL_TO_JAVA_REQUIREMENTS.md](research/REAL_ENTERPRISE_COBOL_TO_JAVA_REQUIREMENTS.md), [roadmap/ENTERPRISE_MODERNIZATION_GAP_MATRIX.md](roadmap/ENTERPRISE_MODERNIZATION_GAP_MATRIX.md), [roadmap/STAGE_1_VSAM_IMPLEMENTATION_PLAN.md](roadmap/STAGE_1_VSAM_IMPLEMENTATION_PLAN.md), [Stage 2](roadmap/STAGE_2_JCL_DB2_IMPLEMENTATION_PLAN.md), [Stage 3](roadmap/STAGE_3_CICS_IMS_MQ_IMPLEMENTATION_PLAN.md), [Stage 4](roadmap/STAGE_4_MAINFRAME_DEPENDENCY_ELIMINATION.md) |
+| What exactly was verified on the current head? | [reports/EXACT_HEAD_ENTERPRISE_BASELINE.md](reports/EXACT_HEAD_ENTERPRISE_BASELINE.md), [reports/ACTIVE_ENGINEERING_CHECKPOINT.md](reports/ACTIVE_ENGINEERING_CHECKPOINT.md) |
 | What is known to be wrong or missing? | [KNOWN_ISSUES.md](KNOWN_ISSUES.md) |
 | How is it built? | [ARCHITECTURE.md](ARCHITECTURE.md), [RUNTIME_ADAPTERS.md](RUNTIME_ADAPTERS.md), [TRUST_BOUNDARY.md](TRUST_BOUNDARY.md) |
 | How is it secured? | [security/PRODUCTION_SECURITY.md](security/PRODUCTION_SECURITY.md), [reports/PHASE4_SECURITY_PRODUCTION_READINESS.md](reports/PHASE4_SECURITY_PRODUCTION_READINESS.md) |

@@ -358,6 +358,7 @@
   "schema": "systemaops.certification_summary",
   "schema_version": 1,
   "source": {
+    "assertion_note": "commit_sha and workflow_run_id are asserted by whoever built this summary; no evidence file records them, so `check` cannot recompute them. Verify with `gh run view <run id> --json headSha,conclusion`.",
     "commit_sha": "801d2315b150b732ffa8bd5c3391c0bae684b2c4",
     "workflow": "certification.yml",
     "workflow_run_id": "43188835053",

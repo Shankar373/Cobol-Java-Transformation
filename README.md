@@ -36,6 +36,8 @@ command mode only. Full list: [Validation summary and what is not proven](#valid
 | What is proven, partial or unsupported, per construct | [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md), [`docs/SEMANTIC_PROOF_MATRIX.md`](docs/SEMANTIC_PROOF_MATRIX.md) |
 | Open gaps and blockers, ranked | [`docs/FINAL_GAP_REGISTER.md`](docs/FINAL_GAP_REGISTER.md) |
 | The independent audit of the whole repository | [`docs/FINAL_MASTER_AUDIT_REPORT.md`](docs/FINAL_MASTER_AUDIT_REPORT.md) |
+| What a real enterprise modernization needs, and the staged plan (VSAM, JCL + Db2, CICS/IMS/MQ, mainframe exit) | [`docs/research/REAL_ENTERPRISE_COBOL_TO_JAVA_REQUIREMENTS.md`](docs/research/REAL_ENTERPRISE_COBOL_TO_JAVA_REQUIREMENTS.md), [`docs/roadmap/ENTERPRISE_MODERNIZATION_GAP_MATRIX.md`](docs/roadmap/ENTERPRISE_MODERNIZATION_GAP_MATRIX.md) |
+| The machine-checked certification numbers behind the counts above | [`docs/reports/evidence/certification/certification_summary.json`](docs/reports/evidence/certification/certification_summary.json) |
 | Which documents are current and which are history | [`docs/README.md`](docs/README.md) |
 | To run it | [Quick start](#quick-start) |
 

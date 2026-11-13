@@ -138,3 +138,33 @@ def test_missing_toolchain_identity_is_stated_not_invented(committed):
     toolchain = committed["toolchain"]
     assert toolchain["reference_runtime"] == "GnuCOBOL 3.1.2"
     assert toolchain["image_identities"] is None and toolchain["image_identities_note"]
+
+
+def test_a_missing_or_empty_fixture_directory_is_a_problem_not_a_hash_of_nothing(tmp_path, committed):
+    repo = _evidence_copy(tmp_path)
+    good = cs.build_summary(commit_sha="c" * 40, run_id="3", repo=repo)
+    problems = cs.check_summary(good, repo)
+    assert any("directory is missing or empty" in p for p in problems)
+
+
+def test_commit_and_run_id_are_asserted_not_recomputable_and_the_summary_says_so(committed):
+    """No evidence file records the commit or run id, so ``check`` cannot detect an edit to them;
+    the summary states that they must be verified against GitHub instead of implying otherwise."""
+    assert "gh run view" in committed["source"]["assertion_note"]
+    with pytest.raises(ValueError):
+        cs.build_summary(commit_sha="not-a-sha", run_id="1")
+
+
+def test_edited_not_proven_or_toolchain_is_detected(committed):
+    for edit in (
+        lambda s: s.__setitem__("not_proven", []),
+        lambda s: s["toolchain"].__setitem__("reference_runtime", "IBM Enterprise COBOL"),
+    ):
+        tampered = copy.deepcopy(committed)
+        edit(tampered)
+        assert cs.check_summary(tampered), edit
+
+
+def test_documentation_that_states_no_corpus_count_validates_nothing_and_is_reported(committed):
+    problems = cs.check_documentation(committed, "A readme with no certification numbers at all.", "doc.md")
+    assert problems and "nothing was validated" in problems[0]

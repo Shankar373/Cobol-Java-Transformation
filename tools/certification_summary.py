@@ -137,6 +137,10 @@ def build_summary(*, commit_sha: str, run_id: str, repo: Path = REPO,
             "workflow": "certification.yml",
             "workflow_run_id": str(run_id),
             "workflow_run_url": f"https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/{run_id}",
+            "assertion_note": (
+                "commit_sha and workflow_run_id are asserted by whoever built this summary; no evidence file "
+                "records them, so `check` cannot recompute them. Verify with `gh run view <run id> --json "
+                "headSha,conclusion`."),
         },
         "fixtures": {**fixture_manifest(repo, first), "same_applications_on_every_runtime": same_apps},
         "runtimes": runtimes,
@@ -158,6 +162,10 @@ def build_summary(*, commit_sha: str, run_id: str, repo: Path = REPO,
 def check_summary(summary: dict, repo: Path = REPO) -> list[str]:
     """Problems found when recomputing ``summary`` from the evidence files."""
     problems: list[str] = []
+    for app in summary.get("fixtures", {}).get("applications", []):
+        root = repo / "fixtures" / app
+        if not root.is_dir() or not any(p.is_file() for p in root.rglob("*")):
+            problems.append(f"fixtures/{app}: directory is missing or empty, so its content is not covered by the manifest hash")
     if summary.get("schema") != SCHEMA or summary.get("schema_version") != SCHEMA_VERSION:
         return [f"unsupported schema {summary.get('schema')!r} v{summary.get('schema_version')!r}"]
     source = summary.get("source", {})
@@ -175,6 +183,11 @@ def check_summary(summary: dict, repo: Path = REPO) -> list[str]:
                     problems.append(f"{runtime}.{key}: summary {(have or {}).get(key)!r} != evidence {want.get(key)!r}")
     if summary.get("fixtures") != rebuilt["fixtures"]:
         problems.append("fixtures: manifest hash or application list differs from the fixtures directory")
+    if not summary.get("not_proven"):
+        problems.append("not_proven is empty: a summary must state what it does not prove")
+    for section in ("source", "toolchain", "not_proven", "schema", "schema_version"):
+        if summary.get(section) != rebuilt[section]:
+            problems.append(f"{section}: differs from the value rebuilt from the evidence")
     for runtime in RUNTIMES:
         block = rebuilt["runtimes"][runtime]
         if block["status"] != "CERTIFIED":
@@ -198,6 +211,8 @@ def check_documentation(summary: dict, text: str, name: str) -> list[str]:
     if claim is None:
         return [f"{name}: runtimes disagree, so no single corpus count can be published"]
     problems = []
+    if not re.search(r"\d+ of \d+ (?:fixture )?applications? VERIFIED", text):
+        problems.append(f"{name}: states no corpus VERIFIED count, so nothing was validated against the evidence")
     for found in re.finditer(r"(\d+) of (\d+) (?:fixture )?applications? VERIFIED", text):
         if (int(found.group(1)), int(found.group(2))) != (claim["verified"], claim["applications"]):
             problems.append(f"{name}: states {found.group(0)!r}, evidence says "
