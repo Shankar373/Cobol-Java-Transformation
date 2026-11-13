@@ -15,14 +15,15 @@ Run links: `https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs
 | `a3ad2f02` | G-14, G-15, G-17, Stage 1 model | **failure**, 43386580797 (its Docker job failed; reason not examined, superseded by the next commit) | success, 43386580750 | success, 43386580824 |
 | `b44b86a9` | review fixes + docs | **failure**, 43388072306: manifest-hash test (4 jobs) and 7 Docker-lane wiring tests | success, 43388072338 | success, [43388072287](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43388072287) |
 | `06d7b03b` | fixes for both failures above | **failure** so far, 43397714066: the manifest-hash test, which depended on platform path ordering, failed in the Linux hermetic suite and the coverage floor; Windows hermetic passed; its Docker job was still running when this was written (PENDING) | success, 43397714109 | success, [43397714086](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43397714086) |
-| `801047b8` | platform-independent manifest ordering | PENDING, [43399142871](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43399142871): lint, type check, both capability gates, both frontend builds, **Linux hermetic, coverage floor and Windows hermetic all success**; the Docker job was still running when this was written | PENDING | skipped (no `[certify]` tag) |
-| `4a90d2d1` | Stage 1 field-aware conversion, docs (current head when written) | PENDING, 43400942381 | PENDING, 43400942506 | skipped (no `[certify]` tag), 43400942378 |
+| `801047b8` | platform-independent manifest ordering | **success**, [43399142871](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43399142871): all 10 jobs, including the Docker/GnuCOBOL job, the Linux and Windows hermetic suites and the coverage floor | success, 43399142343 | skipped (no `[certify]` tag), 43399142766 |
+| `4a90d2d1` | Stage 1 field-aware conversion, docs | PENDING, 43400942381: 9 of 10 jobs success (both hermetic suites, coverage floor, lint, type check, gates, frontend); the Docker job was still running when this was written | success, 43400942506 | skipped (no `[certify]` tag), 43400942378 |
 
-The three CI failures were defects of mine, found only in CI, and fixed in the next commit each time (details in the checkpoint). None was
+The three CI failures (`a3ad2f0`, `b44b86a`, `06d7b03`) were defects of mine, found only in CI, and fixed in the next commit each time (details in the checkpoint). None was
 fixed by weakening or skipping a test.
 
-**Is the exact head corpus-certified?** The head commit itself was not (certification runs only on `[certify]` commits and manual
-dispatch). The certification of record is run 43397714086 on `06d7b03`. Between `06d7b03` and the head, `engine/` and `api/` changed
+**Is the exact head corpus-certified?** `4a90d2d` was not (certification runs only on `[certify]` commits and manual dispatch). The commit that
+carries this report is tagged `[certify]` so its own certification run exists; its result is not in this file (a file cannot hold the result of the
+commit that contains it) and is reported in the final report and the checkpoint. The certification of record is run 43397714086 on `06d7b03`. Between `06d7b03` and the head, `engine/` and `api/` changed
 only inside `engine/vsam/` (three files, offline modules not on any product path); everything else is tests, tools, evidence and
 documents. Treat that as "certified code plus an unconnected module", not as a fresh certification of the head.
 
