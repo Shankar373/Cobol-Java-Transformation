@@ -164,3 +164,60 @@ def test_a_tampered_stored_output_is_not_served(client):
 def test_an_oversized_dataset_is_refused(client, monkeypatch):
     monkeypatch.setattr(vsam_migration, "MAX_DATASET_BYTES", 10)
     assert post(client, customer("A001", "alpha")).status_code == 400
+
+
+# --- security review findings ---------------------------------------------------------------------------------------------
+
+def test_two_programs_declaring_the_file_with_different_keys_are_refused(client, tmp_path):
+    workspace = next((tmp_path / "src").parent.glob("src"))
+    other = PROGRAM.replace("PROGRAM-ID. CUSTPGM.", "PROGRAM-ID. OTHERPGM.").replace(
+        "RECORD KEY IS CUST-ID.", "RECORD KEY IS CUST-NAME.")
+    (workspace / "OTHERPGM.cob").write_text(other, encoding="utf-8")
+    response = post(client, customer("A001", "alpha"))
+    assert response.status_code == 400 and "declared differently" in response.text
+
+
+def test_discovery_errors_refuse_the_migration_instead_of_trusting_a_partial_picture(client, tmp_path):
+    workspace = next((tmp_path / "src").parent.glob("src"))
+    (workspace / "BROKEN.cob").write_bytes(b"       IDENTIFICATION DIVISION.\n       PROGRAM-ID. BAD.\n\xff\xfe\x80\n")
+    response = post(client, customer("A001", "alpha"))
+    assert response.status_code == 400 and "discovery" in response.text.lower()
+
+
+def test_the_rejected_list_in_the_report_is_capped_but_the_count_is_exact(client, monkeypatch):
+    monkeypatch.setattr(vsam_migration, "MAX_REPORTED_REJECTIONS", 3)
+    bad = bytes([0x1A, 0x00, 0x00, 0x00, 0x0C])
+    src = b"".join(customer(f"K{i:03d}", "x", bal=bad) for i in range(8))
+    body = post(client, src).json()
+    assert body["rejected_record_count"] == 8 and len(body["rejected"]) == 3
+    assert body["rejected_truncated"] is True
+
+
+def test_ids_with_a_trailing_newline_or_dot_names_are_rejected(client):
+    assert client.get("/applications/app-1/vsam/migrations/vm-0123456789abcdef%0A").status_code in (400, 404)
+    with pytest.raises(vsam_migration.VsamRequestError):
+        vsam_migration._dir("..", "vm-0123456789abcdef")
+
+
+def test_an_existing_id_is_not_overwritten_with_a_different_result(client):
+    body = post(client, customer("A001", "alpha")).json()
+    forged = dict(body, output_sha256="0" * 64)
+    with pytest.raises(vsam_migration.VsamRequestError, match="different result"):
+        vsam_migration.store("app-1", forged, b"other")
+
+
+def test_a_concurrent_migration_over_the_limit_is_refused_as_busy(client, monkeypatch):
+    acquired = [vsam_migration._SLOTS.acquire(blocking=False) for _ in range(vsam_migration.MAX_CONCURRENT)]
+    try:
+        response = post(client, customer("A001", "alpha"))
+        assert response.status_code in (429, 503) and "busy" in response.text.lower()
+    finally:
+        for ok in acquired:
+            if ok:
+                vsam_migration._SLOTS.release()
+
+
+def test_store_writes_are_atomic_no_partial_files_are_left(client):
+    post(client, customer("A001", "alpha"))
+    names = {p.name for p in Path(vsam_migration._root()).rglob("*") if p.is_file()}
+    assert names == {"output.dat", "report.json"}

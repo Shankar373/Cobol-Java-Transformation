@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from api.errors import BusyError
 from engine.transformation.application_discovery import ApplicationDiscovery
 from engine.transformation.ir import FileDefinition, FileOrganization
 from engine.vsam.convert import FieldKind
@@ -35,7 +38,13 @@ from engine.vsam.platform import PLATFORMS, BinaryRepresentation
 MAX_DATASET_BYTES = 50 * 1024 * 1024
 _ALLOWED_OPTIONS = frozenset({"file", "record", "organization", "record_format", "source_encoding",
                               "destination_encoding", "source_platform", "target_platform"})
-_ID = re.compile(r"^vm-[0-9a-f]{16}$")
+_ID = re.compile(r"vm-[0-9a-f]{16}")
+_APP_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}")
+#: Entries kept in a stored report's ``rejected`` list (the exact count is always reported).
+MAX_REPORTED_REJECTIONS = 1000
+#: Migrations running at once; more are refused as busy instead of queuing unbounded work.
+MAX_CONCURRENT = 2
+_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT)
 
 
 class VsamRequestError(ValueError):
@@ -90,12 +99,16 @@ def parse_options(raw: str) -> dict:
 def _find_fd(workspace: Path, name: str) -> FileDefinition:
     application = ApplicationDiscovery().discover(str(workspace))
     errors = [str(e) for e in getattr(application, "discovery_errors", ())]
+    if errors:
+        raise VsamRequestError(f"application discovery reported {len(errors)} error(s); the file declarations "
+                               "cannot be trusted until they are fixed")
     found = [fd for unit in application.programs for fd in unit.program.file_definitions
              if fd.name.upper() == name.upper() and not fd.is_sort_file]
     if not found:
         raise VsamRequestError(f"no file named {name!r} is declared by the application's programs"
-                               + (f" (discovery errors: {len(errors)})" if errors else ""))
-    if len({(fd.name, fd.record_groups) for fd in found}) > 1:
+                               )
+    if len({(fd.name, fd.record_groups, fd.organization, fd.record_key, fd.alternate_keys, fd.access_mode)
+            for fd in found}) > 1:
         raise VsamRequestError(f"file {name!r} is declared differently by several programs; not guessing which")
     return found[0]
 
@@ -161,15 +174,24 @@ def execute(workspace: Path, app_id: str, data: bytes, options: dict) -> tuple[d
     """Run one migration; returns ``(report dict, converted bytes)`` (empty bytes unless converted)."""
     if len(data) > MAX_DATASET_BYTES:
         raise VsamRequestError(f"dataset is {len(data)} bytes; the limit is {MAX_DATASET_BYTES}")
-    plan = _plan(workspace, options)
-    if plan.variable:
-        output, report = migrate_variable_dataset(plan.definition, data, plan.source_layouts, plan.destination_encoding)
-    else:
-        output, report = migrate_dataset(
-            plan.definition, data, plan.source_layouts[0], plan.destination_encoding,
-            target_layout=plan.target_layouts[0], source_platform=plan.source_platform,
-            target_platform=plan.target_platform)
+    if not _SLOTS.acquire(blocking=False):
+        raise BusyError("the migration service is busy; retry later")
+    try:
+        plan = _plan(workspace, options)
+        if plan.variable:
+            output, report = migrate_variable_dataset(plan.definition, data, plan.source_layouts,
+                                                      plan.destination_encoding)
+        else:
+            output, report = migrate_dataset(
+                plan.definition, data, plan.source_layouts[0], plan.destination_encoding,
+                target_layout=plan.target_layouts[0], source_platform=plan.source_platform,
+                target_platform=plan.target_platform)
+    finally:
+        _SLOTS.release()
     body = report.to_dict()
+    rejected = body.get("rejected") or []
+    body["rejected_truncated"] = len(rejected) > MAX_REPORTED_REJECTIONS
+    body["rejected"] = rejected[:MAX_REPORTED_REJECTIONS]
     body.update({"migration_id": migration_id(app_id, data, options), "application_id": app_id, "file": plan.fd.name,
                  "options": dict(options), "success": bool(report.success),
                  "output_sha256": hashlib.sha256(output).hexdigest(), "output_bytes": len(output)})
@@ -181,21 +203,30 @@ def _root() -> Path:
 
     root = workspace_root()
     base = (root if root is not None else Path(tempfile.gettempdir())) / "systemaops-vsam"
-    base.mkdir(parents=True, exist_ok=True)
+    base.mkdir(parents=True, exist_ok=True, mode=0o700)
     return base
 
 
 def _dir(app_id: str, mid: str) -> Path:
-    if not _ID.match(mid) or not re.match(r"^[A-Za-z0-9_.-]{1,80}$", app_id):
+    if not _ID.fullmatch(mid) or not _APP_ID.fullmatch(app_id) or set(app_id) <= {"."}:
         raise VsamRequestError("invalid migration or application id")
     return _root() / app_id / mid
 
 
+def _atomic_write(path: Path, content: bytes) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    temporary.write_bytes(content)
+    os.replace(temporary, path)
+
+
 def store(app_id: str, report: dict, output: bytes) -> None:
     target = _dir(app_id, report["migration_id"])
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "output.dat").write_bytes(output)
-    (target / "report.json").write_text(json.dumps(report, sort_keys=True, indent=2), encoding="utf-8")
+    existing = load_report(app_id, report["migration_id"])
+    if existing is not None and existing.get("output_sha256") != report.get("output_sha256"):
+        raise VsamRequestError("a stored migration with this id has a different result; it is not overwritten")
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _atomic_write(target / "output.dat", output)           # the report is written last: it vouches for the output
+    _atomic_write(target / "report.json", json.dumps(report, sort_keys=True, indent=2).encode("utf-8"))
 
 
 def load_report(app_id: str, mid: str) -> dict | None:
