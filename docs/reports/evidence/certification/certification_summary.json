@@ -58,7 +58,7 @@
       "workload-universal",
       "workload_inventory"
     ],
-    "manifest_sha256": "5b274683927fa626eff799776393dd0f5e05c132d3b99310151864e03738e71d",
+    "manifest_sha256": "b8b380baab1772788d062a2098f3aa5493fb9c6e832dbda536531f2c6e12f3a2",
     "same_applications_on_every_runtime": true
   },
   "not_proven": [

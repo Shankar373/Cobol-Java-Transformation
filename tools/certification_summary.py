@@ -66,11 +66,22 @@ def _fixture_files(repo: Path, app: str) -> list[Path]:
             capture_output=True, check=True, timeout=60).stdout.decode("utf-8")
     except (OSError, subprocess.SubprocessError):
         listed = ""
-    tracked = sorted(repo / name for name in listed.split("\0") if name)
+    tracked = [repo / name for name in listed.split("\0") if name]
     if tracked:
-        return [p for p in tracked if p.is_file()]
-    return sorted(p for p in root.rglob("*")
-                  if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc")
+        return _by_posix_path([p for p in tracked if p.is_file()], repo)
+    return _by_posix_path(
+        [p for p in root.rglob("*")
+         if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"], repo)
+
+
+def _by_posix_path(paths: list[Path], repo: Path) -> list[Path]:
+    """Sort by the POSIX path string.
+
+    ``Path`` ordering is platform dependent (Windows compares components
+    case-insensitively, POSIX compares them case-sensitively), which would give the
+    same files a different manifest hash on Windows and Linux.
+    """
+    return sorted(paths, key=lambda p: p.relative_to(repo).as_posix())
 
 
 def fixture_manifest(repo: Path, applications: list[str]) -> dict:

@@ -168,3 +168,23 @@ def test_edited_not_proven_or_toolchain_is_detected(committed):
 def test_documentation_that_states_no_corpus_count_validates_nothing_and_is_reported(committed):
     problems = cs.check_documentation(committed, "A readme with no certification numbers at all.", "doc.md")
     assert problems and "nothing was validated" in problems[0]
+
+
+def test_fixture_manifest_depends_only_on_sorted_posix_path_strings(tmp_path):
+    """Windows and POSIX ``Path`` orderings differ ('a/b' before 'a-b' by component, after it by
+    string), which once made the same files hash differently on Linux CI."""
+    for rel, text in (("fixtures/app/a/b.txt", "1"), ("fixtures/app/a-b/c.txt", "2"),
+                      ("fixtures/app/B.txt", "3"), ("fixtures/app/a.txt", "4")):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+    import hashlib
+
+    def digest(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    names = sorted(["app/a/b.txt", "app/a-b/c.txt", "app/B.txt", "app/a.txt"])  # plain string order
+    contents = {"app/a/b.txt": "1", "app/a-b/c.txt": "2", "app/B.txt": "3", "app/a.txt": "4"}
+    lines = ["app\0<dir:present>"] + [f"{n}\0{digest(contents[n])}" for n in names]
+    expected = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+    assert cs.fixture_manifest(tmp_path, ["app"])["manifest_sha256"] == expected
