@@ -17,6 +17,7 @@ from engine.vsam.collation import to_stored_bytes
 from engine.vsam.layout import BinaryWidthModel, derive_file_layout
 from engine.vsam.migrate import MigrationReport, migrate_dataset
 from engine.vsam.model import DatasetDefinition, Encoding, KeyDefinition, Organization, RecordFormat
+from engine.vsam.platform import platform
 
 IBM = BinaryWidthModel.IBM_2_4_8
 
@@ -48,8 +49,14 @@ def source_def(organization=Organization.KSDS, **kw) -> DatasetDefinition:
     return DatasetDefinition("SRC", organization, record_length=LENGTH, primary_key=key, **kw)
 
 
+IBM_Z = platform("IBM_ZOS")
+
+
 def migrate(data: bytes, definition: DatasetDefinition | None = None, **kw):
-    return migrate_dataset(definition or source_def(), data, layout(), Encoding.EBCDIC_CP037, **kw)
+    # this layout has a COMP field, so the platforms are explicit (here: the same IBM platform on both sides)
+    options = dict(target_layout=layout(), source_platform=IBM_Z, target_platform=IBM_Z)
+    options.update(kw)
+    return migrate_dataset(definition or source_def(), data, layout(), Encoding.EBCDIC_CP037, **options)
 
 
 # --- the good path --------------------------------------------------------------------------------
@@ -200,5 +207,6 @@ def test_a_destination_that_does_not_reconcile_is_reported_failed():
     from engine.vsam.migrate import reconcile_destination
 
     tampered = destination[:5] + bytes([destination[5] ^ 0xFF]) + destination[6:]
-    again = reconcile_destination(source_def(), src, layout(), Encoding.EBCDIC_CP037, tampered)
+    again = reconcile_destination(source_def(), src, layout(), Encoding.EBCDIC_CP037, tampered,
+                                  target_layout=layout(), source_platform=IBM_Z, target_platform=IBM_Z)
     assert again.state == "FAILED" and not again.success and again.failures

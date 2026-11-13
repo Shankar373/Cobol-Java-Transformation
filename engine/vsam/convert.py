@@ -21,6 +21,7 @@ Pure and deterministic; fixed-length datasets only.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -111,17 +112,34 @@ class ConversionResult:
 
 def convert_dataset(source: DatasetDefinition, data: bytes, fields: tuple[FieldSpec, ...],
                     destination_encoding: Encoding, *, partial_output: bytes = b"",
-                    resume_after: int = 0, stop_after: int | None = None) -> ConversionResult:
+                    resume_after: int = 0, stop_after: int | None = None,
+                    convert: Callable[[bytes], bytes] | None = None) -> ConversionResult:
     """Convert ``data``; resume after ``resume_after`` source records already written.
 
     ``partial_output`` must hold exactly the converted form of the first
     ``resume_after`` records (rejected ones are absent); otherwise a ``ValueError`` is
     raised and nothing is continued.  ``stop_after`` ends the run early (an
     interruption, in tests and for batching) after that many source records.
+
+    ``convert`` replaces the field-wise conversion with a caller-supplied record converter (used for
+    conversions that change the record length, such as a binary width change); it must raise
+    ``ValueError`` with a reason for a record it cannot convert, and that record is rejected.
     """
     if source.record_format is not RecordFormat.FIXED:
         raise ValueError("convert_dataset supports fixed-length datasets only")
-    problems = list(source.validate()) + list(validate_layout(fields, source.record_length))
+    if convert is None:
+        problems = list(source.validate()) + list(validate_layout(fields, source.record_length))
+        check = lambda record: check_record(record, fields)  # noqa: E731
+        convert = lambda record: convert_record(record, fields, source.encoding, destination_encoding)  # noqa: E731
+    else:
+        problems = list(source.validate())
+
+        def check(record: bytes) -> str | None:
+            try:
+                convert(record)  # type: ignore[misc]
+            except ValueError as exc:
+                return str(exc)
+            return None
     if problems:
         raise ValueError("; ".join(problems))
     records, structural = split_records(data, source)
@@ -133,11 +151,11 @@ def convert_dataset(source: DatasetDefinition, data: bytes, fields: tuple[FieldS
     expected_prefix = bytearray()
     rejected: list[RejectedRecord] = []
     for number, record in enumerate(records[:resume_after], start=1):
-        reason = check_record(record, fields)
+        reason = check(record)
         if reason:
             rejected.append(RejectedRecord(number, reason))
         else:
-            expected_prefix += convert_record(record, fields, source.encoding, destination_encoding)
+            expected_prefix += convert(record)
     if resume_after and bytes(expected_prefix) != partial_output:
         raise ValueError("the partial output does not match the first "
                          f"{resume_after} source record(s); refusing to continue a torn or altered output")
@@ -148,11 +166,11 @@ def convert_dataset(source: DatasetDefinition, data: bytes, fields: tuple[FieldS
     end = len(records) if stop_after is None else min(stop_after, len(records))
     for number in range(resume_after + 1, end + 1):
         record = records[number - 1]
-        reason = check_record(record, fields)
+        reason = check(record)
         if reason:
             rejected.append(RejectedRecord(number, reason))
             continue
-        output += convert_record(record, fields, source.encoding, destination_encoding)
+        output += convert(record)
     return ConversionResult(bytes(output), tuple(rejected), max(end, resume_after), resume_after,
                             hashlib.sha256(bytes(output)).hexdigest())
 
