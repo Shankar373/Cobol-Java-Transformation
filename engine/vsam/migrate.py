@@ -16,7 +16,7 @@ explicit ``source_platform``, ``target_platform`` and ``target_layout`` (each la
 platform's width model) and converts every binary field's width and byte order, rejecting a record
 whose value does not fit.  A layout with no binary field needs none of the three.
 
-Scope, stated rather than hidden: ASCII to EBCDIC cp037 only; fixed-length records only; KSDS, ESDS
+Scope, stated rather than hidden: ASCII<->EBCDIC cp037 in either direction; fixed-length records only; KSDS, ESDS
 (arrival order, no RBA addressing) and sequential datasets; alternate indexes are not rebuilt or
 checked (``unsupported_semantics``); no IBM runtime has produced or read either side.
 """
@@ -147,9 +147,9 @@ def _plan(source: DatasetDefinition, layout: RecordLayout, encoding: Encoding, t
         failures.append("ESDS relative byte addresses (RBA) cannot be preserved: records are migrated in entry "
                         "order and the RBAs of the target are not the source's; a migration that depends on RBA "
                         "identity is refused")
-    if source.encoding is not Encoding.ASCII or encoding is not Encoding.EBCDIC_CP037:
-        failures.append(f"only an ASCII source migrated to EBCDIC_CP037 is supported "
-                        f"(ASCII source required, got {source.encoding.value} -> {encoding.value})")
+    if {source.encoding, encoding} != {Encoding.ASCII, Encoding.EBCDIC_CP037}:
+        failures.append(f"only ASCII<->EBCDIC_CP037 migration is supported, in either direction "
+                        f"(got {source.encoding.value} -> {encoding.value})")
     failures += [f"invalid source definition: {p}" for p in source.validate()]
     binary = layout.supported and _has_binary(layout)
     target = target_layout if target_layout is not None else layout

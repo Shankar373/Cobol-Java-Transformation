@@ -162,7 +162,7 @@ def test_a_binary_field_in_a_layout_is_refused_by_name():
     (DatasetDefinition("R", Organization.RRDS, record_format=RecordFormat.VARIABLE, record_length=20), "RRDS"),
     (DatasetDefinition("S", Organization.SEQUENTIAL, record_length=20), "variable-length"),
     (DatasetDefinition("S", Organization.SEQUENTIAL, record_format=RecordFormat.VARIABLE, record_length=20,
-                       encoding=Encoding.EBCDIC_CP037), "ASCII source"),
+                       encoding=Encoding.EBCDIC_CP037), "ASCII<->EBCDIC_CP037"),
 ])
 def test_unsupported_dataset_kinds_are_refused_by_name(defn, phrase):
     out, report = migrate(hdr(), defn)

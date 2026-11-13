@@ -159,7 +159,7 @@ def test_a_key_outside_the_character_fields_of_the_layout_is_refused():
                        primary_key=KeyDefinition(0, 4)), "variable-length"),
     (DatasetDefinition("S", Organization.RRDS, record_length=LENGTH), "RRDS"),
     (DatasetDefinition("S", Organization.KSDS, record_length=LENGTH, primary_key=KeyDefinition(0, 4),
-                       encoding=Encoding.EBCDIC_CP037), "ASCII source"),
+                       encoding=Encoding.EBCDIC_CP037), "ASCII<->EBCDIC_CP037"),
 ])
 def test_unmodelled_dataset_kinds_are_refused_by_name(definition, phrase):
     destination, report = migrate(record("K001"), definition)

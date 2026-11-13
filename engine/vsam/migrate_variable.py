@@ -6,7 +6,7 @@ nothing in the data says which layout a record has, so the only deterministic ru
 exact payload length: the layouts must have unique lengths, each record is converted with the layout of its
 length, and a record of any other length is rejected by name.  No discriminator is guessed.
 
-Supported: sequential and entry-sequenced (arrival order, no RBA) datasets, ASCII to EBCDIC cp037, layouts
+Supported: sequential and entry-sequenced (arrival order, no RBA) datasets, ASCII<->EBCDIC cp037 (either direction), layouts
 without binary fields, restart with a checked partial output, independent reconciliation.  Refused by name:
 KSDS (key extraction across layouts), RRDS, binary fields, a non-variable dataset.  GnuCOBOL's own variable
 record header excludes itself from the length, so it is *not* this format and is not read here.
@@ -40,9 +40,9 @@ def _scope_failures(source: DatasetDefinition, layouts: tuple[RecordLayout, ...]
                         "across several record layouts")
     if source.organization is Organization.RRDS:
         failures.append("RRDS migration is BLOCKED: the unload format needs an IBM VSAM reference that is not available")
-    if source.encoding is not Encoding.ASCII or encoding is not Encoding.EBCDIC_CP037:
-        failures.append(f"only an ASCII source migrated to EBCDIC_CP037 is supported "
-                        f"(ASCII source required, got {source.encoding.value} -> {encoding.value})")
+    if {source.encoding, encoding} != {Encoding.ASCII, Encoding.EBCDIC_CP037}:
+        failures.append(f"only ASCII<->EBCDIC_CP037 migration is supported, in either direction "
+                        f"(got {source.encoding.value} -> {encoding.value})")
     failures += [f"invalid source definition: {p}" for p in source.validate()]
     if not layouts:
         failures.append("no record layout was given")
