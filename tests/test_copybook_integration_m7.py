@@ -100,7 +100,10 @@ class TestGeneratorMaterialization:
         self, tmp_path: Path
     ) -> None:
         app = _discover(_workspace(tmp_path, second=True))
-        result = ApplicationGenerator().generate(app, source_root=tmp_path)
+        # two independent programs: the entrypoint is requested, not guessed (G-15)
+        result = ApplicationGenerator().generate(
+            app, entrypoint=app.programs[0].program_id, source_root=tmp_path
+        )
         assert result.success, result.errors
         assert len(result.copybook_models) == 1
         model = result.copybook_models[0]
@@ -116,10 +119,13 @@ class TestGeneratorMaterialization:
     def test_model_never_entrypoint(self, tmp_path: Path) -> None:
         app = _discover(_workspace(tmp_path))
         result = ApplicationGenerator().generate(app, entrypoint="CommonRecord", source_root=tmp_path)
-        assert result.success, result.errors
-        # Even when explicitly requested, a model class is refused.
-        assert result.entrypoint != "CommonRecord"
-        assert result.entrypoint == "Main"
+        # Even when explicitly requested, a model class is refused - and since
+        # G-15 the request is not silently replaced by another program.
+        assert result.success is False and result.entrypoint == ""
+        assert any("CommonRecord" in e for e in result.errors)
+        ok = ApplicationGenerator().generate(app, entrypoint="Main", source_root=tmp_path)
+        assert ok.success, ok.errors
+        assert ok.entrypoint == "Main"
 
     def test_sources_remain_separate(self, tmp_path: Path) -> None:
         ws = _workspace(tmp_path)

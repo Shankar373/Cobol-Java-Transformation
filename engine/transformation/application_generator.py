@@ -86,8 +86,9 @@ class ApplicationGenerator:
             application: the DISCOVERED application structure (program units,
                 copybooks, dependency edges) from ApplicationDiscovery.
             entrypoint: requested entrypoint (a COBOL program-id or generated
-                class name). Deterministic fallback: the first discovered
-                program's class.
+                class name). Must match exactly; with none requested the
+                entrypoint is derived only when the call graph proves a single
+                root, otherwise generation is refused.
             source_root: ingested source tree for COPYBOOK resolution
                 (unit source paths are discovery-relative). When omitted,
                 resolution falls back to the current working directory.
@@ -163,9 +164,23 @@ class ApplicationGenerator:
             )
 
         model_names = {plan.class_name for plan in preparation.plans}
-        resolved_entry = self._resolve_entrypoint(
-            files, entrypoint, exclude=model_names
+        resolved_entry, entry_error = self._select_entrypoint(
+            files,
+            entrypoint,
+            exclude=model_names,
+            program_ids=tuple(p.program_id for p in programs),
+            call_edges=tuple(
+                (e.source, e.target)
+                for e in application.edges
+                if e.edge_type == "CALL"
+            ),
         )
+        if entry_error:
+            return ApplicationGenerationResult(
+                success=False,
+                program_ids=tuple(p.program_id for p in programs),
+                errors=(entry_error,),
+            )
 
         return ApplicationGenerationResult(
             success=True,
@@ -177,36 +192,74 @@ class ApplicationGenerator:
         )
 
     @staticmethod
-    def _resolve_entrypoint(
+    def _select_entrypoint(
         files: tuple[GeneratedFile, ...],
         requested: str,
         exclude: set[str] | frozenset[str] = frozenset(),
-    ) -> str:
-        """Resolve the application entrypoint class deterministically.
+        program_ids: tuple[str, ...] = (),
+        call_edges: tuple[tuple[str, str], ...] = (),
+    ) -> tuple[str, str]:
+        """Select the entrypoint class, or return ``("", reason)``.
 
-        Only actual COBOL program units may be entrypoints. Excluded names
-        (assembly helpers like ``ServiceRegistry`` and M7 shared copybook
-        ``*Record`` model classes) are never selected, even when explicitly
-        requested.
+        Never guesses: not from file order, class order or name order.
+
+        * A requested entrypoint must match exactly one generated program
+          class (compared with ``_normalise``); no match, or several, is an
+          error naming the candidates.
+        * With none requested, the entrypoint is the only program class, or
+          the only program that no other program CALLs (the discovery
+          graph proves the root).  Several roots, or none, is an ambiguity
+          error naming them.
+        * Assembly helpers (``ServiceRegistry``) and copybook model
+          classes (``exclude``) are never entrypoints, even when requested.
         """
-        candidates = [f.class_name for f in files]
         program_classes = [
-            name
-            for name in candidates
-            if name != "ServiceRegistry" and name not in exclude
-        ] or [name for name in candidates if name not in exclude]
-
+            f.class_name
+            for f in files
+            if f.class_name != "ServiceRegistry" and f.class_name not in exclude
+        ]
         if not program_classes:
-            return ""
+            return "", "No program class is available to be the application entrypoint"
+        listing = ", ".join(sorted(program_classes))
 
         requested_class = requested.strip() if requested else ""
         if requested_class:
-            for name in program_classes:
-                if _normalise(name) == _normalise(requested_class):
-                    return name
+            matches = [
+                name for name in program_classes
+                if _normalise(name) == _normalise(requested_class)
+            ]
+            if len(matches) == 1:
+                return matches[0], ""
+            if not matches:
+                return "", (
+                    f"Requested entrypoint '{requested_class}' matches no program "
+                    f"(programs: {listing})"
+                )
+            return "", (
+                f"Requested entrypoint '{requested_class}' is ambiguous: "
+                f"{len(matches)} programs share that name"
+            )
 
-        # Deterministic fallback: first discovered program's class.
-        return program_classes[0]
+        if len(program_classes) == 1:
+            return program_classes[0], ""
+
+        called = {_normalise(target) for _, target in call_edges}
+        roots = [
+            name for name in program_classes
+            if _normalise(name) not in called
+        ]
+        if len(roots) == 1:
+            return roots[0], ""
+        if not roots:
+            return "", (
+                "No entrypoint can be derived: every program is the target of "
+                f"a CALL (programs: {listing}); request one explicitly"
+            )
+        return "", (
+            "Entrypoint is ambiguous: no entrypoint was requested and "
+            f"{len(roots)} programs are not called by any other "
+            f"({', '.join(sorted(roots))}); request one explicitly"
+        )
 
     @staticmethod
     def write_to_directory(

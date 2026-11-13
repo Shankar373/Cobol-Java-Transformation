@@ -110,6 +110,14 @@ class TestInvalidKeyParserUnit:
     def test_write_invalid_key_body(self):
         source = """IDENTIFICATION DIVISION.
 PROGRAM-ID. T.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT MASTER ASSIGN TO "MASTER.DAT".
+DATA DIVISION.
+FILE SECTION.
+FD MASTER.
+01 IDX-REC PIC X(10).
 PROCEDURE DIVISION.
 MAIN-PARA.
     WRITE IDX-REC
@@ -122,9 +130,28 @@ MAIN-PARA.
         writes = _stmts_of_type(statements, WriteStatement)
         assert len(writes) == 1
         assert writes[0].record_name == "IDX-REC"
-        assert writes[0].file_name == "IDX-FILE"
+        # the owner is the FD that declares the record, not a name rewrite
+        assert writes[0].file_name == "MASTER"
         assert len(writes[0].invalid_key_body) == 1
         assert isinstance(writes[0].invalid_key_body[0], DisplayStatement)
+
+    def test_write_of_a_record_no_fd_declares_is_refused_not_guessed(self):
+        source = """IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    WRITE IDX-REC
+        INVALID KEY
+            DISPLAY "DUP"
+    END-WRITE.
+    STOP RUN.
+"""
+        parser = CobolParser()
+        program = parser.parse(source)
+        write = _stmts_of_type(program.paragraphs[0].statements, WriteStatement)[0]
+        assert write.file_name == ""  # never "IDX-FILE"
+        errors = parser.diagnostics.errors
+        assert any(e.code.name == "UNDEFINED_FILE" and "IDX-REC" in e.message for e in errors)
 
     def test_write_from_field_and_not_invalid_key(self):
         source = """IDENTIFICATION DIVISION.

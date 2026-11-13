@@ -81,12 +81,12 @@ def test_programs_never_concatenated_and_generated_independently(tmp_path) -> No
     )
     application = ApplicationDiscovery().discover(str(ws), application_id="app-x")
 
-    result = ag.ApplicationGenerator().generate(application)
+    # Two independent programs: since G-15 the entrypoint is requested, never guessed.
+    result = ag.ApplicationGenerator().generate(application, entrypoint="ALPHA")
 
     assert result.success
-    # One generated class per program, deterministic entrypoint.
-    assert sorted(f.entrypoint for f in [result]) == [result.entrypoint]
-    assert result.entrypoint in {"Alpha", "Beta"}
+    # One generated class per program, requested entrypoint.
+    assert result.entrypoint == "Alpha"
     # Architectural contract: one generated class per program, PLUS the
     # ServiceRegistry assembly helper intentionally emitted for
     # multi-program applications (see P3 and test_phase4_multi_program.py).
@@ -126,7 +126,7 @@ def test_applications_assembled_into_single_artifact(tmp_path) -> None:
         _zip_bytes([("src/ALPHA.cob", ALPHA), ("src/BETA.cob", BETA)]), "app-x"
     )
     application = ApplicationDiscovery().discover(str(ws), application_id="app-x")
-    result = ag.ApplicationGenerator().generate(application)
+    result = ag.ApplicationGenerator().generate(application, entrypoint="BETA")
 
     out_dir = tmp_path / "generated-app"
     ag.ApplicationGenerator().write_to_directory(result.generated_files, out_dir)
@@ -134,8 +134,8 @@ def test_applications_assembled_into_single_artifact(tmp_path) -> None:
     classes = sorted(p.name for p in out_dir.glob("*.java"))
     assert "Alpha.java" in classes
     assert "Beta.java" in classes
-    # Entrypoint is deterministic and resolves to one of the program classes.
-    assert result.entrypoint in {"Alpha", "Beta"}
+    # The requested entrypoint resolves to exactly that program class.
+    assert result.entrypoint == "Beta"
 
 
 # ---------------------------------------------------------------------------

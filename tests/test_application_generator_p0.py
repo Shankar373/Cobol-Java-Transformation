@@ -112,6 +112,18 @@ def _discover(tmp_path: Path, files: dict[str, str], app_id: str = "TEST-APP") -
     return ApplicationDiscovery().discover(str(tmp_path), application_id=app_id)
 
 
+def _generate_with_entry(app: CobolApplication, **kwargs) -> ApplicationGenerationResult:
+    """Generate with an explicitly requested entrypoint (the first program).
+
+    These tests check class emission, not entrypoint choice.  Since G-15 the
+    generator refuses to pick an entrypoint among several independent
+    programs, so the test names one instead of relying on a guess.
+    """
+    return ApplicationGenerator().generate(
+        app, entrypoint=app.programs[0].program_id, **kwargs
+    )
+
+
 def _program_files(result: ApplicationGenerationResult) -> list[GeneratedFile]:
     """Generated files excluding the ServiceRegistry assembly helper."""
     return [f for f in result.generated_files if f.class_name != "ServiceRegistry"]
@@ -129,7 +141,7 @@ class TestTwoProgramsIndependent:
 
     def test_generator_emits_two_separate_java_files(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         assert result.success
         assert result.errors == ()
@@ -141,7 +153,7 @@ class TestTwoProgramsIndependent:
 
     def test_no_combined_cobol_source_created(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        ApplicationGenerator().generate(app)
+        _generate_with_entry(app)
 
         # The source tree is untouched: exactly the two input files remain.
         cobol_files = sorted(p.name for p in tmp_path.glob("*.cob"))
@@ -161,7 +173,7 @@ class TestTwoProgramsIndependent:
 class TestDistinctProgramLogic:
     def test_each_program_produces_own_class(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         assert result.success
         assert set(result.program_ids) == {"PROGRAM-A", "PROGRAM-B"}
@@ -170,7 +182,7 @@ class TestDistinctProgramLogic:
 
     def test_no_cross_program_source_bleed(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         by_id = {pid: f for pid, f in zip(result.program_ids, _program_files(result))}
         src_a = by_id["PROGRAM-A"].source_code
@@ -190,7 +202,7 @@ class TestDistinctProgramLogic:
 class TestApplicationAssembly:
     def test_single_artifact_dir_contains_both_classes(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
         assert result.success
 
         out_dir = tmp_path / "generated-app"
@@ -205,7 +217,7 @@ class TestApplicationAssembly:
 
     def test_classes_not_merged_into_one_file(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         for f in _program_files(result):
             # One self-contained program unit per file.
@@ -213,7 +225,7 @@ class TestApplicationAssembly:
 
     def test_each_program_keeps_valid_java_entrypoint(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         for f in _program_files(result):
             assert "public static void main" in f.source_code
@@ -240,7 +252,7 @@ class TestCopybookHandling:
             tmp_path,
             {"MAIN.cob": MAIN_WITH_COPY, "COMMON.cpy": COMMON_COPYBOOK},
         )
-        result = ApplicationGenerator().generate(app, source_root=tmp_path)
+        result = _generate_with_entry(app, source_root=tmp_path)
 
         assert result.success
         assert result.program_ids == ("MAINPROG",)
@@ -276,22 +288,24 @@ class TestEntrypointSelection:
         for variant in ("CLAIM-S", "claim-s", "Claim_S", "CLAIMS", "claims"):
             assert gen.generate(app, entrypoint=variant).entrypoint == expected
 
-    def test_fallback_entrypoint_is_deterministic(self, tmp_path: Path) -> None:
+    def test_no_entrypoint_among_independent_programs_is_refused(self, tmp_path: Path) -> None:
+        """G-15: no 'first discovered program' fallback."""
         app = _discover(tmp_path, {"C.cob": CLAIMS_PROGRAM, "P.cob": PAYMENT_PROGRAM})
         gen = ApplicationGenerator()
 
-        first = gen.generate(app).entrypoint
         for _ in range(3):
-            assert gen.generate(app).entrypoint == first
-        # Fallback resolves to the first discovered program's class.
-        assert first == "Claim_S"
+            result = gen.generate(app)
+            assert result.success is False and result.entrypoint == ""
+            assert any("ambiguous" in e for e in result.errors)
 
     def test_entrypoint_is_never_service_registry(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         assert result.entrypoint != "ServiceRegistry"
-        assert ApplicationGenerator().generate(app, entrypoint="no-such-program").entrypoint != "ServiceRegistry"
+        assert ApplicationGenerator().generate(app, entrypoint="ServiceRegistry").entrypoint != "ServiceRegistry"
+        unknown = ApplicationGenerator().generate(app, entrypoint="no-such-program")
+        assert unknown.success is False and unknown.entrypoint == ""
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +329,7 @@ class TestEmptyInvalidApplication:
             copybooks=(),
             edges=(),
         )
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         assert not result.success
         assert result.generated_files == ()
@@ -329,7 +343,7 @@ class TestEmptyInvalidApplication:
 class TestNoConcatenationProof:
     def test_two_classes_never_one(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
 
         assert result.success
         program_files = _program_files(result)
@@ -371,7 +385,7 @@ class TestNoConcatenationProof:
 class TestWriteToDirectory:
     def test_accepts_result_or_file_tuple(self, tmp_path: Path) -> None:
         app = _discover(tmp_path, {"A.cob": PROGRAM_A, "B.cob": PROGRAM_B})
-        result = ApplicationGenerator().generate(app)
+        result = _generate_with_entry(app)
         assert result.success
 
         out_result = tmp_path / "from-result"

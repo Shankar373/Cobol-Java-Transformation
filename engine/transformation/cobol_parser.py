@@ -595,6 +595,11 @@ class CobolParser:
         self._diagnostics = diagnostics or DiagnosticCollector()
         self._unsupported_statements: list[str] = []
         self._record_owner: dict[str, str] = {}
+        # Records declared under more than one FD (record -> owning FDs) and
+        # each FD's declared 01 records: ownership is a FILE SECTION fact,
+        # never a naming convention.
+        self._record_owner_ambiguous: dict[str, tuple[str, ...]] = {}
+        self._file_records: dict[str, tuple[str, ...]] = {}
 
     @property
     def diagnostics(self) -> DiagnosticCollector:
@@ -704,6 +709,8 @@ class CobolParser:
         self._diagnostics.clear()
         self._unsupported_statements = []
         self._record_owner = {}
+        self._record_owner_ambiguous = {}
+        self._file_records = {}
         # Text that cannot be read faithfully (a continuation line that
         # continues nothing or resumes an open literal without a quote; a
         # literal holding both quote characters) is refused: never guess.
@@ -827,14 +834,23 @@ class CobolParser:
         program_id = self._parse_program_id(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
-        # WRITE names a record, not a file.  Resolve record -> owning FD while
-        # parsing PROCEDURE DIVISION so the statement carries the real file
-        # name instead of a "-REC" -> "-FILE" naming guess.
-        self._record_owner = {
-            fd.record_name: fd.name
-            for fd in file_section
-            if fd.record_name and fd.name
-        }
+        # WRITE and REWRITE name a record, not a file.  Resolve record ->
+        # owning FD from the FILE SECTION (every 01 of every FD) while
+        # parsing PROCEDURE DIVISION.  A record that no FD declares, or that
+        # more than one FD declares, has no provable owner and is refused.
+        owners: dict[str, list[str]] = {}
+        for fd in file_section:
+            records = [fd.record_name] if fd.record_name else []
+            records += [g.name for g in fd.record_groups if g.name]
+            self._file_records[fd.name] = tuple(dict.fromkeys(records))
+            for record in dict.fromkeys(records):
+                if fd.name and fd.name not in owners.setdefault(record, []):
+                    owners[record].append(fd.name)
+        for record, fds in owners.items():
+            if len(fds) == 1:
+                self._record_owner[record] = fds[0]
+            else:
+                self._record_owner_ambiguous[record] = tuple(sorted(fds))
         working_storage = self._parse_working_storage(code_lines)
         working_storage = self._with_sqlca_fields(code_lines, working_storage)
         linkage_section = self._parse_linkage_section(code_lines)
@@ -2807,8 +2823,17 @@ class CobolParser:
             raw_file = ""
         file_name = raw_file
 
-        # Find record name from FILE SECTION (convention: FILE-NAME becomes record)
-        record_name = file_name.replace("-FILE", "-REC").replace("_FILE", "_REC")
+        # The record comes from the file's own FD, never from its name.
+        records = self._file_records.get(file_name, ())
+        record_name = records[-1] if records else ""
+        if file_name and not records:
+            self._diagnostics.error(
+                DiagnosticCode.UNDEFINED_FILE,
+                f"READ {file_name}: no FD in the FILE SECTION declares this "
+                "file's record; the file/record binding is not guessed from "
+                "names",
+                location=file_name,
+            )
 
         read_next = bool(re.search(r"\bNEXT\b", header_text, re.IGNORECASE))
         key_match = re.search(
@@ -2858,13 +2883,8 @@ class CobolParser:
                 location=record_name,
             )
 
-        # Determine file name from the FILE SECTION record owner.  The
-        # "-REC" -> "-FILE" convention is only a fallback for programs whose
-        # record never appears in a FILE SECTION FD.
-        file_name = (
-            self._record_owner.get(record_name)
-            or record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
-        )
+        # Determine file name from the FILE SECTION record owner only.
+        file_name = self._owning_file(record_name, "WRITE")
 
         sections, next_index = self._collect_file_clauses(
             lines, start, allowed, ("END-WRITE",), f"WRITE {record_name}",
@@ -2877,6 +2897,43 @@ class CobolParser:
             invalid_key_body=tuple(sections["invalid"]),
             not_invalid_key_body=tuple(sections["not_invalid"]),
         ), next_index
+
+    def _owning_file(self, record_name: str, verb: str) -> str:
+        """The FD that owns ``record_name``, or ``""`` after a named error.
+
+        Ownership is taken only from the FILE SECTION.  A record declared by
+        no FD, or by several, is refused with a diagnostic instead of being
+        bound through a ``-REC`` / ``-FILE`` naming guess.
+        """
+        owner = self._record_owner.get(record_name)
+        if owner:
+            return owner
+        fds = self._record_owner_ambiguous.get(record_name)
+        if not fds:
+            # The qualified-name pass renames a record declared twice
+            # (``NAME`` -> ``NAME-X``, ``NAME-OF-...``), so the bare name is
+            # no longer an owner key even though several FDs declare it.
+            renamed = {
+                fd
+                for declared, fd in self._record_owner.items()
+                if declared.startswith((record_name + "-X", record_name + "-OF-"))
+            }
+            fds = tuple(sorted(renamed)) if len(renamed) > 1 else None
+        if fds:
+            self._diagnostics.error(
+                DiagnosticCode.SEMANTIC_ERROR,
+                f"{verb} {record_name}: record is declared under more than one "
+                f"FD ({', '.join(fds)}); the owning file is ambiguous",
+                location=record_name,
+            )
+        else:
+            self._diagnostics.error(
+                DiagnosticCode.UNDEFINED_FILE,
+                f"{verb} {record_name}: no FD in the FILE SECTION declares this "
+                "record; the owning file is not guessed from names",
+                location=record_name,
+            )
+        return ""
 
     def _parse_close(self, lines: list[str], start: int) -> tuple[CloseStatement, int]:
         """Parse CLOSE file (single-file deterministic subset)."""
@@ -2967,16 +3024,9 @@ class CobolParser:
         from_match = re.search(r"\bFROM\s+(\S+)", header_text, re.IGNORECASE)
         from_field = from_match.group(1).rstrip(".") if from_match else ""
 
-        # Bind the file through the FILE SECTION record-owner map
-        # first, exactly like WRITE — the "-REC" -> "-FILE" convention is
-        # only a fallback for records no FD declares.  Before that map
-        # was consulted, the heuristic ran alone, so a convention-breaking
-        # record bound to a wrong file name and the mapper silently
-        # degraded the REWRITE to a comment.
-        file_name = (
-            self._record_owner.get(record_name)
-            or record_name.replace("-REC", "-FILE").replace("_REC", "_FILE")
-        )
+        # Bind the file through the FILE SECTION record-owner map, exactly
+        # like WRITE; there is no naming fallback.
+        file_name = self._owning_file(record_name, "REWRITE")
 
         sections, next_index = self._collect_file_clauses(
             lines, start, allowed, ("END-REWRITE",), f"REWRITE {record_name}",

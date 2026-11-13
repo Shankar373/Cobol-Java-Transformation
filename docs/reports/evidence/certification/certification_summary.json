@@ -1,0 +1,371 @@
+{
+  "fixtures": {
+    "application_count": 55,
+    "applications": [
+      "workload-add-giving-verified",
+      "workload-arithmetic",
+      "workload-balance-check",
+      "workload-batch-rc",
+      "workload-binary-values",
+      "workload-by-content",
+      "workload-by-reference",
+      "workload-by-value",
+      "workload-call-chain",
+      "workload-call-linkage",
+      "workload-call-linkage-valid",
+      "workload-cics",
+      "workload-claims",
+      "workload-comp",
+      "workload-comp3",
+      "workload-copybook",
+      "workload-copybook-file-multi",
+      "workload-db2",
+      "workload-delete",
+      "workload-divide-giving-verified",
+      "workload-divide-into-verified",
+      "workload-dynamic-call",
+      "workload-dynamic-call-valid",
+      "workload-evaluate",
+      "workload-file-write-read",
+      "workload-gradecalc",
+      "workload-indexed",
+      "workload-indexed-file",
+      "workload-indexed-rewrite-delete-start",
+      "workload-integrated",
+      "workload-interest-accrual",
+      "workload-level88",
+      "workload-minimal",
+      "workload-multiply",
+      "workload-multiply-giving-verified",
+      "workload-multiprog",
+      "workload-multiprog-valid",
+      "workload-notices",
+      "workload-numeric-edited",
+      "workload-occurs",
+      "workload-payroll",
+      "workload-perform-varying",
+      "workload-perform-varying-verified",
+      "workload-record-sequential",
+      "workload-redefines",
+      "workload-relative",
+      "workload-relative-file",
+      "workload-rewrite",
+      "workload-start-invalidkey",
+      "workload-studentproc",
+      "workload-subtract",
+      "workload-subtract-giving-verified",
+      "workload-subtract-multisource-verified",
+      "workload-universal",
+      "workload_inventory"
+    ],
+    "manifest_sha256": "dc9586d892036216190595ff97c0950511881c548e37c36a714689bc2edc1120",
+    "same_applications_on_every_runtime": true
+  },
+  "not_proven": [
+    "no IBM runtime evidence; equivalence is against GnuCOBOL 3.1.2 for the recorded inputs",
+    "quarkus and micronaut are certified in command mode only; jakarta_ee is not certified"
+  ],
+  "runtimes": {
+    "micronaut": {
+      "evidence_sha256": {
+        "docs/reports/evidence/phase3/runtime_corpus_micronaut.jsonl": "bf31f3df26b9ee0dbd741bd46beb823ada4badd942f74d2956695dc49c2dcb44",
+        "docs/reports/evidence/phase3/runtime_corpus_micronaut_independent.jsonl": "a379f45af5d1a174bdcdf414e891963c08d473959b4cb667b2c4f8e59a77d25e",
+        "docs/reports/evidence/validation_summaries/validation_summaries_micronaut.jsonl": "7c6bc372dc4d82b65bf907016898cb1fac5526379944878bda8490d67afd5a5f"
+      },
+      "independent": {
+        "agree": 45,
+        "checked": 45,
+        "other": {}
+      },
+      "independent_covers_exactly_the_verified": true,
+      "jdk_versions": [
+        "openjdk version \"21.0.12.1\" 2026-08-18 LTS"
+      ],
+      "reference": [
+        "GnuCOBOL 3.1.2 (deterministic comparison; no LLM, no IBM runtime)"
+      ],
+      "refused": [
+        {
+          "app": "workload-by-value",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: MAIN"
+        },
+        {
+          "app": "workload-call-linkage",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-cics",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC"
+        },
+        {
+          "app": "workload-claims",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CLAIMS, CLAIMS, CLAIMS"
+        },
+        {
+          "app": "workload-db2",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: ACCOUNT-DB2"
+        },
+        {
+          "app": "workload-dynamic-call",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALC"
+        },
+        {
+          "app": "workload-dynamic-call-valid",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable CALLs: MAIN->WS-PROG-NAME"
+        },
+        {
+          "app": "workload-multiprog",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-redefines",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: REDEFINES-DEMO"
+        }
+      ],
+      "status": "CERTIFIED",
+      "totals": {
+        "applications": 55,
+        "other": {},
+        "refused_by_name": 9,
+        "unavailable": 1,
+        "verified": 45
+      },
+      "unavailable": [
+        {
+          "app": "workload-studentproc",
+          "reason": "[\"COBOL source does not compile on the oracle (cobc exit 1); no reference behaviour exists\"]"
+        }
+      ],
+      "validation_summary_rows": 46
+    },
+    "plain_java": {
+      "evidence_sha256": {
+        "docs/reports/evidence/phase3/runtime_corpus_plain_java.jsonl": "4966a6a2a2164422b7083a78fc42fb337b3457a86da21b9e5325d003e98fd9e0",
+        "docs/reports/evidence/phase3/runtime_corpus_plain_java_independent.jsonl": "77c74bb04a210637b32f7e614f09b257d670b8f976d6e3576fc292a26c248abc",
+        "docs/reports/evidence/validation_summaries/validation_summaries_plain_java.jsonl": "c66a4ab68a2ce34d4c250735ae85ab8c7155887801d743b263c2871ce1b339aa"
+      },
+      "independent": {
+        "agree": 45,
+        "checked": 45,
+        "other": {}
+      },
+      "independent_covers_exactly_the_verified": true,
+      "jdk_versions": [
+        "openjdk version \"21.0.12.1\" 2026-08-18 LTS"
+      ],
+      "reference": [
+        "GnuCOBOL 3.1.2 (deterministic comparison; no LLM, no IBM runtime)"
+      ],
+      "refused": [
+        {
+          "app": "workload-by-value",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: MAIN"
+        },
+        {
+          "app": "workload-call-linkage",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-cics",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC"
+        },
+        {
+          "app": "workload-claims",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CLAIMS, CLAIMS, CLAIMS"
+        },
+        {
+          "app": "workload-db2",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: ACCOUNT-DB2"
+        },
+        {
+          "app": "workload-dynamic-call",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALC"
+        },
+        {
+          "app": "workload-dynamic-call-valid",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable CALLs: MAIN->WS-PROG-NAME"
+        },
+        {
+          "app": "workload-multiprog",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-redefines",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: REDEFINES-DEMO"
+        }
+      ],
+      "status": "CERTIFIED",
+      "totals": {
+        "applications": 55,
+        "other": {},
+        "refused_by_name": 9,
+        "unavailable": 1,
+        "verified": 45
+      },
+      "unavailable": [
+        {
+          "app": "workload-studentproc",
+          "reason": "[\"COBOL source does not compile on the oracle (cobc exit 1); no reference behaviour exists\"]"
+        }
+      ],
+      "validation_summary_rows": 46
+    },
+    "quarkus": {
+      "evidence_sha256": {
+        "docs/reports/evidence/phase3/runtime_corpus_quarkus.jsonl": "f55a8bf753574788718ab3faa9e4186495617775f9ece2b70332a3df31e47cd3",
+        "docs/reports/evidence/phase3/runtime_corpus_quarkus_independent.jsonl": "a379f45af5d1a174bdcdf414e891963c08d473959b4cb667b2c4f8e59a77d25e",
+        "docs/reports/evidence/validation_summaries/validation_summaries_quarkus.jsonl": "b48353c932a48ae3e55aa95f6f76d82e8c2fbc6a8f3c881ebc69b6bf987d0937"
+      },
+      "independent": {
+        "agree": 45,
+        "checked": 45,
+        "other": {}
+      },
+      "independent_covers_exactly_the_verified": true,
+      "jdk_versions": [
+        "openjdk version \"21.0.12.1\" 2026-08-18 LTS"
+      ],
+      "reference": [
+        "GnuCOBOL 3.1.2 (deterministic comparison; no LLM, no IBM runtime)"
+      ],
+      "refused": [
+        {
+          "app": "workload-by-value",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: MAIN"
+        },
+        {
+          "app": "workload-call-linkage",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-cics",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC"
+        },
+        {
+          "app": "workload-claims",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CLAIMS, CLAIMS, CLAIMS"
+        },
+        {
+          "app": "workload-db2",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: ACCOUNT-DB2"
+        },
+        {
+          "app": "workload-dynamic-call",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALC"
+        },
+        {
+          "app": "workload-dynamic-call-valid",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable CALLs: MAIN->WS-PROG-NAME"
+        },
+        {
+          "app": "workload-multiprog",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-redefines",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: REDEFINES-DEMO"
+        }
+      ],
+      "status": "CERTIFIED",
+      "totals": {
+        "applications": 55,
+        "other": {},
+        "refused_by_name": 9,
+        "unavailable": 1,
+        "verified": 45
+      },
+      "unavailable": [
+        {
+          "app": "workload-studentproc",
+          "reason": "[\"COBOL source does not compile on the oracle (cobc exit 1); no reference behaviour exists\"]"
+        }
+      ],
+      "validation_summary_rows": 46
+    },
+    "spring_boot": {
+      "evidence_sha256": {
+        "docs/reports/evidence/phase3/runtime_corpus_spring_boot.jsonl": "286c52340bd021886328d54b4ae18a529b74d69302edff7869cce9493680f2b0",
+        "docs/reports/evidence/phase3/runtime_corpus_spring_boot_independent.jsonl": "77c74bb04a210637b32f7e614f09b257d670b8f976d6e3576fc292a26c248abc",
+        "docs/reports/evidence/validation_summaries/validation_summaries_spring_boot.jsonl": "2b147b420d0c2083fae858d8577f507ece7adde5ae61f159dcbe71ed12fe5f6b"
+      },
+      "independent": {
+        "agree": 45,
+        "checked": 45,
+        "other": {}
+      },
+      "independent_covers_exactly_the_verified": true,
+      "jdk_versions": [
+        "openjdk version \"21.0.12.1\" 2026-08-18 LTS"
+      ],
+      "reference": [
+        "GnuCOBOL 3.1.2 (deterministic comparison; no LLM, no IBM runtime)"
+      ],
+      "refused": [
+        {
+          "app": "workload-by-value",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: MAIN"
+        },
+        {
+          "app": "workload-call-linkage",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-cics",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC"
+        },
+        {
+          "app": "workload-claims",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CLAIMS, CLAIMS, CLAIMS"
+        },
+        {
+          "app": "workload-db2",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: ACCOUNT-DB2"
+        },
+        {
+          "app": "workload-dynamic-call",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALC"
+        },
+        {
+          "app": "workload-dynamic-call-valid",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable CALLs: MAIN->WS-PROG-NAME"
+        },
+        {
+          "app": "workload-multiprog",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: CALCULATE"
+        },
+        {
+          "app": "workload-redefines",
+          "reason": "Pipeline generation failed: Transformation plan contains non-transformable programs: REDEFINES-DEMO"
+        }
+      ],
+      "status": "CERTIFIED",
+      "totals": {
+        "applications": 55,
+        "other": {},
+        "refused_by_name": 9,
+        "unavailable": 1,
+        "verified": 45
+      },
+      "unavailable": [
+        {
+          "app": "workload-studentproc",
+          "reason": "[\"COBOL source does not compile on the oracle (cobc exit 1); no reference behaviour exists\"]"
+        }
+      ],
+      "validation_summary_rows": 46
+    }
+  },
+  "schema": "systemaops.certification_summary",
+  "schema_version": 1,
+  "source": {
+    "commit_sha": "801d2315b150b732ffa8bd5c3391c0bae684b2c4",
+    "workflow": "certification.yml",
+    "workflow_run_id": "43188835053",
+    "workflow_run_url": "https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43188835053"
+  },
+  "toolchain": {
+    "image_identities": null,
+    "image_identities_note": "not captured: the committed evidence of this run does not include docker-image-provenance.json; later runs record it with --provenance",
+    "reference_runtime": "GnuCOBOL 3.1.2"
+  }
+}

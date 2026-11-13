@@ -570,12 +570,13 @@ class TestPlainJavaTarget:
                     target_runtime="plain_java",
                 )
             ).execute()
-            # Assembly failures surface as an empty project directory plus
-            # a named limitation (pre-existing pipeline contract; the API
-            # layer refuses to continue without a project dir).
+            # A failure surfaces as an empty project directory plus a named
+            # limitation (the API layer refuses to continue without a project
+            # dir).  Since G-15 the unknown entrypoint is refused already at
+            # generation, before assembly, and names the requested program.
             assert report.generated_project_dir == ""
             limitation = "; ".join(report.limitations)
-            assert "Assembly failed" in limitation
+            assert "Requested entrypoint 'NOPE' matches no program" in limitation
             assert "NOPE" in limitation
 
     def test_spring_default_unchanged_by_plain_adapter(self):

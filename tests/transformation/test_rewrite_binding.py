@@ -91,15 +91,23 @@ class TestRewriteBindsTheFdOwnerFile:
         assert len(rewrites) == 1
         assert rewrites[0].file_name == "IDX-FILE"
 
-    def test_undeclared_record_keeps_heuristic_fallback(self):
-        """No FD declares the record: the -REC/-FILE fallback (both verbs)."""
+    def test_undeclared_record_is_refused_not_guessed(self):
+        """G-14: no FD declares the record -> no owner, a named error.
+
+        The former ``-REC`` -> ``-FILE`` fallback is gone: a naming
+        convention is not a semantic relationship.
+        """
         header = CONVENTIONAL.replace(
             "FD ACCT-FILE.\n01 ACCT-REC PIC X(100).\n", ""
         )
-        _, statements = _parse(header, "    REWRITE ACCT-REC FROM WS-BUF.\n")
-        rewrites = [s for s in statements if isinstance(s, RewriteStatement)]
-        assert len(rewrites) == 1
-        assert rewrites[0].file_name == "ACCT-FILE"
+        for verb in ("REWRITE", "WRITE"):
+            parser, statements = _parse(header, f"    {verb} ACCT-REC FROM WS-BUF.\n")
+            stmt = [s for s in statements if isinstance(s, (RewriteStatement, WriteStatement))]
+            assert len(stmt) == 1 and stmt[0].file_name == ""
+            assert any(
+                e.code.name == "UNDEFINED_FILE" and "ACCT-REC" in e.message
+                for e in parser.diagnostics.errors
+            ), verb
 
 
 class TestRewriteAndWriteAgree:
@@ -127,3 +135,82 @@ class TestRewriteAndWriteAgree:
         rewrite = [s for s in statements if isinstance(s, RewriteStatement)]
         assert write[0].file_name == "ACCT-FILE"
         assert rewrite[0].file_name == write[0].file_name
+
+
+TWO_FDS_SAME_RECORD = """IDENTIFICATION DIVISION.
+PROGRAM-ID. TST.
+ENVIRONMENT DIVISION.
+FILE-CONTROL.
+SELECT A-FILE ASSIGN TO "A.DAT".
+SELECT B-FILE ASSIGN TO "B.DAT".
+DATA DIVISION.
+FILE SECTION.
+FD A-FILE.
+01 SHARED-REC PIC X(10).
+FD B-FILE.
+01 SHARED-REC PIC X(10).
+WORKING-STORAGE SECTION.
+01 WS-BUF PIC X(10).
+PROCEDURE DIVISION.
+MAIN.
+"""
+
+MULTI_RECORD_FD = """IDENTIFICATION DIVISION.
+PROGRAM-ID. TST.
+ENVIRONMENT DIVISION.
+FILE-CONTROL.
+SELECT MASTER ASSIGN TO "M.DAT".
+DATA DIVISION.
+FILE SECTION.
+FD MASTER.
+01 HEADER-LINE PIC X(10).
+01 DETAIL-LINE PIC X(10).
+WORKING-STORAGE SECTION.
+01 WS-BUF PIC X(10).
+PROCEDURE DIVISION.
+MAIN.
+"""
+
+
+class TestOwnershipIsAFileSectionFact:
+    def test_record_declared_under_two_fds_is_ambiguous_and_refused(self):
+        for verb in ("WRITE", "REWRITE"):
+            parser, statements = _parse(TWO_FDS_SAME_RECORD, f"    {verb} SHARED-REC FROM WS-BUF.\n")
+            stmt = [s for s in statements if isinstance(s, (RewriteStatement, WriteStatement))][0]
+            assert stmt.file_name == ""
+            assert any(
+                "ambiguous" in e.message and "A-FILE" in e.message and "B-FILE" in e.message
+                for e in parser.diagnostics.errors
+            ), verb
+
+    def test_every_01_of_a_multi_record_fd_binds_to_that_fd(self):
+        _, statements = _parse(
+            MULTI_RECORD_FD,
+            "    WRITE HEADER-LINE FROM WS-BUF.\n    WRITE DETAIL-LINE FROM WS-BUF.\n",
+        )
+        writes = [s for s in statements if isinstance(s, WriteStatement)]
+        assert [w.file_name for w in writes] == ["MASTER", "MASTER"]
+
+    def test_read_takes_its_record_from_the_fd_not_from_the_file_name(self):
+        from engine.transformation.ir import ReadStatement
+
+        parser, statements = _parse(UNCONVENTIONAL, "    READ IDX-FILE.\n")
+        read = [s for s in statements if isinstance(s, ReadStatement)][0]
+        assert read.record_name == "IDX-DATA"  # never "IDX-REC"
+        assert not parser.diagnostics.errors
+
+    def test_read_of_a_file_with_no_fd_is_refused(self):
+        from engine.transformation.ir import ReadStatement
+
+        header = UNCONVENTIONAL.replace("FD IDX-FILE.\n01 IDX-DATA PIC X(100).\n", "")
+        parser, statements = _parse(header, "    READ IDX-FILE.\n")
+        read = [s for s in statements if isinstance(s, ReadStatement)][0]
+        assert read.record_name == ""
+        assert any(e.code.name == "UNDEFINED_FILE" and "IDX-FILE" in e.message
+                   for e in parser.diagnostics.errors)
+
+    def test_valid_conventional_program_still_parses_without_errors(self):
+        parser, _ = _parse(
+            CONVENTIONAL, "    WRITE ACCT-REC FROM WS-BUF.\n    READ ACCT-FILE.\n"
+        )
+        assert not parser.diagnostics.errors
