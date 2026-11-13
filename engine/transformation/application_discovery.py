@@ -53,6 +53,7 @@ from engine.transformation.ir import (
     normalize_cobol_name,
 )
 from engine.transformation.diagnostics import DiagnosticCode
+from engine.transformation.file_ownership import record_ownership
 from engine.transformation.source_format import compiler_visible_text
 
 logger = logging.getLogger(__name__)
@@ -554,14 +555,15 @@ class ApplicationDiscovery:
         scan_source = _COBOL_COMMENT_LINE.sub(" ", scan_source)
         scan_source = _COBOL_INLINE_COMMENT.sub(" ", scan_source)
 
-        record_to_file = {
-            fd.record_name: fd.name
-            for fd in file_definitions
-            if fd.record_name and fd.name
-        }
+        ownership = record_ownership(file_definitions)
 
         def _resolve(target: str) -> str:
-            return record_to_file.get(target, target)
+            return ownership.owners.get(target, target)
+
+        def _note(target: str) -> str:
+            fds = ownership.candidates(target)
+            return (f"ambiguous: record {target} is declared under more than one FD "
+                    f"({', '.join(fds)})") if fds else ""
 
         deps: list[FileDependency] = []
 
@@ -580,6 +582,7 @@ class ApplicationDiscovery:
                 program_id=program_id,
                 file_name=_resolve(match.group(1)),
                 operation="READ",
+                ownership_note=_note(match.group(1)),
             ))
 
         for match in _FILE_VERB_WRITE.finditer(scan_source):
@@ -587,6 +590,7 @@ class ApplicationDiscovery:
                 program_id=program_id,
                 file_name=_resolve(match.group(1)),
                 operation="WRITE",
+                ownership_note=_note(match.group(1)),
             ))
 
         return deps

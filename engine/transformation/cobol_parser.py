@@ -42,6 +42,7 @@ from engine.transformation.control_flow import (
     walk_statements,
 )
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
+from engine.transformation.file_ownership import record_ownership
 from engine.transformation.exec_sql import find_includes as find_sql_includes
 from engine.transformation.group_storage import (
     file_record_groups,
@@ -840,24 +841,11 @@ class CobolParser:
         # owning FD from the FILE SECTION (every 01 of every FD) while
         # parsing PROCEDURE DIVISION.  A record that no FD declares, or that
         # more than one FD declares, has no provable owner and is refused.
-        owners: dict[str, list[str]] = {}
-        for fd in file_section:
-            # Declaration order: the 01 groups; the buffer record is the one
-            # FileDefinition.record_name names (the last 01), as everywhere else.
-            records = [g.name for g in fd.record_groups if g.name]
-            if fd.record_name and fd.record_name not in records:
-                records.append(fd.record_name)
-            self._file_records[fd.name] = tuple(dict.fromkeys(records))
-            if fd.record_name:
-                self._file_buffer_record[fd.name] = fd.record_name
-            for record in dict.fromkeys(records):
-                if fd.name and fd.name not in owners.setdefault(record, []):
-                    owners[record].append(fd.name)
-        for record, fds in owners.items():
-            if len(fds) == 1:
-                self._record_owner[record] = fds[0]
-            else:
-                self._record_owner_ambiguous[record] = tuple(sorted(fds))
+        ownership = record_ownership(file_section)
+        self._record_owner = dict(ownership.owners)
+        self._record_owner_ambiguous = dict(ownership.ambiguous)
+        self._file_records = dict(ownership.file_records)
+        self._file_buffer_record = dict(ownership.buffer_record)
         working_storage = self._parse_working_storage(code_lines)
         working_storage = self._with_sqlca_fields(code_lines, working_storage)
         linkage_section = self._parse_linkage_section(code_lines)
@@ -2406,6 +2394,11 @@ class CobolParser:
         if re.match(r"EXEC\s+SQL\b", upper):
             return self._parse_exec_sql(lines, start)
 
+        # EXEC CICS ... END-EXEC: one refused region.  Its inner READ / WRITE /
+        # DELETE are CICS commands, never COBOL file verbs (G-22).
+        if re.match(r"EXEC\s+CICS\b", upper):
+            return self._parse_exec_cics(lines, start)
+
         # OPEN
         if upper.startswith("OPEN "):
             return self._parse_open(lines, start)
@@ -2915,17 +2908,6 @@ class CobolParser:
         if owner:
             return owner
         fds = self._record_owner_ambiguous.get(record_name)
-        if not fds:
-            # The qualified-name pass renames a record declared twice
-            # (``NAME`` -> ``NAME-X``, ``NAME-OF-...``), so the bare name is
-            # no longer an owner key even though several FDs declare it.
-            pattern = re.compile(re.escape(record_name) + r"(?:-X)+")
-            renamed = {
-                fd
-                for declared, fd in self._record_owner.items()
-                if pattern.fullmatch(declared)
-            }
-            fds = tuple(sorted(renamed)) if len(renamed) > 1 else None
         if fds:
             self._diagnostics.error(
                 DiagnosticCode.SEMANTIC_ERROR,
@@ -4656,6 +4638,54 @@ class CobolParser:
             return working_storage
         extra = self._parse_working_storage(["WORKING-STORAGE SECTION.", *wanted])
         return [*working_storage, *extra]
+
+    def _parse_exec_cics(self, lines: list[str], start: int) -> tuple[None, int]:
+        """Consume one ``EXEC CICS ... END-EXEC`` region and name it.
+
+        CICS is outside the certified lane (the capability gate refuses the program);
+        this keeps the commands inside the block from being read as COBOL file verbs,
+        which produced a fabricated "no FD declares ..." error.  The region is never
+        dropped silently: a warning names the command and the lines it covered, and a
+        region with no ``END-EXEC`` or no command is an error.  END-EXEC inside a
+        literal does not close the region.
+        """
+        body = re.sub(r"^EXEC\s+CICS\b", "", lines[start].strip(), flags=re.IGNORECASE)
+        parts: list[str] = []
+        i = start
+        terminated = False
+        while True:
+            if body.startswith("*"):  # a comment line inside the block
+                body = ""
+            end = re.search(r"\bEND-EXEC\b", _mask_literal_contents(body), re.IGNORECASE)
+            if end:
+                parts.append(body[: end.start()])
+                terminated = True
+                i += 1
+                break
+            parts.append(body)
+            i += 1
+            if i >= len(lines):
+                break
+            body = lines[i].strip()
+        text = " ".join(p.strip() for p in parts if p.strip())
+        words = re.findall(r"[A-Za-z][A-Za-z0-9-]*", text)
+        command = words[0].upper() if words else ""
+        where = f"line {start + 1}" if i - start <= 1 else f"lines {start + 1}-{i}"
+        if not command:
+            self._diagnostics.error(
+                DiagnosticCode.PARSE_ERROR,
+                "EXEC CICS has no command", location=where)
+        elif not terminated:
+            self._diagnostics.error(
+                DiagnosticCode.PARSE_ERROR,
+                f"EXEC CICS {command} region has no END-EXEC", location=where)
+        else:
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                f"EXEC CICS {command} is not lowered: EXEC CICS is outside the certified "
+                f"deterministic Java lane ({where} skipped as one region)",
+                location=where)
+        return None, i
 
     def _parse_exec_sql(self, lines: list[str], start: int) -> tuple[ExecSqlStatement, int]:
         """Capture one EXEC SQL region as IR; the construct stays refused downstream."""

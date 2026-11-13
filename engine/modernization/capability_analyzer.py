@@ -1454,9 +1454,10 @@ class CapabilityAnalyzer:
         definition = file_defs.get(fd.file_name)
 
         if definition is None:
+            note = f" ({fd.ownership_note})" if fd.ownership_note else ""
             return (
                 CapabilityLevel.UNSUPPORTED,
-                f"File dependency {fd.file_name} has no FILE definition",
+                f"File dependency {fd.file_name} has no FILE definition{note}",
             )
 
         if definition.organization not in (

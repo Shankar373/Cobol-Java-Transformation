@@ -1093,6 +1093,10 @@ class FileDependency:
     file_name: str  # COBOL file name
     operation: str  # READ, WRITE, OPEN, CLOSE
     mode: str = ""  # INPUT, OUTPUT, I-O, EXTEND
+    # Why ``file_name`` could not be resolved to a file ("" when it was, or when
+    # the name is simply undeclared): a record declared under several FDs is
+    # reported as ambiguous with the FDs that declare it (G-23).
+    ownership_note: str = ""
 
 
 @dataclass(frozen=True)
