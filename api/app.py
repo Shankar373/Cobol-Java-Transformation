@@ -64,7 +64,7 @@ import time
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
@@ -1038,6 +1038,64 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
         discovery_success=discovery.discovery_success,
         discovery_errors=_public(discovery.discovery_errors),
     )
+
+
+@app.post("/applications/{app_id}/vsam/migrate", status_code=201)
+async def migrate_vsam_dataset(
+    app_id: str,
+    request: Request,
+    dataset: UploadFile = File(...),
+    options: str = Form(...),
+) -> dict:
+    """Migrate one uploaded dataset of a file the application declares (layout, keys and organization come
+    from the application's own FD).  A refusal is a stored, named result - never a downloadable artifact."""
+    from api import vsam_migration
+
+    app = _svc().get_application(app_id)
+    if app.cobol_source_path is None:
+        raise _error(404, "No source has been ingested for this application")
+    _guard_content_length(request)
+    parsed = await run_in_threadpool(_vsam_call, vsam_migration.parse_options, options)
+    data = await _read_upload_bounded(
+        dataset, remaining=[_env_limit("CONTROL_PLANE_MAX_REQUEST_BYTES", _DEFAULT_MAX_REQUEST_BYTES)])
+    report, output = await run_in_threadpool(
+        _vsam_call, vsam_migration.execute, Path(app.cobol_source_path), app_id, data, parsed)
+    await run_in_threadpool(_vsam_call, vsam_migration.store, app_id, report, output)
+    return _public(report)
+
+
+@app.get("/applications/{app_id}/vsam/migrations/{migration_id}")
+def get_vsam_migration(app_id: str, migration_id: str) -> dict:
+    """The stored report of a migration."""
+    from api import vsam_migration
+
+    _svc().get_application(app_id)
+    report = _vsam_call(vsam_migration.load_report, app_id, migration_id)
+    if report is None:
+        raise _error(404, "No such migration")
+    return _public(report)
+
+
+@app.get("/applications/{app_id}/vsam/migrations/{migration_id}/download")
+def download_vsam_migration(app_id: str, migration_id: str):
+    """The converted dataset; only a RECONCILED migration whose stored bytes still match its hash is served."""
+    from api import vsam_migration
+
+    _svc().get_application(app_id)
+    data = _vsam_call(vsam_migration.load_output, app_id, migration_id)
+    if data is None:
+        raise _error(404, "No downloadable output for this migration")
+    return StreamingResponse(io.BytesIO(data), media_type="application/octet-stream")
+
+
+def _vsam_call(function, *args):
+    """Run a migration-module call, turning its named refusals into 400s."""
+    from api import vsam_migration
+
+    try:
+        return function(*args)
+    except vsam_migration.VsamRequestError as exc:
+        raise ServiceError(str(exc)) from exc
 
 
 @app.get("/applications/{app_id}/estate", response_model=EstateResponse)
