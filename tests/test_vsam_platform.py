@@ -49,7 +49,8 @@ def test_the_documented_platforms_are_explicit_about_order_width_and_evidence():
     assert GNU_IBM.width_model is BinaryWidthModel.IBM_2_4_8 and GNU_IBM.comp5_byte_order is ByteOrder.LITTLE
     assert "DOCUMENTED" in IBM_Z.evidence and "no IBM" in IBM_Z.evidence
     assert "GNUCOBOL_DIFFERENTIAL" in GNU.evidence and "GNUCOBOL_DIFFERENTIAL" in GNU_IBM.evidence
-    assert set(PLATFORMS) == {"IBM_ZOS", "GNUCOBOL_X86_DEFAULT", "GNUCOBOL_X86_IBM_DIALECT"}
+    assert set(PLATFORMS) == {"IBM_ZOS", "GNUCOBOL_X86_DEFAULT", "GNUCOBOL_X86_IBM_DIALECT",
+                              "GNUCOBOL_S390X_DEFAULT", "GNUCOBOL_S390X_IBM_DIALECT"}
 
 
 def test_an_unknown_platform_is_refused_by_name():

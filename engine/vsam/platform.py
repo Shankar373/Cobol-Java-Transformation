@@ -51,6 +51,14 @@ PLATFORMS: dict[str, BinaryRepresentation] = {
     "GNUCOBOL_X86_IBM_DIALECT": BinaryRepresentation(
         "GNUCOBOL_X86_IBM_DIALECT", ByteOrder.BIG, ByteOrder.LITTLE, BinaryWidthModel.IBM_2_4_8,
         "GNUCOBOL_DIFFERENTIAL: records written by GnuCOBOL 3.1.2 -std=ibm on x86-64; not IBM Enterprise COBOL"),
+    "GNUCOBOL_S390X_DEFAULT": BinaryRepresentation(
+        "GNUCOBOL_S390X_DEFAULT", ByteOrder.BIG, ByteOrder.BIG, BinaryWidthModel.GNUCOBOL_1_2_4_8,
+        "GNUCOBOL_DIFFERENTIAL: records written by GnuCOBOL 3.1.2 -std=default on linux/s390x (big-endian CPU, "
+        "QEMU); Linux on s390x, not z/OS"),
+    "GNUCOBOL_S390X_IBM_DIALECT": BinaryRepresentation(
+        "GNUCOBOL_S390X_IBM_DIALECT", ByteOrder.BIG, ByteOrder.BIG, BinaryWidthModel.IBM_2_4_8,
+        "GNUCOBOL_DIFFERENTIAL: records written by GnuCOBOL 3.1.2 -std=ibm on linux/s390x (big-endian CPU, QEMU); "
+        "Linux on s390x, not z/OS or IBM Enterprise COBOL"),
 }
 
 
