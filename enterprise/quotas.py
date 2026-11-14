@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, fields
+from typing import cast
 
 from api.limits import env_int_limit
 
@@ -63,7 +64,7 @@ class WorkerQuotas:
 
 def _from_env(cls, prefix: str):
     values = {
-        f.name: env_int_limit(f"SYSTEMAOPS_{prefix}_{f.name.upper()}", f.default, _LOG)
+        f.name: env_int_limit(f"SYSTEMAOPS_{prefix}_{f.name.upper()}", cast(int, f.default), _LOG)
         for f in fields(cls)
     }
     return cls(**values)
