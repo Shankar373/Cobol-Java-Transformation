@@ -197,12 +197,15 @@ def _plan(source: DatasetDefinition, layout: RecordLayout, encoding: Encoding, t
     mapped_key, mapped_alt = source.primary_key, source.alternate_keys
     if not failures:
         key = source.primary_key
-        if key is not None:
+        keys = ([("primary key", key)] if key is not None else []) + [
+            (f"alternate key {i}", k) for i, k in enumerate(source.alternate_keys, start=1)]
+        for label, candidate in keys:
             for spec in layout.field_specs():
-                if spec.offset < key.offset + key.length and key.offset < spec.offset + spec.length:
-                    if (key.kind.value == "CHARACTER") != (spec.kind is FieldKind.DISPLAY):
-                        failures.append(f"the {key.kind.value.lower()} primary key (offset {key.offset}, length "
-                                        f"{key.length}) overlaps the {spec.kind.value} field {spec.name}")
+                if spec.offset < candidate.offset + candidate.length and candidate.offset < spec.offset + spec.length:
+                    if (candidate.kind.value == "CHARACTER") != (spec.kind is FieldKind.DISPLAY):
+                        failures.append(f"the {candidate.kind.value.lower()} {label} (offset {candidate.offset}, "
+                                        f"length {candidate.length}) overlaps the {spec.kind.value} field {spec.name}: "
+                                        "the declared key kind does not match the field it covers")
         if binary and not failures:
             failures += _binary_key_failures(layout, target, source_platform, target_platform,  # type: ignore[arg-type]
                                              source.primary_key, source.alternate_keys)

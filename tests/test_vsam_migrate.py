@@ -102,8 +102,20 @@ def test_an_entry_sequenced_migration_keeps_arrival_order_and_says_what_it_does_
     assert any("RBA" in w for w in report.warnings)
 
 
+def test_an_alternate_character_key_over_a_packed_or_binary_field_is_refused():
+    from engine.vsam.model import KeyKind
+
+    for offset, length in ((4, 3), (7, 2)):                                   # AMT (COMP-3), CNT (COMP)
+        definition = source_def(alternate_keys=(KeyDefinition(offset, length, unique=False),))   # CHARACTER by default
+        destination, report = migrate(record("K001"), definition)
+        assert not report.success and destination == b""
+        assert any("alternate key 1" in f and "CHARACTER" in f.upper() for f in report.failures), report.failures
+    ok = source_def(alternate_keys=(KeyDefinition(7, 2, kind=KeyKind.BINARY, unique=False),))
+    assert migrate(record("K001"), ok)[1].success
+
+
 def test_alternate_indexes_are_named_as_not_migrated():
-    definition = source_def(alternate_keys=(KeyDefinition(7, 2, unique=False),))
+    definition = source_def(alternate_keys=(KeyDefinition(7, 2, kind=__import__("engine.vsam.model", fromlist=["KeyKind"]).KeyKind.BINARY, unique=False),))
     _, report = migrate(record("K001"), definition)
     assert any("alternate" in s for s in report.to_dict()["unsupported_semantics"])
     assert report.state == "RECONCILED"          # the data is reconciled; the missing semantics are stated, not hidden
