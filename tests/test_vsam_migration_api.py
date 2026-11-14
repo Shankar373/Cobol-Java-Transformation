@@ -276,3 +276,64 @@ def test_downloading_converted_data_needs_the_operator_role_not_viewer():
     assert rbac.required_role("GET", "/applications/app-1/vsam/migrations/vm-0123456789abcdef/download") == "operator"
     assert rbac.required_role("GET", "/applications/app-1/vsam/migrations/vm-0123456789abcdef") == "viewer"
     assert rbac.required_role("POST", "/applications/app-1/vsam/migrate") == "operator"
+
+
+# ---- product-workflow acceptance: authorization over HTTP, unknown application, restart ----
+
+VIEWER, OPERATOR = "viewer-token-0123456789abcdef", "operator-token-0123456789abcdef"
+
+
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_over_http_a_viewer_cannot_upload_or_download_and_an_operator_can(client, monkeypatch):
+    monkeypatch.setenv("CONTROL_PLANE_ROLE_TOKENS", json.dumps({VIEWER: "viewer", OPERATOR: "operator"}))
+    upload = {"files": {"dataset": ("CUST.DAT", customer("A001", "alpha"), "application/octet-stream")},
+              "data": {"options": json.dumps({"file": "CUST-FILE", "source_encoding": "ASCII",
+                                              "destination_encoding": "EBCDIC_CP037"})}}
+    assert client.post("/applications/app-1/vsam/migrate", **upload).status_code == 401           # no token
+    assert client.post("/applications/app-1/vsam/migrate", headers=_auth(VIEWER), **upload).status_code == 403
+    created = client.post("/applications/app-1/vsam/migrate", headers=_auth(OPERATOR), **upload)
+    assert created.status_code == 201, created.text
+    base = f"/applications/app-1/vsam/migrations/{created.json()['migration_id']}"
+    assert client.get(base, headers=_auth(VIEWER)).status_code == 200                              # status is readable
+    assert client.get(base + "/download").status_code == 401
+    assert client.get(base + "/download", headers=_auth(VIEWER)).status_code == 403                # data is not
+    assert client.get(base + "/download", headers=_auth(OPERATOR)).status_code == 200
+
+
+def test_an_unknown_application_is_404_for_every_vsam_route(tmp_path, monkeypatch):
+    from api.errors import NotFoundError
+
+    class _Svc:
+        def get_application(self, app_id):
+            raise NotFoundError(f"Application {app_id!r} not found")
+
+    monkeypatch.setattr(api_app, "_svc", lambda: _Svc())
+    monkeypatch.setenv("CONTROL_PLANE_WORKSPACE_DIR", str(tmp_path / "work"))
+    ghost = TestClient(api_app.app)
+    assert post(ghost, customer("A001", "alpha")).status_code == 404
+    assert ghost.get("/applications/app-1/vsam/migrations/vm-0123456789abcdef").status_code == 404
+    assert ghost.get("/applications/app-1/vsam/migrations/vm-0123456789abcdef/download").status_code == 404
+
+
+def test_a_stored_migration_is_readable_after_a_process_restart(client, tmp_path, monkeypatch):
+    body = post(client, customer("A001", "alpha") + customer("B002", "bravo")).json()
+    first = client.get(f"/applications/app-1/vsam/migrations/{body['migration_id']}/download").content
+    src = tmp_path / "src"
+
+    class _App:
+        cobol_source_path = str(src)
+
+    class _Svc:
+        def get_application(self, app_id):
+            return _App()
+
+    # a new client and service object: the result must come from the files under the workspace alone
+    monkeypatch.setattr(api_app, "_svc", lambda: _Svc())
+    restarted = TestClient(api_app.app)
+    report = restarted.get(f"/applications/app-1/vsam/migrations/{body['migration_id']}")
+    assert report.status_code == 200 and report.json()["output_sha256"] == body["output_sha256"]
+    assert restarted.get(f"/applications/app-1/vsam/migrations/{body['migration_id']}/download").content == first
+    assert post(restarted, customer("A001", "alpha") + customer("B002", "bravo")).json()["migration_id"] == body["migration_id"]

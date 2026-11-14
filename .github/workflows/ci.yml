@@ -282,6 +282,7 @@ jobs:
         shell: bash
         env:
           RUN_DOCKER_TESTS: "1"
+          VSAM_EVIDENCE_DIR: test-artifacts/vsam
         run: |
           set -o pipefail
           python -m pytest -ra --junitxml=test-artifacts/backend-junit.xml tests 2>&1 | tee test-artifacts/backend-tests.log
