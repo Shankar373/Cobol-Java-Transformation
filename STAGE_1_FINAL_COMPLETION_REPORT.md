@@ -104,6 +104,7 @@ All Docker-lane proofs need `RUN_DOCKER_TESTS=1` and are kept distinct:
 | security-reviewer (head `b754599`) | 0 CRITICAL/HIGH. MEDIUM: unbounded artifact growth (fixed by per-app cap, rest documented), full discovery per request with no timeout (documented, not fixed); LOW items documented |
 | architect + persistence review (head `b754599`) | 0 blockers. Fixed: corrupt report wedged an id, report readable by viewer, temp file left on failed write, no per-app cap. Documented: re-ingest coordination, retention, per-process concurrency, fsync, ADR claim wording (corrected) |
 | java-reviewer + test-quality review (head `b754599`) | no vacuous agreement; expected values independent. Fixed: CI gate that fails when the VSAM Docker proofs skip, evidence booleans computed. Documented: narrow fixture, control passes through a Java crash on foreign bytes |
+| code-reviewer (diff `b754599..` final head) | 0 CRITICAL/HIGH/MEDIUM; 2 LOW fixed (report with valid JSON but missing keys now reads as absent, with a test; inline import hoisted) |
 | database-reviewer, tdd-guide agents | **not invoked as such**; the architect agent covered persistence, the Java reviewer covered test quality. RED was recorded before each fix |
 
 Open, not fixed (low risk for the bounded subset, recorded): server paths can appear in copybook diagnostics (pre-existing);
@@ -128,7 +129,9 @@ rejected; Zowe CLI unusable without an authorized z/OS.
 | VSAM unit and API tests (`tests/test_vsam*.py`, `tests/transformation/test_fd_copybooks.py`) | 357 passed |
 | `RUN_DOCKER_TESTS=1` VSAM Docker lanes incl. API-to-Java, s390x (default and ibm), consumer oracle, layout, g29, variable | passed locally (x86 3.1.2; s390x via QEMU; 3.2.0 differentials) |
 | `ruff check .`, `python tools/dependency_map.py --check` | clean |
-| full hermetic suite, frontend tests/build | **pending**: recorded in section 9 |
+| full hermetic suite, local, no Docker | exit 0, no failures; 6171 passes counted from the log and 651 skipped (Docker-lane tests and a symlink test this Windows host cannot run); counts parsed from the log because the summary line was suppressed |
+| frontend tests/build | not re-run locally (frontend untouched in Stage 1); CI runs them on the final SHA |
+| earlier head `f06e78e`, CI Docker job | 6819 passed, 0 skipped; junit shows API-to-Java 3, s390x 4, Java consumer 3, independent reader 2 executed, none skipped |
 
 Skipped Docker-lane tests are never counted as passes.
 

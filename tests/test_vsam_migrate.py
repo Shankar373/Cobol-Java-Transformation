@@ -16,7 +16,7 @@ from engine.transformation.cobol_parser import CobolParser
 from engine.vsam.collation import to_stored_bytes
 from engine.vsam.layout import BinaryWidthModel, derive_file_layout
 from engine.vsam.migrate import MigrationReport, migrate_dataset
-from engine.vsam.model import DatasetDefinition, Encoding, KeyDefinition, Organization, RecordFormat
+from engine.vsam.model import DatasetDefinition, Encoding, KeyDefinition, KeyKind, Organization, RecordFormat
 from engine.vsam.platform import platform
 
 IBM = BinaryWidthModel.IBM_2_4_8
@@ -103,8 +103,6 @@ def test_an_entry_sequenced_migration_keeps_arrival_order_and_says_what_it_does_
 
 
 def test_an_alternate_character_key_over_a_packed_or_binary_field_is_refused():
-    from engine.vsam.model import KeyKind
-
     for offset, length in ((4, 3), (7, 2)):                                   # AMT (COMP-3), CNT (COMP)
         definition = source_def(alternate_keys=(KeyDefinition(offset, length, unique=False),))   # CHARACTER by default
         destination, report = migrate(record("K001"), definition)
@@ -115,7 +113,7 @@ def test_an_alternate_character_key_over_a_packed_or_binary_field_is_refused():
 
 
 def test_alternate_indexes_are_named_as_not_migrated():
-    definition = source_def(alternate_keys=(KeyDefinition(7, 2, kind=__import__("engine.vsam.model", fromlist=["KeyKind"]).KeyKind.BINARY, unique=False),))
+    definition = source_def(alternate_keys=(KeyDefinition(7, 2, kind=KeyKind.BINARY, unique=False),))
     _, report = migrate(record("K001"), definition)
     assert any("alternate" in s for s in report.to_dict()["unsupported_semantics"])
     assert report.state == "RECONCILED"          # the data is reconciled; the missing semantics are stated, not hidden

@@ -386,3 +386,11 @@ def test_the_route_applies_the_per_file_upload_limit_before_the_dataset_is_proce
 
 def test_the_hard_backstop_is_not_below_the_default_upload_limit():
     assert vsam_migration.MAX_DATASET_BYTES >= api_app._DEFAULT_MAX_FILE_BYTES      # the backstop never lowers the route limit
+
+
+def test_a_valid_json_report_missing_its_keys_is_treated_as_absent_not_a_500(client, tmp_path):
+    body = post(client, customer("A001", "alpha")).json()
+    (_stored_dir(tmp_path, body) / "report.json").write_text("{}", encoding="utf-8")
+    base = f"/applications/app-1/vsam/migrations/{body['migration_id']}"
+    assert client.get(base).status_code == 404 and client.get(base + "/download").status_code == 404
+    assert post(client, customer("A001", "alpha")).status_code == 201

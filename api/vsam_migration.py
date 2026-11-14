@@ -272,7 +272,8 @@ def load_report(app_id: str, mid: str) -> dict | None:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return report if isinstance(report, dict) else None
+    required = {"migration_id", "output_sha256", "success"}
+    return report if isinstance(report, dict) and required <= report.keys() else None
 
 
 def load_output(app_id: str, mid: str) -> bytes | None:
