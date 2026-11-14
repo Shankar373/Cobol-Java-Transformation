@@ -25,3 +25,11 @@ Updated 2026-11-14.
 - Local Docker cannot pull MinIO, Redis or PostgreSQL images anonymously; Windows long paths block `pip install moto`. Use CI service containers (free).
 - The Windows host has two known local failures (Git Bash grep idiom test, javac cp1252 on a template comment); neither is caused by this work.
 - `winget upgrade Anthropic.ClaudeCode` failed (access denied on the running `claude.exe`); rerun it after the session.
+
+## Certification evidence for `codex/enterprise-on-stage1`
+
+Corpus certification run 43603385699 (manual dispatch, no rule changed) on `ce8ce00edca8671c8b9a8bb74579dd3e447f83a3`: four runtime jobs and the summary job succeeded. The `exact-run-certification-summary` artifact says `certified: true`, commit `ce8ce00edca8671c8b9a8bb74579dd3e447f83a3`, run 43603385699, 55 fixture applications. It is self-attested and has no IBM runtime evidence. Supply chain 43603382150 succeeded on the same SHA. The CI run 43603382116 on the same SHA was still in progress when this was written; `413a969` (code identical to `ce8ce00`) had CI 43571365488 fully green.
+
+## Current work
+
+Branch `codex/stage1-alt-key-browsing` (from `ce8ce00`, nothing committed yet): Phase 1 of the Stage 1 prompt, alternate-key `START` and `READ NEXT`. The ledger recorded about 5 percent mismatches against GnuCOBOL at 150 programs; on this branch seeds 501 (40 programs) and 502 (150) had 0 mismatches. Seeds 503 to 505 were killed by the low-memory guard before finishing, so the gate that refuses browsing stays in place until a wider sweep is clean.
