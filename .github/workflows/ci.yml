@@ -243,6 +243,15 @@ jobs:
           cache-dependency-path: requirements-dev.lock
       - name: Build GnuCOBOL oracle image
         run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
+      - name: Build GnuCOBOL linux/s390x lane image (QEMU, big-endian witness)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support
+          docker build --platform linux/s390x -t gnucobol-s390x:local docker/gnucobol-s390x
+          arch="$(docker run --rm --network none --platform linux/s390x gnucobol-s390x:local uname -m)"
+          test "$arch" = "s390x" || { echo "expected s390x, got $arch" >&2; exit 1; }
+          docker run --rm --network none --platform linux/s390x gnucobol-s390x:local cobc --version | head -1
       - name: Build OCESQL + PostgreSQL oracle image
         run: bash scripts/ci/build-image.sh Dockerfile.ocesql-pg ocesql-pg:latest
       - name: Build project Maven image
