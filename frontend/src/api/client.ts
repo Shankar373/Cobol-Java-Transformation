@@ -786,3 +786,128 @@ export async function downloadGenerated(runId: string): Promise<Blob> {
   }
   return res.blob();
 }
+
+// ---------------------------------------------------------------------------
+// VSAM migration
+//
+//   POST /applications/{id}/vsam/migrations   (create job, idempotent)
+//   PUT  {upload_path}                        (raw export body)
+//   GET  /vsam/migrations/{job_id}            (status)
+//   GET  /vsam/migrations/{job_id}/download   (artifact, SUCCEEDED only)
+// ---------------------------------------------------------------------------
+
+export type VsamJobState =
+  | 'CREATED'
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'RETRYING'
+  | 'VALIDATING'
+  | 'PUBLISHING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'REFUSED';
+
+export const VSAM_TERMINAL_STATES: readonly VsamJobState[] = ['SUCCEEDED', 'FAILED', 'REFUSED'];
+
+export function isVsamTerminal(state: string): boolean {
+  return (VSAM_TERMINAL_STATES as readonly string[]).includes(state);
+}
+
+export interface VsamManifest {
+  dataset_name: string;
+  organization: 'KSDS' | 'ESDS' | 'RRDS';
+  layout: {
+    record_format: 'FIXED' | 'VARIABLE_RDW';
+    min_record_length: number;
+    max_record_length: number;
+    key_offset: number;
+    key_length: number;
+    code_page: string;
+  };
+  duplicate_keys: 'REJECT';
+  alternate_keys: unknown[];
+  record_count: number;
+  dataset_bytes: number;
+  sha256: string;
+  export_platform: string;
+  export_tool: string;
+  export_tool_version: string;
+  provenance: string;
+}
+
+export interface VsamMigrationCreate {
+  idempotency_key: string;
+  runtime_path: string;
+  manifest: VsamManifest;
+  cobol_source?: string;
+  cobol_file?: string;
+}
+
+export interface VsamJob {
+  job_id: string;
+  application_id: string;
+  state: VsamJobState;
+  runtime_path: string;
+  output_name: string | null;
+  records: number | null;
+  bytes_processed: number | null;
+  dataset_bytes: number | null;
+  output_sha256: string | null;
+  output_bytes: number | null;
+  error_code: string | null;
+  error_message: string | null;
+  created?: boolean;
+  upload_path?: string;
+}
+
+export async function createVsamMigration(
+  appId: string,
+  body: VsamMigrationCreate,
+): Promise<VsamJob> {
+  return request<VsamJob>(`/applications/${appId}/vsam/migrations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** PUT the raw export; the File/Blob is streamed by the browser, never read into memory here. */
+export async function uploadVsamExport(uploadPath: string, file: Blob): Promise<void> {
+  // The bearer token must only ever go to the same-origin backend.
+  if (!uploadPath.startsWith('/') || uploadPath.startsWith('//')) {
+    throw new ApiError(0, 'Refusing upload: the server returned a non-relative upload path.');
+  }
+  const res = await fetch(
+    `${BASE}${uploadPath}`,
+    withAuth({ method: 'PUT', body: file, headers: { 'Content-Type': 'application/octet-stream' } }),
+  );
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const parsed = await res.json();
+      msg = parsed.detail !== undefined ? detailToMessage(parsed.detail) : JSON.stringify(parsed);
+    } catch {
+      // ignore
+    }
+    throw new ApiError(res.status, msg);
+  }
+}
+
+export async function getVsamMigration(jobId: string): Promise<VsamJob> {
+  return request<VsamJob>(`/vsam/migrations/${jobId}`);
+}
+
+export async function downloadVsamMigration(jobId: string): Promise<Blob> {
+  const res = await fetch(`${BASE}/vsam/migrations/${jobId}/download`, withAuth());
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const parsed = await res.json();
+      msg = parsed.detail !== undefined ? detailToMessage(parsed.detail) : JSON.stringify(parsed);
+    } catch {
+      // ignore
+    }
+    throw new ApiError(res.status, msg);
+  }
+  return res.blob();
+}

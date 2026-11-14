@@ -10,7 +10,7 @@ import {
   IconFileText,
 } from './icons';
 
-export type SidebarPage = 'dashboard' | 'new' | 'run';
+export type SidebarPage = 'dashboard' | 'new' | 'run' | 'vsam';
 
 interface SidebarProps {
   currentPage: SidebarPage;
@@ -22,6 +22,7 @@ interface SidebarProps {
 const NAV_ITEMS: { key: SidebarPage; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard',        icon: <IconGrid size={17} /> },
   { key: 'new',       label: 'New Modernization', icon: <IconPlus size={17} /> },
+  { key: 'vsam',      label: 'VSAM Migration',    icon: <IconDatabase size={17} /> },
 ];
 
 const PLACEHOLDER_ITEMS: { label: string; icon: React.ReactNode }[] = [
