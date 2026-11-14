@@ -63,6 +63,7 @@ RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock && \
 # (no tests/, no test-artifacts/, no frontend/, no local data/*.db).
 COPY api/ /app/api/
 COPY engine/ /app/engine/
+COPY enterprise/ /app/enterprise/
 COPY contracts/ /app/contracts/
 COPY fixtures/ /app/fixtures/
 COPY scripts/record_docker_image_provenance.py /app/scripts/record_docker_image_provenance.py

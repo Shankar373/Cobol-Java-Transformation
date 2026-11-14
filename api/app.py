@@ -69,6 +69,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.artifact_seal import read_verified_bundle
 from api.errors import ApiError, PayloadTooLargeError, ServiceError
+from api.vsam_routes import UPLOAD_PATH as _VSAM_UPLOAD_PATH
+from api.vsam_routes import configure as _configure_vsam
+from api.vsam_routes import router as _vsam_router
 from api.ingestion import IngestionError
 from api.limits import env_int_limit
 from api.logging_config import (
@@ -227,6 +230,13 @@ class BodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # The VSAM export upload streams straight to disk and its handler
+        # enforces an exact size (the manifest's dataset_bytes, itself bounded
+        # by the VSAM dataset quota), so the generic cap does not apply.
+        if scope.get("method", "").upper() == "PUT" and _VSAM_UPLOAD_PATH.match(scope.get("path", "")):
+            await self.app(scope, receive, send)
+            return
+
         limit = self._limit()
         declared: str | None = None
         for key, value in scope.get("headers", []):
@@ -318,6 +328,8 @@ async def _send_json_error_response(send, status: int, payload: bytes) -> None: 
 # Registered first, so it sits innermost in the stack: every later
 # `add_middleware` wraps it, keeping auth / security headers / CORS outside.
 app.add_middleware(BodyLimitMiddleware)
+app.include_router(_vsam_router)
+_configure_vsam(application_lookup=_service.get_application)
 
 # CORS: deny by default. Configure CONTROL_PLANE_ALLOWED_ORIGINS as a
 # comma-separated list (e.g. "https://app.example.com,https://admin.example.com")
