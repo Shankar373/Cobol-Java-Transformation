@@ -24,7 +24,7 @@ bytes still match their hash and only to the operator role (converted data is cu
 
 - **Rows in the sqlite Store**: the right end state (restart-safe job state, listing, audit, run-active coordination), but it
   needs a schema migration and job-slot integration that were not designed in this stage. Not chosen now.
-- **A background job with polling**: needed for large datasets and for resume/cancel; the synchronous bounded request (10 MB
+- **A background job with polling**: needed for large datasets and for resume/cancel; the synchronous bounded request (10 MB per file by default, `CONTROL_PLANE_MAX_FILE_BYTES`; hard backstop `MAX_DATASET_BYTES` 50 MB
   per file by default, two concurrent migrations) is the smaller step.
 - **Letting the request supply layout and keys**: rejected, it would let a caller migrate data under a layout the
   application does not declare.

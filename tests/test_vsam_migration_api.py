@@ -375,3 +375,14 @@ def test_an_application_cannot_store_more_than_the_per_application_cap(client, m
     over = post(client, customer("C003", "c"))
     assert over.status_code == 400 and "already holds 2 stored migrations" in over.text
     assert post(client, customer("A001", "a")).status_code == 201                       # an existing id is still idempotent
+
+
+def test_the_route_applies_the_per_file_upload_limit_before_the_dataset_is_processed(client, monkeypatch):
+    monkeypatch.setenv("CONTROL_PLANE_MAX_FILE_BYTES", "100")                       # the effective limit (default 10 MB)
+    refused = post(client, b"x" * 101)
+    assert refused.status_code == 413, refused.text
+    assert post(client, customer("A001", "alpha")).status_code == 201               # 31 bytes is within it
+
+
+def test_the_hard_backstop_is_not_below_the_default_upload_limit():
+    assert vsam_migration.MAX_DATASET_BYTES >= api_app._DEFAULT_MAX_FILE_BYTES      # the backstop never lowers the route limit

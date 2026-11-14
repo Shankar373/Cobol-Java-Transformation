@@ -9,8 +9,8 @@ reconciliation says RECONCILED.
 
 Artifacts (report and converted dataset) are written under the durable workspace root, one directory per
 deterministic migration id (the same application, dataset and options always map to the same id), so a restart
-never turns a stored result into something else.  Sizes are bounded by the caller (upload limits) and here
-(``MAX_DATASET_BYTES``).
+never turns a stored result into something else.  Sizes are bounded by the caller (``CONTROL_PLANE_MAX_FILE_BYTES``, default 10 MB per file, enforced by the route while reading) and by
+the hard backstop here (``MAX_DATASET_BYTES``, 50 MB, which an operator-raised route limit cannot exceed).
 """
 from __future__ import annotations
 

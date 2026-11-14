@@ -251,7 +251,13 @@ jobs:
           bash scripts/ci/build-image.sh docker/gnucobol-s390x/Dockerfile gnucobol-s390x:local linux/s390x docker/gnucobol-s390x
           arch="$(docker run --rm --network none --platform linux/s390x gnucobol-s390x:local uname -m)"
           test "$arch" = "s390x" || { echo "expected s390x, got $arch" >&2; exit 1; }
-          docker run --rm --network none --platform linux/s390x gnucobol-s390x:local cobc --version | head -1
+          mkdir -p test-artifacts
+          {
+            echo "arch=$arch"
+            docker run --rm --network none --platform linux/s390x gnucobol-s390x:local cobc --version | head -1
+            docker image inspect gnucobol-s390x:local --format 'image_id={{.Id}} platform={{.Os}}/{{.Architecture}}'
+            grep '^FROM' docker/gnucobol-s390x/Dockerfile
+          } | tee test-artifacts/s390x-image.txt
       - name: Build OCESQL + PostgreSQL oracle image
         run: bash scripts/ci/build-image.sh Dockerfile.ocesql-pg ocesql-pg:latest
       - name: Build project Maven image
