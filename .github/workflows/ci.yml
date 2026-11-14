@@ -286,6 +286,21 @@ jobs:
         run: |
           set -o pipefail
           python -m pytest -ra --junitxml=test-artifacts/backend-junit.xml tests 2>&1 | tee test-artifacts/backend-tests.log
+      - name: Require the VSAM Docker-lane proofs to have run (no skips)
+        run: |
+          python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          required = ("test_vsam_api_to_java", "test_vsam_s390x_oracle", "test_vsam_java_consumer", "test_vsam_consumer_oracle")
+          seen = {name: [0, 0] for name in required}  # executed, skipped
+          for case in ET.parse("test-artifacts/backend-junit.xml").getroot().iter("testcase"):
+              for name in required:
+                  if name in case.get("classname", ""):
+                      seen[name][0] += 1
+                      seen[name][1] += any(child.tag == "skipped" for child in case)
+          print(seen)
+          bad = [n for n, (ran, skipped) in seen.items() if ran == 0 or skipped]
+          sys.exit(f"VSAM lane proofs missing or skipped: {bad}" if bad else 0)
+          PY
       - name: Upload backend logs and reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

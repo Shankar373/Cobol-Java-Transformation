@@ -99,10 +99,10 @@ def test_the_api_artifact_is_what_generated_java_and_cobol_both_read(product, tm
         "migration": {"id": report["migration_id"], "state": report["state"], "options": OPTIONS,
                       "engine_version": report["engine_version"]},
         "downloaded_artifact": {"sha256": hashlib.sha256(downloaded.content).hexdigest(),
-                                "bytes": len(downloaded.content), "equals_report_hash": True},
+                                "bytes": len(downloaded.content), "equals_report_hash": hashlib.sha256(downloaded.content).hexdigest() == report["output_sha256"]},
         "generated_java_files": sorted(p.name for p in java_work.glob("*.java")),
         "cobol_output": cobol_out, "java_output": java_out, "expected": expected,
-        "comparison": {"java_equals_cobol": java_out == cobol_out, "both_equal_independent_expected": True},
+        "comparison": {"java_equals_cobol": java_out == cobol_out, "both_equal_independent_expected": java_out == expected and cobol_out == expected},
         "proof_class": "GENERATED_JAVA + GNUCOBOL_DIFFERENTIAL (not IBM runtime)",
     }
     target = Path(os.environ.get("VSAM_EVIDENCE_DIR") or tmp_path)
