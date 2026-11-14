@@ -47,7 +47,7 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                     REL.put(path, new java.util.TreeMap<>());
                     new java.io.File(path).delete();
                     persistRelative(path);
-                } else if (!REL.containsKey(path)) {
+                } else if (!REL.containsKey(path) && !loadRelative(path)) {
                     return "35";
                 }
                 return "00";
@@ -398,6 +398,31 @@ COBOL_FILE_IO_JAVA = '''final class CobolFileIo {
                 w.newLine();
             }
         }
+    }
+
+    /** Load an existing RELATIVE image ``<path>.rel`` (an ``R`` line, then
+     *  ``rrn U+0001 record`` lines); false when no image exists or it is unreadable. */
+    private static boolean loadRelative(String path) {
+        java.io.File f = new java.io.File(path + ".rel");
+        if (!f.exists()) {
+            return false;
+        }
+        java.util.TreeMap<Integer, String> m = new java.util.TreeMap<>();
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                new java.io.FileInputStream(f), java.nio.charset.StandardCharsets.UTF_8))) {
+            r.readLine();
+            String l;
+            while ((l = r.readLine()) != null) {
+                int sep = l.indexOf('\\u0001');
+                if (sep > 0) {
+                    m.put(Integer.parseInt(l.substring(0, sep)), l.substring(sep + 1));
+                }
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        REL.put(path, m);
+        return true;
     }
 
     /** The RELATIVE emulation image ``<path>.rel``: an ``R`` line, then one
