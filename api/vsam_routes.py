@@ -46,6 +46,9 @@ class MigrationCreate(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
     runtime_path: str = Field(min_length=1, max_length=100)
     manifest: VsamExportManifest
+    # Optional: validate the manifest against the program's SELECT / FD.
+    cobol_source: str | None = Field(default=None, max_length=1_048_576)
+    cobol_file: str | None = Field(default=None, max_length=64)
 
 
 def configure(service: VsamJobService | None = None,
@@ -85,7 +88,8 @@ def create_migration(app_id: str, body: MigrationCreate) -> dict:
     except VsamRefusal as refusal:
         raise HTTPException(400, refusal.message) from None
     try:
-        view, created = get_service().create(app_id, body.idempotency_key, body.manifest, runtime_path)
+        view, created = get_service().create(
+            app_id, body.idempotency_key, body.manifest, runtime_path, body.cobol_source, body.cobol_file)
     except IdempotencyConflict:
         raise HTTPException(409, "Idempotency key was already used for a different request") from None
     payload = view.as_dict()

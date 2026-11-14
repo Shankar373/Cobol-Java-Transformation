@@ -8,6 +8,7 @@ refusal becomes REFUSED with a stable code, never a partial artifact.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import sqlite3
@@ -21,6 +22,7 @@ from enterprise.contracts import VsamExportManifest, utcnow
 from enterprise.jobs import CompletionEvidence, JobState, next_state
 from enterprise.quotas import VsamQuotas, load_vsam_quotas, load_worker_quotas
 from enterprise.vsam.errors import VsamRefusal
+from enterprise.vsam.layout_check import check_manifest_against_cobol
 from enterprise.vsam.migrate import migrate_export, validate_manifest
 
 _LOG = logging.getLogger(__name__)
@@ -34,6 +36,7 @@ CREATE TABLE IF NOT EXISTS vsam_jobs (
     application_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     manifest_json TEXT NOT NULL,
+    request_digest TEXT NOT NULL,
     runtime_path TEXT NOT NULL,
     state TEXT NOT NULL,
     error_code TEXT NOT NULL DEFAULT '',
@@ -147,15 +150,22 @@ class VsamJobService:
 
     # -- API operations --------------------------------------------------
     def create(self, application_id: str, idempotency_key: str,
-               manifest: VsamExportManifest, runtime_path: str) -> tuple[JobView, bool]:
-        """Create a job; returns ``(view, created)``. Same key + request is idempotent."""
+               manifest: VsamExportManifest, runtime_path: str,
+               cobol_source: str | None = None, cobol_file: str | None = None) -> tuple[JobView, bool]:
+        """Create a job; returns ``(view, created)``. Same key + request is idempotent.
+
+        With ``cobol_source`` the manifest is also validated against the
+        program's SELECT/FD; a mismatch is a refusal, not a warning.
+        """
         manifest_json = manifest.model_dump_json()
+        digest = hashlib.sha256(json.dumps(
+            [manifest_json, runtime_path, cobol_source, cobol_file]).encode()).hexdigest()
         with self._lock:
             existing = self._db.execute(
                 "SELECT * FROM vsam_jobs WHERE application_id=? AND idempotency_key=?",
                 (application_id, idempotency_key)).fetchone()
             if existing is not None:
-                if existing["manifest_json"] != manifest_json or existing["runtime_path"] != runtime_path:
+                if existing["request_digest"] != digest:
                     raise IdempotencyConflict(idempotency_key)
                 return self._view(existing), False
             job_id = uuid.uuid4().hex
@@ -163,13 +173,15 @@ class VsamJobService:
             output_name = runtime_path + _SUFFIX[manifest.organization]
             self._db.execute(
                 "INSERT INTO vsam_jobs (job_id, application_id, idempotency_key, manifest_json,"
-                " runtime_path, state, output_name, created_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?)",
-                (job_id, application_id, idempotency_key, manifest_json, runtime_path,
+                " request_digest, runtime_path, state, output_name, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (job_id, application_id, idempotency_key, manifest_json, digest, runtime_path,
                  JobState.CREATED.value, output_name, now, now))
             self._db.commit()
         try:
             validate_manifest(manifest, self._quotas)
+            if cobol_source:
+                check_manifest_against_cobol(cobol_source, manifest, runtime_path, cobol_file)
         except VsamRefusal as refusal:
             self._transition(job_id, JobState.REFUSED, error_code=refusal.code,
                              error_message=refusal.message)
