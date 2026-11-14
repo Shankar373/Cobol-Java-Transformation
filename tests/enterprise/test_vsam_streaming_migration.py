@@ -48,10 +48,16 @@ def test_ksds_variable_rdw(tmp_path):
     assert result.records == 3
 
 
-def test_esds_is_line_sequential(tmp_path):
+def test_fixed_esds_is_record_sequential(tmp_path):
     result, out = run(tmp_path, fixed_export([b"HELLO     ", b"WORLD     "]), 2, organization="ESDS")
-    assert out.read_text() == "HELLO     \nWORLD     \n"
+    assert out.read_text() == "HELLO     WORLD     "
     assert result.records == 2
+
+
+def test_variable_esds_is_line_sequential(tmp_path):
+    blob = rdw_export([b"AB", b"CDEF"])
+    _, out = run(tmp_path, blob, 2, organization="ESDS", record_format="VARIABLE_RDW", min_len=1, max_len=10)
+    assert out.read_text() == "AB\nCDEF\n"
 
 
 def test_rrds_produces_rel_image_and_keeps_gaps(tmp_path):

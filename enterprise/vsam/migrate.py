@@ -1,7 +1,8 @@
 """Single-pass streaming migration of a VSAM logical export.
 
-KSDS -> ``<path>.idx`` image, ESDS -> line-sequential records, RRDS ->
-``<path>.rel`` image: the exact text images the generated Java runtime
+KSDS -> ``<path>.idx`` image, fixed ESDS -> record-sequential file (records
+back to back), variable ESDS -> line-sequential file, RRDS -> ``<path>.rel``
+image: the exact images the generated Java runtime
 (``CobolFileIo``) reads. Memory is bounded by the read chunk and one record.
 Output is written to ``<out>.part`` and published atomically only after the
 record count, byte count and SHA-256 all match the manifest.
@@ -202,8 +203,10 @@ def migrate_export(
                         raise VsamRefusal("RRN_OUT_OF_ORDER", f"RRN {frame.rrn} at offset {frame.offset}")
                     last_key = frame.rrn.to_bytes(4, "big")
                     line = f"{frame.rrn}{_SEP}{text}\n"
+                elif layout.record_format == "FIXED":
+                    line = text  # record-sequential image: no terminator
                 else:
-                    line = f"{text}\n"
+                    line = f"{text}\n"  # variable-length: line-sequential image
                 encoded = line.encode("utf-8")
                 fout.write(encoded)
                 out_hash.update(encoded)
