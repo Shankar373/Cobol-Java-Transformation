@@ -146,3 +146,38 @@ certification 43441968326 success (certified=True), supply chain 43441968361 suc
 image not built in CI; stale dependency map), both fixed; `f06e78e` CI 43546366927 and supply chain 43546367035 (see PR comment).
 The certification `not_proven` list is unchanged: self-attested evidence, no IBM runtime, Quarkus and Micronaut certified in command
 mode only.
+
+## Addendum: streaming migration path (branch `codex/enterprise-on-stage1`, not part of PR #28 or its certification)
+
+Everything above describes `stage1/vsam-completion` at `c962efe`, which is certified by its own runs. This addendum describes
+work merged on top of it on the separate branch `codex/enterprise-on-stage1`. It is not certified until the exact SHA of that
+branch has its own certification run (see `docs/execution/NEXT_EXECUTION_STATE.md`).
+
+What the added path does (`enterprise/vsam/`, `api/vsam_routes.py`, `docs/vsam/*`):
+
+- **Streaming, not in memory.** The export is read from a raw request body, in bounded chunks, with incremental SHA-256 of input and
+  output, a `.part` file and an atomic rename. A 10 GiB export migrated with a peak process memory of 33.3 MiB
+  (`docs/operations/CERTIFICATION_EVIDENCE.md`). This replaces the in-memory limit for this path only; the 50 MiB and 10 MiB
+  limits of `api/vsam_migration.py` still apply to that older route.
+- **Checkpoint and resume.** A 1 GiB run interrupted at record 5,368,709 and resumed from record 5,250,000 produced the same input
+  and output SHA-256 as the uninterrupted run. Jobs persist in SQLite and interrupted jobs are recovered on start. This is still a
+  single-process store, not PostgreSQL with Celery workers.
+- **Organizations written for the generated Java runtime:** KSDS (`.idx`), RRDS (`.rel`), fixed ESDS (record-sequential file) and
+  variable ESDS (line-sequential file). The generated Java opens large read-only KSDS and RRDS images through a disk-backed
+  sparse index (tested under a 48 MB heap on a 165 MB file).
+- **Evidence:** 6 GnuCOBOL parity tests (KSDS fixed and RDW, RRDS, each with the in-memory and the forced disk-backed index),
+  3 API-to-generated-Java tests (KSDS, RRDS, ESDS; the ESDS file is byte-identical to the one GnuCOBOL writes) and 3 disk-index
+  tests. Parity is against GnuCOBOL only.
+
+What this changes in the gap register, honestly:
+
+- G-28 **RRDS**: a relative-file image is produced and proven against GnuCOBOL relative-file behaviour, using the export framing
+  documented in `docs/vsam/VSAM_EXPORT_FORMAT.md` (4-byte big-endian RRN prefix). Equivalence with an IBM VSAM RRDS is **not**
+  proven, so the "needs an IBM VSAM reference" blocker stays for any IBM claim.
+- G-28 **Alternate index structures**: still not built. Alternate keys are refused by the added path.
+- G-28 **ESDS RBA**: still not modelled or preserved.
+- Still refused by the added path: key offset above zero, duplicate keys, binary fields, RRDS with variable-length records,
+  `OCCURS DEPENDING ON`, `REDEFINES`, several 01 records.
+- Not bounded-memory in the Java runtime: small images and any `OUTPUT`, `I-O` or `EXTEND` open.
+- Sequential `READ NEXT` on RELATIVE files is unsupported by the runtime.
+- No IBM runtime evidence exists for any of this; no `IBM_RUNTIME_VERIFIED` claim is made.
