@@ -193,16 +193,19 @@ def _run_oracle(workdir: Path, name: str, source: str) -> list[str]:
     return [line.rstrip() for line in out.splitlines() if "|" in line]
 
 
-def _run_java(workdir: Path, body: str) -> list[str]:
+def _run_java(workdir: Path, body: str, disk_backed: bool = False) -> list[str]:
     (workdir / "CobolFileIo.java").write_text(COBOL_FILE_IO_JAVA, encoding="utf-8")
     (workdir / "Check.java").write_text(body, encoding="utf-8")
     out = _docker(JAVA_IMAGE, workdir,
-                  "javac -encoding UTF-8 CobolFileIo.java Check.java && java -Dfile.encoding=UTF-8 Check")
+                  "javac -encoding UTF-8 CobolFileIo.java Check.java && java -Dfile.encoding=UTF-8 "
+                  # Threshold 1 byte forces the disk-backed read-only index on these small images.
+                  + ("-Dcobolio.diskIndexBytes=1 " if disk_backed else "") + "Check")
     return [line.rstrip() for line in out.splitlines() if "|" in line]
 
 
+@pytest.mark.parametrize("disk_backed", [False, True], ids=["in-memory", "disk-backed"])
 @pytest.mark.parametrize("framing", ["FIXED", "VARIABLE_RDW"])
-def test_ksds_migrated_index_matches_gnucobol(tmp_path, framing):
+def test_ksds_migrated_index_matches_gnucobol(tmp_path, framing, disk_backed):
     recs = ksds_records(KEY_COUNT)
     if framing == "FIXED":
         blob = fixed_export(recs)
@@ -215,13 +218,14 @@ def test_ksds_migrated_index_matches_gnucobol(tmp_path, framing):
     (tmp_path / "seq.txt").write_text("".join(r.decode("ascii") + "\n" for r in recs), encoding="ascii")
 
     oracle = _run_oracle(tmp_path, "ksdsorcl", KSDS_COBOL)
-    java = _run_java(tmp_path, KSDS_JAVA)
+    java = _run_java(tmp_path, KSDS_JAVA, disk_backed)
     assert len(oracle) == KEY_COUNT + len(PROBE_KEYS)
     assert any(line.endswith("|MISS") for line in oracle)
     assert java == oracle
 
 
-def test_rrds_migrated_relative_image_matches_gnucobol(tmp_path):
+@pytest.mark.parametrize("disk_backed", [False, True], ids=["in-memory", "disk-backed"])
+def test_rrds_migrated_relative_image_matches_gnucobol(tmp_path, disk_backed):
     blob = rrds_export(RRN_SLOTS)
     manifest = make_manifest(blob, len(RRN_SLOTS), organization="RRDS")
     migrate_export(write_export(tmp_path, blob), manifest, tmp_path / "rs.dat.rel")
@@ -229,7 +233,7 @@ def test_rrds_migrated_relative_image_matches_gnucobol(tmp_path):
         "".join(f"{n:04d}{r.decode('ascii')}\n" for n, r in RRN_SLOTS), encoding="ascii")
 
     oracle = _run_oracle(tmp_path, "rrdsorcl", RRDS_COBOL)
-    java = _run_java(tmp_path, RRDS_JAVA)
+    java = _run_java(tmp_path, RRDS_JAVA, disk_backed)
     assert len(oracle) == len(PROBE_RRNS)
     assert any(line.endswith("|MISS") for line in oracle)
     assert java == oracle
