@@ -1,151 +1,145 @@
 # Stage 1 Final Completion Report: COBOL + VSAM modernization
 
-Branch `stage1/vsam-completion`, targeting `impl/enterprise-platform` only. `main` was not touched.
+Branch `stage1/vsam-completion`, PR #28, base `impl/enterprise-platform`. `main` (`b0c1f6b`) was not touched.
 
 ## Verdict
 
-**PARTIALLY COMPLETE.** G-26 and G-27 are closed for their stated scope. G-28 and G-29 are partially closed. VSAM
-migration is a verified library, and only its per-file assessment is wired into the product workflow. Nothing here is
-IBM runtime verified.
+**STAGE 1 PARTIALLY COMPLETE** until the final exact-SHA evidence in section 9 is filled in; see that section for what is verified
+and what is not. Nothing in this report is IBM runtime verified, and nothing is production-ready.
 
-## 1. Baseline
+What is true of the code on this branch: a deterministic, fail-closed COBOL+VSAM path exists from application source to
+discovery, assessment, a migration API, a persisted and downloadable migrated dataset, and a generated-Java application that reads
+those downloaded bytes with output equal to the original COBOL program under GnuCOBOL 3.1.2 and to independently constructed values.
 
-| Item | Value |
+## 1. Evidence classes used in this report
+
+| Class | Meaning here |
 |---|---|
-| Baseline branch | `impl/enterprise-platform` |
-| Baseline head used for the rebase | `116152f` (docs only, on top of `fdf6f00`) |
-| Baseline CI, code head `fdf6f00` | **success**, run 43429795022 (all jobs, Docker job included) |
-| Baseline CI, `116152f` | docs-only commit; CI was still running when the rebase was done |
-| Baseline certification | `eb14eed`: run 43423724085 **success**, `exact-run-certification-summary` artifact read: certified=True |
-| Earlier baseline failure found and fixed | `d035327` and `eb14eed` CI failed one Docker-lane test (`test_none_java_application_fails_run`); the test's generator fake had no entrypoint. Fixed in `fdf6f00` (fake only, assertions unchanged). |
-
-Phase 0 was handled as Case C and then Case B. The baseline had a real failure, which I fixed first. Stage 1 was developed in
-an isolated worktree and integrated only after the baseline code head was green.
+| Implemented | code exists and is reachable |
+| Unit-tested | deterministic pytest, no Docker |
+| Integration-tested | HTTP routes with the real service/store, no Docker |
+| GnuCOBOL-verified | a GnuCOBOL 3.1.2 program wrote or read the data (Docker lane); 3.2.0 passes the same differentials locally |
+| Linux/s390x differential-verified | GnuCOBOL 3.1.2 on `linux/s390x` (QEMU) wrote records; converted to the x86 form they equal what x86 wrote, both directions. **Linux on s390x is not z/OS** |
+| Generated-Java-verified | Java emitted by the real transformation producer, compiled and run, equals the COBOL program on the same bytes |
+| IBM-runtime-verified | **none**: no IBM runtime, z/OS or IBM VSAM was available. `IBM_ZOS` is documented semantics only |
 
 ## 2. Gaps
 
-| Gap | Status | What changed |
+| Gap | Status | Basis |
 |---|---|---|
-| G-26 COPY inside FD | **CLOSED** (unit-tested, equivalence proven) | `engine/transformation/fd_copybooks.py` expands FILE SECTION COPY in place. IR, layout and generated Java match the inline FD. Failures are ERROR diagnostics and no record is invented. Nested expansion is bounded. A member also used in WORKING-STORAGE is still merged there. |
-| G-27 binary endianness / platform | **CLOSED for explicit documented platforms** | `engine/vsam/platform.py`. Binary layouts without explicit platforms and a target layout are refused. Width and byte order are converted, and every decision is in the report. GnuCOBOL presets are differential-verified. **IBM_ZOS is documented only.** |
-| G-28 RDW / ESDS / RRDS / alternate indexes | **PARTIALLY CLOSED** | RDW migration for sequential/ESDS. ASCII<->EBCDIC in both directions. Alternate keys validated (not built). ESDS RBA refusal. RRDS BLOCKED. |
-| G-29 layout coverage | **PARTIALLY CLOSED** | New differential tests: inline SIGN, nested OCCURS, group REDEFINES, SYNCHRONIZED slack. ODO, SYNCHRONIZED and COMP-1/2 are still refused by name. |
+| G-26 COPY inside FD | **Closed** for FILE SECTION COPY (nested, bounded, shared expansion budget, fail-closed) | unit-tested; IR, layout and generated Java equal the inline FD |
+| G-27 binary platform representation | **Closed for the explicitly tested representations**: `GNUCOBOL_X86_DEFAULT`, `GNUCOBOL_X86_IBM_DIALECT`, `GNUCOBOL_S390X_DEFAULT`, `GNUCOBOL_S390X_IBM_DIALECT` | GnuCOBOL and Linux/s390x differentials. `IBM_ZOS` documented only |
+| G-28 RDW / ESDS / RRDS / alternate indexes | **Partially closed** | RDW sequential/ESDS migration, both encoding directions, alternate keys validated (kind must match the covered field) but index structures **not built**, ESDS RBA refused, RRDS BLOCKED |
+| G-29 layout coverage | **Partially closed** | differential tests for inline SIGN, nested OCCURS, group REDEFINES, signed zoned DISPLAY; SYNCHRONIZED, ODO, COMP-1/2 refused by name |
 
-## 3. Implemented, unit-tested, GnuCOBOL-verified, IBM-verified
+## 3. Capability table
 
-| Capability | Implemented | Unit-tested | GnuCOBOL-verified | IBM runtime-verified |
-|---|---|---|---|---|
-| FD COPY expansion | yes | yes | n/a (parser level) | no |
-| Layout derivation (DISPLAY/COMP/COMP-5/COMP-3/SIGN/OCCURS/REDEFINES) | yes | yes | yes, default and `-std=ibm` | no |
-| Binary platform conversion | yes | yes | GnuCOBOL presets yes | no (IBM_ZOS documented only) |
-| Fixed-record migration, both directions | yes | yes | layout bytes yes; migrated data read only by our own reconciliation | no |
-| RDW sequential/ESDS migration | yes | yes | payload differential vs re-framed GnuCOBOL records | no |
-| Alternate key validation | yes | yes | no | no |
-| Per-FD assessment in discovery | yes | yes | n/a | no |
+| Capability | Implemented | Unit-tested | GnuCOBOL | s390x | Generated Java | IBM runtime |
+|---|---|---|---|---|---|---|
+| FD COPY expansion | yes | yes | n/a | n/a | equivalence to inline FD | no |
+| Layout derivation (DISPLAY, COMP, COMP-5, COMP-3, SIGN, OCCURS, selected REDEFINES) | yes | yes | yes, default and `-std=ibm` | COMP/COMP-5 byte order | n/a | no |
+| Signed zoned DISPLAY conversion (overpunch) | yes | yes | yes (3.1.2 and 3.2.0 read migrated values) | n/a | no | no |
+| Binary platform conversion | yes | yes | yes | yes | COMP only (2-byte, unsigned fixture) | no |
+| Fixed-record migration, both encoding directions | yes | yes | yes (independent GnuCOBOL reader plus control) | yes | yes (fixed sequential, DISPLAY/COMP/COMP-3) | no |
+| RDW sequential/ESDS migration | yes | yes | payload vs re-framed GnuCOBOL records | no | no | no |
+| Alternate key validation | yes | yes | no | no | no | no |
+| Per-FD assessment in discovery | yes | yes | n/a | n/a | n/a | no |
+| Migration API (migrate, status, download) | yes | yes (HTTP, real store) | n/a | n/a | yes (end to end, section 5) | no |
 
-Not implemented or refused by name: variable KSDS, binary fields in variable layouts, RRDS (BLOCKED), spanned records,
-alternate index structures, ESDS RBA addressing, OCCURS DEPENDING ON, SYNCHRONIZED, COMP-1/COMP-2, an unselected REDEFINES,
-several FD records without a choice. Nothing is **Production-ready**.
+**Unsupported or refused by name** (regression-tested as refusals, never approximated): variable KSDS, binary fields in variable
+layouts, RRDS (BLOCKED), spanned records, alternate index construction and maintenance, ESDS RBA preservation, OCCURS DEPENDING ON,
+SYNCHRONIZED, COMP-1/COMP-2, an unselected REDEFINES, several FD record descriptions without an explicit compatible choice.
 
-## 4. Product-workflow integration
+## 4. Product workflow
 
-Ingestion -> COPY -> parser/IR -> FD discovery -> layout -> capability assessment: **integrated**. `discover_application`
-(behind `GET /applications/{id}/discovery`) attaches a `vsam_assessment` per FD to each discovered program, reusing the programs
-`ApplicationDiscovery` already parsed with COPY-in-FD expanded. Tests: `tests/test_vsam_assess.py` (11) and
-`tests/test_vsam_discovery_integration.py` (5, one through the HTTP route).
+`POST /applications` -> `POST /applications/{id}/ingest` (zip) -> `GET /applications/{id}/discovery` (programs, COPY-in-FD
+expanded, a `vsam_assessment` per FD) -> `POST /applications/{id}/vsam/migrate` -> `GET .../vsam/migrations/{id}` ->
+`GET .../vsam/migrations/{id}/download`.
 
-**Update (second Stage 1 pass, commits after `086a446`, not yet covered by the CI table below):**
+* Layout, keys and organization come from the application's own FD; the request only chooses encodings, platforms, record format and,
+  for a multi-record FD, the record. The organization option can only pick one compatible with the FD.
+* Migration ids are deterministic and derived from the application, options, engine version, source and target layout identities,
+  key definitions and platforms; a changed source or engine gets a new id.
+* Roles: `POST` needs operator; **reading a report and the download both need operator** (reports can quote field values); viewer
+  can read nothing here. Unauthenticated requests are 401.
+* Limits: per-file upload 10 MB by default (`CONTROL_PLANE_MAX_FILE_BYTES`, enforced while reading), hard backstop
+  `MAX_DATASET_BYTES` 50 MB, two concurrent migrations per process (busy refusal), 200 stored migrations per application,
+  1000 rejected-record entries kept per report (exact count always reported), layout diagnostics capped at 200.
+* Persistence: **files under the workspace root**, one directory per migration id; atomic temp+rename writes, report written last,
+  output hash checked before download, a corrupt report reads as absent and is rewritten by an identical request, a failed write
+  leaves no temp file. **This is not a durable enterprise job store** (ADR-0011): no listing, delete, retention, audit events, resume or
+  cancel; no coordination with re-ingestion (do not re-ingest during a migration); the concurrency bound is per process; the
+  upload is read into memory (bounded); files are not fsynced; the integrity hash is unsigned; execution is synchronous; an engine
+  report with `success` true can still carry rejected records, so consumers must read `complete`. The sqlite Store migration was
+  considered and **not** done: it is the follow-up before use beyond this bounded subset.
 
-* **Migration API.** `POST /applications/{id}/vsam/migrate` (dataset upload plus a JSON options field),
-  `GET .../vsam/migrations/{id}` (stored report) and `GET .../vsam/migrations/{id}/download` (the converted dataset, served
-  only for a RECONCILED migration whose stored bytes still match their hash). Layout and keys come from the
-  application's own discovered FD and the organization must fit it (the option can only pick a compatible one); the request chooses encodings, platforms and, for a multi-record FD,
-  the record. Ids are deterministic, a refusal is a stored named result with no artifact, upload bounds and the existing role
-  rules apply. Tests: `tests/test_vsam_migration_api.py` (15). Artifacts are files under the workspace root, **not** rows in the
-  sqlite store; there is no resume, cancel or listing endpoint, no audit event and no cleanup.
-* **Java-side consumption (bounded).** `tests/integration/test_vsam_java_consumer.py`: a mainframe-form fixed sequential dataset
-  (DISPLAY, COMP, COMP-3) is migrated by the real pipeline; the generated Java and the GnuCOBOL oracle read the migrated file and
-  print identical output equal to the values the records were built from. Not covered: indexed or variable datasets, COMP-5.
-* **Independent reader.** `tests/integration/test_vsam_consumer_oracle.py`: GnuCOBOL reads a migrated EBCDIC to ASCII dataset
-  (COMP, COMP-5, COMP-3) and shows the original values; a control shows the raw bytes do not.
-* **Big-endian lane.** `docker/gnucobol-s390x` (Ubuntu 22.04, GnuCOBOL 3.1.2 on `linux/s390x` under QEMU) and
-  `tests/integration/test_vsam_s390x_oracle.py`: records written on s390x, converted to the x86 representation, equal the records
-  x86 wrote byte for byte, and back. Two presets were added (`GNUCOBOL_S390X_DEFAULT`, `GNUCOBOL_S390X_IBM_DIALECT`). Linux on
-  s390x is not z/OS. The image is not yet built or run by CI, so those tests skip there.
+## 5. Acceptance proofs
 
-Still **not** done: resume/cancel and store-backed persistence over the API, KSDS or variable Java consumption, alternate index
-structures, GnuCOBOL 3.2 and VBISAM lanes, the code-reviewer and architect reviews.
+All Docker-lane proofs need `RUN_DOCKER_TESTS=1` and are kept distinct:
 
-## 5. Independent reviews
+1. **API to generated Java** (`tests/integration/test_vsam_api_to_java.py`): application created and its source ingested over HTTP;
+   `GET /discovery` shows the FD and its assessment; a mainframe-form dataset (EBCDIC cp037, IBM binary widths, packed) is uploaded
+   to `POST /vsam/migrate`; status is read; the download equals the stored artifact (SHA-256 and size checked); **those exact
+   bytes** are the input of (a) Java generated by the real producer, compiled and run, and (b) the original COBOL under GnuCOBOL
+   3.1.2; both outputs equal each other and equal values built from the fixture rows (never from the migration engine); a control shows
+   the unconverted bytes do not give the expected result; a second identical submission returns the same id and the same bytes.
+   Evidence JSON (fixture and COBOL source hashes, migration id/state/engine version, artifact hash and size, generated Java file
+   names, COBOL/Java/expected output, comparison, proof class) is written to `VSAM_EVIDENCE_DIR`, which CI uploads.
+   **Proof bound:** fixed sequential records of DISPLAY, COMP and COMP-3; the fixture is unsigned and its only binary field is 2-byte
+   COMP, so 4/8-byte widths and signs are proved by the GnuCOBOL differentials, not by the Java run. No indexed, variable or COMP-5
+   Java proof. The generated Java `readRecord` treats an I/O error as end of file.
+2. **Independent GnuCOBOL reader** (`test_vsam_consumer_oracle.py`): a separate GnuCOBOL program reads the migrated data (COMP, COMP-5,
+   COMP-3, signed zoned DISPLAY) and shows the original values; a control shows the raw mainframe bytes do not.
+3. **Generated-Java consumer** (`test_vsam_java_consumer.py`): the engine-level (not API) variant of proof 1.
+4. **Linux/s390x** (`test_vsam_s390x_oracle.py`, 4 cases: two dialects x {COMP-5 big-endian witness, x86 equality both directions}).
 
-| Review | Result |
+## 6. Independent reviews (each actually ran and returned findings)
+
+| Review | Result and disposition |
 |---|---|
-| python-reviewer | 1 HIGH (key over a width-changing binary field), 7 MEDIUM, 7 LOW |
-| security-reviewer | 0 CRITICAL, 2 HIGH (copybook dropped from WORKING-STORAGE; unbounded COPY fan-out), 4 MEDIUM, 3 LOW |
-| code-reviewer, architect | **invoked** (second pass). code-reviewer: 1 HIGH (signed zoned DISPLAY translated as text, fixed and GnuCOBOL-verified), 5 MEDIUM, 5 LOW. architect: 1 BLOCKER (migration id not tied to the source layout or engine version, fixed), 6 SHOULD (some fixed, see section 9), no engine-to-api import. tdd-guide: **not invoked**; RED was recorded manually before each fix. database-reviewer, java-reviewer: not invoked |
-| ADR | ADR-0010 (platform, FD COPY, RDW scope) and ADR-0011 (migration API and interim file artifacts) written, both **proposed**, no owner review; ADR-0009 marked superseded in part |
+| python-reviewer (earlier head) | 1 HIGH (key over a width-changing binary field) fixed; 7 MEDIUM, 7 LOW |
+| security-reviewer (earlier head) | 2 HIGH (copybook dropped from WORKING-STORAGE; unbounded COPY fan-out) fixed |
+| code-reviewer (earlier head) | 1 HIGH (signed zoned DISPLAY translated as text) fixed, GnuCOBOL-verified |
+| architect (earlier head) | 1 BLOCKER (migration id not tied to layout/engine) fixed; SHOULDs fixed or in ADR-0011 |
+| security-reviewer (head `b754599`) | 0 CRITICAL/HIGH. MEDIUM: unbounded artifact growth (fixed by per-app cap, rest documented), full discovery per request with no timeout (documented, not fixed); LOW items documented |
+| architect + persistence review (head `b754599`) | 0 blockers. Fixed: corrupt report wedged an id, report readable by viewer, temp file left on failed write, no per-app cap. Documented: re-ingest coordination, retention, per-process concurrency, fsync, ADR claim wording (corrected) |
+| java-reviewer + test-quality review (head `b754599`) | no vacuous agreement; expected values independent. Fixed: CI gate that fails when the VSAM Docker proofs skip, evidence booleans computed. Documented: narrow fixture, control passes through a Java crash on foreign bytes |
+| database-reviewer, tdd-guide agents | **not invoked as such**; the architect agent covered persistence, the Java reviewer covered test quality. RED was recorded before each fix |
 
-Fixed after review, each with a regression test that failed first: keys over binary fields whose width or byte order changes
-are refused; a mismatched non-binary target layout is refused; `convert_record_between` requires an exact record length;
-FD copybook consumption is per occurrence; fixed-format sequence numbers no longer hide the FILE SECTION; COPY expansion is
-bounded; layout diagnostics are capped at 200.
+Open, not fixed (low risk for the bounded subset, recorded): server paths can appear in copybook diagnostics (pre-existing);
+`validate_layout` is not re-run on caller-built layouts in the binary path; private helpers shared by `migrate.py` and
+`migrate_variable.py` and a double `convert` call per record; assessment and API planning are separate code (discovery can
+disagree with the API for group RECORD KEYs, multi-record FDs and record format); COMP truncation is hard-coded and platform
+evidence is a free-text string, so z/OS `TRUNC(BIN)`, `NUMPROC` and float formats need explicit facets before any `IBM_ZOS` data is
+relied on; `reconcile` re-applies the same conversion, so it proves accounting and ordering, and conversion correctness rests on the
+differentials.
 
-Left open: server paths can still appear in copybook diagnostics (pre-existing); `rejected` / `alternate_indexes` report size is
-uncapped (library level); `validate_layout` is not re-run on caller-built layouts in the binary path; the review's
-other MEDIUM/LOW items (private helpers shared across modules, double `convert` call per record) were not changed.
+## 7. Open-source tools
 
-## 6. Test commands and results (local)
+See `docs/reports/STAGE_1_OPEN_SOURCE_TOOL_EVALUATION.md`: GnuCOBOL 3.1.2 retained as the reference; Linux/s390x lane adopted
+(built in CI under QEMU, base pinned by digest); GnuCOBOL 3.2.0 adopted as an optional local lane (25 differentials pass, not in
+required CI; its tarball checksum is self-computed, the `.sig` was not verified); VBISAM deferred; GCBLUnit and COBOL Check
+rejected; Zowe CLI unusable without an authorized z/OS.
+
+## 8. Local verification
 
 | Command | Result |
 |---|---|
-| `python -m pytest -q tests/test_vsam_*.py tests/transformation tests/test_copybook*.py` | 2719 passed, 52 skipped |
-| `python -m pytest -q` (full hermetic, started before the review fixes) | 6096 passed, 5 failed, 640 skipped; the 5 failures are the five regression tests written RED before their fixes, all green afterwards. **The full suite was not re-run after the fixes locally; CI runs it.** |
-| `RUN_DOCKER_TESTS=1 pytest tests/integration/test_vsam_layout_oracle.py ..._g29.py test_vsam_variable_oracle.py` | 16 passed (GnuCOBOL in `gnucobol-ocesql:latest`) |
-| `ruff check engine api tests tools` | all checks passed |
-| `python tools/mypy_gate.py --check` | clean against the 209-error baseline |
+| VSAM unit and API tests (`tests/test_vsam*.py`, `tests/transformation/test_fd_copybooks.py`) | 357 passed |
+| `RUN_DOCKER_TESTS=1` VSAM Docker lanes incl. API-to-Java, s390x (default and ibm), consumer oracle, layout, g29, variable | passed locally (x86 3.1.2; s390x via QEMU; 3.2.0 differentials) |
+| `ruff check .`, `python tools/dependency_map.py --check` | clean |
+| full hermetic suite, frontend tests/build | **pending**: recorded in section 9 |
 
-Skipped Docker-lane tests are not counted as passes. The frontend was not touched.
+Skipped Docker-lane tests are never counted as passes.
 
-## 7. GnuCOBOL differential evidence
+## 9. Exact-SHA evidence
 
-GnuCOBOL wrote the records and the layout derived from the same source had to find every value at its derived offset. This
-covers the default and `-std=ibm` dialects: DISPLAY, COMP, COMP-5, COMP-3, SIGN SEPARATE, inline SIGN, fixed and nested
-OCCURS, selected REDEFINES, and SYNCHRONIZED (slack is the measured reason it is refused). Variable records: GnuCOBOL's
-header (length excluding the header) differs from IBM RDW (length including it), so the file is re-framed with independent code
-before migration. A GnuCOBOL pass does **not** establish IBM VSAM or IBM Enterprise COBOL equivalence.
+**Pending.** Filled in only from workflow runs inspected for the exact final commit; a commit cannot contain its own run ids, so the
+final SHA, run links and the certification artifact check are recorded in the PR #28 comment and the final handoff, and a later
+commit would invalidate them.
 
-## 8. Final CI
-
-Code head `52e0608832372ad94d681340bc6a207ebfe2b017` (PR #28, branch `stage1/vsam-completion`):
-
-| Workflow | Run | Result |
-|---|---|---|
-| SystemaOps CI | [43441968285](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43441968285) | **success**, every job including both hermetic suites, the Docker job, lint, type check, coverage floor and frontend |
-| Corpus certification (GnuCOBOL, all runtimes) | [43441968326](https://github.com/Shankar373/Cobol-Java-Transformation/actions/runs/43441968326) | **success**; the `exact-run-certification-summary` artifact was downloaded and read: certified=True, identity `52e0608...`, run 43441968326, attempt 1 |
-| Supply chain | 43441968361 | success |
-
-The certification `not_proven` list is unchanged: the evidence is self-attested, there is no IBM runtime evidence (equivalence is
-against GnuCOBOL 3.1.2 for the recorded inputs), and Quarkus and Micronaut are certified in command mode only.
-
-This report and ADR-0010 were committed after that head as a docs-only change; the code and tests are those of `52e0608`.
-The full local hermetic suite was not re-run after the review fixes; the CI run above is the first full run of the final code.
-
-## 9. Security and architecture observations
-
-Reachability: discovery runs COPY expansion and the per-FD assessment on uploaded input (now bounded and isolated per FD), and
-`POST /applications/{id}/vsam/migrate` runs the migration engine on an uploaded dataset (operator role, 10 MB per file by default, two
-concurrent migrations per process). Fail-closed throughout: unsupported or ambiguous input yields REFUSED/BLOCKED with named reasons.
-
-Known design debt (also in ADR-0011), not closed in this stage:
-
-* migration records are files, not Store rows: no listing, audit, cleanup, resume/cancel or coordination with re-ingest;
-* the integrity hash beside an artifact is not signed;
-* `engine/vsam/assess.py` and `api/vsam_migration.py` plan separately, so discovery can disagree with the API (group RECORD KEYs,
-  multi-record FDs, record format);
-* COMP truncation is hard-coded (`TRUNC(STD)`-like); z/OS `TRUNC(BIN)` data, `NUMPROC` and float formats need representation
-  facets before any IBM_ZOS data is relied on, and platform evidence is a free-text string, not a structured level;
-* an alternate CHARACTER key over a packed or binary field is not rejected;
-* `reconcile` re-applies the same conversion it checks, so it proves accounting, ordering and duplicate handling; correctness of the
-  conversion rests on the GnuCOBOL differential tests;
-* `success` stays true when records were rejected under the stated policy; the API report adds `complete` (no rejections);
-* `migrate.py` and `migrate_variable.py` share private helpers and some duplicated reporting code.
+Earlier exact-SHA results, for the record only (they do not certify later code): `52e0608` CI 43441968285 success,
+certification 43441968326 success (certified=True), supply chain 43441968361 success; `766627b` CI 43531323685 **failed** (s390x
+image not built in CI; stale dependency map), both fixed; `f06e78e` CI 43546366927 and supply chain 43546367035 (see PR comment).
+The certification `not_proven` list is unchanged: self-attested evidence, no IBM runtime, Quarkus and Micronaut certified in command
+mode only.
