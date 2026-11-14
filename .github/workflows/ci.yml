@@ -248,7 +248,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support
-          docker build --platform linux/s390x -t gnucobol-s390x:local docker/gnucobol-s390x
+          bash scripts/ci/build-image.sh docker/gnucobol-s390x/Dockerfile gnucobol-s390x:local linux/s390x docker/gnucobol-s390x
           arch="$(docker run --rm --network none --platform linux/s390x gnucobol-s390x:local uname -m)"
           test "$arch" = "s390x" || { echo "expected s390x, got $arch" >&2; exit 1; }
           docker run --rm --network none --platform linux/s390x gnucobol-s390x:local cobc --version | head -1
