@@ -171,3 +171,15 @@ def test_lost_input_after_restart_fails_instead_of_succeeding(service, app_id):
     service.recover_interrupted()
     done = client.get(f"/vsam/migrations/{job['job_id']}").json()
     assert done["state"] == "FAILED" and done["error_code"] == "INPUT_LOST"
+
+
+def test_application_lookup_follows_a_replaced_control_plane_service(service, monkeypatch):
+    """Other suites swap ``api.app._service``; the VSAM routes must follow it."""
+    import api.app as api_app
+    from api.service import Service
+    from api.store import Store
+
+    monkeypatch.setattr(api_app, "_service", Service(Store(":memory:")))
+    app_id = client.post("/applications", json={"name": "swapped", "workload_id": "wl"}).json()["id"]
+    resp = _create(app_id, _blob())
+    assert resp.status_code == 201, resp.text

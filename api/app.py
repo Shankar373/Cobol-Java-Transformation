@@ -329,7 +329,8 @@ async def _send_json_error_response(send, status: int, payload: bytes) -> None: 
 # `add_middleware` wraps it, keeping auth / security headers / CORS outside.
 app.add_middleware(BodyLimitMiddleware)
 app.include_router(_vsam_router)
-_configure_vsam(application_lookup=_service.get_application)
+# Late-bound: tests and deployments may replace ``_service`` after import.
+_configure_vsam(application_lookup=lambda app_id: _svc().get_application(app_id))
 
 # CORS: deny by default. Configure CONTROL_PLANE_ALLOWED_ORIGINS as a
 # comma-separated list (e.g. "https://app.example.com,https://admin.example.com")
