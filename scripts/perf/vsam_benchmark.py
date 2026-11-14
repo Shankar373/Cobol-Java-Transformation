@@ -28,7 +28,7 @@ from enterprise.quotas import VsamQuotas  # noqa: E402
 from enterprise.vsam import VsamRefusal, migrate_export  # noqa: E402
 
 RECORD_BYTES = 100
-KEY_BYTES = 8
+KEY_BYTES = 10
 MIB = 1024 * 1024
 
 
@@ -65,7 +65,7 @@ def generate(path: Path, records: int) -> str:
     with path.open("wb") as f:
         batch = []
         for i in range(1, records + 1):
-            batch.append(b"%08d" % i + b"REC%03d" % (i % 1000) + pad)
+            batch.append(b"%010d" % i + b"REC%03d" % (i % 1000) + pad)
             if len(batch) == 8192:
                 block = b"".join(batch)
                 f.write(block)

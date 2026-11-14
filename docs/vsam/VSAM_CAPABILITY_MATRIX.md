@@ -10,7 +10,8 @@ Linux (oracle), and CI evidence for the final commit is recorded separately.
 Evidence tests: `tests/enterprise/` (unit, API, FD check),
 `tests/integration/test_vsam_oracle_parity.py` (GnuCOBOL vs the runtime class),
 `tests/integration/test_vsam_api_to_java_e2e.py` (HTTP API, generated Java,
-GnuCOBOL), `scripts/perf/vsam_benchmark.py` (scale).
+GnuCOBOL), `tests/integration/test_vsam_disk_index.py` (disk-backed Java
+consumer), `scripts/perf/vsam_benchmark.py` (scale).
 
 | Capability | Status | Evidence / limit |
 |---|---|---|
@@ -33,5 +34,6 @@ GnuCOBOL), `scripts/perf/vsam_benchmark.py` (scale).
 | Streaming migration (bounded memory) | IMPLEMENTED, UNIT_TESTED, scale-tested | see `docs/operations/CERTIFICATION_EVIDENCE.md` |
 | Checkpoint and resume | IMPLEMENTED, UNIT_TESTED, scale-tested | source tamper is refused (`RESUME_REJECTED`) |
 | Java consumption: ESDS fixed | IMPLEMENTED, GNUCOBOL_VERIFIED | per-record buffered reads: bounded memory |
-| Java consumption: KSDS and RRDS | IMPLEMENTED, GNUCOBOL_VERIFIED | **not streaming**: `CobolFileIo` loads the whole `.idx` or `.rel` into a TreeMap, so Java memory grows with dataset size. UNSUPPORTED as a bounded-memory consumer |
+| Java consumption: KSDS and RRDS, large read-only (`OPEN INPUT`, image of 32 MiB or more) | IMPLEMENTED, UNIT_TESTED, INTEGRATION_TESTED | disk-backed sparse index: memory is proportional to records / 256. Differential tests against a TreeMap and a 165 MB KSDS scanned and probed under a 48 MB Java heap (the in-memory path fails under the same heap). GnuCOBOL parity of the disk-backed path is covered by the regression suites only for small files in the default in-memory mode; the forced-disk path is verified by differential test, not by GnuCOBOL |
+| Java consumption: KSDS and RRDS, small images, or any file opened `OUTPUT`, `I-O` or `EXTEND` | IMPLEMENTED, GNUCOBOL_VERIFIED | **not bounded**: the whole image is loaded into a TreeMap, and `CLOSE` rewrites it. Threshold: system property `cobolio.diskIndexBytes` (default 33554432) |
 | Native IBM VSAM, IDCAMS, CI/CS splits, SHAREOPTIONS | UNSUPPORTED | out of scope |

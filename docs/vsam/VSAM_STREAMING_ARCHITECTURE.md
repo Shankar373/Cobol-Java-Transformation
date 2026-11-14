@@ -40,9 +40,21 @@ and the migration resumes from its checkpoint; a job whose input is gone
 becomes FAILED (`INPUT_LOST`). Downloads re-hash the artifact and refuse a
 tampered file.
 
-## What is not streaming
-The generated Java runtime (`CobolFileIo`) loads a KSDS `.idx` or RRDS `.rel`
-image into memory. Fixed-length ESDS is read record by record.
+## Java consumption
+`CobolFileIo` (the runtime class every generated program uses) reads a
+fixed-length ESDS record by record. A KSDS `.idx` or RRDS `.rel` image opened
+`INPUT` and at least `cobolio.diskIndexBytes` (default 32 MiB) large is read
+through a disk-backed, read-only sorted map: one pass at open builds a sparse
+index (the key and byte offset of every 256th line), a lookup seeks to a block
+and scans at most that block, and `READ NEXT` continues from the previous
+position. Memory is proportional to records / 256, and the image is never
+rewritten on `CLOSE`. The image must be sorted (the migrator guarantees it); an
+unsorted image falls back to the in-memory load.
+
+Not bounded: images smaller than the threshold, and any file opened `OUTPUT`,
+`I-O` or `EXTEND` (these need mutation and use the in-memory map, which `CLOSE`
+rewrites in full). Sequential `READ NEXT` on a RELATIVE file is not supported
+by the runtime at all.
 
 ## Current limits of this implementation
 - Jobs run in a thread pool in the API process, backed by SQLite. The Redis/Celery and PostgreSQL deployment targeted by ADR-0011 is not built yet, so a multi-process or multi-host deployment is not supported.
