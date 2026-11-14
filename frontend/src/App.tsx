@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components';
-import { Dashboard, NewModernization, ModernizationRun } from './pages';
+import { Dashboard, NewModernization, ModernizationRun, VsamMigration } from './pages';
 import type { ApplicationResponse, RunResponse } from './api/client';
 import type { IngestSummary } from './api/stages';
 import { isTerminalStage } from './api/stages';
 import * as api from './api/client';
 import { tokens } from './theme/tokens';
 
-type Page = 'dashboard' | 'new' | 'run';
+type Page = 'dashboard' | 'new' | 'run' | 'vsam';
 type HistorySource = 'server' | 'session' | 'auth-required';
 
 /** Runs newest first by creation time (audit FE-13: history was in server
@@ -49,6 +49,8 @@ export default function App() {
         setSelectedAppId(run.application_id);
       }
       setPage('run');
+    } else if (p === 'vsam') {
+      setPage('vsam');
     } else if (p === 'new') {
       setPage('new');
     } else {
@@ -314,6 +316,14 @@ export default function App() {
         )}
         {page === 'new' && (
           <NewModernization onSubmit={handleSubmit} loading={creating} onNavigate={navigate} />
+        )}
+        {page === 'vsam' && (
+          <VsamMigration
+            applications={applications}
+            initialApplicationId={selectedAppId}
+            onNavigate={navigate}
+            authRequired={historySource === 'auth-required'}
+          />
         )}
         {page === 'run' && selectedRunId && (
           <ModernizationRun
