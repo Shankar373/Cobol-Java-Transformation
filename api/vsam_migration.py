@@ -41,6 +41,8 @@ MAX_DATASET_BYTES = 50 * 1024 * 1024
 ENGINE_VERSION = "vsam-2026-11-signed-zoned"
 _ALLOWED_OPTIONS = frozenset({"file", "record", "organization", "record_format", "source_encoding",
                               "destination_encoding", "source_platform", "target_platform"})
+#: Stored migrations kept per application (disk growth bound; there is no delete or retention API yet - ADR-0011).
+MAX_MIGRATIONS_PER_APP = 200
 _ID = re.compile(r"vm-[0-9a-f]{16}")
 _APP_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}")
 #: Entries kept in a stored report's ``rejected`` list (the exact count is always reported).
@@ -234,8 +236,12 @@ def _dir(app_id: str, mid: str) -> Path:
 
 def _atomic_write(path: Path, content: bytes) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    temporary.write_bytes(content)
-    os.replace(temporary, path)
+    try:
+        temporary.write_bytes(content)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)                  # never leave a partial temp file behind (disk full, ...)
+        raise
 
 
 def store(app_id: str, report: dict, output: bytes) -> None:
@@ -243,14 +249,30 @@ def store(app_id: str, report: dict, output: bytes) -> None:
     existing = load_report(app_id, report["migration_id"])
     if existing is not None and existing.get("output_sha256") != report.get("output_sha256"):
         raise VsamRequestError("a stored migration with this id has a different result; it is not overwritten")
+    if existing is None and not target.exists() and _stored_count(app_id) >= MAX_MIGRATIONS_PER_APP:
+        raise VsamRequestError(f"this application already holds {MAX_MIGRATIONS_PER_APP} stored migrations; "
+                               "remove old ones from the workspace volume before running more (no delete API yet)")
     target.mkdir(parents=True, exist_ok=True, mode=0o700)
     _atomic_write(target / "output.dat", output)           # the report is written last: it vouches for the output
     _atomic_write(target / "report.json", json.dumps(report, sort_keys=True, indent=2).encode("utf-8"))
 
 
+def _stored_count(app_id: str) -> int:
+    parent = _dir(app_id, "vm-0000000000000000").parent
+    return sum(1 for entry in parent.iterdir() if entry.is_dir()) if parent.is_dir() else 0
+
+
 def load_report(app_id: str, mid: str) -> dict | None:
+    """The stored report, or ``None`` when absent *or unreadable*: a torn or corrupt file vouches for nothing, so the
+    id is neither served nor wedged - an identical request simply rewrites it."""
     path = _dir(app_id, mid) / "report.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    if not path.is_file():
+        return None
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return report if isinstance(report, dict) else None
 
 
 def load_output(app_id: str, mid: str) -> bytes | None:

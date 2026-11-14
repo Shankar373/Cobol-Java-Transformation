@@ -41,3 +41,28 @@ disagree with the API (for example group RECORD KEYs and multi-record FDs). Movi
 records into the Store is the follow-up before this is relied on beyond Stage 1.
 
 Related: ADR-0010 (platform, FD COPY, RDW) supersedes the statement in ADR-0009 that binary bytes are copied and never reordered.
+
+## Review corrections and accepted Stage 1 limits (2026-11-14)
+
+An independent architecture / persistence review of head b754599 found no correctness blocker for a bounded, synchronous
+Stage 1 subset and drove these changes and statements:
+
+- **Fixed.** A torn or corrupt `report.json` is treated as absent (404 on read, rewritten by an identical request) instead of
+  wedging the id with a 500. A failed write removes its temporary file. A per-application cap
+  (`MAX_MIGRATIONS_PER_APP = 200`) refuses further *new* migrations with a named reason; an existing id stays idempotent.
+  Reports are customer data (rejection reasons quote field values), so **reading a report now needs the operator role**,
+  like the download; only `GET` of other resources stays viewer.
+- **Corrected claims.** Only *engine-level* refusals (`success == false`) are stored. Planning refusals (unknown file,
+  ambiguous FD, discovery errors, missing platforms) are 400 responses and are not stored. "Not overwritten with a different
+  result" is enforced by comparing the output hash for a deterministic id, not by an exclusive create; the check/write window
+  is harmless because equal ids have equal content and temporary names are per writer.
+- **Accepted for Stage 1, required before wider use.**
+  - No coordination with re-ingestion: do not re-ingest an application while a migration for it runs. A stale report is not
+    marked as predating the current source (it records the layout hash, not a source identity).
+  - No listing, delete, retention or audit events; storage shares the workspace volume (cap above bounds growth only).
+  - The concurrency bound (`MAX_CONCURRENT = 2`) is per process and independent of the job pool; the upload is read into
+    memory (bounded by the dataset limit) before a slot is tried.
+  - Files are not fsynced; directory modes follow the umask above the migration directory; without
+    `CONTROL_PLANE_WORKSPACE_DIR` the fallback is a fixed temporary path (development only; production pins the variable).
+  - The integrity hash is unsigned.
+  - Moving records into the sqlite Store (listing, audit, retention, run and ingest coordination) remains the follow-up.

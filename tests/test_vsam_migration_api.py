@@ -270,11 +270,11 @@ def test_a_migration_with_rejected_records_is_not_complete(client):
     assert body["success"] is True and body["complete"] is False and body["rejected_record_count"] == 1
 
 
-def test_downloading_converted_data_needs_the_operator_role_not_viewer():
+def test_reading_migration_reports_or_data_needs_the_operator_role_not_viewer():
     from api import rbac
 
     assert rbac.required_role("GET", "/applications/app-1/vsam/migrations/vm-0123456789abcdef/download") == "operator"
-    assert rbac.required_role("GET", "/applications/app-1/vsam/migrations/vm-0123456789abcdef") == "viewer"
+    assert rbac.required_role("GET", "/applications/app-1/vsam/migrations/vm-0123456789abcdef") == "operator"   # reports quote values
     assert rbac.required_role("POST", "/applications/app-1/vsam/migrate") == "operator"
 
 
@@ -297,7 +297,8 @@ def test_over_http_a_viewer_cannot_upload_or_download_and_an_operator_can(client
     created = client.post("/applications/app-1/vsam/migrate", headers=_auth(OPERATOR), **upload)
     assert created.status_code == 201, created.text
     base = f"/applications/app-1/vsam/migrations/{created.json()['migration_id']}"
-    assert client.get(base, headers=_auth(VIEWER)).status_code == 200                              # status is readable
+    assert client.get(base, headers=_auth(VIEWER)).status_code == 403                              # reports quote field values
+    assert client.get(base, headers=_auth(OPERATOR)).status_code == 200
     assert client.get(base + "/download").status_code == 401
     assert client.get(base + "/download", headers=_auth(VIEWER)).status_code == 403                # data is not
     assert client.get(base + "/download", headers=_auth(OPERATOR)).status_code == 200
@@ -337,3 +338,40 @@ def test_a_stored_migration_is_readable_after_a_process_restart(client, tmp_path
     assert report.status_code == 200 and report.json()["output_sha256"] == body["output_sha256"]
     assert restarted.get(f"/applications/app-1/vsam/migrations/{body['migration_id']}/download").content == first
     assert post(restarted, customer("A001", "alpha") + customer("B002", "bravo")).json()["migration_id"] == body["migration_id"]
+
+
+def _stored_dir(tmp_path, body):
+    return next((tmp_path / "work").rglob(body["migration_id"]))
+
+
+def test_a_corrupt_stored_report_does_not_wedge_the_id(client, tmp_path):
+    src = customer("A001", "alpha")
+    body = post(client, src).json()
+    (_stored_dir(tmp_path, body) / "report.json").write_bytes(b"{torn")                 # e.g. power loss mid-write
+    base = f"/applications/app-1/vsam/migrations/{body['migration_id']}"
+    assert client.get(base).status_code == 404                                           # vouches for nothing
+    assert client.get(base + "/download").status_code == 404
+    healed = post(client, src)                                                           # an identical request rewrites it
+    assert healed.status_code == 201 and healed.json()["output_sha256"] == body["output_sha256"]
+    assert client.get(base + "/download").status_code == 200
+
+
+def test_a_failed_write_leaves_no_temporary_file(tmp_path, monkeypatch):
+    target = tmp_path / "output.dat"
+
+    def broken(self, content):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_bytes", broken)
+    with pytest.raises(OSError):
+        vsam_migration._atomic_write(target, b"x")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_an_application_cannot_store_more_than_the_per_application_cap(client, monkeypatch):
+    monkeypatch.setattr(vsam_migration, "MAX_MIGRATIONS_PER_APP", 2)
+    assert post(client, customer("A001", "a")).status_code == 201
+    assert post(client, customer("B002", "b")).status_code == 201
+    over = post(client, customer("C003", "c"))
+    assert over.status_code == 400 and "already holds 2 stored migrations" in over.text
+    assert post(client, customer("A001", "a")).status_code == 201                       # an existing id is still idempotent

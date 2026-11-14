@@ -22,8 +22,9 @@ ROLES = ("viewer", "operator", "approver")
 _RANK = {role: index for index, role in enumerate(ROLES)}
 _APPROVAL_PATH = re.compile(r"^/runs/[^/]+/approval/?$")
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
-#: Converted datasets are customer data: reading them needs more than the read-only role.
-_DATASET_DOWNLOAD_PATH = re.compile(r"^/applications/[^/]+/vsam/migrations/[^/]+/download/?$")
+#: Converted datasets and their reports are customer data (rejection reasons quote field values): reading either
+#: needs more than the read-only role.
+_DATASET_DOWNLOAD_PATH = re.compile(r"^/applications/[^/]+/vsam/migrations/[^/]+(/download)?/?$")
 
 #: Shortest token accepted for a role (the production floor for the shared token is 32).
 MIN_ROLE_TOKEN_LENGTH = 16
