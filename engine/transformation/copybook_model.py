@@ -260,11 +260,19 @@ def _find_copy_statements(text: str) -> list[tuple[int, int, str]]:
     return spans
 
 
+# Nested COPY expansion is bounded: a few tiny members that COPY each other twice per level would otherwise
+# expand to an exponential amount of text (a decompression-bomb shape).  Exceeding either limit is an ERROR.
+MAX_COPY_DEPTH = 32
+MAX_EXPANDED_CHARS = 4_000_000
+_MIN_READ_COST = 16_384  # so at most ~244 member reads per expansion, however small the members
+
+
 def _expand_copybook_text(
     path: Path,
     search_dirs: tuple[Path, ...],
     chain: tuple[str, ...],
     diagnostics: list[CopybookDiagnostic],
+    _budget: list[int] | None = None,
 ) -> str:
     """Copybook text with every nested COPY statement replaced by the expanded
     text of its target, at the statement's own position (group hierarchy and
@@ -281,6 +289,13 @@ def _expand_copybook_text(
     reports it verbatim as ``COPYBOOK_UNREADABLE``.
     """
     stem = path.stem.upper()
+    budget = _budget if _budget is not None else [MAX_EXPANDED_CHARS]
+    if len(chain) >= MAX_COPY_DEPTH or budget[0] <= 0:
+        diagnostics.append(CopybookDiagnostic(
+            level="ERROR", code="COPYBOOK_EXPANSION_LIMIT",
+            message=f"COPY expansion limit reached at copybook {stem} (depth {len(chain)}, "
+                    f"at most {MAX_COPY_DEPTH} levels and {MAX_EXPANDED_CHARS} characters in total)"))
+        return ""
     try:
         text = _strip_sequence_numbers(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError) as exc:
@@ -297,6 +312,7 @@ def _expand_copybook_text(
         )
         return ""
 
+    budget[0] -= max(len(text), _MIN_READ_COST)  # every member read costs something, however small
     spans = _find_copy_statements(text)
     if not spans:
         return text
@@ -360,7 +376,7 @@ def _expand_copybook_text(
         pieces.append(
             _apply_replacing(
                 _expand_copybook_text(
-                    resolved.path, search_dirs, (*chain, stem), diagnostics
+                    resolved.path, search_dirs, (*chain, stem), diagnostics, budget
                 ),
                 tuple(pairs),
             )

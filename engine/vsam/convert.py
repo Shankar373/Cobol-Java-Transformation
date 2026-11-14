@@ -21,6 +21,7 @@ Pure and deterministic; fixed-length datasets only.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -42,6 +43,7 @@ class FieldSpec:
     offset: int
     length: int
     kind: FieldKind = FieldKind.DISPLAY
+    sign: str = ""  # "TRAILING" / "LEADING": a sign overpunched in a zoned DISPLAY digit
 
 
 def validate_layout(fields: tuple[FieldSpec, ...], record_length: int) -> tuple[str, ...]:
@@ -79,6 +81,46 @@ def check_record(record: bytes, fields: tuple[FieldSpec, ...]) -> str | None:
     return None
 
 
+def translate_display(chunk: bytes, name: str, sign: str, source: Encoding, destination: Encoding) -> bytes:
+    """Translate one DISPLAY field between ASCII and EBCDIC cp037; a field with an overpunched sign is converted as a number.
+
+    GnuCOBOL's ASCII form: positive = plain digits, negative = the sign digit shifted to ``p``..``y`` (0x70 + digit).
+    EBCDIC: digits are zone F, the sign byte is zone C (or F) for positive and D for negative.  Anything else is rejected.
+    """
+    if not sign:
+        try:
+            return (chunk.decode("cp037").encode("ascii") if source is Encoding.EBCDIC_CP037
+                    else chunk.decode("ascii").encode("cp037"))
+        except (UnicodeDecodeError, UnicodeEncodeError) as exc:
+            raise ValueError(f"field {name}: byte has no counterpart in {destination.value}: {exc.reason}") from exc
+    sign_index = 0 if sign == "LEADING" else len(chunk) - 1
+    digits: list[int] = []
+    negative = False
+    for index, byte in enumerate(chunk):
+        if source is Encoding.EBCDIC_CP037:
+            zone, digit = byte >> 4, byte & 0xF
+            valid = digit <= 9 and (zone == 0xF or (index == sign_index and zone in (0xC, 0xD)))
+            if index == sign_index:
+                negative = zone == 0xD
+        else:
+            digit = byte - 0x30
+            if index == sign_index and 0x70 <= byte <= 0x79:
+                digit, negative = byte - 0x70, True
+            valid = 0 <= digit <= 9
+        if not valid:
+            raise ValueError(f"field {name}: byte 0x{byte:02X} is not a valid {sign.lower()} signed zoned digit in "
+                             f"{source.value}")
+        digits.append(digit)
+    out = bytearray()
+    for index, digit in enumerate(digits):
+        marked = index == sign_index
+        if destination is Encoding.ASCII:
+            out.append(0x70 + digit if marked and negative else 0x30 + digit)
+        else:
+            out.append(((0xD0 if negative else 0xC0) if marked else 0xF0) + digit)
+    return bytes(out)
+
+
 def convert_record(record: bytes, fields: tuple[FieldSpec, ...], source: Encoding, destination: Encoding) -> bytes:
     """Convert one record; raises ``ValueError`` naming the field that cannot be converted."""
     reason = check_record(record, fields)
@@ -88,14 +130,7 @@ def convert_record(record: bytes, fields: tuple[FieldSpec, ...], source: Encodin
     for spec in fields:
         chunk = record[spec.offset:spec.offset + spec.length]
         if spec.kind is FieldKind.DISPLAY and source is not destination:
-            try:
-                if source is Encoding.EBCDIC_CP037:
-                    chunk = chunk.decode("cp037").encode("ascii")
-                else:
-                    chunk = chunk.decode("ascii").encode("cp037")
-            except (UnicodeDecodeError, UnicodeEncodeError) as exc:
-                raise ValueError(f"field {spec.name}: byte has no counterpart in {destination.value}: "
-                                 f"{exc.reason}") from exc
+            chunk = translate_display(chunk, spec.name, spec.sign, source, destination)
         out[spec.offset:spec.offset + spec.length] = chunk
     return bytes(out)
 
@@ -111,17 +146,34 @@ class ConversionResult:
 
 def convert_dataset(source: DatasetDefinition, data: bytes, fields: tuple[FieldSpec, ...],
                     destination_encoding: Encoding, *, partial_output: bytes = b"",
-                    resume_after: int = 0, stop_after: int | None = None) -> ConversionResult:
+                    resume_after: int = 0, stop_after: int | None = None,
+                    convert: Callable[[bytes], bytes] | None = None) -> ConversionResult:
     """Convert ``data``; resume after ``resume_after`` source records already written.
 
     ``partial_output`` must hold exactly the converted form of the first
     ``resume_after`` records (rejected ones are absent); otherwise a ``ValueError`` is
     raised and nothing is continued.  ``stop_after`` ends the run early (an
     interruption, in tests and for batching) after that many source records.
+
+    ``convert`` replaces the field-wise conversion with a caller-supplied record converter (used for
+    conversions that change the record length, such as a binary width change); it must raise
+    ``ValueError`` with a reason for a record it cannot convert, and that record is rejected.
     """
     if source.record_format is not RecordFormat.FIXED:
         raise ValueError("convert_dataset supports fixed-length datasets only")
-    problems = list(source.validate()) + list(validate_layout(fields, source.record_length))
+    if convert is None:
+        problems = list(source.validate()) + list(validate_layout(fields, source.record_length))
+        check = lambda record: check_record(record, fields)  # noqa: E731
+        convert = lambda record: convert_record(record, fields, source.encoding, destination_encoding)  # noqa: E731
+    else:
+        problems = list(source.validate())
+
+        def check(record: bytes) -> str | None:
+            try:
+                convert(record)  # type: ignore[misc]
+            except ValueError as exc:
+                return str(exc)
+            return None
     if problems:
         raise ValueError("; ".join(problems))
     records, structural = split_records(data, source)
@@ -133,11 +185,11 @@ def convert_dataset(source: DatasetDefinition, data: bytes, fields: tuple[FieldS
     expected_prefix = bytearray()
     rejected: list[RejectedRecord] = []
     for number, record in enumerate(records[:resume_after], start=1):
-        reason = check_record(record, fields)
+        reason = check(record)
         if reason:
             rejected.append(RejectedRecord(number, reason))
         else:
-            expected_prefix += convert_record(record, fields, source.encoding, destination_encoding)
+            expected_prefix += convert(record)
     if resume_after and bytes(expected_prefix) != partial_output:
         raise ValueError("the partial output does not match the first "
                          f"{resume_after} source record(s); refusing to continue a torn or altered output")
@@ -148,11 +200,11 @@ def convert_dataset(source: DatasetDefinition, data: bytes, fields: tuple[FieldS
     end = len(records) if stop_after is None else min(stop_after, len(records))
     for number in range(resume_after + 1, end + 1):
         record = records[number - 1]
-        reason = check_record(record, fields)
+        reason = check(record)
         if reason:
             rejected.append(RejectedRecord(number, reason))
             continue
-        output += convert_record(record, fields, source.encoding, destination_encoding)
+        output += convert(record)
     return ConversionResult(bytes(output), tuple(rejected), max(end, resume_after), resume_after,
                             hashlib.sha256(bytes(output)).hexdigest())
 

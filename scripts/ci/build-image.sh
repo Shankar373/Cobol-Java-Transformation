@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a Docker image in CI, retrying transient registry and DNS failures.
-# Usage: scripts/ci/build-image.sh <Dockerfile> <tag>
+# Usage: scripts/ci/build-image.sh <Dockerfile> <tag> [platform [context-dir]]
 #
 # Two transient failure classes have failed whole CI jobs:
 #  * Maven Central 502s while the offline Maven image downloads its precache with strict checksums
@@ -17,7 +17,9 @@
 set -euo pipefail
 
 dockerfile="${1:?Usage: build-image.sh <Dockerfile> <tag>}"
-tag="${2:?Usage: build-image.sh <Dockerfile> <tag>}"
+tag="${2:?Usage: build-image.sh <Dockerfile> <tag> [platform [context-dir]]}"
+platform="${3:-}"   # e.g. linux/s390x (needs QEMU binfmt on the runner); empty builds for the runner's architecture
+context="${4:-.}"
 attempts=5
 
 dns_report() {
@@ -44,7 +46,8 @@ for attempt in $(seq 1 "$attempts"); do
     args=(--build-arg APT_MIRROR=mirrors.edge.kernel.org)
     echo "attempt $attempt/$attempts: archive.ubuntu.com does not resolve here; apt uses mirrors.edge.kernel.org" >&2
   fi
-  if docker build --pull "${network[@]}" "${args[@]}" -f "$dockerfile" -t "$tag" .; then
+  if [ -n "$platform" ]; then args+=(--platform "$platform"); fi
+  if docker build --pull "${network[@]}" "${args[@]}" -f "$dockerfile" -t "$tag" "$context"; then
     exit 0
   fi
   if [ "$attempt" -lt "$attempts" ]; then

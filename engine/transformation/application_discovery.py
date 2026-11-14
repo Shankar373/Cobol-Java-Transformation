@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -53,6 +54,7 @@ from engine.transformation.ir import (
     normalize_cobol_name,
 )
 from engine.transformation.diagnostics import DiagnosticCode
+from engine.transformation.fd_copybooks import expand_fd_copybooks
 from engine.transformation.file_ownership import record_ownership
 from engine.transformation.source_format import compiler_visible_text
 
@@ -123,6 +125,19 @@ def _scan_call_copy(source: str) -> list[tuple[str, str, int]]:
             continue  # bare literal or inline comment: data, not a statement
         found.append((verb.upper(), match.group("operand"), match.end()))
     return found
+
+
+def _remaining_copybooks(copybooks, consumed) -> tuple[str, ...]:
+    """Names still to be merged into WORKING-STORAGE: each FD expansion consumes one occurrence of a name."""
+    pending = Counter(name.upper() for name in consumed)
+    kept: list[str] = []
+    for cb in copybooks:
+        key = cb.copybook_name.upper()
+        if pending[key] > 0:
+            pending[key] -= 1
+            continue
+        kept.append(cb.copybook_name)
+    return tuple(kept)
 
 
 class ApplicationDiscovery:
@@ -288,8 +303,13 @@ class ApplicationDiscovery:
             )
 
         try:
-            program = self._parser.parse(source)
-            parse_diagnostics = _collected_diagnostics()
+            # COPY statements inside the FILE SECTION are expanded before parsing (G-26): the FD's
+            # record belongs to the file, so it must be in the FD when the parser reads it.
+            expansion = expand_fd_copybooks(
+                source, copybook_dirs or (source_root, cobol_file.parent))
+            program = self._parser.parse(expansion.source)
+            parse_diagnostics = _collected_diagnostics() + tuple(
+                f"{d.code}: {d.message}" for d in expansion.errors)
 
             # Extract dependencies from source
             calls = self._extract_calls(source, program.program_id)
@@ -321,7 +341,7 @@ class ApplicationDiscovery:
                 using_parameters=program.using_parameters,
                 sql_includes=program.sql_includes,
                 called_programs=tuple(c.target for c in calls),
-                copybooks=tuple(cb.copybook_name for cb in copybooks),
+                copybooks=_remaining_copybooks(copybooks, expansion.consumed),
                 entry_points=tuple(entry_points),
             )
 

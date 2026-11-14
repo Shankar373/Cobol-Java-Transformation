@@ -16,7 +16,8 @@ from engine.transformation.cobol_parser import CobolParser
 from engine.vsam.collation import to_stored_bytes
 from engine.vsam.layout import BinaryWidthModel, derive_file_layout
 from engine.vsam.migrate import MigrationReport, migrate_dataset
-from engine.vsam.model import DatasetDefinition, Encoding, KeyDefinition, Organization, RecordFormat
+from engine.vsam.model import DatasetDefinition, Encoding, KeyDefinition, KeyKind, Organization, RecordFormat
+from engine.vsam.platform import platform
 
 IBM = BinaryWidthModel.IBM_2_4_8
 
@@ -48,8 +49,14 @@ def source_def(organization=Organization.KSDS, **kw) -> DatasetDefinition:
     return DatasetDefinition("SRC", organization, record_length=LENGTH, primary_key=key, **kw)
 
 
+IBM_Z = platform("IBM_ZOS")
+
+
 def migrate(data: bytes, definition: DatasetDefinition | None = None, **kw):
-    return migrate_dataset(definition or source_def(), data, layout(), Encoding.EBCDIC_CP037, **kw)
+    # this layout has a COMP field, so the platforms are explicit (here: the same IBM platform on both sides)
+    options = dict(target_layout=layout(), source_platform=IBM_Z, target_platform=IBM_Z)
+    options.update(kw)
+    return migrate_dataset(definition or source_def(), data, layout(), Encoding.EBCDIC_CP037, **options)
 
 
 # --- the good path --------------------------------------------------------------------------------
@@ -95,8 +102,18 @@ def test_an_entry_sequenced_migration_keeps_arrival_order_and_says_what_it_does_
     assert any("RBA" in w for w in report.warnings)
 
 
+def test_an_alternate_character_key_over_a_packed_or_binary_field_is_refused():
+    for offset, length in ((4, 3), (7, 2)):                                   # AMT (COMP-3), CNT (COMP)
+        definition = source_def(alternate_keys=(KeyDefinition(offset, length, unique=False),))   # CHARACTER by default
+        destination, report = migrate(record("K001"), definition)
+        assert not report.success and destination == b""
+        assert any("alternate key 1" in f and "CHARACTER" in f.upper() for f in report.failures), report.failures
+    ok = source_def(alternate_keys=(KeyDefinition(7, 2, kind=KeyKind.BINARY, unique=False),))
+    assert migrate(record("K001"), ok)[1].success
+
+
 def test_alternate_indexes_are_named_as_not_migrated():
-    definition = source_def(alternate_keys=(KeyDefinition(7, 2, unique=False),))
+    definition = source_def(alternate_keys=(KeyDefinition(7, 2, kind=KeyKind.BINARY, unique=False),))
     _, report = migrate(record("K001"), definition)
     assert any("alternate" in s for s in report.to_dict()["unsupported_semantics"])
     assert report.state == "RECONCILED"          # the data is reconciled; the missing semantics are stated, not hidden
@@ -152,7 +169,7 @@ def test_a_key_outside_the_character_fields_of_the_layout_is_refused():
                        primary_key=KeyDefinition(0, 4)), "variable-length"),
     (DatasetDefinition("S", Organization.RRDS, record_length=LENGTH), "RRDS"),
     (DatasetDefinition("S", Organization.KSDS, record_length=LENGTH, primary_key=KeyDefinition(0, 4),
-                       encoding=Encoding.EBCDIC_CP037), "ASCII source"),
+                       encoding=Encoding.EBCDIC_CP037), "ASCII<->EBCDIC_CP037"),
 ])
 def test_unmodelled_dataset_kinds_are_refused_by_name(definition, phrase):
     destination, report = migrate(record("K001"), definition)
@@ -200,5 +217,6 @@ def test_a_destination_that_does_not_reconcile_is_reported_failed():
     from engine.vsam.migrate import reconcile_destination
 
     tampered = destination[:5] + bytes([destination[5] ^ 0xFF]) + destination[6:]
-    again = reconcile_destination(source_def(), src, layout(), Encoding.EBCDIC_CP037, tampered)
+    again = reconcile_destination(source_def(), src, layout(), Encoding.EBCDIC_CP037, tampered,
+                                  target_layout=layout(), source_platform=IBM_Z, target_platform=IBM_Z)
     assert again.state == "FAILED" and not again.success and again.failures

@@ -22,6 +22,9 @@ ROLES = ("viewer", "operator", "approver")
 _RANK = {role: index for index, role in enumerate(ROLES)}
 _APPROVAL_PATH = re.compile(r"^/runs/[^/]+/approval/?$")
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
+#: Converted datasets and their reports are customer data (rejection reasons quote field values): reading either
+#: needs more than the read-only role.
+_DATASET_DOWNLOAD_PATH = re.compile(r"^/applications/[^/]+/vsam/migrations/[^/]+(/download)?/?$")
 
 #: Shortest token accepted for a role (the production floor for the shared token is 32).
 MIN_ROLE_TOKEN_LENGTH = 16
@@ -53,7 +56,7 @@ def parse_role_tokens(raw: "str | None") -> dict[str, str]:
 def required_role(method: str, path: str) -> str:
     """The least role allowed to call ``method path``."""
     if method.upper() in _SAFE_METHODS:
-        return "viewer"
+        return "operator" if _DATASET_DOWNLOAD_PATH.match(path) else "viewer"
     if method.upper() == "POST" and _APPROVAL_PATH.match(path):
         return "approver"
     return "operator"

@@ -265,22 +265,37 @@ def test_an_unknown_record_name_is_refused():
     assert "RECORD_UNKNOWN" in codes(layout_for(*TWO_RECORDS, record_name="NOPE"))
 
 
-def test_a_copy_inside_an_fd_leaves_no_record_and_is_refused_by_name():
+def test_a_copy_inside_an_fd_now_reaches_the_same_layout_as_the_inline_fd():
+    """G-26: the FILE SECTION COPY is expanded before parsing, so the FD has its record."""
+    record = "       01 CUST-REC.\n          05 CUST-ID PIC 9(5).\n          05 CUST-NAME PIC X(10).\n"
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
-        (d / "REC.cpy").write_text("       01 CUST-REC.\n          05 CUST-ID PIC 9(5).\n", encoding="utf-8")
+        (d / "REC.cpy").write_text(record, encoding="utf-8")
         (d / "p.cob").write_text(fd_source("COPY REC."), encoding="utf-8")
         program = ApplicationDiscovery().discover(d).programs[0].program
         layout = derive_file_layout(program.file_definitions[0], binary_width_model=IBM)
+    inline = layout_for("01 CUST-REC.", "   05 CUST-ID PIC 9(5).", "   05 CUST-NAME PIC X(10).")
+    assert layout.supported and layout.record_length == 15
+    assert layout.identity == inline.identity
+
+
+def test_an_fd_whose_copybook_cannot_be_resolved_still_has_no_record_and_is_refused_by_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "p.cob").write_text(fd_source("COPY NOSUCH."), encoding="utf-8")
+        unit = ApplicationDiscovery().discover(d).programs[0]
+        layout = derive_file_layout(unit.program.file_definitions[0], binary_width_model=IBM)
     assert "FD_NO_RECORD" in codes(layout) and not layout.supported
+    assert any(x.startswith("COPYBOOK_UNRESOLVED") for x in unit.parse_diagnostics)
 
 
-def test_a_materialised_copybook_record_can_be_passed_explicitly():
+def test_a_materialised_working_storage_copybook_record_can_be_passed_explicitly():
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
         (d / "REC.cpy").write_text("       01 CUST-REC.\n          05 CUST-ID PIC 9(5).\n"
                                    "          05 CUST-NAME PIC X(10).\n", encoding="utf-8")
-        (d / "p.cob").write_text(fd_source("COPY REC."), encoding="utf-8")
+        source = fd_source("01 DUMMY PIC X.").replace("       PROCEDURE DIVISION.", "       WORKING-STORAGE SECTION.\n       COPY REC.\n       PROCEDURE DIVISION.")
+        (d / "p.cob").write_text(source, encoding="utf-8")
         app = ApplicationDiscovery().discover(d)
         materialised = prepare_application_copybooks(app, source_root=d).application.programs[0].program
         record = next(i for i in materialised.working_storage if i.name == "CUST-REC")

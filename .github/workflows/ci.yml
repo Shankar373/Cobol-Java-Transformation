@@ -243,6 +243,21 @@ jobs:
           cache-dependency-path: requirements-dev.lock
       - name: Build GnuCOBOL oracle image
         run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
+      - name: Build GnuCOBOL linux/s390x lane image (QEMU, big-endian witness)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support
+          bash scripts/ci/build-image.sh docker/gnucobol-s390x/Dockerfile gnucobol-s390x:local linux/s390x docker/gnucobol-s390x
+          arch="$(docker run --rm --network none --platform linux/s390x gnucobol-s390x:local uname -m)"
+          test "$arch" = "s390x" || { echo "expected s390x, got $arch" >&2; exit 1; }
+          mkdir -p test-artifacts
+          {
+            echo "arch=$arch"
+            docker run --rm --network none --platform linux/s390x gnucobol-s390x:local cobc --version | head -1
+            docker image inspect gnucobol-s390x:local --format 'image_id={{.Id}} platform={{.Os}}/{{.Architecture}}'
+            grep '^FROM' docker/gnucobol-s390x/Dockerfile
+          } | tee test-artifacts/s390x-image.txt
       - name: Build OCESQL + PostgreSQL oracle image
         run: bash scripts/ci/build-image.sh Dockerfile.ocesql-pg ocesql-pg:latest
       - name: Build project Maven image
@@ -273,9 +288,25 @@ jobs:
         shell: bash
         env:
           RUN_DOCKER_TESTS: "1"
+          VSAM_EVIDENCE_DIR: test-artifacts/vsam
         run: |
           set -o pipefail
           python -m pytest -ra --junitxml=test-artifacts/backend-junit.xml tests 2>&1 | tee test-artifacts/backend-tests.log
+      - name: Require the VSAM Docker-lane proofs to have run (no skips)
+        run: |
+          python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          required = ("test_vsam_api_to_java", "test_vsam_s390x_oracle", "test_vsam_java_consumer", "test_vsam_consumer_oracle")
+          seen = {name: [0, 0] for name in required}  # executed, skipped
+          for case in ET.parse("test-artifacts/backend-junit.xml").getroot().iter("testcase"):
+              for name in required:
+                  if name in case.get("classname", ""):
+                      seen[name][0] += 1
+                      seen[name][1] += any(child.tag == "skipped" for child in case)
+          print(seen)
+          bad = [n for n, (ran, skipped) in seen.items() if ran == 0 or skipped]
+          sys.exit(f"VSAM lane proofs missing or skipped: {bad}" if bad else 0)
+          PY
       - name: Upload backend logs and reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -34,6 +34,7 @@ from engine.vsam.convert import FieldKind, FieldSpec
 
 # Hostile or accidental layouts must be refused by arithmetic, before any field object exists.
 MAX_LAYOUT_FIELDS = 100_000  # fields after OCCURS expansion
+MAX_DIAGNOSTICS = 200
 MAX_RECORD_BYTES = 1_048_576  # far above the 32,760-byte record of a typical VSAM/QSAM data set
 
 
@@ -48,6 +49,12 @@ _WIDTHS = {
 }
 
 
+def _overpunch(item: DataItem, numeric: bool, kind: FieldKind) -> str:
+    if not (numeric and item.signed and kind is FieldKind.DISPLAY and not item.sign_separate):
+        return ""
+    return "LEADING" if item.sign_position == "LEADING" else "TRAILING"
+
+
 @dataclass(frozen=True)
 class LayoutField:
     path: str  # dotted COBOL path, with (n) subscripts for OCCURS elements
@@ -59,6 +66,14 @@ class LayoutField:
     # COBOL USAGE ("" = DISPLAY).  Kept because it carries byte-order semantics the size does not:
     # COMP is big-endian, COMP-5 is native byte order.  Binary bytes are copied, never reordered.
     usage: str = ""
+    # numeric facts the platform conversion needs: signedness, PIC digits (including decimals), decimals
+    signed: bool = False
+    digits: int = 0
+    decimals: int = 0
+    # where the sign is overpunched in a signed zoned DISPLAY numeric ("TRAILING" or "LEADING"); "" when the field
+    # has no inline sign (unsigned, SIGN SEPARATE, packed, binary, text).  Needed so the sign is converted as a
+    # sign, not translated as a character.
+    sign_overpunch: str = ""
 
 
 @dataclass(frozen=True)
@@ -87,7 +102,7 @@ class RecordLayout:
         if self.diagnostics:
             raise ValueError("layout is not supported: " + "; ".join(
                 f"{d.code} at {d.path or self.record_name}" for d in self.diagnostics))
-        return tuple(FieldSpec(f.path, f.offset, f.length, f.kind) for f in self.fields)
+        return tuple(FieldSpec(f.path, f.offset, f.length, f.kind, f.sign_overpunch) for f in self.fields)
 
     def to_dict(self) -> dict:
         return {
@@ -95,7 +110,8 @@ class RecordLayout:
             "binary_width_model": self.binary_width_model,
             "overlay_selection": [list(pair) for pair in self.overlay_selection],
             "fields": [{"path": f.path, "source": f.source, "level": f.level, "offset": f.offset,
-                        "length": f.length, "kind": f.kind.value, "usage": f.usage} for f in self.fields],
+                        "length": f.length, "kind": f.kind.value, "usage": f.usage, "signed": f.signed,
+                        "digits": f.digits, "decimals": f.decimals} for f in self.fields],
             "diagnostics": [{"code": d.code, "path": d.path, "message": d.message} for d in self.diagnostics],
             "identity": self.identity,
         }
@@ -105,7 +121,8 @@ def _identity(record_name: str, length: int, model: str, selection: tuple[tuple[
               fields: tuple[LayoutField, ...], diagnostics: tuple[LayoutDiagnostic, ...]) -> str:
     canonical = json.dumps({
         "record": record_name, "length": length, "model": model, "selection": [list(p) for p in selection],
-        "fields": [[f.path, f.offset, f.length, f.kind.value, f.usage] for f in fields],
+        "fields": [[f.path, f.offset, f.length, f.kind.value, f.usage, f.signed, f.digits, f.decimals, f.sign_overpunch]
+                   for f in fields],
         "diagnostics": [[d.code, d.path] for d in diagnostics],
     }, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -117,11 +134,18 @@ class _Deriver:
         self.selection = dict(selection)
         self.used: set[str] = set()
         self.diagnostics: list[LayoutDiagnostic] = []
+        self._seen: set[LayoutDiagnostic] = set()
 
     def diag(self, code: str, path: str, message: str) -> None:
         entry = LayoutDiagnostic(code, path, message)
-        if entry not in self.diagnostics:  # the sizing passes revisit items; report each problem once
+        if entry in self._seen:  # the sizing passes revisit items; report each problem once
+            return
+        self._seen.add(entry)
+        if len(self.diagnostics) < MAX_DIAGNOSTICS:  # bounded: a hostile record cannot grow the report without limit
             self.diagnostics.append(entry)
+        elif len(self.diagnostics) == MAX_DIAGNOSTICS:
+            self.diagnostics.append(LayoutDiagnostic(
+                "DIAGNOSTICS_TRUNCATED", "", f"more than {MAX_DIAGNOSTICS} problems; the rest are not listed"))
 
     # -- sizes -------------------------------------------------------------------------------
     def _elementary(self, item: DataItem, path: str) -> tuple[int, FieldKind] | None:
@@ -174,7 +198,12 @@ class _Deriver:
                 return None
             length, kind = sized
             if emit is not None:
-                emit.append(LayoutField(path, item.name, item.level, offset, length, kind, item.usage or ""))
+                numeric = item.pic_type.value == "NUMERIC" and item.edit_pic is None
+                emit.append(LayoutField(path, item.name, item.level, offset, length, kind, item.usage or "",
+                                        item.signed if numeric else False,
+                                        item.pic_length if numeric else 0,
+                                        item.decimal_places if numeric else 0,
+                                        _overpunch(item, numeric, kind)))
             return length
 
         slots: list[dict] = []
@@ -321,8 +350,8 @@ def derive_file_layout(file_definition: FileDefinition, *, binary_width_model: B
     if not groups:
         return _refused(fd, model, selection, LayoutDiagnostic(
             "FD_NO_RECORD", fd,
-            f"FD {fd} declares no record (a COPY inside an FD is not merged into the FD's record; "
-            "pass the materialised copybook record to derive_layout)"))
+            f"FD {fd} declares no record (an unresolved COPY inside the FD leaves it without one; "
+            "resolve the copybook so discovery can expand it)"))
     names = ", ".join(g.name for g in groups)
     if len(groups) > 1 and not record_name:
         return _refused(fd, model, selection, LayoutDiagnostic(

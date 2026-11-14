@@ -24,7 +24,7 @@ from engine.vsam.layout import BinaryWidthModel, derive_file_layout
 from engine.vsam.migrate import migrate_dataset
 from engine.vsam.model import DatasetDefinition, Encoding, Organization
 
-ORACLE_IMAGE = "gnucobol-ocesql:latest"
+ORACLE_IMAGE = os.environ.get("VSAM_ORACLE_IMAGE", "gnucobol-ocesql:latest")  # override: same differential on another compiler image
 
 RECORD_DEFINITION = """\
        01 REC.
@@ -166,13 +166,69 @@ def test_the_two_width_models_give_two_different_record_lengths_and_each_matches
     assert lengths[BinaryWidthModel.GNUCOBOL_1_2_4_8] != lengths[BinaryWidthModel.IBM_2_4_8]
 
 
-@pytest.mark.parametrize("std,model", [("default", BinaryWidthModel.GNUCOBOL_1_2_4_8), ("ibm", BinaryWidthModel.IBM_2_4_8)])
-def test_the_records_gnucobol_wrote_migrate_and_reconcile(tmp_path, std, model):
+_PLATFORM_OF = {"default": "GNUCOBOL_X86_DEFAULT", "ibm": "GNUCOBOL_X86_IBM_DIALECT"}
+
+
+def layout_for_platform(name):
+    from engine.vsam.platform import platform
+
+    rep = platform(name)
+    return rep, derive_file_layout(CobolParser().parse(program_source()).file_definitions[0],
+                                   binary_width_model=rep.width_model,
+                                   overlay_selection={"DATE-NUM": "DATE-PARTS"})
+
+
+def test_converting_default_dialect_records_to_the_ibm_layout_equals_what_gnucobol_writes_in_that_dialect(tmp_path):
+    """The strongest check: the converter's output is compared with the compiler's own output.
+
+    The same values are written by GnuCOBOL twice (-std=default: 1-byte COMP S9(2); -std=ibm: 2-byte).
+    Converting the first file to the second layout must give the second file byte for byte (both are
+    little-endian COMP-5, so only widths and offsets move), and back again.
+    """
+    from engine.vsam.platform import convert_record_between
+
+    (tmp_path / "d").mkdir()
+    (tmp_path / "i").mkdir()
+    default_file = write_with_gnucobol(tmp_path / "d", "default")
+    ibm_file = write_with_gnucobol(tmp_path / "i", "ibm")
+    rep_d, lay_d = layout_for_platform("GNUCOBOL_X86_DEFAULT")
+    rep_i, lay_i = layout_for_platform("GNUCOBOL_X86_IBM_DIALECT")
+    assert lay_d.record_length != lay_i.record_length
+    for index in range(2):
+        record = default_file[index * lay_d.record_length:(index + 1) * lay_d.record_length]
+        expected = ibm_file[index * lay_i.record_length:(index + 1) * lay_i.record_length]
+        assert convert_record_between(record, lay_d, lay_i, rep_d, rep_i, "ASCII", "ASCII") == expected, index
+        assert convert_record_between(expected, lay_i, lay_d, rep_i, rep_d, "ASCII", "ASCII") == record, index
+
+
+def test_comp5_goes_big_endian_for_the_ibm_target_and_everything_else_is_unchanged(tmp_path):
+    """No big-endian COMP-5 exists on x86 GnuCOBOL, so the expected bytes are computed independently."""
+    from engine.vsam.platform import convert_record_between
+
+    ibm_file = write_with_gnucobol(tmp_path, "ibm")
+    rep_i, lay_i = layout_for_platform("GNUCOBOL_X86_IBM_DIALECT")
+    rep_z, lay_z = layout_for_platform("IBM_ZOS")
+    assert lay_i.record_length == lay_z.record_length                     # same width model: only the byte order differs
+    for index in range(2):
+        record = ibm_file[index * lay_i.record_length:(index + 1) * lay_i.record_length]
+        out = convert_record_between(record, lay_i, lay_z, rep_i, rep_z, "ASCII", "ASCII")
+        for f in lay_i.fields:
+            before, after = record[f.offset:f.offset + f.length], out[f.offset:f.offset + f.length]
+            if f.usage == "COMP-5":
+                value = int.from_bytes(before, "little", signed=f.signed)
+                assert after == value.to_bytes(f.length, "big", signed=f.signed), f.path
+            else:
+                assert after == before, f.path
+
+
+@pytest.mark.parametrize("std", ["default", "ibm"])
+def test_the_records_gnucobol_wrote_migrate_and_reconcile(tmp_path, std):
     written = write_with_gnucobol(tmp_path, std)
-    layout = derive_file_layout(CobolParser().parse(program_source()).file_definitions[0],
-                                binary_width_model=model, overlay_selection={"DATE-NUM": "DATE-PARTS"})
+    rep, layout = layout_for_platform(_PLATFORM_OF[std])
     source = DatasetDefinition("LAY", Organization.SEQUENTIAL, record_length=layout.record_length)
-    destination, report = migrate_dataset(source, written, layout, Encoding.EBCDIC_CP037)
+    # same platform on both sides: text is re-encoded, every binary and packed field is unchanged
+    destination, report = migrate_dataset(source, written, layout, Encoding.EBCDIC_CP037,
+                                          target_layout=layout, source_platform=rep, target_platform=rep)
     assert report.state == "RECONCILED" and report.success, report.failures
     assert report.to_dict()["source_record_count"] == 2 and report.to_dict()["rejected_record_count"] == 0
 
