@@ -229,6 +229,19 @@ jobs:
     name: Backend and COBOL/Java Docker tests
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    services:
+      # Free throwaway PostgreSQL for tests/enterprise/test_database.py (enterprise Phase 1); pinned by digest.
+      postgres:
+        image: postgres@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+        env:
+          POSTGRES_PASSWORD: ci-throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -289,6 +302,7 @@ jobs:
         env:
           RUN_DOCKER_TESTS: "1"
           VSAM_EVIDENCE_DIR: test-artifacts/vsam
+          SYSTEMAOPS_TEST_POSTGRES_DSN: postgresql://postgres:ci-throwaway@localhost:5432/postgres
         run: |
           set -o pipefail
           python -m pytest -ra --junitxml=test-artifacts/backend-junit.xml tests 2>&1 | tee test-artifacts/backend-tests.log
@@ -296,7 +310,8 @@ jobs:
         run: |
           python - <<'PY'
           import sys, xml.etree.ElementTree as ET
-          required = ("test_vsam_api_to_java", "test_vsam_s390x_oracle", "test_vsam_java_consumer", "test_vsam_consumer_oracle")
+          required = ("test_vsam_api_to_java", "test_vsam_s390x_oracle", "test_vsam_java_consumer", "test_vsam_consumer_oracle",
+                      "tests.enterprise.test_database")
           seen = {name: [0, 0] for name in required}  # executed, skipped
           for case in ET.parse("test-artifacts/backend-junit.xml").getroot().iter("testcase"):
               for name in required:

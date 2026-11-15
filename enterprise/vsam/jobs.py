@@ -1,4 +1,4 @@
-"""Durable VSAM migration jobs: SQLite store plus a bounded background runner.
+"""Durable VSAM migration jobs: SQLite or PostgreSQL store plus a bounded background runner.
 
 State changes go through ``enterprise.jobs.next_state`` so a job can only
 reach SUCCEEDED via VALIDATING and PUBLISHING with complete evidence. A
@@ -11,14 +11,16 @@ import hashlib
 import json
 import logging
 import re
-import sqlite3
 import threading
 import uuid
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from enterprise.contracts import VsamExportManifest, utcnow
+from enterprise.db import Database, migrate, open_database
 from enterprise.jobs import CompletionEvidence, JobState, next_state
 from enterprise.quotas import VsamQuotas, load_vsam_quotas, load_worker_quotas
 from enterprise.vsam.errors import VsamRefusal
@@ -29,29 +31,6 @@ _LOG = logging.getLogger(__name__)
 _RUNTIME_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 _SUFFIX = {"KSDS": ".idx", "RRDS": ".rel", "ESDS": ""}
 _RESUMABLE = (JobState.QUEUED, JobState.RUNNING, JobState.RETRYING)
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS vsam_jobs (
-    job_id TEXT PRIMARY KEY,
-    application_id TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL,
-    manifest_json TEXT NOT NULL,
-    request_digest TEXT NOT NULL,
-    runtime_path TEXT NOT NULL,
-    state TEXT NOT NULL,
-    error_code TEXT NOT NULL DEFAULT '',
-    error_message TEXT NOT NULL DEFAULT '',
-    records INTEGER NOT NULL DEFAULT 0,
-    bytes_processed INTEGER NOT NULL DEFAULT 0,
-    output_name TEXT NOT NULL DEFAULT '',
-    output_sha256 TEXT NOT NULL DEFAULT '',
-    output_bytes INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    UNIQUE (application_id, idempotency_key)
-)
-"""
-
 
 @dataclass(frozen=True)
 class JobView:
@@ -91,12 +70,11 @@ def safe_runtime_path(raw: str) -> str:
 
 
 class VsamJobService:
-    def __init__(self, db_path: str, data_root: Path, quotas: VsamQuotas | None = None) -> None:
-        self._db = sqlite3.connect(db_path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
+    def __init__(self, database: str | Database, data_root: Path, quotas: VsamQuotas | None = None) -> None:
+        """``database`` is a SQLite path, ``:memory:``, a ``postgresql://`` URL or an open :class:`Database`."""
+        self._db = open_database(database) if isinstance(database, str) else database
         self._lock = threading.RLock()
-        self._db.execute(_SCHEMA)
-        self._db.commit()
+        migrate(self._db)
         self._root = data_root
         self._root.mkdir(parents=True, exist_ok=True)
         self._quotas = quotas or load_vsam_quotas()
@@ -115,14 +93,14 @@ class VsamJobService:
         return self.job_dir(job_id) / "published" / row["output_name"]
 
     # -- persistence -----------------------------------------------------
-    def _row(self, job_id: str) -> sqlite3.Row:
+    def _row(self, job_id: str) -> Mapping[str, Any]:
         with self._lock:
             row = self._db.execute("SELECT * FROM vsam_jobs WHERE job_id=?", (job_id,)).fetchone()
         if row is None:
             raise JobNotFound(job_id)
         return row
 
-    def _view(self, row: sqlite3.Row) -> JobView:
+    def _view(self, row: Mapping[str, Any]) -> JobView:
         manifest = VsamExportManifest.model_validate_json(row["manifest_json"])
         return JobView(
             job_id=row["job_id"], application_id=row["application_id"], state=row["state"],
@@ -144,9 +122,21 @@ class VsamJobService:
             self._db.commit()
 
     def _transition(self, job_id: str, target: JobState, evidence: CompletionEvidence | None = None, **fields) -> None:
+        """Move a job to ``target`` only if it is still in the state it was read in (compare and set).
+
+        Another process may have advanced the job in between; then nothing is written and ``WrongState`` is raised.
+        """
         with self._lock:
             current = JobState(self._row(job_id)["state"])
-            self._update(job_id, state=next_state(current, target, evidence).value, **fields)
+            fields["state"] = next_state(current, target, evidence).value
+            fields["updated_at"] = utcnow().isoformat()
+            cols = ", ".join(f"{k}=?" for k in fields)
+            done = self._db.execute(
+                f"UPDATE vsam_jobs SET {cols} WHERE job_id=? AND state=?",
+                (*fields.values(), job_id, current.value))
+            self._db.commit()
+            if done.rowcount != 1:
+                raise WrongState(current.value)
 
     # -- API operations --------------------------------------------------
     def create(self, application_id: str, idempotency_key: str,
