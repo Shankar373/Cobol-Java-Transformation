@@ -29,6 +29,8 @@ does not ship and is not listed.
 | `h11` | 0.16.0 | MIT License | all |
 | `httptools` | 0.8.0 | MIT | all |
 | `idna` | 3.15 | BSD-3-Clause | all |
+| `psycopg` | 3.3.9 | LGPL-3.0-only | all |
+| `psycopg-binary` | 3.3.9 | LGPL-3.0-only | all |
 | `pydantic` | 2.13.4 | MIT | all |
 | `pydantic_core` | 2.46.4 | MIT | all |
 | `python-dotenv` | 1.2.4 | BSD-3-Clause | all |
@@ -37,6 +39,7 @@ does not ship and is not listed.
 | `starlette` | 1.3.1 | BSD-3-Clause | all |
 | `typing-extensions` | 4.15.0 | PSF-2.0 | all |
 | `typing-inspection` | 0.4.2 | MIT | all |
+| `tzdata` | 2026.6 | Apache-2.0 | sys_platform == "win32" |
 | `uvicorn` | 0.52.3 | BSD-3-Clause | all |
 | `uvloop` | 0.23.0 | Apache Software License / MIT License | sys_platform != "win32" |
 | `watchfiles` | 1.2.0 | MIT License | all |
