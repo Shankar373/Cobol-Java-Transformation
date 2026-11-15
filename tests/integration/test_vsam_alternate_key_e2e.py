@@ -113,7 +113,7 @@ def _records() -> list[bytes]:
     return [f"A{i}{'ABC'[(i - 1) % 3] * 2}{unique[i - 1]}d{i}".encode() for i in range(1, 10)]
 
 
-def test_alternate_key_ksds_api_to_generated_java_matches_gnucobol(service, tmp_path):
+def test_alternate_key_ksds_api_to_generated_java_matches_gnucobol(service, tmp_path):  # noqa: F811
     recs = _records()
     blob = fixed_export(recs)
     manifest = make_manifest(
@@ -153,7 +153,7 @@ WIDE_LOADER = LOADER.replace("PIC X(8)", f"PIC X({6 + WIDE})").replace(
     "05 DAT  PIC X(2).", f"05 DAT  PIC X({WIDE}).").replace("ALTLD", "ALTWL")
 
 
-def test_wide_alternate_key_ksds_api_to_generated_java_matches_gnucobol(service, tmp_path):
+def test_wide_alternate_key_ksds_api_to_generated_java_matches_gnucobol(service, tmp_path):  # noqa: F811
     recs = [r[:6] + f"d{r[7:8].decode()}".encode() + (r[7:8] * (WIDE - 2)) for r in _records()]
     assert all(len(r) == 6 + WIDE for r in recs)
     blob = fixed_export(recs)
