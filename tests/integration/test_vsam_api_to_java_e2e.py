@@ -223,12 +223,14 @@ def service(tmp_path):
     vsam_routes._service = previous
 
 
-def _migrate_over_http(blob: bytes, manifest, runtime_path: str) -> bytes:
+def _migrate_over_http(blob: bytes, manifest, runtime_path: str, cobol_source: str | None = None,
+                       cobol_file: str | None = None) -> bytes:
     app_id = client.post("/applications", json={"name": "e2e", "workload_id": "wl", "target_runtime": "plain_java"}).json()["id"]
     job = client.post(
         f"/applications/{app_id}/vsam/migrations",
         json={"idempotency_key": "e2e", "runtime_path": runtime_path,
-              "manifest": manifest.model_dump(mode="json")},
+              "manifest": manifest.model_dump(mode="json"),
+              **({"cobol_source": cobol_source, "cobol_file": cobol_file} if cobol_source else {})},
     ).json()
     assert client.put(job["upload_path"], content=blob).status_code == 202
     deadline = time.time() + 30

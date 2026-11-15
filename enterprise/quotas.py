@@ -51,6 +51,7 @@ class VsamQuotas:
     record_bytes: int = 32_767
     stream_buffer_bytes: int = 1 * MIB
     checkpoint_interval_records: int = 100_000
+    alternate_unique_check_records: int = 5_000_000
 
 
 @dataclass(frozen=True)

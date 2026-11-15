@@ -140,7 +140,7 @@ def test_checksum_and_count_and_size_mismatches(tmp_path):
 @pytest.mark.parametrize(
     "kwargs,code",
     [
-        ({"alternate_keys": ((4, 2),)}, "ALTERNATE_KEY_UNSUPPORTED"),
+        ({"alternate_keys": ((4, 2),), "organization": "ESDS"}, "ALTERNATE_KEY_UNSUPPORTED"),
         ({"duplicate_keys": "ALLOW"}, "DUPLICATE_KEYS_UNSUPPORTED"),
         ({"code_page": "utf-8"}, "CODE_PAGE_UNSUPPORTED"),
     ],

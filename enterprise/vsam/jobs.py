@@ -180,6 +180,9 @@ class VsamJobService:
             self._db.commit()
         try:
             validate_manifest(manifest, self._quotas)
+            if manifest.alternate_keys and not cobol_source:
+                raise VsamRefusal("ALTERNATE_KEY_UNVERIFIED",
+                                  "alternate keys can only be checked against the COBOL SELECT; send cobol_source")
             if cobol_source:
                 check_manifest_against_cobol(cobol_source, manifest, runtime_path, cobol_file)
         except VsamRefusal as refusal:

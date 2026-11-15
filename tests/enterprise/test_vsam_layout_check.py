@@ -81,10 +81,10 @@ def test_organization_mismatch_is_refused():
     assert refusal_code(program(KSDS_SELECT, KSDS_FD), manifest) == "ORGANIZATION_MISMATCH"
 
 
-def test_cobol_alternate_key_is_refused():
+def test_cobol_alternate_key_the_manifest_does_not_declare_is_refused():
     select = KSDS_SELECT.replace(
         "RECORD KEY IS KS-KEY", "RECORD KEY IS KS-KEY\n               ALTERNATE RECORD KEY IS KS-DATA")
-    assert refusal_code(program(select, KSDS_FD), ksds_manifest()) == "ALTERNATE_KEY_UNSUPPORTED"
+    assert refusal_code(program(select, KSDS_FD), ksds_manifest()) == "ALTERNATE_KEY_MISMATCH"
 
 
 @pytest.mark.parametrize(

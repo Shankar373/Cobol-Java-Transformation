@@ -113,7 +113,7 @@ def test_checksum_mismatch_is_refused_and_has_no_artifact(service, app_id):
 
 def test_unsupported_manifest_is_refused_at_creation(service, app_id):
     job = _create(app_id, _blob(), alternate_keys=((4, 2),)).json()
-    assert job["state"] == "REFUSED" and job["error_code"] == "ALTERNATE_KEY_UNSUPPORTED"
+    assert job["state"] == "REFUSED" and job["error_code"] == "ALTERNATE_KEY_UNVERIFIED"
     assert client.put(job["upload_path"], content=_blob()).status_code == 409
 
 

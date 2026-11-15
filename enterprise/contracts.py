@@ -140,7 +140,7 @@ class VsamExportManifest(Contract):
     organization: Literal["KSDS", "ESDS", "RRDS"]
     layout: VsamRecordLayout
     duplicate_keys: Literal["REJECT", "ALLOW"] = "REJECT"
-    alternate_keys: tuple[tuple[int, int], ...] = ()
+    alternate_keys: tuple[tuple[int, int, bool], ...] = ()
     record_count: int = Field(ge=0)
     dataset_bytes: int = Field(ge=0)
     sha256: str
@@ -150,6 +150,12 @@ class VsamExportManifest(Contract):
     provenance: str = ""
 
     _v = field_validator("sha256")(_check_sha256)
+
+    @field_validator("alternate_keys", mode="before")
+    @classmethod
+    def _alternate_keys_default_to_unique(cls, value):
+        """``(offset, length)`` means a unique alternate key; ``(offset, length, duplicates)`` says so explicitly."""
+        return tuple(tuple(v) + (False,) if len(v) == 2 else tuple(v) for v in (value or ()))
 
 
 class MigrationCheckpoint(Contract):

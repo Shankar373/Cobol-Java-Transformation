@@ -77,6 +77,37 @@ def _offset_of(root: DataItem, field: str) -> tuple[int, int]:
     return found
 
 
+def _leaf_key_span(root: DataItem, field: str) -> tuple[int, int]:
+    """``(offset, length)`` of an alternate key; it must be a plain DISPLAY leaf, never a group."""
+    offset, length = _offset_of(root, field)
+
+    def find(item: DataItem) -> DataItem | None:
+        if item.name.upper() == field.upper():
+            return item
+        for child in item.children:
+            found = find(child)
+            if found:
+                return found
+        return None
+
+    item = find(root)
+    if item is not None and [c for c in item.children if c.level != 88]:
+        raise VsamRefusal("ALTERNATE_KEY_UNSUPPORTED", f"alternate key {field} is a group item")
+    return offset, length
+
+
+def _check_alternate_keys(fd: FileDefinition, root: DataItem, manifest: VsamExportManifest) -> None:
+    """The alternate keys the manifest declares must be exactly the ones the COBOL file declares, in order."""
+    derived = tuple(
+        (*_leaf_key_span(root, key.field_name), key.is_duplicated) for key in fd.alternate_keys
+    )
+    if derived != manifest.alternate_keys:
+        raise VsamRefusal(
+            "ALTERNATE_KEY_MISMATCH",
+            f"manifest alternate keys {manifest.alternate_keys}, SELECT {fd.name} declares {derived}",
+        )
+
+
 def _select(fd_list: tuple[FileDefinition, ...], runtime_path: str, file_name: str | None) -> FileDefinition:
     for fd in fd_list:
         if file_name and fd.name.upper() == file_name.upper():
@@ -106,7 +137,7 @@ def check_manifest_against_cobol(
             "ORGANIZATION_MISMATCH",
             f"manifest says {manifest.organization}, SELECT {fd.name} is {fd.organization.value}",
         )
-    if fd.alternate_keys:
+    if fd.alternate_keys and manifest.organization != "KSDS":
         raise VsamRefusal("ALTERNATE_KEY_UNSUPPORTED", f"SELECT {fd.name} declares ALTERNATE RECORD KEY")
     if len(fd.record_groups) != 1:
         raise VsamRefusal("LAYOUT_UNVERIFIABLE", f"FD {fd.name} has {len(fd.record_groups)} record layouts")
@@ -138,4 +169,5 @@ def check_manifest_against_cobol(
                 f"manifest key {layout.key_offset}+{layout.key_length}, "
                 f"RECORD KEY {fd.record_key.field_name} is {key_offset}+{key_length}",
             )
+    _check_alternate_keys(fd, root, manifest)
     return CobolFileLayout(fd.name, record_length, key_offset, key_length)

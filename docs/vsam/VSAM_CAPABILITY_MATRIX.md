@@ -24,13 +24,14 @@ consumer), `scripts/perf/vsam_benchmark.py` (scale).
 | RDW framing | IMPLEMENTED, UNIT_TESTED | bad length, non-zero reserved bytes and truncation are refused |
 | Primary key at offset 0 | IMPLEMENTED, GNUCOBOL_VERIFIED | |
 | Primary key at offset > 0 | REFUSED | `KEY_OFFSET_UNSUPPORTED`; the runtime keys on the first bytes of the record |
-| Alternate keys | REFUSED | manifest or COBOL SELECT; the runtime builds no alternate index |
+| Alternate keys, fixed-length KSDS | IMPLEMENTED, UNIT_TESTED, GNUCOBOL_VERIFIED | up to three DISPLAY leaf keys, WITH DUPLICATES or unique, declared in the manifest as `(offset, length, duplicates)` and required to equal the COBOL SELECT; the migrator writes each record's write sequence in front of its data (the image the runtime keeps), refuses a repeated value of a unique key with `ALTERNATE_KEY_DUPLICATE` and refuses `ALTERNATE_CHECK_TOO_LARGE` beyond `alternate_unique_check_records` (default 5,000,000) because that check is held in memory. `tests/enterprise/test_vsam_alternate_keys.py` (13 tests, including resume), `tests/integration/test_vsam_alternate_key_e2e.py` (API to generated Java against GnuCOBOL: reads by both alternate keys, START and READ NEXT along both in the certified browsing shape, and a 46-byte record whose data is longer than the sequence prefix; negative control: without the prefix the wide case differs from GnuCOBOL) |
+| Alternate keys with variable-length records, ESDS or RRDS, group-item keys, binary records, more than three keys | REFUSED | `ALTERNATE_KEY_UNSUPPORTED` |
 | Duplicate primary keys | REFUSED | `DUPLICATE_KEY`; duplicate-allowed manifests refused |
 | Sequential access | GNUCOBOL_VERIFIED | START then READ NEXT (KSDS), sequential read (ESDS) |
 | Random access | GNUCOBOL_VERIFIED | READ KEY (KSDS), READ by RRN (RRDS) |
 | DISPLAY text fields | IMPLEMENTED, GNUCOBOL_VERIFIED | ASCII and EBCDIC (cp037, cp500, cp1047, cp1140) decoded; EBCDIC decoding is UNIT_TESTED only |
 | COMP / COMP-3 / binary fields in records | REFUSED | control or undecodable bytes give `UNREPRESENTABLE_RECORD`; non-DISPLAY USAGE in the FD gives `LAYOUT_UNVERIFIABLE` |
-| Manifest vs SELECT/FD validation | IMPLEMENTED, UNIT_TESTED | organization, record length, key offset and length, alternate keys |
+| Manifest vs SELECT/FD validation | IMPLEMENTED, UNIT_TESTED | organization, record length, key offset and length, alternate keys (offset, length, duplicates flag and order) |
 | Streaming migration (bounded memory) | IMPLEMENTED, UNIT_TESTED, scale-tested | see `docs/operations/CERTIFICATION_EVIDENCE.md` |
 | Checkpoint and resume | IMPLEMENTED, UNIT_TESTED, scale-tested | source tamper is refused (`RESUME_REJECTED`) |
 | Java consumption: ESDS fixed | IMPLEMENTED, GNUCOBOL_VERIFIED | per-record buffered reads: bounded memory |

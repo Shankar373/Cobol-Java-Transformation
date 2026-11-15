@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from enterprise.contracts import ENGINE_VERSION, MigrationCheckpoint, VsamExportManifest
+from enterprise.contracts import ENGINE_VERSION, MigrationCheckpoint, VsamExportManifest, VsamRecordLayout
 from enterprise.quotas import VsamQuotas
 from enterprise.vsam.errors import VsamRefusal
 from enterprise.vsam.reader import iter_frames
@@ -27,6 +27,7 @@ SUPPORTED_CODE_PAGES = frozenset({"ascii", "latin-1", "cp037", "cp500", "cp1047"
 # Control characters cannot be carried by the line-oriented runtime images.
 _UNREPRESENTABLE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
 _SEP = "\u0001"
+MAX_ALTERNATE_KEYS = 3  # what the generated runtime registers (CobolFileIo.altKey)
 
 
 @dataclass(frozen=True)
@@ -45,8 +46,8 @@ def _digest(*parts: object) -> str:
 
 def validate_manifest(manifest: VsamExportManifest, quotas: VsamQuotas) -> None:
     layout = manifest.layout
-    if manifest.alternate_keys:
-        raise VsamRefusal("ALTERNATE_KEY_UNSUPPORTED", "alternate keys are not lowered to an index")
+    if manifest.alternate_keys and (manifest.organization != "KSDS" or layout.record_format != "FIXED"):
+        raise VsamRefusal("ALTERNATE_KEY_UNSUPPORTED", "alternate keys are supported for fixed-length KSDS only")
     if layout.code_page.lower() not in SUPPORTED_CODE_PAGES:
         raise VsamRefusal("CODE_PAGE_UNSUPPORTED", f"code page {layout.code_page!r}")
     if manifest.dataset_bytes > quotas.dataset_bytes:
@@ -66,8 +67,62 @@ def validate_manifest(manifest: VsamExportManifest, quotas: VsamQuotas) -> None:
             raise VsamRefusal("INVALID_LAYOUT", "key longer than the shortest record")
         if manifest.duplicate_keys != "REJECT":
             raise VsamRefusal("DUPLICATE_KEYS_UNSUPPORTED", "KSDS duplicate primary keys")
+        _validate_alternate_keys(manifest)
     if manifest.organization == "RRDS" and layout.record_format != "FIXED":
         raise VsamRefusal("INVALID_LAYOUT", "RRDS exports must be FIXED")
+
+
+def _validate_alternate_keys(manifest: VsamExportManifest) -> None:
+    layout = manifest.layout
+    if len(manifest.alternate_keys) > MAX_ALTERNATE_KEYS:
+        raise VsamRefusal("ALTERNATE_KEY_UNSUPPORTED", f"at most {MAX_ALTERNATE_KEYS} alternate keys")
+    for offset, length, _duplicates in manifest.alternate_keys:
+        if length < 1 or offset + length > layout.min_record_length:
+            raise VsamRefusal("INVALID_LAYOUT", f"alternate key {offset}+{length} is outside the shortest record")
+        if (offset, length) == (layout.key_offset, layout.key_length):
+            raise VsamRefusal("INVALID_LAYOUT", "an alternate key may not be the primary key")
+
+
+def _seed_unique_alternates(
+    src: Path,
+    layout: VsamRecordLayout,
+    specs: tuple[tuple[int, int, bool], ...],
+    upto: int,
+    chunk: int,
+    limit: int,
+) -> list[set[bytes]]:
+    """Alternate-key values of the records before ``upto`` (resume): the output has them, the checkpoint does not."""
+    seen: list[set[bytes]] = [set() for _ in specs]
+    if all(duplicates for _o, _l, duplicates in specs):
+        return seen
+    with src.open("rb") as fin:
+        for frame in iter_frames(fin, layout, relative=False, chunk=chunk, start_offset=0):
+            if frame.end > upto:
+                break
+            _check_alternates(frame.data, frame.offset, specs, seen, limit)
+    return seen
+
+
+def _check_alternates(
+    data: bytes,
+    offset: int,
+    specs: tuple[tuple[int, int, bool], ...],
+    seen: list[set[bytes]],
+    limit: int,
+) -> None:
+    """Refuse the value GnuCOBOL answers with status 22 when the file is loaded: a repeated UNIQUE alternate key."""
+    for index, (start, length, duplicates) in enumerate(specs):
+        if duplicates:
+            continue
+        value = data[start:start + length]
+        if value in seen[index]:
+            raise VsamRefusal("ALTERNATE_KEY_DUPLICATE", f"offset {offset}: alternate key {index + 1} repeats a value")
+        if len(seen[index]) >= limit:
+            raise VsamRefusal(
+                "ALTERNATE_CHECK_TOO_LARGE",
+                f"more than {limit} records with a unique alternate key cannot be checked in bounded memory",
+            )
+        seen[index].add(value)
 
 
 def _decode(raw: bytes, codec: str, offset: int) -> str:
@@ -124,7 +179,7 @@ def migrate_export(
     part = out.with_name(out.name + ".part")
     ckpt_path = out.with_name(out.name + ".ckpt")
     layout_digest = _digest(layout.model_dump(), manifest.organization)
-    options_digest = _digest(codec, manifest.duplicate_keys, quotas.stream_buffer_bytes)
+    options_digest = _digest(codec, manifest.duplicate_keys, quotas.stream_buffer_bytes, manifest.alternate_keys)
     chunk = quotas.stream_buffer_bytes
 
     in_hash = hashlib.sha256()
@@ -167,6 +222,9 @@ def migrate_export(
 
     relative = manifest.organization == "RRDS"
     key_len = layout.key_length if manifest.organization == "KSDS" else 0
+    alternates = manifest.alternate_keys
+    seen = (_seed_unique_alternates(src, layout, alternates, in_offset, chunk, quotas.alternate_unique_check_records)
+            if alternates and resumed else [set() for _ in alternates])
     try:
         with src.open("rb") as fin, part.open(out_mode) as fout:
             fin.seek(in_offset)
@@ -196,7 +254,10 @@ def migrate_export(
                                 f"offset {frame.offset}: key order differs after decoding to text",
                             )
                     last_key = key
-                    line = f"{text[:key_len]}{_SEP}{text[key_len:]}\n"
+                    _check_alternates(frame.data, frame.offset, alternates, seen, quotas.alternate_unique_check_records)
+                    # a file with alternate keys keeps each record's write sequence in front of its data
+                    prefix = f"{records + 1:016x}" * len(alternates)
+                    line = f"{text[:key_len]}{_SEP}{prefix}{text[key_len:]}\n"
                 elif relative:
                     previous = int.from_bytes(last_key, "big") if last_key else 0
                     if frame.rrn <= previous:
