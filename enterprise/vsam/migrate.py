@@ -14,12 +14,13 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from enterprise.contracts import ENGINE_VERSION, MigrationCheckpoint, VsamExportManifest, VsamRecordLayout
 from enterprise.quotas import VsamQuotas
-from enterprise.vsam.errors import VsamRefusal
+from enterprise.vsam.errors import MigrationInterrupted, VsamRefusal
 from enterprise.vsam.reader import iter_frames
 
 # Single-byte code pages only: one byte is one key character.
@@ -165,8 +166,13 @@ def migrate_export(
     quotas: VsamQuotas | None = None,
     checkpoint_every: int | None = None,
     stop_after_records: int | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> MigrationResult:
-    """Migrate ``src`` to ``out``. ``stop_after_records`` simulates interruption."""
+    """Migrate ``src`` to ``out``. ``stop_after_records`` simulates interruption.
+
+    ``cancel_check`` is polled at every checkpoint; when it returns true the run stops with
+    :class:`MigrationInterrupted`, keeping the partial output and checkpoint so another worker can resume.
+    """
     quotas = quotas or VsamQuotas()
     every = checkpoint_every or quotas.checkpoint_interval_records
     validate_manifest(manifest, quotas)
@@ -294,6 +300,8 @@ def migrate_export(
                             running_sha256_state=in_hash.copy().hexdigest(),
                         ),
                     )
+                    if cancel_check is not None and cancel_check():
+                        raise MigrationInterrupted(f"stopped at record {records}")
                 if stop_after_records is not None and records >= stop_after_records:
                     fout.flush()
                     os.fsync(fout.fileno())

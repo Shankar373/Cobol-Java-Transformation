@@ -49,18 +49,23 @@ def _tables(db):
     return {row["n"] for row in rows.fetchall()}
 
 
+ALL_VERSIONS = ["0001_vsam_jobs", "0002_job_leases"]
+
+
 def test_migrate_applies_once_and_is_idempotent(db):
-    assert migrate(db) == ["0001_vsam_jobs"]
+    assert migrate(db) == ALL_VERSIONS
     assert migrate(db) == []
-    assert applied_versions(db) == ["0001_vsam_jobs"]
+    assert applied_versions(db) == ALL_VERSIONS
     assert "vsam_jobs" in _tables(db)
 
 
-def test_rollback_reverts_and_migrate_reapplies(db):
+def test_rollback_reverts_newest_first_and_migrate_reapplies(db):
     migrate(db)
-    assert rollback(db) == ["0001_vsam_jobs"]
+    assert rollback(db) == ["0002_job_leases"]
+    assert applied_versions(db) == ["0001_vsam_jobs"] and "vsam_jobs" in _tables(db)
+    assert rollback(db, steps=5) == ["0001_vsam_jobs"]
     assert applied_versions(db) == [] and "vsam_jobs" not in _tables(db)
-    assert migrate(db) == ["0001_vsam_jobs"]
+    assert migrate(db) == ALL_VERSIONS
     assert rollback(db, steps=0) == []
 
 

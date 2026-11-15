@@ -10,3 +10,7 @@ class VsamRefusal(Exception):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+
+
+class MigrationInterrupted(Exception):
+    """The migration stopped on request (lost lease); its partial output and checkpoint are kept for the next run."""

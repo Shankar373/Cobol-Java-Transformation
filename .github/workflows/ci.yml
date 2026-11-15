@@ -311,7 +311,7 @@ jobs:
           python - <<'PY'
           import sys, xml.etree.ElementTree as ET
           required = ("test_vsam_api_to_java", "test_vsam_s390x_oracle", "test_vsam_java_consumer", "test_vsam_consumer_oracle",
-                      "tests.enterprise.test_database")
+                      "tests.enterprise.test_database", "tests.enterprise.test_vsam_worker")
           seen = {name: [0, 0] for name in required}  # executed, skipped
           for case in ET.parse("test-artifacts/backend-junit.xml").getroot().iter("testcase"):
               for name in required:

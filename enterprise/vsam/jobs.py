@@ -13,17 +13,18 @@ import logging
 import re
 import threading
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from enterprise.contracts import VsamExportManifest, utcnow
 from enterprise.db import Database, migrate, open_database
-from enterprise.jobs import CompletionEvidence, JobState, next_state
+from enterprise.jobs import TERMINAL_STATES, CompletionEvidence, JobState, next_state
 from enterprise.quotas import VsamQuotas, load_vsam_quotas, load_worker_quotas
-from enterprise.vsam.errors import VsamRefusal
+from enterprise.vsam.errors import MigrationInterrupted, VsamRefusal
 from enterprise.vsam.layout_check import check_manifest_against_cobol
 from enterprise.vsam.migrate import migrate_export, validate_manifest
 
@@ -70,15 +71,22 @@ def safe_runtime_path(raw: str) -> str:
 
 
 class VsamJobService:
-    def __init__(self, database: str | Database, data_root: Path, quotas: VsamQuotas | None = None) -> None:
-        """``database`` is a SQLite path, ``:memory:``, a ``postgresql://`` URL or an open :class:`Database`."""
+    def __init__(self, database: str | Database, data_root: Path, quotas: VsamQuotas | None = None,
+                 inline_workers: bool = True) -> None:
+        """``database`` is a SQLite path, ``:memory:``, a ``postgresql://`` URL or an open :class:`Database`.
+
+        ``inline_workers`` runs queued jobs on this process's thread pool. With ``False`` a job stays QUEUED until a
+        :class:`enterprise.vsam.worker.VsamWorker` (this process or another) claims it with a lease.
+        """
         self._db = open_database(database) if isinstance(database, str) else database
         self._lock = threading.RLock()
         migrate(self._db)
         self._root = data_root
         self._root.mkdir(parents=True, exist_ok=True)
         self._quotas = quotas or load_vsam_quotas()
-        self._pool = ThreadPoolExecutor(max_workers=load_worker_quotas().concurrency)
+        self._worker_quotas = load_worker_quotas()
+        self._inline = inline_workers
+        self._pool = ThreadPoolExecutor(max_workers=self._worker_quotas.concurrency)
         self._uploading: set[str] = set()
 
     # -- paths -----------------------------------------------------------
@@ -130,6 +138,9 @@ class VsamJobService:
             current = JobState(self._row(job_id)["state"])
             fields["state"] = next_state(current, target, evidence).value
             fields["updated_at"] = utcnow().isoformat()
+            if target in TERMINAL_STATES:
+                fields["lease_owner"] = ""
+                fields["lease_expires_at"] = ""
             cols = ", ".join(f"{k}=?" for k in fields)
             done = self._db.execute(
                 f"UPDATE vsam_jobs SET {cols} WHERE job_id=? AND state=?",
@@ -193,7 +204,8 @@ class VsamJobService:
     def upload_complete(self, job_id: str) -> None:
         self._transition(job_id, JobState.QUEUED)
         self._uploading.discard(job_id)
-        self._pool.submit(self._run, job_id)
+        if self._inline:
+            self._pool.submit(self._run, job_id)
 
     def upload_aborted(self, job_id: str) -> None:
         """The client stopped sending: drop the partial input; the job stays CREATED."""
@@ -221,19 +233,96 @@ class VsamJobService:
                 self._transition(row["job_id"], JobState.RETRYING)
             if JobState(self._row(row["job_id"])["state"]) is JobState.RETRYING:
                 self._transition(row["job_id"], JobState.QUEUED)
-            self._pool.submit(self._run, row["job_id"])
+            if self._inline:
+                self._pool.submit(self._run, row["job_id"])
             count += 1
         return count
 
+    # -- leases (workers in this or another process) ----------------------
+    def _lease_times(self, seconds: int | None) -> tuple[str, str]:
+        now = utcnow()
+        return now.isoformat(), (now + timedelta(seconds=seconds or self._worker_quotas.lease_seconds)).isoformat()
+
+    def claim_next(self, worker_id: str, lease_seconds: int | None = None) -> str | None:
+        """Lease the oldest runnable job, or return ``None``.
+
+        Runnable: QUEUED or RETRYING with no live lease, or RUNNING whose lease expired (its worker died). The lease is
+        taken with one conditional UPDATE, so of any number of workers racing for a job exactly one wins. A job that
+        has been claimed more than ``1 + max_retries`` times fails with ``RETRIES_EXHAUSTED`` instead of looping.
+        """
+        now, expires = self._lease_times(lease_seconds)
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT job_id, state, attempts FROM vsam_jobs WHERE state IN (?,?,?)"
+                " AND (lease_owner = '' OR lease_expires_at < ?) ORDER BY created_at, job_id LIMIT 20",
+                (JobState.QUEUED.value, JobState.RETRYING.value, JobState.RUNNING.value, now)).fetchall()
+        for row in rows:
+            with self._lock:
+                won = self._db.execute(
+                    "UPDATE vsam_jobs SET lease_owner=?, lease_expires_at=?, attempts=attempts+1, updated_at=?"
+                    " WHERE job_id=? AND state=? AND (lease_owner = '' OR lease_expires_at < ?)",
+                    (worker_id, expires, now, row["job_id"], row["state"], now))
+                self._db.commit()
+            if won.rowcount != 1:
+                continue
+            job_id, state = row["job_id"], JobState(row["state"])
+            if row["attempts"] + 1 > 1 + self._worker_quotas.max_retries:
+                self._fail(job_id, JobState.FAILED, "RETRIES_EXHAUSTED",
+                           f"the job was claimed {row['attempts'] + 1} times without finishing")
+                continue
+            if not self.input_path(job_id).exists():
+                self._fail(job_id, JobState.FAILED, "INPUT_LOST", "uploaded input is missing")
+                continue
+            if state is JobState.RUNNING:  # the previous worker died mid-run
+                self._transition(job_id, JobState.RETRYING)
+                state = JobState.RETRYING
+            if state is JobState.RETRYING:
+                self._transition(job_id, JobState.QUEUED)
+            return job_id
+        return None
+
+    def heartbeat(self, job_id: str, worker_id: str, lease_seconds: int | None = None) -> bool:
+        """Extend the lease. ``False`` means the lease is no longer this worker's (it expired and was taken over)."""
+        _, expires = self._lease_times(lease_seconds)
+        with self._lock:
+            done = self._db.execute(
+                "UPDATE vsam_jobs SET lease_expires_at=? WHERE job_id=? AND lease_owner=?",
+                (expires, job_id, worker_id))
+            self._db.commit()
+        return done.rowcount == 1
+
+    def process(self, job_id: str, worker_id: str, lease_seconds: int | None = None) -> None:
+        """Run a claimed job, extending its lease; stops (keeping its checkpoint) if the lease is lost."""
+        seconds = lease_seconds or self._worker_quotas.lease_seconds
+        lost, finished = threading.Event(), threading.Event()
+
+        def beat() -> None:
+            while not finished.wait(max(seconds / 3, 0.05)):
+                try:
+                    if not self.heartbeat(job_id, worker_id, seconds):
+                        lost.set()
+                        return
+                except Exception:  # noqa: BLE001 - a database hiccup; the next beat retries
+                    _LOG.exception("heartbeat failed for %s", job_id)
+
+        beater = threading.Thread(target=beat, name=f"lease-{job_id[:8]}", daemon=True)
+        beater.start()
+        try:
+            self._run(job_id, cancel_check=lost.is_set)
+        finally:
+            finished.set()
+            beater.join()
+
     # -- worker ----------------------------------------------------------
-    def _run(self, job_id: str) -> None:
+    def _run(self, job_id: str, cancel_check: Callable[[], bool] | None = None) -> None:
         row = self._row(job_id)
         manifest = VsamExportManifest.model_validate_json(row["manifest_json"])
         out = self.job_dir(job_id) / "staging" / row["output_name"]
         try:
             if JobState(row["state"]) is JobState.QUEUED:
                 self._transition(job_id, JobState.RUNNING)
-            result = migrate_export(self.input_path(job_id), manifest, out, quotas=self._quotas)
+            result = migrate_export(self.input_path(job_id), manifest, out, quotas=self._quotas,
+                                    cancel_check=cancel_check)
             self._transition(job_id, JobState.VALIDATING, records=result.records,
                              bytes_processed=result.input_bytes)
             if file_sha256(out) != result.output_sha256:
@@ -247,6 +336,8 @@ class VsamJobService:
             self._transition(job_id, JobState.SUCCEEDED, evidence,
                              output_sha256=result.output_sha256,
                              output_bytes=published.stat().st_size)
+        except MigrationInterrupted:
+            _LOG.warning("vsam job %s lost its lease; the next worker resumes from the checkpoint", job_id)
         except VsamRefusal as refusal:
             self._fail(job_id, JobState.REFUSED, refusal.code, refusal.message)
         except Exception:  # noqa: BLE001 - recorded, never published as success
