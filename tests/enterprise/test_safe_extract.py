@@ -68,6 +68,7 @@ def test_special_files_are_always_refused(tmp_path):
     assert refusal(tmp_path, [fifo], ExtractLimits(symlinks="skip")) == "ARCHIVE_SPECIAL"
 
 
+@pytest.mark.filterwarnings("ignore:Duplicate name")  # zipfile warns about the repeated name we write on purpose
 def test_paths_that_differ_only_by_case_collide(tmp_path):
     assert refusal(tmp_path, [("Readme.md", b"1"), ("README.MD", b"2")]) == "ARCHIVE_DUPLICATE_PATH"
     assert refusal(tmp_path, [("same.txt", b"1"), ("same.txt", b"2")]) == "ARCHIVE_DUPLICATE_PATH"
