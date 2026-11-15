@@ -449,3 +449,6 @@ tests/verification/evidence/
 
 # TypeScript incremental build cache (rewritten by every tsc run)
 *.tsbuildinfo
+
+# Versioned schema migrations are source, not database dumps
+!enterprise/migrations/*.sql
