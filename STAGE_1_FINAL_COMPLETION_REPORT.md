@@ -174,7 +174,15 @@ What this changes in the gap register, honestly:
 - G-28 **RRDS**: a relative-file image is produced and proven against GnuCOBOL relative-file behaviour, using the export framing
   documented in `docs/vsam/VSAM_EXPORT_FORMAT.md` (4-byte big-endian RRN prefix). Equivalence with an IBM VSAM RRDS is **not**
   proven, so the "needs an IBM VSAM reference" blocker stays for any IBM claim.
-- G-28 **Alternate index structures**: still not built. Alternate keys are refused by the added path.
+- G-28 **Alternate keys in the migrated KSDS image** (branch `codex/stage1-alt-key-browsing`): implemented for fixed-length KSDS,
+  up to three DISPLAY leaf keys, each unique or WITH DUPLICATES, with the key at offset zero. The manifest's alternate keys must equal
+  the COBOL SELECT (offset, length, duplicates flag, order); the image carries each record's write sequence, which the generated
+  runtime's alternate index reads; a repeated value of a unique key is refused (`ALTERNATE_KEY_DUPLICATE`) and the check refuses above
+  5,000,000 records (`ALTERNATE_CHECK_TOO_LARGE`) because it is held in memory. Evidence: `tests/enterprise/test_vsam_alternate_keys.py`
+  (13) and `tests/integration/test_vsam_alternate_key_e2e.py` (2: API to generated Java against GnuCOBOL, reads by both alternate
+  keys, START and READ NEXT along both, and a wide record; without the sequence prefix the wide case differs from GnuCOBOL).
+  Still refused: variable-length, ESDS, RRDS, group-item and binary alternate keys, more than three keys. This is the runtime's own
+  alternate index, not an IDCAMS `BLDINDEX` and not an IBM alternate index.
 - G-28 **ESDS RBA**: still not modelled or preserved.
 - Still refused by the added path: key offset above zero, duplicate keys, binary fields, RRDS with variable-length records,
   `OCCURS DEPENDING ON`, `REDEFINES`, several 01 records.
