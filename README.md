@@ -24,8 +24,11 @@ or flagged by name; a failed build or an unavailable reference is never counted 
 
 **What it is not.** A prototype for a controlled pilot, **not production-ready** (shared bearer tokens, SQLite, in-process
 jobs, Docker socket mounted in the API container). No IBM runtime evidence, so no IBM equivalence claim; no universal
-COBOL support. CICS, IMS and MQ exist only as simulators and are blocked in the product; Git ingestion, VSAM and
-decomposed or PostgreSQL-target output are not implemented. Jakarta EE is not certified, and Quarkus and Micronaut are
+COBOL support. CICS, IMS and MQ exist only as simulators and are blocked in the product. Decomposed or
+PostgreSQL-target output is not implemented. VSAM is a certified **subset of dataset migration verified against GnuCOBOL**
+(KSDS, RRDS, ESDS; not IBM VSAM; see `docs/execution/MASTER_EXECUTION_FINAL_REPORT.md`). GitHub ingestion exists as a tested
+library core (`enterprise/ingest/`) but is not wired into the product API or UI yet. The current verified state is in
+[`docs/baseline/`](docs/baseline/README.md). Jakarta EE is not certified, and Quarkus and Micronaut are
 command mode only. Full list: [Validation summary and what is not proven](#validation-summary-and-what-is-not-proven).
 
 **Where to read next.**
