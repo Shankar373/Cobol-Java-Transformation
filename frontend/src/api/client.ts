@@ -911,3 +911,169 @@ export async function downloadVsamMigration(jobId: string): Promise<Blob> {
   }
   return res.blob();
 }
+
+
+// ---------------------------------------------------------------------------
+// COBOL estate discovery (api/discovery_routes.py)
+//   POST /discovery/runs/zip                 (multipart upload, 202)
+//   POST /discovery/runs/git                 (https URL + optional ref, 202)
+//   GET  /discovery/runs                     (recent runs)
+//   GET  /discovery/runs/{id}                (state, steps, gate)
+//   GET  /discovery/runs/{id}/{artefact}     (report | graph | inventory | unresolved | summary)
+//   POST /discovery/runs/{id}/verify         (re-hash the immutable checkpoint)
+// ---------------------------------------------------------------------------
+
+export type DiscoveryRunState = 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted';
+export type DiscoveryGate = 'INCOMPLETE' | 'COMPLETE_WITH_OPEN_ITEMS' | 'COMPLETE';
+export type DiscoveryArtefact = 'report' | 'graph' | 'inventory' | 'unresolved' | 'summary';
+
+export const DISCOVERY_TERMINAL_STATES: readonly DiscoveryRunState[] = ['succeeded', 'failed', 'interrupted'];
+
+export function isDiscoveryTerminal(state: string): boolean {
+  return (DISCOVERY_TERMINAL_STATES as readonly string[]).includes(state);
+}
+
+export interface DiscoveryStep {
+  id: string;
+  status: string;
+  message: string;
+}
+
+export interface DiscoveryRun {
+  run_id: string;
+  kind: 'zip' | 'git';
+  label: string;
+  state: DiscoveryRunState;
+  created_at: string;
+  steps: DiscoveryStep[];
+  checkpoint_id: string;
+  gate_status: DiscoveryGate | '';
+  ready_for_transformation: boolean;
+  summary: {
+    files?: number;
+    directories?: number;
+    bytes?: number;
+    files_by_class?: Record<string, number>;
+    graph?: number;
+    reused_checkpoint?: boolean;
+  };
+  error_code: string;
+  error_message: string;
+}
+
+export interface DiscoveryCheck {
+  id: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface DiscoveryOpenItem {
+  id: string;
+  count: number;
+  detail: string;
+}
+
+export interface DiscoveryReport {
+  schema_version: string;
+  completeness: {
+    status: DiscoveryGate;
+    ready_for_transformation: boolean;
+    checks: DiscoveryCheck[];
+    open_items: DiscoveryOpenItem[];
+    blockers: string[];
+  };
+  summary: { files: number; directories: number; bytes: number; files_by_class: Record<string, number> };
+  programs: {
+    name: string;
+    file: string;
+    line: number;
+    source_format: string;
+    calls: string[];
+    copybooks: string[];
+    db2_tables: string[];
+  }[];
+  dependency_graph: {
+    nodes: number;
+    edges: number;
+    blocking_unresolved: number;
+    resolutions: Record<string, number>;
+    unresolved_by_reason: Record<string, number>;
+  };
+  dialects: { basis: string; summary: { dialect: string; evidence_count: number }[] };
+  runtime_dependencies: { category: string; name: string; evidence_count: number }[];
+  limitations: string[];
+}
+
+export interface DiscoveryUnresolved {
+  clause: string;
+  file: string;
+  line: number;
+  from: string;
+  to: string;
+  reason: string;
+  blocking: boolean;
+  relation: string;
+}
+
+export interface DiscoveryVerification {
+  checkpoint_id: string;
+  ok: boolean;
+  digest_ok: boolean;
+  modified: string[];
+  missing: string[];
+  extra: string[];
+  errors: string[];
+}
+
+export async function submitDiscoveryZip(file: File, label?: string): Promise<DiscoveryRun> {
+  const form = new FormData();
+  form.append('file', file);
+  if (label) form.append('label', label);
+  return request<DiscoveryRun>('/discovery/runs/zip', { method: 'POST', body: form });
+}
+
+export async function submitDiscoveryGit(url: string, ref?: string, label?: string): Promise<DiscoveryRun> {
+  return request<DiscoveryRun>('/discovery/runs/git', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, ...(ref ? { ref } : {}), ...(label ? { label } : {}) }),
+  });
+}
+
+export async function listDiscoveryRuns(): Promise<DiscoveryRun[]> {
+  return (await request<{ runs: DiscoveryRun[] }>('/discovery/runs')).runs;
+}
+
+export async function getDiscoveryRun(runId: string): Promise<DiscoveryRun> {
+  return request<DiscoveryRun>(`/discovery/runs/${runId}`);
+}
+
+export async function getDiscoveryReport(runId: string): Promise<DiscoveryReport> {
+  return request<DiscoveryReport>(`/discovery/runs/${runId}/report`);
+}
+
+export async function getDiscoveryUnresolved(
+  runId: string,
+): Promise<{ unresolved: DiscoveryUnresolved[]; ambiguous: DiscoveryUnresolved[] }> {
+  return request(`/discovery/runs/${runId}/unresolved`);
+}
+
+export async function verifyDiscoveryRun(runId: string): Promise<DiscoveryVerification> {
+  return request<DiscoveryVerification>(`/discovery/runs/${runId}/verify`, { method: 'POST' });
+}
+
+/** Fetch an artefact as a Blob (the bearer token cannot ride on a plain link). */
+export async function downloadDiscoveryArtefact(runId: string, artefact: DiscoveryArtefact): Promise<Blob> {
+  const res = await fetch(`${BASE}/discovery/runs/${runId}/${artefact}`, withAuth());
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const parsed = await res.json();
+      msg = parsed.detail !== undefined ? detailToMessage(parsed.detail) : JSON.stringify(parsed);
+    } catch {
+      // ignore
+    }
+    throw new ApiError(res.status, msg);
+  }
+  return res.blob();
+}

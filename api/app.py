@@ -72,6 +72,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.artifact_seal import read_verified_bundle
 from api.errors import ApiError, PayloadTooLargeError, ServiceError
+from api.discovery_routes import router as _discovery_router
 from api.vsam_routes import UPLOAD_PATH as _VSAM_UPLOAD_PATH
 from api.vsam_routes import configure as _configure_vsam
 from api.vsam_routes import router as _vsam_router
@@ -337,6 +338,7 @@ async def _send_json_error_response(send, status: int, payload: bytes) -> None: 
 # `add_middleware` wraps it, keeping auth / security headers / CORS outside.
 app.add_middleware(BodyLimitMiddleware)
 app.include_router(_vsam_router)
+app.include_router(_discovery_router)
 # Late-bound: tests and deployments may replace ``_service`` after import.
 _configure_vsam(application_lookup=lambda app_id: _svc().get_application(app_id))
 
