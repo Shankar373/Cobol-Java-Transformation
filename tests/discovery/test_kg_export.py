@@ -244,9 +244,16 @@ def test_duplicate_node_ids_fail_closed_in_graphml():
 
 
 def _colliding_edges() -> list[dict]:
-    base = {"from": "a", "to": "b", "relation": "copies", "resolution": "resolved", "rule": "copy-name", "line": 7}
-    return [dict(base, file="x.cbl", column=9), dict(base, file="x.cbl", column=30),
-            dict(base, file="y.cbl", column=9)]
+    """Three distinct edges sharing one ``edge_key`` — the two ways that can still happen now the key covers
+    file, line, column, clause and detail: ``|`` inside a node id shifts the field boundaries (``"a|b" -> "c"``
+    versus ``"a" -> "b|c"``), and an imported document can carry two edges differing only in a field the key
+    does not cover (mode).  The scanner-built graph itself produces neither — ``add_edge`` keys on the full
+    ``Edge.key`` — so only an imported document reaches this path, which the exporters must survive."""
+    base = {"relation": "copies", "resolution": "resolved", "rule": "copy-name", "line": 7,
+            "file": "x.cbl", "column": 9}
+    return [dict(base, **{"from": "a", "to": "b|c"}, mode=""),
+            dict(base, **{"from": "a|b", "to": "c"}, mode=""),
+            dict(base, **{"from": "a", "to": "b|c"}, mode="copy")]
 
 
 def test_edge_key_collisions_are_disambiguated_deterministically_never_dropped():

@@ -82,7 +82,10 @@ def edge_endpoints(edge: dict[str, Any]) -> tuple[str, str]:
 
 
 def edge_key(edge: dict[str, Any]) -> str:
-    """Stable identity of a document edge: ``from|to|relation|rule|line[|detail digest]`` — the dict form of ``Edge.id``.
+    """Stable identity of a document edge: ``from|to|relation|rule|file|line|column[|digest]`` — the dict form of
+    ``Edge.id``, injective over the fields that make two document edges distinct facts (a variant file, another
+    column on the same line, a different clause or detail).  ``reason`` stays out so a resolution change reads as
+    the same edge with different content — :func:`diff` reports it as ``changed``, not as a remove-plus-add.
 
     The rule is derived as ``definition-<relation>`` when absent, mirroring :meth:`Edge.from_dict`, so a 1.0 edge
     and its 2.0 upgrade share one key.
@@ -90,7 +93,9 @@ def edge_key(edge: dict[str, Any]) -> str:
     relation = str(edge["relation"])
     src, dst = edge_endpoints(edge)
     rule = str(edge.get("rule") or f"definition-{relation}")
-    return edge_identity(src, dst, relation, rule, int(edge.get("line", 1)), dict(edge.get("detail") or {}))
+    return edge_identity(src, dst, relation, rule, int(edge.get("line", 1)), dict(edge.get("detail") or {}),
+                         file=str(edge.get("file", "")), column=int(edge.get("column", 1)),
+                         clause=str(edge.get("clause", "")))
 
 
 def edge_blocking(edge: dict[str, Any]) -> int:

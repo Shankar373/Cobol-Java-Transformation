@@ -16,5 +16,17 @@
 tests/data/indexed_bdb/*.DAT binary
 tests/data/relative/*.DAT binary
 
+# Fixture sources are asserted line-for-line (multi-line .replace(...\n...)
+# in tests/discovery/test_kg_acceptance.py and friends).  A Windows checkout
+# with autocrlf would rewrite them to CRLF and silently break those
+# replacements, so they are LF everywhere like the shell scripts above.
+tests/fixtures/** text eol=lf
+fixtures/** text eol=lf
+# ... except the compiled GnuCOBOL executables committed as evidence, whose
+# ELF bytes contain CRLF pairs that line conversion would corrupt.
+fixtures/workload-comp/cobol/p binary
+fixtures/workload-comp3/cobol/p binary
+tests/fixtures/call_byref/prog binary
+
 # sourced by bash (start-production.sh): a CRLF checkout broke `source` (staging run, 2026-11-11)
 .env*.example text eol=lf

@@ -4,6 +4,7 @@ and row-level queries that answer without ever reading the canonical ``document`
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
@@ -121,6 +122,63 @@ def test_an_unresolved_section_that_disagrees_with_the_edges_is_refused(store):
     with pytest.raises(ValueError, match="unresolved"):
         store.save(tampered)
     assert store.list_snapshots() == []
+
+
+def test_edges_that_differ_only_by_file_or_column_are_separate_rows(store):
+    """An edge is a fact at a source position: three variant files declaring one program and two references to
+    one name on a line are two pairs of distinct edges, so each needs its own ``kg_edge`` row.
+
+    Regression: these pairs used to share one ``edge_key`` and ``save`` refused the document, which failed the
+    readiness snapshot for the whole workspace (corpus certification: ``workload-claims``,
+    ``workload-numeric-edited``).
+    """
+    graph = DependencyGraph(checkpoint_id="cp-variants", source_digest="digest-variants")
+    for node_id, kind in (("program:CLAIMS", "program"), ("data-item:CLAIMS/WS-PAY-ENTRY", "data-item")):
+        graph.add_node(Node(node_id, kind))
+    variant_a = _edge("program:CLAIMS", "data-item:CLAIMS/WS-PAY-ENTRY", "contains",
+                      line=61, column=15, file="cobol/CLAIMS.cob")
+    variant_b = _edge("program:CLAIMS", "data-item:CLAIMS/WS-PAY-ENTRY", "contains",
+                      line=61, column=15, file="cobol/CLAIMS_SYSERR.cob")
+    first_ref = _edge("program:CLAIMS", "data-item:CLAIMS/WS-PAY-ENTRY", "moves-to",
+                      line=40, column=24, file="cobol/EDITED.cob")
+    second_ref = _edge("program:CLAIMS", "data-item:CLAIMS/WS-PAY-ENTRY", "moves-to",
+                       line=40, column=53, file="cobol/EDITED.cob")
+    for edge in (variant_a, variant_b, first_ref, second_ref):
+        assert graph.add_edge(edge), edge
+    assert len({variant_a.id, variant_b.id, first_ref.id, second_ref.id}) == 4
+
+    graph_id = store.save(graph)
+    stored = store.edges(graph_id)
+    assert len(stored) == 4
+    assert len({row["edge_id"] for row in stored}) == 4
+    assert store.counts(graph_id)["edges"] == 4
+
+
+def test_the_variant_and_period_less_workspaces_store_their_graphs(tmp_path):
+    """The exact corpus-certification regression, end to end: scan the real workspaces whose graphs used to
+    collide, then persist them the way ``DiscoveryRunService._store_snapshot`` does during readiness."""
+    import sqlite3
+
+    from enterprise.discovery.classify import classify
+    from enterprise.discovery.discover import scan_file
+    from enterprise.discovery.inventory import FileRecord
+    from enterprise.discovery.resolve import build_graph
+
+    root = Path(__file__).resolve().parents[2]
+    for fixture, expect in (("fixtures/workload-claims", 164), ("fixtures/workload-numeric-edited", 60)):
+        records = []
+        for path in sorted((root / fixture).rglob("*")):
+            if path.is_file() and path.suffix.lower() in (".cob", ".cbl", ".cpy"):
+                text = path.read_text(encoding="utf-8")
+                relative = path.relative_to(root).as_posix()
+                cls = classify(relative, text).cls
+                records.append(FileRecord(relative, "0" * 64, len(text), cls, scan=scan_file(relative, cls, text)))
+        document = build_graph(records).graph.to_dict()
+        stamp_graph_id(document)
+        with KGStore(tmp_path / f"{Path(fixture).name}.sqlite3") as store:
+            graph_id = store.save(document, application=fixture)
+            assert store.counts(graph_id)["edges"] == expect
+            assert len({row["edge_id"] for row in store.edges(graph_id)}) == expect
 
 
 def test_criterion_10_row_counts_equal_the_json_and_no_unresolved_edge_is_lost(store):

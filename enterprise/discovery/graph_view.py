@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from engine.estate.model import (
     BLOCKED, PARTIAL, PROOF_STATES, PROVEN, SIMULATORS, UNPROVEN, UTILITIES, Edge, Estate, Node,
@@ -157,7 +157,7 @@ def _copybook(view: _View, edge: Mapping[str, Any], owners: Mapping[str, str]) -
         view.edge(source, target, "INCLUDES", BLOCKED, "copybook is not in the upload")
 
 
-def _job_steps(view: _View, edges: list[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+def _job_steps(view: _View, edges: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     """RUNS edges for every job step; returns ``label -> contains-edge`` so EXECUTES can find unexpanded procedures."""
     steps: dict[str, dict[str, Any]] = {}
     for edge in edges:
@@ -171,7 +171,7 @@ def _job_steps(view: _View, edges: list[Mapping[str, Any]]) -> dict[str, dict[st
     return steps
 
 
-def _executes(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: list[Mapping[str, Any]],
+def _executes(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: Sequence[Mapping[str, Any]],
               steps: Mapping[str, Mapping[str, Any]]) -> None:
     executed: set[str] = set()
     for edge in edges:
@@ -194,7 +194,7 @@ def _executes(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: 
                       UNPROVEN, "step runs a procedure that was not expanded")
 
 
-def _executes_proc(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: list[Mapping[str, Any]],
+def _executes_proc(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: Sequence[Mapping[str, Any]],
                    step_id: str, edge: Mapping[str, Any]) -> None:
     """A step that runs a procedure: follow the procedure's own ``executes`` edges when the graph expanded it."""
     proc = str(edge["to"])
@@ -211,7 +211,7 @@ def _executes_proc(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], ed
         view.edge(step_id, target, "EXECUTES", state, f"via procedure {name}: {evidence}")
 
 
-def _datasets(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: list[Mapping[str, Any]]) -> None:
+def _datasets(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: Sequence[Mapping[str, Any]]) -> None:
     uses: dict[str, list[tuple[int, str, str]]] = {}  # dsn id -> [(line, step id, disposition)]
     for edge in edges:
         relation, src, dst = edge["relation"], edge["from"], edge["to"]
@@ -261,7 +261,7 @@ def _binding(view: _View, edge: Mapping[str, Any]) -> None:
                   "the DD target is a run-time value")
 
 
-def _subsystems(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: list[Mapping[str, Any]],
+def _subsystems(view: _View, graph_nodes: Mapping[str, Mapping[str, Any]], edges: Sequence[Mapping[str, Any]],
                 states: Mapping[SubsystemKey, tuple[str, str]]) -> None:
     for edge in edges:
         relation, src, dst = edge["relation"], edge["from"], edge["to"]

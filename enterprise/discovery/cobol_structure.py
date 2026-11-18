@@ -148,7 +148,7 @@ def _program_name(tokens: list[Token], index: int) -> str:
                     and tokens[cursor + 1].upper not in _DIVISION_WORDS:
                 return tokens[cursor + 1].upper
             continue
-        if token.kind in ("word", "literal") and token.upper not in ("IS", "ARE") | _DIVISION_WORDS:
+        if token.kind in ("word", "literal") and token.upper not in {"IS", "ARE"} | _DIVISION_WORDS:
             return token.upper
     return ""
 

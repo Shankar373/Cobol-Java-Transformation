@@ -199,20 +199,22 @@ class KGStore:
             " created_at, node_count, edge_count, unresolved_count, blocking_count"
             " FROM kg_snapshot ORDER BY created_at DESC, graph_id DESC").fetchall()
 
+    def _count(self, sql: str, graph_id: str) -> int:
+        """``COUNT(*) AS n`` for ``graph_id``; a count query always returns a row, so None means broken SQL."""
+        row = self._db.execute(sql, (graph_id,)).fetchone()
+        if row is None:
+            raise RuntimeError(f"count query returned no row: {sql}")
+        return int(row["n"])
+
     def counts(self, graph_id: str) -> dict[str, int]:
         """Row counts for one snapshot: ``nodes``, ``edges``, ``unresolved``, ``blocking``; ``KeyError`` when absent."""
         if self._db.execute("SELECT 1 AS present FROM kg_snapshot WHERE graph_id = ?", (graph_id,)).fetchone() is None:
             raise KeyError(f"no snapshot for graph_id {graph_id!r}")
         return {
-            "nodes": self._db.execute(
-                "SELECT COUNT(*) AS n FROM kg_node WHERE graph_id = ?", (graph_id,)).fetchone()["n"],
-            "edges": self._db.execute(
-                "SELECT COUNT(*) AS n FROM kg_edge WHERE graph_id = ?", (graph_id,)).fetchone()["n"],
-            "unresolved": self._db.execute(
-                "SELECT COUNT(*) AS n FROM kg_unresolved WHERE graph_id = ?", (graph_id,)).fetchone()["n"],
-            "blocking": self._db.execute(
-                "SELECT COUNT(*) AS n FROM kg_edge WHERE graph_id = ? AND blocking = 1",
-                (graph_id,)).fetchone()["n"],
+            "nodes": self._count("SELECT COUNT(*) AS n FROM kg_node WHERE graph_id = ?", graph_id),
+            "edges": self._count("SELECT COUNT(*) AS n FROM kg_edge WHERE graph_id = ?", graph_id),
+            "unresolved": self._count("SELECT COUNT(*) AS n FROM kg_unresolved WHERE graph_id = ?", graph_id),
+            "blocking": self._count("SELECT COUNT(*) AS n FROM kg_edge WHERE graph_id = ? AND blocking = 1", graph_id),
         }
 
     def rows_equal(self, graph_id: str) -> dict[str, int]:
@@ -221,14 +223,11 @@ class KGStore:
         Used to prove criterion 10: for a stored snapshot these equal the JSON's own counts.  An unknown id yields
         zeros rather than an exception — it is a diagnostic, not a lookup.
         """
-        def count(sql: str) -> int:
-            return self._db.execute(sql, (graph_id,)).fetchone()["n"]
-
         return {
-            "kg_snapshot": count("SELECT COUNT(*) AS n FROM kg_snapshot WHERE graph_id = ?"),
-            "kg_node": count("SELECT COUNT(*) AS n FROM kg_node WHERE graph_id = ?"),
-            "kg_edge": count("SELECT COUNT(*) AS n FROM kg_edge WHERE graph_id = ?"),
-            "kg_unresolved": count("SELECT COUNT(*) AS n FROM kg_unresolved WHERE graph_id = ?"),
+            "kg_snapshot": self._count("SELECT COUNT(*) AS n FROM kg_snapshot WHERE graph_id = ?", graph_id),
+            "kg_node": self._count("SELECT COUNT(*) AS n FROM kg_node WHERE graph_id = ?", graph_id),
+            "kg_edge": self._count("SELECT COUNT(*) AS n FROM kg_edge WHERE graph_id = ?", graph_id),
+            "kg_unresolved": self._count("SELECT COUNT(*) AS n FROM kg_unresolved WHERE graph_id = ?", graph_id),
         }
 
     # -- read: row-level queries (never touch the document column) --------------------------------------------

@@ -87,11 +87,13 @@ def _edge_sort_key(edge: dict[str, Any]) -> tuple[str, str]:
 def export_edges(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     """``(export_id, edge)`` pairs in deterministic order.
 
-    ``edge_key`` is ``from|to|relation|rule|line``; it ignores the column, file and detail, so two distinct edges can
-    share it (two ``COPY`` of one book on one line, ``|`` inside a node id).  Chosen policy: **disambiguate, never
-    drop and never fail** - a colliding edge keeps its ``edge_key`` plus ``#<n>``, where ``n`` is its position (from 1)
-    among the colliding edges sorted by canonical content.  A key held by one edge is unchanged, so the common case
-    is identical to :func:`edge_key`; the numbering depends only on the content, not on the input order.
+    ``edge_key`` is ``from|to|relation|rule|file|line|column[|digest]`` — it already separates a variant file from
+    its sibling and one column from another, but two edges can still share it (``|`` inside a node id, or an
+    imported document carrying two edges that differ only in a field the key does not cover).  Chosen policy:
+    **disambiguate, never drop and never fail** - a colliding edge keeps its ``edge_key`` plus ``#<n>``, where
+    ``n`` is its position (from 1) among the colliding edges sorted by canonical content.  A key held by one edge
+    is unchanged, so the common case is identical to :func:`edge_key`; the numbering depends only on the content,
+    not on the input order.
     """
     ordered = sorted(document["edges"], key=_edge_sort_key)
     totals: dict[str, int] = {}
@@ -203,7 +205,8 @@ def _graphml(document: dict[str, Any]) -> str:
     for name, attr_type in _EDGE_KEYS:
         ET.SubElement(root, tag("key"),
                       {"id": f"e_{name}", "for": "edge", "attr.name": name, "attr.type": attr_type})
-    header = document.get("header") if isinstance(document.get("header"), dict) else {}
+    raw_header = document.get("header")
+    header = raw_header if isinstance(raw_header, dict) else {}
     graph = ET.SubElement(root, tag("graph"),
                           {"id": graphml_id("g", str(header.get("graph_id") or "G")), "edgedefault": "directed"})
     for safe, node in _graphml_nodes(document):
@@ -218,7 +221,7 @@ def _graphml(document: dict[str, Any]) -> str:
                                                      "target": graphml_id("n", str(dst))})
         for name, _ in _EDGE_KEYS:
             if name == "edge_id":
-                value: Any = export_id
+                value = export_id
             else:
                 value = edge_blocking(edge) if name == "blocking" else edge.get(name, "")
             ET.SubElement(element, tag("data"), {"key": f"e_{name}"}).text = _xml_text(value)

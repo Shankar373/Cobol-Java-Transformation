@@ -341,6 +341,7 @@ kubeconfig
 *.sql
 # Managed workload fixtures must be tracked despite the *.sql ignore above.
 !fixtures/**/*.sql
+!tests/fixtures/**/*.sql
 
 # Logs
 *.log

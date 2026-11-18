@@ -150,18 +150,32 @@ def confidence_for(resolution: str) -> str:
     return "certain"
 
 
-def edge_identity(src: str, dst: str, relation: str, rule: str, line: int, detail: Any = ()) -> str:
-    """Stable edge identity ``from|to|relation|rule|line[|<detail digest>]``.
+def edge_identity(src: str, dst: str, relation: str, rule: str, line: int, detail: Any = (), *,
+                  file: str = "", column: int = 1, clause: str = "") -> str:
+    """Stable edge identity ``from|to|relation|rule|file|line|column[|<digest>]``.
 
-    Two edges that differ only in their ``detail`` (a program run from two JCL steps binds the same DD to two
-    different datasets) are distinct facts, so the detail is part of the identity; an edge without detail keeps the
-    plain five-part form.  ``detail`` is a mapping or an iterable of ``(key, value)`` pairs.
+    An edge is a fact *at a source position*, and :meth:`Edge.key` says which facts are distinct: two edges that
+    differ in their ``file`` (three variant files declaring one program) or ``column`` (two references to one name
+    on a single line) are distinct facts, and ``kg_edge`` stores them as separate rows under this id — so both are
+    part of the identity, and an id can never collapse two rows of the table.  ``clause`` and ``detail`` complete
+    the identity when present and are folded into a digest so the common case stays readable.  ``detail`` is a
+    mapping or an iterable of ``(key, value)`` pairs.
+
+    ``reason``/``resolution``/``confidence`` are deliberately *not* part of it: the same edge resolving one day and
+    going unresolved the next is one edge whose content changed, which is what :func:`kg_query.diff` must report
+    as ``changed`` rather than as a remove-plus-add.  Two edges that differ only in those fields would therefore
+    share an id; the store refuses such a document instead of dropping a row, and the exporters disambiguate.
+
+    Node ids containing ``|`` can still make two identities concatenate to the same text (``"a|b" -> "c"`` versus
+    ``"a" -> "b|c"``); that collision is refused by the store and disambiguated by the exporters, never dropped.
     """
     pairs = sorted((str(k), str(v)) for k, v in (detail.items() if isinstance(detail, dict) else detail))
-    base = f"{src}|{dst}|{relation}|{rule}|{line}"
-    if not pairs:
+    base = f"{src}|{dst}|{relation}|{rule}|{file}|{line}|{column}"
+    if not pairs and not clause:
         return base
-    return f"{base}|{hashlib.sha256(json.dumps(pairs, separators=(',', ':')).encode('utf-8')).hexdigest()[:12]}"
+    folded = {"clause": clause, "detail": pairs}
+    digest = hashlib.sha256(json.dumps(folded, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:12]
+    return f"{base}|{digest}"
 
 
 def _json_default(value: Any) -> Any:
@@ -290,8 +304,11 @@ class Edge:
 
     @property
     def id(self) -> str:
-        """Stable identity used by the query API: ``from|to|relation|rule|line`` plus a digest of ``detail``."""
-        return edge_identity(self.src, self.dst, self.relation, self.rule, self.line, self.detail)
+        """Stable identity used by the query API: ``from|to|relation|rule|file|line|column`` plus a digest of
+        ``clause`` and ``detail`` — injective over :meth:`key` apart from ``reason``, whose change must read as
+        the same edge resolving differently (see :func:`edge_identity`)."""
+        return edge_identity(self.src, self.dst, self.relation, self.rule, self.line, self.detail,
+                             file=self.file, column=self.column, clause=self.clause)
 
     def as_dict(self) -> dict[str, object]:
         out: dict[str, object] = {
