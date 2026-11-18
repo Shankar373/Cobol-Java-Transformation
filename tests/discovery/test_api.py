@@ -74,7 +74,8 @@ def test_zip_run_succeeds_and_exposes_every_artefact(client: TestClient, service
     assert report["schema_version"] == "systemaops.discovery-report/1.0" and report["completeness"]["status"] == "INCOMPLETE"
     assert client.get(f"{base}/graph").json()["stats"]["blocking_unresolved"] == 3
     assert len(client.get(f"{base}/inventory").json()["files"]) == 14
-    assert len(client.get(f"{base}/unresolved").json()["unresolved"]) == 5
+    # 5 structural misses + the ``:N`` host variable PAYROLL binds but never declares (non-blocking, Layer 3).
+    assert len(client.get(f"{base}/unresolved").json()["unresolved"]) == 6
     assert client.get(f"{base}/summary").text.startswith("# Discovery summary")
     assert report["provenance"]["origin"] == "payroll estate" and str(service.root) not in json.dumps(report)
 

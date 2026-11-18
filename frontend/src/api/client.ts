@@ -1100,3 +1100,291 @@ export async function getDiscoverySource(
 export async function getApplicationReadiness(appId: string): Promise<DiscoveryReadiness & { discovery_run_id: string }> {
   return request(`/applications/${appId}/readiness`);
 }
+
+// ---------------------------------------------------------------------------
+// Knowledge graph (Layer 3) — api/discovery_routes.py `/kg` routes
+//
+//   GET /discovery/runs/{id}/kg            snapshot identity + counts (metadata only)
+//   GET /discovery/runs/{id}/kg/nodes      paged node rows (?kind=&limit=&offset=)
+//   GET /discovery/runs/{id}/kg/node       one node with its outgoing/incoming edges (?id=)
+//   GET /discovery/runs/{id}/kg/neighbors  one-hop neighbour ids (?node=&direction=&relation=&limit=)
+//   GET /discovery/runs/{id}/kg/impact     transitive impact set (?node=&direction=&depth=)
+//   GET /discovery/runs/{id}/kg/path       shortest path between two nodes (?src=&dst=&direction=)
+//   GET /discovery/runs/{id}/kg/slice      subgraph document around a node (?node=&depth=)
+//   GET /discovery/runs/{id}/kg/diff       added/removed/changed vs another snapshot (?against=)
+//   GET /discovery/runs/{id}/kg/export     the full document as json|dot|graphml|csv
+//
+// All of them are read-only GETs behind the `viewer` role, so the bearer
+// token rides along through `withAuth` exactly like every other GET here.
+// ---------------------------------------------------------------------------
+
+/** Export formats the backend accepts; anything else is a 400, never a guess. */
+export const KG_EXPORT_FORMATS = ['json', 'dot', 'graphml', 'csv'] as const;
+export type KgExportFormat = (typeof KG_EXPORT_FORMATS)[number];
+
+/** The filename the backend puts in `Content-Disposition` for each format. */
+export const KG_EXPORT_FILES: Record<KgExportFormat, string> = {
+  json: 'knowledge-graph.json',
+  dot: 'knowledge-graph.dot',
+  graphml: 'knowledge-graph.graphml',
+  csv: 'knowledge-graph.csv',
+};
+
+export interface KgSnapshotCounts {
+  nodes: number;
+  edges: number;
+  unresolved: number;
+  blocking: number;
+}
+
+/** `GET /discovery/runs/{id}/kg` — snapshot identity and row counts. */
+export interface KgSnapshot {
+  graph_id: string;
+  schema_version: string;
+  checkpoint_id: string;
+  source_digest: string;
+  parent_graph_id: string;
+  application: string;
+  created_at: string;
+  node_count: number;
+  edge_count: number;
+  unresolved_count: number;
+  blocking_count: number;
+  counts: KgSnapshotCounts;
+}
+
+/** One node row (`kg/nodes` pages and `kg/node`). */
+export interface KgNode {
+  id: string;
+  kind: string;
+  origin: string;
+  path?: string | null;
+  sha256?: string | null;
+  detail?: Record<string, unknown> | null;
+}
+
+export interface KgNodesPage {
+  graph_id: string;
+  count: number;
+  nodes: KgNode[];
+}
+
+/**
+ * One edge.
+ *
+ * Two spellings exist and both must be tolerated: row-shaped edges
+ * (`kg/node`) use `src`/`dst`, document-shaped edges (export/slice) use
+ * `from`/`to`.  `resolution`/`confidence`/`mode` are free-form strings on
+ * the server — the UI must display unknown values verbatim, never drop them.
+ */
+export interface KgEdge {
+  from?: string;
+  to?: string;
+  src?: string;
+  dst?: string;
+  edge_id?: string;
+  relation: string;
+  clause?: string;
+  resolution?: string;
+  reason?: string;
+  blocking?: boolean | number;
+  rule?: string;
+  confidence?: string;
+  mode?: string;
+  scope?: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  detail?: unknown;
+  dynamic?: boolean;
+  variable?: string;
+  candidates?: string[];
+}
+
+/** `GET /discovery/runs/{id}/kg/node` — 404 when the id is not in this snapshot. */
+export interface KgNodeDetail {
+  graph_id: string;
+  node: KgNode;
+  outgoing: KgEdge[];
+  incoming: KgEdge[];
+}
+
+export interface KgNeighborsResponse {
+  graph_id: string;
+  node: string;
+  direction: string;
+  count: number;
+  neighbors: string[];
+}
+
+export interface KgImpactResponse {
+  graph_id: string;
+  node: string;
+  direction: string;
+  depth: number | null;
+  count: number;
+  impact: string[];
+}
+
+export interface KgPathResponse {
+  graph_id: string;
+  src: string;
+  dst: string;
+  direction: string;
+  found: boolean;
+  path: string[];
+}
+
+export type KgDiffBucket = 'added' | 'removed' | 'changed';
+
+/** Nodes are keyed by id, edges by their stable `edge_key` string. */
+export interface KgDiffSide {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+export interface KgDiffResponse {
+  graph_id: string;
+  against: string;
+  nodes: KgDiffSide;
+  edges: KgDiffSide;
+}
+
+/** The full graph document (what `kg/export?format=json` downloads). */
+export interface KgDocument {
+  schema_version: string;
+  compatible_schema_version?: string;
+  header: { graph_id: string; [key: string]: unknown };
+  nodes: KgNode[];
+  edges: KgEdge[];
+  unresolved?: KgEdge[];
+}
+
+/** The subgraph document returned by `kg/slice`. */
+export interface KgSliceDocument {
+  schema_version: string;
+  compatible_schema_version?: string;
+  header: { graph_id: string; parent_graph_id?: string; [key: string]: unknown };
+  nodes: KgNode[];
+  edges: KgEdge[];
+  unresolved: KgEdge[];
+}
+
+/** Endpoints of an edge in either spelling; missing sides come back as ''. */
+export function kgEdgeEndpoints(edge: KgEdge): { src: string; dst: string } {
+  const src = edge.from ?? edge.src ?? '';
+  const dst = edge.to ?? edge.dst ?? '';
+  return { src, dst };
+}
+
+/** GET /discovery/runs/{id}/kg — snapshot header and counts. */
+export async function getKgSnapshot(runId: string): Promise<KgSnapshot> {
+  return request<KgSnapshot>(`/discovery/runs/${runId}/kg`);
+}
+
+export interface KgNodesQuery {
+  kind?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** GET /discovery/runs/{id}/kg/nodes — node rows, sorted by id, filtered and paged in SQL. */
+export async function getKgNodes(runId: string, query: KgNodesQuery = {}): Promise<KgNodesPage> {
+  const params = new URLSearchParams();
+  if (query.kind) params.set('kind', query.kind);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.offset !== undefined && query.offset !== 0) params.set('offset', String(query.offset));
+  const qs = params.toString();
+  return request<KgNodesPage>(`/discovery/runs/${runId}/kg/nodes${qs ? `?${qs}` : ''}`);
+}
+
+/** GET /discovery/runs/{id}/kg/node — one node plus its outgoing and incoming edges. */
+export async function getKgNode(runId: string, id: string): Promise<KgNodeDetail> {
+  const params = new URLSearchParams({ id });
+  return request<KgNodeDetail>(`/discovery/runs/${runId}/kg/node?${params.toString()}`);
+}
+
+/** GET /discovery/runs/{id}/kg/neighbors — adjacent node ids, one hop. */
+export async function getKgNeighbors(
+  runId: string,
+  node: string,
+  direction: 'out' | 'in' | 'both' = 'both',
+  relation?: string,
+  limit?: number,
+): Promise<KgNeighborsResponse> {
+  const params = new URLSearchParams({ node, direction });
+  if (relation) params.set('relation', relation);
+  if (limit !== undefined) params.set('limit', String(limit));
+  return request<KgNeighborsResponse>(`/discovery/runs/${runId}/kg/neighbors?${params.toString()}`);
+}
+
+/** GET /discovery/runs/{id}/kg/impact — the transitive impact set of a node. */
+export async function getKgImpact(
+  runId: string,
+  node: string,
+  direction: 'out' | 'in' | 'both' = 'in',
+  depth?: number,
+): Promise<KgImpactResponse> {
+  const params = new URLSearchParams({ node, direction });
+  if (depth !== undefined) params.set('depth', String(depth));
+  return request<KgImpactResponse>(`/discovery/runs/${runId}/kg/impact?${params.toString()}`);
+}
+
+/** GET /discovery/runs/{id}/kg/path — a shortest path, or `found: false` when none exists. */
+export async function getKgPath(
+  runId: string,
+  src: string,
+  dst: string,
+  direction: 'out' | 'in' | 'both' = 'both',
+): Promise<KgPathResponse> {
+  const params = new URLSearchParams({ src, dst, direction });
+  return request<KgPathResponse>(`/discovery/runs/${runId}/kg/path?${params.toString()}`);
+}
+
+/** GET /discovery/runs/{id}/kg/slice — the subgraph document centred on a node. */
+export async function getKgSlice(runId: string, node: string, depth?: number): Promise<KgSliceDocument> {
+  const params = new URLSearchParams({ node });
+  if (depth !== undefined) params.set('depth', String(depth));
+  return request<KgSliceDocument>(`/discovery/runs/${runId}/kg/slice?${params.toString()}`);
+}
+
+/**
+ * GET /discovery/runs/{id}/kg/diff — added/removed/changed vs `against`.
+ *
+ * Without `against` the server picks the previous snapshot and answers 400
+ * ("there is no earlier snapshot to compare against") when there is none —
+ * the UI renders that as an informative empty state, not a crash.
+ */
+export async function getKgDiff(runId: string, against?: string): Promise<KgDiffResponse> {
+  const trimmed = against?.trim();
+  const qs = trimmed ? `?${new URLSearchParams({ against: trimmed }).toString()}` : '';
+  return request<KgDiffResponse>(`/discovery/runs/${runId}/kg/diff${qs}`);
+}
+
+/** GET /discovery/runs/{id}/kg/export?format=json — the full document, parsed. */
+export async function getKgDocument(runId: string): Promise<KgDocument> {
+  const params = new URLSearchParams({ format: 'json' });
+  return request<KgDocument>(`/discovery/runs/${runId}/kg/export?${params.toString()}`);
+}
+
+/**
+ * Fetch one export as a Blob — the bearer token cannot ride on a plain link,
+ * so every export button downloads through here, like the discovery artefacts.
+ */
+export async function downloadKgExport(runId: string, format: KgExportFormat): Promise<Blob> {
+  const params = new URLSearchParams({ format });
+  const res = await fetch(`${BASE}/discovery/runs/${runId}/kg/export?${params.toString()}`, withAuth());
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const parsed = await res.json();
+      msg = parsed.detail !== undefined ? detailToMessage(parsed.detail) : JSON.stringify(parsed);
+      if (!msg) msg = JSON.stringify(parsed);
+    } catch {
+      // ignore
+    }
+    throw new ApiError(res.status, msg);
+  }
+  return res.blob();
+}

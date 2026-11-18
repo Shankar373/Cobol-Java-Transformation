@@ -1,0 +1,1 @@
+       05  CUST-OPEN-DATE PIC 9(8).

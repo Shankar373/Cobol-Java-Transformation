@@ -322,8 +322,8 @@ def program_features(record: FileRecord) -> dict[str, list[tuple[str, int]]]:
 
 def _called_foreign_programs(record: FileRecord, graph: DependencyGraph, languages: Mapping[str, str]) -> dict[str, list[tuple[str, int]]]:
     out: dict[str, list[tuple[str, int]]] = {}
-    for edge in graph.edges():
-        if edge.file != record.path or edge.relation != "calls" or edge.resolution != "resolved":
+    for edge in graph.edges_in_file(record.path):
+        if edge.relation != "calls" or edge.resolution != "resolved":
             continue
         node = graph.nodes.get(edge.dst)
         language = languages.get(node.path, "") if node else ""

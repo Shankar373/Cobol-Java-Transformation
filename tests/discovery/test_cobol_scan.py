@@ -134,6 +134,25 @@ def test_copy_forms_with_library_and_replacing() -> None:
     assert by_name["EMPDCL"].clause == "EXEC SQL INCLUDE"
 
 
+def test_copy_replacing_records_word_and_literal_operands() -> None:
+    """Word and literal operands are recorded, not dropped: discovery records every pair it reads."""
+    text = _fixed("PROGRAM-ID. P.", "    COPY A REPLACING WS-OLD BY WS-NEW.",
+                  "    COPY B REPLACING 'X' BY 'Y'.")
+    scan = scan_cobol("p.cbl", text)
+    by_name = {r.target: r for r in refs(scan, "copies")}
+    assert dict(by_name["A"].detail)["replacing_pairs"] == "WS-OLD BY WS-NEW"
+    assert dict(by_name["B"].detail)["replacing_pairs"] == "'X' BY 'Y'"
+    assert not [p for p in scan.problems if p.code == "COPY_REPLACING_UNSUPPORTED"]
+
+
+def test_copy_replacing_leading_is_reported_and_never_guessed() -> None:
+    text = _fixed("PROGRAM-ID. P.", "    COPY A REPLACING LEADING ==:T:== BY ==WS==.")
+    scan = scan_cobol("p.cbl", text)
+    assert [p.code for p in scan.problems] == ["COPY_REPLACING_UNSUPPORTED"]
+    info = dict(refs(scan, "copies")[0].detail)
+    assert info["replacing"] == "yes" and info["replacing_pairs"] == ":T: BY WS"
+
+
 def test_sqlca_and_sqlda_includes_are_builtin_not_copybooks() -> None:
     scan = scan_cobol("p.cbl", _fixed("PROGRAM-ID. P.", "    EXEC SQL INCLUDE SQLCA END-EXEC."))
     assert not refs(scan, "copies")
@@ -335,3 +354,97 @@ def test_scanner_is_deterministic_and_input_order_independent() -> None:
     first, second = scan_cobol("p.cbl", text), scan_cobol("p.cbl", text)
     assert first.refs == second.refs and first.facts == second.facts
     assert first.refs == sorted(first.refs)
+
+
+# --- access modes: the relation names the entity, the mode names the operation (Layer 3) ---------------
+
+
+@pytest.mark.parametrize("sql, mode", [
+    ("SELECT A FROM HR.RD", "read"),
+    ("INSERT INTO HR.INS (A) VALUES (1)", "write"),
+    ("UPDATE HR.WR SET A = 0", "write"),
+    ("DELETE FROM HR.DL WHERE A = 1", "write"),
+    ("MERGE INTO HR.MG USING HR.SRC ON 1=1 WHEN MATCHED THEN DELETE", "read-write"),
+    ("LOCK TABLE HR.LK IN SHARE MODE", "update"),
+])
+def test_exec_sql_sets_the_mode_of_the_table_it_touches(sql: str, mode: str) -> None:
+    scan = scan_cobol("p.cbl", _free("PROGRAM-ID. P.", "PROCEDURE DIVISION.", f"EXEC SQL {sql} END-EXEC."))
+    found = refs(scan, "accesses-table")
+    assert found and {r.mode for r in found} == {mode}, [(r.target, r.mode) for r in found]
+
+
+def test_a_statement_that_touches_no_rows_carries_no_mode_rather_than_a_guessed_one() -> None:
+    scan = scan_cobol("p.cbl", _free("PROGRAM-ID. P.", "PROCEDURE DIVISION.",
+                                      "EXEC SQL DECLARE HR.CUR CURSOR FOR SELECT A FROM HR.RD END-EXEC."))
+    found = refs(scan, "accesses-table")
+    assert found and {r.mode for r in found} == {""}
+
+
+def test_host_variables_become_bind_edges_to_the_data_item() -> None:
+    text = _free("PROGRAM-ID. P.", "PROCEDURE DIVISION.",
+                 "EXEC SQL SELECT A INTO :WS-A FROM HR.EMP WHERE B = :WS-B END-EXEC.")
+    binds = refs(scan_cobol("p.cbl", text), "sql-binds-hostvar")
+    assert [(r.target, r.target_kind, r.mode) for r in binds] == [("WS-A", "data-item", "bind"),
+                                                                  ("WS-B", "data-item", "bind")]
+    assert all(r.clause.startswith("EXEC SQL SELECT") for r in binds)
+
+
+def test_a_host_variable_in_an_include_is_not_a_bind_edge() -> None:
+    scan = scan_cobol("p.cbl", _free("PROGRAM-ID. P.", "PROCEDURE DIVISION.",
+                                      "EXEC SQL INCLUDE SQLCA END-EXEC."))
+    assert not refs(scan, "sql-binds-hostvar")
+
+
+def test_mq_calls_carry_the_operation_they_perform_on_the_queue() -> None:
+    text = _fixed("PROGRAM-ID. P.", "PROCEDURE DIVISION.",
+                  "    CALL 'MQPUT' USING HCONN HOBJ.", "    CALL 'MQGET' USING HCONN HOBJ.",
+                  "    CALL 'MQOPEN' USING HCONN OD.", "    CALL 'MQCLOSE' USING HCONN HOBJ.")
+    modes = {r.target: r.mode for r in refs(scan_cobol("p.cbl", text), "uses-mq")}
+    assert modes == {"MQPUT": "put", "MQGET": "get", "MQOPEN": "allocate", "MQCLOSE": "delete"}
+
+
+def test_cics_commands_carry_the_operation_performed_on_the_resource() -> None:
+    text = _fixed("PROGRAM-ID. P.", "PROCEDURE DIVISION.",
+                  "    EXEC CICS READ FILE('F1') INTO(R) END-EXEC.",
+                  "    EXEC CICS WRITE FILE('F2') FROM(R) END-EXEC.",
+                  "    EXEC CICS REWRITE FILE('F3') FROM(R) END-EXEC.",
+                  "    EXEC CICS READNEXT FILE('F4') INTO(R) END-EXEC.",
+                  "    EXEC CICS WRITEQ TS QUEUE('Q1') FROM(R) END-EXEC.",
+                  "    EXEC CICS READQ TS QUEUE('Q2') INTO(R) END-EXEC.",
+                  "    EXEC CICS SEND MAP('M1') MAPSET('S1') END-EXEC.",
+                  "    EXEC CICS RETURN TRANSID('T1') END-EXEC.")
+    scan = scan_cobol("p.cbl", text)
+    assert {r.target: r.mode for r in refs(scan, "uses-cics-file")} == {"F1": "read", "F2": "write",
+                                                                       "F3": "update", "F4": "read"}
+    assert {r.target: r.mode for r in refs(scan, "uses-queue")} == {"Q1": "put", "Q2": "get"}
+    assert {r.target: r.mode for r in refs(scan, "uses-map")} == {"S1": "send"}
+    assert {r.target: r.mode for r in refs(scan, "starts-transaction")} == {"T1": "execute"}
+
+
+def test_dli_verbs_carry_the_operation_performed_on_the_segment() -> None:
+    text = _fixed("PROGRAM-ID. P.", "PROCEDURE DIVISION.",
+                  "    EXEC DLI GU SEGMENT(EMPR) INTO(X) END-EXEC.",
+                  "    EXEC DLI ISRT SEGMENT(EMPW) INTO(X) END-EXEC.",
+                  "    EXEC DLI REPL SEGMENT(EMU) INTO(X) END-EXEC.",
+                  "    EXEC DLI DLET SEGMENT(EMPD) END-EXEC.")
+    modes = {r.target: r.mode for r in refs(scan_cobol("p.cbl", text), "uses-ims", "ims-segment")}
+    assert modes == {"EMPR": "read", "EMPW": "create", "EMU": "update", "EMPD": "delete"}
+
+
+def test_a_mode_is_never_invented_for_a_relation_that_carries_no_operation() -> None:
+    text = _fixed("PROGRAM-ID. P.", "PROCEDURE DIVISION.", "    CALL 'OTHERPGM'.", "    GOBACK.")
+    assert {r.mode for r in refs(scan_cobol("p.cbl", text), "calls")} == {""}
+
+
+def test_fixed_format_inline_star_gt_comment_creates_no_copy_edge() -> None:
+    source = _fixed(
+        "       IDENTIFICATION DIVISION.",
+        "       PROGRAM-ID. A.",
+        "       DATA DIVISION.",
+        "       WORKING-STORAGE SECTION.",
+        "       *> COPY NOPE.",
+        "       01 X PIC X.  *> COPY ALSONOPE.",
+        "       COPY REAL.",
+    )
+    scan = scan_cobol("a.cbl", source)
+    assert targets(scan, "copies") == ["REAL"]

@@ -40,6 +40,10 @@ class Ref:
     detail: Detail = ()
     #: Names the library/qualifier the reference was written with (``COPY X OF LIB``).
     qualifier: str = ""
+    #: The operation the reference performs for data-access relations (``read``/``write``/...); ``""`` when the
+    #: relation carries no operation.  Validated against :data:`enterprise.discovery.graph.EDGE_MODES` when the edge is
+    #: built, so a scanner can never invent a mode.
+    mode: str = ""
 
 
 @dataclass(frozen=True, order=True)

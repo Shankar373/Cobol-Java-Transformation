@@ -120,6 +120,9 @@ class PipelineConfig:
     # COBOL PROGRAM-ID the candidate enters.  When set, the oracle runs that
     # program (or refuses) instead of selecting an entry on its own.
     oracle_entry_program: str | None = None
+    # Knowledge-graph lineage (``graph_id``, ``traceability_overlay_id``) as sorted string pairs, recorded in the
+    # sealed evidence manifest.  Empty when the run is not traced to a discovery graph.
+    graph_traceability: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -1129,6 +1132,7 @@ class VerticalSlicePipeline:
             execution_evidence=(oracle_evidence, candidate_evidence),
             artifact_evidence=artifact_evidence,
             comparison_evidence=comparison_evidence,
+            graph_traceability=tuple(sorted(self._config.graph_traceability)),
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation

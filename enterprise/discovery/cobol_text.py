@@ -139,8 +139,11 @@ def logical_lines(text: str) -> tuple[str, list[SourceLine], list[Directive]]:
         if indicator in "dD":
             continue  # debugging line: compiled only under WITH DEBUGGING MODE
         if indicator == "-" and lines:
+            if not _open_quote(lines[-1].text):
+                body = _strip_free_comment(body)  # COBOL 2002 ``*>`` is a comment in fixed format too
             lines[-1] = _fold(lines[-1], body)
             continue
+        body = _strip_free_comment(body)  # COBOL 2002 ``*>`` is a comment in fixed format too
         if body.strip():
             lines.append(SourceLine(number, body, FIXED_TEXT_START))
     return ("mixed" if switched else start_format), lines, directives

@@ -347,6 +347,8 @@ def encode_evidence_manifest(manifest: EvidenceManifest) -> bytes:
             str(manifest.sealed_hash) if manifest.sealed_hash is not None else None
         ),
     }
+    if manifest.graph_traceability:
+        payload["graph_traceability"] = dict(manifest.graph_traceability)
     return _encode_envelope(SCHEMA_EVIDENCE, payload)
 
 
@@ -519,6 +521,16 @@ def _decode_verdict_evidence(raw: object) -> VerdictEvidence | None:
     )
 
 
+def _decode_graph_traceability(raw: object) -> tuple[tuple[str, str], ...]:
+    if raw is None:
+        return ()
+    items = _expect_dict(raw, "graph_traceability")
+    for key, value in items.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            _fail("graph_traceability must map strings")
+    return tuple(sorted(items.items()))
+
+
 def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
     """Decode and seal-verify a persisted evidence manifest.
 
@@ -643,6 +655,7 @@ def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
             comparison_evidence=comparisons,
             verdict_evidence=_decode_verdict_evidence(payload.get("verdict_evidence")),
             created_at=_expect_str(payload.get("created_at"), "created_at"),
+            graph_traceability=_decode_graph_traceability(payload.get("graph_traceability")),
         )
     except PersistenceCorruptionError:
         raise

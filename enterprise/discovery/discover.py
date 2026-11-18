@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .applications import build_applications
+from .applications import build_applications, link_applications
 from .checkpoint import CheckpointInfo, create_checkpoint, verify_checkpoint
 from .compilers import (
     ToolchainConfig, assess_compatibility, default_runner, probe_toolchain, select_backend, toolchain_requirements,
@@ -45,6 +45,7 @@ from .scan_infra import scan_bms, scan_build, scan_other_language, scan_sql
 from .scan_jcl import scan_control_text, scan_jcl
 from .textio import decode_source
 from .zipsource import ingest_zip
+from .graph import stamp_graph_id
 
 __all__ = ["STEP_IDS", "DiscoveryRequest", "DiscoveryResult", "Progress", "discover", "is_remote_git", "scan_file"]
 
@@ -305,8 +306,13 @@ def _publish(report: dict[str, Any], records: list[FileRecord], directories: lis
     outdir.mkdir(parents=True, exist_ok=True)
     unresolved = {"ambiguous": [e.as_dict() for e in build.graph.ambiguous()],
                   "unresolved": [e.as_dict() for e in build.graph.unresolved()]}
+    # The graph document is scrubbed like every other artefact, and its content address is stamped *after* that
+    # rewrite so ``header.graph_id`` always names the bytes actually written (Layer 3 acceptance criterion 1).
+    graph_document = _scrub(build.graph.to_dict(), roots)
+    graph_id = stamp_graph_id(graph_document)
+    report.setdefault("dependency_graph", {})["graph_id"] = graph_id
     payloads = {
-        "report": _dump(_scrub(report, roots)), "graph": _dump(_scrub(build.graph.to_dict(), roots)),
+        "report": _dump(_scrub(report, roots)), "graph": _dump(graph_document),
         "inventory": _dump({"directories": [d.as_dict() for d in directories], "files": [r.as_dict() for r in records],
                             "schema_version": "systemaops.file-inventory/1.0"}),
         "unresolved": _dump({**unresolved, "schema_version": "systemaops.unresolved-references/1.0"}),
@@ -393,7 +399,13 @@ def discover(request: DiscoveryRequest, store: Path | str, *, progress: Progress
         steps.emit("compiler_discovery", "running")
         toolchain_info, compatibility = _compiler_discovery(records, build, info.source_root, toolchain or ToolchainConfig.from_environment())
         steps.emit("compiler_discovery", "completed", f"{compatibility['backend']['kind']} backend; {len(compatibility['programs'])} programs")
+        # Document provenance (Layer 3): the graph names the checkpoint and source digest it was derived from, so a
+        # reader can tie any ``graph_id`` back to the immutable input without trusting a side channel.
+        build.graph.checkpoint_id = info.checkpoint_id
+        build.graph.source_digest = info.source_digest
+        build.graph.created_from = "discovery"
         applications = build_applications(records, build.graph, compatibility)
+        link_applications(build.graph, applications)
         report = build_report(checkpoint=info.as_dict(), provenance=provenance, records=records, directories=directories,
                               build=build, diagnostics=_scrub(sink.to_list(), roots), limits=limits.as_dict(),
                               checkpoint_ok=report_ok, tool_version=__version__, toolchain=toolchain_info,

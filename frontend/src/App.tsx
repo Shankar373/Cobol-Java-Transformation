@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components';
-import { Dashboard, Discovery, NewModernization, ModernizationRun, VsamMigration } from './pages';
+import { Dashboard, Discovery, KnowledgeGraph, NewModernization, ModernizationRun, VsamMigration } from './pages';
 import type { ApplicationResponse, RunResponse } from './api/client';
 import type { IngestSummary } from './api/stages';
 import { isTerminalStage } from './api/stages';
 import * as api from './api/client';
 import { tokens } from './theme/tokens';
 
-type Page = 'dashboard' | 'new' | 'run' | 'vsam' | 'discovery';
+type Page = 'dashboard' | 'new' | 'run' | 'vsam' | 'discovery' | 'knowledge-graph';
 type HistorySource = 'server' | 'session' | 'auth-required';
 
 /** Runs newest first by creation time (audit FE-13: history was in server
@@ -19,6 +19,7 @@ function newestFirst(runs: RunResponse[]): RunResponse[] {
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [kgRunId, setKgRunId] = useState<string | null>(null);
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [applications, setApplications] = useState<ApplicationResponse[]>([]);
   const [runs, setRuns] = useState<RunResponse[]>([]);
@@ -51,6 +52,9 @@ export default function App() {
       setPage('run');
     } else if (p === 'vsam') {
       setPage('vsam');
+    } else if (p === 'knowledge-graph') {
+      setKgRunId(id ?? null);
+      setPage('knowledge-graph');
     } else if (p === 'discovery') {
       setPage('discovery');
     } else if (p === 'new') {
@@ -326,6 +330,7 @@ export default function App() {
         {page === 'discovery' && (
           <Discovery onNavigate={navigate} authRequired={historySource === 'auth-required'} />
         )}
+        {page === 'knowledge-graph' && <KnowledgeGraph runId={kgRunId} onNavigate={navigate} />}
         {page === 'vsam' && (
           <VsamMigration
             applications={applications}

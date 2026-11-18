@@ -196,13 +196,16 @@ def _invocation(scan: FileScan, path: str, number: int, line: str, owner: str) -
                                       ("fixed" if "-fixed" in args else ""),
                                       standard=next((a for a in args if a.startswith("-std=")), ""),
                                       output=_after(args, "-o"))))
+        include_position = 0
         for position, arg in enumerate(args):
             if arg.startswith("-I") and len(arg) > 2:
+                include_position += 1
                 scan.refs.append(Ref(path, number, 1, "uses-library", "directory", arg[2:], owner, f"{tool} -I",
-                                     detail=detail(purpose="copybook-path")))
+                                     detail=detail(purpose="copybook-path", position=str(include_position))))
             elif arg == "-I" and position + 1 < len(args):
+                include_position += 1
                 scan.refs.append(Ref(path, number, 1, "uses-library", "directory", args[position + 1], owner, f"{tool} -I",
-                                     detail=detail(purpose="copybook-path")))
+                                     detail=detail(purpose="copybook-path", position=str(include_position))))
             elif _COBOL_SOURCE.fullmatch(arg):
                 scan.refs.append(Ref(path, number, 1, "builds", "source-file", arg.replace("\\", "/"), owner,
                                      f"{tool} source", detail=detail(tool=tool)))

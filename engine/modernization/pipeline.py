@@ -28,6 +28,7 @@ This module reuses ALL existing components:
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,6 +74,11 @@ class ModernizationConfig:
     build_tool: str = "maven"
     packaging: str = "jar"
     execution_mode: str = "batch"
+    # Layer 3 traceability: path to the discovery ``dependency-graph.json`` this run is derived from.  When set,
+    # every generated class is recorded ``generated-from`` a node of that graph (fail closed) and the overlay is
+    # written to ``<output_dir>/traceability-overlay.json`` (and to ``knowledge_graph_store``, a KGStore path, if set).
+    knowledge_graph_path: str = ""
+    knowledge_graph_store: str = ""
 
     def __post_init__(self) -> None:
         # Fail-closed validation (raises ValueError naming field+value+set).
@@ -136,8 +142,24 @@ class ModernizationReport:
     limitations: tuple[str, ...] = ()
     recommendations: tuple[str, ...] = ()
 
+    # Knowledge-graph traceability (empty when the run has no discovery graph): the discovery graph id, the
+    # generated-from overlay id, the program set the graph gives for the entry point and the per-class record.
+    knowledge_graph_id: str = ""
+    traceability_overlay_id: str = ""
+    graph_program_set: tuple[str, ...] = ()
+    traceability: dict | None = None
+    #: ``(key, value)`` pairs for ``PipelineConfig.graph_traceability`` / the sealed evidence manifest.
+    graph_traceability: tuple[tuple[str, str], ...] = ()
+
     def to_dict(self) -> dict:
+        graph_section = {"knowledge_graph": {
+            "graph_id": self.knowledge_graph_id,
+            "traceability_overlay_id": self.traceability_overlay_id,
+            "program_set": list(self.graph_program_set),
+            "traceability": self.traceability or {},
+        }} if self.knowledge_graph_id else {}
         return {
+            **graph_section,
             "application_id": self.application_id,
             "source_dir": self.source_dir,
             "output_dir": self.output_dir,
@@ -485,14 +507,79 @@ class UniversalModernizationPipeline:
             )
             report.limitations = ("Transformation failed",) + report.generation_errors
             return report
+        graph_notes: tuple[str, ...] = ()
+        if self._config.knowledge_graph_path:
+            traced, graph_notes = self._trace_to_graph(report, Path(outcome.project_dir), gen_result.program_ids)
+            if not traced:
+                return report
         report.jcl_jobs = self._assemble_job_runners(outcome.project_dir, source_path, gen_result.program_ids)
         if progress:
             progress("ASSEMBLY_COMPLETED")
 
         # Final step: LIMITATIONS AND RECOMMENDATIONS
         report.limitations, report.recommendations = self._derive_limitations(report)
+        if graph_notes:
+            report.limitations = (*report.limitations, *graph_notes)
 
         return report
+
+    def _trace_to_graph(self, report: ModernizationReport, project_dir: Path,
+                        program_ids: tuple[str, ...]) -> tuple[bool, tuple[str, ...]]:
+        """Record generated-from for every generated class against the configured discovery graph.
+
+        Fail closed: a generated class that cannot be tied to a graph node turns the run into a generation failure
+        (acceptance criterion 9), never an untraced success.  Returns ``(traced, notes)``.
+        """
+        # Local import: the engine depends on the enterprise graph only for traced runs.
+        from engine.graph_traceability import (
+            lineage_pairs, load_graph_document, program_closure, trace_generation,
+        )
+        from enterprise.discovery.traceability import TraceabilityOverlay
+
+        def refuse(message: str) -> tuple[bool, tuple[str, ...]]:
+            # An untraceable project is not a candidate: drop it like the fail-closed symbol check does.
+            shutil.rmtree(project_dir, ignore_errors=True)
+            report.generated_project_dir = ""
+            report.generated_entrypoint = ""
+            report.generation_success = False
+            report.generation_errors = (*report.generation_errors, message)
+            report.limitations = ("Traceability failed", message)
+            return False, ()
+
+        try:
+            document = load_graph_document(self._config.knowledge_graph_path)
+            overlay = TraceabilityOverlay(document)
+            trace = trace_generation(overlay, project_dir, source_digest=str(
+                (document.get("header") or {}).get("source_digest", "")), program_ids=program_ids,
+                                    entry_program=self._config.entrypoint)
+        except Exception as exc:  # unreadable graph, parent that does not reproduce its id, bad overlay record
+            return refuse(f"Knowledge-graph traceability failed: {exc}")
+        if trace.untraced:
+            return refuse("Generated classes with no knowledge-graph origin: " + ", ".join(sorted(trace.untraced)))
+        notes: list[str] = []
+        try:
+            closure = program_closure(document, self._config.entrypoint) if self._config.entrypoint else []
+        except KeyError as exc:
+            closure = []
+            notes.append(f"Knowledge graph has no entry program: {exc}")
+        engine_programs = sorted(p.upper() for p in report.discovered_programs)
+        if closure and closure != engine_programs:
+            notes.append("Knowledge-graph program set " + ",".join(closure)
+                         + " differs from the engine's discovered set " + ",".join(engine_programs))
+        report.knowledge_graph_id = overlay.parent_graph_id
+        report.traceability_overlay_id = overlay.overlay_id
+        report.graph_program_set = tuple(closure)
+        report.traceability = trace.as_dict()
+        (Path(self._config.output_dir) / "traceability-overlay.json").write_text(
+            json.dumps(overlay.document(), sort_keys=True, separators=(",", ":")), encoding="utf-8")
+        if self._config.knowledge_graph_store:
+            from enterprise.discovery.kg_store import KGStore
+            with KGStore(self._config.knowledge_graph_store) as store:
+                overlay.store = store
+                overlay.save(application=report.application_id)
+                overlay.store = None
+        report.graph_traceability = lineage_pairs(overlay)
+        return True, tuple(notes)
 
     def _assemble_job_runners(
         self, project_dir: Path, source_path: Path, program_ids: tuple[str, ...]

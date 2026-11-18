@@ -13,11 +13,12 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .graph import BLOCKING_REASONS, DependencyGraph, Edge
+from .findings import detail
+from .graph import BLOCKING_REASONS, DependencyGraph, Edge, Node
 from .inventory import FileRecord
 from .readiness import UNVERIFIED_VERDICTS
 
-__all__ = ["build_applications", "ENTRY_KINDS"]
+__all__ = ["build_applications", "link_applications", "ENTRY_KINDS"]
 
 #: Closed set of entry-point kinds.
 ENTRY_KINDS = ("batch-job-step", "ims-region-program", "cics-transaction-program", "called-subprogram", "unreferenced-program")
@@ -161,6 +162,43 @@ def _count(values: Any) -> dict[str, int]:
     for value in values:
         out[str(value)] += 1
     return dict(sorted(out.items()))
+
+
+#: Relations whose edge declares that a member exists; preferred when choosing the evidence for a membership edge.
+_DEFINING_RELATIONS = ("defines", "defines-resource", "includes")
+
+
+def _membership_evidence(edges: Sequence[Edge]) -> Edge | None:
+    """The edge that proves a member exists: its own declaration when there is one, otherwise any incoming edge.
+
+    An application membership edge must carry a real file, line and column like every other edge (acceptance
+    criterion 2), so it is stamped with the evidence that the member is real — never with a synthetic position.
+    """
+    ordered = sorted(edges, key=lambda e: (0 if e.relation in _DEFINING_RELATIONS else 1, e.file, e.line, e.column,
+                                           e.relation, e.src))
+    return ordered[0] if ordered else None
+
+
+def link_applications(graph: DependencyGraph, applications: Mapping[str, Any]) -> None:
+    """Add one ``application`` node per application and a ``contains`` edge to each member it owns.
+
+    Impact analysis then reaches the application boundary: the reverse impact of a copybook is the set of programs
+    that copy it, the jobs that run those programs and the applications that own them (acceptance criterion 7).
+    """
+    incoming: dict[str, list[Edge]] = defaultdict(list)
+    for edge in graph.edges():
+        incoming[edge.dst].append(edge)
+    for app in applications.get("applications", []):
+        app_node = f"application:{app['id']}"
+        graph.add_node(Node(app_node, "application", "", "", "derived",
+                            detail=detail(name=app["name"], readiness=app["readiness"])))
+        for member in app["members"]:
+            evidence = _membership_evidence(incoming.get(member, []))
+            if evidence is None:
+                continue  # no source line can back the claim, so no edge is made
+            graph.add_edge(Edge(app_node, member, "contains", "APPLICATION MEMBERSHIP", evidence.file, evidence.line,
+                                evidence.column, detail=detail(application=app["id"], member_of=app["name"]),
+                                rule="definition-contains", confidence="derived", scope="application"))
 
 
 def _relationships(applications: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

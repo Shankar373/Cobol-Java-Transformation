@@ -207,3 +207,15 @@ def build_estate(discovery: dict, external: "dict[str, list[dict]] | None" = Non
         nodes=sorted(b.nodes.values(), key=lambda n: (n.kind, n.name)),
         edges=sorted(b.edges.values(), key=lambda e: (e.source, e.relation, e.target)),
     )
+
+
+def build_estate_from_graph(graph_document: dict, subsystem_states: "dict | None" = None) -> Estate:
+    """The estate of a discovery graph document: structure from the graph, ``proof_state`` added here.
+
+    This is the path the application uses; it delegates to ``enterprise.discovery.graph_view`` so there is one
+    place that turns the graph into engine shapes.  :func:`build_estate` remains for callers that already hold a
+    ``DiscoveryResult.to_dict()``.
+    """
+    from enterprise.discovery.graph_view import estate_from_graph
+
+    return estate_from_graph(graph_document, subsystem_states=subsystem_states)

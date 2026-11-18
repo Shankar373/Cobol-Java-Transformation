@@ -1,0 +1,2 @@
+       01  RATE-TABLE.
+           05  RATE-PCT PIC 9V99 VALUE 1.05.

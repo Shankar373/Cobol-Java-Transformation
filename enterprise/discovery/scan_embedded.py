@@ -32,6 +32,34 @@ SQL_OPERATIONS = frozenset({
     "DROP", "ALTER", "DESCRIBE", "TRUNCATE", "VALUES", "BEGIN", "END", "INCLUDE", "ALLOCATE", "ASSOCIATE", "COMMENT",
 })
 SQL_INCLUDE_BUILTIN = frozenset({"SQLCA", "SQLDA"})
+
+#: Operation the statement performs **on the table** it names, for ``mode`` on an ``accesses-table`` edge.  An
+#: operation that does not touch rows (``PREPARE``, ``DECLARE TABLE``, ``COMMIT``) carries no mode rather than a
+#: guessed one.
+SQL_ACCESS_MODES: dict[str, str] = {
+    "SELECT": "read", "FETCH": "read", "OPEN": "read",
+    "INSERT": "write", "UPDATE": "write", "DELETE": "write", "MERGE": "read-write",
+    "CREATE": "create", "DROP": "delete", "TRUNCATE": "delete", "ALTER": "update", "LOCK": "update",
+}
+
+#: Operation performed **on the MQ interface** by each MQ call.
+MQ_ACCESS_MODES: dict[str, str] = {
+    "MQPUT": "put", "MQPUT1": "put", "MQGET": "get", "MQOPEN": "allocate", "MQCLOSE": "delete",
+    "MQINQ": "read", "MQSET": "write", "MQSUB": "route", "MQSUBRQ": "route",
+}
+
+#: Operation performed **on the IMS resource** by a DLI verb.
+DLI_ACCESS_MODES: dict[str, str] = {
+    "GU": "read", "GN": "read", "GHN": "read", "GNP": "read", "GHID": "read", "GHCU": "read",
+    "ISRT": "create", "REPL": "update", "DLET": "delete",
+}
+
+#: Operation performed **on a CICS file** by a file command.
+CICS_FILE_MODES: dict[str, str] = {
+    "READ": "read", "READNEXT": "read", "READPREV": "read", "STARTBR": "search",
+    "WRITE": "write", "REWRITE": "update", "DELETE": "delete",
+}
+
 CICS_PROGRAM_COMMANDS = {"LINK": "cics-link", "XCTL": "cics-xctl", "LOAD": "cics-load", "INVOKE": "cics-link"}
 CICS_FILE_COMMANDS = frozenset({
     "READ", "WRITE", "REWRITE", "DELETE", "UNLOCK", "STARTBR", "READNEXT", "READPREV", "ENDBR", "RESETBR",
@@ -53,10 +81,12 @@ def classify_call(state: "_State", target: Token, name: str, args: list[str], ve
             function.strip("'")
         state.ref(target, "uses-ims", "ims-interface", name, clause="CALL",
                   detail=detail(function=function, function_value=resolved,
-                                pcb=args[1] if len(args) > 1 else ""))
+                                pcb=args[1] if len(args) > 1 else ""),
+                  mode=DLI_ACCESS_MODES.get(function.strip("'").upper(), ""))
         return True
     if name in MQ_CALLS:
-        state.ref(target, "uses-mq", "mq-interface", name, clause="CALL", detail=detail(arguments=len(args)))
+        state.ref(target, "uses-mq", "mq-interface", name, clause="CALL", detail=detail(arguments=len(args)),
+                  mode=MQ_ACCESS_MODES.get(name, ""))
         return True
     if name in DB2_RUNTIME:
         state.ref(target, "uses-runtime", "runtime", name, clause="CALL", detail=detail(subsystem="DB2"))
@@ -110,6 +140,7 @@ def _sql(state: "_State", start: Token, stmt: list[Token]) -> None:
         else:
             state.ref(stmt[1], "copies", "copybook", name, clause="EXEC SQL INCLUDE")
         return
+    _sql_host_variables(state, stmt)
     state.fact(start, "sql-statement", operation if operation in SQL_OPERATIONS else "OTHER",
                text=" ".join(t.text for t in stmt[:6])[:80])
     if operation in ("PREPARE", "EXECUTE") and any(t.upper == "IMMEDIATE" for t in stmt[:3]) or operation == "PREPARE":
@@ -132,6 +163,19 @@ def _sql(state: "_State", start: Token, stmt: list[Token]) -> None:
     _sql_tables(state, stmt, operation)
 
 
+def _sql_host_variables(state: "_State", stmt: list[Token]) -> None:
+    """``:NAME`` markers bind a host variable: an edge from the program to the data item that carries the value.
+
+    A host variable the program never declares still becomes an edge (unresolved, non-blocking) rather than a
+    silent omission, because the binding is written in the source and must be visible.
+    """
+    clause = f"EXEC SQL {stmt[0].upper if stmt else ''}".strip()
+    for index in range(len(stmt) - 1):
+        if stmt[index].text == ":" and stmt[index + 1].kind == "word":
+            state.ref(stmt[index + 1], "sql-binds-hostvar", "data-item", stmt[index + 1].upper, clause=clause,
+                      mode="bind")
+
+
 def _sql_tables(state: "_State", stmt: list[Token], operation: str) -> None:
     index, count, seen_select = 0, len(stmt), operation
     while index < count:
@@ -151,7 +195,8 @@ def _sql_tables(state: "_State", stmt: list[Token], operation: str) -> None:
             if not name or name in SQL_TABLE_STOP:
                 break
             state.ref(stmt[index], "accesses-table", "table", name, clause=f"EXEC SQL {operation}",
-                      detail=detail(operation=operation, keyword=word))
+                      detail=detail(operation=operation, keyword=word),
+                      mode=SQL_ACCESS_MODES.get(operation, ""))
             index = after
             if index < count and stmt[index].kind == "word" and stmt[index].upper == "AS":
                 index += 2
@@ -188,6 +233,20 @@ def _options(stmt: list[Token]) -> list[tuple[str, Token | None, bool, int]]:
     return found
 
 
+def _cics_mode(relation: str, full: str) -> str:
+    """Operation the CICS command performs **on the resource** the edge points at; ``""`` when there is none."""
+    head = full.split()[0]
+    if relation == "uses-queue":
+        return {"READQ": "get", "WRITEQ": "put", "DELETEQ": "delete"}.get(head, "")
+    if relation == "uses-map":
+        return {"SEND": "send", "RECEIVE": "receive"}.get(head, "execute")
+    if relation == "starts-transaction" or relation == "cics-load":
+        return "execute"
+    if relation.startswith("cics-"):
+        return "invoke"
+    return ""
+
+
 def _cics(state: "_State", start: Token, stmt: list[Token]) -> None:
     if not stmt:
         return
@@ -216,22 +275,25 @@ def _cics(state: "_State", start: Token, stmt: list[Token]) -> None:
         if argument is None:
             continue
         info = detail(command=full, queue_type=second if option.endswith("QUEUE") and second in ("TS", "TD") else "")
+        mode = _cics_mode(relation, full)
         if literal:
-            state.ref(argument, relation, kind, argument.text.upper(), clause=f"EXEC CICS {full}", detail=info)
+            state.ref(argument, relation, kind, argument.text.upper(), clause=f"EXEC CICS {full}", detail=info,
+                      mode=mode)
         else:
-            state.deferred.append((argument, relation, kind, argument.upper, f"EXEC CICS {full}", info))
+            state.deferred.append((argument, relation, kind, argument.upper, f"EXEC CICS {full}", info, mode))
     for option in ("FILE", "DATASET"):
         if option in names and command in CICS_FILE_COMMANDS:
             argument, literal = names[option]
             if argument is None:
                 continue
             info = detail(command=full)
+            mode = CICS_FILE_MODES.get(command, "")
             if literal:
                 state.ref(argument, "uses-cics-file", "cics-file", argument.text.upper(), clause=f"EXEC CICS {full}",
-                          detail=info)
+                          detail=info, mode=mode)
             else:
                 state.deferred.append((argument, "uses-cics-file", "cics-file", argument.upper,
-                                       f"EXEC CICS {full}", info))
+                                       f"EXEC CICS {full}", info, mode))
 
 
 def _dli(state: "_State", start: Token, stmt: list[Token]) -> None:
@@ -242,11 +304,13 @@ def _dli(state: "_State", start: Token, stmt: list[Token]) -> None:
     names = {name: arg for name, arg, _, _ in options}
     state.fact(start, "dli-command", command, options=",".join(sorted(names)))
     state.ref(start, "uses-ims", "ims-interface", "EXEC DLI", clause=f"EXEC DLI {command}",
-              detail=detail(function=command))
+              detail=detail(function=command), mode="execute")
     psb = names.get("PSB")
     if psb is not None:
-        state.ref(psb, "uses-ims", "ims-psb", psb.text.upper(), clause=f"EXEC DLI {command}")
+        state.ref(psb, "uses-ims", "ims-psb", psb.text.upper(), clause=f"EXEC DLI {command}",
+                  mode=DLI_ACCESS_MODES.get(command, ""))
     for option in ("SEGMENT", "USING"):
         argument = names.get(option)
         if argument is not None and option == "SEGMENT":
-            state.ref(argument, "uses-ims", "ims-segment", argument.text.upper(), clause=f"EXEC DLI {command}")
+            state.ref(argument, "uses-ims", "ims-segment", argument.text.upper(), clause=f"EXEC DLI {command}",
+                      mode=DLI_ACCESS_MODES.get(command, ""))

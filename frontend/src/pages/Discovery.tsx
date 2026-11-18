@@ -362,6 +362,9 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
                     <Button key={a.key} type="button" onClick={() => download(a.key, a.file)}>{a.label}</Button>
                   ))}
                   <Button type="button" onClick={verify}>Verify checkpoint</Button>
+                  {onNavigate && (
+                    <Button type="button" variant="secondary" onClick={() => onNavigate('knowledge-graph', run.run_id)}>Open knowledge graph</Button>
+                  )}
                 </div>
                 {verification && (
                   <div role="status" data-testid="discovery-verification" style={{ padding: '0 16px 16px', fontSize: 13 }}>

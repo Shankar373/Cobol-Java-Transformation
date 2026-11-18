@@ -287,3 +287,18 @@ provenance audit.
   platform dependent (G-27). Refused by name: `OCCURS DEPENDING ON`, `SYNCHRONIZED`, `COMP-1`/`COMP-2`, an unselected `REDEFINES`.
 - **Correction:** the byte *encoding* of COMP/COMP-3 record-area fields was previously described as verified by the value fixtures. Those fixtures
   compare values only; the byte layout is now checked by the differential above, and the capability row `records.packed_binary_fields` is PARTIAL.
+
+## Update 2026-11-18 (Layer 3: Enterprise Knowledge Graph)
+
+Discovery is the single producer of the structural graph; everything below is deterministic (no LLM) and open-source only.
+
+| Capability | State | Evidence |
+|---|---|---|
+| Versioned graph identity (`graph_id` = sha256 of canonical content, checkpoint/tool provenance, `parent_graph_id`), per-edge `rule` / `confidence` / `mode` / `scope` | **Implemented/tested** | `enterprise/discovery/graph.py`; `tests/discovery/test_kg_acceptance.py` (criteria 1, 2) |
+| Semantic COBOL entities (section, paragraph, data item, record layout), PERFORM / GO TO, file-verb direction, COPY REPLACING pairs, library-order resolution (JCLLIB / SYSLIB / `-I`), nested-copybook edges, consistent unresolved handling | **Implemented/tested** | `cobol_structure.py`, `resolve.py`; acceptance criteria 4, 5, 6, 7 |
+| Durable snapshots (`kg_snapshot/kg_node/kg_edge/kg_unresolved`, migration `0003`), indexed row queries without loading the JSON document, neighbours / impact / slice / path / checkpoint diff | **Implemented/tested** | `kg_store.py`, `kg_query.py`; criteria 8, 10, 11 |
+| Exports JSON / DOT / GraphML / CSV (collision-safe GraphML ids, deterministic edge-key disambiguation) | **Implemented/tested** | `kg_export.py`, `test_kg_export.py` |
+| Read-only secured API (`/discovery/runs/{id}/kg...`, bounded parameters) and interactive graph UI (node list, source traceability, unresolved list, impact, path, slice, diff, exports) | **Implemented/tested** | `api/discovery_routes.py`, `test_kg_api_security.py`, `frontend/src/pages/KnowledgeGraph.tsx` |
+| Estate view derived from the graph (`graph_view.py`; `api/estate.py` consumes it) | **Implemented/tested**; legacy `application_discovery.py` / `copybook_resolver.py` still parse (allowlisted with reasons in `test_engine_graph_lint.py`) | `test_graph_view.py` |
+| `generated-from` (Java class/method -> COBOL node, same graph) and `verified-by` (-> test / oracle run), graph id in the evidence manifest, traceability overlay with its own id and `parent_graph_id` | **Implemented/tested** for the modernization pipeline; `verified-by` is recorded through `engine/graph_traceability.record_verification`, not yet called automatically by `api/service.py` | `test_traceability*.py` |
+| Scale | 10,000 files: graph build + save in ~114 s, ~816 MB peak growth, row queries without loading the document; full `discover()` is sub-quadratic but not benchmarked at 10k | `test_kg_scale_benchmark.py` |

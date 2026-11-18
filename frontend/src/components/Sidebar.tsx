@@ -10,7 +10,7 @@ import {
   IconFileText,
 } from './icons';
 
-export type SidebarPage = 'dashboard' | 'new' | 'run' | 'vsam' | 'discovery';
+export type SidebarPage = 'dashboard' | 'new' | 'run' | 'vsam' | 'discovery' | 'knowledge-graph';
 
 interface SidebarProps {
   currentPage: SidebarPage;
@@ -159,7 +159,8 @@ function statusText(status: SystemStatus): string {
 }
 
 export function Sidebar({ currentPage, onNavigate, onSignOut }: SidebarProps) {
-  const activeKey: SidebarPage = currentPage === 'run' ? 'dashboard' : currentPage;
+  const activeKey: SidebarPage =
+    currentPage === 'run' ? 'dashboard' : currentPage === 'knowledge-graph' ? 'discovery' : currentPage;
   const systemStatus = useSystemStatus();
   const statusView = STATUS_VIEW[systemStatus.kind];
 

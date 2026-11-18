@@ -49,7 +49,7 @@ def _tables(db):
     return {row["n"] for row in rows.fetchall()}
 
 
-ALL_VERSIONS = ["0001_vsam_jobs", "0002_job_leases"]
+ALL_VERSIONS = ["0001_vsam_jobs", "0002_job_leases", "0003_knowledge_graph"]
 
 
 def test_migrate_applies_once_and_is_idempotent(db):
@@ -61,9 +61,11 @@ def test_migrate_applies_once_and_is_idempotent(db):
 
 def test_rollback_reverts_newest_first_and_migrate_reapplies(db):
     migrate(db)
-    assert rollback(db) == ["0002_job_leases"]
-    assert applied_versions(db) == ["0001_vsam_jobs"] and "vsam_jobs" in _tables(db)
-    assert rollback(db, steps=5) == ["0001_vsam_jobs"]
+    # Derived from ALL_VERSIONS so adding a migration cannot leave these expectations stale (rollback returns
+    # versions newest first).
+    assert rollback(db) == [ALL_VERSIONS[-1]]
+    assert applied_versions(db) == ALL_VERSIONS[:-1] and "vsam_jobs" in _tables(db)
+    assert rollback(db, steps=5) == list(reversed(ALL_VERSIONS[:-1]))
     assert applied_versions(db) == [] and "vsam_jobs" not in _tables(db)
     assert migrate(db) == ALL_VERSIONS
     assert rollback(db, steps=0) == []

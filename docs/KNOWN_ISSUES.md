@@ -12,6 +12,24 @@ Lifecycle/persistence/API security hardening has since been applied on top of th
 
 ## Open material issues
 
+### Layer 3 knowledge graph: limitations kept by decision (2026-11-18)
+
+- **Duplicate dependency parsers remain.** `engine/transformation/application_discovery.py`, `copybook_resolver.py` and
+  `cobol_parser.py` still parse CALL/COPY for the capability analyzer (they keep source spelling and USING arguments).
+  The estate view and API now read the graph; the remaining parsers are listed with a justification in
+  `tests/discovery/test_engine_graph_lint.py`. Retiring them is Layer 4 work.
+- **IMS / MQ relation names.** Edges use `uses-ims` / `uses-mq` with an operation in `detail`; the finer relations
+  `ims-call`, `mq-put`, `mq-get` exist in the schema but are not emitted (renaming needs a coordinated resolver and UI change).
+- **`verified-by` is not automatic.** The pipeline records `generated-from`; `verified-by` needs a caller to invoke
+  `record_verification` after a VERIFIED verdict (Docker lane not wired).
+- **Manifest vs final overlay id.** The evidence manifest carries the generation-stage overlay id; the final overlay
+  (with `verified-by`) has a different id and the same `parent_graph_id`.
+- **Java mapping is name-based** (regex class/method scan, ambiguity refused); unknown support classes fail closed.
+- **Data flow** is intra-program only (MOVE/compute, file and table I/O); inter-program propagation needs a real parse tree (Layer 4).
+- **UI**: the node-link view is a capped (60 nodes) deterministic ring layout, not force-directed; reached from the Discovery page, no deep link.
+- **Fixed format column 72**: an `EXEC` block whose `END-EXEC` lies past column 72 is reported as `EXEC_NOT_CLOSED` (a blocking scanner error) instead of silently mis-attributing the next statement.
+- **10k-file scale**: only the graph pipeline is benchmarked at 10k; `discover()` is sub-quadratic (ratio ~2-3 per doubling) but slower per file.
+
 ### Full-audit limitations kept by decision (2026-11-03)
 
 - **Non-ASCII data in `PIC X` (audit T17).** GnuCOBOL counts bytes; the

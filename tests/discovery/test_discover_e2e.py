@@ -207,8 +207,15 @@ def test_directory_zip_and_git_inputs_give_the_same_graph_and_inventory(tmp_path
     results = {kind: discover(DiscoveryRequest(kind, str(source)), tmp_path / f"store-{kind}")
                for kind, source in (("directory", root), ("zip", archive), ("git", root))}
     try:
-        graphs = {kind: json.dumps(graph_of(r), sort_keys=True) for kind, r in results.items()}
+        # The graph content must be identical for the same source.  The header's ``checkpoint_id`` is defined as
+        # kind + commit + source digest, so it is *expected* to differ between a directory, a zip and a git input:
+        # it names the checkpoint that recorded this run, not the graph's content (see checkpoint_core.py).
+        graphs = {kind: json.dumps({k: v for k, v in graph_of(r).items() if k != "header"}, sort_keys=True)
+                  for kind, r in results.items()}
         assert len(set(graphs.values())) == 1
+        headers = {kind: {k: v for k, v in graph_of(r)["header"].items() if k != "checkpoint_id"}
+                   for kind, r in results.items()}
+        assert len(set(json.dumps(h, sort_keys=True) for h in headers.values())) == 1
         inventories = {kind: (r.outdir / "file-inventory.json").read_bytes() for kind, r in results.items()}
         assert len(set(inventories.values())) == 1
         assert results["directory"].checkpoint.source_digest == results["zip"].checkpoint.source_digest \

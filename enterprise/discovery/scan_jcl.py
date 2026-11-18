@@ -48,6 +48,8 @@ class _Ctx:
         self.step_is_proc = False
         self.symbols: dict[str, str] = {}
         self.step_ddnames: dict[str, str] = {}
+        #: DD name of the most recent named DD in this step, so an unnamed ``//  DD`` concatenation continues it.
+        self.last_ddname = ""
         self.has_job = False
         self.in_proc = False
 
@@ -123,8 +125,9 @@ def _statement(ctx: _Ctx, st: Statement) -> None:
         if member:
             ctx.ref(st, "includes", "jcl-member", member.upper(), "JCL INCLUDE")
     elif op == "JCLLIB":
-        for library in _list(operand(parse_operands(st.operands), "ORDER")):
-            ctx.ref(st, "uses-library", "dataset", library.upper(), "JCLLIB ORDER", detail=detail(purpose="procedure-library"))
+        for position, library in enumerate(_list(operand(parse_operands(st.operands), "ORDER")), 1):
+            ctx.ref(st, "uses-library", "dataset", library.upper(), "JCLLIB ORDER",
+                    detail=detail(purpose="procedure-library", position=str(position)))
     elif op in ("IF", "ELSE", "ENDIF", "THEN"):
         ctx.fact(st, "jcl-condition", op, text=(st.name + " " + st.operands)[:80])
     elif op in ("OUTPUT", "XMIT", "COMMAND", "SCHEDULE", "NOTIFY", "CNTL", "ENDCNTL", "EXPORT"):
@@ -145,6 +148,7 @@ def _exec(ctx: _Ctx, st: Statement) -> None:
     operands = parse_operands(st.operands)
     ctx.step = st.name.upper() or f"STEP{st.line}"
     ctx.step_ddnames = {}
+    ctx.last_ddname = ""
     pgm, proc = operand(operands, "PGM"), operand(operands, "PROC")
     positional = next((v for k, v in operands if not k), "")
     overrides = {k: unquote(v) for k, v in operands if k and k not in ("PGM", "PROC", "PARM", "COND", "REGION", "TIME",
@@ -198,6 +202,14 @@ def _dd(ctx: _Ctx, st: Statement) -> None:
     name = st.name.upper()
     ddname = name.rsplit(".", 1)[-1]
     override_step = name.rsplit(".", 1)[0] if "." in name else ""
+    concatenated = False
+    if not name:
+        # An unnamed DD concatenates onto the previous one; only a library concatenation (SYSLIB/STEPLIB/...) has an
+        # order that matters to resolution, so only those continue the previous name.
+        if ctx.last_ddname in _LIBRARY_DDS:
+            ddname, concatenated = ctx.last_ddname, True
+    else:
+        ctx.last_ddname = ddname
     if st.data:
         _instream(ctx, st, ddname)
         ctx.ref(st, "uses-dataset", "instream", "(in-stream data)", "DD *", detail=detail(dd=ddname, step=ctx.step))
@@ -240,6 +252,7 @@ def _dd(ctx: _Ctx, st: Statement) -> None:
     is_symbolic = bool(missing)
     info = detail(dd=ddname, step=ctx.step, override=override_step, disp=disp_first, member=member, purpose=purpose,
                   amp="vsam-hint" if operand(operands, "AMP") else "",
+                  concatenated="yes" if concatenated else "",
                   generation="gdg" if re.search(r"\(([+-]?\d+)\)$", dsn_raw) else "",
                   symbolic_original=unquote(dsn_raw) if unquote(dsn_raw) != value and not match else "")
     if purpose and purpose != "":

@@ -23,6 +23,7 @@ from typing import Any
 from .checkpoint import checkpoint_dir, verify_checkpoint
 from .discover import DiscoveryRequest, DiscoveryResult, discover
 from .errors import IngestionError
+from .kg_store import KGStore
 from .limits import DEFAULT_LIMITS, Limits
 from .model import rmtree_force
 from .remotegit import NetworkPolicy
@@ -95,6 +96,8 @@ class DiscoveryRunService:
         self._policy = network_policy or NetworkPolicy()
         self._lock = threading.Lock()
         self._records: dict[str, RunRecord] = {}
+        #: Durable, queryable snapshots of every finished run's graph (Layer 3), through ``enterprise/db.py``.
+        self.kg = KGStore(self.root / "kg.sqlite3")
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="discovery")
         self._recover()
 
@@ -173,13 +176,21 @@ class DiscoveryRunService:
 
     def _finish(self, run_id: str, result: DiscoveryResult) -> None:
         gate = result.report["completeness"]
+        # The snapshot is written before the record says "succeeded": a run whose graph could not be stored has not
+        # produced its durable, queryable output, so it is failed by the caller rather than reported as complete.
+        graph_id = self._store_snapshot(result)
         with self._lock:
             record = self._records[run_id]
             record.state, record.checkpoint_id = "succeeded", result.checkpoint.checkpoint_id
             record.gate_status, record.ready_for_transformation = gate["status"], gate["ready_for_transformation"]
             record.summary = {**result.report["summary"], "graph": result.report["dependency_graph"]["edges"],
-                              "reused_checkpoint": result.reused}
+                              "graph_id": graph_id, "reused_checkpoint": result.reused}
             self._save(record)
+
+    def _store_snapshot(self, result: DiscoveryResult) -> str:
+        """Persist the run's graph document as rows keyed by ``graph_id``; returns that id."""
+        path = result.outdir / result.outputs["graph"]
+        return self.kg.save(json.loads(path.read_text(encoding="utf-8")))
 
     def _fail(self, run_id: str, code: str, message: str) -> None:
         with self._lock:
@@ -261,6 +272,7 @@ class DiscoveryRunService:
 
     def shutdown(self, wait: bool = True) -> None:
         self._pool.shutdown(wait=wait)
+        self.kg.close()  # release the snapshot database so the run root can be removed on Windows
 
     def purge(self) -> None:  # pragma: no cover - test helper
         self.shutdown()

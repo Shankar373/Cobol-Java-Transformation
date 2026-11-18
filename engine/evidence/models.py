@@ -257,6 +257,15 @@ def canonical_evidence_graph(manifest: EvidenceManifest) -> dict[str, Any]:
     - ``verdict_evidence``: derivation *output*, never an input to derivation.
     - ``sealed_hash``: the seal itself.
     """
+    graph = _canonical_core(manifest)
+    if manifest.graph_traceability:
+        # Knowledge-graph lineage (Layer 3): present only when the run was traced, so every manifest without it keeps
+        # the exact hash it always had.
+        graph["graph_traceability"] = dict(manifest.graph_traceability)
+    return graph
+
+
+def _canonical_core(manifest: EvidenceManifest) -> dict[str, Any]:
     return {
         "manifest_version": manifest.manifest_version,
         "run_id": manifest.run_id.value,
@@ -396,6 +405,10 @@ class EvidenceManifest:
     comparison_evidence: tuple[ComparisonEvidence, ...]
     verdict_evidence: VerdictEvidence | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    # Knowledge-graph lineage as sorted (key, value) string pairs: ``graph_id`` (the discovery graph the run was
+    # derived from) and ``traceability_overlay_id`` (the generated-from overlay).  Empty when the run was not traced;
+    # covered by the seal when present.
+    graph_traceability: tuple[tuple[str, str], ...] = ()
     # Seal captured at construction. Integrity validation recomputes the
     # canonical graph and compares it against this seal, so any in-place
     # mutation of evidence after construction is detected. Not part of the

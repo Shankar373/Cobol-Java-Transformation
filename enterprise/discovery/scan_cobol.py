@@ -1,8 +1,10 @@
 """COBOL program and copybook scanner (no parsing, no execution, no LLM).
 
-Finds, with exact source positions: program ids and nesting, ``COPY``/``-INC``/``++INCLUDE`` members, static and
-dynamic ``CALL``, ``SELECT``/``ASSIGN`` file bindings (including VSAM-capable organisations), ``SORT``/``MERGE``,
-embedded ``EXEC SQL|CICS|DLI`` blocks, IMS and MQ interface calls, environment access, compiler-option cards and the
+Finds, with exact source positions: program ids and nesting, ``COPY``/``-INC``/``++INCLUDE`` members (including the
+``REPLACING`` pairs, recorded not expanded), static and dynamic ``CALL``, ``SELECT``/``ASSIGN`` file bindings
+(including VSAM-capable organisations), sections, paragraphs and data descriptions, ``PERFORM``/``GO TO`` control
+flow, ``READ``/``WRITE``/``REWRITE`` file verbs and ``MOVE``-level data flow, ``SORT``/``MERGE``, embedded
+``EXEC SQL|CICS|DLI`` blocks, IMS and MQ interface calls, environment access, compiler-option cards and the
 signals that indicate a COBOL dialect.  Dynamic ``CALL`` targets are followed through ``VALUE`` clauses and
 ``MOVE literal TO`` so a program that always calls the same module is still tied to it, flagged as dynamic.
 """
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import re
 
+from . import cobol_structure
 from .cobol_text import Token, logical_lines, split_indexed, split_statements, tokenize
 from .findings import Fact, FileScan, Ref, ScanProblem, detail
 from .scan_embedded import classify_call, parse_exec
@@ -66,8 +69,11 @@ class _State:
         self.finished: list[str] = []
         #: variable -> {literal: ("value" | "move", line, column)} used to follow dynamic targets.
         self.values: dict[str, dict[str, tuple[str, int, int]]] = {}
-        #: Dynamic references ``(token, relation, kind, variable, clause, detail)`` resolved once all values are known.
-        self.deferred: list[tuple[Token, str, str, str, str, tuple[tuple[str, str], ...]]] = []
+        #: Dynamic references ``(token, relation, kind, variable, clause, detail, mode)`` resolved once all values
+        #: are known.
+        self.deferred: list[tuple[Token, str, str, str, str, tuple[tuple[str, str], ...], str]] = []
+        #: The structural pass (sections, paragraphs, data descriptions, control flow) run over the same tokens.
+        self.structure: cobol_structure.StructureScan | None = None
 
     @property
     def owner(self) -> str:
@@ -99,12 +105,39 @@ def scan_cobol(path: str, text: str, *, copybook: bool = False) -> FileScan:
             marker = Token("word", match.group(1), number, match.start(1) + 1)
             state.ref(marker, "copies", "copybook", match.group(1).upper(), clause="-INC/++INCLUDE")
     _collect_values(tokens, state)
+    state.structure = cobol_structure.scan_structure(tokens, path=path, copybook=copybook)
     _scan_flat(tokens, state)
+    _structure_refs(state)
     _finish(tokens, state, copybook)
     for problem_line in _open_literal_lines(lines):
         scan.problems.append(ScanProblem(path, problem_line, "UNTERMINATED_LITERAL",
                                          "an alphanumeric literal is not closed before the end of its line"))
     return scan.sorted()
+
+
+def _structure_refs(state: _State) -> None:
+    """Turn the structural pass into findings: declarations become ``contains`` references, control flow and data
+    flow become their own relations.  Every reference keeps its exact ``(line, column)`` from the token stream."""
+    structure = state.structure
+    if structure is None:
+        return
+    for line, code, message in structure.problems:
+        state.scan.problems.append(ScanProblem(state.path, line, code, message))
+    for unit in structure.units:
+        owner = f"program:{unit.program}" if unit.program else f"file:{state.path}"
+        kind = "section" if unit.kind == "section" else "paragraph"
+        state.scan.refs.append(Ref(state.path, unit.line, unit.column, "contains", kind, unit.name.upper(), owner,
+                                   clause=f"{unit.kind.upper()} HEADER"))
+    for decl in structure.data:
+        state.scan.refs.append(Ref(state.path, decl.line, decl.column, "contains", decl.kind, decl.name.upper(),
+                                   decl.owner, clause="DATA DESCRIPTION",
+                                   detail=detail(level=decl.level, record=decl.record, file=decl.file)))
+    for flow in structure.refs:
+        owner = f"program:{flow.program}" if flow.program else f"file:{state.path}"
+        state.scan.refs.append(Ref(state.path, flow.line, flow.column, flow.relation, flow.target_kind,
+                                   flow.target.upper(), owner, clause=flow.clause, mode=flow.mode,
+                                   dynamic=flow.dynamic, variable=flow.variable,
+                                   detail=tuple(sorted(flow.detail))))
 
 
 def _collect_values(tokens: list[Token], state: _State) -> None:
@@ -327,8 +360,27 @@ def _copy(tokens: list[Token], index: int, state: _State) -> int:
                 break
         cursor += 1
     state.ref(name, "copies", "copybook", name.text.upper(), clause="COPY", qualifier=qualifier,
-              detail=detail(replacing="yes" if replacing else ""))
+              detail=_replacing_detail(tokens, index, cursor, replacing, state))
     return cursor - index if cursor > index else 1
+
+
+def _replacing_detail(tokens: list[Token], start: int, end: int, replacing: int, state: _State) -> tuple[tuple[str, str], ...]:
+    """``COPY`` detail carrying the ``REPLACING`` pairs exactly as written, plus a refusal for forms not expanded.
+
+    Discovery records what the clause says; it does not expand it.  ``LEADING``/``TRAILING``/``PARTIAL`` and an
+    unpaired pseudo-text are reported by name instead of being read as a plain pair.
+    """
+    if not replacing:
+        return detail()
+    pairs, unsupported = cobol_structure.parse_replacing(tokens, start, end)
+    for form in unsupported:
+        state.scan.problems.append(ScanProblem(state.path, tokens[start].line, "COPY_REPLACING_UNSUPPORTED",
+                                               f"COPY ... REPLACING {form} is recorded but not expanded"))
+    info: dict[str, object] = {"replacing": "yes"}
+    if pairs:
+        info["replacing_pairs"] = "; ".join(f"{left} BY {right}" for left, right in pairs)
+        info["replacing_count"] = str(len(pairs))
+    return detail(**info)
 
 
 def _call(tokens: list[Token], index: int, state: _State, verb: str) -> int:
@@ -345,7 +397,7 @@ def _call(tokens: list[Token], index: int, state: _State, verb: str) -> int:
         if not classify_call(state, target, name, args, verb):
             state.ref(target, "calls", "program", name, clause=verb, detail=detail(arguments=len(args)))
     else:
-        state.deferred.append((target, "calls", "program", target.upper, verb, detail(arguments=",".join(args))))
+        state.deferred.append((target, "calls", "program", target.upper, verb, detail(arguments=",".join(args)), ""))
     return 2
 
 
@@ -368,14 +420,33 @@ def _call_args(tokens: list[Token], start: int) -> list[str]:
 
 
 def _exec_block(tokens: list[Token], index: int, state: _State) -> int:
-    end = next((i for i in range(index + 1, len(tokens)) if tokens[i].kind == "word" and tokens[i].upper == "END-EXEC"),
-               None)
+    """Parse one ``EXEC ... END-EXEC`` block.
+
+    A block that lost its ``END-EXEC`` (typically cut off by the column-72 limit of fixed format) ends where the
+    next ``EXEC`` begins, so it cannot swallow the following statement; the damage is reported as a problem.
+    """
+    end = None
+    unclosed = False
+    for i in range(index + 1, len(tokens)):
+        token = tokens[i]
+        if token.kind != "word":
+            continue
+        if token.upper == "END-EXEC":
+            end = i
+            break
+        if token.upper == "EXEC":
+            end, unclosed = i, True
+            break
     if end is None:
         state.scan.problems.append(ScanProblem(state.path, tokens[index].line, "EXEC_NOT_CLOSED",
                                                "EXEC block has no END-EXEC"))
         return 1
+    if unclosed:
+        state.scan.problems.append(ScanProblem(state.path, tokens[index].line, "EXEC_NOT_CLOSED",
+                                               "EXEC block has no END-EXEC before the next EXEC "
+                                               "(text past column 72 is ignored in fixed format)"))
     parse_exec(state, tokens[index], tokens[index + 1:end])
-    return end - index + 1
+    return end - index + (0 if unclosed else 1)
 
 
 def _environment(tokens: list[Token], index: int, state: _State) -> None:
@@ -391,14 +462,15 @@ def _environment(tokens: list[Token], index: int, state: _State) -> None:
 
 
 def _finish(tokens: list[Token], state: _State, copybook: bool) -> None:
-    for target, relation, kind, variable, clause, info in state.deferred:
+    for target, relation, kind, variable, clause, info, mode in state.deferred:
         candidates = state.values.get(variable, {})
         if not candidates:
-            state.ref(target, relation, kind, "", clause=clause, dynamic=True, variable=variable, detail=info)
+            state.ref(target, relation, kind, "", clause=clause, dynamic=True, variable=variable, detail=info,
+                      mode=mode)
             continue
         for literal, (source, _line, _column) in sorted(candidates.items()):
             state.ref(target, relation, kind, literal.upper().strip(), clause=clause, dynamic=True, variable=variable,
-                      detail=tuple(sorted(info + (("value_source", source),))))
+                      detail=tuple(sorted(info + (("value_source", source),))), mode=mode)
     for variable, candidates in sorted(state.values.items()):
         if "OBJECTNAME" in variable or variable.endswith(("-QNAME", "-QUEUE-NAME")):
             for literal, (source, line, column) in sorted(candidates.items()):

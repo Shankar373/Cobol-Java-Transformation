@@ -111,7 +111,8 @@ COBOL_ESTATE: dict[str, str] = {
     "src/cobol/ORDERS.cbl": _fixed(
         "IDENTIFICATION DIVISION.", "PROGRAM-ID. ORDERS.", "PROCEDURE DIVISION.",
         "    EXEC CICS RECEIVE MAP('ORDMAP') MAPSET('ORDSET') END-EXEC.",
-        "    EXEC CICS READ FILE('ORDFILE') INTO(WS-REC) RIDFLD(WS-KEY) END-EXEC.",
+        "    EXEC CICS READ FILE('ORDFILE') INTO(WS-REC)",
+        "         RIDFLD(WS-KEY) END-EXEC.",
         "    EXEC CICS LINK PROGRAM('PAYROLL') END-EXEC.",
         "    EXEC CICS RETURN TRANSID('ORD1') END-EXEC."),
     "cpy/EMPREC.cpy": _fixed(
