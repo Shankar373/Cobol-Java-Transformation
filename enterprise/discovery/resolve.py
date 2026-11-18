@@ -375,7 +375,7 @@ class _Builder:
                                                                                               "assembler")]
         found = self.est.programs.get(name)
         if paths or found:
-            path = sorted(paths)[0] if paths else found[0][0]
+            path = sorted(paths)[0] if paths else (found or [("", 0, "")])[0][0]
             self.edge(src, self.node(f"program:{name}", "program", "input", path), ref)
         else:
             self.edge(src, self.node(f"source-member:{name}", "source-member", "absent"), ref, "unresolved", "missing-source")

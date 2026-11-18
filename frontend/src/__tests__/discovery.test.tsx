@@ -26,6 +26,43 @@ const REPORT = {
   dialects: { basis: 'indicative', summary: [] },
   runtime_dependencies: [{ category: 'subsystem', name: 'CICS', evidence_count: 1 }],
   limitations: ['Discovery is lexical.'],
+  readiness: {
+    status: 'NOT_SUPPORTED', allowed: true, blockers: [], unsupported_total: 1,
+    unsupported: [{ file: 'src/ORDERS.cbl', feature: 'exec-cics', label: 'EXEC CICS', note: 'needs the IBM CICS translator', stops_check: true, evidence: [{ label: 'EXEC CICS LINK', line: 5 }] }],
+    compile_errors: [],
+  },
+  toolchain: {
+    required: [{ family: 'gnucobol', kind: 'invocation', name: 'cobc', evidence: [{ file: 'build/Makefile', line: 3 }], evidence_count: 1 }],
+    tools: [
+      { tool: 'cobc', available: true, version: '3.1.2.0', via: 'container:gnucobol-ocesql:latest', license: 'GPL-3.0-or-later (GnuCOBOL)' },
+      { tool: 'gcobol', available: false, reason: 'not on PATH', license: 'GPL-3.0-or-later with GCC Runtime Library Exception' },
+    ],
+  },
+  compatibility: {
+    backend: { kind: 'container', reason: '', version: '3.1.2.0', image: 'gnucobol-ocesql:latest' },
+    basis: 'syntax-only check with GnuCOBOL',
+    summary: { COMPILES: 1, NOT_ATTEMPTED_PROPRIETARY: 1, COMPILE_ERRORS: 1 },
+    programs: [
+      { file: 'src/OK.cbl', dialect: 'undetermined', source_format: 'fixed', verdict: 'COMPILES', diagnostics: [], unsupported_features: [] },
+      { file: 'src/ORDERS.cbl', dialect: 'ibm-enterprise', source_format: 'fixed', verdict: 'NOT_ATTEMPTED_PROPRIETARY', reason: 'needs the IBM CICS translator', diagnostics: [],
+        unsupported_features: [{ feature: 'exec-cics', label: 'EXEC CICS', note: 'needs the IBM CICS translator', stops_check: true, evidence: [{ label: 'EXEC CICS LINK', line: 5 }], evidence_count: 1 }] },
+      { file: 'src/BAD.cbl', dialect: 'gnucobol', source_format: 'fixed', verdict: 'COMPILE_ERRORS', diagnostics: [{ file: 'src/BAD.cbl', line: 7, severity: 'error', message: 'syntax error' }], unsupported_features: [] },
+    ],
+  },
+  applications: {
+    applications: [{
+      id: 'APP-1', name: 'PAYJOB', readiness: 'BLOCKED', programs: ['PAYROLL'], jobs: ['PAYJOB'], files: ['src/PAYROLL.cbl'], copybooks: [], unsupported_features: [], compile_errors: [],
+      compiler_verdicts: {}, blocking_unresolved: [{ file: 'src/PAYROLL.cbl', line: 9, reason: 'missing-program', to: 'program:MISSING1' }],
+      entry_points: [{ program: 'PAYROLL', file: 'src/PAYROLL.cbl', kinds: ['batch-job-step'], invoked_by: ['job:PAYJOB'] }], resources: [],
+    }],
+    entry_points: [],
+    relationships: [{ resource: 'table:HR.EMPLOYEE', kind: 'table', applications: [{ id: 'APP-1', name: 'PAYJOB', uses: 2 }, { id: 'APP-2', name: 'HRJOB', uses: 1 }] }],
+  },
+};
+
+const SOURCE = {
+  file: 'src/PAYROLL.cbl', line: 9, first_line: 7, total_lines: 20, encoding: 'ascii', sha256: 'a'.repeat(64),
+  lines: [{ number: 7, text: '       PROCEDURE DIVISION.' }, { number: 8, text: '           CALL A.' }, { number: 9, text: "           CALL 'MISSING1'." }],
 };
 
 function json(status: number, body: unknown): Response {
@@ -50,6 +87,7 @@ describe('Discovery page', () => {
       if (url === '/discovery/runs/zip') return json(202, run());
       if (url === `/discovery/runs/${RUN_ID}`) return json(200, run({ state: 'succeeded', checkpoint_id: 'CP-123456789abc', gate_status: 'INCOMPLETE' }));
       if (url.endsWith('/report')) return json(200, REPORT);
+      if (url.includes('/source?')) return json(200, SOURCE);
       if (url.endsWith('/unresolved')) return json(200, { unresolved: [{ to: 'program:MISSING1', reason: 'missing-program', blocking: true, file: 'src/PAYROLL.cbl', line: 9, from: 'program:PAYROLL', clause: 'CALL', relation: 'calls' }], ambiguous: [] });
       return json(404, { detail: 'nope' });
     });
@@ -59,7 +97,7 @@ describe('Discovery page', () => {
     fireEvent.click(screen.getByText('Start discovery'));
 
     await waitFor(() => expect(screen.getByTestId('discovery-state').textContent).toBe('succeeded'));
-    await waitFor(() => expect(screen.getByText('PAYROLL')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('PAYROLL').length).toBeGreaterThan(0));
     expect(screen.getByTestId('discovery-gate').textContent).toContain('incomplete');
     expect(screen.getByText('program:MISSING1')).toBeTruthy();
     expect(screen.getByText('Fail: no-blocking-unresolved-references (1 blocking)')).toBeTruthy();
@@ -112,5 +150,48 @@ describe('Discovery page', () => {
     fireEvent.change(screen.getByLabelText(/COBOL estate/), { target: { files: [new File(['x'], 'e.zip')] } });
     fireEvent.click(screen.getByText('Start discovery'));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('authentication required'));
+  });
+
+  it('shows readiness, the compiler toolchain, per-program verdicts, applications and relationships', async () => {
+    install((url) => {
+      if (url === '/discovery/runs/zip') return json(202, run());
+      if (url === `/discovery/runs/${RUN_ID}`) return json(200, run({ state: 'succeeded', checkpoint_id: 'CP-123456789abc', gate_status: 'INCOMPLETE' }));
+      if (url.endsWith('/report')) return json(200, REPORT);
+      if (url.endsWith('/unresolved')) return json(200, { unresolved: [], ambiguous: [] });
+      return json(404, {});
+    });
+    render(<Discovery pollIntervalMs={1} />);
+    fireEvent.change(screen.getByLabelText(/COBOL estate/), { target: { files: [new File(['zip'], 'e.zip')] } });
+    fireEvent.click(screen.getByText('Start discovery'));
+
+    await waitFor(() => expect(screen.getByTestId('readiness').textContent).toContain('NOT_SUPPORTED'));
+    expect(screen.getByTestId('compiler-backend').textContent).toContain('GnuCOBOL 3.1.2.0');
+    expect(screen.getByText(/not available: not on PATH/)).toBeTruthy();
+    expect(screen.getByText('COMPILE_ERRORS')).toBeTruthy();
+    expect(screen.getAllByText(/needs the IBM CICS translator/).length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('application-card')).toHaveLength(1);
+    expect(screen.getByText('table:HR.EMPLOYEE')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Filter by verdict'), { target: { value: 'COMPILES' } });
+    expect(screen.queryByText('src/BAD.cbl')).toBeNull();
+  });
+
+  it('opens the source viewer at the exact line from any file:line reference', async () => {
+    install((url) => {
+      if (url === '/discovery/runs/zip') return json(202, run());
+      if (url === `/discovery/runs/${RUN_ID}`) return json(200, run({ state: 'succeeded', checkpoint_id: 'CP-123456789abc', gate_status: 'INCOMPLETE' }));
+      if (url.endsWith('/report')) return json(200, REPORT);
+      if (url.includes('/source?')) return json(200, SOURCE);
+      if (url.endsWith('/unresolved')) return json(200, { unresolved: [], ambiguous: [] });
+      return json(404, {});
+    });
+    render(<Discovery pollIntervalMs={1} />);
+    fireEvent.change(screen.getByLabelText(/COBOL estate/), { target: { files: [new File(['zip'], 'e.zip')] } });
+    fireEvent.click(screen.getByText('Start discovery'));
+    await waitFor(() => expect(screen.getByText('src/PAYROLL.cbl:2')).toBeTruthy());
+    fireEvent.click(screen.getByText('src/PAYROLL.cbl:2'));
+    await waitFor(() => expect(screen.getByTestId('source-hit').textContent).toContain("CALL 'MISSING1'"));
+    expect(calls.some((c) => c.includes('/source?path=src%2FPAYROLL.cbl&line=2'))).toBe(true);
+    fireEvent.click(screen.getByLabelText('Close source viewer'));
+    expect(screen.queryByLabelText('Source viewer')).toBeNull();
   });
 });

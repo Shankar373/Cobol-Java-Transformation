@@ -31,6 +31,7 @@ Status words: **VERIFIED** (executable evidence, in CI), **IMPLEMENTED** (code a
 | 1 durable infrastructure | PARTIAL | PostgreSQL and SQLite with migrations, atomic transitions, leased workers, crash recovery, bounded retries (CI runs PostgreSQL). Not built: S3 adapter, Redis/Celery, cross-process test on PostgreSQL, retention |
 | 2 GitHub ingestion | PARTIAL | pinned, safe snapshot core, 38 tests against a local stand-in server plus one manual live run on a tiny repository. Separately, `enterprise/discovery/` ingests Git (local and remote https, commit-pinned) into an immutable checkpoint through the API and UI; see `docs/discovery/DISCOVERY.md` |
 | 3 ZIP ingestion | PARTIAL | safe extraction library (22 tests). Discovery adds an upload endpoint, checkpoint and UI page (single request, no resumable upload sessions) |
+| Discovery gate on modernize/revalidate | IMPLEMENTED | `docs/discovery/COMPILER_AND_APPLICATION_DISCOVERY.md`: BLOCKED refuses with 409, NOT_SUPPORTED lists what is unhandled; open-source (GnuCOBOL) syntax check only |
 | 4 scalable inventory | IMPLEMENTED (in-process) | COBOL estate discovery: complete file and directory inventory, dependency graph with unresolved tracking, runtime dependencies, dialect evidence, completeness gate; about 700 backend tests, 5 frontend tests. Lexical, not compiled; no external worker queue; see `docs/discovery/DISCOVERY.md` |
 | 5 streaming VSAM | VERIFIED for one process | see VSAM table |
 | 6 streaming Java | PARTIAL | read-only disk index only |

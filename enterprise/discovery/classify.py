@@ -41,6 +41,10 @@ _EXTENSIONS = {
     ".jar": "binary", ".png": "binary", ".jpg": "binary", ".gif": "binary", ".bin": "binary", ".lst2": "binary",
     ".lst": "listing", ".lis": "listing", ".out": "listing", ".log": "listing",
 }
+#: Extensions whose class is decided by the extension alone (never by content sniffing).
+_DEFINITIVE_SUFFIXES = {".java": "java-source", ".py": "other-source", ".js": "other-source", ".ts": "other-source", ".tsx": "other-source",
+                        ".kt": "other-source", ".go": "other-source", ".rs": "other-source", ".cs": "other-source", ".c": "other-source",
+                        ".h": "other-source", ".cpp": "other-source", ".md": "doc", ".rst": "doc", ".pdf": "doc", ".html": "doc"}
 _BUILD_NAMES = {"makefile": "build-config", "gnumakefile": "build-config", "pom.xml": "build-config",
                 "build.xml": "build-config", "build.gradle": "build-config", "build.gradle.kts": "build-config",
                 "settings.gradle": "build-config", "cmakelists.txt": "build-config", "jenkinsfile": "ci-config",
@@ -99,6 +103,9 @@ def classify(path: str, text: str | None, *, binary: bool = False, ci_hint: bool
         return Classification(cls, ("binary content" + (f", extension {suffix}" if suffix else ""),))
     if ext_cls in ("binary", "archive"):
         return Classification(ext_cls, (f"extension {suffix}",))
+    if suffix in _DEFINITIVE_SUFFIXES:
+        # A Java, Python or Markdown file that merely *mentions* PROGRAM-ID or a JCL card is not a mainframe source member.
+        return Classification(ext_cls or _DEFINITIVE_SUFFIXES[suffix], (f"extension {suffix}",))
     sniffed = _sniff(text or "")
     if sniffed:
         cls, why = sniffed

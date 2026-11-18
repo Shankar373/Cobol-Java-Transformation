@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.common import MINIMAL_COBOL, MINIMAL_COBOL_TEXT  # noqa: F401
+
 from api.models import RunStage
 from api.service import Service, ServiceError
 from api.store import ApplicationRecord, RunRecord, Store
@@ -38,8 +40,8 @@ def _tree(root: Path, name: str, files: dict[str, str]) -> Path:
 def _two_runs(store: Store, tmp_path: Path):
     """App whose latest paths belong to run B; run A has its own."""
     sfx = uuid.uuid4().hex[:8]
-    src_a = _tree(tmp_path, "src-a", {"A.cob": "A"})
-    src_b = _tree(tmp_path, "src-b", {"B.cob": "B"})
+    src_a = _tree(tmp_path, "src-a", {"A.cob": MINIMAL_COBOL_TEXT})
+    src_b = _tree(tmp_path, "src-b", {"B.cob": MINIMAL_COBOL_TEXT.replace("A.", "B.")})
     run_a, run_b = f"run-a{sfx}", f"run-b{sfx}"
     bundle_a = _tree(tmp_path, f"pipeline-output-{run_a}-x", {"pom.xml": "a", "A.java": "a"})
     bundle_b = _tree(tmp_path, f"pipeline-output-{run_b}-y", {"pom.xml": "b", "B.java": "b"})
@@ -136,7 +138,7 @@ def test_run_detail_serves_the_snapshot_and_the_runs_files(store, tmp_path, monk
 
 def test_modernize_records_the_source_on_the_run(store, tmp_path, monkeypatch):
     sfx = uuid.uuid4().hex[:8]
-    src = _tree(tmp_path, "src", {"P.cob": "P"})
+    src = _tree(tmp_path, "src", {"P.cob": MINIMAL_COBOL_TEXT})
     store.add_application(ApplicationRecord( target_runtime="spring_boot",
         id=f"app-{sfx}", name=f"m-{sfx}", workload_id="wl-m", description="",
         java_entrypoint="", cobol_source_path=str(src),

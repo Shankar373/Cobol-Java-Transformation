@@ -64,6 +64,13 @@ class ConflictError(ServiceError):
     default_detail = "Operation conflicts with the current run state"
 
 
+class ReadinessError(ConflictError):
+    """Discovery found the source incomplete, so the requested modernization step must not start."""
+
+    status_code = 409
+    default_detail = "Modernization is blocked until discovery is complete"
+
+
 class PayloadTooLargeError(ApiError):
     """Upload exceeds a configured request/file/file-count limit."""
 

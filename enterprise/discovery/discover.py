@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .applications import build_applications
 from .checkpoint import CheckpointInfo, create_checkpoint, verify_checkpoint
+from .compilers import (
+    ToolchainConfig, assess_compatibility, default_runner, probe_toolchain, select_backend, toolchain_requirements,
+)
 from .classify import classify
 from .errors import DiagnosticSink, IngestionError, UnsupportedInputError
 from .findings import FileScan, ScanProblem
@@ -33,6 +37,7 @@ from .limits import DEFAULT_LIMITS, Limits
 from .model import IngestionResult, ingest_directory, rmtree_force
 from .remotegit import NetworkPolicy, ingest_remote_git
 from .report import build_report, render_summary
+from .runtime_deps import dialect_report
 from .resolve import build_graph
 from .scan_cobol import scan_cobol
 from .scan_infra import scan_bms, scan_build, scan_other_language, scan_sql
@@ -47,6 +52,7 @@ STEP_IDS: tuple[tuple[str, str], ...] = (
     ("checkpoint", "Immutable checkpoint"),
     ("scanning_inventory", "Scanning and inventory"),
     ("dependency_analysis", "Dependency analysis"),
+    ("compiler_discovery", "Compiler and application discovery"),
     ("report", "Discovery report"),
 )
 #: ``(step_id, status, message)`` with status in running|completed|warning|failed.
@@ -57,7 +63,8 @@ _REMOTE_RE = re.compile(r"^(https?://|ssh://|git://|[A-Za-z0-9._-]+@[A-Za-z0-9.-
 _HEX40 = re.compile(r"^[0-9a-fA-F]{40}$")
 _OUTPUTS = {
     "report": "discovery-report.json", "graph": "dependency-graph.json", "inventory": "file-inventory.json",
-    "unresolved": "unresolved-references.json", "summary": "discovery-summary.md",
+    "unresolved": "unresolved-references.json", "summary": "discovery-summary.md", "compatibility": "compiler-compatibility.json",
+    "applications": "applications.json", "readiness": "transformation-readiness.json",
 }
 _RUN_RECORD = "run-record.json"
 _SOURCE_BLOCKER_CLASSES = frozenset({"cobol", "copybook", "jcl-job", "jcl-proc", "bms", "sql", "idcams", "sort-control"})
@@ -243,6 +250,37 @@ def _analyse(ingestion: IngestionResult, source_root: Path, limits: Limits, step
 # --- output -------------------------------------------------------------------------------------------------------------
 
 
+_PROBE_TTL_SECONDS = 300.0
+_probe_cache: dict[tuple[str, str], tuple[float, list[Any]]] = {}
+
+
+def _probes(config: ToolchainConfig) -> list[Any]:
+    """Tool probes; the default (real) probe is cached briefly because it may start a container, injected ones never are."""
+    runner = config.runner or default_runner
+    kwargs: dict[str, Any] = {"which": config.which} if config.which else {}
+    if config.runner is not None or config.which is not None:
+        return probe_toolchain(runner=runner, image=config.image, use_container=True, **kwargs)
+    key = (config.backend, config.image)
+    cached = _probe_cache.get(key)
+    if cached and time.monotonic() - cached[0] < _PROBE_TTL_SECONDS:
+        return cached[1]
+    probes = probe_toolchain(runner=runner, image=config.image, use_container=config.backend in ("auto", "container"))
+    _probe_cache[key] = (time.monotonic(), probes)
+    return probes
+
+
+def _compiler_discovery(records: list[FileRecord], build: Any, source_root: Path, config: ToolchainConfig
+                         ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Required toolchains, open-source tool availability and the syntax-only compatibility check; never raises for a missing tool."""
+    runner = config.runner or default_runner
+    probes = _probes(config) if config.backend != "none" else []
+    backend = select_backend(probes, preference=config.backend, image=config.image)
+    dialects = {str(f["file"]): str(f["primary"]) for f in dialect_report(records)["files"]}  # type: ignore[attr-defined]
+    compatibility = assess_compatibility(records, build.graph, source_root, backend, dialects=dialects, probes=probes, runner=runner,
+                                         budget_seconds=config.budget_seconds)
+    return {"required": toolchain_requirements(records), "tools": [p.as_dict() for p in probes]}, compatibility
+
+
 def _dump(payload: object) -> str:
     return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
 
@@ -272,6 +310,10 @@ def _publish(report: dict[str, Any], records: list[FileRecord], directories: lis
                             "schema_version": "systemaops.file-inventory/1.0"}),
         "unresolved": _dump({**unresolved, "schema_version": "systemaops.unresolved-references/1.0"}),
         "summary": render_summary(report),
+        "compatibility": _dump({**report["compatibility"], "schema_version": "systemaops.compiler-compatibility/1.0",
+                                "toolchain": report["toolchain"]}),
+        "applications": _dump({**report["applications"], "schema_version": "systemaops.applications/1.0"}),
+        "readiness": _dump({**report["readiness"], "schema_version": "systemaops.transformation-readiness/1.0"}),
     }
     outputs = {}
     for key, text in payloads.items():
@@ -292,7 +334,8 @@ def _write_run_record(outdir: Path, info: CheckpointInfo, steps: _Steps) -> str:
 
 
 def discover(request: DiscoveryRequest, store: Path | str, *, progress: Progress | None = None,
-             limits: Limits = DEFAULT_LIMITS) -> DiscoveryResult:
+             limits: Limits = DEFAULT_LIMITS,
+             toolchain: ToolchainConfig | None = None) -> DiscoveryResult:
     """Run the whole discovery workflow and return the report.
 
     Raises :class:`IngestionError` on any refusal; staging is always removed and no report is written for a refused
@@ -319,14 +362,19 @@ def discover(request: DiscoveryRequest, store: Path | str, *, progress: Progress
         steps.emit("report", "running")
         report_ok = verify_checkpoint(info.path).ok
         # Provenance comes from the stored checkpoint so a reused checkpoint can never contradict its own report.
-        provenance = {"archive_sha256": info.archive_sha256, "commit": info.commit,
+        provenance: dict[str, object] = {"archive_sha256": info.archive_sha256, "commit": info.commit,
                       "commit_timestamp": info.commit_timestamp, "kind": info.source_kind, "origin": info.origin,
                       "ref": info.ref, "remote": info.origin if info.source_kind == "git" and "://" in info.origin else "",
                       "tree_id": info.tree_id}
         roots = (str(info.source_root), str(staging), str(ingestion.staging_root), str(store), str(store.resolve()))
+        steps.emit("compiler_discovery", "running")
+        toolchain_info, compatibility = _compiler_discovery(records, build, info.source_root, toolchain or ToolchainConfig.from_environment())
+        steps.emit("compiler_discovery", "completed", f"{compatibility['backend']['kind']} backend; {len(compatibility['programs'])} programs")
+        applications = build_applications(records, build.graph, compatibility)
         report = build_report(checkpoint=info.as_dict(), provenance=provenance, records=records, directories=directories,
                               build=build, diagnostics=_scrub(sink.to_list(), roots), limits=limits.as_dict(),
-                              checkpoint_ok=report_ok, tool_version=__version__)
+                              checkpoint_ok=report_ok, tool_version=__version__, toolchain=toolchain_info,
+                              compatibility=compatibility, applications=applications)
         outdir = store / "discoveries" / info.checkpoint_id
         outputs = _publish(report, records, directories, build, outdir, roots)
         steps.emit("report", "completed", str(report["completeness"]["status"]))

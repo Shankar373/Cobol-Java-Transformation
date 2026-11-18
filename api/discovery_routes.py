@@ -122,6 +122,15 @@ def verify_run(run_id: str) -> dict:
         raise HTTPException(404, "Discovery run not found or not finished") from None
 
 
+@router.get("/discovery/runs/{run_id}/source")
+def get_source(run_id: str, path: str, line: int = 1, context: int = 12) -> dict:
+    """Lines of one inventoried source file around ``line``, read from the immutable checkpoint (never from a client-chosen path)."""
+    try:
+        return get_service().source_excerpt(run_id, path, line, context)
+    except RunNotFound:
+        raise HTTPException(404, "Discovery run, file or line not found") from None
+
+
 @router.get("/discovery/runs/{run_id}/{artefact}")
 def get_artefact(run_id: str, artefact: str) -> FileResponse:
     if artefact not in ARTEFACTS:

@@ -28,7 +28,7 @@ from api.errors import (
 from api.models import RunStage
 from api.service import Service
 from api.store import RunRecord, Store
-from tests.common import make_stub_verdict
+from tests.common import MINIMAL_COBOL, MINIMAL_COBOL_TEXT, make_stub_verdict
 
 client = TestClient(app)
 
@@ -236,7 +236,7 @@ def _create_uploaded_app(name: str) -> str:
     upload = client.post(
         f"/applications/{app_id}/upload",
         files=[
-            ("files", ("A.cob", io.BytesIO(b"       ID DIVISION.\n"), "text/plain"))
+            ("files", ("A.cob", io.BytesIO(MINIMAL_COBOL), "text/plain"))
         ],
     )
     assert upload.status_code == 201, upload.text

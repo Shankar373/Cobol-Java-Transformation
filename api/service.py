@@ -62,6 +62,7 @@ from api.errors import (
     ConflictError,
     NotFoundError,
     PersistenceCorruptionError,
+    ReadinessError,
     ServiceError,
 )
 from api.models import RunStage
@@ -522,6 +523,43 @@ class Service:
         )
         return self._store.add_application(record)
 
+    def readiness_for(self, source_path: str, label: str, *, refresh: bool = False) -> dict:
+        """Discovery readiness of ``source_path``: the stored record while the tree is unchanged, otherwise a fresh assessment."""
+        from api import readiness as readiness_module
+
+        path = Path(source_path)
+        current = readiness_module.fingerprint(path) if path.is_dir() else ""
+        stored = None if refresh else self._store.get_readiness(source_path)
+        if stored is not None and stored[0] == current:
+            return stored[1]
+        record = readiness_module.assess_workspace(path, label) if path.is_dir() else readiness_module.blocked_record(
+            "SOURCE_MISSING", "the application's source directory no longer exists")
+        self._store.put_readiness(source_path, current, record)
+        return record
+
+    def stored_readiness(self, app_id: str) -> dict | None:
+        """The stored readiness record of the application's current source, if one exists (no assessment is run)."""
+        path = self.get_application(app_id).cobol_source_path
+        found = self._store.get_readiness(path) if path else None
+        return found[1] if found else None
+
+    def application_readiness(self, app_id: str, *, refresh: bool = False) -> dict:
+        from api import readiness as readiness_module
+
+        app = self.get_application(app_id)
+        if not app.cobol_source_path:
+            raise ServiceError("No COBOL source uploaded for this application")
+        return readiness_module.public(self.readiness_for(app.cobol_source_path, app.name, refresh=refresh))
+
+    def _require_ready(self, source_path: str, label: str) -> dict:
+        """The readiness gate every modernization entry point passes: a blocked source tree never starts a run."""
+        from api import readiness as readiness_module
+
+        record = self.readiness_for(source_path, label)
+        if not record.get("allowed"):
+            raise ReadinessError(readiness_module.refusal_message(record))
+        return record
+
     def get_application(self, app_id: str) -> ApplicationRecord:
         rec = self._store.get_application(app_id)
         if rec is None:
@@ -616,6 +654,9 @@ class Service:
                 _cleanup_temp_dir(previous)
 
             result = discovery.to_dict()
+            from api import readiness as readiness_module
+
+            result["readiness"] = readiness_module.public(self.readiness_for(str(workspace), app.name, refresh=True))
             result["detected_name"] = detected_name
             result["top_level_entries"] = top_entries
             return result
@@ -785,6 +826,9 @@ class Service:
             description=f"API-driven workload for {app.name}",
             uploaded_source=app.cobol_source_path or "",
         )
+
+        # Discovery gate: incomplete or unassessable source never starts a run (BLOCKED -> 409 with the missing items).
+        self._require_ready(app.cobol_source_path, app.name)
 
         self._acquire_job_slot()
 
@@ -1033,6 +1077,8 @@ class Service:
         # The run's own source and bundle (audit F7), checked BEFORE the
         # reset so a run that can no longer be revalidated keeps its result.
         source, _candidate = self._revalidation_target(run, app)
+        if source:
+            self._require_ready(source, app.name)
 
         # Resolve the contract BEFORE resetting the run so an unusable
         # workload cannot destroy the terminal result.

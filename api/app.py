@@ -983,10 +983,14 @@ def modernize_application(
         ),
     )
 
+    from api.readiness import public as _public_readiness
+
+    stored = _svc().stored_readiness(app_id)
     return ModernizeResponse(
         run_id=run.id,
         application_id=run.application_id,
         stage=run.stage,
+        readiness=_public_readiness(stored) if stored else None,
     )
 
 
@@ -1025,7 +1029,20 @@ async def ingest_application(
         discovery=_public(discovery),
         detected_name=discovery.get("detected_name", ""),
         top_level_entries=discovery.get("top_level_entries", []),
+        readiness=discovery.get("readiness"),
     )
+
+
+@app.get("/applications/{app_id}/readiness")
+async def get_application_readiness(app_id: str) -> dict:
+    """Discovery readiness of the application's source: BLOCKED (modernization refused), NOT_SUPPORTED (listed) or READY."""
+    return await run_in_threadpool(_svc().application_readiness, app_id)
+
+
+@app.post("/applications/{app_id}/readiness/refresh")
+async def refresh_application_readiness(app_id: str) -> dict:
+    """Re-run discovery over the application's source and replace the stored readiness."""
+    return await run_in_threadpool(lambda: _svc().application_readiness(app_id, refresh=True))
 
 
 @app.get("/applications/{app_id}/discovery", response_model=DiscoveryResponse)

@@ -336,6 +336,7 @@ def test_reuse_does_not_need_staging_to_be_present(staged: Path, store: Path) ->
 # --- read-only ----------------------------------------------------------------
 
 
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root can write read-only files; permissions are not a control for root")
 def test_preserved_files_cannot_be_written(staged: Path, store: Path) -> None:
     info = _make(staged, store)
     victim = info.source_root / "README.md"

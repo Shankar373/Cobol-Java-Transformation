@@ -29,6 +29,8 @@ import os
 from pathlib import Path
 
 import pytest
+
+from tests.common import MINIMAL_COBOL, MINIMAL_COBOL_TEXT  # noqa: F401
 from fastapi.testclient import TestClient
 
 from api.app import app
@@ -181,7 +183,7 @@ def _seed_run_with_generated_files(
     app_id = _create_app("dl-caps")
     upload = client.post(
         f"/applications/{app_id}/upload",
-        files=[("files", ("A.cob", io.BytesIO(b"A"), "text/plain"))],
+        files=[("files", ("A.cob", io.BytesIO(MINIMAL_COBOL), "text/plain"))],
     )
     assert upload.status_code == 201, upload.text
     gen_dir = tmp_path / f"gen-{app_id}"
@@ -260,7 +262,7 @@ class TestDownloadIsCapped:
         app_id = _create_app("dl-no-artifact")
         upload = client.post(
             f"/applications/{app_id}/upload",
-            files=[("files", ("A.cob", io.BytesIO(b"A"), "text/plain"))],
+            files=[("files", ("A.cob", io.BytesIO(MINIMAL_COBOL), "text/plain"))],
         )
         assert upload.status_code == 201, upload.text
         with pytest.MonkeyPatch.context() as mp:

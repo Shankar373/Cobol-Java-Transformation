@@ -107,7 +107,8 @@ def check_tree_listing(
             proc.wait(timeout=KILL_DRAIN_SECONDS)
         except subprocess.TimeoutExpired:
             kill_tree(proc)
-        proc.stdout.close()
+        if proc.stdout is not None:
+            proc.stdout.close()
     if timed_out.is_set():
         raise IngestionError("git ls-tree timed out", code="GIT_TIMEOUT")
     if proc.returncode != 0:

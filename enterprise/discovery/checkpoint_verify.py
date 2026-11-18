@@ -66,7 +66,7 @@ def _parse_files(raw: object) -> tuple[tuple[str, str, int], ...]:
             raise _MetadataError("file entry must be an object")
         path, sha = entry.get("path"), entry.get("sha256")
         size = entry.get("size")
-        if not _is_safe_relative(path) or not isinstance(sha, str):
+        if not isinstance(path, str) or not _is_safe_relative(path) or not isinstance(sha, str):
             raise _MetadataError("file entry has an unsafe path or hash")
         if not _SHA256_RE.fullmatch(sha) or isinstance(size, bool) or not isinstance(size, int) or size < 0:
             raise _MetadataError("file entry is malformed")
@@ -281,6 +281,9 @@ def _top_level_extras(path: Path, meta: _Meta) -> list[str]:
 
 def _verify(path: Path, meta: _Meta) -> VerificationReport:
     errors = _consistency_errors(meta, path.name)
+    disk_files: dict[str, Path]
+    disk_dirs: set[str]
+    extra: set[str]
     recorded = {p: (s, n) for p, s, n in meta.files}
     source = path / SOURCE_DIR
     if source.is_symlink() or not source.is_dir():

@@ -38,3 +38,14 @@ def make_stub_verdict(
         derivation_timestamp="2024-01-01T00:00:00+00:00",
         differences=(),
     )
+
+
+#: The smallest COBOL program discovery accepts as complete.  Tests that only need *some* uploaded source (lifecycle, approval,
+#: download mechanics) use this instead of a placeholder such as ``b"A"``, which the discovery readiness gate rightly blocks.
+MINIMAL_COBOL = (
+    b"       IDENTIFICATION DIVISION.\n"
+    b"       PROGRAM-ID. A.\n"
+    b"       PROCEDURE DIVISION.\n"
+    b"           STOP RUN.\n"
+)
+MINIMAL_COBOL_TEXT = MINIMAL_COBOL.decode("ascii")

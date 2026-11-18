@@ -25,6 +25,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+from tests.common import MINIMAL_COBOL, MINIMAL_COBOL_TEXT  # noqa: F401
 from fastapi.testclient import TestClient
 
 from api.app import app
@@ -375,7 +377,7 @@ class TestJobConcurrencyLimit:
         app_b = _create_app("slot-b")
         app_c = _create_app("slot-c")
         for app_id in (app_a, app_b, app_c):
-            assert _upload(app_id, [("A.cob", b"A")]).status_code == 201
+            assert _upload(app_id, [("A.cob", MINIMAL_COBOL)]).status_code == 201
 
         with patch.object(Service, "_modernize_background", worker):
             first = client.post(f"/applications/{app_a}/modernize")
@@ -401,7 +403,7 @@ class TestJobConcurrencyLimit:
 
         monkeypatch.setenv("CONTROL_PLANE_MAX_CONCURRENT_JOBS", "1")
         app_id = _create_app("exploding-worker")
-        assert _upload(app_id, [("A.cob", b"A")]).status_code == 201
+        assert _upload(app_id, [("A.cob", MINIMAL_COBOL)]).status_code == 201
 
         def explode(self_svc, app_id_arg, run_id, *args, **kwargs):
             # Real workers fail the run before propagating; emulate that so
@@ -483,12 +485,12 @@ class TestUnknownResourcesAre404:
             resp = client.request(method, path)
             assert resp.status_code == 404, f"{method} {path} -> {resp.status_code}"
 
-        upload = _upload("app-ghost", [("A.cob", b"A")])
+        upload = _upload("app-ghost", [("A.cob", MINIMAL_COBOL)])
         assert upload.status_code == 404
 
     def test_download_without_generated_artifact_is_404(self):
         app_id = _create_app("no-artifact")
-        _upload(app_id, [("A.cob", b"A")])
+        _upload(app_id, [("A.cob", MINIMAL_COBOL)])
         with patch.object(Service, "_modernize_background", lambda *a, **k: None):
             run_id = client.post(f"/applications/{app_id}/modernize").json()["run_id"]
 

@@ -32,6 +32,8 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+
+from tests.common import MINIMAL_COBOL, MINIMAL_COBOL_TEXT  # noqa: F401
 from fastapi.testclient import TestClient
 
 from api.app import app
@@ -72,7 +74,7 @@ def _start_run(app_id: str, *, verified: bool = True) -> str:
     """
     upload = client.post(
         f"/applications/{app_id}/upload",
-        files=[("files", ("A.cob", io.BytesIO(b"A"), "text/plain"))],
+        files=[("files", ("A.cob", io.BytesIO(MINIMAL_COBOL), "text/plain"))],
     )
     assert upload.status_code == 201, upload.text
     from api.service import Service as _Service

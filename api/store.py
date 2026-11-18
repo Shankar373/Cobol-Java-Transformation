@@ -298,6 +298,16 @@ CREATE INDEX IF NOT EXISTS idx_approval_events_run ON approval_events(run_id);
 """
 
 
+_READINESS_TABLE = """
+CREATE TABLE IF NOT EXISTS source_readiness (
+    source_path TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    record TEXT NOT NULL,
+    assessed_at TEXT NOT NULL
+)
+"""
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -346,6 +356,7 @@ class Store:
 
     def _migrate(self) -> None:
         """Apply additive migrations for pre-existing databases."""
+        self._conn.execute(_READINESS_TABLE)
         cursor = self._conn.execute("PRAGMA table_info(runs)")
         columns = {row[1] for row in cursor.fetchall()}
         if "report_blob" not in columns:          # migration 2
@@ -604,6 +615,24 @@ class Store:
                 "SELECT * FROM applications WHERE id = ?", (app_id,)
             ).fetchone()
             return self._app_from_row(row)
+
+    def put_readiness(self, source_path: str, fingerprint: str, record: dict) -> None:
+        """Store the discovery readiness of one source tree (replaces any earlier record for that path)."""
+        import json
+
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO source_readiness (source_path, fingerprint, record, assessed_at) VALUES (?, ?, ?, ?)",
+                (source_path, fingerprint, json.dumps(record, sort_keys=True), _utc_now()))
+            self._conn.commit()
+
+    def get_readiness(self, source_path: str) -> tuple[str, dict] | None:
+        """``(fingerprint, record)`` for a source tree, or None when it was never assessed."""
+        import json
+
+        with self._lock:
+            row = self._conn.execute("SELECT fingerprint, record FROM source_readiness WHERE source_path = ?", (source_path,)).fetchone()
+        return (row["fingerprint"], json.loads(row["record"])) if row else None
 
     def find_application_by_name(self, name: str) -> ApplicationRecord | None:
         """Find an application by its exact name."""

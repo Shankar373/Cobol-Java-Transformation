@@ -54,6 +54,7 @@ def made(staged: Path, store: Path):
 
     ingestion = ingest_directory(staged, origin="fx")
     info = create_checkpoint(ingestion, store, origin_label="fx")
+    _unlock_dirs(info.path)
     yield info, ingestion
 
 
@@ -67,6 +68,14 @@ def _rel(info, path: Path) -> str:
 
 def _unlock(path: Path) -> None:
     os.chmod(path, 0o666)
+
+
+def _unlock_dirs(root: Path) -> None:
+    """POSIX checkpoints have read-only directories; a tamper simulation needs to add, rename or delete entries."""
+    for dirpath, dirnames, _ in os.walk(root):
+        os.chmod(dirpath, 0o755)
+        for name in dirnames:
+            os.chmod(os.path.join(dirpath, name), 0o755)
 
 
 def _rewrite_json(info, mutate) -> None:
@@ -275,6 +284,7 @@ def zip_made(staged: Path, store: Path, tmp_path: Path):
     archive = make_zip(tmp_path / "in.zip", [("a.pas", b"unit a;\n")])
     ingestion = ingest_directory(staged, origin="in.zip", kind="zip")
     info = create_checkpoint(ingestion, store, origin_label="in.zip", original_archive=archive)
+    _unlock_dirs(info.path)
     return info, ingestion, archive
 
 

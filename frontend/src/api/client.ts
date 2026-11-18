@@ -30,6 +30,8 @@
  * production), GET /health (probe).
  */
 
+import type { DiscoveryReadiness, DiscoveryReportV2, DiscoverySourceExcerpt } from './discoveryTypes';
+
 const BASE = '';
 
 // ---------------------------------------------------------------------------
@@ -1076,4 +1078,25 @@ export async function downloadDiscoveryArtefact(runId: string, artefact: Discove
     throw new ApiError(res.status, msg);
   }
   return res.blob();
+}
+
+// --- compiler/toolchain, applications, readiness and the source viewer --------------------------------------------------------
+
+export async function getDiscoveryReportV2(runId: string): Promise<DiscoveryReportV2> {
+  return request<DiscoveryReportV2>(`/discovery/runs/${runId}/report`);
+}
+
+export async function getDiscoverySource(
+  runId: string,
+  file: string,
+  line: number,
+  context = 12,
+): Promise<DiscoverySourceExcerpt> {
+  const query = new URLSearchParams({ path: file, line: String(line), context: String(context) });
+  return request<DiscoverySourceExcerpt>(`/discovery/runs/${runId}/source?${query.toString()}`);
+}
+
+/** GET /applications/{id}/readiness - the discovery gate every modernization entry point passes. */
+export async function getApplicationReadiness(appId: string): Promise<DiscoveryReadiness & { discovery_run_id: string }> {
+  return request(`/applications/${appId}/readiness`);
 }

@@ -2,10 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { tokens } from '../theme/tokens';
 import { Badge, Button, EmptyState, Header, PageContainer, SectionCard } from '../components';
 import * as api from '../api/client';
+import { ApplicationsSection } from '../components/discovery/ApplicationsSection';
+import { CompilerSection } from '../components/discovery/CompilerSection';
+import { Loc, SourceViewer } from '../components/discovery/SourceViewer';
+import type { SourceTarget } from '../components/discovery/SourceViewer';
+import type { DiscoveryReportV2 } from '../api/discoveryTypes';
 import type {
   DiscoveryArtefact,
   DiscoveryGate,
-  DiscoveryReport,
   DiscoveryRun,
   DiscoveryUnresolved,
   DiscoveryVerification,
@@ -44,7 +48,9 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
   const [label, setLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [run, setRun] = useState<DiscoveryRun | null>(null);
-  const [report, setReport] = useState<DiscoveryReport | null>(null);
+  const [report, setReport] = useState<DiscoveryReportV2 | null>(null);
+  const [viewer, setViewer] = useState<SourceTarget | null>(null);
+  const [programFilter, setProgramFilter] = useState('');
   const [unresolved, setUnresolved] = useState<DiscoveryUnresolved[]>([]);
   const [verification, setVerification] = useState<DiscoveryVerification | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,7 +74,7 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
 
   const loadResults = useCallback(async (finished: DiscoveryRun) => {
     const [rep, unres] = await Promise.all([
-      api.getDiscoveryReport(finished.run_id),
+      api.getDiscoveryReportV2(finished.run_id),
       api.getDiscoveryUnresolved(finished.run_id),
     ]);
     if (!mounted.current) return;
@@ -112,6 +118,7 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
     const mine = (token.current += 1);
     setBusy(true);
     setReport(null);
+    setViewer(null);
     setUnresolved([]);
     setVerification(null);
     try {
@@ -234,7 +241,8 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
         )}
 
         {run && (
-          <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: viewer ? 'minmax(0, 1fr) minmax(320px, 420px)' : 'minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
             <SectionCard title="Run" subtitle={`run ${run.run_id}`}>
               <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div>State: <strong data-testid="discovery-state">{run.state}</strong>
@@ -255,6 +263,13 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
             {gate && (
               <div role="status" data-testid="discovery-gate">
                 <Badge variant={GATE_TEXT[gate].variant}>{GATE_TEXT[gate].text}</Badge>
+              </div>
+            )}
+            {report && (
+              <div role="status" data-testid="readiness" style={{ fontSize: 13 }}>
+                Transformation readiness: <Badge variant={report.readiness.status === 'READY' ? 'success' : report.readiness.status === 'NOT_SUPPORTED' ? 'warning' : 'error'}>{report.readiness.status}</Badge>
+                {report.readiness.status === 'BLOCKED' && ' Modernization is refused until the blocking items below are resolved.'}
+                {report.readiness.status === 'NOT_SUPPORTED' && ` ${report.readiness.unsupported_total} unsupported item(s) will not be handled; they are listed under compiler compatibility.`}
               </div>
             )}
 
@@ -284,13 +299,18 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
                   </div>
                 </SectionCard>
 
-                <SectionCard title="Programs" count={report.programs.length} noPadding>
+                <SectionCard
+                  title="Programs"
+                  count={report.programs.length}
+                  headerRight={<input aria-label="Filter programs by name" placeholder="Filter by name" value={programFilter} onChange={(e) => setProgramFilter(e.target.value)} />}
+                  noPadding
+                >
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead><tr><th style={cell}>Program</th><th style={cell}>Source</th><th style={cell}>Calls</th><th style={cell}>Copybooks</th><th style={cell}>DB2 tables</th></tr></thead>
                     <tbody>
-                      {report.programs.map((p) => (
+                      {report.programs.filter((p) => p.name.toLowerCase().includes(programFilter.trim().toLowerCase())).map((p) => (
                         <tr key={`${p.file}:${p.name}:${p.line}`}>
-                          <td style={cell}>{p.name}</td><td style={cell}>{p.file}:{p.line}</td>
+                          <td style={cell}>{p.name}</td><td style={cell}><Loc file={p.file} line={p.line} onOpen={setViewer} /></td>
                           <td style={cell}>{p.calls.join(', ')}</td><td style={cell}>{p.copybooks.join(', ')}</td><td style={cell}>{p.db2_tables.join(', ')}</td>
                         </tr>
                       ))}
@@ -308,13 +328,16 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
                         {unresolved.map((u, i) => (
                           <tr key={`${u.file}:${u.line}:${u.to}:${i}`}>
                             <td style={cell}>{u.to}</td><td style={cell}>{u.reason}</td>
-                            <td style={cell}>{u.blocking ? 'yes' : 'no'}</td><td style={cell}>{u.file}:{u.line}</td>
+                            <td style={cell}>{u.blocking ? 'yes' : 'no'}</td><td style={cell}><Loc file={u.file} line={u.line} onOpen={setViewer} /></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   )}
                 </SectionCard>
+
+                <CompilerSection report={report} onOpen={setViewer} />
+                <ApplicationsSection applications={report.applications} onOpen={setViewer} />
 
                 <SectionCard title="Runtime dependencies" count={report.runtime_dependencies.length}>
                   <div style={{ padding: 16, fontSize: 13 }}>
@@ -349,6 +372,8 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
                 )}
               </SectionCard>
             )}
+          </div>
+          {viewer && run && <SourceViewer runId={run.run_id} target={viewer} onClose={() => setViewer(null)} />}
           </div>
         )}
       </PageContainer>

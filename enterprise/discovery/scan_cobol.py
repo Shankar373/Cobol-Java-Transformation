@@ -277,7 +277,7 @@ def _program_id(tokens: list[Token], index: int, state: _State) -> int:
         state.scan.problems.append(ScanProblem(state.path, tokens[index].line, "PROGRAM_ID_MISSING_NAME",
                                                "PROGRAM-ID has no program name"))
         return 1
-    attrs = []
+    attrs: list[str] = []
     cursor = tokens.index(name) + 1
     while cursor < len(tokens) and tokens[cursor].text != "." and tokens[cursor].upper != "AUTHOR" and len(attrs) < 6:
         if tokens[cursor].kind == "word":

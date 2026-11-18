@@ -188,6 +188,8 @@ class ModernizeResponse(BaseModel):
     run_id: str
     application_id: str
     stage: RunStage
+    #: Discovery readiness the run was started under (``NOT_SUPPORTED`` lists what the product cannot handle).
+    readiness: dict | None = None
 
 
 class ModernizeOptions(BaseModel):
@@ -262,6 +264,8 @@ class IngestResponse(BaseModel):
     discovery: dict
     detected_name: str = ""
     top_level_entries: list[str] = Field(default_factory=list)
+    #: Estate discovery readiness of the uploaded source (compiler check, unresolved items, unsupported features).
+    readiness: dict | None = None
 
 
 class DiscoveryResponse(BaseModel):

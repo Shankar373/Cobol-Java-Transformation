@@ -15,7 +15,7 @@ import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .errors import Diagnostic, DiagnosticSink, IngestionError, LimitExceededError
+from .errors import DiagnosticSink, IngestionError, LimitExceededError
 from .hashing import sha256_file
 from .limits import DEFAULT_LIMITS, Limits
 from .treelimits import TreeBudget
@@ -116,7 +116,7 @@ class IngestionResult:
     original_archive: Path | None = None
     entry_count: int = 0
     total_bytes: int = 0
-    diagnostics: list[Diagnostic] = field(default_factory=list)
+    diagnostics: list[dict[str, object]] = field(default_factory=list)
     limits: Limits = DEFAULT_LIMITS
 
     @property

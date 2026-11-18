@@ -35,7 +35,7 @@ from api.workload_contract import (
     load_declared_workload,
     resolve_certification_contract,
 )
-from tests.common import make_stub_verdict
+from tests.common import MINIMAL_COBOL, MINIMAL_COBOL_TEXT, make_stub_verdict
 
 client = TestClient(app)
 
@@ -60,7 +60,7 @@ def _create_app(name: str, workload_id: str) -> str:
     app_id = resp.json()["id"]
     upload = client.post(
         f"/applications/{app_id}/upload",
-        files=[("files", ("A.cob", io.BytesIO(b"       ID DIVISION.\n"), "text/plain"))],
+        files=[("files", ("A.cob", io.BytesIO(MINIMAL_COBOL), "text/plain"))],
     )
     assert upload.status_code == 201, upload.text
     return app_id

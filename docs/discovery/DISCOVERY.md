@@ -100,6 +100,11 @@ Runs execute on a two-worker pool and are recorded in `runs/<id>.json`; after a 
 * Discovery runs in-process on a thread pool (like the rest of the control plane); there is no external worker queue, retention or quota for checkpoints.
 * The UI lists the report; it has no graph visualisation.
 
+## Compiler, application and readiness discovery
+
+See [`COMPILER_AND_APPLICATION_DISCOVERY.md`](COMPILER_AND_APPLICATION_DISCOVERY.md): open-source compiler detection and syntax-only compatibility, unsupported proprietary features, entry points,
+application boundaries, cross-application relationships, and the readiness gate that `modernize` and `revalidate` enforce.
+
 ## Tests
 
 `tests/discovery/` (backend, about 700 tests) and `frontend/src/__tests__/discovery.test.tsx`. Coverage numbers are in `docs/discovery/COVERAGE.md`.

@@ -358,7 +358,7 @@ def _literal_ip(host: str) -> str | None:
         return None
 
 
-def _default_resolver(host: str, port: object, *_a: object, **_k: object):
+def _default_resolver(host: str, port: int | str | None, *_a: object, **_k: object):
     return socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
 
 

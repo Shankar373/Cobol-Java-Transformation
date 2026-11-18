@@ -67,7 +67,7 @@ def test_zip_run_succeeds_and_exposes_every_artefact(client: TestClient, service
     run = wait(client, response.json()["run_id"])
     assert run["state"] == "succeeded" and run["gate_status"] == "INCOMPLETE" and run["ready_for_transformation"] is False
     assert run["summary"]["files"] == 14 and run["checkpoint_id"].startswith("CP-")
-    assert [s["id"] for s in run["steps"]] == ["ingestion", "checkpoint", "scanning_inventory", "dependency_analysis", "report"]
+    assert [s["id"] for s in run["steps"]] == ["ingestion", "checkpoint", "scanning_inventory", "dependency_analysis", "compiler_discovery", "report"]
 
     base = f"/discovery/runs/{run['run_id']}"
     report = client.get(f"{base}/report").json()

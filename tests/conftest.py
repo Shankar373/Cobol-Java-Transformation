@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 
 _DOCKER_LANE = os.environ.get("RUN_DOCKER_TESTS") == "1"
+# Discovery compiler checks start containers; the suite turns them off by default and the tests that cover them opt in explicitly.
+os.environ.setdefault("DISCOVERY_COMPILER_BACKEND", "none")
 _LANE_FILE = Path(__file__).with_name("docker_lane.txt")
 _UNREACHABLE_DOCKER_HOST = "tcp://127.0.0.1:1"
 

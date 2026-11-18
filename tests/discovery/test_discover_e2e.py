@@ -318,4 +318,4 @@ def test_progress_reports_every_step_in_order(tmp_path: Path, store: Path) -> No
     discover(DiscoveryRequest("directory", str(write_cobol_estate(tmp_path / "estate"))), store,
              progress=lambda step, status, message: seen.append((step, status)))
     completed = [step for step, status in seen if status == "completed"]
-    assert completed == ["ingestion", "checkpoint", "scanning_inventory", "dependency_analysis", "report"]
+    assert completed == ["ingestion", "checkpoint", "scanning_inventory", "dependency_analysis", "compiler_discovery", "report"]

@@ -21,7 +21,7 @@ _FORMAT_DIRECTIVE = re.compile(r">>\s*SOURCE\s+(?:FORMAT\s+)?(?:IS\s+)?(FREE|FIX
 _MF_SET = re.compile(r"^\s*\$\s*SET\b(.*)$", re.IGNORECASE)
 _MF_FORMAT = re.compile(r"SOURCEFORMAT\s*[\"'(]*\s*(FREE|FIXED|VARIABLE)", re.IGNORECASE)
 #: Library-manager include cards (Panvalet ``-INC``, Librarian ``++INCLUDE``) sit in column 1, outside program text.
-_CARD_LINE = re.compile(r"^(?:-INC|\+\+INCLUDE|%INCLUDE)\s", re.IGNORECASE)
+_CARD_LINE = re.compile(r"^(?:-INC|\+\+INCLUDE|%INCLUDE|CBL|PROCESS)\s", re.IGNORECASE)
 _WORD = re.compile(r"[A-Za-z0-9_$#@][A-Za-z0-9_$#@-]*")
 _NUMBER = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
@@ -85,7 +85,7 @@ def detect_format(text: str) -> str:
             return match.group(1).lower()
         line = raw.rstrip("\r\n").expandtabs(8)
         stripped = line.strip()
-        if not stripped or _is_fixed_comment(line) or stripped.startswith("*>") or line.startswith(("*", "/")):
+        if not stripped or _is_fixed_comment(line) or stripped.startswith("*>") or line.startswith(("*", "/")) or _CARD_LINE.match(line):
             continue
         return "free" if any(ch not in "0123456789 " for ch in line[:6]) else "fixed"
     return "fixed"

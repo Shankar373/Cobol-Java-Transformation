@@ -8,9 +8,11 @@ and evidence, whether discovery is complete enough to start modernizing; it neve
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any
 
 from .graph import BLOCKING_REASONS, DependencyGraph, Edge
 from .inventory import DirectoryEntry, FileRecord
+from .readiness import evaluate_readiness
 from .resolve import GraphBuild
 from .runtime_deps import dialect_report, runtime_dependencies
 
@@ -32,6 +34,11 @@ LIMITATIONS = (
     "reported as missing, and DD overrides are honoured for the common step.dd form.",
     "Archives nested inside the upload are inventoried but not expanded.",
     "No LLM and no network access are used anywhere in discovery (apart from an explicit remote Git fetch).",
+    "Compiler checks use open-source tools only (GnuCOBOL cobc, locally or in the project's container image). A GnuCOBOL syntax check is not "
+    "a verdict from the customer's production compiler; IBM Enterprise COBOL, the CICS and Db2 translators, IMS and IBM MQ are proprietary "
+    "and are reported as unsupported, never emulated or silently accepted.",
+    "When no open-source COBOL compiler is available the compatibility check is recorded as not attempted and every other discovery check "
+    "still runs.",
 )
 
 _SCAN_ERROR_CODES = frozenset({
@@ -185,16 +192,19 @@ def _check(check_id: str, passed: bool, detail: str) -> dict[str, object]:
 
 def build_report(*, checkpoint: dict[str, object], provenance: dict[str, object], records: list[FileRecord],
                  directories: list[DirectoryEntry], build: GraphBuild, diagnostics: list[dict[str, object]],
-                 limits: dict[str, object], checkpoint_ok: bool, tool_version: str) -> dict[str, object]:
+                 limits: dict[str, object], checkpoint_ok: bool, tool_version: str, toolchain: dict[str, Any] | None = None,
+                 compatibility: dict[str, Any] | None = None, applications: dict[str, Any] | None = None) -> dict[str, Any]:
     graph = build.graph
     by_class = Counter(r.cls for r in records)
     gate = completeness(records, graph, checkpoint_ok=checkpoint_ok, expected_files=int(checkpoint["file_count"]),  # type: ignore[call-overload]
                         diagnostics_dropped=sum(1 for d in diagnostics if d.get("code") == "DIAGNOSTICS_TRUNCATED"))
     scanner_problems = [{"code": p.code, "file": r.path, "line": p.line, "message": p.message}
                         for r in sorted(records, key=lambda r: r.path) if r.scan for p in r.scan.problems]
-    return {
+    report: dict[str, Any] = {
+        "applications": applications or {"applications": [], "entry_points": [], "relationships": []},
         "build": _build(records),
         "checkpoint": checkpoint,
+        "compatibility": compatibility or {"programs": [], "summary": {}, "tools": []},
         "cics": _node_summaries(graph, {"transaction", "cics-file", "bms-mapset", "bms-map", "cics-queue"})
         + _node_summaries(graph, {"program"}, {"cics-link", "cics-xctl", "cics-load"}),
         "completeness": gate,
@@ -215,6 +225,7 @@ def build_report(*, checkpoint: dict[str, object], provenance: dict[str, object]
         "runtime_dependencies": runtime_dependencies(records),
         "scanner_problems": scanner_problems,
         "schema_version": REPORT_SCHEMA,
+        "toolchain": toolchain or {"required": [], "tools": []},
         "summary": {
             "bytes": sum(r.size for r in records), "directories": len(directories), "files": len(records),
             "files_by_class": dict(sorted(by_class.items())),
@@ -225,9 +236,11 @@ def build_report(*, checkpoint: dict[str, object], provenance: dict[str, object]
         "utilities": _node_summaries(graph, {"utility", "runtime"}),
         "vsam": _vsam(records, build),
     }
+    report["readiness"] = evaluate_readiness(report)
+    return report
 
 
-def render_summary(report: dict[str, object]) -> str:
+def render_summary(report: dict[str, Any]) -> str:
     """Deterministic Markdown summary of ``report`` for people (the JSON is the contract)."""
     gate = report["completeness"]
     summary = report["summary"]

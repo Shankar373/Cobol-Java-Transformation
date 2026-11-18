@@ -37,8 +37,12 @@ ARTEFACTS: dict[str, tuple[str, str]] = {
     "inventory": ("file-inventory.json", "application/json"),
     "unresolved": ("unresolved-references.json", "application/json"),
     "summary": ("discovery-summary.md", "text/markdown"),
+    "compatibility": ("compiler-compatibility.json", "application/json"),
+    "applications": ("applications.json", "application/json"),
+    "readiness": ("transformation-readiness.json", "application/json"),
 }
 _TERMINAL = ("succeeded", "failed", "interrupted")
+MAX_EXCERPT_FILE_BYTES = 8 * 1024 * 1024
 
 
 class RunNotFound(Exception):
@@ -87,6 +91,7 @@ class DiscoveryRunService:
         for directory in (self.store, self.runs_dir, self.uploads_dir):
             directory.mkdir(parents=True, exist_ok=True)
         self._limits = limits
+        self.limits = limits
         self._policy = network_policy or NetworkPolicy()
         self._lock = threading.Lock()
         self._records: dict[str, RunRecord] = {}
@@ -183,6 +188,19 @@ class DiscoveryRunService:
             self._save(record)
 
     # -- reads ----------------------------------------------------------------------------------------------------------
+    def register_result(self, result: DiscoveryResult, *, kind: str, label: str) -> RunRecord:
+        """Record a discovery that ran inline (for example during ingest) as a finished run, so its report is browsable."""
+        record = RunRecord(secrets.token_hex(16), kind, _safe_label(label, kind), created_at=_utc_now())
+        with self._lock:
+            self._records[record.run_id] = record
+        self._finish(record.run_id, result)
+        with self._lock:
+            record.steps = [{"id": sid, "status": "completed", "message": ""} for sid, _ in
+                            (("ingestion", ""), ("checkpoint", ""), ("scanning_inventory", ""), ("dependency_analysis", ""),
+                             ("compiler_discovery", ""), ("report", ""))]
+            self._save(record)
+        return RunRecord(**record.as_dict())
+
     def get(self, run_id: str) -> RunRecord:
         with self._lock:
             record = self._records.get(run_id) if RUN_ID_RE.fullmatch(run_id) else None
@@ -214,6 +232,32 @@ class DiscoveryRunService:
         return {"checkpoint_id": record.checkpoint_id, "digest_ok": report.digest_ok, "errors": list(report.errors),
                 "extra": list(report.extra), "missing": list(report.missing), "modified": list(report.modified),
                 "ok": report.ok}
+
+    def source_excerpt(self, run_id: str, path: str, line: int, context: int) -> dict[str, Any]:
+        """Source lines around ``line`` from the run's checkpoint; ``path`` must be an inventoried file (no traversal possible)."""
+        record = self.get(run_id)
+        if record.state != "succeeded":
+            raise RunNotFound(run_id)
+        checkpoint = checkpoint_dir(self.store, record.checkpoint_id)
+        inventory = json.loads((self.store / "discoveries" / record.checkpoint_id / "file-inventory.json").read_text(encoding="utf-8"))
+        known = {f["path"]: f for f in inventory["files"]}
+        entry = known.get(path)
+        if entry is None or entry["size"] > MAX_EXCERPT_FILE_BYTES:
+            raise RunNotFound(run_id)
+        data = (checkpoint / "source" / Path(*path.split("/"))).read_bytes()
+        from .textio import decode_source
+
+        decoded = decode_source(data)
+        if decoded.binary:
+            raise RunNotFound(run_id)
+        lines = decoded.text.splitlines()
+        if not 1 <= line <= max(len(lines), 1):
+            raise RunNotFound(run_id)
+        context = max(0, min(context, 100))
+        first, last = max(1, line - context), min(len(lines), line + context)
+        return {"encoding": decoded.encoding, "file": path, "first_line": first, "line": line, "total_lines": len(lines),
+                "lines": [{"number": n, "text": lines[n - 1][:400]} for n in range(first, last + 1)],
+                "class": entry["class"], "sha256": entry["sha256"]}
 
     def shutdown(self, wait: bool = True) -> None:
         self._pool.shutdown(wait=wait)
