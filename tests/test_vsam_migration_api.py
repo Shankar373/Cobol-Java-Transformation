@@ -65,6 +65,9 @@ def client(tmp_path, monkeypatch):
         def get_application(self, app_id):
             return _App()
 
+        def require_source_ready(self, app_id):  # the discovery gate has its own tests (tests/discovery/test_readiness_gating.py)
+            return {"allowed": True}
+
     monkeypatch.setattr(api_app, "_svc", lambda: _Svc())
     monkeypatch.setenv("CONTROL_PLANE_WORKSPACE_DIR", str(tmp_path / "work"))
     return TestClient(api_app.app)
@@ -330,6 +333,9 @@ def test_a_stored_migration_is_readable_after_a_process_restart(client, tmp_path
     class _Svc:
         def get_application(self, app_id):
             return _App()
+
+        def require_source_ready(self, app_id):  # the discovery gate has its own tests (tests/discovery/test_readiness_gating.py)
+            return {"allowed": True}
 
     # a new client and service object: the result must come from the files under the workspace alone
     monkeypatch.setattr(api_app, "_svc", lambda: _Svc())

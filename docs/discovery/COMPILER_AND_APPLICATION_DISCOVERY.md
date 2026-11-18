@@ -24,7 +24,7 @@ A pass means GnuCOBOL accepts the source in that dialect. It is **not** a verdic
 |---|---|
 | GnuCOBOL `cobc` 3.1.2 / 3.2 | the checker (local or container); the same family the platform already uses as its oracle |
 | GCC COBOL front end `gcobol` (GCC 15+) | probed and reported; not used for checking yet (no corpus evidence for it) |
-| `ocesql` (Open Cobol ESQL, PostgreSQL) | probed; when installed, a program whose only proprietary feature is `EXEC SQL` is checked instead of skipped |
+| `ocesql` (Open Cobol ESQL, PostgreSQL) | probed and reported only: no precompile step is run, so `EXEC SQL` programs are never syntax-checked (`NOT_ATTEMPTED_SQL_PRECOMPILER`) |
 | TinyCOBOL, OpenCOBOL 1.x | not used: unmaintained and superseded by GnuCOBOL |
 | IBM Enterprise COBOL, Micro Focus, CICS and Db2 translators, IMS, IBM MQ | proprietary: **not provided, never emulated**; reported as unsupported (below) |
 
@@ -47,11 +47,11 @@ A pass means GnuCOBOL accepts the source in that dialect. It is **not** a verdic
 | State | Meaning | Effect |
 |---|---|---|
 | `BLOCKED` | discovery is incomplete (a blocking reference is unresolved, a source file could not be scanned, the checkpoint does not verify, a nested archive is unexpanded, discovery itself was refused) | modernization is refused with HTTP 409 and the missing items; no run is created |
-| `NOT_SUPPORTED` | complete, but programs use constructs open-source tooling cannot check or GnuCOBOL rejects | allowed; the unsupported items and compiler errors are listed on the ingest and modernize responses and in the report |
-| `READY` | nothing blocks, nothing unsupported | allowed |
+| `NOT_SUPPORTED` | complete, but programs use constructs open-source tooling cannot check, GnuCOBOL rejects them, **or the compiler check did not run** (`unverified`: no compiler, tool failure, time budget, blocked dependency) | allowed; the unsupported items and compiler errors are listed on the ingest and modernize responses and in the report |
+| `READY` | nothing blocks, nothing unsupported, **and every compilable program received a compiler verdict** | allowed |
 
 Where it is enforced (`api/service.py`): ingest assesses and stores the readiness of the new source tree; **`modernize`** and **`revalidate`** call `_require_ready`, which reuses the stored
-record while the tree is unchanged (size/mtime fingerprint) and otherwise re-runs discovery. A source tree that cannot be assessed is `BLOCKED`, never ready. `GET /applications/{id}/readiness`
+record while the tree is unchanged (a SHA-256 of every file's content, plus the toolchain setting and the policy version) and otherwise re-runs discovery. A source tree that cannot be assessed is `BLOCKED`, never ready. `GET /applications/{id}/readiness`
 returns the record; `POST .../readiness/refresh` re-assesses. VSAM dataset migration does not consume application source and is not gated.
 
 Existing tests that uploaded the placeholder `b"A"` as COBOL were changed to upload a minimal valid program (`tests/common.py::MINIMAL_COBOL`): the gate rightly treats `b"A"` as a COBOL file
@@ -76,7 +76,7 @@ checkpoint (`GET /discovery/runs/{id}/source`, restricted to inventoried files).
 ## Limits (actual)
 
 * The check is syntax-only and per file; it does not link, run, or compare behaviour. Programs that need a missing copybook or callee are not checked.
-* No IBM, Micro Focus, CICS, Db2, IMS or MQ tooling exists here, so those programs are inventoried and graphed but never compiled; Db2 `EXEC SQL` is checked only when `ocesql` is installed.
+* No IBM, Micro Focus, CICS, Db2, IMS or MQ tooling exists here, so those programs are inventoried and graphed but never compiled; Db2 `EXEC SQL` programs are never checked (ocesql is probed but not integrated).
 * Dialect selection for `-std=` is indicative (from source signals); a wrong guess can produce compiler errors that the customer's compiler would not.
 * A container-backed check needs Docker and the image; when absent the backend is `none` and every program is `NOT_ATTEMPTED_NO_COMPILER`.
 * Application boundaries are structural (coupling in the graph), not business domains; two applications that only share a database are separate and related.

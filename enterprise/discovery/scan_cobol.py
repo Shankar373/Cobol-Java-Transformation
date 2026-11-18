@@ -45,7 +45,7 @@ def _raw_cards(text: str) -> list[tuple[int, int, str]]:
     found = []
     for number, raw in enumerate(text.splitlines(), start=1):
         upper = raw.upper()
-        if "IDENTIFICATION DIVISION" in upper or re.match(r"^\s*(?:\d{6})?\s*ID\s+DIVISION", upper):
+        if "IDENTIFICATION DIVISION" in upper or re.match(r"^\s*(?:\d{6}\s*)?ID\s+DIVISION", upper):
             break
         match = _CARD.match(raw)
         if match:

@@ -15,6 +15,7 @@ from typing import Any
 
 from .graph import BLOCKING_REASONS, DependencyGraph, Edge
 from .inventory import FileRecord
+from .readiness import UNVERIFIED_VERDICTS
 
 __all__ = ["build_applications", "ENTRY_KINDS"]
 
@@ -133,7 +134,8 @@ def build_applications(records: Sequence[FileRecord], graph: DependencyGraph,
         features = sorted({f["feature"] for row in compile_rows for f in row["unsupported_features"]})
         blocking = [e for e in unresolved if e.reason in BLOCKING_REASONS]
         compile_errors = sorted(r["file"] for r in compile_rows if r["verdict"] == "COMPILE_ERRORS")
-        status = "BLOCKED" if blocking else ("NOT_SUPPORTED" if features or compile_errors else "READY")
+        unverified = sorted(r["file"] for r in compile_rows if r["verdict"] in UNVERIFIED_VERDICTS)
+        status = "BLOCKED" if blocking else ("NOT_SUPPORTED" if features or compile_errors or unverified else "READY")
         applications.append({
             "blocking_unresolved": [{"file": e.file, "line": e.line, "reason": e.reason, "to": e.dst} for e in blocking[:50]],
             "compile_errors": compile_errors,
@@ -142,7 +144,7 @@ def build_applications(records: Sequence[FileRecord], graph: DependencyGraph,
             "jobs": jobs, "members": sorted(nodes),
             "name": _app_name(jobs, programs, app_entries, app_id), "programs": programs,
             "readiness": status, "resources": sorted(resources.values(), key=lambda r: str(r["id"])),
-            "unresolved_total": len(unresolved), "unsupported_features": features,
+            "unresolved_total": len(unresolved), "unsupported_features": features, "unverified": unverified,
         })
     applications.sort(key=lambda a: (a["name"], a["id"]))
     return {"applications": applications, "entry_points": entries, "relationships": _relationships(applications)}

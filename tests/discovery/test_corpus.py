@@ -11,6 +11,7 @@ from enterprise.discovery.classify import classify
 from enterprise.discovery.compilers import ToolchainConfig
 from enterprise.discovery.discover import DiscoveryRequest, discover
 from enterprise.discovery.model import rmtree_force
+from tests.discovery.test_compilers_applications import FakeCobc
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 WORKLOADS = sorted(p for p in FIXTURES.glob("workload-*") if p.is_dir())
@@ -19,13 +20,17 @@ WORKLOADS = sorted(p for p in FIXTURES.glob("workload-*") if p.is_dir())
 EXPECTED_BLOCKED = {"workload-jcl"}  # references programs and a procedure that are deliberately not in the fixture
 
 
+def _fake_toolchain() -> ToolchainConfig:
+    return ToolchainConfig(backend="local", runner=FakeCobc(), which=lambda name: "/fake/cobc" if name == "cobc" else None)
+
+
 @pytest.fixture(scope="module")
 def results(tmp_path_factory):
     store = tmp_path_factory.mktemp("corpus-store")
     out = {}
     for index, directory in enumerate(WORKLOADS):
         source = directory / "cobol" if (directory / "cobol").is_dir() else directory
-        out[directory.name] = discover(DiscoveryRequest("directory", str(source)), store / f"s{index}", toolchain=ToolchainConfig(backend="none"))
+        out[directory.name] = discover(DiscoveryRequest("directory", str(source)), store / f"s{index}", toolchain=_fake_toolchain())
     yield out
     rmtree_force(store)
 

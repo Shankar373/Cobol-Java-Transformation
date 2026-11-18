@@ -46,10 +46,12 @@ def zip_bytes(files: dict[str, str]) -> bytes:
 
 
 @pytest.fixture()
-def api(tmp_path: Path, monkeypatch):
+def api(tmp_path: Path, monkeypatch, request):
     for name in ("CONTROL_PLANE_API_TOKEN", "CONTROL_PLANE_ROLE_TOKENS"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("DISCOVERY_COMPILER_BACKEND", "none")
+    if not getattr(request, "param", None) == "no-compiler":
+        monkeypatch.setattr(ToolchainConfig, "from_environment", classmethod(lambda cls: FAKE))  # a compiler that verifies
     svc = DiscoveryRunService(tmp_path / "discovery")
     discovery_routes.reset_service_for_tests(svc)
     yield TestClient(app)
@@ -116,6 +118,16 @@ def test_unsupported_constructs_are_listed_on_the_run_request_and_never_reported
     started = modernize(api, app_id)
     assert started.status_code == 202 and started.json()["readiness"]["status"] == "NOT_SUPPORTED"
     assert started.json()["readiness"]["unsupported"][0]["note"]
+
+
+@pytest.mark.parametrize("api", ["no-compiler"], indirect=True)
+def test_no_compiler_never_reads_as_ready_but_never_blocks_either(api: TestClient) -> None:
+    app_id = new_app(api, "gate-nocompiler")
+    readiness = ingest(api, app_id, COMPLETE).json()["readiness"]
+    assert readiness["status"] == "NOT_SUPPORTED" and readiness["allowed"] is True
+    assert readiness["unverified_total"] == 2 and {u["reason"] for u in readiness["unverified"]} == {"NOT_ATTEMPTED_NO_COMPILER"}
+    started = modernize(api, app_id)
+    assert started.status_code == 202 and started.json()["readiness"]["unverified_total"] == 2
 
 
 def test_readiness_endpoint_returns_the_stored_record_and_refresh_reassesses(api: TestClient) -> None:
@@ -325,3 +337,24 @@ def test_real_gnucobol_container_checks_real_programs_and_maps_diagnostics_to_li
     assert bad["diagnostics"][0]["line"] in (4, 5)
     assert {t["tool"]: t["available"] for t in compat["tools"]}["cobc"] is True
     assert artefact(result, "transformation-readiness.json")["compile_errors"][0]["file"] == "src/BAD.cbl"
+
+
+def test_fingerprint_follows_content_not_size_or_mtime(tmp_path: Path) -> None:
+    from api.readiness import fingerprint
+
+    target = tmp_path / "P.cbl"
+    target.write_bytes(b"       PROGRAM-ID. AAAA.\n")
+    before, stamp = fingerprint(tmp_path), target.stat()
+    target.write_bytes(b"       PROGRAM-ID. BBBB.\n")  # same size
+    import os
+
+    os.utime(target, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))  # same mtime
+    assert fingerprint(tmp_path) != before
+
+
+def test_vsam_migration_passes_the_same_readiness_gate(api: TestClient) -> None:
+    app_id = new_app(api, "gate-vsam")
+    broken = {**COMPLETE, "src/MAIN.cbl": COMPLETE["src/MAIN.cbl"].replace("COPY LAYOUT.", "COPY GONECPY.")}
+    assert ingest(api, app_id, broken).json()["readiness"]["status"] == "BLOCKED"
+    refused = api.post(f"/applications/{app_id}/vsam/migrate", files={"dataset": ("d.dat", b"x")}, data={"options": "{}"})
+    assert refused.status_code == 409 and "GONECPY" in refused.json()["detail"]

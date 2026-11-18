@@ -65,6 +65,8 @@ export interface DiscoveryReadiness {
   unsupported_total: number;
   unsupported: { file: string; feature: string; label: string; note: string; stops_check: boolean; evidence: { label: string; line: number }[] }[];
   compile_errors: { file: string; dialect: string; diagnostics: { line: number; message: string }[] }[];
+  unverified_total: number;
+  unverified: { file: string; reason: string }[];
 }
 
 export interface DiscoveryReportV2 extends DiscoveryReport {

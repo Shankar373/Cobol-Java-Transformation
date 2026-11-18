@@ -37,6 +37,7 @@ class ExtractLimits:
     max_expanded_bytes: int = 4 * 1024**3
     max_file_bytes: int = 512 * 1024**2
     max_compression_ratio: int = 200  # declared size over compressed size, per file
+    ratio_floor_bytes: int = 1024**2  # smaller entries are bounded by the byte limits; blank-padded COBOL legitimately compresses >200:1
     max_depth: int = 40
     max_path_length: int = 1024
     symlinks: str = "refuse"  # "refuse" fails the archive; "skip" leaves them out and records them
@@ -126,7 +127,7 @@ def _extract(archive: Path, root: Path, limits: ExtractLimits) -> ExtractionResu
             seen.add(fold)
             if info.file_size > limits.max_file_bytes:
                 raise ArchiveRefusal("ARCHIVE_FILE_TOO_LARGE", f"entry {name[:80]!r} declares {info.file_size} bytes")
-            if info.compress_size and info.file_size / info.compress_size > limits.max_compression_ratio:
+            if info.file_size > limits.ratio_floor_bytes and info.compress_size and info.file_size / info.compress_size > limits.max_compression_ratio:
                 raise ArchiveRefusal("ARCHIVE_BOMB", f"entry {name[:80]!r} compresses more than "
                                      f"{limits.max_compression_ratio}:1")
             written, digest = _write(zf, info, root, name, limits, total)

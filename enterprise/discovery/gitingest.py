@@ -80,6 +80,16 @@ _ENV_ALLOW = frozenset({
 })
 
 
+_NO_CONVERSION_ATTRIBUTES = "* -text -eol -ident -filter -working-tree-encoding -export-subst\n"
+
+
+def _disable_attribute_conversions(repo: Path) -> None:
+    """Make ``git checkout`` write blob bytes unchanged whatever the repository's .gitattributes say."""
+    info = repo / ".git" / "info"
+    info.mkdir(parents=True, exist_ok=True)
+    (info / "attributes").write_text(_NO_CONVERSION_ATTRIBUTES, encoding="ascii", newline="\n")
+
+
 def resolve_git_source(source: str) -> tuple[str, str]:
     """Classify *source* as ``("local", path)`` or raise.
 
@@ -410,6 +420,12 @@ def checkout_verify_inventory(
 
     # Byte-preserving checkout: never convert line endings, never create
     # symlinks, never follow file-mode bits from a foreign filesystem.
+    # ``core.autocrlf`` alone does not stop a repository's own .gitattributes
+    # (``text eol=crlf``, ``ident``, ``filter=``, ``working-tree-encoding``): the
+    # per-repository ``info/attributes`` file outranks .gitattributes, so it
+    # switches every conversion off and the staged bytes are the committed
+    # bytes on every host.
+    _disable_attribute_conversions(dest)
     checkout_args = [
         "-c",
         "core.autocrlf=false",

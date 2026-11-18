@@ -409,3 +409,22 @@ def test_repository_input_has_no_staging_paths_in_any_artefact(tmp_path: Path, g
         text = (result.outdir / name).read_text(encoding="utf-8")
         assert "discovery-stage-" not in text, name
         assert str(tmp_path) not in text, name
+
+
+def test_gitattributes_conversions_never_change_the_committed_bytes(tmp_path: Path) -> None:
+    """``.gitattributes`` (eol=crlf, ident, text=auto) must not alter staged bytes: the digest is host-independent."""
+    repo = tmp_path / "attr-repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    committed = {"A.cbl": b"       PROGRAM-ID. A.\n       STOP RUN.\n", "B.cpy": b"01 X PIC X. $Id$\n", "C.txt": b"one\ntwo\n"}
+    for name, data in committed.items():
+        (repo / name).write_bytes(data)
+    (repo / ".gitattributes").write_bytes(b"*.cbl text eol=crlf\n*.cpy ident\n* text=auto\n")
+    _git(repo, "add", "-A")
+    _git(repo, *COMMITTER, "commit", "-q", "-m", "attrs")
+    staging = _fresh_staging(tmp_path, "stage")
+    result = ingest_git(str(repo), staging, commit=_pin(repo))
+    root = staging / "repo" if (staging / "repo").is_dir() else staging
+    for name, data in committed.items():
+        assert (root / name).read_bytes() == data, name
+    assert {f.path for f in result.files} >= set(committed)

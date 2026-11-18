@@ -27,7 +27,7 @@ const REPORT = {
   runtime_dependencies: [{ category: 'subsystem', name: 'CICS', evidence_count: 1 }],
   limitations: ['Discovery is lexical.'],
   readiness: {
-    status: 'NOT_SUPPORTED', allowed: true, blockers: [], unsupported_total: 1,
+    status: 'NOT_SUPPORTED', allowed: true, blockers: [], unsupported_total: 1, unverified_total: 0, unverified: [],
     unsupported: [{ file: 'src/ORDERS.cbl', feature: 'exec-cics', label: 'EXEC CICS', note: 'needs the IBM CICS translator', stops_check: true, evidence: [{ label: 'EXEC CICS LINK', line: 5 }] }],
     compile_errors: [],
   },

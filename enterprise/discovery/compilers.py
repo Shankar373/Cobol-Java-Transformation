@@ -57,8 +57,8 @@ FEATURE_CATALOG: dict[str, dict[str, object]] = {
     "exec-dli": {"label": "EXEC DLI / IMS DL/I calls", "stops_check": True,
                  "note": "needs the IBM IMS DL/I translator and runtime; no open-source equivalent; simulator-only in this product"},
     "exec-sql-db2": {"label": "EXEC SQL (Db2 precompiler)", "stops_check": True,
-                     "note": "the IBM Db2 precompiler is proprietary; ocesql (open source, PostgreSQL) covers a bounded SQL subset "
-                             "and is used only when it is installed"},
+                     "note": "the IBM Db2 precompiler is proprietary; ocesql (open source, PostgreSQL) is probed and reported but this "
+                             "discovery does not run a precompile step, so EXEC SQL programs are never syntax-checked here"},
     "ibm-mq": {"label": "IBM MQ API calls", "stops_check": False,
                "note": "the program is checked, but the IBM MQ client libraries are proprietary and are not provided; MQ is simulator-only"},
     "language-environment": {"label": "IBM Language Environment callable services (CEE*)", "stops_check": False,
@@ -360,7 +360,6 @@ def assess_compatibility(records: Sequence[FileRecord], graph: DependencyGraph, 
     """Syntax-check every checkable COBOL program and report a verdict, diagnostics and unsupported features per program."""
     dialects = dialects or {}
     languages = {r.path: r.cls for r in records if r.cls in ("assembler", "pli", "rexx", "clist")}
-    ocesql = any(p.tool == "ocesql" and p.available for p in probes)
     blocked_files = {e.file for e in graph.unresolved() if e.reason in BLOCKING_REASONS and e.relation in ("copies", "calls")}
     started = clock()
     rows: dict[str, dict[str, object]] = {}
@@ -376,8 +375,6 @@ def assess_compatibility(records: Sequence[FileRecord], graph: DependencyGraph, 
                                     "unsupported_features": [_feature_row(f, items) for f, items in sorted(features.items())]}
         rows[record.path] = entry
         stopper = next((f for f in sorted(features) if FEATURE_CATALOG[f]["stops_check"]), "")
-        if stopper == "exec-sql-db2" and ocesql and not any(FEATURE_CATALOG[f]["stops_check"] and f != "exec-sql-db2" for f in features):
-            stopper = ""
         if stopper:
             entry.update(verdict="NOT_ATTEMPTED_SQL_PRECOMPILER" if stopper == "exec-sql-db2" else "NOT_ATTEMPTED_PROPRIETARY",
                          reason=str(FEATURE_CATALOG[stopper]["note"]))

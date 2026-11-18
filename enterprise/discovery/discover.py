@@ -14,6 +14,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -209,7 +210,7 @@ def _scan_record(source_root: Path, file: Any, limits: Limits) -> FileRecord:
         guess = classify(file.path, None)
         record.cls, record.evidence = guess.cls, guess.evidence + ("larger than max_source_bytes; content not read",)
         record.blocker = f"size {file.size} exceeds max_source_bytes={limits.max_source_bytes}" \
-            if guess.cls in _SOURCE_BLOCKER_CLASSES | {"unknown"} and guess.cls != "unknown" else ""
+            if guess.cls in _SOURCE_BLOCKER_CLASSES | {"unknown"} else ""  # an oversized unknown member may be COBOL: never silently dropped
         return record
     try:
         data = (source_root / file.path).read_bytes()
@@ -318,11 +319,33 @@ def _publish(report: dict[str, Any], records: list[FileRecord], directories: lis
     outputs = {}
     for key, text in payloads.items():
         target = outdir / _OUTPUTS[key]
-        temporary = outdir / f".{_OUTPUTS[key]}.tmp"
-        temporary.write_text(text, encoding="utf-8", newline="\n")
-        os.replace(temporary, target)
         outputs[key] = _OUTPUTS[key]
+        if _already_written(target, text):  # a concurrent run of the same checkpoint produced the identical artefact
+            continue
+        temporary = outdir / f".{_OUTPUTS[key]}.{os.getpid()}.{threading.get_ident()}.tmp"
+        temporary.write_text(text, encoding="utf-8", newline="\n")
+        _replace_with_retry(temporary, target)
     return outputs
+
+
+def _replace_with_retry(source: Path, target: Path) -> None:
+    """``os.replace``; on Windows a concurrent reader holding *target* open makes it fail transiently."""
+    for attempt in range(8):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == 7:
+                source.unlink(missing_ok=True)
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
+def _already_written(target: Path, text: str) -> bool:
+    try:
+        return target.read_text(encoding="utf-8") == text
+    except (OSError, UnicodeDecodeError):
+        return False
 
 
 def _write_run_record(outdir: Path, info: CheckpointInfo, steps: _Steps) -> str:

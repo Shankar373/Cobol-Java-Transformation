@@ -534,7 +534,8 @@ class Service:
             return stored[1]
         record = readiness_module.assess_workspace(path, label) if path.is_dir() else readiness_module.blocked_record(
             "SOURCE_MISSING", "the application's source directory no longer exists")
-        self._store.put_readiness(source_path, current, record)
+        if not readiness_module.is_transient(record):
+            self._store.put_readiness(source_path, current, record)
         return record
 
     def stored_readiness(self, app_id: str) -> dict | None:
@@ -559,6 +560,13 @@ class Service:
         if not record.get("allowed"):
             raise ReadinessError(readiness_module.refusal_message(record))
         return record
+
+    def require_source_ready(self, app_id: str) -> dict:
+        """Readiness gate for consumers of an application's ingested source other than ``modernize`` (e.g. VSAM migration)."""
+        app = self.get_application(app_id)
+        if app.cobol_source_path is None:
+            raise NotFoundError("No source has been ingested for this application")
+        return self._require_ready(app.cobol_source_path, app.name)
 
     def get_application(self, app_id: str) -> ApplicationRecord:
         rec = self._store.get_application(app_id)

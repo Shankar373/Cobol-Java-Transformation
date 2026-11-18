@@ -1086,6 +1086,7 @@ async def migrate_vsam_dataset(
     app = _svc().get_application(app_id)
     if app.cobol_source_path is None:
         raise _error(404, "No source has been ingested for this application")
+    await run_in_threadpool(_svc().require_source_ready, app_id)  # same discovery readiness gate as modernize
     _guard_content_length(request)
     parsed = await run_in_threadpool(_vsam_call, vsam_migration.parse_options, options)
     data = await _read_upload_bounded(

@@ -269,7 +269,7 @@ export function Discovery({ onNavigate, authRequired, pollIntervalMs = POLL_INTE
               <div role="status" data-testid="readiness" style={{ fontSize: 13 }}>
                 Transformation readiness: <Badge variant={report.readiness.status === 'READY' ? 'success' : report.readiness.status === 'NOT_SUPPORTED' ? 'warning' : 'error'}>{report.readiness.status}</Badge>
                 {report.readiness.status === 'BLOCKED' && ' Modernization is refused until the blocking items below are resolved.'}
-                {report.readiness.status === 'NOT_SUPPORTED' && ` ${report.readiness.unsupported_total} unsupported item(s) will not be handled; they are listed under compiler compatibility.`}
+                {report.readiness.status === 'NOT_SUPPORTED' && ` ${report.readiness.unsupported_total} unsupported item(s) will not be handled; ${report.readiness.unverified_total} program(s) received no compiler verdict (compiler check did not run); both are listed under compiler compatibility.`}
               </div>
             )}
 

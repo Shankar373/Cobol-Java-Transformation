@@ -122,10 +122,10 @@ def test_proprietary_constructs_are_reported_by_name_and_never_attempted(tmp_pat
     assert "no open-source translator" in cics["reason"] and cics["unsupported_features"][0]["evidence"][0]["line"] == 4
 
 
-def test_ocesql_makes_a_sql_only_program_checkable(tmp_path: Path) -> None:
+def test_exec_sql_is_never_syntax_checked_even_when_ocesql_is_installed(tmp_path: Path) -> None:
     probes = [ToolProbe("ocesql", True, "", "local")]
     report = assess({"a/SQL.cbl": program("SQL", "EXEC SQL SELECT 1 FROM T END-EXEC.")}, tmp_path, probes=probes)
-    assert verdicts(report) == {"a/SQL.cbl": "COMPILES"}
+    assert verdicts(report) == {"a/SQL.cbl": "NOT_ATTEMPTED_SQL_PRECOMPILER"}
 
 
 def test_a_program_with_a_missing_copybook_is_not_given_a_misleading_compile_result(tmp_path: Path) -> None:
@@ -350,11 +350,15 @@ def test_cross_application_relationships_through_shared_tables_datasets_and_copy
     assert "dataset:PROD.EMP" not in shared, "a resource used by one application is not a relationship"
 
 
-def test_application_readiness_reflects_blockers_unsupported_features_and_compile_errors() -> None:
+def test_application_readiness_reflects_blockers_unsupported_features_and_compile_errors(tmp_path: Path) -> None:
     files = {**ESTATE, "pay/EXTRA.cbl": program("EXTRA", "CALL 'MISSINGPGM'."), "pay/EXTRAJOB.jcl": "//EXTRAJOB JOB\n//S1 EXEC PGM=EXTRA\n"}
     recs = records(files)
     graph = build_graph(recs).graph
-    compat = assess_compatibility(recs, graph, Path("."), CompilerBackend("none", reason="x"))
+    root = tmp_path / "src"
+    for path, text in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text, encoding="utf-8")
+    compat = assess_compatibility(recs, graph, root, LOCAL, runner=FakeCobc())
     states = {a["name"]: a["readiness"] for a in build_applications(recs, graph, compat)["applications"]}
     assert states["EXTRAJOB"] == "BLOCKED" and states["ORDERS"] == "NOT_SUPPORTED" and states["LONE"] == "READY"
     assert states["PAYJOB"] == "NOT_SUPPORTED", "Db2 SQL is a precompiler feature"
@@ -374,7 +378,10 @@ def report_for(files: dict[str, str], backend: CompilerBackend, tmp_path: Path) 
 
     recs = records(files)
     graph = build_graph(recs).graph
-    compat = assess_compatibility(recs, graph, tmp_path, backend)
+    for path, text in files.items():
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(text, encoding="utf-8")
+    compat = assess_compatibility(recs, graph, tmp_path, backend, runner=FakeCobc())
     return {"completeness": completeness(recs, graph, checkpoint_ok=True, expected_files=len(recs)), "compatibility": compat,
             "applications": build_applications(recs, graph, compat)}
 
@@ -390,13 +397,16 @@ def test_readiness_is_blocked_not_supported_or_ready(tmp_path: Path) -> None:
     assert unsupported["status"] == "NOT_SUPPORTED" and unsupported["allowed"] is True
     assert unsupported["unsupported"][0]["feature"] == "exec-cics" and unsupported["unsupported_total"] == 1
 
-    ready = evaluate_readiness(report_for({"a/P.cbl": program("P")}, none, tmp_path))
-    assert ready["status"] == "READY" and ready["allowed"] is True and ready["unsupported"] == []
+    ready = evaluate_readiness(report_for({"a/P.cbl": program("P")}, LOCAL, tmp_path))
+    assert ready["status"] == "READY" and ready["allowed"] is True and ready["unsupported"] == [] and ready["unverified"] == []
 
 
 def test_a_missing_compiler_never_blocks_and_never_pretends_ready_means_compiled(tmp_path: Path) -> None:
     report = report_for({"a/P.cbl": program("P")}, CompilerBackend("none", reason="no cobc on PATH"), tmp_path)
-    assert evaluate_readiness(report)["status"] == "READY"
+    gate = evaluate_readiness(report)
+    assert gate["status"] == "NOT_SUPPORTED" and gate["allowed"] is True
+    assert gate["unverified"] == [{"file": "a/P.cbl", "reason": "NOT_ATTEMPTED_NO_COMPILER"}]
+    assert report["applications"]["applications"][0]["readiness"] == "NOT_SUPPORTED"
     assert report["compatibility"]["programs"][0]["verdict"] == "NOT_ATTEMPTED_NO_COMPILER"
 
 

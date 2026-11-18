@@ -113,13 +113,23 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
-      - name: npm audit (JSON report)
+      - name: npm audit - production dependencies (strict, no exception)
+        run: npm audit --omit=dev
+      - name: npm audit - complete tree (JSON report + gate with the scoped exception)
         run: |
           # BL-143: pipefail (see python-audit) — npm audit findings must
           # fail this step, not be masked by tee's exit status.
+          # The only exception is GHSA-fc5q-39xc-vjpf (picomatch, dev tooling,
+          # no upstream fix): docs/supply-chain/NPM_AUDIT_EXCEPTION.md. The
+          # gate fails on every other finding and expires by itself.
           set -o pipefail
           mkdir -p ../test-artifacts/supply-chain
-          npm audit --json | tee ../test-artifacts/supply-chain/npm-audit.json
+          # `npm audit` exits non-zero when it finds anything; the gate decides.
+          npm audit --json > ../test-artifacts/supply-chain/npm-audit.json || true
+          latest="$(npm view picomatch version 2>/dev/null || true)"
+          prod_tree="$(npm ls picomatch --omit=dev --json 2>/dev/null || true)"
+          [ -n "$prod_tree" ] || prod_tree='{}'
+          python3 ../tools/npm_audit_gate.py --prod-tree "$prod_tree" --latest-picomatch "$latest" < ../test-artifacts/supply-chain/npm-audit.json
       - name: Frontend SBOM (CycloneDX)
         run: |
           set -o pipefail
