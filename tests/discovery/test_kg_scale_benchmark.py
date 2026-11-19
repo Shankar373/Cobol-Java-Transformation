@@ -42,6 +42,7 @@ QUERY_SECONDS = 5.0
 MAX_DOUBLING_RATIO = 3.0
 IMPACT_DEPTH = 2
 E2E_SMALL, E2E_LARGE = 100, 200
+E2E_REPEATS = 3
 
 
 def _peak_memory_bytes() -> int:
@@ -182,16 +183,30 @@ def test_store_is_queryable_without_loading_the_json_document(pipeline, monkeypa
 
 
 def test_full_discovery_scales_sub_quadratically(tmp_path: Path) -> None:
-    """``discover()`` takes at most ``MAX_DOUBLING_RATIO`` x as long when the input doubles."""
-    seconds = {}
+    """``discover()`` takes at most ``MAX_DOUBLING_RATIO`` x as long when the input doubles.
+
+    The measurement is best-of-``E2E_REPEATS`` with the two sizes **interleaved**: a shared CI runner
+    stalls for seconds at a time (the Windows run of ``f083b1a`` measured ``{100: 0.537, 200: 1.625}``
+    = 3.03x and failed, while the same code on a quiet machine measures about 1.9x), and running every
+    ``E2E_SMALL`` pass before the first ``E2E_LARGE`` pass lets one stall land on a single size and
+    invent a ratio.  Interleaving exposes both sizes to the same machine state, best-of-N keeps the
+    fastest (least-disturbed) observation of each, and the threshold itself is unchanged: it still
+    fails any superlinear ``discover()`` (quadratic would measure about 4x).  The sizes are written
+    once, before any timing, so file creation never lands inside a measured pass.
+    """
     for size in (E2E_SMALL, E2E_LARGE):
-        source = tmp_path / f"estate-{size}"
-        write_synth(source, size)
-        started = time.perf_counter()
-        discover(DiscoveryRequest("directory", str(source)), tmp_path / f"store-{size}",
-                 toolchain=ToolchainConfig(backend="none"))
-        seconds[size] = time.perf_counter() - started
-    print(f"KG_BENCH full discover (seconds): {json.dumps(seconds, sort_keys=True)}")
+        write_synth(tmp_path / f"estate-{size}", size)
+    runs: dict[int, list[float]] = {E2E_SMALL: [], E2E_LARGE: []}
+    order = (E2E_SMALL, E2E_LARGE)
+    for attempt in range(E2E_REPEATS):
+        for size in order if attempt % 2 == 0 else tuple(reversed(order)):  # alternate: no size runs first always
+            started = time.perf_counter()
+            discover(DiscoveryRequest("directory", str(tmp_path / f"estate-{size}")),
+                     tmp_path / f"store-{size}-{attempt}", toolchain=ToolchainConfig(backend="none"))
+            runs[size].append(time.perf_counter() - started)
+    seconds = {size: min(samples) for size, samples in runs.items()}
+    print(f"KG_BENCH full discover (seconds): {json.dumps(seconds, sort_keys=True)}"
+          f" samples={json.dumps({str(k): [round(v, 3) for v in vs] for k, vs in runs.items()}, sort_keys=True)}")
     assert seconds[E2E_LARGE] <= MAX_DOUBLING_RATIO * seconds[E2E_SMALL], seconds
 
 
