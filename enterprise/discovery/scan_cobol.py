@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 
 from . import cobol_structure
-from .cobol_text import Token, logical_lines, split_indexed, split_statements, tokenize
+from .cobol_text import Token, read_source, split_indexed, split_statements, tokenize
 from .findings import Fact, FileScan, Ref, ScanProblem, detail
 from .scan_embedded import classify_call, parse_exec
 
@@ -89,8 +89,15 @@ class _State:
 def scan_cobol(path: str, text: str, *, copybook: bool = False) -> FileScan:
     """Scan one COBOL source or copybook; ``path`` is the relative POSIX path recorded on every finding."""
     scan = FileScan(path=path, line_count=text.count("\n") + (0 if text.endswith("\n") or not text else 1))
-    fmt, lines, directives = logical_lines(text)
-    scan.source_format = fmt
+    read = read_source(text)
+    fmt, lines, directives, switches = read.format, read.lines, read.directives, read.switches
+    scan.source_format = "variable" if fmt == "variable" else ("mixed" if switches else fmt)
+    scan.format_switches = tuple(switches)
+    if fmt == "variable":
+        variable_line = next((line for line, new in switches if new == "variable"), 1)
+        scan.problems.append(ScanProblem(path, variable_line, "REFERENCE_FORMAT_VARIABLE_UNSUPPORTED",
+                                         "$SET SOURCEFORMAT VARIABLE is not supported: refused by name, "
+                                         "never read as fixed"))
     tokens = tokenize(lines)
     state = _State(path, scan)
     for directive in directives:

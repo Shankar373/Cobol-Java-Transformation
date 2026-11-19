@@ -56,8 +56,39 @@ class Directive:
     text: str
 
 
+@dataclass
+class SourceRead:
+    """The result of :func:`read_source` — everything the one reader decided about one file."""
+
+    start_format: str            # ``free`` | ``fixed`` | ``variable``
+    format: str                  # the format the file ends in
+    lines: list[SourceLine]      # discovery rendering (comments removed, continuations folded)
+    directives: list[Directive]  # every ``>>``/``$SET`` directive line
+    switches: tuple[tuple[int, str], ...]   # ``(line, new_format)`` for each actual format change
+    skipped: tuple[tuple[int, str], ...]    # ``(line, kind)`` of dropped physical lines:
+                                            # ``directive`` | ``card`` | ``debug`` | ``comment``
+
+
 def _is_fixed_comment(line: str) -> bool:
     return len(line) > 6 and line[6] in "*/"
+
+
+def format_from_directive(line: str) -> str | None:
+    """The reference format a directive line sets (``free``/``fixed``/``variable``), else ``None``.
+
+    The single detector for format directives — ``>>SOURCE FORMAT`` and Micro Focus
+    ``$SET SOURCEFORMAT`` — used by :func:`read_source` and by the ``DialectProfile`` builder,
+    so no module re-derives a format decision of its own (layer model, contract 3).
+    """
+    match = _FORMAT_DIRECTIVE.search(line)
+    if match:
+        return match.group(1).lower()
+    mf = _MF_SET.match(line)
+    if mf:
+        found = _MF_FORMAT.search(mf.group(1))
+        if found:
+            return {"FREE": "free", "FIXED": "fixed", "VARIABLE": "variable"}[found.group(1).upper()]
+    return None
 
 
 def _strip_free_comment(text: str) -> str:
@@ -78,52 +109,57 @@ def _strip_free_comment(text: str) -> str:
 
 
 def detect_format(text: str) -> str:
-    """The format the file *starts* in: a directive before any code wins, else a code character in columns 1-6 is free."""
+    """The format the file *starts* in: a format directive before any code wins (``>>SOURCE`` or Micro Focus
+    ``$SET SOURCEFORMAT``), else a code character in columns 1-6 is free.  ``$SET`` lines without a format are
+    compiler directives, never code, so they never decide the format."""
     for raw in text.splitlines():
-        match = _FORMAT_DIRECTIVE.search(raw)
-        if match:
-            return match.group(1).lower()
         line = raw.rstrip("\r\n").expandtabs(8)
+        directive = format_from_directive(line)
+        if directive is not None:
+            return directive
         stripped = line.strip()
-        if not stripped or _is_fixed_comment(line) or stripped.startswith("*>") or line.startswith(("*", "/")) or _CARD_LINE.match(line):
+        if not stripped or _is_fixed_comment(line) or stripped.startswith("*>") or line.startswith(("*", "/")) \
+                or _CARD_LINE.match(line) or _MF_SET.match(line):
             continue
         return "free" if any(ch not in "0123456789 " for ch in line[:6]) else "fixed"
     return "fixed"
 
 
+def read_source(text: str) -> "SourceRead":
+    """The one reference-format reader.
 
-def logical_lines(text: str) -> tuple[str, list[SourceLine], list[Directive]]:
-    """Return ``(format, lines, directives)`` with comments removed and fixed-format continuations folded.
-
-    ``format`` is the format the file starts in (``"mixed"`` when a directive switches it later).  Folded
-    continuation text keeps the line number and column of the first physical line, so spans stay anchored there.
+    Returns a :class:`SourceRead`: the format the file starts and ends in (``"variable"`` under
+    ``$SET SOURCEFORMAT VARIABLE``), the discovery rendering ``lines`` (comments removed, fixed-format
+    continuations folded), every ``>>``/``$SET`` directive, the ``(line, new_format)`` switches that
+    actually changed the format, and the ``(line, kind)`` of every physical line the reader dropped
+    (``directive``/``card``/``debug``/``comment``) so the engine face of the reader can drop the same
+    lines.  Discovery (``logical_lines``) and the engine (``transformation/source_format``) both read
+    through this function; no other module may re-derive format state (layer model, contract 3).
     """
     start_format = detect_format(text)
     fmt = start_format
-    switched = False
     lines: list[SourceLine] = []
     directives: list[Directive] = []
+    switches: list[tuple[int, str]] = []
+    skipped: list[tuple[int, str]] = []
     for number, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip("\r\n").expandtabs(8)
         stripped = line.strip()
-        match = _FORMAT_DIRECTIVE.search(line)
-        if match:
+        new = format_from_directive(line)
+        if new is not None:
             directives.append(Directive(number, stripped))
-            new = match.group(1).lower()
-            switched = switched or new != fmt
-            fmt = new
-            continue
-        mf = _MF_SET.match(line)
-        if mf:
-            directives.append(Directive(number, stripped))
-            found = _MF_FORMAT.search(mf.group(1))
-            if found:
-                new = "free" if found.group(1).upper() == "FREE" else "fixed"
-                switched = switched or new != fmt
+            skipped.append((number, "directive"))
+            if new != fmt:
+                switches.append((number, new))
                 fmt = new
+            continue
+        if _MF_SET.match(line):
+            directives.append(Directive(number, stripped))
+            skipped.append((number, "directive"))
             continue
         if stripped.startswith(">>"):
             directives.append(Directive(number, stripped))
+            skipped.append((number, "directive"))
             continue
         if fmt == "free":
             body = _strip_free_comment(line)
@@ -132,11 +168,16 @@ def logical_lines(text: str) -> tuple[str, list[SourceLine], list[Directive]]:
             continue
         if not stripped or _is_fixed_comment(line):
             continue
-        if line.startswith(("*", "/")) or _CARD_LINE.match(line):
+        if line.startswith(("*", "/")):
+            skipped.append((number, "comment"))
+            continue
+        if _CARD_LINE.match(line):
+            skipped.append((number, "card"))
             continue
         indicator = line[6] if len(line) > 6 else " "
         body = line[FIXED_TEXT_START:FIXED_TEXT_END]
         if indicator in "dD":
+            skipped.append((number, "debug"))
             continue  # debugging line: compiled only under WITH DEBUGGING MODE
         if indicator == "-" and lines:
             if not _open_quote(lines[-1].text):
@@ -146,11 +187,31 @@ def logical_lines(text: str) -> tuple[str, list[SourceLine], list[Directive]]:
         body = _strip_free_comment(body)  # COBOL 2002 ``*>`` is a comment in fixed format too
         if body.strip():
             lines.append(SourceLine(number, body, FIXED_TEXT_START))
-    return ("mixed" if switched else start_format), lines, directives
+    return SourceRead(start_format=start_format, format=fmt, lines=lines, directives=directives,
+                      switches=tuple(switches), skipped=tuple(skipped))
+
+
+def logical_lines(text: str) -> tuple[str, list[SourceLine], list[Directive]]:
+    """Return ``(format, lines, directives)`` with comments removed and fixed-format continuations folded.
+
+    ``format`` is the format the file ends in: ``"mixed"`` when a directive switched it, ``"variable"`` under
+    ``$SET SOURCEFORMAT VARIABLE`` (which later stages refuse by name — never a silent fixed read).  See
+    :func:`read_source` for the switch records.
+    """
+    read = read_source(text)
+    if read.format == "variable":
+        return "variable", read.lines, read.directives
+    return ("mixed" if read.switches else read.format), read.lines, read.directives
 
 
 def _fold(previous: SourceLine, continuation: str) -> SourceLine:
-    """Append a continuation line to ``previous``; an open literal resumes after the opening quote."""
+    """Append a continuation line to ``previous``; an open literal resumes after the opening quote.
+
+    GnuCOBOL 3.1.2 semantics (oracle-pinned in ``tests/transformation/test_fixed_format_continuation.py``):
+    a literal runs through column 72 and resumes after its quote; any other text joins the continuation's
+    first non-blank character with **no space in between** — ``WS-AL`` + ``PHA`` is ``WS-ALPHA``, not two
+    names.  Both reader faces fold identically (layer 4 acceptance criterion 2).
+    """
     quote = _open_quote(previous.text)
     rest = continuation.lstrip(" ")
     if quote:
@@ -158,7 +219,7 @@ def _fold(previous: SourceLine, continuation: str) -> SourceLine:
         padded = previous.text.ljust(FIXED_TEXT_END - FIXED_TEXT_START)
         rest = rest[1:] if rest[:1] == quote else rest
         return SourceLine(previous.number, padded + rest, previous.column_offset, True)
-    return SourceLine(previous.number, previous.text.rstrip() + " " + rest, previous.column_offset, True)
+    return SourceLine(previous.number, previous.text.rstrip() + rest, previous.column_offset, True)
 
 
 def _open_quote(text: str) -> str:

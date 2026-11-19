@@ -77,8 +77,11 @@ class FileScan:
     refs: list[Ref] = field(default_factory=list)
     facts: list[Fact] = field(default_factory=list)
     problems: list[ScanProblem] = field(default_factory=list)
-    #: Reference format of the file (``fixed``/``free``/``mixed``) for COBOL-family sources.
+    #: Reference format of the file (``fixed``/``free``/``mixed``/``variable``) for COBOL-family sources.
     source_format: str = ""
+    #: ``(line, new_format)`` for every ``>>SOURCE FORMAT``/``$SET SOURCEFORMAT`` directive that changed the
+    #: format while reading — from the single reader (``cobol_text.read_source``), never re-derived here.
+    format_switches: tuple[tuple[int, str], ...] = ()
     line_count: int = 0
 
     def sorted(self) -> "FileScan":

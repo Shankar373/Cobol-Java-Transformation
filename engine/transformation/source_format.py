@@ -1,20 +1,31 @@
-"""COBOL reference-format detection shared by the oracle and the parser.
+"""COBOL reference-format reading shared by the oracle and the parser: the engine face of the one reader.
 
-The oracle compiles a source as free format only when it looks free format
-(``DockerOracleAdapter.detect_source_format`` delegates here), and the
-parser must read the same text the compiler reads.  In fixed format the
-compiler ignores the program-identification area — every column after 72 —
-so the parser drops it too; otherwise it would translate characters the
-compiled COBOL program never contains (e.g. a data name cut at column 72,
-or sequence numbers in columns 73-80).
+Layer 4 (P2): ``enterprise.discovery.cobol_text.read_source`` is the single reference-format reader —
+format directives (``>>SOURCE FORMAT``, Micro Focus ``$SET SOURCEFORMAT``), mid-file switches,
+compiler cards, debug lines and continuation folding are decided there and nowhere else.  This module
+renders the text the compiler sees from those decisions and keeps the engine's strict fail-closed
+errors (a continuation that continues nothing, an open literal not resumed by a quote, a literal
+holding both quote characters).  Discovery and the parser therefore read the same bytes at the same
+positions (layer model, contract 3): a file with a mid-file switch, a ``$SET`` card or a ``CBL`` card
+is read per line, never re-detected here.
+
+In fixed format the compiler ignores the program-identification area — every column after 72 — so the
+parser drops it too; otherwise it would translate characters the compiled COBOL program never contains
+(e.g. a data name cut at column 72, or sequence numbers in columns 73-80).
 """
 
 from __future__ import annotations
 
 import re
 
+from enterprise.discovery.cobol_text import (
+    FIXED_TEXT_END,
+    format_from_directive,
+    read_source,
+)
+
 #: Last column of the fixed-format program text area (Area B ends here).
-FIXED_FORMAT_TEXT_END = 72
+FIXED_FORMAT_TEXT_END = FIXED_TEXT_END
 
 
 def _line_is_comment(line: str) -> bool:
@@ -27,32 +38,17 @@ def _line_is_comment(line: str) -> bool:
 
 
 def detect_source_format(text: str) -> str:
-    """Classify COBOL source text as ``"free"`` or ``"fixed"``.
+    """Classify COBOL source text as ``"free"`` or ``"fixed"`` — the file's *start* format.
 
-    An explicit ``>>SOURCE FORMAT`` directive takes precedence. In its
-    absence fixed format is assumed unless a code line places a
-    non-digit, non-space character in the sequence area (columns 1-6):
-    that is impossible in fixed format and is characteristic of free
-    format, where code may begin at column 1.
+    The decision comes from the single reader (:func:`enterprise.discovery.cobol_text.detect_format`):
+    a format directive before any code wins, else a code character in columns 1-6 means free.
+    Compiler cards and ``$SET`` lines are directives, never code, so they never decide the format.
+
+    A ``$SET SOURCEFORMAT VARIABLE`` file maps to the fixed flag for the compiler command line only:
+    the named refusal ``REFERENCE_FORMAT_VARIABLE_UNSUPPORTED`` is reported by
+    :func:`reference_format_errors`, so it is never silently read as fixed.
     """
-    for raw in text.splitlines():
-        upper = raw.strip().upper()
-        if upper.startswith(">>SOURCE") and "FORMAT" in upper:
-            if "FREE" in upper:
-                return "free"
-            if "FIXED" in upper:
-                return "fixed"
-    for raw in text.splitlines():
-        line = raw.rstrip("\r\n")
-        if not line.strip() or _line_is_comment(line):
-            continue
-        if any(ch not in "0123456789 " for ch in line[:6]):
-            return "free"
-    return "fixed"
-
-
-#: Column-7 indicator of a fixed-format continuation line.
-_CONTINUATION = "-"
+    return "free" if read_source(text).start_format == "free" else "fixed"
 
 
 def _open_quote(text: str) -> str | None:
@@ -68,51 +64,6 @@ def _open_quote(text: str) -> str | None:
         elif ch == quote:
             quote = None
     return quote
-
-
-def _fold_continuations(text: str) -> tuple[list[str], list[str]]:
-    """Fixed-format lines (columns 1-72) with continuation lines folded in.
-
-    GnuCOBOL 3.1.2 rules (``tests/transformation/
-    test_fixed_format_continuation.py``):
-
-    * an alphanumeric literal open at the end of the continued line runs
-      through column 72 — its trailing spaces are part of the literal — and
-      resumes after the first quote of the continuation line;
-    * any other text continues with the continuation line's first non-blank
-      character, with no space in between.
-
-    The continuation line itself becomes blank, so line numbers are kept.
-    Returns the lines and a description of every malformed continuation
-    (nothing to continue; an open literal not resumed by a quote).
-    """
-    lines = [line.rstrip("\r")[:FIXED_FORMAT_TEXT_END] for line in text.split("\n")]
-    errors: list[str] = []
-    last_code: int | None = None
-    for number, line in enumerate(lines):
-        indicator = line[6] if len(line) > 6 else " "
-        if indicator != _CONTINUATION:
-            if line[7:].strip() and indicator not in "*/":
-                last_code = number
-            continue
-        resumed = line[7:].lstrip()
-        if last_code is None:
-            errors.append(f"line {number + 1}: continuation line with nothing to continue")
-            continue
-        continued = lines[last_code]
-        quote = _open_quote(continued[7:])
-        if quote is not None:
-            if not resumed.startswith(quote):
-                errors.append(
-                    f"line {number + 1}: continuation of an open literal must "
-                    f"resume with {quote}"
-                )
-                continue
-            lines[last_code] = continued.ljust(FIXED_FORMAT_TEXT_END) + resumed[1:]
-        else:
-            lines[last_code] = continued.rstrip() + resumed
-        lines[number] = ""
-    return lines, errors
 
 
 def code_mentions(text: str, word: str) -> bool:
@@ -195,14 +146,77 @@ def _canonical_literals(code: str) -> tuple[str, str | None]:
     return "".join(out), None
 
 
+def _variable_line(text: str) -> int:
+    """1-based line of the ``$SET SOURCEFORMAT VARIABLE`` directive (``0`` when none)."""
+    for number, raw in enumerate(text.split("\n"), start=1):
+        if format_from_directive(raw) == "variable":
+            return number
+    return 0
+
+
 def _normalize(text: str) -> tuple[list[str], list[str]]:
-    """Compiler-visible lines plus every reference-format problem found."""
-    if detect_source_format(text) == "fixed":
-        lines, errors = _fold_continuations(text)
-        code_from = 7
-    else:
-        lines, errors, code_from = text.split("\n"), [], 0
+    """Compiler-visible lines plus every reference-format problem found (by name).
+
+    One pass over the decisions of the single reader (:func:`read_source`):
+
+    * per-line format — a fixed segment is sliced to columns 1-72 and folded;
+      a free segment is kept whole; ``>>SOURCE``/``$SET``/card lines are dropped
+      (never statements, layer 4 acceptance criterion 4) while keeping the line
+      count so diagnostics keep their line numbers;
+    * continuation folding with the strict GnuCOBOL 3.1.2 rules and errors —
+      an anchor is a real program-text line (never a directive, card or comment);
+    * doubled-quote literals canonicalised per line, in the segment's format.
+    """
+    read = read_source(text)
+    errors: list[str] = []
+    if read.format == "variable":
+        errors.append(
+            f"line {_variable_line(text)}: REFERENCE_FORMAT_VARIABLE_UNSUPPORTED: "
+            "$SET SOURCEFORMAT VARIABLE is not supported: refused by name, never read as fixed"
+        )
+    raw_lines = text.split("\n")
+    # The active format of every physical line: the start format, updated by each switch in line order.
+    line_formats: list[str] = []
+    current = read.start_format
+    switches = dict(read.switches)
+    for number in range(1, len(raw_lines) + 1):
+        if number in switches:
+            current = switches[number]
+        line_formats.append(current)
+    lines: list[str] = [
+        raw.rstrip("\r")[:FIXED_FORMAT_TEXT_END] if line_formats[number] == "fixed" else raw
+        for number, raw in enumerate(raw_lines)
+    ]
+    # A directive/card/comment line is not program text: it never anchors a continuation.
+    not_anchor = {number for number, kind in read.skipped if kind in ("directive", "card", "comment")}
+    last_code: int | None = None
     for number, line in enumerate(lines):
+        if line_formats[number] != "fixed":
+            continue  # free-format segments have no continuation indicator
+        indicator = line[6] if len(line) > 6 else " "
+        if indicator != "-":
+            if line[7:].strip() and indicator not in "*/" and (number + 1) not in not_anchor:
+                last_code = number
+            continue
+        resumed = line[7:].lstrip()
+        if last_code is None:
+            errors.append(f"line {number + 1}: continuation line with nothing to continue")
+            continue
+        continued = lines[last_code]
+        quote = _open_quote(continued[7:])
+        if quote is not None:
+            if not resumed.startswith(quote):
+                errors.append(
+                    f"line {number + 1}: continuation of an open literal must "
+                    f"resume with {quote}"
+                )
+                continue
+            lines[last_code] = continued.ljust(FIXED_FORMAT_TEXT_END) + resumed[1:]
+        else:
+            lines[last_code] = continued.rstrip() + resumed
+        lines[number] = ""
+    for number, line in enumerate(lines):
+        code_from = 7 if line_formats[number] == "fixed" else 0
         if _line_is_comment(line) or not line[code_from:].strip():
             continue
         code, error = _canonical_literals(line[code_from:])
@@ -214,18 +228,20 @@ def _normalize(text: str) -> tuple[list[str], list[str]]:
 
 def reference_format_errors(text: str) -> list[str]:
     """Problems that stop ``text`` from being read faithfully: malformed
-    fixed-format continuation lines, and literals holding both quote
-    characters.  Empty when there are none."""
+    fixed-format continuation lines, literals holding both quote characters
+    and the named ``REFERENCE_FORMAT_VARIABLE_UNSUPPORTED`` refusal.  Empty
+    when there are none."""
     return _normalize(text)[1]
 
 
 def compiler_visible_text(text: str) -> str:
     """The source text the compiler reads, in a canonical spelling.
 
-    Fixed format: columns 1-72 only, with continuation lines folded into the
-    line they continue (see :func:`_fold_continuations`).  In both formats
-    literals using the doubled-quote escape are re-delimited (see
-    :func:`_canonical_literals`).  Line structure is preserved so
+    Rendered from the single reader's decisions: fixed segments keep columns
+    1-72 with continuation lines folded (see :func:`_normalize`), free segments
+    are kept whole, ``>>SOURCE``/``$SET``/compiler-card lines are dropped, and
+    in both formats literals using the doubled-quote escape are re-delimited
+    (see :func:`_canonical_literals`).  Line structure is preserved so
     diagnostics keep their line numbers.
     """
     return "\n".join(_normalize(text)[0])

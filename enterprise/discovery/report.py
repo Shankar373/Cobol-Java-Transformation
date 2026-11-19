@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from .dialect_profile import build_profiles
 from .graph import BLOCKING_REASONS, DependencyGraph, Edge
 from .inventory import DirectoryEntry, FileRecord
 from .readiness import evaluate_readiness
@@ -200,6 +201,11 @@ def build_report(*, checkpoint: dict[str, object], provenance: dict[str, object]
                         diagnostics_dropped=sum(1 for d in diagnostics if d.get("code") == "DIAGNOSTICS_TRUNCATED"))
     scanner_problems = [{"code": p.code, "file": r.path, "line": p.line, "message": p.message}
                         for r in sorted(records, key=lambda r: r.path) if r.scan for p in r.scan.problems]
+    # One dialect authority: the report's dialect evidence and the per-file DialectProfiles are built
+    # from the same dialect_report result (Layer 4 P1; profiles are additive, never replace a field).
+    dialects = dialect_report(records)
+    dialects["profiles"] = [profile.as_dict()
+                            for profile in build_profiles(records, build=build, dialect_report_result=dialects)]
     report: dict[str, Any] = {
         "applications": applications or {"applications": [], "entry_points": [], "relationships": []},
         "build": _build(records),
@@ -213,7 +219,7 @@ def build_report(*, checkpoint: dict[str, object], provenance: dict[str, object]
                 "tables": _node_summaries(graph, {"table"}, {"accesses-table", "defines-table"}),
                 "stored_procedures": _node_summaries(graph, {"stored-procedure"})},
         "dependency_graph": graph.stats(),
-        "dialects": dialect_report(records),
+        "dialects": dialects,
         "diagnostics": diagnostics,
         "ims": _node_summaries(graph, {"ims-interface", "ims-psb", "ims-segment"}),
         "jcl": _jcl(records),

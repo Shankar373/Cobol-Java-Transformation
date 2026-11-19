@@ -346,7 +346,16 @@ class _Plan:
 
 
 def _std_for(record: FileRecord, dialect: Mapping[str, str]) -> str:
-    return _STD_BY_DIALECT.get(dialect.get(record.path, ""), "default")
+    return std_for_dialect(dialect.get(record.path, ""))
+
+
+def std_for_dialect(dialect: str) -> str:
+    """The GnuCOBOL ``-std`` value selected for a dialect (``"default"`` when undetermined).
+
+    The one dialect→standard mapping: the ``DialectProfile`` builder and the check lane both call
+    this instead of touching ``_STD_BY_DIALECT`` (layer model, contract 3).
+    """
+    return _STD_BY_DIALECT.get(dialect, "default")
 
 
 def _includes(records: Sequence[FileRecord], own_dir: str) -> list[str]:

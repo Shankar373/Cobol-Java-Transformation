@@ -53,6 +53,17 @@ class FdCopyExpansion:
         return tuple(d for d in self.diagnostics if d.level == "ERROR")
 
 
+def _area_b(text: str) -> str:
+    """Re-indent expansion text into Area B (column 8) so the spliced text is valid fixed format.
+
+    ``_strip_sequence_numbers`` leaves every copybook line at column 1.  Read as fixed format — which is
+    how the single reader reads a fixed program (layer 4, P2) — a ``-`` in column 7 (``01 LOG-REC.``)
+    folds the record line into the preceding ``FD`` and the record never reaches the parser.  Splicing
+    at column 8 reproduces the inline-FD layout the equivalence tests pin.
+    """
+    return "\n".join(("       " + line) if line.strip() else line for line in text.split("\n"))
+
+
 def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...]) -> FdCopyExpansion:
     """Expand the COPY statements of the FILE SECTION; the rest of ``source`` is returned untouched."""
     masked = _mask_comments(source)
@@ -95,7 +106,7 @@ def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...]) -> FdCopyExp
                 level="ERROR", code="COPYBOOK_UNRESOLVED", message=f"Missing COPY target: {target} (in FILE SECTION)"))
             continue
         text = _apply_replacing(_expand_copybook_text(resolved.path, search_dirs, _CHAIN, diagnostics, budget), tuple(pairs))
-        pieces.append(text if text.endswith("\n") else text + "\n")
+        pieces.append(_area_b(text) if text.endswith("\n") else _area_b(text) + "\n")
         consumed.append(target.upper())
     pieces.append(region[cursor:])
     return FdCopyExpansion(source[:start] + "".join(pieces) + source[end:], tuple(diagnostics), tuple(consumed))
