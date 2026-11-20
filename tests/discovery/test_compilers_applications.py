@@ -133,6 +133,30 @@ def test_a_program_with_a_missing_copybook_is_not_given_a_misleading_compile_res
     assert verdicts(report) == {"a/P.cbl": "NOT_ATTEMPTED_BLOCKED_DEPENDENCY", "a/Q.cbl": "COMPILES"}
 
 
+def test_mixed_and_variable_reference_formats_are_refused_by_name_never_misflagged(tmp_path: Path) -> None:
+    """A file the lane's single -free/-fixed flag cannot represent is refused by name, never checked and never COMPILE_ERRORS."""
+    mixed = _fixed("IDENTIFICATION DIVISION.", "PROGRAM-ID. MIXED.", "PROCEDURE DIVISION.",
+                   "DISPLAY 'X'.") + ">>SOURCE FORMAT FREE\nGOBACK.\n"
+    variable = '$SET SOURCEFORMAT"VARIABLE"\n' + program("VAR")
+    report = assess({"a/MIXED.cbl": mixed, "a/VAR.cbl": variable, "a/OK.cbl": program("OK")}, tmp_path)
+    assert verdicts(report) == {"a/MIXED.cbl": "NOT_ATTEMPTED_REFERENCE_FORMAT",
+                                "a/VAR.cbl": "NOT_ATTEMPTED_REFERENCE_FORMAT", "a/OK.cbl": "COMPILES"}
+    mixed_row = next(p for p in report["programs"] if p["file"] == "a/MIXED.cbl")
+    var_row = next(p for p in report["programs"] if p["file"] == "a/VAR.cbl")
+    assert mixed_row["source_format"] == "mixed" and "line 5" in mixed_row["reason"]
+    assert var_row["source_format"] == "variable" and "VARIABLE" in var_row["reason"]
+    assert report["summary"] == {"COMPILES": 1, "NOT_ATTEMPTED_REFERENCE_FORMAT": 2}
+    assert set(verdicts(report).values()) <= set(VERDICTS)
+
+
+def test_a_mixed_format_program_is_unverified_not_ready(tmp_path: Path) -> None:
+    mixed = _fixed("IDENTIFICATION DIVISION.", "PROGRAM-ID. MIXED.", "PROCEDURE DIVISION.",
+                   "DISPLAY 'X'.") + ">>SOURCE FORMAT FREE\nGOBACK.\n"
+    gate = evaluate_readiness(report_for({"a/M.cbl": mixed}, LOCAL, tmp_path))
+    assert gate["status"] == "NOT_SUPPORTED" and gate["allowed"] is True
+    assert gate["unverified"] == [{"file": "a/M.cbl", "reason": "NOT_ATTEMPTED_REFERENCE_FORMAT"}]
+
+
 def test_no_compiler_is_a_recorded_limitation_and_every_program_is_still_listed(tmp_path: Path) -> None:
     report = assess({"a/P.cbl": program("P"), "a/C.cbl": program("C", "EXEC CICS RETURN END-EXEC.")}, tmp_path,
                     backend=CompilerBackend("none", reason="no cobc on PATH"))

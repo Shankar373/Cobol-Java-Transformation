@@ -247,13 +247,23 @@ def _candidate_to_dict(candidate: CandidateIdentity) -> dict:
 
 
 def _oracle_to_dict(oracle: OracleIdentity) -> dict:
-    return {
+    payload = {
         "oracle_id": oracle.oracle_id,
         "image_digest": oracle.image_digest,
         "compiler_version": oracle.compiler_version,
         "preprocessor_version": oracle.preprocessor_version,
         "base_image": oracle.base_image,
     }
+    # Layer 4 (acceptance criterion 10): recorded beside the identity only when
+    # observed, so a payload without them serialises exactly as it always did.
+    for key, value in (
+        ("std", oracle.std),
+        ("format_flag", oracle.format_flag),
+        ("profile_id", oracle.profile_id),
+    ):
+        if value is not None:
+            payload[key] = value
+    return payload
 
 
 def encode_evidence_manifest(manifest: EvidenceManifest) -> bytes:
@@ -647,6 +657,11 @@ def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
                 ),
                 preprocessor_version=_opt_str(oracle_raw, "preprocessor_version"),
                 base_image=_opt_str(oracle_raw, "base_image"),
+                # Layer 4 (acceptance criterion 10): absent in payloads written
+                # before the layer existed, observed values after it.
+                std=_opt_str(oracle_raw, "std"),
+                format_flag=_opt_str(oracle_raw, "format_flag"),
+                profile_id=_opt_str(oracle_raw, "profile_id"),
             ),
             environment_identities=tuple(environments),
             controlled_input=controlled,

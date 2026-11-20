@@ -44,7 +44,8 @@ CHECK_TIMEOUT = 60
 #: Closed set of per-program compatibility verdicts.
 VERDICTS = (
     "COMPILES", "COMPILES_WITH_WARNINGS", "COMPILE_ERRORS", "NOT_ATTEMPTED_PROPRIETARY", "NOT_ATTEMPTED_SQL_PRECOMPILER",
-    "NOT_ATTEMPTED_BLOCKED_DEPENDENCY", "NOT_ATTEMPTED_NO_COMPILER", "NOT_ATTEMPTED_BUDGET", "NOT_ATTEMPTED_TOOL_FAILURE",
+    "NOT_ATTEMPTED_BLOCKED_DEPENDENCY", "NOT_ATTEMPTED_REFERENCE_FORMAT", "NOT_ATTEMPTED_NO_COMPILER", "NOT_ATTEMPTED_BUDGET",
+    "NOT_ATTEMPTED_TOOL_FAILURE",
 )
 
 #: Proprietary or unsupported features, what open-source tooling can and cannot do about them, and whether they stop a syntax check.
@@ -363,6 +364,23 @@ def _includes(records: Sequence[FileRecord], own_dir: str) -> list[str]:
     return sorted(directories | {own_dir}, key=lambda d: (d != own_dir, d))
 
 
+def _format_refusal_reason(record: FileRecord) -> str:
+    """Why the check lane did not run on a ``mixed``/``variable`` reference format, in one honest sentence.
+
+    The syntax-check lane flags a whole compilation unit with one ``-free``/``-fixed`` switch; a file that
+    switches format mid-file (or asks for ``$SET SOURCEFORMAT VARIABLE``) cannot be represented by one flag,
+    so it is refused by name instead of being checked under a flag that would misread part of it
+    (Layer 4 acceptance criterion 2: never a misleading ``COMPILE_ERRORS``).
+    """
+    if record.source_format == "variable":
+        return ("$SET SOURCEFORMAT VARIABLE is not supported by the check lane: one -free/-fixed flag cannot "
+                "represent it, so no check is attempted (never a silent fixed read)")
+    switches = record.scan.format_switches if record.scan else ()
+    at = f" at line {switches[0][0]}" if switches else ""
+    return (f"the reference format changes mid-file{at}, so one -free/-fixed flag cannot represent the file; "
+            "the check lane does not guess a format per segment")
+
+
 def assess_compatibility(records: Sequence[FileRecord], graph: DependencyGraph, source_root: Path, backend: CompilerBackend, *,
                          dialects: Mapping[str, str] | None = None, probes: Sequence[ToolProbe] = (), runner: Runner = default_runner,
                          budget_seconds: float = 240.0, clock: Callable[[], float] = time.monotonic) -> dict[str, object]:
@@ -390,6 +408,8 @@ def assess_compatibility(records: Sequence[FileRecord], graph: DependencyGraph, 
         elif record.path in blocked_files:
             entry.update(verdict="NOT_ATTEMPTED_BLOCKED_DEPENDENCY",
                          reason="a copybook or called program is missing from the upload, so a compile result would be misleading")
+        elif record.source_format in ("mixed", "variable"):
+            entry.update(verdict="NOT_ATTEMPTED_REFERENCE_FORMAT", reason=_format_refusal_reason(record))
         elif backend.kind == "none":
             entry.update(verdict="NOT_ATTEMPTED_NO_COMPILER", reason=backend.reason or "no open-source COBOL compiler is available")
         else:

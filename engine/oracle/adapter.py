@@ -118,6 +118,13 @@ class OracleExecutionResult:
     end_time: str
     termination_status: str  # normal, timeout, nonzero_exit, error
     timeout_applied: bool
+    # Layer 4 (acceptance criterion 10): what the cobc invocation actually used, recorded
+    # beside ``oracle_id``.  ``std`` is the effective standard (the oracle passes no
+    # ``-std=``, so GnuCOBOL's default); ``format_flag`` is the exact ``-free`` flag that
+    # was passed (``""`` when none was).  None means no compile was attempted.  Advisory:
+    # recording these never changes the invocation.
+    std: str | None = None
+    format_flag: str | None = None
     timeout_duration: int | None = None
     generated_files: dict[str, bytes] | None = None
     source_tree_hash_before: ContentHash | None = None

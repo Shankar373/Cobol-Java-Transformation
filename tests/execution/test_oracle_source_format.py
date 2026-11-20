@@ -96,6 +96,21 @@ class TestCompileFormatFlag:
         assert flag == ""
 
 
+class TestCompileRecord:
+    """Layer 4 (acceptance criterion 10): what an attempted compile records
+    beside the oracle identity — observed, never taken from a profile."""
+
+    def test_free_compile_records_default_std_and_the_flag_used(self) -> None:
+        assert DockerOracleAdapter._compile_record("-free ") == {
+            "std": "default", "format_flag": "-free",
+        }
+
+    def test_fixed_compile_records_default_std_and_no_flag(self) -> None:
+        assert DockerOracleAdapter._compile_record("") == {
+            "std": "default", "format_flag": "",
+        }
+
+
 # ---------------------------------------------------------------------------
 # Docker-gated: real oracle compilation
 # ---------------------------------------------------------------------------
@@ -133,6 +148,10 @@ class TestDockerOracleFormats:
         assert outcome.exit_code == 0
         assert outcome.stdout == b""
         assert outcome.stderr == b"runtime error\n"
+        # Layer 4 (acceptance criterion 10): the attempted compile records the
+        # standard it ran at (no -std= is ever passed) and the exact flag used.
+        assert outcome.std == "default"
+        assert outcome.format_flag == "-free"
         diagnostics = outcome.compilation_diagnostics
         assert diagnostics["exit_code"] == "0"
         assert b"line not terminated by a newline" in base64.b64decode(diagnostics["stderr_base64"])
@@ -169,6 +188,9 @@ class TestDockerOracleFormats:
         assert "COPYBOOK DEMO STARTED" in stdout
         assert "INITIAL CLAIM-AMOUNT=000100" in stdout
         assert "FINAL CLAIM-AMOUNT=000100" in stdout
+        # Layer 4 (acceptance criterion 10): observed compile record.
+        assert outcome.std == "default"
+        assert outcome.format_flag == "-free"
 
     def test_fixed_format_workload_still_compiles(self) -> None:
         """No regression: fixed-format source is not reinterpreted as free."""
@@ -180,3 +202,7 @@ class TestDockerOracleFormats:
             str(FIXTURES / "workload-arithmetic" / "cobol"),
         )
         assert outcome.exit_code == 0, outcome.stderr.decode(errors="replace")[:800]
+        # Layer 4 (acceptance criterion 10): fixed format passes no flag — the
+        # record says so instead of implying -fixed was given.
+        assert outcome.std == "default"
+        assert outcome.format_flag == ""

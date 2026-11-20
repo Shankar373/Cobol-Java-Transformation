@@ -191,20 +191,42 @@ def test_replacing_pairs_are_recorded_in_source_order() -> None:
     assert pairs == [("A", "B"), ("C", "D")] and unsupported == []
 
 
-def test_replacing_records_pseudo_text_words_and_literals() -> None:
-    _fmt, lines, _d = logical_lines(_fixed("COPY TALLY REPLACING ==A B== BY ==C D== E BY F BY 'G' BY 'H'."))
+def test_replacing_records_pseudo_text_and_words_and_refuses_literals_by_name() -> None:
+    """Pseudo-text and word pairs are recorded; a quoted literal is refused by name.
+
+    Criterion 8: a literal-operand COPY is refused from discovery under the
+    same ``COPYBOOK_REPLACING_UNSUPPORTED`` code generation reports, never
+    recorded as an operand the engine would drop.
+    """
+    _fmt, lines, _d = logical_lines(_fixed("COPY TALLY REPLACING ==A B== BY ==C D== E BY F 'G' BY 'H'."))
     tokens = tokenize(lines)
     pairs, unsupported = parse_replacing(tokens, 0, len(tokens))
-    assert pairs == [("A B", "C D"), ("E", "F"), ("'G'", "'H'")]
-    assert unsupported == []
+    assert pairs == [("A B", "C D"), ("E", "F")]
+    assert unsupported == ["LITERAL"]
 
 
-def test_leading_trailing_and_partial_replacing_are_refused_by_name() -> None:
-    for form in UNSUPPORTED_REPLACING_FORMS:
-        _fmt, lines, _d = logical_lines(_fixed(f"COPY TALLY REPLACING {form} ==A== BY ==B==."))
+def test_unsupported_replacing_forms_are_refused_by_name() -> None:
+    """Every operand form the shared grammar refuses comes back by name.
+
+    Phrase forms appear as written before the operand; literal and signed
+    operands are refused too (they are applied by neither face).  Each is
+    refused before any pair is read, so nothing is recorded that generation
+    would drop.
+    """
+    statements = {
+        "LEADING": "COPY TALLY REPLACING LEADING ==A== BY ==B==.",
+        "TRAILING": "COPY TALLY REPLACING TRAILING ==A== BY ==B==.",
+        "PARTIAL": "COPY TALLY REPLACING PARTIAL ==A== BY ==B==.",
+        "LITERAL": "COPY TALLY REPLACING 'G' BY 'H'.",
+        "SIGN-PREFIXED": "COPY TALLY REPLACING +5 BY 6.",
+    }
+    assert set(statements) == set(UNSUPPORTED_REPLACING_FORMS)
+    for form, statement in statements.items():
+        _fmt, lines, _d = logical_lines(_fixed(statement))
         tokens = tokenize(lines)
-        _pairs, unsupported = parse_replacing(tokens, 0, len(tokens))
-        assert form in unsupported, form
+        pairs, unsupported = parse_replacing(tokens, 0, len(tokens))
+        assert unsupported == [form], form
+        assert pairs == [], form
     assert SUPPORTED_REPLACING_FORMS == ("BY",)
 
 
@@ -233,4 +255,4 @@ def test_an_unsupported_replacing_form_is_a_named_problem_not_a_silent_expansion
     scan = scan_cobol("p.cbl", _fixed("IDENTIFICATION DIVISION.", "PROGRAM-ID. P.", "PROCEDURE DIVISION.",
                                       "    COPY TALLY REPLACING LEADING ==OLD-NAME== BY ==NEW-NAME==.",
                                       "    GOBACK."))
-    assert "COPY_REPLACING_UNSUPPORTED" in {p.code for p in scan.problems}
+    assert "COPYBOOK_REPLACING_UNSUPPORTED" in {p.code for p in scan.problems}

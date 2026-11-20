@@ -70,6 +70,7 @@ from engine.transformation.copybook_resolver import (
 )
 from engine.transformation.ir import CobolProgram, DataItem
 from engine.transformation.source_format import compiler_visible_text
+from enterprise.discovery import copy_replacing
 
 INTEGRATION = __doc__
 
@@ -497,24 +498,16 @@ def _strip_sequence_numbers(text: str) -> str:
 # ---------------------------------------------------------------------------
 #
 # ``COPY x REPLACING ==&TAG== BY ==WS-NAME== …`` is the standard mechanism
-# for parameterized copybooks.  Initially the expansion consumed the
-# clause span but never applied it: pseudo-text names are not
-# valid data-names, so the copybook's entries parsed to nothing and the
-# program silently lost every declaration while generation reported
-# ``success=True`` (plan READY, capability SUPPORTED).  The clause grammar
-# below is the single source of truth for what is applied; anything it
-# cannot apply fails closed with an explicit diagnostic naming
-# ``REPLACING`` — an unapplied clause is never allowed to proceed
-# silently.  The capability analyzer imports the same parser so its
-# verdict can never drift from what materialization actually does.
-
-_REPLACING_KEYWORD = re.compile(r"\bREPLACING\b", re.IGNORECASE)
-_BY_KEYWORD = re.compile(r"\bBY\b", re.IGNORECASE)
-_COBOL_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
-# Phrase forms of the clause we do not implement (IBM/enterprise
-# extensions).  They are recognised only to fail closed with a diagnostic
-# naming them — never applied partially, never silently dropped.
-_UNSUPPORTED_REPLACING_PHRASES = ("LEADING", "TRAILING", "PARTIAL")
+# for parameterized copybooks.  The clause grammar itself lives in the one
+# shared module ``enterprise.discovery.copy_replacing`` (layer 4, acceptance
+# criterion 8): discovery's scanner reads the very same parser, so what
+# materialization applies and what discovery records can never disagree.
+# ``_parse_replacing_clause`` below is this module's face of it — same
+# signature, same fail-closed contract: anything the grammar cannot apply
+# fails with an explicit diagnostic naming ``REPLACING`` — an unapplied
+# clause is never allowed to proceed silently.  The capability analyzer
+# imports the same parser so its verdict can never drift from what
+# materialization actually does.
 
 
 def _parse_replacing_clause(
@@ -535,92 +528,14 @@ def _parse_replacing_clause(
     phrases, ``+``/``-`` prefixed operands, literal (quoted) operands — a
     pattern that lives inside quotes can never be matched safely by the
     unquoted-text substitution, so it is never applied.
+
+    The grammar is :func:`enterprise.discovery.copy_replacing.parse_clause`
+    (the one REPLACING parser, shared with discovery); this wrapper keeps
+    the engine's contract — partial pairs beside the first refusal —
+    without owning a second copy of the rules.
     """
-    match = _REPLACING_KEYWORD.search(stmt)
-    if not match:
-        return [], None
-    body = stmt.rstrip()
-    if body.endswith("."):
-        body = body[:-1]
-    length = len(body)
-    pos = match.end()
-    pairs: list[tuple[str, str]] = []
-
-    def _skip_ws(i: int) -> int:
-        while i < length and body[i] in " \t\r\n":
-            i += 1
-        return i
-
-    def _read_operand(i: int) -> tuple[str | None, int, tuple[str, str] | None]:
-        if i >= length:
-            return None, i, (
-                "COPYBOOK_REPLACING_MALFORMED",
-                "REPLACING clause ended where an operand was expected",
-            )
-        ch = body[i]
-        if ch in "+-":
-            return None, i, (
-                "COPYBOOK_REPLACING_UNSUPPORTED",
-                f"REPLACING prefixed operand {ch!r} is not applied",
-            )
-        if ch in "'\"":
-            return None, i, (
-                "COPYBOOK_REPLACING_UNSUPPORTED",
-                "REPLACING literal (quoted) operand is not applied",
-            )
-        if body.startswith("==", i):
-            end = body.find("==", i + 2)
-            if end < 0:
-                return None, i, (
-                    "COPYBOOK_REPLACING_MALFORMED",
-                    "REPLACING pseudo-text operand is not terminated by ==",
-                )
-            operand = body[i + 2 : end].strip()
-            if not operand:
-                return None, i, (
-                    "COPYBOOK_REPLACING_MALFORMED",
-                    "REPLACING pseudo-text operand is empty",
-                )
-            return operand, end + 2, None
-        word_match = _COBOL_WORD.match(body, i)
-        if not word_match:
-            return None, i, (
-                "COPYBOOK_REPLACING_MALFORMED",
-                f"REPLACING clause has an unexpected token {body[i:i + 12]!r}",
-            )
-        word = word_match.group(0)
-        if word.upper() in _UNSUPPORTED_REPLACING_PHRASES:
-            return None, i, (
-                "COPYBOOK_REPLACING_UNSUPPORTED",
-                f"REPLACING {word.upper()} phrase is not applied",
-            )
-        return word, word_match.end(), None
-
-    while True:
-        pos = _skip_ws(pos)
-        if pos >= length:
-            break
-        left, pos, error = _read_operand(pos)
-        if error:
-            return pairs, error
-        pos = _skip_ws(pos)
-        by_match = _BY_KEYWORD.match(body, pos)
-        if not by_match:
-            return pairs, (
-                "COPYBOOK_REPLACING_MALFORMED",
-                "REPLACING clause is missing the BY keyword between operands",
-            )
-        pos = _skip_ws(by_match.end())
-        right, pos, error = _read_operand(pos)
-        if error:
-            return pairs, error
-        pairs.append((left, right))
-    if not pairs:
-        return pairs, (
-            "COPYBOOK_REPLACING_MALFORMED",
-            "REPLACING clause contains no operand pairs",
-        )
-    return pairs, None
+    clause = copy_replacing.parse_clause(stmt)
+    return list(clause.pairs), clause.error
 
 
 def _apply_replacing(text: str, pairs: tuple[tuple[str, str], ...]) -> str:
@@ -871,7 +786,7 @@ def _unit_replacing_pairs(
     pairs_by_target: dict[str, tuple[tuple[str, str], ...]] = {}
     errors: list[tuple[str, str, str]] = []
     source = unit.source_text or ""
-    if not source or not _REPLACING_KEYWORD.search(source):
+    if not source or not copy_replacing.has_replacing(source):
         return pairs_by_target, errors
     masked = _mask_comments(source)
     for start, end, target in _find_copy_statements(source):

@@ -15,7 +15,9 @@ is installed, called or emulated.**
    `-free`/`-fixed` from the detected reference format, `-I` for every copybook directory in the estate. Diagnostics are parsed back to `file:line`.
 
 Verdicts (closed set): `COMPILES`, `COMPILES_WITH_WARNINGS`, `COMPILE_ERRORS`, `NOT_ATTEMPTED_PROPRIETARY`, `NOT_ATTEMPTED_SQL_PRECOMPILER`, `NOT_ATTEMPTED_BLOCKED_DEPENDENCY`
-(a missing copybook or callee would make a compile result misleading), `NOT_ATTEMPTED_NO_COMPILER`, `NOT_ATTEMPTED_BUDGET`, `NOT_ATTEMPTED_TOOL_FAILURE`.
+(a missing copybook or callee would make a compile result misleading), `NOT_ATTEMPTED_REFERENCE_FORMAT` (the file switches reference format mid-file or
+asks for `$SET SOURCEFORMAT VARIABLE`, which one `-free`/`-fixed` flag cannot represent — refused by name, never checked under a flag that would misread
+part of it), `NOT_ATTEMPTED_NO_COMPILER`, `NOT_ATTEMPTED_BUDGET`, `NOT_ATTEMPTED_TOOL_FAILURE`.
 A pass means GnuCOBOL accepts the source in that dialect. It is **not** a verdict from the customer's production compiler, and the report says so.
 
 ## Open-source options considered

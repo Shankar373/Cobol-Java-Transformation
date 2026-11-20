@@ -113,12 +113,17 @@ class TestSourceScanDetection:
         assert "EXEC MQI" not in found, sorted(found)
 
     def test_comment_and_string_literal_text_never_detect(self) -> None:
-        """Comment lines and string-literal data are not statements (BL-034 masking)."""
+        """Comment lines and string-literal data are not statements (BL-034 masking).
+
+        The fixed-format comment indicator sits in column 7: columns 1-6 are the
+        ignored sequence area, so a ``*`` there belongs to a statement's text, not
+        to a comment (the unified reader classifies this file as fixed).
+        """
         masked = (
             "       PROCEDURE DIVISION.\n"
-            "     *    EXEC DLI GU PCB NAME=COMMENTED\n"
+            "      *   EXEC DLI GU PCB NAME=COMMENTED\n"
             "           DISPLAY \"EXEC MQI PUT Q(HQUEUE)\".\n"
-            "     *>   EXEC DLI GU\n"
+            "      *>  EXEC DLI GU\n"
             "           STOP RUN.\n"
         )
         found = scan_constructs(masked)

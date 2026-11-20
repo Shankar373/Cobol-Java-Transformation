@@ -293,6 +293,19 @@ def _canonical_core(manifest: EvidenceManifest) -> dict[str, Any]:
                 "compiler_version": manifest.oracle_identity.compiler_version,
                 "preprocessor_version": manifest.oracle_identity.preprocessor_version,
                 "base_image": manifest.oracle_identity.base_image,
+                # Layer 4 (acceptance criterion 10): how the oracle compiled, recorded
+                # beside the identity.  Present only when observed, so every manifest
+                # that predates Layer 4 keeps the exact seal it always had (the
+                # conditional-key pattern used for graph_traceability).
+                **{
+                    key: value
+                    for key, value in (
+                        ("std", manifest.oracle_identity.std),
+                        ("format_flag", manifest.oracle_identity.format_flag),
+                        ("profile_id", manifest.oracle_identity.profile_id),
+                    )
+                    if value is not None
+                },
             }
             if manifest.oracle_identity is not None else None
         ),
@@ -467,6 +480,24 @@ class EvidenceManifest:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
+        # Layer 4 (acceptance criterion 10): the compile-record fields are included
+        # only when observed, so a manifest without them serialises exactly as it
+        # always did.
+        oracle_identity: dict[str, Any] | None = None
+        if self.oracle_identity is not None:
+            oracle_identity = {
+                "oracle_id": self.oracle_identity.oracle_id,
+                "image_digest": self.oracle_identity.image_digest,
+                "compiler_version": self.oracle_identity.compiler_version,
+            }
+            for key, value in (
+                ("std", self.oracle_identity.std),
+                ("format_flag", self.oracle_identity.format_flag),
+                ("profile_id", self.oracle_identity.profile_id),
+            ):
+                if value is not None:
+                    oracle_identity[key] = value
+
         return {
             "manifest_version": self.manifest_version,
             "run_id": self.run_id.value,
@@ -477,11 +508,7 @@ class EvidenceManifest:
                 "file_count": self.source_identity.file_count,
                 "total_size_bytes": self.source_identity.total_size_bytes,
             },
-            "oracle_identity": {
-                "oracle_id": self.oracle_identity.oracle_id if self.oracle_identity else None,
-                "image_digest": self.oracle_identity.image_digest if self.oracle_identity else None,
-                "compiler_version": self.oracle_identity.compiler_version if self.oracle_identity else None,
-            } if self.oracle_identity else None,
+            "oracle_identity": oracle_identity,
             "execution_count": len(self.execution_evidence),
             "artifact_count": len(self.artifact_evidence),
             "comparison_count": len(self.comparison_evidence),

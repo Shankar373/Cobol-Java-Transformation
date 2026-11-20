@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from . import cobol_structure
+from . import cobol_structure, copy_replacing
 from .cobol_text import Token, read_source, split_indexed, split_statements, tokenize
 from .findings import Fact, FileScan, Ref, ScanProblem, detail
 from .scan_embedded import classify_call, parse_exec
@@ -372,21 +372,25 @@ def _copy(tokens: list[Token], index: int, state: _State) -> int:
 
 
 def _replacing_detail(tokens: list[Token], start: int, end: int, replacing: int, state: _State) -> tuple[tuple[str, str], ...]:
-    """``COPY`` detail carrying the ``REPLACING`` pairs exactly as written, plus a refusal for forms not expanded.
+    """``COPY`` detail carrying the ``REPLACING`` pairs exactly as written, plus the shared refusal when the clause
+    cannot be applied.
 
-    Discovery records what the clause says; it does not expand it.  ``LEADING``/``TRAILING``/``PARTIAL`` and an
-    unpaired pseudo-text are reported by name instead of being read as a plain pair.
+    Discovery records what the clause says; it does not expand it.  The clause is read by the one REPLACING grammar
+    (:func:`copy_replacing.parse_tokens`), so the problem code reported here is exactly the code generation reports
+    for the same clause — ``COPYBOOK_REPLACING_UNSUPPORTED`` for a form neither side applies (layer 4, acceptance
+    criterion 8), ``COPYBOOK_REPLACING_MALFORMED`` for a clause that does not parse — with the grammar's own
+    message naming ``REPLACING``.
     """
     if not replacing:
         return detail()
-    pairs, unsupported = cobol_structure.parse_replacing(tokens, start, end)
-    for form in unsupported:
-        state.scan.problems.append(ScanProblem(state.path, tokens[start].line, "COPY_REPLACING_UNSUPPORTED",
-                                               f"COPY ... REPLACING {form} is recorded but not expanded"))
+    clause = copy_replacing.parse_tokens(tokens, start, end)
+    if clause.error:
+        code, message = clause.error
+        state.scan.problems.append(ScanProblem(state.path, tokens[start].line, code, message))
     info: dict[str, object] = {"replacing": "yes"}
-    if pairs:
-        info["replacing_pairs"] = "; ".join(f"{left} BY {right}" for left, right in pairs)
-        info["replacing_count"] = str(len(pairs))
+    if clause.pairs:
+        info["replacing_pairs"] = "; ".join(f"{left} BY {right}" for left, right in clause.pairs)
+        info["replacing_count"] = str(len(clause.pairs))
     return detail(**info)
 
 

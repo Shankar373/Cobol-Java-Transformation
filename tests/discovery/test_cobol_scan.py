@@ -134,23 +134,31 @@ def test_copy_forms_with_library_and_replacing() -> None:
     assert by_name["EMPDCL"].clause == "EXEC SQL INCLUDE"
 
 
-def test_copy_replacing_records_word_and_literal_operands() -> None:
-    """Word and literal operands are recorded, not dropped: discovery records every pair it reads."""
+def test_copy_replacing_records_words_and_refuses_literals_with_the_generation_code() -> None:
+    """Word operands are recorded; a literal operand is refused under generation's code.
+
+    Criterion 8: discovery and generation refuse the literal-operand COPY the
+    same way — the problem code here is exactly the code the materializer
+    reports for the same statement.
+    """
     text = _fixed("PROGRAM-ID. P.", "    COPY A REPLACING WS-OLD BY WS-NEW.",
                   "    COPY B REPLACING 'X' BY 'Y'.")
     scan = scan_cobol("p.cbl", text)
     by_name = {r.target: r for r in refs(scan, "copies")}
     assert dict(by_name["A"].detail)["replacing_pairs"] == "WS-OLD BY WS-NEW"
-    assert dict(by_name["B"].detail)["replacing_pairs"] == "'X' BY 'Y'"
-    assert not [p for p in scan.problems if p.code == "COPY_REPLACING_UNSUPPORTED"]
+    assert "replacing_pairs" not in dict(by_name["B"].detail)
+    problems = [p for p in scan.problems if p.code.startswith("COPY")]
+    assert [p.code for p in problems] == ["COPYBOOK_REPLACING_UNSUPPORTED"]
+    assert "REPLACING" in problems[0].message
 
 
 def test_copy_replacing_leading_is_reported_and_never_guessed() -> None:
     text = _fixed("PROGRAM-ID. P.", "    COPY A REPLACING LEADING ==:T:== BY ==WS==.")
     scan = scan_cobol("p.cbl", text)
-    assert [p.code for p in scan.problems] == ["COPY_REPLACING_UNSUPPORTED"]
+    assert [p.code for p in scan.problems] == ["COPYBOOK_REPLACING_UNSUPPORTED"]
     info = dict(refs(scan, "copies")[0].detail)
-    assert info["replacing"] == "yes" and info["replacing_pairs"] == ":T: BY WS"
+    # The clause is refused before its first pair is read: nothing is guessed.
+    assert info["replacing"] == "yes" and "replacing_pairs" not in info
 
 
 def test_sqlca_and_sqlda_includes_are_builtin_not_copybooks() -> None:

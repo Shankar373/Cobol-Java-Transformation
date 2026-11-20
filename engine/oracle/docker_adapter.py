@@ -450,6 +450,17 @@ class DockerOracleAdapter(OracleAdapter):
         formats = {cls._module_source_format(source_dir, m) for m in modules}
         return "-free " if formats == {"free"} else ""
 
+    @staticmethod
+    def _compile_record(format_flag: str) -> dict[str, str]:
+        """What one attempted compile records beside the oracle identity (Layer 4).
+
+        The oracle never passes ``-std=`` (dialect-blind by construction), so the
+        compile runs at GnuCOBOL's default standard — recorded as observed, never
+        taken from a profile.  ``format_flag`` is the exact flag that was passed,
+        whitespace-stripped (``""`` when the fixed-format default applied).
+        """
+        return {"std": "default", "format_flag": format_flag.strip()}
+
     def _compute_source_hash(self, source_path: str) -> ContentHash:
         return compute_source_tree_hash(source_path)
 
@@ -904,6 +915,9 @@ class DockerOracleAdapter(OracleAdapter):
                 source_tree_hash_after=source_hash_after,
                 compilation_diagnostics=compilation_diagnostics,
                 image_digest=digest,
+                # A compile was attempted here: record the standard it ran at
+                # and the exact format flag it was given, beside the identity.
+                **self._compile_record(format_flag),
             )
 
         except Exception as e:

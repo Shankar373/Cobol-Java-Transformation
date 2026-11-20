@@ -103,6 +103,15 @@ class OracleIdentity:
     compiler_version: str
     preprocessor_version: str | None = None
     base_image: str | None = None
+    # Layer 4 (acceptance criterion 10): how the oracle compiled, recorded beside the
+    # identity — the effective GnuCOBOL standard, the exact source-format flag that was
+    # passed, and the discovery ``DialectProfile.profile_id`` the source was read under
+    # (None when the run carried no profile).  Advisory record only: the cobc invocation
+    # itself is unchanged (the oracle still never passes ``-std=``, dialect-blind by
+    # construction), so these fields document, they never drive, the compile.
+    std: str | None = None
+    format_flag: str | None = None
+    profile_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.oracle_id:

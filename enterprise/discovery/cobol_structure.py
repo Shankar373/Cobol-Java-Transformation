@@ -2,18 +2,20 @@
 intra-program data flow and the ``COPY ... REPLACING`` clause.
 
 No parsing, no execution, no LLM: every finding is a token span with an exact ``(line, column)``.  The module is
-deliberately free of the scanner's own state so the same REPLACING parser can be shared with the transformation side
-(the only other REPLACING parser in the repository lives in ``engine/transformation/copybook_resolver.py``).
+deliberately free of the scanner's own state, and the ``COPY ... REPLACING`` grammar itself lives in
+:mod:`copy_replacing` — shared with the transformation side, which materialises the very same clauses (layer 4,
+acceptance criterion 8).
 
 Scope and honesty about limits:
 
 * Data flow (``MOVE``/arithmetic/conditions) is **intra-file**: a name is only followed when it is described in the
   file being scanned.  A name a ``COPY`` brings in belongs to the copybook and is linked through the ``copies`` edge
   and the copybook's own data items, never re-emitted per reference.
-* ``REPLACING`` pairs — pseudo-text, COBOL-word and literal operands — are recorded in source order and never
-  applied here; the name a pair produces is linked to the including program by the resolver.  ``LEADING``/
-  ``TRAILING``/``PARTIAL`` and an unpaired operand are reported as ``COPY_REPLACING_UNSUPPORTED``, never
-  approximated.
+* ``REPLACING`` pairs — pseudo-text and COBOL-word operands — are recorded in source order and never
+  applied here; the name a pair produces is linked to the including program by the resolver.  Forms neither side
+  applies (``LEADING``/``TRAILING``/``PARTIAL`` phrases, quoted literals, signed operands) and clauses that do not
+  parse are reported under the shared ``COPYBOOK_REPLACING_UNSUPPORTED``/``COPYBOOK_REPLACING_MALFORMED`` codes,
+  never approximated.
 * Sections, paragraphs and control flow are only recognised inside a ``PROCEDURE DIVISION``.  A source with no such
   header (a data-only copybook) contributes data descriptions only, never a guessed paragraph.
 * ``PERFORM <data-name> TIMES`` is a repetition count, not a paragraph reference, and is not emitted; ``GO TO``
@@ -24,14 +26,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import copy_replacing
 from .cobol_text import Token, split_indexed
 
 __all__ = ["StructureScan", "Unit", "FlowRef", "DataDecl", "scan_structure", "parse_replacing", "data_node_id",
            "scoped_node_id", "SUPPORTED_REPLACING_FORMS", "UNSUPPORTED_REPLACING_FORMS"]
 
-#: ``COPY ... REPLACING`` forms this scanner understands.  Anything else is refused by name, never guessed.
-SUPPORTED_REPLACING_FORMS = ("BY",)
-UNSUPPORTED_REPLACING_FORMS = ("LEADING", "TRAILING", "PARTIAL")
+#: ``COPY ... REPLACING`` forms the one grammar understands.  Anything else is
+#: refused by name, never guessed — re-exported from :mod:`copy_replacing`,
+#: the single authority both faces read.
+SUPPORTED_REPLACING_FORMS = copy_replacing.SUPPORTED_REPLACING_FORMS
+UNSUPPORTED_REPLACING_FORMS = copy_replacing.UNSUPPORTED_REPLACING_FORMS
 
 #: Levels that introduce a record layout rather than a plain field.
 _RECORD_LEVELS = frozenset({"1", "01"})
@@ -160,41 +165,17 @@ def parse_replacing(tokens: list[Token], start: int, end: int) -> tuple[list[tup
     """Pairs and unsupported forms of the ``REPLACING`` clause in ``tokens[start:end]``.
 
     Returns ``(pairs, unsupported)`` where a pair is ``(left, right)`` as written (pseudo-text without the ``==``
-    delimiters, a literal in single quotes), in source order, and ``unsupported`` names every form this scanner
-    refuses to approximate.  Pseudo-text, COBOL-word and literal operands are all *recorded* — discovery never
-    expands them, so recording is a superset of what the transformation side applies, never a silent drop.
+    delimiters), in source order, and ``unsupported`` names the form/condition behind the clause's first refusal —
+    at most one name, because the shared grammar fails closed on the first refusal.
+
+    The clause is read by the one REPLACING grammar (:func:`copy_replacing.parse_tokens`): tokens are rendered
+    back to statement text and parsed by the very parser generation materialises with, so discovery refuses exactly
+    what generation refuses, under the same ``COPYBOOK_REPLACING_UNSUPPORTED``/``COPYBOOK_REPLACING_MALFORMED``
+    codes (layer 4, acceptance criterion 8).  ``unsupported`` carries the named form for diagnostics; the code the
+    scanner reports comes from the clause's error.
     """
-    pairs: list[tuple[str, str]] = []
-    unsupported: list[str] = []
-    cursor = start
-    while cursor < end and not (tokens[cursor].kind == "word" and tokens[cursor].upper == "REPLACING"):
-        cursor += 1
-    if cursor >= end:
-        return pairs, unsupported
-    cursor += 1
-    pending: list[str] = []
-    while cursor < end:
-        token = tokens[cursor]
-        if token.kind == "pseudo":
-            pending.append(token.text.upper())
-        elif token.kind == "literal":
-            text = token.text
-            pending.append(text if text[:1] in ("'", '"') else f"'{text}'")
-        elif token.kind == "number":
-            pending.append(token.text)
-        elif token.kind == "word":
-            if token.upper in UNSUPPORTED_REPLACING_FORMS:
-                if token.upper not in unsupported:
-                    unsupported.append(token.upper)
-            elif token.upper != "BY":
-                pending.append(token.upper)
-        cursor += 1
-    # Operands arrive left, BY, right; pairing them in order is the only reading the grammar allows here.
-    for index in range(0, len(pending) - 1, 2):
-        pairs.append((pending[index], pending[index + 1]))
-    if len(pending) % 2:
-        unsupported.append("UNPAIRED-PSEUDO-TEXT")
-    return pairs, unsupported
+    clause = copy_replacing.parse_tokens(tokens, start, end)
+    return list(clause.pairs), ([clause.form] if clause.error and clause.form else [])
 
 
 # --- the structural pass ------------------------------------------------------------------------------------

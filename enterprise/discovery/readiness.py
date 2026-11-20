@@ -19,8 +19,10 @@ from typing import Any
 __all__ = ["READINESS_STATES", "UNVERIFIED_VERDICTS", "evaluate_readiness", "describe_blockers"]
 
 #: Compiler verdicts that mean "no open-source compiler verdict exists for this program although one was possible": the check did not
-#: run (no compiler, tool failure, time budget) or its inputs were not usable.  Such a program is never reported as READY.
-UNVERIFIED_VERDICTS = frozenset({"NOT_ATTEMPTED_NO_COMPILER", "NOT_ATTEMPTED_TOOL_FAILURE", "NOT_ATTEMPTED_BUDGET", "NOT_ATTEMPTED_BLOCKED_DEPENDENCY"})
+#: run (no compiler, tool failure, time budget), its inputs were not usable (a missing copybook), or the reference format cannot be
+#: represented by the lane's single ``-free``/``-fixed`` flag (mixed/variable).  Such a program is never reported as READY.
+UNVERIFIED_VERDICTS = frozenset({"NOT_ATTEMPTED_NO_COMPILER", "NOT_ATTEMPTED_TOOL_FAILURE", "NOT_ATTEMPTED_BUDGET",
+                                 "NOT_ATTEMPTED_BLOCKED_DEPENDENCY", "NOT_ATTEMPTED_REFERENCE_FORMAT"})
 
 READINESS_STATES = ("BLOCKED", "NOT_SUPPORTED", "READY")
 _LIMIT = 50

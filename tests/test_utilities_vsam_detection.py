@@ -174,11 +174,14 @@ class TestSourceScanDetection:
             assert key not in found, (key, sorted(found))
 
     def test_comment_and_string_literal_text_never_detect(self) -> None:
+        # Fixed-format comment indicator in column 7: columns 1-6 are the
+        # ignored sequence area, so a ``*`` there belongs to a statement's text,
+        # not to a comment (the unified reader classifies this file as fixed).
         masked = (
             "       PROCEDURE DIVISION.\n"
-            "     *    RELEASE WS-COMMENT.\n"
+            "      *   RELEASE WS-COMMENT.\n"
             "           DISPLAY \"RELEASE WS-STRING\".\n"
-            "     *>   IDCAMS COPY STEP.\n"
+            "      *>  IDCAMS COPY STEP.\n"
             "           STOP RUN.\n"
         )
         found = scan_constructs(masked)

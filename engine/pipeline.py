@@ -123,6 +123,10 @@ class PipelineConfig:
     # Knowledge-graph lineage (``graph_id``, ``traceability_overlay_id``) as sorted string pairs, recorded in the
     # sealed evidence manifest.  Empty when the run is not traced to a discovery graph.
     graph_traceability: tuple[tuple[str, str], ...] = ()
+    # Layer 4 (acceptance criterion 10): ``profile_id`` of the discovery ``DialectProfile`` the COBOL source was
+    # read under, recorded beside the oracle identity in the sealed evidence manifest.  Empty when the caller did
+    # not tie the run to a profile.  Advisory record only: it never selects a standard or a format flag.
+    oracle_profile_id: str = ""
 
 
 @dataclass
@@ -1120,13 +1124,32 @@ class VerticalSlicePipeline:
             input_files=input_file_hashes,
         )
 
+        # Layer 4 (acceptance criterion 10): what this execution's cobc actually
+        # used (observed ``std`` and format flag) plus the discovery profile the
+        # source was read under, recorded beside the oracle identity in the sealed
+        # manifest.  Advisory record only — none of it changes the invocation.
+        # Values the adapter could not observe (no compile attempted) stay None
+        # and are simply not recorded, never guessed.
+        oracle_identity = replace(
+            self._oracle_adapter.get_identity(),
+            **{
+                key: value
+                for key, value in (
+                    ("std", oracle_result.std),
+                    ("format_flag", oracle_result.format_flag),
+                    ("profile_id", self._config.oracle_profile_id or None),
+                )
+                if value is not None
+            },
+        )
+
         manifest = EvidenceManifest(
             manifest_version="1.0",
             run_id=run_id,
             workload_id=workload_id,
             source_identity=source_identity,
             candidate_identity=candidate_identity,
-            oracle_identity=self._oracle_adapter.get_identity(),
+            oracle_identity=oracle_identity,
             environment_identities=environment_identities,
             controlled_input=controlled_input_identity,
             execution_evidence=(oracle_evidence, candidate_evidence),
@@ -1151,7 +1174,7 @@ class VerticalSlicePipeline:
             run_id=run_id,
             workload_id=workload_id,
             source_identity=source_identity,
-            oracle_identity=self._oracle_adapter.get_identity(),
+            oracle_identity=oracle_identity,
             candidate_identity=candidate_identity,
             oracle_evidence=oracle_evidence,
             candidate_evidence=candidate_evidence,
