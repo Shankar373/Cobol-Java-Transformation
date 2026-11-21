@@ -187,8 +187,14 @@ def _normalize(text: str) -> tuple[list[str], list[str]]:
         raw.rstrip("\r")[:FIXED_FORMAT_TEXT_END] if line_formats[number] == "fixed" else raw
         for number, raw in enumerate(raw_lines)
     ]
-    # A directive/card/comment line is not program text: it never anchors a continuation.
-    not_anchor = {number for number, kind in read.skipped if kind in ("directive", "card", "comment")}
+    # Directives, cards and dead conditional branches are never statements: drop them from the
+    # compiler-visible text (line count kept so diagnostics keep their line numbers).
+    dropped = {number for number, kind in read.skipped if kind in ("directive", "card", "dead-branch")}
+    for number in dropped:
+        lines[number - 1] = ""
+    # A directive/card/comment/dead line is not program text: it never anchors a continuation.
+    not_anchor = {number for number, kind in read.skipped
+                  if kind in ("directive", "card", "comment", "dead-branch")}
     last_code: int | None = None
     for number, line in enumerate(lines):
         if line_formats[number] != "fixed":

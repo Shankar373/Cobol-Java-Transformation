@@ -82,6 +82,9 @@ class FileScan:
     #: ``(line, new_format)`` for every ``>>SOURCE FORMAT``/``$SET SOURCEFORMAT`` directive that changed the
     #: format while reading — from the single reader (``cobol_text.read_source``), never re-derived here.
     format_switches: tuple[tuple[int, str], ...] = ()
+    #: Conditional-compilation verdict of the single reader (``none``/``evaluated``/``unevaluated``),
+    #: from ``cobol_text.read_source``, never re-derived here.
+    conditional: str = "none"
     line_count: int = 0
 
     def sorted(self) -> "FileScan":

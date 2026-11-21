@@ -113,7 +113,6 @@
 1	engine/transformation/cobol_to_java_mapping.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "leaves"
 1	engine/transformation/cobol_to_java_mapping.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "length"
 1	engine/transformation/cobol_to_java_mapping.py|[var-annotated]|Need type annotation for "STATEMENT_CAPABILITY_PARTIAL"
-1	engine/transformation/copybook_model.py|[arg-type]|Argument 1 to "append" of "list" has incompatible type "tuple[str | None, str | None]"; expected "tuple[str, str]"
 1	engine/transformation/copybook_model.py|[assignment]|Incompatible types in assignment (expression has type "tuple[tuple[str, str], ...] | None", variable has type "tuple[tuple[str, str], ...]")
 1	engine/transformation/group_storage.py|[assignment]|Incompatible types in assignment (expression has type "str | None", variable has type "str")
 3	engine/transformation/group_storage.py|[union-attr]|Item "None" of "GroupLayout | None" has no attribute "leaf_names"

@@ -19,6 +19,7 @@ from .findings import Fact, Ref, detail
 from .graph import DependencyGraph, Edge, Node, confidence_for
 from .inventory import FileRecord
 from .jcl_utils import SYSTEM_PROGRAMS
+from .library_order import library_winner as _shared_library_winner
 
 __all__ = ["build_graph", "GraphBuild", "Estate"]
 
@@ -306,17 +307,6 @@ def _effective_runs(est: Estate) -> dict[str, list[_Step]]:
     return runs
 
 
-def _in_library(path: str, library: str) -> bool:
-    """Whether the copybook at ``path`` lives in ``library`` (a dataset ``LIBS.LIB2`` or a directory ``libs/lib2``)."""
-    folder = dirname(path).lower()
-    lib = library.lower().replace("\\", "/").strip("/")
-    lib = lib[2:] if lib.startswith("./") else lib
-    dataset_path = lib.replace(".", "/") if "/" not in lib else lib
-    if folder == dataset_path or folder.endswith("/" + dataset_path):
-        return True
-    return "/" not in lib and "." in lib and folder.rsplit("/", 1)[-1] == lib.rsplit(".", 1)[-1]
-
-
 class _Builder:
     def __init__(self, est: Estate) -> None:
         self.est = est
@@ -558,21 +548,7 @@ class _Builder:
 
     def _library_winner(self, ref: Ref, candidates: list[str]) -> str:
         """The candidate every applicable library order agrees on, or ``""`` when no order decides."""
-        winners: set[str] = set()
-        orders = self._library_orders(ref)
-        if not orders:
-            return ""
-        for order in orders:
-            picked = ""
-            for library in order:
-                hits = [c for c in candidates if _in_library(c, library)]
-                if hits:
-                    picked = hits[0] if len(hits) == 1 else ""
-                    break
-            if not picked:
-                return ""
-            winners.add(picked)
-        return next(iter(winners)) if len(winners) == 1 else ""
+        return _shared_library_winner(candidates, self._library_orders(ref))
 
     def _proc(self, src: str, ref: Ref) -> None:
         name = ref.target.upper()

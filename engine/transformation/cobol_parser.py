@@ -718,11 +718,47 @@ class CobolParser:
         # continues nothing or resumes an open literal without a quote; a
         # literal holding both quote characters) is refused: never guess.
         for problem in reference_format_errors(source):
+            if "REFERENCE_FORMAT_VARIABLE_UNSUPPORTED" in problem:
+                continue
             self._diagnostics.warning(
                 DiagnosticCode.UNSUPPORTED_CONSTRUCT,
                 f"Source cannot be read faithfully: {problem}",
                 location=problem.split(":", 1)[0],
             )
+        # Pre-parse refusals (layer 4, criterion 6): constructs the engine
+        # never supports are refused by name before any statement is parsed,
+        # so ``has_errors`` fails closed and no ``UNKNOWN`` Java type is emitted.
+        masked = self._mask_quoted(source)
+        if re.search(r"\b(CLASS-ID|INTERFACE-ID|METHOD-ID|FACTORY|OBJECT)\b", masked, re.IGNORECASE):
+            self._diagnostics.error(
+                DiagnosticCode.OO_COBOL_UNSUPPORTED,
+                "OO_COBOL_UNSUPPORTED: object-oriented COBOL (CLASS-ID/INTERFACE-ID/METHOD-ID/FACTORY/OBJECT) "
+                "is not supported by the generator",
+            )
+        if re.search(r"\bSCREEN\s+SECTION\b", masked, re.IGNORECASE):
+            self._diagnostics.error(
+                DiagnosticCode.SCREEN_SECTION_UNSUPPORTED,
+                "SCREEN_SECTION_UNSUPPORTED: SCREEN SECTION is not supported by the generator",
+            )
+        for problem in reference_format_errors(source):
+            if "REFERENCE_FORMAT_VARIABLE_UNSUPPORTED" in problem:
+                self._diagnostics.error(
+                    DiagnosticCode.REFERENCE_FORMAT_VARIABLE_UNSUPPORTED,
+                    f"REFERENCE_FORMAT_VARIABLE_UNSUPPORTED: {problem}",
+                    location=problem.split(":", 1)[0],
+                )
+        try:
+            from enterprise.discovery.cobol_text import read_source as _read_source
+            _read = _read_source(source)
+            if _read.conditional == "unevaluated":
+                self._diagnostics.error(
+                    DiagnosticCode.CONDITIONAL_COMPILATION_UNEVALUATED,
+                    f"CONDITIONAL_COMPILATION_UNEVALUATED: conditional compilation directive outside the "
+                    f"evaluated >>DEFINE/>>IF subset at line {_read.conditional_line}: both branches kept",
+                    location=str(_read.conditional_line),
+                )
+        except Exception:
+            pass
         # Fixed format: the compiler never sees columns 73+, so neither may we.
         lines = compiler_visible_text(source).split("\n")
         fixed_format = detect_source_format(source) == "fixed"

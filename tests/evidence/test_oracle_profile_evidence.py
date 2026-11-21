@@ -74,6 +74,29 @@ def test_the_record_round_trips_through_persistence_with_its_seal() -> None:
     assert decoded.manifest_hash == recorded.manifest_hash
 
 
+def test_an_observed_absent_format_flag_round_trips_as_an_empty_string() -> None:
+    """A fixed-format compile passes no flag: the observation is ``""``, never a decode failure.
+
+    The Docker oracle records ``format_flag=""`` when GnuCOBOL's fixed-format default
+    applied (no ``-free`` given).  That empty string is an observed value beside
+    ``oracle_id``; decoding it must not raise ``PersistenceCorruptionError`` (it made
+    every fixed-format run 500 and stall the API).
+    """
+    _, recorded = _with_record()
+    fixed = dataclasses.replace(
+        recorded,
+        oracle_identity=dataclasses.replace(recorded.oracle_identity, format_flag=""),
+    )
+    graph = canonical_evidence_graph(fixed)["oracle_identity"]
+    assert graph["format_flag"] == ""  # present and sealed: observed, not missing
+    decoded = serialization.decode_evidence_manifest(
+        serialization.encode_evidence_manifest(fixed)
+    )
+    assert decoded is not None
+    assert decoded.oracle_identity.format_flag == ""
+    assert decoded.manifest_hash == fixed.manifest_hash
+
+
 def test_a_manifest_without_the_record_keeps_the_exact_seal_it_always_had() -> None:
     from tests.test_persistence_integrity import _manifest
 

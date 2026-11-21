@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import NamedTuple
 
 FIXED_TEXT_END = 72
 FIXED_TEXT_START = 7  # zero-based offset of column 8
@@ -24,6 +25,12 @@ _MF_FORMAT = re.compile(r"SOURCEFORMAT\s*[\"'(]*\s*(FREE|FIXED|VARIABLE)", re.IG
 _CARD_LINE = re.compile(r"^(?:-INC|\+\+INCLUDE|%INCLUDE|CBL|PROCESS)\s", re.IGNORECASE)
 _WORD = re.compile(r"[A-Za-z0-9_$#@][A-Za-z0-9_$#@-]*")
 _NUMBER = re.compile(r"[+-]?\d+(?:\.\d+)?")
+#: ``>>`` keywords of conditional compilation: evaluated (``DEFINE``/``IF``/``ELSE``/``END-IF``) or
+#: refused by name (``ELIF``/``EVALUATE``/``WHEN``/``CALL*``); anything else is a plain directive.
+_CONDITIONAL_KEYWORDS = frozenset({"DEFINE", "IF", "ELIF", "ELSE", "END-IF", "EVALUATE", "WHEN"})
+#: Micro Focus dollar conditionals (``$IF``/``$DEFINE``/``$ELSE``/``$ELIF``/``$END``): recognised only
+#: to refuse by name — never evaluated, never silently ignored.  ``$SET`` is not one of these.
+_MF_CONDITIONAL = re.compile(r"\$(?:IF|ELIF|ELSE|END|DEFINE)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -66,7 +73,10 @@ class SourceRead:
     directives: list[Directive]  # every ``>>``/``$SET`` directive line
     switches: tuple[tuple[int, str], ...]   # ``(line, new_format)`` for each actual format change
     skipped: tuple[tuple[int, str], ...]    # ``(line, kind)`` of dropped physical lines:
-                                            # ``directive`` | ``card`` | ``debug`` | ``comment``
+                                            # ``directive`` | ``card`` | ``debug`` | ``comment`` |
+                                            # ``dead-branch``
+    conditional: str = "none"      # ``none`` | ``evaluated`` | ``unevaluated`` — the CDF verdict (criterion 5)
+    conditional_line: int = 0      # physical line of the first directive outside the subset (0 = none)
 
 
 def _is_fixed_comment(line: str) -> bool:
@@ -108,10 +118,229 @@ def _strip_free_comment(text: str) -> str:
     return text
 
 
+def _literal(text: str) -> tuple[str, float | str] | None:
+    """``("num", value)`` for a numeric or ``("str", value)`` for a quoted literal; None when neither."""
+    if _NUMBER.fullmatch(text):
+        return "num", float(text)
+    single = re.fullmatch(r"'([^']*)'", text)
+    if single is not None:
+        return "str", single.group(1)
+    double = re.fullmatch(r'"([^"]*)"', text)
+    if double is not None:
+        return "str", double.group(1)
+    return None
+
+
+def _operand(text: str) -> str | tuple[str, float | str] | None:
+    """A CDF variable (its uppercased name) or a literal; None when the text is neither (never guessed)."""
+    text = text.strip()
+    if not text:
+        return None
+    if text[0] in "'\"":
+        return _literal(text)
+    if _NUMBER.fullmatch(text):
+        return "num", float(text)
+    if _WORD.fullmatch(text):
+        return text.upper()
+    return None
+
+
+#: RelOps of the ``>>IF`` conditional expression, longest word form first (GnuCOBOL 2.5).
+_RELOP = re.compile(
+    r"(?P<op>GREATER\s+THAN\s+OR\s+EQUAL\s+TO|LESS\s+THAN\s+OR\s+EQUAL\s+TO|GREATER\s+THAN|LESS\s+THAN|"
+    r"NOT\s+EQUAL\s+TO|EQUAL\s+TO|>=|<=|<>|=|>|<)",
+    re.IGNORECASE,
+)
+_RELOP_WORDS = {
+    "EQUAL TO": "=", "NOT EQUAL TO": "<>",
+    "GREATER THAN": ">", "GREATER THAN OR EQUAL TO": ">=",
+    "LESS THAN": "<", "LESS THAN OR EQUAL TO": "<=",
+}
+
+
+def _split_comparison(expr: str) -> tuple[str, str, str] | None:
+    """``(left, symbol-op, right)`` around the first supported RelOp, else None (nothing is invented)."""
+    match = _RELOP.search(expr)
+    if match is None:
+        return None
+    op = _RELOP_WORDS.get(re.sub(r"\s+", " ", match.group("op").upper()), match.group("op"))
+    left, right = expr[:match.start()].strip(), expr[match.end():].strip()
+    if not left or not right:
+        return None
+    return left, op, right
+
+
+_DEFINE_FORM = re.compile(r"(?:CONSTANT\s+)?(" + _WORD.pattern + r")\s+(?:AS\s+)?(\S.*)$", re.IGNORECASE)
+_DEFINED_FORM = re.compile(r"(" + _WORD.pattern + r")\s+IS\s+(NOT\s+)?(DEFINED|SET)", re.IGNORECASE)
+
+
+class _Frame(NamedTuple):
+    """One open ``>>IF``: whether its ``IF``/``ELSE`` branch is live inside the enclosing frames."""
+
+    line: int            # the ``>>IF`` line, so an unbalanced directive can be refused there
+    parent_active: bool  # activity inherited from the enclosing frames at push time
+    taken: bool          # the ``IF`` branch is live when the condition held
+    else_seen: bool      # a ``>>ELSE`` has flipped the branch
+
+
+class _Conditionals:
+    """Evaluation of the GnuCOBOL CDF subset inside :func:`read_source` (layer 4, criterion 5).
+
+    Evaluated exactly as written: ``>>DEFINE [CONSTANT] name AS literal`` (numeric or quoted;
+    ``AS OFF`` removes the definition; ``AS PARAMETER`` is refused — its value is not in the
+    source), ``>>IF name IS [NOT] DEFINED|SET`` and ``literal RelOp name|literal`` with the
+    RelOps ``= <> > < >= <=`` and their word forms, plus ``>>ELSE`` and ``>>END-IF``, nested.
+
+    Refused by name — the verdict becomes ``unevaluated``, both branches are kept and discovery
+    reports ``CONDITIONAL_COMPILATION_UNEVALUATED``: ``>>ELIF``, ``>>EVALUATE``, ``>>WHEN``,
+    ``>>CALL*``, a comparison on an undefined name, a numeric against an alphanumeric operand, a
+    redefinition without ``OVERRIDE``, an unbalanced ``>>IF``, and the Micro Focus dollar family
+    (``$IF``/``$DEFINE``/``$ELSE``/``$ELIF``/``$END``).  A refusal is never a default: undecided
+    means no line is dropped.  Non-conditional ``>>`` directives (``>>SOURCE``, ``>>PAGE``, ...)
+    are ignored here — they decide nothing about branches.
+    """
+
+    def __init__(self) -> None:
+        self.defines: dict[str, tuple[str, float | str]] = {}
+        self._frames: list[_Frame] = []
+        self.refusal = 0   #: physical line of the first directive outside the subset (0 = none)
+        self.saw = False   #: a conditional directive was present at all
+
+    def directive(self, text: str, line: int) -> None:
+        """Apply one ``>>`` directive line: evaluated, refused, or ignored as a plain directive."""
+        body = text[2:].lstrip() if text.startswith(">>") else text.lstrip()
+        parts = body.split(None, 1)
+        keyword = parts[0].upper() if parts else ""
+        rest = parts[1] if len(parts) > 1 else ""
+        if keyword not in _CONDITIONAL_KEYWORDS and not keyword.startswith("CALL"):
+            return
+        self.saw = True
+        if keyword == "DEFINE":
+            self._define(rest, line)
+        elif keyword == "IF":
+            self._if(rest, line)
+        elif keyword == "ELSE":
+            self._else(line)
+        elif keyword == "END-IF":
+            self._end_if(line)
+        else:
+            self._refuse(line)  # >>ELIF, >>EVALUATE, >>WHEN, >>CALL*: never evaluated
+
+    def dollar(self, line: int) -> None:
+        """A Micro Focus ``$IF``/``$DEFINE``/``$ELSE``/``$ELIF``/``$END`` line: refused, never evaluated."""
+        self.saw = True
+        self._refuse(line)
+
+    def finish(self) -> None:
+        """An unclosed ``>>IF`` at end of file is refused at its own line, never silently closed."""
+        if self._frames and not self.refusal:
+            self._refuse(self._frames[0].line)
+
+    @property
+    def active(self) -> bool:
+        """Whether program text at this point is in a live branch (always True once undecided)."""
+        if self.refusal or not self._frames:
+            return True
+        frame = self._frames[-1]
+        return frame.parent_active and (frame.taken != frame.else_seen)
+
+    @property
+    def state(self) -> str:
+        """``none`` (no conditional directives), ``evaluated``, or ``unevaluated`` (refused)."""
+        if self.refusal:
+            return "unevaluated"
+        return "evaluated" if self.saw else "none"
+
+    def _refuse(self, line: int) -> None:
+        if not self.refusal:
+            self.refusal = line
+
+    def _define(self, rest: str, line: int) -> None:
+        match = _DEFINE_FORM.match(rest.strip())
+        if match is None:
+            self._refuse(line)  # no name or no value: never a variable invented here
+            return
+        name, value = match.group(1).upper(), match.group(2).strip()
+        override = bool(re.search(r"\s+OVERRIDE$", value, re.IGNORECASE))
+        if override:
+            value = re.sub(r"\s+OVERRIDE$", "", value, flags=re.IGNORECASE).strip()
+        if value.upper() == "OFF":
+            self.defines.pop(name, None)  # ``AS OFF`` removes the definition; removing nothing is a no-op
+            return
+        if value.upper() == "PARAMETER":
+            self._refuse(line)  # the value comes from the environment, not from this source
+            return
+        typed = _literal(value)
+        if typed is None:
+            self._refuse(line)  # a bare word is not a literal: never guessed
+            return
+        if name in self.defines and not override:
+            self._refuse(line)  # a redefinition without OVERRIDE is an error to the compiler, too
+            return
+        self.defines[name] = typed
+
+    def _if(self, rest: str, line: int) -> None:
+        taken = self._condition(rest)
+        if taken is None:
+            self._refuse(line)
+            taken = True  # undecided keeps the branch (the refusal already keeps every branch)
+        self._frames.append(_Frame(line, self.active, taken, False))
+
+    def _else(self, line: int) -> None:
+        if not self._frames or self._frames[-1].else_seen:
+            self._refuse(line)  # a second >>ELSE, or one with no open >>IF
+            return
+        self._frames[-1] = self._frames[-1]._replace(else_seen=True)
+
+    def _end_if(self, line: int) -> None:
+        if not self._frames:
+            self._refuse(line)  # >>END-IF with no open >>IF
+            return
+        self._frames.pop()
+
+    def _condition(self, expr: str) -> bool | None:
+        """The value of one ``>>IF`` condition, or None when it is outside the evaluated subset."""
+        defined = _DEFINED_FORM.fullmatch(expr.strip())
+        if defined is not None:
+            return (defined.group(1).upper() in self.defines) != bool(defined.group(2))
+        split = _split_comparison(expr)
+        if split is None:
+            return None
+        left_text, op, right_text = split
+        left, right = _operand(left_text), _operand(right_text)
+        if left is None or right is None:
+            return None
+        values: list[tuple[str, float | str]] = []
+        for item in (left, right):
+            if isinstance(item, str):
+                found = self.defines.get(item)
+                if found is None:
+                    return None  # undefined or valueless: the branch cannot be decided
+                values.append(found)
+            else:
+                values.append(item)
+        if values[0][0] != values[1][0]:
+            return None  # numeric against alphanumeric: never a conversion the reader invents
+        if values[0][0] == "num":
+            # Same tag on both sides (checked above), so both stored values are floats.
+            first_num, second_num = values[0][1], values[1][1]
+            if isinstance(first_num, float) and isinstance(second_num, float):
+                return {"=": first_num == second_num, "<>": first_num != second_num,
+                        ">": first_num > second_num, "<": first_num < second_num,
+                        ">=": first_num >= second_num, "<=": first_num <= second_num}[op]
+            return None
+        first_str, second_str = values[0][1], values[1][1]
+        if isinstance(first_str, str) and isinstance(second_str, str):
+            return {"=": first_str == second_str, "<>": first_str != second_str,
+                    ">": first_str > second_str, "<": first_str < second_str,
+                    ">=": first_str >= second_str, "<=": first_str <= second_str}[op]
+        return None
+
+
 def detect_format(text: str) -> str:
     """The format the file *starts* in: a format directive before any code wins (``>>SOURCE`` or Micro Focus
-    ``$SET SOURCEFORMAT``), else a code character in columns 1-6 is free.  ``$SET`` lines without a format are
-    compiler directives, never code, so they never decide the format."""
+    ``$SET SOURCEFORMAT``), else a code character in columns 1-6 is free.  Directive lines (``>>...``,
+    Micro Focus ``$`` directives) and cards are never code, so they never decide the format."""
     for raw in text.splitlines():
         line = raw.rstrip("\r\n").expandtabs(8)
         directive = format_from_directive(line)
@@ -119,7 +348,8 @@ def detect_format(text: str) -> str:
             return directive
         stripped = line.strip()
         if not stripped or _is_fixed_comment(line) or stripped.startswith("*>") or line.startswith(("*", "/")) \
-                or _CARD_LINE.match(line) or _MF_SET.match(line):
+                or _CARD_LINE.match(line) or _MF_SET.match(line) or stripped.startswith(">>") \
+                or _MF_CONDITIONAL.match(stripped):
             continue
         return "free" if any(ch not in "0123456789 " for ch in line[:6]) else "fixed"
     return "fixed"
@@ -130,11 +360,13 @@ def read_source(text: str) -> "SourceRead":
 
     Returns a :class:`SourceRead`: the format the file starts and ends in (``"variable"`` under
     ``$SET SOURCEFORMAT VARIABLE``), the discovery rendering ``lines`` (comments removed, fixed-format
-    continuations folded), every ``>>``/``$SET`` directive, the ``(line, new_format)`` switches that
-    actually changed the format, and the ``(line, kind)`` of every physical line the reader dropped
-    (``directive``/``card``/``debug``/``comment``) so the engine face of the reader can drop the same
-    lines.  Discovery (``logical_lines``) and the engine (``transformation/source_format``) both read
-    through this function; no other module may re-derive format state (layer model, contract 3).
+    continuations folded, dead conditional branches dropped), every ``>>``/``$SET`` directive, the
+    ``(line, new_format)`` switches that actually changed the format, the ``(line, kind)`` of every
+    physical line the reader dropped (``directive``/``card``/``debug``/``comment``/``dead-branch``)
+    so the engine face of the reader can drop the same lines, and the conditional-compilation
+    verdict (``conditional``/``conditional_line``, criterion 5).  Discovery (``logical_lines``) and
+    the engine (``transformation/source_format``) both read through this function; no other module
+    may re-derive format state (layer model, contract 3).
     """
     start_format = detect_format(text)
     fmt = start_format
@@ -142,6 +374,19 @@ def read_source(text: str) -> "SourceRead":
     directives: list[Directive] = []
     switches: list[tuple[int, str]] = []
     skipped: list[tuple[int, str]] = []
+    # First pass: every conditional directive decides branch activity before any line is rendered,
+    # so a refusal near the end keeps branches an eager pass would already have dropped.
+    conditionals = _Conditionals()
+    activity: dict[int, bool] = {}
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.rstrip("\r\n").expandtabs(8)
+        stripped = line.strip()
+        if stripped.startswith(">>"):
+            conditionals.directive(stripped, number)
+        elif _MF_CONDITIONAL.match(stripped):
+            conditionals.dollar(number)
+        activity[number] = conditionals.active
+    conditionals.finish()
     for number, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip("\r\n").expandtabs(8)
         stripped = line.strip()
@@ -160,6 +405,15 @@ def read_source(text: str) -> "SourceRead":
         if stripped.startswith(">>"):
             directives.append(Directive(number, stripped))
             skipped.append((number, "directive"))
+            continue
+        if _MF_CONDITIONAL.match(stripped):
+            directives.append(Directive(number, stripped))
+            skipped.append((number, "directive"))
+            continue
+        if not activity[number]:
+            # An evaluated dead branch: the compiler never sees these lines, so neither does discovery.
+            if stripped:
+                skipped.append((number, "dead-branch"))
             continue
         if fmt == "free":
             body = _strip_free_comment(line)
@@ -188,7 +442,8 @@ def read_source(text: str) -> "SourceRead":
         if body.strip():
             lines.append(SourceLine(number, body, FIXED_TEXT_START))
     return SourceRead(start_format=start_format, format=fmt, lines=lines, directives=directives,
-                      switches=tuple(switches), skipped=tuple(skipped))
+                      switches=tuple(switches), skipped=tuple(skipped),
+                      conditional=conditionals.state, conditional_line=conditionals.refusal)
 
 
 def logical_lines(text: str) -> tuple[str, list[SourceLine], list[Directive]]:

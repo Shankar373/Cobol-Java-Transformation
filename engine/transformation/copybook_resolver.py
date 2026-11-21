@@ -30,6 +30,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
+
+from enterprise.discovery.library_order import library_winner as _shared_library_winner
 
 
 class CopybookResolutionError(Exception):
@@ -131,6 +134,7 @@ def resolve_copybook(
     search_dirs: tuple[Path, ...] | list[Path],
     *,
     program_id: str = "",
+    orders: Sequence[Sequence[str]] = (),
 ) -> ResolvedCopybook:
     """Resolve one COPY reference to its source file (strict).
 
@@ -147,6 +151,18 @@ def resolve_copybook(
             f"Missing COPY target: {copybook_name}"
             + (f" (in {program_id})" if program_id else "")
         )
+
+    # Library order decides first (shared authority): JCLLIB/SYSLIB/-I order wins
+    # over the extension/lexical tie-break, and resolves an otherwise ambiguous pick.
+    if orders:
+        candidate_strs = [str(c).replace("\\", "/") for c in candidates]
+        winner_str = _shared_library_winner(candidate_strs, orders)
+        if winner_str:
+            for c in candidates:
+                if str(c).replace("\\", "/") == winner_str:
+                    return ResolvedCopybook(
+                        program_id=program_id, copybook_name=copybook_name, path=c
+                    )
 
     def precedence(path: Path) -> int:
         return _EXTENSION_PRECEDENCE.index(path.suffix.lower())
@@ -168,6 +184,8 @@ def resolve_copybook(
 def resolve_application_copybooks(
     copy_refs: tuple[tuple[str, str], ...],
     search_dirs: tuple[Path, ...] | list[Path],
+    *,
+    orders: Sequence[Sequence[str]] = (),
 ) -> tuple[tuple[ResolvedCopybook, ...], tuple[MissingCopybook, ...]]:
     """Resolve many (program_id, copybook_name) references (collecting).
 
@@ -183,7 +201,7 @@ def resolve_application_copybooks(
     for program_id, copybook_name in copy_refs:
         try:
             resolved.append(
-                resolve_copybook(copybook_name, dirs, program_id=program_id)
+                resolve_copybook(copybook_name, dirs, program_id=program_id, orders=orders)
             )
         except AmbiguousCopybookError as exc:
             missing.append(

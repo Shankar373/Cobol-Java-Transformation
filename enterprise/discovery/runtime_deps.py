@@ -131,6 +131,47 @@ _HINT_TO_DIALECT = {
 _SHARED = "gnucobol-or-microfocus"
 _WEAK_SIGNALS = frozenset({"GOBACK", "DAY-OF-WEEK", "COMP-5"})
 
+#: JCL compile-step compiler name -> the dialect it compiles COBOL with (criterion 7).  A step
+#: that names no compiler (PROC-based) contributes nothing: a name that is not observed is never
+#: guessed.
+_COMPILE_STEP_DIALECT = {"IGYCRCTL": "ibm-enterprise", "ELAXF": "microfocus"}
+
+
+def _compiled_with(records: list[FileRecord]) -> dict[str, list[tuple[str, int, str]]]:
+    """``program-name -> [(dialect, jcl-line, label)]`` observed from JCL compile steps.
+
+    A compile step names its compiler (``EXEC PGM=ELAXF``); the ``SYSIN DD DSN=... (MEMBER)``
+    of the same step names the source member it reads.  Joined on the step inside one JCL file,
+    the pair is observed evidence about that member's dialect.  Only ``PGM=`` steps of the known
+    COBOL compilers carry a compiler name, so only those can contribute.
+    """
+    compiled: dict[str, list[tuple[str, int, str]]] = {}
+    for record in sorted(records, key=lambda r: r.path):
+        if record.scan is None:
+            continue
+        steps: dict[str, tuple[str, int, str]] = {}
+        for fact in record.scan.facts:
+            if fact.category != "compile-step":
+                continue
+            info = dict(fact.detail)
+            compiler = info.get("compiler", "")
+            dialect = _COMPILE_STEP_DIALECT.get(compiler, "")
+            if dialect and fact.name:
+                steps.setdefault(fact.name, (dialect, fact.line, compiler))
+        if not steps:
+            continue
+        for ref in record.scan.refs:
+            if ref.relation != "builds" or ref.target_kind != "source-member":
+                continue
+            hit = steps.get(dict(ref.detail).get("step", ""))
+            if hit is None:
+                continue
+            dialect, line, compiler = hit
+            compiled.setdefault(ref.target.upper(), []).append(
+                (dialect, line, f"compile-step {compiler} ({record.path})")
+            )
+    return compiled
+
 
 def _signal(fact: Fact) -> tuple[str, str]:
     """``(dialect, label)`` a fact indicates, or ``("", "")``."""
@@ -152,6 +193,7 @@ def dialect_report(records: list[FileRecord]) -> dict[str, object]:
     """Per-file dialect signals and a project summary; ``undetermined`` when there is no signal or the top two tie."""
     per_file: list[dict[str, object]] = []
     totals: dict[str, int] = {}
+    compiled = _compiled_with(records)
     for record in sorted(records, key=lambda r: r.path):
         if record.cls not in ("cobol", "copybook") or record.scan is None:
             continue
@@ -160,6 +202,12 @@ def dialect_report(records: list[FileRecord]) -> dict[str, object]:
             dialect, label = _signal(fact)
             if dialect:
                 evidence.setdefault(dialect, []).append((label, fact.line))
+        # Criterion 7: a program this estate compiles with a named compiler carries that
+        # evidence too — joined PROGRAM-ID -> SYSIN member, never by guess.
+        for fact in record.scan.facts:
+            if fact.category == "program-id":
+                for dialect, line, label in compiled.get(fact.name.upper(), ()):
+                    evidence.setdefault(dialect, []).append((label, line))
         shared = evidence.pop(_SHARED, [])
         for dialect in ("gnucobol", "microfocus"):  # a signal both compilers accept counts for each of them
             if shared:

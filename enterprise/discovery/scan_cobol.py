@@ -42,6 +42,12 @@ DIALECT_SIGNALS: tuple[tuple[str, str], ...] = (
     ("REPLACE", "ansi85"), ("FUNCTION", "cobol85-intrinsic"), ("NATIONAL", "ibm"), ("DBCS", "ibm"),
 )
 
+#: Data-description level numbers (written bare or zero-padded): a word preceded by one on the same
+#: line is the data-name being declared, not a use of the construct the signal word names.
+_LEVEL_NUMBERS = frozenset(
+    [str(n) for n in range(1, 50)] + [f"{n:02d}" for n in range(1, 50)] + ["66", "77", "88"]
+)
+
 
 def _raw_cards(text: str) -> list[tuple[int, int, str]]:
     """Compiler-option cards (``CBL``/``PROCESS``) before the first IDENTIFICATION DIVISION: ``(line, col, options)``."""
@@ -93,6 +99,11 @@ def scan_cobol(path: str, text: str, *, copybook: bool = False) -> FileScan:
     fmt, lines, directives, switches = read.format, read.lines, read.directives, read.switches
     scan.source_format = "variable" if fmt == "variable" else ("mixed" if switches else fmt)
     scan.format_switches = tuple(switches)
+    scan.conditional = read.conditional
+    if read.conditional == "unevaluated":
+        scan.problems.append(ScanProblem(path, read.conditional_line, "CONDITIONAL_COMPILATION_UNEVALUATED",
+                                         "conditional compilation directive outside the evaluated "
+                                         ">>DEFINE/>>IF subset: both branches kept, refused by name"))
     if fmt == "variable":
         variable_line = next((line for line, new in switches if new == "variable"), 1)
         scan.problems.append(ScanProblem(path, variable_line, "REFERENCE_FORMAT_VARIABLE_UNSUPPORTED",
@@ -102,11 +113,17 @@ def scan_cobol(path: str, text: str, *, copybook: bool = False) -> FileScan:
     state = _State(path, scan)
     for directive in directives:
         scan.facts.append(Fact(path, directive.line, 1, "directive", directive.text.upper()[:80]))
+    # A dead conditional branch is never compiled: its cards and include cards are never processed.
+    dead = frozenset(number for number, kind in read.skipped if kind == "dead-branch")
     for number, column, options in _raw_cards(text):
+        if number in dead:
+            continue
         marker = Token("word", "CBL", number, column)
         for option in _split_options(options):
             state.fact(marker, "compiler-option", option.upper(), card=options[:80])
     for number, raw in enumerate(text.splitlines(), start=1):
+        if number in dead:
+            continue
         match = _INCLUDE_LINE.match(raw)
         if match:
             marker = Token("word", match.group(1), number, match.start(1) + 1)
@@ -285,6 +302,10 @@ def _dialect(tokens: list[Token], index: int, state: _State) -> None:
     upper = token.upper
     for signal, hint in DIALECT_SIGNALS:
         if upper == signal and (signal != "FUNCTION" or _next_kind(tokens, index) == "word"):
+            # Criterion 7: a data item that happens to be named like a signal
+            # (``05 JSON PIC X``) declares a data-name; it is not vendor evidence.
+            if index and tokens[index - 1].line == token.line and tokens[index - 1].text in _LEVEL_NUMBERS:
+                return
             state.fact(token, "dialect-signal", signal, hint=hint)
             return
 

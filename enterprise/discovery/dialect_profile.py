@@ -48,7 +48,8 @@ UNSUPPORTED_SCREEN = "SCREEN_SECTION_UNSUPPORTED"
 UNSUPPORTED_VARIABLE = "REFERENCE_FORMAT_VARIABLE_UNSUPPORTED"
 UNSUPPORTED_CONDITIONAL = "CONDITIONAL_COMPILATION_UNEVALUATED"
 
-#: Directive prefixes that mean conditional compilation is present (and, until P3 evaluates them, refused).
+#: Directive prefixes that mean conditional compilation is present: the fail-closed fallback when a
+#: scan carries no reader verdict (the reader itself evaluates the subset and reports the verdict).
 _CONDITIONAL_PREFIXES = (">>IF", ">>DEFINE", ">>CALL", ">>EVALUATE", ">>ELSE", ">>END-IF", ">>WHEN")
 #: ``program-id`` fact kinds that mean object-oriented COBOL.
 _OO_KINDS = ("CLASS-ID", "INTERFACE-ID", "FACTORY", "OBJECT", "METHOD-ID")
@@ -131,12 +132,22 @@ def _unsupported(scan: FileScan, reference_format: str, directives: Sequence[tup
         names.append(UNSUPPORTED_OO)
     if any(ref.target_kind == "screen-field" for ref in scan.refs):
         names.append(UNSUPPORTED_SCREEN)
-    if any(directive.upper().startswith(_CONDITIONAL_PREFIXES) for _line, directive in directives):
+    if _directive_state(scan, directives) == "unevaluated":
         names.append(UNSUPPORTED_CONDITIONAL)
     return tuple(sorted(set(names)))
 
 
-def _directive_state(directives: Sequence[tuple[int, str]]) -> str:
+def _directive_state(scan: FileScan, directives: Sequence[tuple[int, str]]) -> str:
+    """``none`` | ``evaluated`` | ``unevaluated`` — the single reader's conditional verdict (criterion 5).
+
+    ``read_source`` evaluates the documented ``>>DEFINE``/``>>IF`` subset and drops the dead branch;
+    anything outside it records the first offending line and both branches are kept.  The prefix
+    check is the fail-closed fallback for a scan built without a reader verdict.
+    """
+    if scan.conditional == "unevaluated":
+        return "unevaluated"
+    if scan.conditional == "evaluated":
+        return "evaluated"
     if any(directive.upper().startswith(_CONDITIONAL_PREFIXES) for _line, directive in directives):
         return "unevaluated"
     return "none"
@@ -164,7 +175,10 @@ def build_profiles(records: Sequence[FileRecord], *, build: "GraphBuild | None" 
     """
     report = dialect_report_result if dialect_report_result is not None else dialect_report(list(records))
     primary: dict[str, str] = {}
-    for entry in report.get("files", []):  # type: ignore[union-attr]
+    entries = report.get("files", [])
+    if not isinstance(entries, list):
+        entries = []
+    for entry in entries:
         primary[str(entry["file"])] = str(entry["primary"])
 
     profiles: list[DialectProfile] = []
@@ -175,7 +189,7 @@ def build_profiles(records: Sequence[FileRecord], *, build: "GraphBuild | None" 
         dialect = primary.get(record.path, "undetermined")
         reference_format = record.source_format or scan.source_format or "fixed"
         directives = tuple((fact.line, fact.name) for fact in scan.facts if fact.category == "directive")
-        conditional = _directive_state(directives)
+        conditional = _directive_state(scan, directives)
         oracle_format = "-free" if reference_format == "free" else ("-fixed" if reference_format == "fixed" else "")
         profile = DialectProfile(
             file=record.path,

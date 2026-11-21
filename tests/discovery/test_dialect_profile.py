@@ -125,9 +125,15 @@ def test_variable_sourceformat_is_refused_by_name_never_a_silent_fixed_read() ->
 
 
 def test_directive_state_and_unsupported_construct_names() -> None:
+    # A documented >>DEFINE set the reader can evaluate: gated, not refused (criterion 5).
     conditional = build_records({"src/C.cbl": ">>DEFINE X AS 1\n" + program("C")})[0]
-    assert conditional.directive_state == "unevaluated"
-    assert "CONDITIONAL_COMPILATION_UNEVALUATED" in conditional.unsupported
+    assert conditional.directive_state == "evaluated"
+    assert "CONDITIONAL_COMPILATION_UNEVALUATED" not in conditional.unsupported
+
+    # A condition on a name nobody defines cannot be decided: refused by name, both branches kept.
+    undecided = build_records({"src/U.cbl": ">>IF X = 1\n" + program("U")})[0]
+    assert undecided.directive_state == "unevaluated"
+    assert "CONDITIONAL_COMPILATION_UNEVALUATED" in undecided.unsupported
 
     plain = build_records({"src/P.cbl": program("P")})[0]
     assert plain.directive_state == "none" and plain.unsupported == ()
@@ -140,6 +146,37 @@ def test_directive_state_and_unsupported_construct_names() -> None:
         "IDENTIFICATION DIVISION.", "PROGRAM-ID. S.", "DATA DIVISION.", "WORKING-STORAGE SECTION.",
         "SCREEN SECTION.", "01 SCR.", "05 F1 PIC X.", "PROCEDURE DIVISION.", "GOBACK.")})[0]
     assert "SCREEN_SECTION_UNSUPPORTED" in screen.unsupported
+
+
+# --- criterion 7: the estate's JCL names its compiler ------------------------------------------------------------------
+
+def test_a_jcl_compile_step_names_the_dialect_of_the_program_it_compiles() -> None:
+    """Criterion 7: ``EXEC PGM=ELAXF`` + its SYSIN member decide ``primary`` for that program.
+
+    The compiler name is observed in the JCL and joined to the program through the member the
+    compile step actually reads; a step without a observed compiler name contributes nothing.
+    """
+    files = {
+        "src/PAYROLL.cbl": program("PAYROLL"),
+        "jcl/BUILD.jcl": "//B JOB\n//C EXEC PGM=ELAXF\n//SYSIN DD DSN=PROD.SRC(PAYROLL),DISP=SHR\n",
+    }
+    report = dialect_report(records(files))
+    entry = next(e for e in report["files"] if e["file"] == "src/PAYROLL.cbl")
+    assert entry["primary"] == "microfocus"
+    micro = next(c for c in entry["candidates"] if c["dialect"] == "microfocus")
+    signal = micro["examples"][0]["signal"]
+    assert "ELAXF" in signal and "jcl/BUILD.jcl" in signal  # the evidence names its source
+
+
+def test_a_data_item_named_like_a_signal_is_not_vendor_evidence() -> None:
+    """Criterion 7 second half: ``05 JSON PIC X`` declares a data-name; it proves no dialect."""
+    text = _fixed("IDENTIFICATION DIVISION.", "PROGRAM-ID. P.", "DATA DIVISION.",
+                  "WORKING-STORAGE SECTION.", "05 JSON PIC X.", "PROCEDURE DIVISION.", "GOBACK.")
+    scan = scan_file("src/P.cbl", "cobol", text)
+    assert scan is not None
+    assert not [f for f in scan.facts if f.category == "dialect-signal" and f.name == "JSON"]
+    (entry,) = dialect_report(records({"src/P.cbl": text}))["files"]
+    assert entry["primary"] == "undetermined"
 
 
 # --- surfacing: report["dialects"] and the API ------------------------------------------------------------------------
@@ -173,7 +210,7 @@ def test_report_dialects_gains_profiles_additively(tmp_path) -> None:
     assert json.dumps(again["dialects"]["profiles"], sort_keys=True) == json.dumps(profiles, sort_keys=True)
 
 
-def test_profiles_surface_through_the_api(client: TestClient, service) -> None:
+def test_profiles_surface_through_the_api(client: TestClient, service) -> None:  # noqa: F811 - fixtures
     run = wait(client, submit(client, estate_zip()).json()["run_id"])
     report = client.get(f"/discovery/runs/{run['run_id']}/report").json()
     profiles = report["dialects"]["profiles"]

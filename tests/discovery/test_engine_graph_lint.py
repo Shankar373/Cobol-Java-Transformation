@@ -114,6 +114,54 @@ def test_the_allowlist_has_no_stale_entries():
     assert not stale, f"these modules no longer parse COBOL structure; delete their allowlist entries: {stale}"
 
 
+# --- format/dialect re-detection is forbidden ----------------------------------------------
+# The engine must consume the single reader through ``engine.transformation.source_format``
+# (the engine face).  Importing format detection from ``enterprise.discovery.cobol_text``
+# directly is re-detection and is forbidden outside the allowlist below.
+
+#: Engine modules that may import the discovery reader directly, with justification.
+ALLOWED_FORMAT_READERS: dict[str, str] = {
+    "transformation/source_format.py": (
+        "The engine face of the single reader: wraps enterprise.discovery.cobol_text.read_source "
+        "and exposes compiler_visible_text/detect_source_format to the rest of the engine."),
+    "transformation/cobol_parser.py": (
+        "Criterion 6 pre-parse refusal: reads the reader's conditional-compilation verdict "
+        "(read_source().conditional) to refuse an unevaluated >>IF by name.  Consumes the "
+        "verdict, never re-derives format state."),
+}
+
+
+def _format_reader_imports(path: Path) -> list[tuple[int, str]]:
+    """``(line, module)`` for every import of the discovery reader's format detection."""
+    out: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and node.module == "enterprise.discovery.cobol_text":
+            out.append((node.lineno, node.module))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "enterprise.discovery.cobol_text":
+                    out.append((node.lineno, alias.name))
+    return out
+
+
+def test_no_engine_module_imports_the_discovery_reader_without_a_declared_reason():
+    offenders = {}
+    for p in _engine_modules():
+        rel = _relative(p)
+        hits = _format_reader_imports(p)
+        if hits and rel not in ALLOWED_FORMAT_READERS:
+            offenders[rel] = hits
+    assert not offenders, (
+        "these engine modules import enterprise.discovery.cobol_text (format re-detection) "
+        "without an entry in ALLOWED_FORMAT_READERS:\n"
+        + "\n".join(f"  {m}: {h}" for m, h in sorted(offenders.items())))
+
+
+def test_the_format_reader_allowlist_has_no_stale_entries():
+    stale = [m for m in ALLOWED_FORMAT_READERS if not _format_reader_imports(ENGINE / m)]
+    assert not stale, f"these modules no longer import the discovery reader; delete their entries: {stale}"
+
+
 # --- the estate view is graph-only ---------------------------------------------------------------------------------
 
 #: What ``engine/estate`` may never import: a source parser or a second dependency scanner.

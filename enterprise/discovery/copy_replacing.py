@@ -182,6 +182,9 @@ def parse_clause(stmt: str) -> ReplacingClause:
         right, pos, failure = _read_operand(pos)
         if failure:
             return ReplacingClause(tuple(pairs), failure[:2], failure[2])
+        # ``_read_operand`` reports a refusal instead of an operand, so both are
+        # present here; the assert keeps that pairing visible to the type checker.
+        assert left is not None and right is not None, "operand without a refusal"
         pairs.append((left, right))
     if not pairs:
         return ReplacingClause(

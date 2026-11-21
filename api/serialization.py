@@ -124,11 +124,11 @@ def _expect_bool(value: object, where: str) -> bool:
     return value
 
 
-def _opt_str(payload: dict, key: str) -> str | None:
+def _opt_str(payload: dict, key: str, *, allow_empty: bool = False) -> str | None:
     value = payload.get(key)
     if value is None:
         return None
-    return _expect_str(value, key)
+    return _expect_str(value, key, allow_empty=allow_empty)
 
 
 def _hash(payload: dict, key: str, where: str | None = None) -> ContentHash:
@@ -660,7 +660,11 @@ def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
                 # Layer 4 (acceptance criterion 10): absent in payloads written
                 # before the layer existed, observed values after it.
                 std=_opt_str(oracle_raw, "std"),
-                format_flag=_opt_str(oracle_raw, "format_flag"),
+                # ``""`` is an observation, not a corruption: it records that a
+                # compile was attempted and no format flag was passed (the
+                # fixed-format default applied).  Absent still means no compile
+                # was observed at all.
+                format_flag=_opt_str(oracle_raw, "format_flag", allow_empty=True),
                 profile_id=_opt_str(oracle_raw, "profile_id"),
             ),
             environment_identities=tuple(environments),
