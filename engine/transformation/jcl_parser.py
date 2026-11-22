@@ -26,6 +26,7 @@ import re
 from dataclasses import replace
 
 from engine.jcl.preprocess import expand, procedure_members
+from engine.transformation.diagnostics import Diagnostic, DiagnosticCode, DiagnosticLevel
 from engine.transformation.ir import (
     JclApplication,
     JclCondition,
@@ -44,6 +45,13 @@ class JclParser:
         parser = JclParser()
         job = parser.parse(jcl_text)
     """
+
+    def __init__(self) -> None:
+        self._diagnostics: list[Diagnostic] = []
+
+    @property
+    def diagnostics(self) -> list[Diagnostic]:
+        return list(self._diagnostics)
 
     def parse(self, source: str) -> JclJob:
         """Parse JCL source text into a JclJob IR.
@@ -67,6 +75,7 @@ class JclParser:
         self, source: str, library: dict[str, str] | None = None,
     ) -> tuple[JclJob, ...]:
         """Parse JCL source text into every JOB it declares, in source order.
+        self._diagnostics = []
 
         Each ``JOB`` statement starts a new :class:`JclJob`; statements
         stay attributed to the job they follow (no merging, no silent
@@ -166,14 +175,33 @@ class JclParser:
             # IF / ELSE / ENDIF: recorded on the steps they enclose, never evaluated
             if_match = re.match(r"(?:\S+\s+)?IF\s*(\(.*\)|\S.*?)\s+THEN\b", rest, re.IGNORECASE)
             if if_match:
+                self._diagnostics.append(Diagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    code=DiagnosticCode.JCL_CONDITIONAL_UNEVALUATED,
+                    message=f"JCL_CONDITIONAL_UNEVALUATED: JCL IF/ELSE/ENDIF conditional at line {i+1} "
+                            f"is recorded but never evaluated: {if_match.group(1).strip()}",
+                    location=str(i + 1),
+                ))
                 if_stack.append([if_match.group(1).strip(), False])
                 i += 1
                 continue
             if re.match(r"(?:\S+\s+)?ELSE\b", rest, re.IGNORECASE) and if_stack:
+                self._diagnostics.append(Diagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    code=DiagnosticCode.JCL_CONDITIONAL_UNEVALUATED,
+                    message=f"JCL_CONDITIONAL_UNEVALUATED: JCL ELSE at line {i+1} is recorded but never evaluated",
+                    location=str(i + 1),
+                ))
                 if_stack[-1][1] = True
                 i += 1
                 continue
             if re.match(r"(?:\S+\s+)?ENDIF\b", rest, re.IGNORECASE):
+                self._diagnostics.append(Diagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    code=DiagnosticCode.JCL_CONDITIONAL_UNEVALUATED,
+                    message=f"JCL_CONDITIONAL_UNEVALUATED: JCL ENDIF at line {i+1} is recorded but never evaluated",
+                    location=str(i + 1),
+                ))
                 if if_stack:
                     if_stack.pop()
                 i += 1
