@@ -747,18 +747,15 @@ class CobolParser:
                     f"REFERENCE_FORMAT_VARIABLE_UNSUPPORTED: {problem}",
                     location=problem.split(":", 1)[0],
                 )
-        try:
-            from enterprise.discovery.cobol_text import read_source as _read_source
-            _read = _read_source(source)
-            if _read.conditional == "unevaluated":
-                self._diagnostics.error(
-                    DiagnosticCode.CONDITIONAL_COMPILATION_UNEVALUATED,
-                    f"CONDITIONAL_COMPILATION_UNEVALUATED: conditional compilation directive outside the "
-                    f"evaluated >>DEFINE/>>IF subset at line {_read.conditional_line}: both branches kept",
-                    location=str(_read.conditional_line),
-                )
-        except Exception:
-            pass
+        from enterprise.discovery.cobol_text import read_source as _read_source
+        _read = _read_source(source)
+        if _read.conditional == "unevaluated":
+            self._diagnostics.error(
+                DiagnosticCode.CONDITIONAL_COMPILATION_UNEVALUATED,
+                f"CONDITIONAL_COMPILATION_UNEVALUATED: conditional compilation directive outside the "
+                f"evaluated >>DEFINE/>>IF subset at line {_read.conditional_line}: both branches kept",
+                location=str(_read.conditional_line),
+            )
         # Fixed format: the compiler never sees columns 73+, so neither may we.
         lines = compiler_visible_text(source).split("\n")
         fixed_format = detect_source_format(source) == "fixed"
