@@ -352,7 +352,7 @@ it at most once.  `tests` = test files that mention it.
 - **engine.transformation.contracts** -> -
 - **engine.transformation.control_flow** -> engine.transformation.ir
 - **engine.transformation.copybook_model** -> engine.transformation.cobol_parser, engine.transformation.cobol_to_java_mapping, engine.transformation.copybook_resolver, engine.transformation.ir, engine.transformation.java_ir, engine.transformation.source_format, enterprise.discovery, enterprise.discovery.copy_replacing
-- **engine.transformation.copybook_resolver** -> enterprise.discovery
+- **engine.transformation.copybook_resolver** -> enterprise.discovery.library_order
 - **engine.transformation.diagnostics** -> engine.transformation.contracts
 - **engine.transformation.edit_support_template** -> -
 - **engine.transformation.entrypoint** -> -
