@@ -801,7 +801,7 @@ def _unit_replacing_pairs(
 
 
 def prepare_application_copybooks(
-    application, source_root=None
+    application, source_root=None, orders=()
 ) -> CopybookPreparation:
     """Resolve + parse + merge copybooks for a discovered application.
 
@@ -844,7 +844,7 @@ def prepare_application_copybooks(
         if parent.is_dir() and parent not in search_dirs:
             search_dirs.append(parent)
     resolved, missing = resolve_application_copybooks(
-        tuple(refs), tuple(search_dirs)
+        tuple(refs), tuple(search_dirs), orders=orders
     )
     diagnostics: list[CopybookDiagnostic] = [
         CopybookDiagnostic(

@@ -302,3 +302,9 @@ Discovery is the single producer of the structural graph; everything below is de
 | Estate view derived from the graph (`graph_view.py`; `api/estate.py` consumes it) | **Implemented/tested**; legacy `application_discovery.py` / `copybook_resolver.py` still parse (allowlisted with reasons in `test_engine_graph_lint.py`) | `test_graph_view.py` |
 | `generated-from` (Java class/method -> COBOL node, same graph) and `verified-by` (-> test / oracle run), graph id in the evidence manifest, traceability overlay with its own id and `parent_graph_id` | **Implemented/tested** for the modernization pipeline; `verified-by` is recorded through `engine/graph_traceability.record_verification`, not yet called automatically by `api/service.py` | `test_traceability*.py` |
 | Scale | 10,000 files: graph build + save in ~114 s, ~816 MB peak growth, row queries without loading the document; full `discover()` is sub-quadratic but not benchmarked at 10k | `test_kg_scale_benchmark.py` |
+## Layer 4 - Dialect-specific parser frontends (2026-11-22)
+
+- Conditional compilation: documented >>DEFINE/>>IF subset evaluated; everything else refuses CONDITIONAL_COMPILATION_UNEVALUATED by name; dead branches dropped on both discovery and engine faces.
+- Named refusals: OO_COBOL_UNSUPPORTED, SCREEN_SECTION_UNSUPPORTED, REFERENCE_FORMAT_VARIABLE_UNSUPPORTED, CONDITIONAL_COMPILATION_UNEVALUATED (DiagnosticCode + pre-parse refusals in CobolParser.parse; has_errors fails closed).
+- Library order: shared authority enterprise/discovery/library_order.py; engine resolve_copybook accepts orders=; parity fixture proves agreement.
+- Import-lint: engine modules may not import enterprise.discovery.cobol_text except allowlisted face (source_format.py, cobol_parser.py).

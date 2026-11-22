@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 from engine.transformation.cobol_to_java_mapping import (
     map_cobol_programs_to_application,
@@ -70,6 +71,7 @@ class ApplicationGenerator:
         application: CobolApplication,
         entrypoint: str = "",
         source_root: str | Path | None = None,
+        orders: Sequence[Sequence[str]] = (),
     ) -> ApplicationGenerationResult:
         """Transform all discovered programs and assemble one Java application.
 
@@ -98,7 +100,7 @@ class ApplicationGenerator:
         # 0. Materialize copybooks into program IR (no-op when the
         #    application references no copybooks).
         preparation = prepare_application_copybooks(
-            application, source_root=source_root
+            application, source_root=source_root, orders=orders
         )
         if preparation.has_errors:
             return ApplicationGenerationResult(

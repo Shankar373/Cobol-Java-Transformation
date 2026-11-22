@@ -374,3 +374,8 @@ CI-validated (no push authorization); roadmap R-1 in
 `docs/reports/archive/UNIVERSAL_RUNTIME_PROOF_AUDIT_AND_IMPLEMENTATION_PLAN.md` covers commit + exact-SHA CI.
 
 Historical forensic reports remain evidence of what was true at their recorded time.
+## Layer 4 (2026-11-22)
+
+- Conditional compilation outside the evaluated >>DEFINE/>>IF subset is refused by name (CONDITIONAL_COMPILATION_UNEVALUATED); unevaluated directives keep all branches.
+- OO COBOL, SCREEN SECTION, VARIABLE reference format refused by name before parsing.
+- Engine copybook resolution accepts orders= for JCLLIB/SYSLIB/compile-include order; production wiring through ApplicationGenerator is available but callers must supply orders.
