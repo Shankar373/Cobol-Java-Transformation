@@ -1061,3 +1061,38 @@ class a generation failure (`_trace_to_graph`): that changes run outcomes and is
   `host-var` and tables come from the graph (P6); INSPECT phrase operands that could be a literal or a name are
   `INSPECT_OPERAND_KIND_UNKNOWN` when they equal a declared name; unstructured `PERFORM ... UNTIL` conditions are
   `CONDITION_UNSTRUCTURED` (never scraped).
+
+---
+
+## 14. L5-P4 (document, identity, sealing)
+
+* `engine/semantic_facts/document.py` + `build.py`: `build_semantic_facts(sources, checkpoint_id=, source_digest=, graph_id=,
+  profile_ids=, options=)` runs the one parser (`parse_traced`), the P1 span table, the P2 symbol table and the P3 reference
+  table per file and assembles `SemanticFacts` (schema `systemaops.semantic-facts/1.0`): scopes, declarations, references,
+  facts, a header with `semantic_id`, `facts_digest`, bindings, `complete` and `unsupported_summary`. Canonical bytes are
+  `graph.canonical_bytes` (a public alias of `_canonical_bytes`; `graph_id` is unchanged). `facts_digest` is body-only;
+  `semantic_id` covers the body and the bindings (decision D1).
+* **Determinism.** Inputs are processed in sorted path order, every list is sorted by content, ids are content-derived, no
+  timestamps or absolute paths. Tests: two runs equal bytes; five shuffles of six files equal; the 78 repo fixtures build,
+  `verify` clean and reverse-order equal; two files with one PROGRAM-ID get distinct `@file` scopes.
+* **Integrity.** `verify(document)` recomputes both addresses and checks that every `resolved` reference points at a
+  declared id and every non-resolved state says why. Tampering with a fact kind, a span, a name, a dropped fact, a header
+  binding or a digest is detected; a forged but digest-consistent resolution is still caught by the resolution check.
+* **Facts produced:** every declaration kind, `contains`, `occurs`, `redefines`, every reference kind, `performs`,
+  `goes-to`, `falls-through`, `option`, and the meta kinds `unsupported`, `diagnostic`, `refusal`. A file the parser
+  raises on is kept as a `PARSE_ERROR` refusal (never dropped). `complete` is false for any unsupported/refused item, an
+  unmodelled compiler option, a nested program, or a COPY statement the builder did not expand
+  (`COPYBOOK_NOT_EXPANDED`; COPY statements are located by the copybook expander's own finder, comments masked).
+* **Evidence (5.6).** `EvidenceManifest.semantic_facts` (sorted `(key, value)` pairs: `semantic_id`, `facts_digest`,
+  `graph_id`, `profiles_digest`) is a conditional key in `canonical_evidence_graph` (a manifest without it keeps the
+  pinned hash `LEGACY_MANIFEST_HASH`), encoded/decoded by `api/serialization`, carried by `PipelineConfig.semantic_facts`
+  and checked by `SEMANTIC_FACTS_BINDING_MISMATCH`: exactly the four keys, hex digests, `graph_id` equal to the
+  `graph_traceability` graph id (empty iff absent), `profiles_digest` equal to the digest of `dialect_profiles`.
+* **API.** `Service._semantic_lineage` -> `readiness.semantic_lineage(source, record)` builds the document from the run's
+  COBOL texts under the record's checkpoint, source digest, graph id and profiles. It makes **no claim** (empty pairs)
+  when a file is not UTF-8, the tree is empty or exceeds 2,000 files / 4 MB. A test proves the sealed manifest's pairs are
+  reproducible from the source, move with a source edit, and vanish when the bridge is removed.
+* **Limits.** The document is derived from program text as written: copybook-resident names are `unresolved` until a
+  materialised program is supplied, and `CALL`/file-binding facts are P5/P6. `scopes` are per file and per program;
+  nested-program scopes stay unsupported. The CLI/route for fetching the document is not added (a later decision); it is
+  reachable as a function.

@@ -113,6 +113,54 @@ def engine_wiring(record: dict[str, Any]) -> tuple[tuple[tuple[str, tuple[tuple[
     return library_orders, profiles
 
 
+#: Bounds on the Layer 5 facts build inside a run (a tree over either is not read: no claim is made, never a partial one).
+SEMANTIC_MAX_FILES = 2000
+SEMANTIC_MAX_BYTES = 4_000_000
+
+
+def semantic_lineage(source: str, record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """``semantic_facts`` pairs for the evidence manifest: the content addresses of the Layer 5 facts document built from
+    ``source``'s COBOL program texts under the record's checkpoint, source digest, graph id and dialect profiles.
+
+    ``()`` (no claim) when there is nothing to read, a file is not valid UTF-8, or the tree exceeds the bounds above.
+    """
+    from pathlib import Path
+
+    from engine.evidence.integrity import profiles_digest
+    from engine.semantic_facts.build import COBOL_SUFFIXES, build_semantic_facts
+
+    root = Path(source)
+    if root.is_file():
+        files = [root]
+        base = root.parent
+    elif root.is_dir():
+        files = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in COBOL_SUFFIXES)
+        base = root
+    else:
+        return ()
+    if not files or len(files) > SEMANTIC_MAX_FILES:
+        return ()
+    texts: dict[str, str] = {}
+    total = 0
+    for path in files:
+        try:
+            raw = path.read_bytes()
+            total += len(raw)
+            if total > SEMANTIC_MAX_BYTES:
+                return ()
+            texts[path.relative_to(base).as_posix()] = raw.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return ()
+    profiles = engine_wiring(record)[1]
+    graph_id = dict(graph_lineage(record)).get("graph_id", "")
+    document = build_semantic_facts(
+        texts, checkpoint_id=str(record.get("checkpoint_id", "")), source_digest=str(record.get("source_digest", "")),
+        graph_id=graph_id, profile_ids=profiles)
+    return tuple(sorted((
+        ("facts_digest", document.facts_digest), ("graph_id", graph_id),
+        ("profiles_digest", profiles_digest(profiles)), ("semantic_id", document.semantic_id))))
+
+
 def graph_lineage(record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
     """``(("graph_id", id),)`` of the discovery graph the readiness gate assessed, or ``()`` for a record without one.
 

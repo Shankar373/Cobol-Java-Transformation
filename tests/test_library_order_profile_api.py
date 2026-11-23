@@ -198,3 +198,43 @@ def test_dropping_the_graph_bridge_leaves_the_manifest_without_lineage(service, 
     root = _estate_root(tmp_path)
     run = _validated_manifest(service, tmp_path, monkeypatch, root)
     assert run.evidence_manifest.graph_traceability == ()
+
+
+# --- the Layer 5 semantic-facts addresses reach the sealed manifest -----------------------------------------------
+
+
+def test_sealed_manifest_carries_consistent_semantic_facts(service, tmp_path, monkeypatch) -> None:
+    from engine.evidence.integrity import EvidenceIntegrityValidator, profiles_digest
+
+    root = _estate_root(tmp_path)
+    run = _validated_manifest(service, tmp_path, monkeypatch, root)
+    manifest = run.evidence_manifest
+    recorded = dict(manifest.semantic_facts)
+    assert sorted(recorded) == ["facts_digest", "graph_id", "profiles_digest", "semantic_id"]
+    assert recorded["graph_id"] == dict(manifest.graph_traceability)["graph_id"] != ""
+    assert recorded["profiles_digest"] == profiles_digest(manifest.dialect_profiles)
+    record = service.readiness_for(str(root), "orders-app")
+    assert readiness.semantic_lineage(str(root), record) == manifest.semantic_facts   # reproducible from the source
+    result = EvidenceIntegrityValidator().validate(manifest)
+    assert not (result if isinstance(result, list) else [])
+
+
+def test_semantic_lineage_follows_the_source_and_makes_no_claim_it_cannot_back(service, tmp_path) -> None:
+    root = _estate_root(tmp_path)
+    record = service.readiness_for(str(root), "orders-app")
+    first = readiness.semantic_lineage(str(root), record)
+    assert first and readiness.semantic_lineage(str(root), record) == first
+    cobol = next(p for p in sorted(root.rglob("*")) if p.suffix.lower() in (".cbl", ".cob"))
+    cobol.write_text(cobol.read_text(encoding="utf-8") + "\n      * edited\n       01 EXTRA-ITEM PIC X.\n", encoding="utf-8")
+    assert readiness.semantic_lineage(str(root), record) != first          # a source edit moves the address
+    cobol.write_bytes(b"\xff\xfe not utf-8")
+    assert readiness.semantic_lineage(str(root), record) == ()              # unreadable text: no claim, not a partial one
+    assert readiness.semantic_lineage(str(tmp_path / "missing"), record) == ()
+
+
+def test_dropping_the_semantic_bridge_leaves_the_manifest_without_facts(service, tmp_path, monkeypatch) -> None:
+    """Mutation check: the manifest's ``semantic_facts`` come from ``readiness.semantic_lineage``, nowhere else."""
+    monkeypatch.setattr(readiness, "semantic_lineage", lambda source, record: ())
+    root = _estate_root(tmp_path)
+    run = _validated_manifest(service, tmp_path, monkeypatch, root)
+    assert run.evidence_manifest.semantic_facts == ()

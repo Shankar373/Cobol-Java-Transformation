@@ -134,6 +134,10 @@ class PipelineConfig:
     # one pair, that pair's id is also the ``OracleIdentity.profile_id``; with several files only the pairs are
     # recorded (no single id describes the run).  Advisory: never selects a standard or a format flag.
     dialect_profiles: tuple[tuple[str, str], ...] = ()
+    # Layer 5: ``semantic_id`` / ``facts_digest`` / ``graph_id`` / ``profiles_digest`` of the semantic-facts document
+    # the run was read under (computed in api/ from the source; ``engine.semantic_facts.build``), recorded in the sealed
+    # evidence manifest.  Empty when none was computed.  Advisory lineage: it never changes generation or a verdict.
+    semantic_facts: tuple[tuple[str, str], ...] = ()
 
 
 def _sole_profile_id(pairs: tuple[tuple[str, str], ...]) -> str:
@@ -1166,6 +1170,7 @@ class VerticalSlicePipeline:
             comparison_evidence=comparison_evidence,
             graph_traceability=tuple(sorted(self._config.graph_traceability)),
             dialect_profiles=tuple(sorted(self._config.dialect_profiles)),
+            semantic_facts=tuple(sorted(self._config.semantic_facts)),
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation

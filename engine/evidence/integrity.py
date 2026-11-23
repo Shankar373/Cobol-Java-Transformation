@@ -29,6 +29,8 @@ FINDINGS ADDRESSED:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -46,6 +48,12 @@ from engine.evidence.models import (
 # ---------------------------------------------------------------------------
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def profiles_digest(pairs: tuple[tuple[str, str], ...]) -> str:
+    """sha256 of the canonical JSON of ``(file, profile_id)`` pairs: what ``semantic_facts.profiles_digest`` states."""
+    canonical = json.dumps(sorted([list(pair) for pair in pairs]), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class ViolationType(Enum):
@@ -70,6 +78,7 @@ class ViolationType(Enum):
     ORPHAN_COMPARISON = "orphan_comparison"
     MALFORMED_EVIDENCE = "malformed_evidence"
     PROFILE_BINDING_MISMATCH = "profile_binding_mismatch"
+    SEMANTIC_FACTS_BINDING_MISMATCH = "semantic_facts_binding_mismatch"
 
 
 #: Comparison results the evidence model accepts. Anything else is
@@ -145,6 +154,7 @@ class EvidenceIntegrityValidator:
         # 4. Oracle identity binding (FINDING D)
         violations.extend(self._validate_oracle_binding(manifest))
         violations.extend(self._validate_profile_binding(manifest))
+        violations.extend(self._validate_semantic_facts_binding(manifest))
 
         # 5. Artifact-execution binding
         violations.extend(self._validate_artifact_execution_binding(manifest))
@@ -351,6 +361,53 @@ class EvidenceIntegrityValidator:
                 expected="a profile id recorded in dialect_profiles",
                 actual=oracle_profile,
             ))
+        return violations
+
+    # ------------------------------------------------------------------
+    # Layer 5: semantic-facts binding
+    # ------------------------------------------------------------------
+
+    _SEMANTIC_KEYS = ("facts_digest", "graph_id", "profiles_digest", "semantic_id")
+
+    def _validate_semantic_facts_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Recorded semantic-facts addresses must be well formed and agree with the sibling lineage fields.
+
+        Exactly the four keys, each unique; ``semantic_id``/``facts_digest``/``profiles_digest`` are sha256 hex,
+        ``graph_id`` is sha256 hex or empty; ``graph_id`` equals the ``graph_traceability`` graph id (empty when that is
+        absent) and ``profiles_digest`` equals the digest of the recorded ``dialect_profiles``.  A manifest without the
+        field is unaffected.
+        """
+        pairs = manifest.semantic_facts
+        violations: list[IntegrityViolation] = []
+        if not pairs:
+            return violations
+
+        def bad(description: str, path: str, expected: str, actual: str) -> None:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.SEMANTIC_FACTS_BINDING_MISMATCH, description=description,
+                field_path=path, expected=expected, actual=actual))
+
+        keys = [key for key, _value in pairs]
+        if sorted(keys) != list(self._SEMANTIC_KEYS):
+            bad("semantic_facts must hold exactly one of each required key", "semantic_facts",
+                ",".join(self._SEMANTIC_KEYS), ",".join(sorted(keys)))
+            return violations
+        values = dict(pairs)
+        for key in ("semantic_id", "facts_digest", "profiles_digest"):
+            if not _SHA256_HEX.fullmatch(values[key]):
+                bad(f"semantic_facts[{key}] is not a sha256 hex digest", f"semantic_facts.{key}",
+                    "64-hex digest", values[key])
+        if values["graph_id"] and not _SHA256_HEX.fullmatch(values["graph_id"]):
+            bad("semantic_facts[graph_id] is neither empty nor a sha256 hex digest", "semantic_facts.graph_id",
+                "empty or 64-hex digest", values["graph_id"])
+        lineage = dict(manifest.graph_traceability).get("graph_id", "")
+        if values["graph_id"] != lineage:
+            bad("semantic_facts graph_id differs from the graph_traceability graph_id", "semantic_facts.graph_id",
+                lineage, values["graph_id"])
+        expected_profiles = profiles_digest(manifest.dialect_profiles)
+        if values["profiles_digest"] != expected_profiles:
+            bad("semantic_facts profiles_digest differs from the recorded dialect_profiles",
+                "semantic_facts.profiles_digest", expected_profiles, values["profiles_digest"])
         return violations
 
     # ------------------------------------------------------------------

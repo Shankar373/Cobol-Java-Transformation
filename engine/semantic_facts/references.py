@@ -33,7 +33,10 @@ RESOLUTION_STATES = ("resolved", "ambiguous", "unresolved", "dynamic", "unsuppor
 REASONS = ("missing-data-item", "missing-paragraph", "missing-logical-file")
 CONFIDENCE = ("certain", "derived", "heuristic", "unresolved")
 L5_RULES = ("l5.data-name", "l5.data-name-generated", "l5.data-name-qualified", "l5.special-register",
-            "l5.paragraph-name", "l5.file-name")
+            "l5.paragraph-name", "l5.file-name",
+            # P4: the rules that produce the non-reference facts of the document
+            "l5.declaration", "l5.reference", "l5.structure", "l5.flow", "l5.unsupported", "l5.diagnostic",
+            "l5.option")
 UNSUPPORTED_USE_CODES = (
     "STATEMENT_PARTLY_PARSED", "CONDITION_UNSTRUCTURED", "OPERAND_UNPARSED", "INSPECT_OPERAND_KIND_UNKNOWN",
     "GOTO_TARGET_UNPARSED",

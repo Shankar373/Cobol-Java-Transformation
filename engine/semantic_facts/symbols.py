@@ -220,10 +220,12 @@ class _Builder:
         return frame is not None and self.foreign_from > 0 and frame.start >= self.foreign_from
 
 
-def build_symbol_table(program: Any, trace: ParseTrace, spans: SpanTable) -> SymbolTable:
+def build_symbol_table(program: Any, trace: ParseTrace, spans: SpanTable, *, scope_id: str = "") -> SymbolTable:
     """The declarations of ``program`` (as parsed with ``trace``/``spans``), each exactly once, in source order."""
     program_name = (program.program_id or "UNKNOWN").upper()
-    scope_id = f"program:{program_name}"
+    # ``scope_id`` is given by a caller that holds several files whose programs share a PROGRAM-ID (the document builder
+    # then qualifies it with the file, so no two scopes collide)
+    scope_id = scope_id or f"program:{program_name}"
 
     markers = [m for m in trace.programs if m[0] == "program-id"]
     foreign_from = 0

@@ -266,6 +266,10 @@ def canonical_evidence_graph(manifest: EvidenceManifest) -> dict[str, Any]:
         # Layer 4: the discovery DialectProfile each source file was read under (file -> profile_id); present only
         # when the run recorded them, so every manifest without it keeps the exact hash it always had.
         graph["dialect_profiles"] = dict(manifest.dialect_profiles)
+    if manifest.semantic_facts:
+        # Layer 5: the content addresses of the semantic-facts document the run was read under; present only when the
+        # run recorded them, so every manifest without it keeps the exact hash it always had.
+        graph["semantic_facts"] = dict(manifest.semantic_facts)
     return graph
 
 
@@ -429,6 +433,10 @@ class EvidenceManifest:
     # Layer 4: ``(file, profile_id)`` pairs, sorted by file, of the discovery ``DialectProfile`` each COBOL source
     # file was read under.  Empty when the run was not tied to profiles; covered by the seal when present.
     dialect_profiles: tuple[tuple[str, str], ...] = ()
+    # Layer 5: sorted (key, value) pairs binding the run to its semantic-facts document: ``semantic_id``,
+    # ``facts_digest``, ``graph_id`` ("" when the run had no graph) and ``profiles_digest`` (sha256 of the canonical
+    # ``dialect_profiles``).  Empty when the run recorded none; covered by the seal when present.
+    semantic_facts: tuple[tuple[str, str], ...] = ()
     # Seal captured at construction. Integrity validation recomputes the
     # canonical graph and compares it against this seal, so any in-place
     # mutation of evidence after construction is detected. Not part of the

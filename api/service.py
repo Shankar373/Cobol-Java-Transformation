@@ -556,6 +556,14 @@ class Service:
             return ()
         return readiness_module.graph_lineage(self.readiness_for(source, label))
 
+    def _semantic_lineage(self, source: str | None, label: str) -> tuple[tuple[str, str], ...]:
+        """``semantic_facts`` pairs of ``source`` (``()`` without a source, or when the facts cannot be built whole)."""
+        from api import readiness as readiness_module
+
+        if not source:
+            return ()
+        return readiness_module.semantic_lineage(source, self.readiness_for(source, label))
+
     def stored_readiness(self, app_id: str) -> dict | None:
         """The stored readiness record of the application's current source, if one exists (no assessment is run)."""
         path = self.get_application(app_id).cobol_source_path
@@ -1567,6 +1575,7 @@ class Service:
             oracle_entry_program=self._resolve_entry_program(app, source) or None,
             dialect_profiles=self._engine_wiring(source, app.name)[1],
             graph_traceability=self._graph_lineage(source, app.name),
+            semantic_facts=self._semantic_lineage(source, app.name),
         )
 
         phase_to_stage = {

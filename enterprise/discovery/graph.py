@@ -192,6 +192,11 @@ def _canonical_bytes(payload: dict[str, Any]) -> bytes:
                       default=_json_default).encode("utf-8")
 
 
+#: The canonical-JSON encoder under ``graph_id``, public so other layers (the Layer 5 facts document) hash with the same
+#: bytes instead of a copy.  A pure alias: ``graph_id`` is unchanged.
+canonical_bytes = _canonical_bytes
+
+
 def graph_id_of(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> str:
     """Content address of a node/edge set: sha256 of its canonical JSON, independent of input order."""
     return hashlib.sha256(_canonical_bytes({"edges": edges, "nodes": nodes})).hexdigest()
