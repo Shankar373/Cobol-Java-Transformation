@@ -106,7 +106,7 @@ a unit (the fail-closed rules), a mutation (a wrong IR value is detected) and an
 | Milestone | Scope | Status |
 |---|---|---|
 | M1 | `CapabilityAnalyzer.analyze(..., ir=)`: CALL edges (classification, cycles, arity input) from the IR; the modernization pipeline passes the IR | implemented, `tests/application_ir/test_m1_capability.py` |
-| M2 | `ModernizationPlanner`: call relationships, entry programs and the transformation plan's unresolved-call / call-graph reads from the IR | planned |
+| M2 | `ModernizationPlanner` and the pipeline plan phase: call relationships, entry programs (verified against the IR) and the transformation plan reads, via `consume.canonical_application` | implemented, `tests/application_ir/test_m2_planner.py` |
 | M3 | FILE and COPY relationships: IR file-binding/reference facts to `FileDependency` and COPY relationships *with provenance* (needs COPY expansion in the facts builder, a genuine dependency) | planned; blocker noted in M3 |
 | M4 | Java generation's application-level input (entry selection call graph) from the IR; the parser IR stays the statement-generation authority | planned |
 

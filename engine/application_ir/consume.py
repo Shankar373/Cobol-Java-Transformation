@@ -86,3 +86,55 @@ def with_canonical_call_edges(application: CobolApplication, resolved: CallEdgeS
     """``application`` with its CALL edges replaced by ``resolved.edges`` (other edge types untouched, order kept)."""
     others = tuple(e for e in application.edges if e.edge_type != "CALL")
     return dataclasses.replace(application, edges=others + resolved.edges)
+
+
+# ----- entry points (M2) ---------------------------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EntrySource:
+    by_program: tuple[tuple[str, tuple[str, ...]], ...]    # (program_id, entry points) for every unit, discovery's spelling
+    source: str          # "ir" when the IR confirmed discovery's entry points for every unit, else "discovery"
+    reason: str          # "" | IR_NOT_SUPPLIED | IR_INCOMPLETE | IR_DIVERGES_FROM_DISCOVERY
+    detail: str = ""
+
+
+def canonical_entry_points(application: CobolApplication, ir: ApplicationIR | None) -> EntrySource:
+    """Entry points per unit, *verified* against the IR's ``entry`` declarations.
+
+    The IR names an entry in upper case; discovery keeps the spelling it read.  The value a consumer receives is discovery's
+    spelling (existing behaviour, generated names depend on it) and it is returned only after the IR confirms the same set of
+    names for every unit: any difference keeps discovery's tuple and is reported as ``IR_DIVERGES_FROM_DISCOVERY``.
+    """
+    legacy = tuple((u.program_id, tuple(u.entry_points)) for u in application.programs)
+    if ir is None:
+        return EntrySource(legacy, "discovery", "IR_NOT_SUPPLIED")
+    by_name = {normalize_cobol_name(p.name): p for p in ir.programs}
+    names = {d.decl_id: d.name for d in ir.declarations if d.kind == "entry"}
+    differing = []
+    for unit in application.programs:
+        program = by_name.get(normalize_cobol_name(unit.program_id))
+        if program is None:
+            return EntrySource(legacy, "discovery", "IR_INCOMPLETE", unit.program_id)
+        confirmed = sorted(names[e] for e in program.entries)
+        if confirmed != sorted(normalize_cobol_name(e.strip("'\"")) for e in unit.entry_points):
+            differing.append(unit.program_id)
+    if differing:
+        return EntrySource(legacy, "discovery", "IR_DIVERGES_FROM_DISCOVERY", ",".join(sorted(differing)))
+    return EntrySource(legacy, "ir", "")
+
+
+def with_canonical_entry_points(application: CobolApplication, resolved: EntrySource) -> CobolApplication:
+    """``application`` carrying ``resolved``'s entry points (identical values; the point is that they are IR-verified)."""
+    mapping = dict(resolved.by_program)
+    units = tuple(dataclasses.replace(u, entry_points=mapping.get(u.program_id, u.entry_points)) for u in application.programs)
+    return dataclasses.replace(application, programs=units)
+
+
+def canonical_application(application: CobolApplication, ir: ApplicationIR | None) -> CobolApplication:
+    """``application`` with CALL edges and entry points taken from the IR where it can speak for the whole application
+    (identical to ``application`` when ``ir`` is ``None`` or any fail-closed rule keeps discovery's values)."""
+    if ir is None:
+        return application
+    return with_canonical_entry_points(
+        with_canonical_call_edges(application, canonical_call_edges(application, ir)),
+        canonical_entry_points(application, ir))

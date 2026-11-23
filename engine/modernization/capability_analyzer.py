@@ -574,15 +574,21 @@ class CapabilityAnalyzer:
         if ir is not None:
             from engine.application_ir.consume import canonical_call_edges, with_canonical_call_edges
 
+            from engine.application_ir.consume import canonical_entry_points
+
             resolved = canonical_call_edges(application, ir)
             application = with_canonical_call_edges(application, resolved)
-            if resolved.reason == "IR_DIVERGES_FROM_DISCOVERY":
+            entries = canonical_entry_points(application, ir)
+            disagreements = [what for what, found in (
+                (f"CALL edges ({resolved.detail})", resolved.reason), (f"entry points ({entries.detail})", entries.reason))
+                if found == "IR_DIVERGES_FROM_DISCOVERY"]
+            if disagreements:
                 components.append(ComponentCapability(
                     component_id="IR->DISCOVERY",
                     component_type="CALL",
                     level=CapabilityLevel.UNSUPPORTED,
-                    reason=f"The Application IR and discovery disagree on the CALL edges ({resolved.detail}); "
-                           "discovery's edges are kept and the application is not treated as fully understood",
+                    reason="The Application IR and discovery disagree on the " + " and ".join(disagreements)
+                           + "; discovery's values are kept and the application is not treated as fully understood",
                 ))
 
         # Check infrastructure first

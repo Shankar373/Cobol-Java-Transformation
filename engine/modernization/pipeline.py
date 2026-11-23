@@ -324,10 +324,11 @@ class UniversalModernizationPipeline:
             progress("ANALYZING")
         # source_root keeps the copybook scan transitive over the same
         # search directories generation uses.
-        from engine.application_ir.consume import ir_for_application
+        from engine.application_ir.consume import canonical_application, ir_for_application
 
+        application_ir = ir_for_application(application)
         capability_report = self._capability_analyzer.analyze(
-            application, source_root=source_path, ir=ir_for_application(application)
+            application, source_root=source_path, ir=application_ir
         )
         report.capability_report = capability_report
         report.overall_capability = capability_report.overall_level.value
@@ -338,7 +339,7 @@ class UniversalModernizationPipeline:
         if progress:
             progress("PLANNING")
         plan = self._plan_generator.generate(
-            application,
+            canonical_application(application, application_ir),
             capability_report,
             self._config.entrypoint,
             assembly_output_type=plan_output_type_for(self._config.target_runtime),

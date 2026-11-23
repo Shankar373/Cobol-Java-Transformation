@@ -349,7 +349,11 @@ class ModernizationPlanner:
         self,
         docker_available: bool = False,
         parser: Any | None = None,
+        use_application_ir: bool = True,
     ) -> None:
+        # ``use_application_ir=False`` is the legacy path (discovery's edges and entry points only); it exists so the
+        # migration can be proven differentially and is not what production uses.
+        self._use_application_ir = use_application_ir
         self._discovery = ApplicationDiscovery(parser=parser)
         self._capability_analyzer = CapabilityAnalyzer(
             docker_available=docker_available,
@@ -387,9 +391,20 @@ class ModernizationPlanner:
         # Step 2: Capability Graph — source_root keeps the copybook scan
         # transitive over the same search directories generation uses,
         # so the verdict covers everything materialization merges.
+        ir = None
+        if self._use_application_ir:
+            from engine.application_ir.consume import ir_for_application
+
+            ir = ir_for_application(application)
         capability_report = self._capability_analyzer.analyze(
-            application, source_root=source_path
+            application, source_root=source_path, ir=ir
         )
+        if ir is not None:
+            # CALL relationships and entry points the plan reads come from the canonical IR (discovery is the cross-check;
+            # a disagreement keeps discovery's values and is already an UNSUPPORTED finding in the capability report)
+            from engine.application_ir.consume import canonical_application
+
+            application = canonical_application(application, ir)
 
         # Step 3: Modernization Plan (deterministic)
         transformation_plan = self._plan_generator.generate(
