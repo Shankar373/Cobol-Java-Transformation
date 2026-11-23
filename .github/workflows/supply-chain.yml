@@ -189,6 +189,9 @@ jobs:
     # J1/J3); making this a gate belongs to that decision. Findings are
     # uploaded as artifacts and printed in the log.
     name: Image + Java dependency scan (Trivy, report-only)
+    # Scheduled (weekly), manual and release-tag runs only: a report-only scan that gates nothing does not
+    # belong on every push. The GATING audits (python-audit, frontend-audit) still run on every push.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -201,6 +204,19 @@ jobs:
         with:
           # No job pushes: do not leave the token in .git/config.
           persist-credentials: false
+      - name: Set up Docker Buildx (docker-container builder; host-network entitlement for the build retry fallback)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-flags: --allow-insecure-entitlement network.host
+      - name: Restore the image layer cache (same Dockerfiles and pins; a cached build equals a cold build)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('Dockerfile.gnucobol', 'Dockerfile.ocesql-pg', 'Dockerfile.maven-offline', 'docker/maven-precache/**', 'docker/gnucobol-s390x/**', 'scripts/ci/build-image.sh') }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
+      - name: Tell scripts/ci/build-image.sh where the layer cache lives
+        run: echo "DOCKER_BUILDX_CACHE_ROOT=${{ runner.temp }}/buildx-cache" >> "$GITHUB_ENV"
       - name: Build images
         run: |
           bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:scan

@@ -1,0 +1,334 @@
+name: Full integration validation
+
+# LEVEL B of three (docs/operations/CI_LEVELS.md). The complete validation that is too slow for every push:
+#   * the whole backend suite on Linux (no Docker) and on Windows, under the same warnings-as-errors flag as before;
+#   * the whole suite under coverage with the floor (coverage may only rise);
+#   * the Docker/oracle lane: every test file, including the GnuCOBOL oracle, OCESQL + PostgreSQL, the s390x
+#     big-endian witness and the VSAM proofs - split over SHARDS runners by tools/ci_shards.py and re-assembled by
+#     tools/ci_shard_proofs.py, which fails unless every collected test ran exactly once and the proof modules ran
+#     without a skip.
+#
+# When it runs (never on an ordinary branch push - the fast workflow covers those):
+#   * nightly (schedule), manual dispatch (gh workflow run ci-full.yml --ref <branch>);
+#   * a push to main or a release/** branch, and a pushed tag (release candidates);
+#   * a pushed commit whose message contains "[full]" (the evidence is then tied to that exact SHA).
+# On every other push the run exists but its jobs are SKIPPED (shown as skipped, never as passed).
+#
+# THIS IS NOT CERTIFICATION: the four-runtime corpus and the independent verifier are certification.yml's job.
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *' # nightly 02:00 UTC
+
+# Audit CI-F12: pushes are grouped by commit so every pushed SHA keeps its own evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Number of Docker-lane shards. Must equal the length of the backend-oracle matrix (tests/test_ci_levels.py).
+  SHARDS: '6'
+
+jobs:
+  plan:
+    name: Full validation due?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Decide whether the complete validation runs for this event
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run=false
+          case "$EVENT" in
+            schedule|workflow_dispatch) run=true ;;
+            push)
+              case "$REF" in
+                refs/heads/main|refs/heads/release/*|refs/tags/*) run=true ;;
+              esac
+              case "$COMMIT_MESSAGE" in
+                *"[full]"*) run=true ;;
+              esac ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "full validation due: $run (event=$EVENT ref=$REF)"
+
+  coverage:
+    # Roadmap unit 19: the Docker-free suite under coverage.py with a floor that may only rise.
+    name: Test coverage floor
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Install coverage
+        run: python -m pip install --require-hashes -r requirements-coverage.lock
+      - name: Run the suite under coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          coverage run -m pytest -q tests
+      - name: Enforce the coverage floor
+        shell: bash
+        run: |
+          set -o pipefail
+          coverage report --fail-under=88 | tee coverage-report.txt
+
+  backend-hermetic:
+    # Audit B2: the whole suite without Docker (RUN_DOCKER_TESTS unset), as a
+    # developer runs it. Catches hermetic-only regressions the Docker lane
+    # hides, and - with PytestWarning as an error - a stale entry in
+    # tests/docker_lane.txt (conftest warns when an entry matches no test).
+    name: Backend hermetic suite (no Docker)
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Run the suite without Docker
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q -W error::pytest.PytestWarning tests
+
+  backend-hermetic-windows:
+    # Roadmap unit 19: the whole Docker-free suite on Windows, as a Windows developer runs it. Two defects were
+    # found this way: a non-ASCII character in generated Java that only failed under a non-UTF-8 default code
+    # page, and a test that trusted the WSL launcher as bash. Docker lanes stay on Linux.
+    name: Backend hermetic suite (Windows)
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Java 21 (the certified runtime; some tests compile generated Java on the host)
+        # The runner's default JDK is older and rejects static members in inner classes, which Java 16+ allows.
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Run the suite without Docker
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q -W error::pytest.PytestWarning tests
+
+  backend-oracle:
+    # The former single 68-minute Docker-lane job (run 45050810212) split into SHARDS runners. Each shard builds the
+    # same pinned images (Buildx layer cache, steps below), runs ITS test files and uploads its
+    # JUnit report; backend-oracle-complete proves nothing was lost. Each shard has its own PostgreSQL service, so
+    # shards share no state.
+    name: Backend and COBOL/Java Docker tests (shard ${{ matrix.shard }}/6)
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    services:
+      # Free throwaway PostgreSQL for tests/enterprise/test_database.py (enterprise Phase 1); pinned by digest.
+      postgres:
+        image: postgres@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+        env:
+          POSTGRES_PASSWORD: ci-throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes: do not leave the token in .git/config.
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Set up Docker Buildx (docker-container builder; host-network entitlement for the build retry fallback)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-flags: --allow-insecure-entitlement network.host
+      - name: Restore the image layer cache (same Dockerfiles and pins; a cached build equals a cold build)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('Dockerfile.gnucobol', 'Dockerfile.ocesql-pg', 'Dockerfile.maven-offline', 'docker/maven-precache/**', 'docker/gnucobol-s390x/**', 'scripts/ci/build-image.sh') }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
+      - name: Tell scripts/ci/build-image.sh where the layer cache lives
+        run: echo "DOCKER_BUILDX_CACHE_ROOT=${{ runner.temp }}/buildx-cache" >> "$GITHUB_ENV"
+      - name: Build GnuCOBOL oracle image
+        run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
+      - name: Build GnuCOBOL linux/s390x lane image (QEMU, big-endian witness)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static binfmt-support
+          bash scripts/ci/build-image.sh docker/gnucobol-s390x/Dockerfile gnucobol-s390x:local linux/s390x docker/gnucobol-s390x
+          arch="$(docker run --rm --network none --platform linux/s390x gnucobol-s390x:local uname -m)"
+          test "$arch" = "s390x" || { echo "expected s390x, got $arch" >&2; exit 1; }
+          mkdir -p test-artifacts
+          {
+            echo "arch=$arch"
+            docker run --rm --network none --platform linux/s390x gnucobol-s390x:local cobc --version | head -1
+            docker image inspect gnucobol-s390x:local --format 'image_id={{.Id}} platform={{.Os}}/{{.Architecture}}'
+            grep '^FROM' docker/gnucobol-s390x/Dockerfile
+          } | tee test-artifacts/s390x-image.txt
+      - name: Build OCESQL + PostgreSQL oracle image
+        run: bash scripts/ci/build-image.sh Dockerfile.ocesql-pg ocesql-pg:latest
+      - name: Build project Maven image
+        run: bash scripts/ci/build-image.sh Dockerfile.maven-offline maven-offline-springboot:latest
+      - name: Pull pinned Java execution image
+        run: |
+          RUNTIME_DIGEST="$(python -c 'from engine.candidate.docker_spring_boot_adapter import DockerSpringBootConfig; print(DockerSpringBootConfig().runtime_digest)')"
+          docker pull "$RUNTIME_DIGEST"
+          docker tag "$RUNTIME_DIGEST" eclipse-temurin:21-jdk
+      - name: Record Docker image provenance
+        run: |
+          mkdir -p test-artifacts
+          python scripts/record_docker_image_provenance.py \
+            --build-image maven-offline-springboot:latest \
+            --runtime-image eclipse-temurin:21-jdk \
+            --output test-artifacts/docker-image-provenance.json
+      - name: Record Docker image evidence
+        run: |
+          set -o pipefail
+          mkdir -p test-artifacts
+          docker image inspect gnucobol-ocesql:latest maven-offline-springboot:latest eclipse-temurin:21-jdk > test-artifacts/docker-images.json
+          docker run --rm --network none gnucobol-ocesql:latest cobc --version | tee test-artifacts/gnucobol-version.txt
+          docker run --rm --network none eclipse-temurin:21-jdk java -version 2>&1 | tee test-artifacts/java-version.txt
+          docker run --rm --network none maven-offline-springboot:latest mvn -version | tee test-artifacts/maven-version.txt
+      - name: Install backend and test dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Select this shard's test files (deterministic, proven complete)
+        env:
+          SHARD: ${{ matrix.shard }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/ci_shards.py --shards "$SHARDS" --check
+          python tools/ci_shards.py --shards "$SHARDS" --index "$SHARD" > shard-files.txt
+          echo "shard $SHARD/$SHARDS: $(wc -l < shard-files.txt) test files"
+      - name: Run backend, oracle, and integration tests (this shard)
+        shell: bash
+        env:
+          RUN_DOCKER_TESTS: "1"
+          VSAM_EVIDENCE_DIR: test-artifacts/vsam
+          SYSTEMAOPS_TEST_POSTGRES_DSN: postgresql://postgres:ci-throwaway@localhost:5432/postgres
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -o pipefail
+          mkdir -p test-artifacts
+          python -m pytest -ra --junitxml="test-artifacts/backend-junit-shard-${SHARD}.xml" $(cat shard-files.txt) 2>&1 | tee "test-artifacts/backend-tests-shard-${SHARD}.log"
+      - name: Upload backend logs and reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-oracle-results-shard-${{ matrix.shard }}
+          path: test-artifacts/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  backend-oracle-complete:
+    # The sharded lane is only as good as its re-assembly: this job fails unless every shard passed, every collected
+    # test case ran exactly once, and the VSAM / s390x / PostgreSQL proof modules ran with no skip.
+    name: Backend Docker lane complete (all shards, proofs ran, no test dropped)
+    needs: [plan, backend-oracle]
+    if: ${{ always() && needs.plan.outputs.run == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Every shard job must have succeeded
+        env:
+          SHARDS_RESULT: ${{ needs.backend-oracle.result }}
+        run: |
+          test "$SHARDS_RESULT" = "success" || { echo "backend-oracle shards: $SHARDS_RESULT" >&2; exit 1; }
+      - name: Install backend dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Download the shard reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: backend-oracle-results-shard-*
+          path: shard-artifacts
+      - name: Count the test cases pytest collects for the whole tree
+        id: collect
+        env:
+          RUN_DOCKER_TESTS: "1"
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest --collect-only -q tests -p no:cacheprovider | tee collect.log | tail -3
+          collected="$(grep -Eo '^[0-9]+ tests? collected' collect.log | grep -Eo '^[0-9]+')"
+          test -n "$collected" || { echo "could not read the collected count" >&2; exit 1; }
+          echo "collected=$collected" >> "$GITHUB_OUTPUT"
+      - name: Prove completeness and that the required proofs ran
+        env:
+          COLLECTED: ${{ steps.collect.outputs.collected }}
+        run: python tools/ci_shard_proofs.py --junit-dir shard-artifacts --shards "$SHARDS" --collected "$COLLECTED"

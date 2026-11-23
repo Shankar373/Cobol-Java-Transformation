@@ -90,8 +90,13 @@ def test_ci_runs_the_type_gate_from_the_hash_locks():
     assert any("tools/mypy_gate.py --check" in r for r in runs)
 
 
+def _full_jobs():
+    # The coverage floor is part of the full-validation level (ci-full.yml), not the fast per-push workflow.
+    return yaml.safe_load((REPO / ".github/workflows/ci-full.yml").read_text(encoding="utf-8"))["jobs"]
+
+
 def test_ci_runs_the_suite_under_coverage_with_a_floor():
-    job = _jobs()["coverage"]
+    job = _full_jobs()["coverage"]
     runs = "\n".join(s.get("run", "") for s in job["steps"])
     assert "--require-hashes -r requirements-coverage.lock" in runs
     assert "coverage run" in runs and "--fail-under=" in runs

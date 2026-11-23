@@ -171,8 +171,12 @@ generated application is not verified.** The product is a prototype; production 
 
 ## Verification and CI
 
-- **CI** (`.github/workflows/ci.yml`): capability-truth gate, lint, hermetic backend suite, the Docker/GnuCOBOL-oracle
-  suite, frontend (tests, type check, production build), plus the supply-chain workflow.
+- **CI fast checks** (`.github/workflows/ci.yml`, every push): lint, type check, capability-truth gate, dependency map,
+  generation hashes, focused backend suites, frontend. **Not** full validation and **not** certification.
+- **Full integration validation** (`.github/workflows/ci-full.yml`; nightly, `main`/`release/**`/tags, `[full]`, manual):
+  the whole backend suite on Linux and Windows, the coverage floor, and the sharded Docker/GnuCOBOL-oracle lane with
+  the VSAM / PostgreSQL / s390x proofs. See [`docs/operations/CI_LEVELS.md`](docs/operations/CI_LEVELS.md).
+- The supply-chain workflow (gating Python/npm audits on every push; report-only Trivy scan weekly and on tags).
 - **Corpus certification** (`.github/workflows/certification.yml`): runs every fixture application through the API
   on each runtime, re-checks every VERIFIED application with an independent verifier, and fails unless every verdict
   equals the accepted evidence. It runs for commits tagged `[certify]` and on manual dispatch.

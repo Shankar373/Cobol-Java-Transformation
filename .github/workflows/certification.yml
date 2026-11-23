@@ -61,6 +61,19 @@ jobs:
           cache-dependency-path: requirements-dev.lock
       - name: Install backend dependencies
         run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Set up Docker Buildx (docker-container builder; host-network entitlement for the build retry fallback)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-flags: --allow-insecure-entitlement network.host
+      - name: Restore the image layer cache (same Dockerfiles and pins; a cached build equals a cold build)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('Dockerfile.gnucobol', 'Dockerfile.ocesql-pg', 'Dockerfile.maven-offline', 'docker/maven-precache/**', 'docker/gnucobol-s390x/**', 'scripts/ci/build-image.sh') }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
+      - name: Tell scripts/ci/build-image.sh where the layer cache lives
+        run: echo "DOCKER_BUILDX_CACHE_ROOT=${{ runner.temp }}/buildx-cache" >> "$GITHUB_ENV"
       - name: Build GnuCOBOL oracle image
         run: bash scripts/ci/build-image.sh Dockerfile.gnucobol gnucobol-ocesql:latest
       - name: Build project Maven image

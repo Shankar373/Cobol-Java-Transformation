@@ -14,6 +14,13 @@
 # where the failures were seen, and the host resolver is the one the rest of the job already relies on. Nothing
 # about the build changes - same Dockerfile, same pinned base digest and package versions, same smoke test - and a
 # deterministic build error fails every attempt, so the job still fails; this only absorbs transient network errors.
+#
+# Optional persistent layer cache (CI only): when DOCKER_BUILDX_CACHE_ROOT names a directory (the workflows restore
+# and save it with actions/cache) and `docker buildx` is available, the image is built with `docker buildx build
+# --load` and a local cache (`--cache-from` / `--cache-to ... mode=max`) kept per Dockerfile + platform under that
+# directory. The cache only skips layers whose inputs (instruction text, parent layer, copied files, pinned base
+# digest) are identical; it changes neither the Dockerfile, the pins, the smoke tests nor the retry behaviour, and
+# without the variable (local builds, scripts/deploy/build-production.sh) the build is the plain `docker build`.
 set -euo pipefail
 
 dockerfile="${1:?Usage: build-image.sh <Dockerfile> <tag>}"
@@ -21,6 +28,15 @@ tag="${2:?Usage: build-image.sh <Dockerfile> <tag> [platform [context-dir]]}"
 platform="${3:-}"   # e.g. linux/s390x (needs QEMU binfmt on the runner); empty builds for the runner's architecture
 context="${4:-.}"
 attempts=5
+cache_root="${DOCKER_BUILDX_CACHE_ROOT:-}"
+use_buildx=0
+if [ -n "$cache_root" ] && docker buildx version >/dev/null 2>&1; then
+  use_buildx=1
+  # One cache directory per Dockerfile and platform: a rebuilt layer of one image never evicts another image's.
+  cache_name="$(printf '%s|%s' "$dockerfile" "${platform:-native}" | sha256sum | cut -c1-16)"
+  cache_dir="$cache_root/$cache_name"
+  mkdir -p "$cache_root"
+fi
 
 dns_report() {
   for host in archive.ubuntu.com security.ubuntu.com repo.maven.apache.org; do
@@ -47,7 +63,21 @@ for attempt in $(seq 1 "$attempts"); do
     echo "attempt $attempt/$attempts: archive.ubuntu.com does not resolve here; apt uses mirrors.edge.kernel.org" >&2
   fi
   if [ -n "$platform" ]; then args+=(--platform "$platform"); fi
-  if docker build --pull "${network[@]}" "${args[@]}" -f "$dockerfile" -t "$tag" "$context"; then
+  if [ "$use_buildx" -eq 1 ]; then
+    # The docker-container builder runs BuildKit in its own container: the host network needs an explicit
+    # entitlement (the workflows create the builder with --allow-insecure-entitlement network.host).
+    bx_network=()
+    if [ "${#network[@]}" -gt 0 ]; then bx_network=("${network[@]}" --allow network.host); fi
+    rm -rf "$cache_dir.new"
+    cache_args=(--cache-to "type=local,dest=$cache_dir.new,mode=max")
+    if [ -d "$cache_dir" ]; then cache_args+=(--cache-from "type=local,src=$cache_dir"); fi
+    if docker buildx build --load --pull "${bx_network[@]}" "${args[@]}" "${cache_args[@]}" -f "$dockerfile" -t "$tag" "$context"; then
+      # Replace the previous cache by the freshly exported one (it contains every layer this build used).
+      if [ -d "$cache_dir.new" ]; then rm -rf "$cache_dir" && mv "$cache_dir.new" "$cache_dir"; fi
+      exit 0
+    fi
+    rm -rf "$cache_dir.new"
+  elif docker build --pull "${network[@]}" "${args[@]}" -f "$dockerfile" -t "$tag" "$context"; then
     exit 0
   fi
   if [ "$attempt" -lt "$attempts" ]; then
