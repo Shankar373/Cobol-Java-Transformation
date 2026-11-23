@@ -58,6 +58,16 @@ the hermetic job already, so merging would only save runner minutes, not wall-cl
 
 * A change that alters generated output must update `docs/audits/generation_hashes.json` in the same commit
   (`python tools/generation_hashes.py --write docs/audits/generation_hashes.json`, with the reason in the commit).
+  The baseline is **Linux-canonical** (written in a `python:3.11` container from the pre-Phase-0 code at `9655239`;
+  the current code reproduces it byte for byte there, in all 110 builds) and Windows reproduces it too. The first
+  baseline was written on Windows and failed the Linux CI job for nearly every file: the generator wrote files with
+  `Path.write_text(..., encoding="utf-8")`, which turns `
+` into `
+` on Windows. Writers now pass
+  `newline="
+"` and `tests/test_generated_output_newlines.py` keeps it so. To rewrite the baseline on Linux:
+  `docker run --rm -v "$PWD:/w" -w /w python:3.11 bash -c 'pip install -q --require-hashes -r requirements-dev.lock &&
+  python tools/generation_hashes.py --write docs/audits/generation_hashes.json'`.
 * `docs/audits/DEPENDENCY_MAP.md` is built from `git ls-files`: **stage new files first, then** run
   `python tools/dependency_map.py` and `--check`. Running it while new modules are untracked produced the stale map
   that failed the Linux gate on `95e2c7a`.
