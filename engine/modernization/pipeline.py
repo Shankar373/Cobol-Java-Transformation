@@ -584,7 +584,7 @@ class UniversalModernizationPipeline:
         report.graph_program_set = tuple(closure)
         report.traceability = trace.as_dict()
         (Path(self._config.output_dir) / "traceability-overlay.json").write_text(
-            json.dumps(overlay.document(), sort_keys=True, separators=(",", ":")), encoding="utf-8")
+            json.dumps(overlay.document(), sort_keys=True, separators=(",", ":")), encoding="utf-8", newline="\n")
         if self._config.knowledge_graph_store:
             from enterprise.discovery.kg_store import KGStore
             with KGStore(self._config.knowledge_graph_store) as store:

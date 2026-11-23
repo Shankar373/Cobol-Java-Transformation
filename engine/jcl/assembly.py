@@ -67,7 +67,7 @@ def assemble_job_runners(
     duplicated = {name for name in names if names.count(name) > 1}
     for name, source in result.files.items():
         if name not in duplicated:  # two jobs of one name would share a class: neither gets a runner
-            (java_dir / f"{name}.java").write_text(source, encoding="utf-8")
+            (java_dir / f"{name}.java").write_text(source, encoding="utf-8", newline="\n")
     records = []
     for job, plan in zip(app.jobs, result.plans, strict=True):
         runner = runner_class_name(plan.job) if plan.runnable else ""

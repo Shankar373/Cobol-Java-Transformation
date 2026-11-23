@@ -58,7 +58,7 @@ class ApplicationAssembler:
             # 1. Write program Java files
             for gf in generated_files:
                 target = out / gf.filename
-                target.write_text(gf.source_code, encoding="utf-8")
+                target.write_text(gf.source_code, encoding="utf-8", newline="\n")
                 files_written.append(str(target))
 
             # 2. Generate and write pom.xml if not present
@@ -66,7 +66,7 @@ class ApplicationAssembler:
             if not has_pom:
                 pom = self._generate_pom(assembly_plan)
                 pom_path = out / "pom.xml"
-                pom_path.write_text(pom, encoding="utf-8")
+                pom_path.write_text(pom, encoding="utf-8", newline="\n")
                 files_written.append(str(pom_path))
 
             # 3. Generate application entry point if not present
@@ -74,7 +74,7 @@ class ApplicationAssembler:
             if not has_entry and generated_files:
                 entry = self._generate_entry_point(assembly_plan, generated_files)
                 entry_path = out / f"{assembly_plan.application_name.title().replace('-', '')}Application.java"
-                entry_path.write_text(entry, encoding="utf-8")
+                entry_path.write_text(entry, encoding="utf-8", newline="\n")
                 files_written.append(str(entry_path))
 
         except Exception as e:

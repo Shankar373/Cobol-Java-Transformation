@@ -202,7 +202,7 @@ class SpringBootRuntimeAdapter(RuntimeAdapter):
             if target != resolved_root and resolved_root not in target.parents:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(gen_file.source_code, encoding="utf-8")
+            target.write_text(gen_file.source_code, encoding="utf-8", newline="\n")
 
         entry = spring_app.entry_point
         entry_fqn = (
@@ -278,7 +278,7 @@ class PlainJavaRuntimeAdapter(RuntimeAdapter):
             if target != resolved_root and resolved_root not in target.parents:
                 return
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            target.write_text(content, encoding="utf-8", newline="\n")
 
         for gen_file in program_files:
             _write(("src", "main", "java", gen_file.filename), gen_file.source_code)
@@ -503,7 +503,7 @@ class _FrameworkCommandAdapter(PlainJavaRuntimeAdapter):
         for rel, content in self._framework_files(outcome.entrypoint).items():
             target = root / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            target.write_text(content, encoding="utf-8", newline="\n")
         return AssemblyOutcome(project_dir=root, entrypoint=self.entry_class_name)
 
     def _framework_files(self, program_class: str) -> dict[str, str]:

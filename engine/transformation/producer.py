@@ -263,7 +263,7 @@ class TransformationProducer:
 
         for gen_file in result.generated_files:
             file_path = output_path / gen_file.filename
-            file_path.write_text(gen_file.source_code, encoding="utf-8")
+            file_path.write_text(gen_file.source_code, encoding="utf-8", newline="\n")
 
         return result
 

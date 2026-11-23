@@ -245,5 +245,5 @@ class ApplicationGenerator:
             # Belt-and-braces: refuse anything that escapes the output dir.
             if target != resolved_out and resolved_out not in target.parents:
                 continue
-            target.write_text(gen_file.source_code, encoding="utf-8")
+            target.write_text(gen_file.source_code, encoding="utf-8", newline="\n")
         return out
