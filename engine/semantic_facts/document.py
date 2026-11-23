@@ -18,7 +18,7 @@ input-file order.  ``complete`` is false whenever anything is named unsupported 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from engine.semantic_facts.references import Reference, ReferenceTable, Resolution
@@ -126,6 +126,9 @@ class ProgramFacts:
     references: ReferenceTable
     facts: tuple[Fact, ...]
     unsupported: tuple[tuple[str, str, str], ...]     # (code, subject, file) for the document's summary
+    #: what the facts were derived from (kept for the cross-program pass; never serialised)
+    program: Any = field(default=None, compare=False, repr=False)
+    trace: Any = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)

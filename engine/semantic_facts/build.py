@@ -12,9 +12,11 @@ the caller supplies them (a test shuffles them).  Paths are checkpoint-relative,
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 from typing import Iterable, Mapping, Sequence
 
+from engine.semantic_facts.calls import build_call_facts
 from engine.semantic_facts.document import (
     Fact,
     ProgramFacts,
@@ -188,17 +190,26 @@ def build_program_facts(file: str, text: str, *, options: Sequence[str] = (), sc
     for fact in facts:
         unique.setdefault(fact.fact_id, fact)
     return ProgramFacts(file, symbols, references, tuple(unique.values()),
-                        unsupported_rows(symbols, references, file, extra))
+                        unsupported_rows(symbols, references, file, extra), program, trace)
+
+
+def _unique(facts: Iterable[Fact]) -> tuple[Fact, ...]:
+    unique: dict[str, Fact] = {}
+    for fact in facts:
+        unique.setdefault(fact.fact_id, fact)
+    return tuple(unique.values())
 
 
 def build_semantic_facts(sources: Mapping[str, str], *, checkpoint_id: str = "", source_digest: str = "",
                          graph_id: str = "", profile_ids: Sequence[tuple[str, str]] = (),
                          options: Mapping[str, Sequence[str]] | None = None,
+                         external_programs: Iterable[str] = (),
                          tool_version: str = "") -> SemanticFacts:
     """The facts document of ``sources`` (``path -> text``; only COBOL program texts, checkpoint-relative paths).
 
     ``source_digest`` defaults to a digest of exactly these texts.  ``options`` maps a path to its compiler options (the
-    discovery profile's ``compiler_options``).
+    discovery profile's ``compiler_options``).  ``external_programs`` names CALL targets that are subsystem or platform
+    programs outside the document (the graph's classification; MQI verbs and DL/I entries are always external).
     """
     options = options or {}
     ordered = sorted(sources)
@@ -212,6 +223,12 @@ def build_semantic_facts(sources: Mapping[str, str], *, checkpoint_id: str = "",
         name = first_pass[path]
         scope = f"program:{name}@{path}" if counts[name] > 1 else ""
         programs.append(build_program_facts(path, sources[path], options=options.get(path, ()), scope_id=scope))
+    calls = build_call_facts(programs, external=external_programs)
+    programs = [dataclasses.replace(
+        p, facts=_unique(p.facts + tuple(calls.facts.get(p.file, ()))),
+        unsupported=tuple(sorted(p.unsupported + tuple((code, subject, p.file)
+                                                       for code, subject in calls.unsupported.get(p.file, ())))))
+        for p in programs]
     return assemble(programs, checkpoint_id=checkpoint_id, source_digest=source_digest or source_digest_of(sources),
                     graph_id=graph_id, profile_ids=tuple(profile_ids), tool_version=tool_version)
 

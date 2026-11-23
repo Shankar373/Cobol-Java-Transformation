@@ -1052,9 +1052,9 @@ class a generation failure (`_trace_to_graph`): that changes run outcomes and is
   IR statement mentions is missing from its references (`test_no_declared_name_used_by_a_statement_is_dropped`, an oracle
   independent of the classification table, 1,749 name mentions); every reference has a `Resolution`.
 * **Findings the P3 work surfaced (not changed here, named):** (1) `IF A NOT = B` is stored as the operand text `"A NOT"`
-  (handled: `NOT`/`IS`/... are keywords, never data names); (2) `CALL ... BY VALUE x RETURNING r` makes the parser swallow
-  `RETURNING r` and the following statements as arguments - not fixed in the parser (IR preserved), detected by the P5
-  tokenizer cross-check; (3) fixed-format lines past column 72 give truncated names, which are correctly `unresolved`
+  (handled: `NOT`/`IS`/... are keywords, never data names); (2) *(corrected in section 15)* a long `CALL ... RETURNING r.` that reached
+  past column 72 was first read as a parser defect; it is the fixed-format margin: the compiler ignores text past column 72
+  too, so the IR is what the compiler would compile; (3) fixed-format lines past column 72 give truncated names, which are correctly `unresolved`
   (e.g. `CLAIMS_OSC4J.cob`); (4) a single-file parse has no copybook items, so copybook-resident names are `unresolved`
   until the caller supplies the materialised program (P4 builds from the pipeline's program).
 * **Limits:** CALL program names and dynamic targets are P5; EXEC SQL host variables are classified but their kinds are
@@ -1096,3 +1096,43 @@ class a generation failure (`_trace_to_graph`): that changes run outcomes and is
   materialised program is supplied, and `CALL`/file-binding facts are P5/P6. `scopes` are per file and per program;
   nested-program scopes stay unsupported. The CLI/route for fetching the document is not added (a later decision); it is
   reachable as a function.
+
+---
+
+## 15. L5-P5 (cross-program facts)
+
+`engine/semantic_facts/calls.py` adds, for every program of the document, a `call` fact per `CallStatement` and, for a
+statically resolved callee, `call-arity`, one `call-binding` per argument and one `call-size-compat` per binding.
+
+* **Targets.** Literal -> the document's `program`/`entry` declarations through `normalize_cobol_name`; one match
+  `resolved`, several `ambiguous` (candidates sorted), none `unresolved(missing-program)`, a subsystem entry (`MQI_VERBS`,
+  `DLI_ENTRIES`, or a caller-supplied `external_programs` set) resolved `external`, a nested program's name
+  `unsupported(NESTED_PROGRAM_NOT_MODELLED)`, a self-call marked. Dynamic -> state `dynamic`, `variable` = the carrier item,
+  candidates = the literals the program provably moves into it plus its VALUE clause (`heuristic`), or `dynamic-target` with
+  `unresolved` confidence when none.
+* **Arity.** Against the callee's `PROCEDURE DIVISION USING` header (or the called ENTRY's own list), not the number of `01`
+  LINKAGE items the capability analyzer counts. The parser stores `USING BY REFERENCE X` as three entries
+  (`BY`, `REFERENCE`, `X`); `header_parameters` drops those reserved words (IR untouched). A mismatch is a true finding
+  (`arity_ok=false`), not an unresolved reference.
+* **Bindings and layout.** Argument *i* binds to parameter *i* with its mode. Size/class verdicts (`equal`,
+  `caller_smaller`, `caller_larger`, `class_mismatch`, `unknown`) are claimed only for certified layouts (elementary DISPLAY
+  items and groups of them, no OCCURS/REDEFINES/USAGE); otherwise `unknown` + `unsupported(LAYOUT_USAGE_UNCERTIFIED)`.
+  `BY VALUE` needs numeric elementary items on both sides.
+* **Cross-check, not a source.** The parser splits `USING` on white space, so a literal containing a space becomes two
+  arguments. The argument list is re-read from the statement's logical lines with the shared operand tokenizer
+  (`written_arguments`); a disagreement with the IR yields `unsupported(CALL_USING_UNPARSED)` and no arity or binding for that
+  call (never a wrong binding). A mutation test proves the check is live.
+* **ENTRY and CANCEL.** The parser skips both (`"Skipped unsupported statement"`) and leaves `entry_points` empty, so `ENTRY
+  'NAME' USING ...` lines are read from the logical lines into `entry` declarations (with their USING list and span) and a CALL
+  to one resolves through it (`via_entry`); each `CANCEL` line becomes a `cancel` fact `unsupported(CANCEL_NOT_IN_IR)`.
+* **R2 / R3 differential reports (produced, nothing retired).** `test_r2_differential_literal_call_targets_match_the_text_extraction`:
+  over every fixture program the literal CALL targets equal `application_discovery._extract_calls` exactly.
+  `test_r3_differential_...`: the facts and `capability_analyzer._analyze_call_linkage_arity` agree on every fixture
+  application except two documented fixtures (`workload-call-linkage`, `workload-multiprog`), where the analyzer counts
+  `WS-TEMP` as a LINKAGE `01` because LINKAGE is placed before WORKING-STORAGE (an order the parser refuses; the facts'
+  header-based count, 3 = 3, is the correct arity). `R3_DOCUMENTED` pins that list shrink-only. R3 is not retired before P7.
+* **Acceptance.** Every `CallStatement` in every fixture application has exactly one `call` fact (one parametrised test per
+  application).
+* **Limits.** COPY-resident LINKAGE items are unresolved until a materialised program is supplied; call arity for a
+  *dynamic* call is not claimed (callee unknown); copybook-in-copybook CALL ownership is not modelled because the document
+  is built from program text.

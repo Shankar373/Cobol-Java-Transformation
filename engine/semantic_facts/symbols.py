@@ -22,7 +22,7 @@ qualification chain.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from engine.semantic_facts.span import Span, SpanTable
@@ -84,6 +84,8 @@ class Declaration:
     attributes: tuple[tuple[str, str], ...]
     unsupported: str         # "" or an UNSUPPORTED_CODES member
     addressable: bool = True
+    #: the IR item a data declaration was made from (``None`` for non-data kinds); not part of the document
+    item: Any = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -164,7 +166,7 @@ class _Builder:
 
     def add(self, kind: str, name: str, *, level: int = 0, parent: str = "", qualification: tuple[str, ...] = (),
             section: str = "", span: Span | None = None, span_code: str = "",
-            attributes: tuple[tuple[str, str], ...] = (), unsupported: str = "") -> str:
+            attributes: tuple[tuple[str, str], ...] = (), unsupported: str = "", item: Any = None) -> str:
         name = name.upper()
         decl_id = self._id(kind, qualification, name)
         member = span.file if span is not None and span.via_copy else ""
@@ -173,7 +175,7 @@ class _Builder:
         self.rows.append(Declaration(
             decl_id, kind, name, level, self.scope_id, parent, qualification, section,
             graph_node_id(self.scope_id, kind, name), False, member, template, span, span_code, attributes,
-            unsupported, addressable=name != "FILLER"))
+            unsupported, addressable=name != "FILLER", item=item))
         return decl_id
 
     def item(self, item: Any, parent: str, qualification: tuple[str, ...], section: str, *,
@@ -206,7 +208,7 @@ class _Builder:
             attributes = tuple(sorted(attributes + (("generated_name", generated),)))
         decl_id = self.add(kind, name, level=item.level, parent=parent, qualification=qualification,
                            section=section, span=span, span_code=span_code, attributes=attributes,
-                           unsupported=unsupported)
+                           unsupported=unsupported, item=item)
         for index_name in item.indexed_by:
             self.add("index-name", index_name, level=0, parent=decl_id, qualification=(name, *qualification),
                      section=section, span=span, span_code=span_code, unsupported=unsupported)
@@ -250,8 +252,22 @@ def build_symbol_table(program: Any, trace: ParseTrace, spans: SpanTable, *, sco
 
     builder = _Builder(scope_id, spans, notes, foreign_from, program, trace)
     program_id = builder.add("program", program_name)
+    entries: dict[str, tuple[Span | None, tuple[tuple[str, str], ...]]] = {}
     for entry in program.entry_points:
-        builder.add("entry", entry.strip("'\"").upper(), parent=program_id)
+        entries.setdefault(entry.strip("'\"").upper(), (None, ()))
+    # the parser skips ENTRY ("unsupported statement") and never fills ``entry_points``: the entry points are read from
+    # the logical lines it saw (``ENTRY 'NAME' [USING p ...]``), so a CALL to one still resolves
+    for index, line in enumerate(trace.code):
+        words = line.split()
+        if len(words) >= 2 and words[0].upper() == "ENTRY" and words[1][:1] in "'\"":
+            name = words[1].rstrip(".").strip("'\"").upper()
+            upper = [w.upper().rstrip(".") for w in words]
+            params = [w.rstrip(".").upper() for w in words[upper.index("USING") + 1:]
+                      if w.upper().rstrip(".") not in ("BY", "REFERENCE", "CONTENT", "VALUE")] if "USING" in upper else []
+            entries.setdefault(name, (_marker_span(trace, index, spans), (("parameters", ",".join(params)),)))
+    for name, (entry_span, entry_attributes) in entries.items():
+        builder.add("entry", name, parent=program_id, span=entry_span,
+                    span_code="" if entry_span is not None else "SPAN_UNAVAILABLE", attributes=entry_attributes)
     paragraph_places: dict[str, list[tuple[Span | None, int]]] = {}
     for (name, logical), (_, span) in zip(trace.paragraphs, spans.paragraphs):
         paragraph_places.setdefault(name.upper(), []).append((span, logical))
