@@ -157,7 +157,7 @@ def test_single_program_is_complete():
     assert table.complete and table.unsupported == ()
 
 
-def test_file_section_records_belong_to_their_fd_and_are_untraced():
+def test_file_section_records_belong_to_their_fd_and_carry_spans():
     _, table = _table(
         "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. F.\n       ENVIRONMENT DIVISION.\n"
         "       INPUT-OUTPUT SECTION.\n       FILE-CONTROL.\n           SELECT IN-F ASSIGN TO 'in.dat'.\n"
@@ -166,7 +166,8 @@ def test_file_section_records_belong_to_their_fd_and_are_untraced():
     fd = table.named("IN-F")[0]
     rec = table.named("IN-REC")[0]
     assert fd.kind == "file" and rec.kind == "record" and rec.parent == fd.decl_id
-    assert rec.span is None and rec.span_code == "SPAN_FILE_SECTION_NOT_TRACED"
+    assert rec.span is not None and rec.span.line == 10 and rec.span.exact and rec.span_code == ""
+    assert table.named("IN-KEY")[0].span.line == 11
     assert table.named("IN-KEY")[0].qualification == ("IN-REC",)
 
 

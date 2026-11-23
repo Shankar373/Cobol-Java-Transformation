@@ -77,6 +77,8 @@ class ParseTrace:
     #: ``(generated unique name, declared name, ancestors nearest first)`` for each declaration ``qualified_names``
     #: renamed (a name declared more than once); the IR carries the generated name, the source spelling is here.
     renames: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    #: the text of each logical line (``lines[i]`` is where ``code[i]`` was read), as the statement parser saw it.
+    code: tuple[str, ...] = ()
 
     def statement_index(self) -> dict[int, StatementFrame]:
         """``id(statement) -> frame`` (identity, never equality: two equal statements are two statements).  A frame

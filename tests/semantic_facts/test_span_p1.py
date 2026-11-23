@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[2]
 FIXTURES = sorted(p for p in (REPO / "fixtures").rglob("*") if p.is_file() and p.suffix.lower() in (".cob", ".cbl"))
 
 #: The only reasons a fact may have no span today (shrink-only: a new reason or a new SPAN_UNAVAILABLE fails here).
-ALLOWED_UNPLACED = {"SPAN_FILE_SECTION_NOT_TRACED", "SPAN_SYNTHETIC_DECLARATION"}
+ALLOWED_UNPLACED = {"SPAN_SYNTHETIC_DECLARATION"}
 
 #: statement classes whose source verb is not spelt like the class (the EVALUATE statement is lowered to an IfStatement)
 VERB_ALIASES = {"IF": ("EVALUATE",), "STOPRUN": ("STOP",), "GOTO": ("GO",)}

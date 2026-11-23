@@ -633,7 +633,7 @@ class CobolParser:
             lines=self._trace_lines, statements=tuple(self._trace_statements),
             declarations=tuple(self._trace_decls), paragraphs=tuple(self._trace_paragraphs),
             programs=tuple(self._trace_programs), entry_notes=tuple(self._trace_entry_notes),
-            renames=tuple(self._trace_renames))
+            renames=tuple(self._trace_renames), code=self._code_lines)
 
     def parse_traced(self, source: str) -> tuple[CobolProgram, ParseTrace]:
         """``parse`` plus the :class:`ParseTrace` of the same parse (the IR is exactly ``parse``'s)."""
@@ -2079,8 +2079,9 @@ class CobolParser:
         current_record: str | None = None
         current_items: list[DataItem] = []
         record_lines: list[list[str]] = []
+        record_index: list[list[int]] = []      # logical line index of each line of ``record_lines`` (for the trace)
 
-        for line in lines:
+        for line_index, line in enumerate(lines):
             upper = line.upper().strip()
             if upper == "FILE SECTION.":
                 in_file_section = True
@@ -2093,7 +2094,7 @@ class CobolParser:
                             container_path="",
                             record_name=current_record,
                             record_items=tuple(current_items),
-                            record_groups=self._record_groups(record_lines),
+                            record_groups=self._record_groups(record_lines, record_index),
                             is_sort_file=current_sort,
                         ))
                     current_sort = upper.startswith("SD ")
@@ -2102,8 +2103,10 @@ class CobolParser:
                     current_record = None
                     current_items = []
                     record_lines = []
+                    record_index = []
                 elif current_fd and upper.startswith("01 "):
                     record_lines.append([line])
+                    record_index.append([line_index])
                     parts = line.strip().split()
                     if len(parts) >= 2:
                         current_record = parts[1].rstrip(".")
@@ -2127,6 +2130,7 @@ class CobolParser:
                 elif current_fd and re.match(r"\d{2}\s+", upper):
                     if record_lines:
                         record_lines[-1].append(line)
+                        record_index[-1].append(line_index)
                     # Handle sub-level items (05, 10, 15, etc.)
                     parts = line.strip().split()
                     if len(parts) >= 2:
@@ -2155,7 +2159,7 @@ class CobolParser:
                             container_path="",
                             record_name=current_record,
                             record_items=tuple(current_items),
-                            record_groups=self._record_groups(record_lines),
+                            record_groups=self._record_groups(record_lines, record_index),
                             is_sort_file=current_sort,
                         ))
                     break
@@ -2163,22 +2167,25 @@ class CobolParser:
                     # The rest of an entry continued on the next line
                     # (``OCCURS 5.``): part of the record's description.
                     record_lines[-1].append(line)
+                    record_index[-1].append(line_index)
         return file_defs
 
-    @staticmethod
-    def _record_groups(records: list[list[str]]) -> tuple[DataItem, ...]:
+    def _record_groups(self, records: list[list[str]], indexes: list[list[int]]) -> tuple[DataItem, ...]:
         """Each 01 record description of an FD as a data-description tree.
 
         Parsed by a scratch parser: the FILE SECTION pass has already
         reported every diagnostic these lines raise.
         """
         scratch = CobolParser()
-        return tuple(
-            item
-            for lines in records
-            for item in scratch.parse_data_description_lines(lines)
-            if item.level == 1
-        )
+        groups: list[DataItem] = []
+        for lines, where in zip(records, indexes):
+            # a record's lines are traced only when they are consecutive logical lines (else no position is claimed)
+            consecutive = bool(where) and where == list(range(where[0], where[0] + len(where)))
+            parsed = scratch.parse_data_description_lines(
+                lines, base=where[0] if consecutive else -1, section="file" if consecutive else "")
+            groups.extend(item for item in parsed if item.level == 1)
+        self._trace_decls.extend(scratch._trace_decls)
+        return tuple(groups)
 
     def parse_data_description_lines(
         self, lines: list[str], *, base: int = -1, section: str = ""

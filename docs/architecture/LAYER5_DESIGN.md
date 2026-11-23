@@ -1021,3 +1021,43 @@ class a generation failure (`_trace_to_graph`): that changes run outcomes and is
 * **Deviations / limits:** paragraphs only (the IR has no SECTION unit; `section` kind is not produced); nested-program
   *scopes* are not built (fail-closed instead, 12.1); `qualified_names._Item` (R8) is not yet replaced (P7);
   FILE SECTION record spans remain `SPAN_FILE_SECTION_NOT_TRACED`.
+
+---
+
+## 13. L5-P3 (typed references and resolution)
+
+`engine/semantic_facts/references.py` turns every name an IR statement uses into a `Reference` (kind, access, owner
+`stmt_id`, `Resolution`, `Span`), or - when the IR cannot tell - a named `UnsupportedUse`.
+
+* **One classification table**, `STATEMENT_RULES`: one function per `Statement` class of `ir.py` (plus `SearchWhen`,
+  `InspectPhrase` and the expression nodes the walker also reaches). `test_every_statement_class_of_the_ir_union_has_a_classification_row`
+  enumerates the union; a class without a row fails. Directions are as in 4.2 with these IR-driven details:
+  `DIVIDE a INTO b` is stored with `target == dividend`, so the target is `modify` (same effect as read+write) and
+  `GIVING` targets are `write`; `ADD/SUBTRACT/MULTIPLY` use `modify` without GIVING and `write` with it; CALL arguments follow
+  their passing mode (`REFERENCE` -> `modify`, `CONTENT`/`VALUE` -> `read`) and `RETURNING` is `write`; `PERFORM VARYING`
+  modifies the index and reads `FROM`/`BY`; `SET cond TO TRUE` writes the condition name.
+* **Resolution** (`Resolver`) has exactly the five design states with a post-init invariant (`resolved` = one candidate,
+  `ambiguous` = at least two, `unresolved` = a graph reason from `graph.UNRESOLVED_REASONS` + `unresolved` confidence). The
+  IR already carries `qualified_names`' generated unique names, so a use is looked up by IR spelling first (`derived`
+  confidence), then by source name (several declarations -> `ambiguous` with every `decl_id`), then special registers. A
+  qualified use (`AMT OF REC1` that survived as text) matches the OF/IN chain as a subsequence, nearest first.
+* **Spans.** Statement spans are P1's. An operand token gets an exact token span only when the caller supplies the file
+  text (`source=`) and the token occurs exactly once on the statement's physical line, outside quotes, from the
+  statement's column; otherwise the reference carries the statement's line, `exact=False`, `SPAN_OPERAND_NOT_LOCATED`.
+  `tests/.../test_every_fixture_is_walked...` re-reads every exact reference span from the fixture text (1,641 of 2,070
+  fixture references are exact; the rest are named inexact, none is guessed).
+* **P1 gap closed:** FILE SECTION records are now traced (`_record_groups` records each record's lines with their logical
+  indexes) so every FD record and field has an exact span; `SPAN_FILE_SECTION_NOT_TRACED` left the allowed-unplaced set.
+* **Acceptance evidence.** For all 78 repo fixtures: the shared walk equals `control_flow.walk_statements`; no declared name an
+  IR statement mentions is missing from its references (`test_no_declared_name_used_by_a_statement_is_dropped`, an oracle
+  independent of the classification table, 1,749 name mentions); every reference has a `Resolution`.
+* **Findings the P3 work surfaced (not changed here, named):** (1) `IF A NOT = B` is stored as the operand text `"A NOT"`
+  (handled: `NOT`/`IS`/... are keywords, never data names); (2) `CALL ... BY VALUE x RETURNING r` makes the parser swallow
+  `RETURNING r` and the following statements as arguments - not fixed in the parser (IR preserved), detected by the P5
+  tokenizer cross-check; (3) fixed-format lines past column 72 give truncated names, which are correctly `unresolved`
+  (e.g. `CLAIMS_OSC4J.cob`); (4) a single-file parse has no copybook items, so copybook-resident names are `unresolved`
+  until the caller supplies the materialised program (P4 builds from the pipeline's program).
+* **Limits:** CALL program names and dynamic targets are P5; EXEC SQL host variables are classified but their kinds are
+  `host-var` and tables come from the graph (P6); INSPECT phrase operands that could be a literal or a name are
+  `INSPECT_OPERAND_KIND_UNKNOWN` when they equal a declared name; unstructured `PERFORM ... UNTIL` conditions are
+  `CONDITION_UNSTRUCTURED` (never scraped).

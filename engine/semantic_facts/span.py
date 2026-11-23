@@ -41,6 +41,7 @@ SPAN_CODES = (
     "SPAN_COPY_COLUMN_UNPROVEN",
     "SPAN_COPY_SITE_ONLY",
     "SPAN_LOWERED_FROM_PARENT",
+    "SPAN_OPERAND_NOT_LOCATED",
 )
 
 
@@ -217,8 +218,12 @@ def build_span_table(program: Any, trace: ParseTrace, *, file: str = "",
             declarations.append(SpannedDeclaration(item, item.name, section, span,
                                                    "" if span is not None else "SPAN_UNAVAILABLE"))
     for definition in program.file_definitions:
-        for item in iter_data_items(definition.record_items):
-            declarations.append(SpannedDeclaration(item, item.name, "file", None, "SPAN_FILE_SECTION_NOT_TRACED"))
+        for item in iter_data_items(definition.record_groups):
+            decl_frame = declaration_frames.get(id(item))
+            span = (None if decl_frame is None else
+                    _place(trace, decl_frame.start, file=file, origins=origins, end_logical=decl_frame.end))
+            declarations.append(SpannedDeclaration(
+                item, item.name, "file", span, "" if span is not None else "SPAN_FILE_SECTION_NOT_TRACED"))
 
     paragraphs = tuple((name, _place(trace, index, file=file, origins=origins)) for name, index in trace.paragraphs)
     return SpanTable(file, tuple(statements), tuple(declarations), paragraphs)
