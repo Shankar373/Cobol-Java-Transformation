@@ -79,6 +79,7 @@ class ViolationType(Enum):
     MALFORMED_EVIDENCE = "malformed_evidence"
     PROFILE_BINDING_MISMATCH = "profile_binding_mismatch"
     SEMANTIC_FACTS_BINDING_MISMATCH = "semantic_facts_binding_mismatch"
+    APPLICATION_IR_BINDING_MISMATCH = "application_ir_binding_mismatch"
 
 
 #: Comparison results the evidence model accepts. Anything else is
@@ -155,6 +156,7 @@ class EvidenceIntegrityValidator:
         violations.extend(self._validate_oracle_binding(manifest))
         violations.extend(self._validate_profile_binding(manifest))
         violations.extend(self._validate_semantic_facts_binding(manifest))
+        violations.extend(self._validate_application_ir_binding(manifest))
 
         # 5. Artifact-execution binding
         violations.extend(self._validate_artifact_execution_binding(manifest))
@@ -408,6 +410,44 @@ class EvidenceIntegrityValidator:
         if values["profiles_digest"] != expected_profiles:
             bad("semantic_facts profiles_digest differs from the recorded dialect_profiles",
                 "semantic_facts.profiles_digest", expected_profiles, values["profiles_digest"])
+        return violations
+
+    # ------------------------------------------------------------------
+    # Layer 6: Application IR binding
+    # ------------------------------------------------------------------
+
+    def _validate_application_ir_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """The recorded Application IR must be well formed and bound to the recorded semantic facts.
+
+        Exactly ``ir_id`` and ``semantic_id`` (sha256 hex), and ``semantic_id`` equals the ``semantic_facts`` pair of the
+        same name: an IR is a projection of *those* facts, and cannot be recorded without them.
+        """
+        pairs = manifest.application_ir
+        violations: list[IntegrityViolation] = []
+        if not pairs:
+            return violations
+
+        def bad(description: str, path: str, expected: str, actual: str) -> None:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.APPLICATION_IR_BINDING_MISMATCH, description=description,
+                field_path=path, expected=expected, actual=actual))
+
+        keys = sorted(key for key, _value in pairs)
+        if keys != ["ir_id", "semantic_id"]:
+            bad("application_ir must hold exactly ir_id and semantic_id", "application_ir", "ir_id,semantic_id",
+                ",".join(keys))
+            return violations
+        values = dict(pairs)
+        for key in keys:
+            if not _SHA256_HEX.fullmatch(values[key]):
+                bad(f"application_ir[{key}] is not a sha256 hex digest", f"application_ir.{key}", "64-hex digest",
+                    values[key])
+        facts = dict(manifest.semantic_facts)
+        if not facts:
+            bad("application_ir is recorded without semantic_facts", "application_ir", "semantic_facts recorded", "none")
+        elif values["semantic_id"] != facts.get("semantic_id"):
+            bad("application_ir semantic_id differs from the recorded semantic_facts", "application_ir.semantic_id",
+                str(facts.get("semantic_id")), values["semantic_id"])
         return violations
 
     # ------------------------------------------------------------------

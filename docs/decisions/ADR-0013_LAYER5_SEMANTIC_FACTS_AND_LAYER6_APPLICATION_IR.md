@@ -94,3 +94,11 @@ Deterministic, open-source only, no LLM. Supersedes the Layer 5 and Layer 6 rows
   `engine/semantic_facts/span.py` (Layer 5 phase P1); details and measured results in `LAYER5_DESIGN.md` 11.2.
 * The Layer 5 entry checklist (`LAYER5_DESIGN.md` section 10) is satisfied and D1-D4, D9 are resolved (section 9.3).
   Phases P2-P7 are not started.
+
+## Amendment 2026-11-23: Layer 6 entry
+
+* Layer 6 is designed in `docs/architecture/LAYER6_DESIGN.md` and implemented as `engine/application_ir` (pure projection, no fact
+  not in the Layer 5 document; `coverage` and `verify` prove it) with a content-addressed `ir_id` bound to `semantic_id` and
+  sealed through the conditional key `application_ir`.
+* R4: `DependencyEdge` carries typed `resolution`, `call_type`, `mode`, `attributes`; `metadata` is a derived rendering.
+* Not started by this amendment: switching capability analysis, planning or generation to the IR (see the design, section 7).

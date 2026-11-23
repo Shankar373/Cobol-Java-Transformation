@@ -61,3 +61,32 @@ asserting the same facts through the typed fields.
 Generation does not consume the Application IR in this layer's delivery: generation reads the parser IR and its output
 bytes are pinned; moving it is a differential per construct and is recorded as not done unless proven. D6 (nested graph
 edges) is investigated as a documented proposal only; the closed graph vocabulary and resolver rules are unchanged.
+
+## 7. Implementation status and completion matrix (at the commit that carries this section)
+
+| Phase | Delivered | Evidence |
+|---|---|---|
+| D0 design | this document | accepted |
+| P1 / R4 | `DependencyEdge` typed; `application_discovery` producers and the capability analyzer, planner (2 sites) and transformation plan read the typed fields; a lint test forbids `.metadata` reads in `engine/` and `api/` | generation hashes identical (110 builds); 1,405 focused tests; `tests/application_ir/test_dependency_edge_typed.py` |
+| P2 IR | `engine/application_ir` (`model`, `project`, `legacy`): immutable, typed, canonical, content-addressed; `coverage` (no loss, no invention) and `verify` (re-projection) | whole-corpus projection loses nothing; shuffle determinism; 11 tamper mutations incl. a forged-but-self-consistent IR |
+| P3 evidence/API | `EvidenceManifest.application_ir` (conditional key; legacy seal unchanged), `APPLICATION_IR_BINDING_MISMATCH` (exact keys, hex, bound to the recorded `semantic_facts`), serialization, `PipelineConfig`, API `document_lineage` (one document, IR projected from it) | `tests/evidence/test_application_ir_evidence.py`, API tests incl. reproducibility from source and a removal mutation |
+| P4 consumers | `legacy.call_edges(ir)` reproduces `ApplicationDiscovery`'s CALL edges exactly on every fixture application (14 CALL edges, 0 differences) and the capability report is identical from either source (a forged edge changes it) | `tests/application_ir/test_consumer_differential.py` |
+| D6 | investigated: no vocabulary/rule change needed; the decision is granularity and volume (`D6_NESTED_EDGES_INVESTIGATION.md`) | measured, nothing emitted |
+
+### Not done (stated, not hidden)
+
+* **No consumer is switched.** The capability analyzer, the planner and Java generation still read `CobolApplication` and the
+  parser IR; the IR is proven *able* to replace the CALL edges (differential), and the migration of each consumer is a further
+  step. Java generation is not migrated at all (its output bytes are pinned; it reads the parser IR, which stays the parsing
+  authority).
+* **R4 scope.** `DependencyEdge.metadata` is retired as a source of truth (typed fields, derived legacy rendering kept so
+  existing readers and ~20 tests keep passing). `JclDependency.metadata` and `JavaDependency.metadata` are different classes and
+  are unchanged. FILE and COPY `DependencyEdge`s are still produced by `ApplicationDiscovery` (the IR has no COPY edges and no
+  per-statement read/write operation for files); `legacy` projects CALL edges only.
+* The IR inherits every Layer 5 limit: copybook text is not expanded, nested programs and GLOBAL/EXTERNAL/RENAMES are named
+  unsupported, dynamic-call candidates are a lower bound, and Layer 5 exceptions R2, R3, R5 and R6 remain open.
+* The manifest binds `ir_id` and `semantic_id`; as for Layer 5 no document is persisted beside it, so admission checks shape and
+  the link to `semantic_facts`, and the seal makes the pair tamper-evident after sealing.
+
+Layer 6 is therefore **not declared complete**: the IR, its identity, evidence and API integration, R4 and a proven first
+consumer differential exist; consumer migration (capability, planning, generation) is open.

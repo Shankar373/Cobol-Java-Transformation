@@ -233,8 +233,8 @@ def test_semantic_lineage_follows_the_source_and_makes_no_claim_it_cannot_back(s
 
 
 def test_dropping_the_semantic_bridge_leaves_the_manifest_without_facts(service, tmp_path, monkeypatch) -> None:
-    """Mutation check: the manifest's ``semantic_facts`` come from ``readiness.semantic_lineage``, nowhere else."""
-    monkeypatch.setattr(readiness, "semantic_lineage", lambda source, record: ())
+    """Mutation check: the manifest's ``semantic_facts`` come from ``readiness.document_lineage``, nowhere else."""
+    monkeypatch.setattr(readiness, "document_lineage", lambda source, record: ((), ()))
     root = _estate_root(tmp_path)
     run = _validated_manifest(service, tmp_path, monkeypatch, root)
     assert run.evidence_manifest.semantic_facts == ()
@@ -261,3 +261,21 @@ def GraphView_id(record: dict) -> str:
     import json
 
     return json.loads(Path(record["graph_artifact"]).read_text(encoding="utf-8"))["header"]["graph_id"]
+
+
+def test_sealed_manifest_carries_an_application_ir_bound_to_the_semantic_facts(service, tmp_path, monkeypatch) -> None:
+    from engine.application_ir.project import ir_id_of, project
+    from engine.evidence.integrity import EvidenceIntegrityValidator
+
+    root = _estate_root(tmp_path)
+    run = _validated_manifest(service, tmp_path, monkeypatch, root)
+    manifest = run.evidence_manifest
+    recorded = dict(manifest.application_ir)
+    assert sorted(recorded) == ["ir_id", "semantic_id"]
+    assert recorded["semantic_id"] == dict(manifest.semantic_facts)["semantic_id"]
+    record = service.readiness_for(str(root), "orders-app")
+    document = readiness.semantic_document(str(root), record)
+    assert recorded["ir_id"] == ir_id_of(project(document.as_dict()))          # reproducible from the source
+    result = EvidenceIntegrityValidator().validate(manifest)
+    assert not (result if isinstance(result, list) else [])
+    assert readiness.document_lineage(str(tmp_path / "missing"), record) == ((), ())

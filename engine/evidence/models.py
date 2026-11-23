@@ -270,6 +270,9 @@ def canonical_evidence_graph(manifest: EvidenceManifest) -> dict[str, Any]:
         # Layer 5: the content addresses of the semantic-facts document the run was read under; present only when the
         # run recorded them, so every manifest without it keeps the exact hash it always had.
         graph["semantic_facts"] = dict(manifest.semantic_facts)
+    if manifest.application_ir:
+        # Layer 6: the content address of the Application IR projected from those facts (conditional key, as above).
+        graph["application_ir"] = dict(manifest.application_ir)
     return graph
 
 
@@ -437,6 +440,9 @@ class EvidenceManifest:
     # ``facts_digest``, ``graph_id`` ("" when the run had no graph) and ``profiles_digest`` (sha256 of the canonical
     # ``dialect_profiles``).  Empty when the run recorded none; covered by the seal when present.
     semantic_facts: tuple[tuple[str, str], ...] = ()
+    # Layer 6: sorted (key, value) pairs ``ir_id`` and ``semantic_id`` of the Application IR projected from the recorded
+    # semantic facts.  Empty when none was recorded; covered by the seal when present.
+    application_ir: tuple[tuple[str, str], ...] = ()
     # Seal captured at construction. Integrity validation recomputes the
     # canonical graph and compares it against this seal, so any in-place
     # mutation of evidence after construction is detected. Not part of the

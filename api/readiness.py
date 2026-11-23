@@ -192,18 +192,32 @@ def semantic_document(source: str, record: dict[str, Any]):
         graph_id=graph_id, profile_ids=profiles, graph=graph, jcl_sources=jcl)
 
 
-def semantic_lineage(source: str, record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
-    """``semantic_facts`` pairs for the evidence manifest (see :func:`semantic_document`); ``()`` when no document."""
+def _semantic_pairs(document: Any, record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
     from engine.evidence.integrity import profiles_digest
 
-    document = semantic_document(source, record)
-    if document is None:
-        return ()
     profiles = engine_wiring(record)[1]
     graph_id = dict(graph_lineage(record)).get("graph_id", "")
     return tuple(sorted((
         ("facts_digest", document.facts_digest), ("graph_id", graph_id),
         ("profiles_digest", profiles_digest(profiles)), ("semantic_id", document.semantic_id))))
+
+
+def semantic_lineage(source: str, record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """``semantic_facts`` pairs for the evidence manifest (see :func:`semantic_document`); ``()`` when no document."""
+    document = semantic_document(source, record)
+    return () if document is None else _semantic_pairs(document, record)
+
+
+def document_lineage(source: str, record: dict[str, Any]) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]:
+    """``(semantic_facts pairs, application_ir pairs)`` from ONE facts document: the Application IR is its projection, so
+    the two are recorded together or not at all.  ``((), ())`` when there is no document."""
+    from engine.application_ir.project import ir_id_of, project
+
+    document = semantic_document(source, record)
+    if document is None:
+        return (), ()
+    ir = project(document.as_dict())
+    return _semantic_pairs(document, record), tuple(sorted((("ir_id", ir_id_of(ir)), ("semantic_id", document.semantic_id))))
 
 
 def graph_lineage(record: dict[str, Any]) -> tuple[tuple[str, str], ...]:

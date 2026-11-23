@@ -138,6 +138,9 @@ class PipelineConfig:
     # the run was read under (computed in api/ from the source; ``engine.semantic_facts.build``), recorded in the sealed
     # evidence manifest.  Empty when none was computed.  Advisory lineage: it never changes generation or a verdict.
     semantic_facts: tuple[tuple[str, str], ...] = ()
+    # Layer 6: ``ir_id`` / ``semantic_id`` of the Application IR projected from ``semantic_facts`` (computed in api/),
+    # recorded in the sealed manifest.  Empty when none was computed.  Advisory lineage, like ``semantic_facts``.
+    application_ir: tuple[tuple[str, str], ...] = ()
 
 
 def _sole_profile_id(pairs: tuple[tuple[str, str], ...]) -> str:
@@ -1171,6 +1174,7 @@ class VerticalSlicePipeline:
             graph_traceability=tuple(sorted(self._config.graph_traceability)),
             dialect_profiles=tuple(sorted(self._config.dialect_profiles)),
             semantic_facts=tuple(sorted(self._config.semantic_facts)),
+            application_ir=tuple(sorted(self._config.application_ir)),
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation

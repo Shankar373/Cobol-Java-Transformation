@@ -120,7 +120,7 @@ class TestServiceResolvesEntry:
         # dialect profiles, covered by tests/test_library_order_profile_api.py) is supplied empty here.
         monkeypatch.setattr(type(svc), "_engine_wiring", lambda self, source, label: ((), ()))
         monkeypatch.setattr(type(svc), "_graph_lineage", lambda self, source, label: ())
-        monkeypatch.setattr(type(svc), "_semantic_lineage", lambda self, source, label: ())
+        monkeypatch.setattr(type(svc), "_document_lineage", lambda self, source, label: ((), ()))
         run = SimpleNamespace(certification_contract=None)
         with pytest.raises(_Stop):
             svc._run_validation(self._app(tmp_path), run, tmp_path, "Main", None)
