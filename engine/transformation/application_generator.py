@@ -20,11 +20,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from engine.transformation.cobol_to_java_mapping import (
     map_cobol_programs_to_application,
 )
+from engine.transformation.copybook_resolver import LibraryOrders
 from engine.transformation.copybook_model import (
     generate_copybook_model_sources,
     prepare_application_copybooks,
@@ -71,7 +71,7 @@ class ApplicationGenerator:
         application: CobolApplication,
         entrypoint: str = "",
         source_root: str | Path | None = None,
-        orders: Sequence[Sequence[str]] = (),
+        orders: LibraryOrders = (),
     ) -> ApplicationGenerationResult:
         """Transform all discovered programs and assemble one Java application.
 
@@ -85,6 +85,10 @@ class ApplicationGenerator:
             source_root: ingested source tree for COPYBOOK resolution
                 (unit source paths are discovery-relative). When omitted,
                 resolution falls back to the current working directory.
+            orders: library concatenations that decide same-named copybooks:
+                one list for every program, or ``PROGRAM-ID -> orders`` so
+                each program resolves with its own JCLLIB/SYSLIB/-I orders.
+                Empty/undecided keeps the ambiguity error.
 
         Returns:
             ApplicationGenerationResult with one generated class per program

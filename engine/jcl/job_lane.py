@@ -35,7 +35,7 @@ from engine.jcl.orchestrator import JobPlan, plan_job
 from engine.jcl.reference import ReferenceUnavailable, render_reference
 from engine.transformation.jcl_discovery import find_jcl_members
 from engine.transformation.jcl_parser import JclParser
-from engine.transformation.source_format import detect_source_format
+from engine.transformation.source_format import detect_source_format, mixed_format_refusal, program_text
 
 ORACLE_IMAGE = "gnucobol-ocesql:latest"
 JAVA_IMAGE = "eclipse-temurin:21-jdk"
@@ -75,7 +75,7 @@ def program_sources(source_dir: Path) -> dict[str, Path]:
     found: dict[str, Path] = {}
     for path in sorted(source_dir.rglob("*")):
         if path.is_file() and path.suffix.lower() in _COBOL_SUFFIXES:
-            match = _PROGRAM_ID.search(path.read_text(encoding="utf-8", errors="replace"))
+            match = _PROGRAM_ID.search(program_text(path.read_text(encoding="utf-8", errors="replace")))
             if match:
                 found.setdefault(match.group(1).upper(), path)
     return found
@@ -129,7 +129,11 @@ def _compile_script(plan: JobPlan, sources: dict[str, Path], source_dir: Path, s
     missing = [p for p in programs if p not in sources]
     if missing:
         raise ReferenceUnavailable(tuple(f"COBOL source of program {p} not found" for p in missing))
-    formats = {detect_source_format(path.read_text(encoding="utf-8", errors="replace")) for path in sources.values()}
+    texts = {pid: path.read_text(encoding="utf-8", errors="replace") for pid, path in sorted(sources.items())}
+    mixed = tuple(m for pid, text in texts.items() if (m := mixed_format_refusal(text, sources[pid].name)))
+    if mixed:
+        raise ReferenceUnavailable(mixed)
+    formats = {detect_source_format(text) for text in texts.values()}
     if len(formats) > 1:
         raise ReferenceUnavailable(("the COBOL sources mix source formats; one cobc flag cannot compile them all",))
     flag = "-free" if formats == {"free"} else ""

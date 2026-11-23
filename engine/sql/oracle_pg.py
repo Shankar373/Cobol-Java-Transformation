@@ -29,6 +29,7 @@ from engine.execution.container_hardening import (
     container_run_hardening_flags,
     prepare_host_tree,
 )
+from engine.transformation.source_format import positioned_lines
 
 ORACLE_PG_IMAGE = "ocesql-pg:latest"
 STATE_MARK = "==STATE=="
@@ -78,9 +79,10 @@ class OraclePgResult:
 def with_banner(source: str) -> str:
     """Insert the comment line OCESQL needs before PROCEDURE DIVISION when none is there."""
     lines = source.splitlines()
+    kinds = [line.kind for line in positioned_lines(source)]
     for index, line in enumerate(lines):
         if _PROCEDURE.match(line):
-            if index > 0 and lines[index - 1].strip().startswith("*"):
+            if index > 0 and index - 1 < len(kinds) and kinds[index - 1] == "comment":
                 return source
             lines.insert(index, "      *")
             return "\n".join(lines) + "\n"

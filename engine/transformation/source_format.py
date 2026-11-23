@@ -20,8 +20,16 @@ import re
 
 from enterprise.discovery.cobol_text import (
     FIXED_TEXT_END,
+    FIXED_TEXT_START,
+    SourceLine,
     format_from_directive,
     read_source,
+    strip_free_comment,
+)
+from engine.transformation.source_positions import (
+    ContinuationSegment,
+    PositionedLine,
+    SourceSpan,
 )
 
 #: Last column of the fixed-format program text area (Area B ends here).
@@ -49,6 +57,44 @@ def detect_source_format(text: str) -> str:
     :func:`reference_format_errors`, so it is never silently read as fixed.
     """
     return "free" if read_source(text).start_format == "free" else "fixed"
+
+
+def source_formats(text: str) -> tuple[str, ...]:
+    """Every reference format the file uses, in order of first use: the start format, then each switch.
+
+    Truthful where :func:`detect_source_format` (the *start* format, for oracle flag callers) is not:
+    ``("fixed", "free")`` for a fixed file with a ``>>SOURCE FORMAT FREE`` segment.
+    """
+    read = read_source(text)
+    seen = [read.start_format]
+    for _line, new in read.switches:
+        if new not in seen:
+            seen.append(new)
+    return tuple(seen)
+
+
+def has_format_switch(text: str) -> bool:
+    """True when the file changes reference format mid-file (``>>SOURCE FORMAT`` / ``$SET SOURCEFORMAT``)."""
+    return bool(read_source(text).switches)
+
+
+def mixed_format_refusal(text: str, name: str = "") -> str | None:
+    """The named refusal for a file that switches reference format mid-file, else ``None``.
+
+    The compile flag of the reference lanes (``cobc -free`` / default fixed) is chosen once per
+    compilation unit from the file's *start* format (:func:`detect_source_format`); a file that
+    switches format (``>>SOURCE FORMAT`` / ``$SET SOURCEFORMAT``) cannot be represented by that one
+    flag, so those lanes refuse it by name — never compile it under the start flag.  The parser itself
+    reads such a file per line and needs no refusal.
+    """
+    read = read_source(text)
+    if not read.switches:
+        return None
+    line, new = read.switches[0]
+    where = f"{name}:{line}" if name else f"line {line}"
+    return (f"REFERENCE_FORMAT_MIXED_UNSUPPORTED: {where}: the reference format changes mid-file "
+            f"({read.start_format} -> {new}); one compile flag cannot represent it, so it is refused by name, "
+            "never compiled under the start format")
 
 
 def _open_quote(text: str) -> str | None:
@@ -154,8 +200,89 @@ def _variable_line(text: str) -> int:
     return 0
 
 
-def _normalize(text: str) -> tuple[list[str], list[str]]:
-    """Compiler-visible lines plus every reference-format problem found (by name).
+def _line_formats(read, count: int) -> list[str]:
+    """The active format of every physical line: the start format, updated by each switch in line order."""
+    formats: list[str] = []
+    current = read.start_format
+    switches = dict(read.switches)
+    for number in range(1, count + 1):
+        if number in switches:
+            current = switches[number]
+        formats.append(current)
+    return formats
+
+
+def _fold_continuations(
+    lines: list[str],
+    line_formats: list[str],
+    not_anchor: set[int],
+    errors: list[str],
+) -> tuple[dict[int, list[ContinuationSegment]], set[int]]:
+    """Fold fixed-format continuation lines into the lines they continue (strict GnuCOBOL 3.1.2 rules).
+
+    Mutates ``lines`` in place (a local working copy) and returns, per anchor line index, the segments
+    that record where each folded piece physically came from, plus the indexes folded away.
+    """
+    segments: dict[int, list[ContinuationSegment]] = {}
+    folded: set[int] = set()
+    last_code: int | None = None
+    for number, line in enumerate(lines):
+        if line_formats[number] != "fixed":
+            continue  # free-format segments have no continuation indicator
+        indicator = line[6] if len(line) > 6 else " "
+        if indicator != "-":
+            if line[7:].strip() and indicator not in "*/" and (number + 1) not in not_anchor:
+                last_code = number
+            continue
+        resumed = line[7:].lstrip()
+        if last_code is None:
+            errors.append(f"line {number + 1}: continuation line with nothing to continue")
+            continue
+        continued = lines[last_code]
+        lead = len(line[7:]) - len(resumed)
+        quote = _open_quote(continued[7:])
+        if quote is not None:
+            if not resumed.startswith(quote):
+                errors.append(
+                    f"line {number + 1}: continuation of an open literal must "
+                    f"resume with {quote}"
+                )
+                continue
+            padded = continued.ljust(FIXED_FORMAT_TEXT_END)
+            lines[last_code] = padded + resumed[1:]
+            origin = SourceSpan("", number + 1, FIXED_TEXT_START + lead + 2)  # after the resuming quote
+            offset = len(padded)
+        else:
+            head = continued.rstrip()
+            lines[last_code] = head + resumed
+            origin = SourceSpan("", number + 1, FIXED_TEXT_START + lead + 1)
+            offset = len(head)
+        segments.setdefault(last_code, []).append(ContinuationSegment(offset, origin))
+        lines[number] = ""
+        folded.add(number)
+    return segments, folded
+
+
+def _line_kind(source_text: str, fmt: str, number: int, skipped: dict[int, str], folded: set[int]) -> str:
+    """Why a physical line carries (or does not carry) program text."""
+    reader_kind = skipped.get(number)
+    if reader_kind in ("directive", "card", "dead-branch"):
+        return reader_kind
+    if (number - 1) in folded:
+        return "continuation"
+    if not source_text.strip():
+        return "blank"
+    if fmt == "fixed":
+        indicator = source_text[6] if len(source_text) > 6 else " "
+        if source_text[:1] in ("*", "/") or indicator in "*/":
+            return "comment"
+        if indicator in "dD":
+            return "debug"
+    return "code"
+
+
+def _positioned(text: str, file: str = "") -> tuple[tuple[PositionedLine, ...], list[str]]:
+    """Positioned compiler-visible lines plus every reference-format problem found (by name).
 
     One pass over the decisions of the single reader (:func:`read_source`):
 
@@ -175,14 +302,7 @@ def _normalize(text: str) -> tuple[list[str], list[str]]:
             "$SET SOURCEFORMAT VARIABLE is not supported: refused by name, never read as fixed"
         )
     raw_lines = text.split("\n")
-    # The active format of every physical line: the start format, updated by each switch in line order.
-    line_formats: list[str] = []
-    current = read.start_format
-    switches = dict(read.switches)
-    for number in range(1, len(raw_lines) + 1):
-        if number in switches:
-            current = switches[number]
-        line_formats.append(current)
+    line_formats = _line_formats(read, len(raw_lines))
     lines: list[str] = [
         raw.rstrip("\r")[:FIXED_FORMAT_TEXT_END] if line_formats[number] == "fixed" else raw
         for number, raw in enumerate(raw_lines)
@@ -195,41 +315,84 @@ def _normalize(text: str) -> tuple[list[str], list[str]]:
     # A directive/card/comment/dead line is not program text: it never anchors a continuation.
     not_anchor = {number for number, kind in read.skipped
                   if kind in ("directive", "card", "comment", "dead-branch")}
-    last_code: int | None = None
+    segments, folded = _fold_continuations(lines, line_formats, not_anchor, errors)
+    source_lines = list(lines)
+    skipped = dict(read.skipped)
+    positioned: list[PositionedLine] = []
     for number, line in enumerate(lines):
-        if line_formats[number] != "fixed":
-            continue  # free-format segments have no continuation indicator
-        indicator = line[6] if len(line) > 6 else " "
-        if indicator != "-":
-            if line[7:].strip() and indicator not in "*/" and (number + 1) not in not_anchor:
-                last_code = number
+        fmt = line_formats[number]
+        code_from = 7 if fmt == "fixed" else 0
+        if not (_line_is_comment(line) or not line[code_from:].strip()):
+            code, error = _canonical_literals(line[code_from:])
+            if error is not None:
+                errors.append(f"line {number + 1}: {error}")
+            line = line[:code_from] + code
+        source = source_lines[number]
+        kind = _line_kind(source, fmt, number + 1, skipped, folded)
+        code_text = strip_free_comment(source[code_from:]) if kind == "code" else ""
+        if kind == "code" and not code_text.strip():
+            kind = "comment"  # only a ``*>`` comment: no program text
+        positioned.append(PositionedLine(
+            span=SourceSpan(file, number + 1, 1), text=line, source_text=source, format=fmt,
+            code_offset=code_from, kind=kind, code=code_text if kind == "code" else "",
+            continuations=tuple(
+                ContinuationSegment(seg.offset, SourceSpan(file, seg.span.line, seg.span.column))
+                for seg in segments.get(number, ())),
+        ))
+    return tuple(positioned), errors
+
+
+def positioned_lines(text: str, file: str = "") -> tuple[PositionedLine, ...]:
+    """The compiler-visible lines of ``text``, one per physical line, with their physical origins.
+
+    ``compiler_visible_text(text)`` is exactly ``"\\n".join(line.text for line in positioned_lines(text))``.
+    """
+    return _positioned(text, file)[0]
+
+
+def positioned_token_lines(text: str, file: str = "") -> list[SourceLine]:
+    """The engine's program-text lines as :class:`SourceLine` (physical line, text, column offset).
+
+    Cutting these with ``cobol_text.tokenize`` yields the token stream the engine reads; layer 4's
+    parity tests compare it with the discovery stream at every ``(line, column)``.
+    """
+    return [
+        SourceLine(p.line, p.code, p.code_offset, bool(p.continuations))
+        for p in positioned_lines(text, file) if p.kind == "code"
+    ]
+
+
+def comment_free_lines(text: str, *, keep_line_numbers: bool = False) -> list[str]:
+    """The compiler-visible lines of ``text`` without comment text: the engine's one comment-stripping view.
+
+    Comment and debug (``D``) lines are removed (replaced by ``""`` when ``keep_line_numbers`` so the list
+    stays aligned with the physical lines) and a free-format or floating ``*>`` tail is cut where the
+    single reader says the comment starts (never inside a literal).  Every other line is the compiler-visible
+    text of :func:`positioned_lines`, literals kept.
+    """
+    out: list[str] = []
+    for line in positioned_lines(text):
+        if line.kind in ("comment", "debug"):
+            if keep_line_numbers:
+                out.append("")
             continue
-        resumed = line[7:].lstrip()
-        if last_code is None:
-            errors.append(f"line {number + 1}: continuation line with nothing to continue")
-            continue
-        continued = lines[last_code]
-        quote = _open_quote(continued[7:])
-        if quote is not None:
-            if not resumed.startswith(quote):
-                errors.append(
-                    f"line {number + 1}: continuation of an open literal must "
-                    f"resume with {quote}"
-                )
-                continue
-            lines[last_code] = continued.ljust(FIXED_FORMAT_TEXT_END) + resumed[1:]
-        else:
-            lines[last_code] = continued.rstrip() + resumed
-        lines[number] = ""
-    for number, line in enumerate(lines):
-        code_from = 7 if line_formats[number] == "fixed" else 0
-        if _line_is_comment(line) or not line[code_from:].strip():
-            continue
-        code, error = _canonical_literals(line[code_from:])
-        if error is not None:
-            errors.append(f"line {number + 1}: {error}")
-        lines[number] = line[:code_from] + code
-    return lines, errors
+        out.append(strip_free_comment(line.text) if line.kind == "code" else line.text)
+    return out
+
+
+def program_text(text: str) -> str:
+    """The program text a verb scan may look at: :func:`comment_free_lines` joined, line structure kept.
+
+    Comment, debug, card, directive and dead-branch lines are blank and a ``*>`` tail is cut, so a verb
+    written there (``PROGRAM-ID``, ``CALL``, ``COPY``, ...) is never seen.
+    """
+    return "\n".join(comment_free_lines(text, keep_line_numbers=True))
+
+
+def _normalize(text: str) -> tuple[list[str], list[str]]:
+    """Compiler-visible lines plus every reference-format problem found (by name)."""
+    positioned, errors = _positioned(text)
+    return [line.text for line in positioned], errors
 
 
 def reference_format_errors(text: str) -> list[str]:

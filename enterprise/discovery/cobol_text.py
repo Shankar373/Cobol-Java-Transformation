@@ -63,6 +63,21 @@ class Directive:
     text: str
 
 
+@dataclass(frozen=True)
+class Card:
+    """A column-1 compiler or library-manager card (``CBL``/``PROCESS``/``-INC``/``++INCLUDE``/``%INCLUDE``).
+
+    Cards are not program text: the reader drops the line and reports it here, so no other module
+    re-reads raw lines to find them.  ``text`` is what follows the keyword (options or the member name).
+    """
+
+    line: int
+    column: int       # 1-based; cards are recognised in column 1 only
+    keyword: str      # uppercased card keyword
+    text: str         # the rest of the line, stripped
+    text_column: int = 0  # 1-based column of ``text[0]`` (0 when the card has no text)
+
+
 @dataclass
 class SourceRead:
     """The result of :func:`read_source` — everything the one reader decided about one file."""
@@ -77,6 +92,7 @@ class SourceRead:
                                             # ``dead-branch``
     conditional: str = "none"      # ``none`` | ``evaluated`` | ``unevaluated`` — the CDF verdict (criterion 5)
     conditional_line: int = 0      # physical line of the first directive outside the subset (0 = none)
+    cards: tuple[Card, ...] = ()   # every live column-1 card, in line order (dead branches excluded)
 
 
 def _is_fixed_comment(line: str) -> bool:
@@ -116,6 +132,10 @@ def _strip_free_comment(text: str) -> str:
             return text[:index]
         index += 1
     return text
+
+
+#: Public name of the one inline-comment cutter, for the engine face of the reader.
+strip_free_comment = _strip_free_comment
 
 
 def _literal(text: str) -> tuple[str, float | str] | None:
@@ -374,6 +394,7 @@ def read_source(text: str) -> "SourceRead":
     directives: list[Directive] = []
     switches: list[tuple[int, str]] = []
     skipped: list[tuple[int, str]] = []
+    cards: list[Card] = []
     # First pass: every conditional directive decides branch activity before any line is rendered,
     # so a refusal near the end keeps branches an eager pass would already have dropped.
     conditionals = _Conditionals()
@@ -415,6 +436,13 @@ def read_source(text: str) -> "SourceRead":
             if stripped:
                 skipped.append((number, "dead-branch"))
             continue
+        if _CARD_LINE.match(line) and (fmt == "free" or not (_is_fixed_comment(line) or line.startswith(("*", "/")))):
+            # A library/compiler card sits in column 1 in either format (none of these words starts a COBOL statement).
+            skipped.append((number, "card"))
+            keyword, _, rest = line.partition(" ")
+            lead = len(rest) - len(rest.lstrip())
+            cards.append(Card(number, 1, keyword.upper(), rest.strip(), len(keyword) + 2 + lead))
+            continue
         if fmt == "free":
             body = _strip_free_comment(line)
             if body.strip():
@@ -424,9 +452,6 @@ def read_source(text: str) -> "SourceRead":
             continue
         if line.startswith(("*", "/")):
             skipped.append((number, "comment"))
-            continue
-        if _CARD_LINE.match(line):
-            skipped.append((number, "card"))
             continue
         indicator = line[6] if len(line) > 6 else " "
         body = line[FIXED_TEXT_START:FIXED_TEXT_END]
@@ -443,7 +468,8 @@ def read_source(text: str) -> "SourceRead":
             lines.append(SourceLine(number, body, FIXED_TEXT_START))
     return SourceRead(start_format=start_format, format=fmt, lines=lines, directives=directives,
                       switches=tuple(switches), skipped=tuple(skipped),
-                      conditional=conditionals.state, conditional_line=conditionals.refusal)
+                      conditional=conditionals.state, conditional_line=conditionals.refusal,
+                      cards=tuple(cards))
 
 
 def logical_lines(text: str) -> tuple[str, list[SourceLine], list[Directive]]:

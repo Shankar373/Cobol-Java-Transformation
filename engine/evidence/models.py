@@ -262,6 +262,10 @@ def canonical_evidence_graph(manifest: EvidenceManifest) -> dict[str, Any]:
         # Knowledge-graph lineage (Layer 3): present only when the run was traced, so every manifest without it keeps
         # the exact hash it always had.
         graph["graph_traceability"] = dict(manifest.graph_traceability)
+    if manifest.dialect_profiles:
+        # Layer 4: the discovery DialectProfile each source file was read under (file -> profile_id); present only
+        # when the run recorded them, so every manifest without it keeps the exact hash it always had.
+        graph["dialect_profiles"] = dict(manifest.dialect_profiles)
     return graph
 
 
@@ -422,6 +426,9 @@ class EvidenceManifest:
     # derived from) and ``traceability_overlay_id`` (the generated-from overlay).  Empty when the run was not traced;
     # covered by the seal when present.
     graph_traceability: tuple[tuple[str, str], ...] = ()
+    # Layer 4: ``(file, profile_id)`` pairs, sorted by file, of the discovery ``DialectProfile`` each COBOL source
+    # file was read under.  Empty when the run was not tied to profiles; covered by the seal when present.
+    dialect_profiles: tuple[tuple[str, str], ...] = ()
     # Seal captured at construction. Integrity validation recomputes the
     # canonical graph and compares it against this seal, so any in-place
     # mutation of evidence after construction is detected. Not part of the

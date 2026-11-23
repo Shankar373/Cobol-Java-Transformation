@@ -114,7 +114,7 @@ def test_tso_db2_run_program_and_bind() -> None:
         ("db2-subsystem", "DB2P"), ("db2-plan", "PAYPLAN"), ("db2-plan", "NEWPLAN")}
     run = next(r for r in refs(scan, "executes") if r.target == "PAYSQL")
     assert dict(run.detail)["plan"] == "PAYPLAN" and dict(run.detail)["library"] == "PROD.LOAD"
-    assert {r.target for r in refs(scan, "binds")} == {"DBRM1", "DBRM2"}
+    assert {r.target for r in refs(scan, "uses-db2") if r.target_kind == "dbrm"} == {"DBRM1", "DBRM2"}
 
 
 def test_ims_region_controller_program_and_psb() -> None:

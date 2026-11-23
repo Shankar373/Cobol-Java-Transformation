@@ -5,8 +5,8 @@ minimal, deterministic bridge it is allowed to own: locate ``EXEC SQL ...
 END-EXEC`` regions and hand their text to the existing ``SqlParser``.
 
 It deliberately does NOT parse COBOL structure — it only extracts embedded
-SQL regions and strips the fixed-format Area A/B column prefix that COBOL
-sources carry.
+SQL regions from the program text the single reader (``source_format``)
+decides, so the fixed-format sequence/indicator columns never reach it.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import re
 from engine.sql.analyzer import Db2SemanticAnalyzer
 from engine.sql.model import Db2SqlModel
 from engine.transformation.ir import EmbeddedSqlBlock
+from engine.transformation.source_format import positioned_lines
 from engine.transformation.sql_parser import SqlParser
 
 _EXEC_SQL_RE = re.compile(
@@ -23,16 +24,7 @@ _EXEC_SQL_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# Fixed-format COBOL columns 1-6 hold an optional sequence number.
-_CC_NUMBER_RE = re.compile(r"^\d{6}\s?")
-
 _SQL_PARSER = SqlParser()
-
-
-def _clean_cobol_line(line: str) -> str:
-    """Strip the fixed-format column prefix from one COBOL source line."""
-    cleaned = _CC_NUMBER_RE.sub("", line, count=1)
-    return cleaned.strip()
 
 
 def extract_embedded_sql_blocks(cobol_text: str) -> list[str]:
@@ -42,16 +34,15 @@ def extract_embedded_sql_blocks(cobol_text: str) -> list[str]:
     COBOL full-line comments (``*``/``*>``) removed.  Extraction is
     deterministic; a comment mentioning ``EXEC SQL`` cannot open a region.
     """
-    source_lines = []
-    for line in cobol_text.splitlines():
-        cleaned_line = _clean_cobol_line(line)
-        if cleaned_line and not cleaned_line.startswith("*"):
-            source_lines.append(cleaned_line)
+    source_lines = [
+        line.code.strip() for line in positioned_lines(cobol_text)
+        if line.kind == "code" and line.code.strip()
+    ]
     blocks: list[str] = []
     for match in _EXEC_SQL_RE.finditer("\n".join(source_lines)):
         raw = match.group(1)
         cleaned = "\n".join(
-            _clean_cobol_line(line) for line in raw.splitlines() if line.strip()
+            line.strip() for line in raw.splitlines() if line.strip()
         )
         if cleaned.strip():
             blocks.append(cleaned)

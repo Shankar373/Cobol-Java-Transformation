@@ -1,0 +1,1342 @@
+{
+ "apps": {
+  "workload-add-giving-verified": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "3573f36393405ed226b76f69c2cd96a2912cbb7def8d8825d6d810775c92ed06",
+     "src/main/java/Main.java": "70a2c7fe6c9cd079a7c941cbcaff0bf7cfa82afd30716a74fa9f6105d9dfcc68"
+    },
+    "status": "generated",
+    "tree_sha256": "b92d372788917054734d191f1454a7aa23ff13468fc82d26a4fd2bda562bebb8"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "1a39be555cc85f7bfaa2e09a8bd224b18ad5328b483f0179227cb8bac9c2da78",
+     "src/main/java/com/generated/app/Application.java": "abacd919ed9478e74f37b1610bee9d7ae757aab3b29ef0bacf4aaf03ecf774c4",
+     "src/main/java/com/generated/app/config/AppConfig.java": "d3cf25e0de63eaabfc9f4c683b18eff030fb9b3d76033aa9c0e8e9ebb92514bd",
+     "src/main/java/com/generated/app/service/Main.java": "1ec84504c8fbe9c6efad2d75ba2139b8c8377ffbdbe1aba1a962848b08ffadf4",
+     "src/main/resources/application.properties": "b6eafbe83db91991e57132eae2cf8c9f411555a908eed72b17f4f4584ee81148"
+    },
+    "status": "generated",
+    "tree_sha256": "d66455648c3a37106356c3f0e896b6a0894e7bff177005dbe4aa13ded68ede52"
+   }
+  },
+  "workload-arithmetic": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "281596c83d99e897a65574527a496e82ca4ead66775b188814ca1de55d1def9b",
+     "src/main/java/Arithmetic.java": "ee5b4a086fc5ce1d7d8eb98425d465c56333c5a35265275dc59ffb34f23f6124"
+    },
+    "status": "generated",
+    "tree_sha256": "9fdd8d04a46a46a4676f438ee8707080c83449784e7d8fd9767690c10adbfa6b"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "92378d6cfaf26fa590d50e730cc099bcc270c68a454e6bcfb6c023c2d73dcdf4",
+     "src/main/java/com/generated/app/Application.java": "ba5662be7183ab191bcd2d5a5a6416c31283266db3d523964ec779192301f78d",
+     "src/main/java/com/generated/app/config/AppConfig.java": "927b4acb4f64d341bae6e661e14e66e44f19c0cec6b7912baae8bdccc7dac604",
+     "src/main/java/com/generated/app/service/Arithmetic.java": "4d47a0751a76cd1d2df17bec711586a322e0a2906102e6dec295eb82740b6ec5",
+     "src/main/resources/application.properties": "4a586a120c48b33ea3d35a25376bd0e294f86a27c76a6907b5b8d6bef2bfb347"
+    },
+    "status": "generated",
+    "tree_sha256": "7e273107f239443323fd5dc124c06b7465914fe3a60806c6176221645aece18b"
+   }
+  },
+  "workload-balance-check": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "d7e20f2fa6a90b8e6617c2aee71a9cfe4ee0a1906c993b489e9383cdc0d2ffc7",
+     "src/main/java/Balcheck.java": "7c2dc6ba8d8194a97c704ebac3f71c1e8236ffa3a4462ab6d63260bb1aecb05d"
+    },
+    "status": "generated",
+    "tree_sha256": "0109c2463d138dda1e34a6f037a869c04d479c904ab7274dbee9c5c5de2039cb"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "11331ba0376aefe89c0370b4ea781e15be09c852807412e58dc2a89df77e4706",
+     "src/main/java/com/generated/app/Application.java": "a6a09b88c7c6cc2e0138f3d8f3f05ab3164f8a3af5cf59313687b3d215c331a2",
+     "src/main/java/com/generated/app/config/AppConfig.java": "06ae970162944cf36f491f08ea0e56fa82e512245a3716a482f6451d9071bc59",
+     "src/main/java/com/generated/app/service/Balcheck.java": "77d35f384ac8d6b985624c672b61ec5b03694df0b4a3d60e0805c4acd76b29a2",
+     "src/main/resources/application.properties": "9f71c79070d50febc64e5d8a645c5dda7f2796c09294f620bbe9101785532a66"
+    },
+    "status": "generated",
+    "tree_sha256": "b9f680b53b0be50cb3db33f60c4aba179e905fbd1472c353274e5ed8a0b0b6b5"
+   }
+  },
+  "workload-batch-rc": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "b6ddeba69f422658a66347583dbb9b2902e5229851c2f7bad803958c5100f99a",
+     "src/main/java/Validate.java": "c0aca2cef7e17c520c0abae0d0462b8b51838846719484c5ed9d262df3ad9404"
+    },
+    "status": "generated",
+    "tree_sha256": "62f5d819b6461be8cc157c5723b93c7e88ae06b295bfcd7cfe1d345462074d1d"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "1857f52f07d79a43ae4ed90b8ff4c7a29d3a8a737a626b32fd20120cb65507a7",
+     "src/main/java/com/generated/app/Application.java": "c0232bbbdc6a518b044a745bef96108bee90627e42425a1c8f7ed1782d4eebbd",
+     "src/main/java/com/generated/app/adapter/AbstractTxnFileAdapter.java": "ebf7e40f558629ea324d810cd92401bb83587f1006bf23c4339fd6e1392f104d",
+     "src/main/java/com/generated/app/adapter/TxnFileAdapter.java": "422ed220cef32aef43eb45ec603f31bbfe79bcc2f1dc0f06ac76da13af377bac",
+     "src/main/java/com/generated/app/config/AppConfig.java": "5aee4c09f8e3433cac1d6e57a00c52e377fe06a256131aa9594a171ba890ddd9",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Validate.java": "aefd3fe2b572e1c9b644925c38e19e0784ebb4fb116ea627b61dbdba56515c36",
+     "src/main/resources/application.properties": "3d6ddbfd39b87b9083063eb9c955286e9e8a1cb0453c7a3db63280a5fba61e04"
+    },
+    "status": "generated",
+    "tree_sha256": "a6037d8e227ccfa681ea8499202aeb605fbca6e49d239e078a22da8a8f1d319e"
+   }
+  },
+  "workload-binary-values": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "208bb54aee7dd1d5b76fa4d755fa26d96478e014008d7e313cea8f74f57c4156",
+     "src/main/java/Binval.java": "1e6b4027fa058f01a355ad3d1a184c713f7d268fa351cf6551b57a67cbff47e2"
+    },
+    "status": "generated",
+    "tree_sha256": "072307d00461b9687ad99c18015aad83e3f065dac22f16fae7956341ed8583bf"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "11d9de6cf95ac6f85c617b59c7483128501e1e610d73f796de020d4261d263b7",
+     "src/main/java/com/generated/app/Application.java": "371b7e94b74ca8ab28da1096e750785259bd1f7eb734475ca2b93fc7dc84324b",
+     "src/main/java/com/generated/app/config/AppConfig.java": "ee29f5e6428b7af2febfb1ffb0e9b702c467357baf68663fbf82c38131d4dcaf",
+     "src/main/java/com/generated/app/service/Binval.java": "6a1a1256b8e17bf7186be8b48c458fe7c0d1e3932176f1013dd52e9513d638d2",
+     "src/main/resources/application.properties": "80086dd0e36aa635327f71ccca61cc33c37da722c9454ab7abef7b41e889b5ad"
+    },
+    "status": "generated",
+    "tree_sha256": "f5e6da45de673a3bcf1a8ae8f65e41ec4479014eb0e0bfc5bdcc617749575d54"
+   }
+  },
+  "workload-by-content": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "edd3d869a6852a2e4462632a27d321daa062d4460a17f913b55acfdae74532ed",
+     "src/main/java/Main.java": "ed6b4de879baa3f7f053c0db5baec3ec01a06910ad9690502f97e0d7461cb2fd",
+     "src/main/java/Modify.java": "3c8bc8b3f7b75ed8d8dd48123c0b1d4af3dbdbcc24dcbf12a9d416a75aac4fbb",
+     "src/main/java/ServiceRegistry.java": "e8e2b0645e2841976057785bded79f22dc96bb2f8f2c3116a29c927058caa53a"
+    },
+    "status": "generated",
+    "tree_sha256": "01c862b4fc75e2785f13e416295c48183d32f918a9911740de7159729a5fd0d8"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "6eb076561bb34b3fce45c0ef3eb6976606d8b153d5d025e920c83483b2b4f2ab",
+     "src/main/java/com/generated/app/Application.java": "b7adfa5e1b2f868de40aaa4c85153687b41e751346215311b2510f465fde203f",
+     "src/main/java/com/generated/app/config/AppConfig.java": "2affc9509daf9dcbe90c7a51903bf0a3cbb48ff303a821be1a5b1c1188d00104",
+     "src/main/java/com/generated/app/service/Main.java": "af7aac343068c1e94bdc8b1e7f05523c9dcedd955058d597f6fc3955a5343f32",
+     "src/main/java/com/generated/app/service/Modify.java": "b289cfde995e7daa5d908bacc337f519361e9cdc07df2094e8af1f87ff4ee632",
+     "src/main/resources/application.properties": "da46315a7f08b740a7cb8588d3aa6beed1d4f01248f9fef8ba2133adfc9344e2"
+    },
+    "status": "generated",
+    "tree_sha256": "164c70a7e526e5c542ff2fb987ccebf6c63f0ef7f4cb55c7a7f08f8023e385a0"
+   }
+  },
+  "workload-by-reference": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "8e2e7b8614054b1ac116d42f2d51ec86a1d431393950024bb2f052678d0cd9cf",
+     "src/main/java/Main.java": "b3d0c8db2ab8b897a03cdc96b5dea6b7762d45cf6ed57ce4d4690ee7a0c5018d",
+     "src/main/java/Modify.java": "ad7d15105942525a2d50aaf5a25fb99a07c20de6e68354f44be409b5ef61a474",
+     "src/main/java/ServiceRegistry.java": "2dadf435aeeab7533e10271acbf19da12b42c37671b0bf86073f943a61bd6a80"
+    },
+    "status": "generated",
+    "tree_sha256": "253b9dac014f2d647a2a0a983ad1469d80986d8dec05f876aac4ff54ae8d825d"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "3255ee5c14cb410e1a16341c896625cb2adde602a437f74fe7505c599f419f4a",
+     "src/main/java/com/generated/app/Application.java": "701dd6833704534a4bb19f967b94b7b04a16633b55028412ec9203fa8917737c",
+     "src/main/java/com/generated/app/config/AppConfig.java": "1fc56f3463485aa26cb68dac4b58c18a4bfcb4fac11ec72e550728208b720a88",
+     "src/main/java/com/generated/app/service/Main.java": "9948a586e1cd08d84d2f463563b420ada9b44b57f7c9a1067b63f84ad48b0cec",
+     "src/main/java/com/generated/app/service/Modify.java": "c86dc03f787f5a678be47957c6ba10696f0f1ee65855c3d9ea6d0f5ab03ae277",
+     "src/main/resources/application.properties": "a2bbd7af54c7a2858c95f6c92df4b9e97b7f83a11128ae0d4b8292a9a0b06a0a"
+    },
+    "status": "generated",
+    "tree_sha256": "8ba7e8b165ddaf8aa37454f33256cbeb7711054438f502e1c443f41145c25eca"
+   }
+  },
+  "workload-by-value": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: MAIN"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Partial support \u2014 transformation blocked: Contains partially supported constructs: BY VALUE (CALL ... USING BY VALUE lowers to a positional sync-in with no write-back, but the mapping is NOT runtime-certified: GnuCOBOL 3.1.2 is the only available COBOL runtime and its BY VALUE implementation is unfinished (-Wunfinished); it passes garbage to the callee or aborts with SIGSEGV, so no oracle equivalence can be established (see tests/integration/test_call_passing_mode_oracle_proof.py))"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": []
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: MAIN"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Partial support \u2014 transformation blocked: Contains partially supported constructs: BY VALUE (CALL ... USING BY VALUE lowers to a positional sync-in with no write-back, but the mapping is NOT runtime-certified: GnuCOBOL 3.1.2 is the only available COBOL runtime and its BY VALUE implementation is unfinished (-Wunfinished); it passes garbage to the callee or aborts with SIGSEGV, so no oracle equivalence can be established (see tests/integration/test_call_passing_mode_oracle_proof.py))"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": []
+   }
+  },
+  "workload-call-chain": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "b4a4b76290435ac605d77922f10129a06fad9fc5a394f20bde584d4b53c6771b",
+     "src/main/java/Chainmain.java": "9abd5a8f471f154e8122c4a19d926e9075d524e638176e1e9367d373300b2876",
+     "src/main/java/Leafprog.java": "5e6169cd52df17ffc7e974157445568dd320a555d3cc41b71aff38674bfe31f4",
+     "src/main/java/Midprog.java": "6f8bbbc89fd3b82b558d548b093db122878d92535ed85a9942aaaf1c9934028e",
+     "src/main/java/ServiceRegistry.java": "5db64e2a65c81096face5fdb740485b78ff3b32d7168bed4866e4646a225282a"
+    },
+    "status": "generated",
+    "tree_sha256": "a0b1079936fa4481a44a418b3e6b5e2d6823894af53e596f2153f73596605880"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "a466e92eae6c5a67b4cd3cd15d0353077fd8d3ea780a9338cadcb8b75033e70e",
+     "src/main/java/com/generated/app/Application.java": "0b6eb5d9704f21040f9dbe9ac4f28a04ca482df154dedba7ad4713876d9ce400",
+     "src/main/java/com/generated/app/config/AppConfig.java": "7790c8b97307153e8aa2b2a0c39a3adb96240c0e05e52035a76a537b7dce6254",
+     "src/main/java/com/generated/app/service/Chainmain.java": "799ffb73e870dc2d1b8b6c084bdaa1793f5f50d042aad0641e4deab941e18e4d",
+     "src/main/java/com/generated/app/service/Leafprog.java": "afc6e562bdf7b502fe2a200269c4d0676d28183f4bd7bd8da171bf2d41af4495",
+     "src/main/java/com/generated/app/service/Midprog.java": "812b454429a869f69f48daf1cc28404d5e66213fc04f7f1b5c5e11d725beca16",
+     "src/main/resources/application.properties": "d217da44aed170e19b061db0dd4ac505456297e7aeed8f0b133e5a77c6385bd1"
+    },
+    "status": "generated",
+    "tree_sha256": "7ac2a13d4478d1928cdfbf72848ccfef2108c1e8ec0c48937538171ddb6bff02"
+   }
+  },
+  "workload-call-linkage": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CALCULATE"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: WORKING-STORAGE SECTION is out of order or repeated in the DATA DIVISION: the oracle compiler rejects this program)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CALCULATE"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: WORKING-STORAGE SECTION is out of order or repeated in the DATA DIVISION: the oracle compiler rejects this program)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   }
+  },
+  "workload-call-linkage-valid": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "ec4797733e49f468ed416bbd54bacff782de5e2156b32c88b334013eadab19b5",
+     "src/main/java/Calculate.java": "1f5be1fb799141567368cc7764cc55695dd60d2c78de5c92a4818d0c06896dbe",
+     "src/main/java/Main.java": "e1185fca46a2befd7b7edb51f5cc296e9e1a1863e86b9a88ebb7caa171f9ab59",
+     "src/main/java/ServiceRegistry.java": "9e93cb1a599a7803e09399e28d21401d937bfb89799622b0f4e7b46c99075a5b"
+    },
+    "status": "generated",
+    "tree_sha256": "708e89ff99d1787cdc8e515537fe830502b8e4386f21de138c7e65596c3619e4"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "2398b5dbfb6b2e986ba009a8b308577c25e8fe26285604ef7339c861e9eb8172",
+     "src/main/java/com/generated/app/Application.java": "88982fa66a5af54b2640a4b17abc7208594e04a55125fc36487e013b49d7c0a1",
+     "src/main/java/com/generated/app/config/AppConfig.java": "f043729b756467355f29e7d90747d80a82242023c23a4e11839cce1711e02513",
+     "src/main/java/com/generated/app/service/Calculate.java": "b97d6a662a4ab024d9c76b6f3dd87cc559ea2659c1aa93427de627a8aae1fa85",
+     "src/main/java/com/generated/app/service/Main.java": "0f289d8d37df3e79ef18c5c40bf663ec3009b4b5c5dca485927e95653c7090b6",
+     "src/main/resources/application.properties": "3af739a506b2e4b99a3713c29963bb708786dafd9d09792fd75d6c396461142f"
+    },
+    "status": "generated",
+    "tree_sha256": "414c6ddf7ce20ef3578fc3db7541ea3701d9341aaa40063f077fd0fc57e03ac8"
+   }
+  },
+  "workload-cics": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: EXEC CICS (EXEC CICS is used in source but the deterministic parser has no IR for it; it cannot be transformed); file DATASET (File dependency DATASET has no FILE definition); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS HANDLE is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 17-27 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS SEND is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 30-31 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS SEND is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 34-35 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: GOBACK inside non-driver paragraph ERR-RTN ends the run unit in COBOL but only returns from the paragraph method in Java); unparsed_statement (UNSUPPORTED_CONSTRUCT: GOBACK inside non-driver paragraph NOT-FOUND ends the run unit in COBOL but only returns from the paragraph method in Java); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in EXEC); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in INTO); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in READ); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: END PROGRAM CUSTINQ.)",
+     "Unsupported: Contains unsupported constructs: EXEC CICS (EXEC CICS is used in source but the deterministic parser has no IR for it; it cannot be transformed); file DATASET (File dependency DATASET has no FILE definition); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS HANDLE is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 17-30 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS SEND is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 33-34 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: GOBACK inside non-driver paragraph NOT-FOUND ends the run unit in COBOL but only returns from the paragraph method in Java); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in EXEC); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in FROM); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in INTO); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in READ); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in WRITE); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: END PROGRAM ORDPROC.)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CUSTINQ, ORDPROC"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: EXEC CICS (EXEC CICS is used in source but the deterministic parser has no IR for it; it cannot be transformed); file DATASET (File dependency DATASET has no FILE definition); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS HANDLE is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 17-27 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS SEND is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 30-31 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS SEND is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 34-35 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: GOBACK inside non-driver paragraph ERR-RTN ends the run unit in COBOL but only returns from the paragraph method in Java); unparsed_statement (UNSUPPORTED_CONSTRUCT: GOBACK inside non-driver paragraph NOT-FOUND ends the run unit in COBOL but only returns from the paragraph method in Java); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in EXEC); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in INTO); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in READ); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: END PROGRAM CUSTINQ.)",
+     "Unsupported: Contains unsupported constructs: EXEC CICS (EXEC CICS is used in source but the deterministic parser has no IR for it; it cannot be transformed); file DATASET (File dependency DATASET has no FILE definition); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS HANDLE is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 17-30 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: EXEC CICS SEND is not lowered: EXEC CICS is outside the certified deterministic Java lane (lines 33-34 skipped as one region)); unparsed_statement (UNSUPPORTED_CONSTRUCT: GOBACK inside non-driver paragraph NOT-FOUND ends the run unit in COBOL but only returns from the paragraph method in Java); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in EXEC); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in FROM); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in INTO); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in READ); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in WRITE); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: END PROGRAM ORDPROC.)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   }
+  },
+  "workload-claims": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CLAIMS, CLAIMS, CLAIMS"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: GO TO (GO TO outside the certified subset (PERFORM_FORM); mapper fails closed); unparsed_statement (UNSUPPORTED_CONSTRUCT: GO TO is outside the certified subset (PERFORM_FORM): control flow is lowered to a comment and the program fails closed)",
+     "Unsupported: Contains unsupported constructs: GO TO (GO TO outside the certified subset (PERFORM_FORM); mapper fails closed); unparsed_statement (UNSUPPORTED_CONSTRUCT: GO TO is outside the certified subset (PERFORM_FORM): control flow is lowered to a comment and the program fails closed)",
+     "Unsupported: Contains unsupported constructs: GO TO (GO TO outside the certified subset (PERFORM_FORM); mapper fails closed); unparsed_statement (UNSUPPORTED_CONSTRUCT: GO TO is outside the certified subset (PERFORM_FORM): control flow is lowered to a comment and the program fails closed)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CLAIMS, CLAIMS, CLAIMS"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: GO TO (GO TO outside the certified subset (PERFORM_FORM); mapper fails closed); unparsed_statement (UNSUPPORTED_CONSTRUCT: GO TO is outside the certified subset (PERFORM_FORM): control flow is lowered to a comment and the program fails closed)",
+     "Unsupported: Contains unsupported constructs: GO TO (GO TO outside the certified subset (PERFORM_FORM); mapper fails closed); unparsed_statement (UNSUPPORTED_CONSTRUCT: GO TO is outside the certified subset (PERFORM_FORM): control flow is lowered to a comment and the program fails closed)",
+     "Unsupported: Contains unsupported constructs: GO TO (GO TO outside the certified subset (PERFORM_FORM); mapper fails closed); unparsed_statement (UNSUPPORTED_CONSTRUCT: GO TO is outside the certified subset (PERFORM_FORM): control flow is lowered to a comment and the program fails closed)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   }
+  },
+  "workload-comp": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "d3e2972ef53fcd0269df767de0a86340ebef51412a53c42e3182d20d1b749c70",
+     "src/main/java/Comp_Demo.java": "af2e2cec5f6c0755168da6ff4c8dfba1cd7228bad807a1dc773ec910dc33eccb"
+    },
+    "status": "generated",
+    "tree_sha256": "1e5a55a7b1d754ee916fa75f91303d82fadbe7afb7e2c34e3ee33af449b44218"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "7f27f1ca8795cfc4d88354fa677d78e7f1ce82a197befb6759d219e80c569cb1",
+     "src/main/java/com/generated/app/Application.java": "a3b433b53bd299effd45551491f818bac97653ae45b7be6adf1ffdcf85eef4c9",
+     "src/main/java/com/generated/app/config/AppConfig.java": "02edfae3ba87366a5ce2cc8a2248da27e15e726cc723efc01f7e6c233f33e7bc",
+     "src/main/java/com/generated/app/service/CompDemo.java": "a350d0d668d89b52885ea88d5b5d2702617ddf74744ef535756acc004b27b8ba",
+     "src/main/resources/application.properties": "40f561bac7f684d9350c6bc818b01a709c3c138063d5b8f6fad2bf025aed2e16"
+    },
+    "status": "generated",
+    "tree_sha256": "c158005b1fb58daa932df153786393a3794dc9c6d133ec760cbc73b36f547c86"
+   }
+  },
+  "workload-comp3": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "450e94da17570abd1fa8ab0fd3cad185fee9519fd61a33e7cda91b969cf38f66",
+     "src/main/java/Comp3_Demo.java": "e7add86456f722233354fa76b27e22fd5c20dfb6f01ae37886959b5ae58c61dd"
+    },
+    "status": "generated",
+    "tree_sha256": "b6b7e7ee9649b6f84e11ae867fb9a7f61fc81505f9e3b4ad79a73d1dce75574a"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "2a075b13c919d04e976aab96d380b7e68c8c1a5dba9f6206a05479169b79c12c",
+     "src/main/java/com/generated/app/Application.java": "d6a47fb540a8da3ac684bd21cdb0cbd11c907a7000f1785470e1b305f90656ce",
+     "src/main/java/com/generated/app/config/AppConfig.java": "e33a2e89dabaeb00816a67ef46cb7700fc5cb168088956e7619d9c6402a660bf",
+     "src/main/java/com/generated/app/service/Comp3Demo.java": "e464cb6045b257f8ce04e1c85107e0fce75453ff9266c412450979cbc73c03dd",
+     "src/main/resources/application.properties": "c8bb5687f32b81bfa6a8750c5629ce1150f7aee59986fecde5cbeab0cc282d5a"
+    },
+    "status": "generated",
+    "tree_sha256": "e5b1be3be8686ef594f6b9056bdf1a16c987f4f8689db9d15bd53e06efa480e0"
+   }
+  },
+  "workload-copybook": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "82faa39b36f8a72ed268b490105c73b0661457ac926bb2c5346b77b3adc12c2d",
+     "src/main/java/Copybook_Demo.java": "34602d1c0fb8179df464d6e5515ca4dc6171cd017bb42084d9ebda06ca898b67",
+     "src/main/java/com/generated/app/model/CommonRecord.java": "6697b951f7f73993bff57c5d28cdaea0fddaa7ef9d667268cc62acf0e25fec2c"
+    },
+    "status": "generated",
+    "tree_sha256": "83b0454bff9c1b4de4c4d98b05502eb9b88e3de60cb4ff57c658332d32daa28c"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "937f2f7eb99ced203949d64e3108f734e33ff0e43842b2b407c6350359912898",
+     "src/main/java/com/generated/app/Application.java": "1ca8940087f7c0ee48df5ce85f411dc159a14ad5986733292b07aa9cbe30e372",
+     "src/main/java/com/generated/app/config/AppConfig.java": "32e9ab236703c2256931ea012c358832035f124ce95fbef5497c18e3559c623c",
+     "src/main/java/com/generated/app/model/CommonRecord.java": "a999f84a2858f72d6d1cc765fbb9c8aaad9aa332e31d4354df976f09beadbee9",
+     "src/main/java/com/generated/app/service/CopybookDemo.java": "0c79126dad47720ec0135a86db14e5814b51bc8a2604f184c995b7e69c2e05b4",
+     "src/main/resources/application.properties": "d8663bf1c15fb367f9f5c623e1a720de8bbfc2fa2b9983c1e46a7c8149fe3b91"
+    },
+    "status": "generated",
+    "tree_sha256": "a1134788aa76f36bca7c972ade42b3d635de9b7e47e37a6ff60559edd0b80c46"
+   }
+  },
+  "workload-copybook-file-multi": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "624648a7950eaa43e398cb78d7ed741420f1ab555e446f76a23d2cd1be32b909",
+     "src/main/java/Copybook_File_Multi.java": "4fe7f088275174ca032217dec804248db4e23042f60911fe217e4f7c26a23573",
+     "src/main/java/com/generated/app/model/EmprecRecord.java": "3645fd7ad318a16af5d23033b202d8d6d3e3d1e4e75d177be5f029ae77226f01"
+    },
+    "status": "generated",
+    "tree_sha256": "fa8ebf380d4fdfc2d567187198e7e8683b78c71c4d111e3ca2397a9b54a29c1d"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "a7ed9a5a6990f47fb5e24ae0ad44caee27ebaafd5b6df3d062be4c55952f32f6",
+     "src/main/java/com/generated/app/Application.java": "a6c01e978af4d8ffcf1c020ac4a7ca3913ccf21340ed4c7fe720a72165a82797",
+     "src/main/java/com/generated/app/adapter/AbstractEmpFileAdapter.java": "d1532513a3dc115d27179790655b2b026b13fbe966da99abf9cd7084e4e2c674",
+     "src/main/java/com/generated/app/adapter/AbstractEmpRdFileAdapter.java": "a68da5394d8ad1c89e49c99f87ca2ad88743836f271b7f431ebfc71b62ccf1d7",
+     "src/main/java/com/generated/app/adapter/EmpFileAdapter.java": "ab075f8135a317d8f20b30ddc034eef84c3b3fef8df6187ce8ee34acdecb317b",
+     "src/main/java/com/generated/app/adapter/EmpRdFileAdapter.java": "c62e47c3f260f21f39455b904d6a611de127855fa483986427973fac9a5f5a6b",
+     "src/main/java/com/generated/app/config/AppConfig.java": "adc22337c5bb0a761b44bd8c743227b952fd5ef488aa614a2fbe8aab19a15475",
+     "src/main/java/com/generated/app/model/EmprecRecord.java": "8d457bad682361720323dea6dc15a10b6cee05fff1bc802d11006d09961e1007",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/CopybookFileMulti.java": "9b39f564d389ad461ae14e1c15d2469792b58e709d38d4a1784b18c1b9fff132",
+     "src/main/resources/application.properties": "dc561fb2315fde185a7498f870fc6aea8c40129b3498586b58348832c9c3ad07"
+    },
+    "status": "generated",
+    "tree_sha256": "6ac01ccc81975327c1905461e087364e372e4ecd38e7ea60e506afcb18b3cef7"
+   }
+  },
+  "workload-db2": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: ACCOUNT-DB2"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: CLOSE (CLOSE is used in source but the deterministic parser has no IR for it; it cannot be transformed); DELETE (DELETE is used in source but the deterministic parser has no IR for it; it cannot be transformed); EXEC SQL (EXEC SQL outside the certified subset (HOST_VARIABLE); mapper fails closed); EXEC SQL (EXEC SQL outside the certified subset (HOST_VARIABLE, INDICATOR); mapper fails closed); SET (SET is used in source but the deterministic parser has no IR for it; it cannot be transformed); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in INTO); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 002700); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 004300); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 005400); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 006500); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 007800); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 010300); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 010800); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: END PROGRAM ACCOUNT-DB2.)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: ACCOUNT-DB2"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: CLOSE (CLOSE is used in source but the deterministic parser has no IR for it; it cannot be transformed); DELETE (DELETE is used in source but the deterministic parser has no IR for it; it cannot be transformed); EXEC SQL (EXEC SQL outside the certified subset (HOST_VARIABLE); mapper fails closed); EXEC SQL (EXEC SQL outside the certified subset (HOST_VARIABLE, INDICATOR); mapper fails closed); SET (SET is used in source but the deterministic parser has no IR for it; it cannot be transformed); unparsed_statement (UNSUPPORTED_CONSTRUCT: Reference modification (identifier(offset:length)) is only certified in MOVE, DISPLAY and IF / WHEN / UNTIL conditions, not in INTO); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 002700); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 004300); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 005400); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 006500); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 007800); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 010300); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: 010800); unparsed_statement (UNSUPPORTED_CONSTRUCT: Skipped unsupported statement: END PROGRAM ACCOUNT-DB2.)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   }
+  },
+  "workload-delete": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "7be5de6c6eb5f95b57c16a3ca94873034c5a522e901c07d6698e67dd5d9cced7",
+     "src/main/java/Delete_Demo.java": "d90ee15c81574bc3a4747101b3d36c11d50f2d4aac2aaa91305946f7ba419166"
+    },
+    "status": "generated",
+    "tree_sha256": "3b08c7110fdc8e679b73740c6f7f04d9a4e513065868097ae4a1e846aea11288"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "368aea1c561fd621035a3576e3a4a104aa4ecac57fb69a8653ad79592eddaf88",
+     "src/main/java/com/generated/app/Application.java": "56bafd974bc0ec7765596ef7869fe82107452c609f7062a8c86c737505e11430",
+     "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java": "8d74ecd7d7620faddbf982e0863f1c4660e0df2b3a05703a5e4422ea8d16f735",
+     "src/main/java/com/generated/app/adapter/IdxFileAdapter.java": "17ac8903af1d3e565fabe646c7561f6f1fa84ac39c5f405f477a0f3044a535f7",
+     "src/main/java/com/generated/app/config/AppConfig.java": "6d08f84db15e03e3a99259518dea46659a0e16cd5501e69512b10df2f2e5abb9",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/DeleteDemo.java": "4f63a65c28161574119ad7de6e039d5152eb2a8a7a178503bf56c5b1445410d7",
+     "src/main/resources/application.properties": "1444fec5c9c59cfe2bcdabfff79bb3544544e863e95c437238ef5b3e24a62574"
+    },
+    "status": "generated",
+    "tree_sha256": "565cc430a0cbe435dc3d9c61c98e7e12a473470e50b5f36b4eb1da0d5caaa2bc"
+   }
+  },
+  "workload-divide-giving-verified": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "206fd8f5d11d531ada11ce16a8a176c65a6bcc746818e2c624a3fbbaca442135",
+     "src/main/java/Div_Giving.java": "94f41f6affe909366c8f59578d52083934ca151372abd4fcc343b1a2e179a6fa"
+    },
+    "status": "generated",
+    "tree_sha256": "e5d05e7f1a04f2a7801f1a781485c7770d0b6e5cf6442423eb2e50469548b98e"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "cbdf05f970bf9751ffbaf193d9fa175673bc154b8e88b7d79cddd7ebdd2e2b47",
+     "src/main/java/com/generated/app/Application.java": "9fa4dd98db4cae0ca217110924373656909f1d45c80454bdc627dd19f5ccaec5",
+     "src/main/java/com/generated/app/config/AppConfig.java": "0ce1ed2ada21ada2fcd923d5676eb3a22fa371bdaec507ed0b2fe9746e67d75d",
+     "src/main/java/com/generated/app/service/DivGiving.java": "a4cd9cf99adf133d6dac82c96056e80a4886fb0e44bcfddc110dc65d4d95411c",
+     "src/main/resources/application.properties": "4284982e8e99de79c72d089a9b6835e1c87bd7e222f96b7a545ea323716a1693"
+    },
+    "status": "generated",
+    "tree_sha256": "cf88fd4edd148ac009cb8de496acb175bb76ac9b09b604a505001722316cdfcf"
+   }
+  },
+  "workload-divide-into-verified": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "135b6edf2e826cbaeb9277f959bcdb3f9a359392a11ce1a9362688d906c2a0d6",
+     "src/main/java/Div_Into.java": "11a5eaa31e34b6ec9ce63cb2bb64a5a5f7a0e60e05ac29d931c3a960961d4d0a"
+    },
+    "status": "generated",
+    "tree_sha256": "b5149560fbff0ec130c25035444b6f27924ed66bd300599375d39c3af653eef2"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "c11c4d4933978fe879732ee0d78e8b4006ed535e670ea85ac341f2d236fb3717",
+     "src/main/java/com/generated/app/Application.java": "fb770887e8e156d87ed99361ab9f8eb94f32f2e5c4326860694a09387b7547f1",
+     "src/main/java/com/generated/app/config/AppConfig.java": "1fc8989ec072b7ebf79bf975242437d6ef1ebc64dfa5c3bb7950db52c492a03d",
+     "src/main/java/com/generated/app/service/DivInto.java": "cf01535c907d2839d739bad199284ccbc9e089ed99ba1827c1e4befded27c090",
+     "src/main/resources/application.properties": "29787027f73ef102947e5f57c0da3a3f7e384ba06ffac0516bf0561b65a353f6"
+    },
+    "status": "generated",
+    "tree_sha256": "3dd55fe058f803142c4273bb5b6e44b05d8146fb5df1757f3ea24700d51070b7"
+   }
+  },
+  "workload-dynamic-call": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CALC"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: WORKING-STORAGE SECTION is out of order or repeated in the DATA DIVISION: the oracle compiler rejects this program)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CALC"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: WORKING-STORAGE SECTION is out of order or repeated in the DATA DIVISION: the oracle compiler rejects this program)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   }
+  },
+  "workload-dynamic-call-valid": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable CALLs: MAIN->WS-PROG-NAME"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unresolved call target: WS-PROG-NAME"
+    ],
+    "refusal_code": "PLAN_SKIPPED_CALLS",
+    "status": "refused",
+    "unsupported_markers": []
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable CALLs: MAIN->WS-PROG-NAME"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unresolved call target: WS-PROG-NAME"
+    ],
+    "refusal_code": "PLAN_SKIPPED_CALLS",
+    "status": "refused",
+    "unsupported_markers": []
+   }
+  },
+  "workload-evaluate": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "541fe94a40e397eec6b3cf277fced802f165e1413e2e5de984974cd1f136e0d5",
+     "src/main/java/Evaluate_Demo.java": "0e05ff330ae05eccf7d2f5ac8c8f00e3e0045363294b81ddde8a0b44916a2510"
+    },
+    "status": "generated",
+    "tree_sha256": "0c64375e521ff9ddd33e4242ca6f8b98b974ffeedd2661c14e56d18e12f0b821"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "9b253b105a1ce240fc6d94c6aeb76fe3f9f9edaa7bb83d956dfd30de86957b6d",
+     "src/main/java/com/generated/app/Application.java": "b2c5b3acd76d8897a756c0b36909f4fbfe0a1decacfbac04dba2be796ca84983",
+     "src/main/java/com/generated/app/config/AppConfig.java": "a091ecfdaca71e7a30aefa30d53c26271d60786291338293763feb95ae3992b8",
+     "src/main/java/com/generated/app/service/EvaluateDemo.java": "ae795eb476f89156d09937dea599dff7c9723aaea68154d78b61fb7436b35a41",
+     "src/main/resources/application.properties": "35c5ea253326eefd9a15b3b942bf53f107aa651fa9bcb4fe5a512e1ee5dc353c"
+    },
+    "status": "generated",
+    "tree_sha256": "0e4eefda379df587a4a2a98f4cfc610c4f4a7254918e28f533a4f92650f3092a"
+   }
+  },
+  "workload-file-write-read": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "c0617beafc912fa932c99cf3d955887bef142b3cc4908f100d76c121e9ce2977",
+     "src/main/java/File_Write_Read.java": "f34d49c5159b0cabcd7e290db2cef9669c1053e8a5429cd641c46a573641058e"
+    },
+    "status": "generated",
+    "tree_sha256": "e43d5c03c7103d24e05c52e691cd10f1899d6aa18c79f775a7b8b47439dc49cb"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "3ef011c3ee59e564454f939f6a2f5caa1909ccbe567e747dbd185f4c39e126c0",
+     "src/main/java/com/generated/app/Application.java": "6ef83b16c189dfdceec27cd7ea53d15e16be6d3c7e641c7bc39f15d7c20a362e",
+     "src/main/java/com/generated/app/adapter/AbstractInFileAdapter.java": "50afb5f2507fcf8be34d20523b95781bcb31e29b84d5e882b63f8d1f43f8ae0c",
+     "src/main/java/com/generated/app/adapter/AbstractOutFileAdapter.java": "150cad035757a64c18214c50f387f0f718509220b4d74e6e5b1377ed84047565",
+     "src/main/java/com/generated/app/adapter/InFileAdapter.java": "5eeff87062a4d1d879384123100bfaf5c8e0db8b57a79b977d808bac843de7ea",
+     "src/main/java/com/generated/app/adapter/OutFileAdapter.java": "b8a610adb24eeb1c171579d3ca27749e69a1a4acc9b4b9328c6ff6881f0969a8",
+     "src/main/java/com/generated/app/config/AppConfig.java": "ffd7f4f9daba19263a8bd5a3db89db8677a2f50b95fca3abccb9ce80146d1c40",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/FileWriteRead.java": "b2465968492f6c2c1686cba6904a31d60d4e3a640c186ecab70237caf1d8c84e",
+     "src/main/resources/application.properties": "23d84f92eda9abb6a016f1da2be02b702d87fb3899076e18abfd02933435847f"
+    },
+    "status": "generated",
+    "tree_sha256": "26fe2ac756ec880a7d79478ad9545fa8664aa724d0a8091e98ae6389d18729f1"
+   }
+  },
+  "workload-gradecalc": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "1fbb5063f514468abcafd8f70601b2988e9cb29630706a23a24df7bdf4489fcc",
+     "src/main/java/Grade_Calc.java": "dd74673dac8d7ced4b55ceccd520996e2054818a1735f056de17bc4339ccf171"
+    },
+    "status": "generated",
+    "tree_sha256": "99ecc0130a6c9c338b18a1ae413bf11fa1a64f14c9be92ef1fdabf252d585400"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "b80a8b86473a5192356f389237e4699eb4ca13cc58807f559d45c8f245772afd",
+     "src/main/java/com/generated/app/Application.java": "54b2b8040e1ec231d4f3cd00f5ba7f4230b7263873f8b6f1a4f5eeae35197d23",
+     "src/main/java/com/generated/app/config/AppConfig.java": "9c10eba5e16149e535ea9e8d57f3db9594906ac9468f560925f0c5054d25cb10",
+     "src/main/java/com/generated/app/service/GradeCalc.java": "2e2f19c9a182ca45dec7cc3bebd04e3b4d2aa30d0378d79ab5ca7c6db0120d8a",
+     "src/main/resources/application.properties": "82784c7b1177f4c4ac16161d432ae2d079e2bd04843a8d6e6a7cfe66da63cbd6"
+    },
+    "status": "generated",
+    "tree_sha256": "b2a7bba4c412b3f4cf1af898e5bdfeac00e86397403eef27afe35a824f5eaa6b"
+   }
+  },
+  "workload-indexed": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "12f237ef8c8745e012256d8892078a417ca0419e21bad94001b988a3fe64a8b6",
+     "src/main/java/Indexed.java": "6c10d2beded56acdad453a8cc4f297f36b95496e0d9dd7edf1c0e8581a539e92"
+    },
+    "status": "generated",
+    "tree_sha256": "a00ba38100d2a0d9944e9205454e384a3880c042215ed69ded7aba176ace43d6"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "24683acec95beb0e6d8eed2a439c25776f7285804a5965f9fb60059bcd1e0dbf",
+     "src/main/java/com/generated/app/Application.java": "587b5e218d573c8fced6dcf8466085776eeed920578703e26c752ac8e22fb867",
+     "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java": "8d74ecd7d7620faddbf982e0863f1c4660e0df2b3a05703a5e4422ea8d16f735",
+     "src/main/java/com/generated/app/adapter/IdxFileAdapter.java": "17ac8903af1d3e565fabe646c7561f6f1fa84ac39c5f405f477a0f3044a535f7",
+     "src/main/java/com/generated/app/config/AppConfig.java": "b4d159d6b61eb7ecf37a3fbf7cb3e9fefface97aea9e9bf2ede8ea0f905b1004",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Indexed.java": "9eb733234015e751c0b8c3def9929df4753632f5574ae972899dad6f3e9328ee",
+     "src/main/resources/application.properties": "f50620418f5e14eacbd1ec0f456f072ea966567380f0ab196cde813077027ff0"
+    },
+    "status": "generated",
+    "tree_sha256": "f2b47c9bd812cf9f01ddff5b2b2d18b3849bc0bfd029027db0a1ac01799bac48"
+   }
+  },
+  "workload-indexed-file": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "89f85c404ea150b7b077a532db40d9cd738064082a9cb816bce710f4a6547f24",
+     "src/main/java/Indexed_File_Demo.java": "0f987e9cb337ec3bc60e278cffaec524c2960ee0ff3ad66621dd8c4d6ee472e6"
+    },
+    "status": "generated",
+    "tree_sha256": "615c0d1de0f3ce792bc3a04c1a3c1784edc4f3cbec37f03fcddc8d223fcf9c2a"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "899d5420e88886366a96f34b5737c16166ca8f28558a6399530c184893474890",
+     "src/main/java/com/generated/app/Application.java": "2263bf090d48b9ddbd8b6c6c5d67c1867e0480b6ea6cc9b2df464971510fe572",
+     "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java": "8d74ecd7d7620faddbf982e0863f1c4660e0df2b3a05703a5e4422ea8d16f735",
+     "src/main/java/com/generated/app/adapter/IdxFileAdapter.java": "17ac8903af1d3e565fabe646c7561f6f1fa84ac39c5f405f477a0f3044a535f7",
+     "src/main/java/com/generated/app/config/AppConfig.java": "43e7098da2e4a24c529842ca59e12e999f91a6ef95ec2f517198e13c92c75604",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/IndexedFileDemo.java": "c850be52278a4dabb05ef5fa3a27f14ea5b67777176f48fe4b0e9c638e1c7555",
+     "src/main/resources/application.properties": "dd96503e34738fca071e345fe1a8648bb2aa5074bd5511ec31416244918a9a4f"
+    },
+    "status": "generated",
+    "tree_sha256": "e7a9cb35c511bf554c7403cba7356dc3599653811887a98b22ff747f7da34889"
+   }
+  },
+  "workload-indexed-rewrite-delete-start": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "23fc43c0f7b3c0d6a3767368a6160f7943dedfa6c0eba242b190416f5299a086",
+     "src/main/java/Idx_Rwdel_Start.java": "ee9eb235f33f3413086b63eca12f5731ed4191d35921ca27feaf625e5d9ff871"
+    },
+    "status": "generated",
+    "tree_sha256": "e2efeea322b387045090b5ab2e4f185f6e61fd7f04efd78f2225286f5cc57b21"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "5df23f76c8e30acf3301136182996b20ddbef45193c4d2d3c134d14a0d4ea4f0",
+     "src/main/java/com/generated/app/Application.java": "4f124e680a1b8595525ff97ce858667ef609a21e7f313b41f80c483577f52c9b",
+     "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java": "8d74ecd7d7620faddbf982e0863f1c4660e0df2b3a05703a5e4422ea8d16f735",
+     "src/main/java/com/generated/app/adapter/IdxFileAdapter.java": "17ac8903af1d3e565fabe646c7561f6f1fa84ac39c5f405f477a0f3044a535f7",
+     "src/main/java/com/generated/app/config/AppConfig.java": "12ceb73b550b2e277080e22cb0f7035935b331ee47e2dcc530d18ae32cdf0422",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/IdxRwdelStart.java": "0a28bc91549b8b9f69fd682d1bd2763268991c25725ff5ec3ff2e697a5adfae7",
+     "src/main/resources/application.properties": "c6fc7248ae3aefa41a5ede118c51c49efd9658025d18b9e5e07d044be6db2e12"
+    },
+    "status": "generated",
+    "tree_sha256": "7505b77176202d6d7e0c1dbc92ff21102e451582ecd00b02f13f22243af536a5"
+   }
+  },
+  "workload-integrated": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "294f300717661222090d4af2478622545e332c6c80ddcbd135fd294f859df1d8",
+     "src/main/java/Intgcalc.java": "cdbd9e33606b76e8f72730f14d395228270f77ce387c7581efafb065139e6a22",
+     "src/main/java/Intgmain.java": "975a71315ac566be456cbac2a3d6947fd0859dd259a6bce2b5ae70638a984ee0",
+     "src/main/java/ServiceRegistry.java": "d3ce0a58d6262be87eca95aa068ac7bd3f34e95a1a39004448fa461d6378c4ab",
+     "src/main/java/com/generated/app/model/TaxrecRecord.java": "d46683cceb6f86d8b38ac49f6daab0c92b49044db2580aadb78bb79c89b23b94"
+    },
+    "status": "generated",
+    "tree_sha256": "4d24aa275768e8be04e7a81d46f4aa6a8786051026ae70bd4063c582a231f03c"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "02cdabc29f56ba1b11fc55cfffb2fd898c6472c37405b589342a5f30c163a5c2",
+     "src/main/java/com/generated/app/Application.java": "62b165395f044b04f0a611a0251fd69bd9d37ed314c792a0459e0379c49a58be",
+     "src/main/java/com/generated/app/adapter/AbstractTaxInAdapter.java": "92a800e60ecb06c6496fb278e668eff2d885129a1a54bd00818391df02995a14",
+     "src/main/java/com/generated/app/adapter/AbstractTaxOutAdapter.java": "4a06c69107879db1c317a6daf1b78be5e29cda9fc4f296011453e24962b67a28",
+     "src/main/java/com/generated/app/adapter/TaxInAdapter.java": "299a93f870f200bcb90260c9a05c64dffa7db117b7577812028cb0f94a6beff6",
+     "src/main/java/com/generated/app/adapter/TaxOutAdapter.java": "23e246e24ceeb866ab875b0637b16e1668602ba9800d91856d07e536d04c2d32",
+     "src/main/java/com/generated/app/config/AppConfig.java": "f700fcf41469cc459e4da98ae70910dd7d94af6a5ebbee15ecc7cf8bb1739f82",
+     "src/main/java/com/generated/app/model/TaxrecRecord.java": "6f26217120255159cd9b6d6d149de6e7008bbf860f82d656f1bd107e9b4f0b35",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Intgcalc.java": "fa2a067bcc8584e91232bff4903e460719c6dc8aef34c2ca0178bcbd5bafa63c",
+     "src/main/java/com/generated/app/service/Intgmain.java": "dc9c621c6f34472096a1dfd3f5e4abd08abec252f75f9a109dc1e0be874b4036",
+     "src/main/resources/application.properties": "c6e2e2bc3a8ab66668f575ba983c13ad0f5e48d9d7148e70ee8081587e3f9a78"
+    },
+    "status": "generated",
+    "tree_sha256": "70c5b3cd28d1e479080b15aaabd5b15ec67f159ac0533175f2f7a0988816394e"
+   }
+  },
+  "workload-interest-accrual": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "44071bea982a7861cbf0d449e003d9850e0297782483e39075026520625a5f43",
+     "src/main/java/Accrue.java": "ef15cb02a6afcc050a987420c057f19882b1d3c025c492bacff99f0e01c29601"
+    },
+    "status": "generated",
+    "tree_sha256": "189e157162b6f5766ad7601c8ce7c326d17cf4f1ee52cea4cd1b9bc437dfbe0b"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "b37123c66bf625e19d2458c4f4cf1eafee478ef8ae6af0f6ce1dae438fe1f572",
+     "src/main/java/com/generated/app/Application.java": "d6a1aaf4f18796d72127211867c403c7d7f9c57ec35daf7336ce4690a08176fa",
+     "src/main/java/com/generated/app/config/AppConfig.java": "2391addfc4c26f6fc05931b62f12c3cc6d880ddb070a0b3060d917be1bf5b66c",
+     "src/main/java/com/generated/app/service/Accrue.java": "780233b2b6b0dda4b61aba1124ce79ec486ee2de3829bf06f27e72a312176055",
+     "src/main/resources/application.properties": "40bc52b745609b2e609c058289e19c9293fd9f6801919fea9bb97cc6e01be799"
+    },
+    "status": "generated",
+    "tree_sha256": "c267ee70fd2f6daafb1178de3d985fe1e810b2f5e257de0ccaffeaeea83c3635"
+   }
+  },
+  "workload-level88": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "2c12dbdd9c5cf0b85d566939f33324454dd2117228e5abac085e0f9c569347d9",
+     "src/main/java/Level88_Demo.java": "ec8fbd5d79066783afdfeb2c28b15dcfc3e17f3f3452109cc38b6912d6faf8c2"
+    },
+    "status": "generated",
+    "tree_sha256": "3d40759bd9e956d114dbddcab6c025eef6f5c0cd2a49f5447818f413ce207b5f"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "2d7e25ad3587999cbd8aa3c18b53b08581a7edc9eb1b71af4a48f1fbb10c81cc",
+     "src/main/java/com/generated/app/Application.java": "1bce106dfbaf92b201f453961e375bc647aa334def13037809796023db553e34",
+     "src/main/java/com/generated/app/config/AppConfig.java": "811ed8d41f599d16470deb6ce9f3f892a9faf237154ae87e76ce65bf4c8bc562",
+     "src/main/java/com/generated/app/service/Level88Demo.java": "f95f51f41d998fee554c6b2c8cbee95122622d2ed132f05109a7bdb56f248632",
+     "src/main/resources/application.properties": "45e59ffe296c95acbcd2fd4c1cab6a2317b292bba3967d2ac98075b04a9c9b1d"
+    },
+    "status": "generated",
+    "tree_sha256": "443fcf342b10269a8c73069fccd5bc86c569c09ce103655ceeefa1fa77601703"
+   }
+  },
+  "workload-minimal": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "1b6c47c83cb3e30b5a12fd08142e62708f31c248b4855fc084c5e2b97bf241fe",
+     "src/main/java/Simple_Calc.java": "a2ba519c22b9f905933d3fb3fff6244e35a7c851924af74bc1f736938a5494b7"
+    },
+    "status": "generated",
+    "tree_sha256": "da43dfbc3d807689e66a924bb54401fc4d02728834d155bddaa8d40289c0c908"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "c20132e95fba5f3c009f45923bd76279c497222240df36d3bde1c47eb37a9a97",
+     "src/main/java/com/generated/app/Application.java": "4e77e721461da92d4b8445def21689790828451587349812f190a1829c3337be",
+     "src/main/java/com/generated/app/config/AppConfig.java": "699f8e1504f0a48a2d11e192b3de055b2b8244b2fd1dfe86850f359732a8dd5c",
+     "src/main/java/com/generated/app/service/SimpleCalc.java": "6d737394d8b9bb7d21d8b236c929dfec17ba910cc7973089620ebda5b064e00e",
+     "src/main/resources/application.properties": "4bf1c6523a990e1f4abd1ecc5ccd6e0aff92dc18b6eb0145f8745b5fb3fb02de"
+    },
+    "status": "generated",
+    "tree_sha256": "ee26053c3082a8181076910b6ae160264c65000ba05be3cfe2fc4ae71ed74b51"
+   }
+  },
+  "workload-multiply": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "337725c64f8786334f2d7b68ee19cbd31249bd67f75a119f44fbb7c00348c289",
+     "src/main/java/Multiply_Demo.java": "e5db4aaab1e76e8eab541ba11028193379c23155d1428d59686307b5a7135d45"
+    },
+    "status": "generated",
+    "tree_sha256": "451fec4b0fd88d9ce690157075a6d41d3a1cac6b89123f76458a3f93e2919368"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "67496d27e0524fd788de450eed70432d360baf5bae7039809e6512f8a9cbbee0",
+     "src/main/java/com/generated/app/Application.java": "f53b8a45d94af29f85762d4dd747d45c6aa89022aa8317fceffa8ff8fa37fe61",
+     "src/main/java/com/generated/app/config/AppConfig.java": "ac7595e3a392d195915135a9e01aa453caf45d71b4e744a59029234b29d515c8",
+     "src/main/java/com/generated/app/service/MultiplyDemo.java": "503c195da4696f7850d3aa51ec8b7e6b384f1fcad8d6e5615104dd34c424c5fc",
+     "src/main/resources/application.properties": "9e2805047e4eb8a7d0e85688afbb3b4142f8ffbb8aed0750558e3453eefd8977"
+    },
+    "status": "generated",
+    "tree_sha256": "baefc5006b9c16ee3c4b5340b55e16b81cb36a31350512921baa84c910689906"
+   }
+  },
+  "workload-multiply-giving-verified": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "e1c57268476df3610a17594e75adec72a50f33bf40e92638061968ea36ff2e20",
+     "src/main/java/Mul_Giving.java": "b449113c24f9daadc8206e07e3801d2671a8d1f14e5c8d2e393b016eb8b6f7ff"
+    },
+    "status": "generated",
+    "tree_sha256": "abf070dabc901180937ff788a855d000b3ec9590e7170771699df29b3a445a49"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "208b61a60e8cdca52428ae3442b5e1e81aed73facb2db7dc8daad1bdf7acf97b",
+     "src/main/java/com/generated/app/Application.java": "a3951d3e1f7692e1355fbfec5bace6d81c56736c4690d35e80bb838756056c9a",
+     "src/main/java/com/generated/app/config/AppConfig.java": "4fce39137d873181b7cc520eecdbc7c4f15e19490f2554022b4ae7d6229afa4a",
+     "src/main/java/com/generated/app/service/MulGiving.java": "10a1487393a42ad9bd2c4f3ebd998f4d63c2adf396786199f04f0511fcf675cd",
+     "src/main/resources/application.properties": "f86552a779160ef7ba257381c043bfbd7a68344d55d8d7b1f26a6ce178d2d36f"
+    },
+    "status": "generated",
+    "tree_sha256": "c5ec298875904533691ef14ebddc1227c771623da4e8ce8aa5ca8dcc7bbd4cde"
+   }
+  },
+  "workload-multiprog": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CALCULATE"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: WORKING-STORAGE SECTION is out of order or repeated in the DATA DIVISION: the oracle compiler rejects this program)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: CALCULATE"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: WORKING-STORAGE SECTION is out of order or repeated in the DATA DIVISION: the oracle compiler rejects this program)"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   }
+  },
+  "workload-multiprog-valid": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "c02e367d8f1c9e7bbf30b053ead57ee439033233ad6442db6635e929a69ca3b2",
+     "src/main/java/Calculate.java": "1f5be1fb799141567368cc7764cc55695dd60d2c78de5c92a4818d0c06896dbe",
+     "src/main/java/Mainprog.java": "d8ccc87d4f6bc09468ca5ed54228bd99bcd4e53229178eb7db77ef6a35c2b3db",
+     "src/main/java/ServiceRegistry.java": "d288c72ab136fbc4bcb73e050a18a38fd67b56fa7fab10fa2641dd3e9e8a4688"
+    },
+    "status": "generated",
+    "tree_sha256": "834cb3c6c9eb89865affa32d7f54ed666806519c4a1e5905b9e68f828ea19662"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "b8b315504bd7b44e1fadc3bc0d58566b5b32df226a3879dd60c567dedd6e1098",
+     "src/main/java/com/generated/app/Application.java": "e5b632079898641553970553a80f294002e99a7ef43bcc35835b104a746bfd0f",
+     "src/main/java/com/generated/app/config/AppConfig.java": "722f4bb5ef07272a9c1f634456cd0af3e17ddffcbe307c6ddd028514ceac60ca",
+     "src/main/java/com/generated/app/service/Calculate.java": "b97d6a662a4ab024d9c76b6f3dd87cc559ea2659c1aa93427de627a8aae1fa85",
+     "src/main/java/com/generated/app/service/Mainprog.java": "c912ff5c8880f9813fce3227a61f7839c7fc0751cfaf45f0ef00c3f6c585290c",
+     "src/main/resources/application.properties": "3d0ee07bd69d92634f683f1f44a82a5b592f070a18f507ce0bf738e79b501f96"
+    },
+    "status": "generated",
+    "tree_sha256": "864c050afe23e0b4b8f4449e496ecc23bf1e79cb07b4016ab4af0e8888a9fd63"
+   }
+  },
+  "workload-notices": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "e37b65a034f91ebe428610d4046702ce806ae0deae29478aa6c3e356edaca1b5",
+     "src/main/java/Notices.java": "941cc9d46d4a2e187f592d4c39154518f86266a47af275c3812f0f0dcf5bcc10"
+    },
+    "status": "generated",
+    "tree_sha256": "80b77fa8fadeb3fd0726034b8bafcbb734fa357a436b80002bd6a44c93abe0ac"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "a969f9dfd2d5ef237d6f5b7f21078538f48d8145f00e177d088f50ac5823a3a3",
+     "src/main/java/com/generated/app/Application.java": "90d7ba6cc3ffbba696843502294de21a4110950cf4d59e5de152a2e13f36368a",
+     "src/main/java/com/generated/app/adapter/AbstractNoticeFileAdapter.java": "8a4158c893d1539d3e655d1f412370401c8247e1778075ca19f5335699052d48",
+     "src/main/java/com/generated/app/adapter/NoticeFileAdapter.java": "30d95db6f76ac2d15908fab6f77ee470c4de6fd072c6d8a6aee9f047077cfdd9",
+     "src/main/java/com/generated/app/config/AppConfig.java": "4fa629b5b176eeafbda5e8028fcc09076e692650302fa831fc48005f00ebf0d4",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Notices.java": "dc28365739492434ae1f1fb7928fee4fb3e3060aee47b88cbda0c6a8a0a6d647",
+     "src/main/resources/application.properties": "a51f7bb851d056224b9a0838a3393836ae7e631c544a1db21263cc738fb98154"
+    },
+    "status": "generated",
+    "tree_sha256": "d66f17bbc5980d548cfe5a24138ba5071abcfaaf08b78692bc3fec947bb609f3"
+   }
+  },
+  "workload-numeric-edited": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "25210975ff7e19c5da97aabf5675101f18698f954fe245a50993e1499df37d77",
+     "src/main/java/Edited.java": "5bb15c6a180ee6deb3538dcd1f271a7f1b98292fc0ff1ba35af379263032e53d"
+    },
+    "status": "generated",
+    "tree_sha256": "dd3cef88773686a4772590f964a9083522f906fd87f2b9ee05892cc58e41840f"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "e89afb24f558aea50dc1ae556d39fd64da9b03a3de8391973cac54ab6e859fb4",
+     "src/main/java/com/generated/app/Application.java": "1f063cef3fafc32fdecd17bbbce2f94ad105114f7602331e11a17c571f055f84",
+     "src/main/java/com/generated/app/config/AppConfig.java": "72995f937615991d8319f3d03dd4645801f5e53d8ec07a08875248ebcc5ae4d3",
+     "src/main/java/com/generated/app/service/CobolEdit.java": "8e1fc3d9dc3668713f87f71b83d2a6af6ac38a1d518a4711d4ab71767ba7ecfa",
+     "src/main/java/com/generated/app/service/Edited.java": "0698f66db5ea36ba483ca92b91f0902e0755ad1530ab66d2feb590f3e4076cba",
+     "src/main/resources/application.properties": "e86582010f229bb54dae0e81f31e8db7b29766626e06af9a9d4fbd859ef126de"
+    },
+    "status": "generated",
+    "tree_sha256": "9269712eb2ea8f935695128c9dcbc48b93b8170886492ab5d758d128c1faa731"
+   }
+  },
+  "workload-occurs": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "4513927fc3912fab8a052c11890a790a25c6ba0830943a4aab3ceeb4260424ca",
+     "src/main/java/Occurs_Demo.java": "07ba0324b19f0dd53a13df7e721b2bd61d105853c7fa7b7408e53d5e21b63880"
+    },
+    "status": "generated",
+    "tree_sha256": "ffcd8269569074df47a85bf725b853acdbd5ee5130ab1e2e34cc7215eab9f0d6"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "81f268790a87d8b57f4ba4f02510039574aee750ec0b451842a78047becdcda7",
+     "src/main/java/com/generated/app/Application.java": "b3e5889ebde551c7546059aa758ab5bd62ebf6fbb1d50ab1f69ef451450d9eb4",
+     "src/main/java/com/generated/app/config/AppConfig.java": "3e2227bb96274aba6045ad30d8669943f9d2e64e6ee7a30318796bac8c85bd4b",
+     "src/main/java/com/generated/app/service/OccursDemo.java": "0fd08c3626fd514cdf08966f47250f3f05a63e336f971bb1ec5702f9190275ec",
+     "src/main/resources/application.properties": "964db7e24b0648f6efc123c2cd1a03ac30658b4aaf98180a9c53cc4f256c274a"
+    },
+    "status": "generated",
+    "tree_sha256": "feecf6a8e1e6f99a7b7430c411653bef999cc1173a0a2bb0ced74321223501c3"
+   }
+  },
+  "workload-payroll": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "a8f01b0fcf1babd3c576079520da5b33bd9597df5881919778bcc6b256de3546",
+     "src/main/java/Payroll.java": "bc54c7cdae15c020a0cd13c4172a7cb124aaa217f01d944921dababdc96892ee"
+    },
+    "status": "generated",
+    "tree_sha256": "38c1a71b0f6f6dd1dab58bfc351b04130937eb196495d7db3c6ef14bb9270fb5"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "b7f5cdbc6c434447d9040ab93cc09196ebd1755081c49edd42909bd14dbc35a5",
+     "src/main/java/com/generated/app/Application.java": "5778573db664499f22482c3d0c8391b7e9e59ddd7e5aa265a2dbbb88f2480972",
+     "src/main/java/com/generated/app/adapter/AbstractRecFileAdapter.java": "f85ce69e973759ca52cf09da36f22f8d134374fd6e89f2f99cad7e891e2ebdf0",
+     "src/main/java/com/generated/app/adapter/AbstractRptFileAdapter.java": "23febda01548a7bacdafd80365b59d49d366d25708dcd659ba52aa7e6a6f1bb9",
+     "src/main/java/com/generated/app/adapter/RecFileAdapter.java": "14a356e46c49a5bcace2294ee0b2e19fbcd3a6dabdb63a05ae28f331dfad093f",
+     "src/main/java/com/generated/app/adapter/RptFileAdapter.java": "f40aded04830ee41cc02af21601d1d39ae5a64a34aed454988d28d421596fb2b",
+     "src/main/java/com/generated/app/config/AppConfig.java": "4383d3bc62c9f58aa29292b41a21f8c7d22b5a48eeb1968402ee9cc22ba1eea8",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Payroll.java": "9eb5068a4b2702e60f033f488b3a3c97674d3521c0699987e3dbbf1ad89f57fa",
+     "src/main/resources/application.properties": "2c4fdfecb7fc6edf0a5d7310c7fe18d103d5256c7aca8602fbbebb426c45fcaf"
+    },
+    "status": "generated",
+    "tree_sha256": "9bc956dc336575891a647e48f6d044db05b5b5eae38a40877e3f34c9e9285ee4"
+   }
+  },
+  "workload-perform-varying": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "304cabd2badab4c902a496a016f2b184f2c18a875bfa8d9962eb426e5cc540de",
+     "src/main/java/Perform_Varying_Demo.java": "224d40ce82359efacfd7431d5bb88d315f61bbb3fc8ea1668058b6d5726b2ead"
+    },
+    "status": "generated",
+    "tree_sha256": "bfd6022e4dc62431d85dd622fe96c69c17aeacd4974c0f45234a6fe1b74c02ec"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "413883438425360fc426cbd6b3609c432572639943b35411497000638e12ebfc",
+     "src/main/java/com/generated/app/Application.java": "35af628535382e096ff605aaea06c77ddd7298399b0951538b74da2459c3fc86",
+     "src/main/java/com/generated/app/config/AppConfig.java": "4a79d1960f4368bb29adcd762d842f1ad32ca56e7adfb3c92668c7e7e2bbaa36",
+     "src/main/java/com/generated/app/service/PerformVaryingDemo.java": "11b04fc3718366d4cb7b6c565fc97ffa30807a358b481cefa15aac0ef039b48d",
+     "src/main/resources/application.properties": "0c910c54223298066c2778628e10f29d7c29842b8bcba173039ea366937ae741"
+    },
+    "status": "generated",
+    "tree_sha256": "2cebe9c071f3ef726b5afff7b667fe988f6ea7059ae6de83198816d89087236d"
+   }
+  },
+  "workload-perform-varying-verified": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "19f63e719aece207899ee2207ee3e2cbab3acaa427c656f9e68272eb67acea52",
+     "src/main/java/Main.java": "95bf4b90b1db7cdb17f0ee16c660042ab785706bea56e8a5d2073a5fcfae06d5"
+    },
+    "status": "generated",
+    "tree_sha256": "8208a04a4c8c97da19744fd7095ff8e11c38283eb9f43bf3375401412a2fb09d"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "1dd9c04dfc49ab799ab492cf35632c40784957d463e1e67e9a5d0d2a3b798721",
+     "src/main/java/com/generated/app/Application.java": "335e3e466048bbd27ab11f0de4c1fdd98ae31d3fa68d01f740e79e99be459e76",
+     "src/main/java/com/generated/app/config/AppConfig.java": "24e8016c6531374fe118231072e1536749afc65e5b793cd21d99c82094cf75ad",
+     "src/main/java/com/generated/app/service/Main.java": "47215a88f9b537c1ea30d52ccbc52499762a73c883366207c7a6241ad8120fdf",
+     "src/main/resources/application.properties": "eef7d170ca2f434096ff7e2136007862495f0d0c3a3950167bb203b0b420bfa3"
+    },
+    "status": "generated",
+    "tree_sha256": "04bb79310151ab99006bc4ed8eb2605b9f30aa27ab3883a466652617695d50a0"
+   }
+  },
+  "workload-record-sequential": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "914448c2488dc420bbd195f6e1dee435d3f1b59b16435ee3013e0da232e1af3b",
+     "src/main/java/Extract.java": "f3c3a55c4d818c26ec0ee80d565fad88f054432227ada5c9b3fd8224d488a359"
+    },
+    "status": "generated",
+    "tree_sha256": "6bbce49950a9d04e6f0ce74b79ed85b8396da77af7979d1e1a5b0f0248e69351"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "9fbb060019a4afc969cb7d1094f81283aeb284343adfa2a0fc238819661a0945",
+     "src/main/java/com/generated/app/Application.java": "efb5fd6451eb073eceaf100a3ad4adb6ccc93af35d8c3c5102d40d6bad851ea2",
+     "src/main/java/com/generated/app/adapter/AbstractExtractFileAdapter.java": "5e5556fccf99b13847997d7a9c9d81579d51c38fce0ca322733204330fde9629",
+     "src/main/java/com/generated/app/adapter/AbstractSummaryFileAdapter.java": "74cc2b584d7ce8750da934284d193378d9691ca07b0b301475d96ba47b51b4b4",
+     "src/main/java/com/generated/app/adapter/ExtractFileAdapter.java": "1461ac7465cefcdf7afa0f2192e06f754fa1c22d6ade52811d119eb829dfa776",
+     "src/main/java/com/generated/app/adapter/SummaryFileAdapter.java": "07153ba9938d987e28a5affef679beab774b9041bd8418dabd157c648b41d3eb",
+     "src/main/java/com/generated/app/config/AppConfig.java": "417686de4e2ac4d0ebdf76b8caa6c0315738c932ea64e06148905960f0651190",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Extract.java": "b802fc134c979f65260aca50449a25a32508449631359caba0ef4e800261a02f",
+     "src/main/resources/application.properties": "292b08fe05a5c5e49240d7a1a2db25494941e6f6537a3e66d090c2369ee3268a"
+    },
+    "status": "generated",
+    "tree_sha256": "da842ccf83811154611d792a942cba547fae7e27d3ba3b776897b4e84fb2dcd1"
+   }
+  },
+  "workload-redefines": {
+   "plain_java": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: REDEFINES-DEMO"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: MOVE \"ABCDEF\" TO WS-CHAR: writes non-digit bytes into numeric view WS-NUMERIC (GnuCOBOL decodes them compiler-specifically))"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   },
+   "spring_boot": {
+    "errors": [
+     "Transformation plan contains non-transformable programs: REDEFINES-DEMO"
+    ],
+    "limitations": [
+     "Transformation blocked by capability plan",
+     "Unsupported: Contains unsupported constructs: unparsed_statement (UNSUPPORTED_CONSTRUCT: MOVE \"ABCDEF\" TO WS-CHAR: writes non-digit bytes into numeric view WS-NUMERIC (GnuCOBOL decodes them compiler-specifically))"
+    ],
+    "refusal_code": "PLAN_SKIPPED_PROGRAMS",
+    "status": "refused",
+    "unsupported_markers": [
+     "UNSUPPORTED_CONSTRUCT"
+    ]
+   }
+  },
+  "workload-relative": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "fef3c9836eee3afa9cd5c42fb726b095f0317a255e919210e4d6abdc6635a7bf",
+     "src/main/java/Relative.java": "a83472d63188ff8da58d22036599508c7edcd8c862d97b4f161e3ad95bcf281d"
+    },
+    "status": "generated",
+    "tree_sha256": "fc5a374f26b0da4abd5e75545d557e9081aae371f3348f75f9436f74ac1fefc3"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "17d0b82b47e7ccde4bf19eb8c121ddee0c7848e2d5662e23372e9765eaca1b4d",
+     "src/main/java/com/generated/app/Application.java": "51b62f2857ca71a4bf52799632fc7ec02d24a10f4592f9f17343c3c4f6e47625",
+     "src/main/java/com/generated/app/adapter/AbstractRelFileAdapter.java": "cb672c7b4230d3d099861232fadd9b9411d0e88c6460ceaa57be7e9b91243425",
+     "src/main/java/com/generated/app/adapter/RelFileAdapter.java": "08ba6f48609b933353fc4823d0224a093b9c4c1d083daaf6289dc83e79524b34",
+     "src/main/java/com/generated/app/config/AppConfig.java": "748e53c24e4e4c1ea10791e2d7cd40a77e1ac94150f62414833d4db2e46ec725",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Relative.java": "09caff70c5b029579eeb0da51225dc3d9e10d61e91d34e5725989cf0ad735c1b",
+     "src/main/resources/application.properties": "526c18efab851f3bfa552e4cd69f3e935c9c98c100d0d41133f0a9178cff280b"
+    },
+    "status": "generated",
+    "tree_sha256": "38b39f36c527610495a79c7d1cf56e3fcc62e6b2bf6eb3230112cfaebaef1ca1"
+   }
+  },
+  "workload-relative-file": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "c6ed7be7dd5a05327767ca490cde484b7016dd56f12a2a0e877476b1a9918aec",
+     "src/main/java/Relative_File_Demo.java": "6a40a8c7ccc3028cf4fa0d977ac1fa02b8b21ade9683b0af90e1c26e05fca504"
+    },
+    "status": "generated",
+    "tree_sha256": "9cc38be263d9b863a0daba9b04dc8e6cfd08be160203f158ac97fb1fa8c5da7e"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "1319ad6baa44558881a9e17660332b5360af9cf51dc014d65cf52a890cdebc06",
+     "src/main/java/com/generated/app/Application.java": "6cbc4d4b25817b658f83d7e044c5924b0a0d699b2c0956752d8d87687fa41302",
+     "src/main/java/com/generated/app/adapter/AbstractRelFileAdapter.java": "cb672c7b4230d3d099861232fadd9b9411d0e88c6460ceaa57be7e9b91243425",
+     "src/main/java/com/generated/app/adapter/RelFileAdapter.java": "08ba6f48609b933353fc4823d0224a093b9c4c1d083daaf6289dc83e79524b34",
+     "src/main/java/com/generated/app/config/AppConfig.java": "8ec76ed7a6c537545c4510be528ed48bb94b9ae2647680dfacf296971d50ed91",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/RelativeFileDemo.java": "d030032539af5d439ecd99e4ce47143f2e4928784660510207b9f9d8b08715ef",
+     "src/main/resources/application.properties": "f47e3e322d117d77a7f3f117bbcf0d2db154e7518ed9464ab0becf3756f0bf1c"
+    },
+    "status": "generated",
+    "tree_sha256": "19b1c6682767f8aea94ecdbc414d0289c37b056dee536b6a0ddcce2228542d2e"
+   }
+  },
+  "workload-rewrite": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "29b5ea7bb3890fe73f78cdf1587436086fbcf822de90ae03e27ba8fd698c89e7",
+     "src/main/java/Rewrite_Demo.java": "4470d5e7e8c3d4e9e40b7167e68c955f75e30aef7abd5ee5d38819f7524f1541"
+    },
+    "status": "generated",
+    "tree_sha256": "d5f81349d96d10e885e64c5f949ecd0e6d906f85cbc10a7cb72dfa5e5d2027f2"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "4d588ba110d1c321a200b08a3b0a383fb907ccadd4c0273bbe7bae122225b295",
+     "src/main/java/com/generated/app/Application.java": "6182c2daf1d18f67e91ed252aaae31c99e2d762c5907f32643ec7c49bdbf057a",
+     "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java": "8d74ecd7d7620faddbf982e0863f1c4660e0df2b3a05703a5e4422ea8d16f735",
+     "src/main/java/com/generated/app/adapter/IdxFileAdapter.java": "17ac8903af1d3e565fabe646c7561f6f1fa84ac39c5f405f477a0f3044a535f7",
+     "src/main/java/com/generated/app/config/AppConfig.java": "ff6a3e218da24233016f7bc7cf13094989b6b7361cdf788dc3240fa94d14aa21",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/RewriteDemo.java": "d459cf152a412e5ffabbc2291136b2ff1b110a349735af4f3aaa62d42d46f6c2",
+     "src/main/resources/application.properties": "c29685bef7f5f414ff4c16f80fc09147840a6576fd1225653279525f555495c2"
+    },
+    "status": "generated",
+    "tree_sha256": "3bc1a91124792bc7c9b5ad591ec6ac267dd5278ca81740b7d4756f2cc87bd6e6"
+   }
+  },
+  "workload-start-invalidkey": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "626815fcf65b9b3a6a6469a9bbf2785749b0b1a908121048a54cf2bb6f34363d",
+     "src/main/java/Start_Key_Status.java": "80ea2d4bb23d3b83eb0a533788824e552ec41449d888bc424077001ead78803f"
+    },
+    "status": "generated",
+    "tree_sha256": "67d5b3b7c0da1c9a3b81dae142590e46b6c057ab2ed3cb2d0c4a879b166fd1cf"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "0b72f50c06ac6c5835dd1ef144f36f0d5f5ae6c2b97eaa50f6f7a257f6124ebe",
+     "src/main/java/com/generated/app/Application.java": "018c61cc763a236d890620ee7075877d8bb770cde392c37acc7e79f1f958ee5d",
+     "src/main/java/com/generated/app/adapter/AbstractIdxFileAdapter.java": "8d74ecd7d7620faddbf982e0863f1c4660e0df2b3a05703a5e4422ea8d16f735",
+     "src/main/java/com/generated/app/adapter/IdxFileAdapter.java": "17ac8903af1d3e565fabe646c7561f6f1fa84ac39c5f405f477a0f3044a535f7",
+     "src/main/java/com/generated/app/config/AppConfig.java": "76a2131687b24c8ab99cbe387dabf40e34df1ead1246a231a5833bd302f91200",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/StartKeyStatus.java": "f9b668d7bc883e92028b688a6690a2a4aef00ca9eb6f1c25e4cd512569618cf4",
+     "src/main/resources/application.properties": "c4b24ae4ef0ca1fff38ae2eb6dd55e9858e7da219bb6112b6541ee80d32e7b55"
+    },
+    "status": "generated",
+    "tree_sha256": "6e113660117452e66f264e88971ef3878975f752b807cab7d93f4dd66a3e561f"
+   }
+  },
+  "workload-studentproc": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "72589b86116a6f3548bff7ef47d1d4fcd934b86dbabf8bceecc4010a8e2e4f76",
+     "src/main/java/Student_Processor.java": "cfadafb49262f70737dde4910ca3612b63e53dfe81826b9694bb3f1509db47ad"
+    },
+    "status": "generated",
+    "tree_sha256": "387f2557edea4b6c78867f0ad4bc9d866f686ed3f78a6725fdbd6c21a15b3633"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "8c829cec25fc8d9a3599c8908e9cf6c21e734fcd6099000708d0fb648452fbd1",
+     "src/main/java/com/generated/app/Application.java": "737f3dfc67cf692d6bbaf56ab40de4f2b766d34602c8cf576fb117217fc47c9b",
+     "src/main/java/com/generated/app/adapter/AbstractStudentFileAdapter.java": "a790d135b5acb4be6af8fd863404363a31887e83771d567f792dbcfbaadeed05",
+     "src/main/java/com/generated/app/adapter/StudentFileAdapter.java": "f07e5ccdb962d25711fb7eadf349c6d2812ea0914d6047fa109e7b83d05eec9c",
+     "src/main/java/com/generated/app/config/AppConfig.java": "4c8ee9c8ba5f1f52b6c41584c275fb29d989526be016a632435796f9372b03db",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/StudentProcessor.java": "4464f7085c9b3ed6d6e9d087f789da169f669455dfe29389df0559b67430b573",
+     "src/main/resources/application.properties": "4dc2f4a2e3c32d1f66e10acce5df101877192d41a7b14ed35d2bd35d8186f2a4"
+    },
+    "status": "generated",
+    "tree_sha256": "de912331a579dde5193c7baabed6e7554701168bce95b2875f76da981644d277"
+   }
+  },
+  "workload-subtract": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "83c3366cf138955dd8747b9e1451eb0979197017d1754ad6f5ac865b729e7382",
+     "src/main/java/Subtract_Demo.java": "62945c7c5a532936469840000e08ba8a2103320a0aeca59def50189f6822a302"
+    },
+    "status": "generated",
+    "tree_sha256": "8986c16e3a849f2ee4d89503f819ab8e570e68642c102ee188ec84c3d2f7f4ed"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "e7fc61041516cefb08f752b3982384ed3e59b54e3fdc70e0c2eeb967265f95b0",
+     "src/main/java/com/generated/app/Application.java": "7a1fbe07af46d9ff55ff37fb35dcd2482f58152157315fd2445ee581f4c7f422",
+     "src/main/java/com/generated/app/config/AppConfig.java": "ee720c8eeb1d3d0e2e7eb45f06c7d9d9aa39d86af4833a0bc627947d3b576fb5",
+     "src/main/java/com/generated/app/service/SubtractDemo.java": "033e6c74a2966c7a452667382be1e1257b07078bc1f0c9b0fd4c447ecf71ed35",
+     "src/main/resources/application.properties": "d4bbf700948ddf97969e2114726d16e6ddc7a41e7a5b1ebbd33a597193ab7aa8"
+    },
+    "status": "generated",
+    "tree_sha256": "ce25160d94a2326fba8b043e22496ed9a2dd265ecf28a83cd3e2b50ffc01e4c2"
+   }
+  },
+  "workload-subtract-giving-verified": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "b0a15156881d8b70107d61484cc0e97aff9aa56b2fa9c3ed02f34d6cee87b137",
+     "src/main/java/Sub_Giving.java": "9abbf66d800955585139edaa006fab29538818c894ffc6a4d90c35bca29abd70"
+    },
+    "status": "generated",
+    "tree_sha256": "c9af0b74d7821900f9134137ac03d72de976c71cceaa22b5f2bdc65945f0f8c6"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "dbc898ad88ceac1b48e467a85835fe6e5ffe3db10f7e3e9c094f84c41c1efe9c",
+     "src/main/java/com/generated/app/Application.java": "855544560b8e7f8f7a3515d8a0666b3c0e34afa713357159a5cb302b6cc1e4e0",
+     "src/main/java/com/generated/app/config/AppConfig.java": "f05f0a4e5daa5b600e4a0cdc39ec2492686db2459c39507e6ec97a8f388ad7b0",
+     "src/main/java/com/generated/app/service/SubGiving.java": "9d7c32ac316f9e52ee269ba625dd77b433ab9c73aa3b019f9d4e49abe6d44fed",
+     "src/main/resources/application.properties": "83c81e3fdd8a394f33b02821cc86bbf8d575fd91b4c5d6c4aabc863726f8f00a"
+    },
+    "status": "generated",
+    "tree_sha256": "197ddfa76a03a659f73acefb06fd205ec2dc900d4b859e7f15603e60e3b9072a"
+   }
+  },
+  "workload-subtract-multisource-verified": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "f287d599f695f3435c92539a3273f7872723a0a2a7f2b1e7910ae45d12ebf9e5",
+     "src/main/java/Sub_Ms.java": "1a80677caea1b12e333c98060eba7f92b0c673c7c5f44e656afb34a047308dd3"
+    },
+    "status": "generated",
+    "tree_sha256": "d1e84130fe1b009cd2f98d0c344191cffecf7bae9ae5824a22f86e60de5747dd"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "5f05236e20ed0f5012e052e960b39ffacc332c96b286c3f11aa3a475c425abb6",
+     "src/main/java/com/generated/app/Application.java": "ce19590de4f90d7b695ffc88260bc43610584f515b1c5e2d7c9202c748f1f6ac",
+     "src/main/java/com/generated/app/config/AppConfig.java": "2f16e8e94a924120d7468bacca46a0b9cba3bab86c55fcbda3add166697921a3",
+     "src/main/java/com/generated/app/service/SubMs.java": "221e0c375be52dddb597ab33c7476efad7afee6e85e4988d4b0d8f40aecaadca",
+     "src/main/resources/application.properties": "0831cbcbd19deeb498c17e2598b08fe6c08037584580fcefcf5601154e3abce9"
+    },
+    "status": "generated",
+    "tree_sha256": "54ad0cc5744085426665e23819c6e0d111fe66a27bc1ba3a47bd7df714d7c906"
+   }
+  },
+  "workload-universal": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "ed38730e944d1bd3b16884c93323d093ff01f53af0975d64c44c411d7a2177e0",
+     "src/main/java/Main.java": "f75780e41da23cf01ddd09484168c8b9189c828061f0b4b777bbb74c14857931",
+     "src/main/java/Report.java": "0065f738c11f209401d1b3dd470aa7d69ab51fa0949613a0b959876ac3b29c00",
+     "src/main/java/ServiceRegistry.java": "3cf85647fd6a18c65d6a699ba35d59130b849131a9def28fd7c839309666890f",
+     "src/main/java/Util.java": "1cc93962b063cb91b439b3d2ab0a88550ac0d731b175720c32a435798f710697",
+     "src/main/java/com/generated/app/model/CommonRecord.java": "c649eeba18e16cfd78024eefd892220e34657762c8b9a93ff86165390108ee10"
+    },
+    "status": "generated",
+    "tree_sha256": "6dec8474090f4119e039d2d4fd84337fbf94e28a994408ab8238857b7de90edf"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "ea92c3ca97afafd17d5160e25f285fa023f2241e63c950a094a101237db472a8",
+     "src/main/java/com/generated/app/Application.java": "ef9cb640a3789d7c3a3644f0b21b36c47510b40a13ca42105380dc0e6a70a2a2",
+     "src/main/java/com/generated/app/config/AppConfig.java": "a9f3f9f6f6a8082138fca7cfafb81a92f6544a78c01e709ff215995704f21de2",
+     "src/main/java/com/generated/app/model/CommonRecord.java": "11536a600280ef4746a47343062ac725f328016cb6b696d96d9eec8fbf8554ae",
+     "src/main/java/com/generated/app/service/Main.java": "abd99827997d423b378a6aac8146193c68591f715b716ac022fd9edf2a36e9dd",
+     "src/main/java/com/generated/app/service/Report.java": "c35cc426724453f53d00fcffa5ebc3372087529b1f8a6e6dd88ab6d5fd092870",
+     "src/main/java/com/generated/app/service/Util.java": "c1cef863b9f18dd6f2e3c39bf717667502ee98849cecdcb72006e298bfb452c7",
+     "src/main/resources/application.properties": "96ec595f11220f5b50e1a9207e04d738dc81c8f135b021bf8e95cd7306d033a9"
+    },
+    "status": "generated",
+    "tree_sha256": "457aac4e263e7bd9ffb37f53e3742d28a777a5a55bd897bddf0334c9b76df3d0"
+   }
+  },
+  "workload_inventory": {
+   "plain_java": {
+    "files": {
+     "pom.xml": "128608c8b57d5c0804eda7acb244b5bd3debfb75ea185db3132866f905a53b64",
+     "src/main/java/Inventory.java": "8093d109ecd440afef38f88f108009ad9ea78c1999542a0c7d1c9038005bb430"
+    },
+    "status": "generated",
+    "tree_sha256": "bab185ad689634f39a32f6f387f3c5b8d966d377892637ac0cd2192d53181b0b"
+   },
+   "spring_boot": {
+    "files": {
+     "pom.xml": "7f1e8fdae2b30553e7a3a4d6d5fcaca57e8ea7656ac6f055ef8c2c54462d8e5c",
+     "src/main/java/com/generated/app/Application.java": "b0e17c3efe342239090465425cf3e8d340915a4b70877e2f47334ef6685b0c1e",
+     "src/main/java/com/generated/app/adapter/AbstractRecFileAdapter.java": "f85ce69e973759ca52cf09da36f22f8d134374fd6e89f2f99cad7e891e2ebdf0",
+     "src/main/java/com/generated/app/adapter/AbstractRptFileAdapter.java": "23febda01548a7bacdafd80365b59d49d366d25708dcd659ba52aa7e6a6f1bb9",
+     "src/main/java/com/generated/app/adapter/RecFileAdapter.java": "14a356e46c49a5bcace2294ee0b2e19fbcd3a6dabdb63a05ae28f331dfad093f",
+     "src/main/java/com/generated/app/adapter/RptFileAdapter.java": "f40aded04830ee41cc02af21601d1d39ae5a64a34aed454988d28d421596fb2b",
+     "src/main/java/com/generated/app/config/AppConfig.java": "d266025f3e58a8a05df30a3fdb091689eb8c68902c736540fd515e3ea7fe2c08",
+     "src/main/java/com/generated/app/service/CobolFileIo.java": "2c45bc6b1983028be06a80d6340ee848445a1897d922be59ddd2c03eca6238d6",
+     "src/main/java/com/generated/app/service/Inventory.java": "e2f337c4badfa4cfba439882463754e73d9fa9549664f5204190e41872ffd88d",
+     "src/main/resources/application.properties": "b9f0097674df919ab76e98226f086bed37425c2b23733ebf1ec0f5d13a5c0f36"
+    },
+    "status": "generated",
+    "tree_sha256": "3470211bab6bc3074d91b712283150edb41f18c4b3ff0ac42f3bff1775e0cbf4"
+   }
+  }
+ },
+ "exclusions": [],
+ "runtimes": [
+  "spring_boot",
+  "plain_java"
+ ],
+ "schema": "generation-hashes/1",
+ "tool": "tools/generation_hashes.py"
+}

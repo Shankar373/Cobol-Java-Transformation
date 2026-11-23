@@ -62,8 +62,7 @@ from engine.transformation.semantic_capability import canonical_usage
 from engine.transformation.sign_conditions import rewrite_sign_conditions
 from engine.transformation.source_format import (
     code_mentions,
-    compiler_visible_text,
-    detect_source_format,
+    positioned_lines,
     reference_format_errors,
     unquote_literal,
 )
@@ -602,6 +601,25 @@ class CobolParser:
         self._record_owner_ambiguous: dict[str, tuple[str, ...]] = {}
         self._file_records: dict[str, tuple[str, ...]] = {}
         self._file_buffer_record: dict[str, str] = {}
+        self._line_map: tuple[int, ...] = ()
+        self._code_lines: tuple[str, ...] = ()
+
+    @property
+    def last_line_map(self) -> tuple[int, ...]:
+        """Physical source line (1-based) of each parsed code line of the most recent ``parse``.
+
+        ``last_line_map[i]`` is the physical line where the i-th logical code line the statement
+        parser read begins (a fixed-format continuation maps to the line it continues; a header
+        joined from several lines maps to its first).  Empty when a text-rewriting pass changed the
+        number of lines in a way that cannot be mapped back (never a guessed map).  It is kept beside
+        the IR, not inside it: the frozen IR dataclasses (and so generation output) are unchanged.
+        """
+        return self._line_map
+
+    @property
+    def last_code_lines(self) -> tuple[str, ...]:
+        """The logical code lines the statement parser read in the most recent ``parse`` (see ``last_line_map``)."""
+        return self._code_lines
 
     @property
     def diagnostics(self) -> DiagnosticCollector:
@@ -643,10 +661,13 @@ class CobolParser:
             location=name,
         )
 
-    def _apply_replace_directives(self, lines: list[str]) -> list[str]:
+    def _apply_replace_directives(
+        self, lines: list[str], numbers: list[int]
+    ) -> tuple[list[str], list[int]]:
         """Apply REPLACE compiler directives as a source preprocessor.
 
-        Returns a new list of source lines with substitutions applied.
+        Returns a new list of source lines with substitutions applied, with the
+        physical line number (``numbers``) of each surviving line.
         REPLACE OFF ends the current replacement scope.
 
         Audit 2026-11-03 (T6): substitution is the copybook REPLACING
@@ -658,8 +679,9 @@ class CobolParser:
         from engine.transformation.copybook_model import _apply_replacing
 
         result: list[str] = []
+        kept: list[int] = []
         active: list[tuple[str, str]] = []  # (old, new) pairs
-        for line in lines:
+        for line, number in zip(lines, numbers):
             stripped = line.strip()
             upper = stripped.upper()
             if upper.startswith("REPLACE "):
@@ -676,11 +698,13 @@ class CobolParser:
                         location="REPLACE",
                     )
                     result.append(line)
+                    kept.append(number)
                     continue
                 active = list(pairs)
                 continue
             result.append(_apply_replacing(line, tuple(active)) if active else line)
-        return result
+            kept.append(number)
+        return result, kept
 
     def _parse_replace_pairs(self, text: str) -> list[tuple[str, str]] | None:
         """Parse ``==old== BY ==new==`` pairs separated by commas.
@@ -711,6 +735,8 @@ class CobolParser:
         self._diagnostics.clear()
         self._unsupported_statements = []
         self._record_owner = {}
+        self._line_map = ()
+        self._code_lines = ()
         self._record_owner_ambiguous = {}
         self._file_records = {}
         self._file_buffer_record = {}
@@ -757,14 +783,18 @@ class CobolParser:
                 location=str(_read.conditional_line),
             )
         # Fixed format: the compiler never sees columns 73+, so neither may we.
-        lines = compiler_visible_text(source).split("\n")
-        fixed_format = detect_source_format(source) == "fixed"
+        positioned = positioned_lines(source)
         debugging_mode = re.search(
             r"WITH\s+DEBUGGING\s+MODE", self._mask_quoted(source), re.IGNORECASE
         ) is not None
         # Remove comments and empty lines
         code_lines: list[str] = []
-        for line in lines:
+        code_numbers: list[int] = []
+        for positioned_line in positioned:
+            line = positioned_line.text
+            # The indicator area belongs to a *fixed* segment: the format is the line's own
+            # (mixed files switch mid-file), never the file's start format.
+            fixed_format = positioned_line.format != "free"
             if fixed_format and len(line) > 6 and re.fullmatch(r"[\d ]{6}", line[:6]):
                 # Column 7 is the indicator area in fixed format whatever
                 # columns 1-6 hold (usually spaces, not digits): ``*`` and
@@ -813,15 +843,18 @@ class CobolParser:
                     )
             if cleaned and not cleaned.startswith("*"):
                 code_lines.append(cleaned)
+                code_numbers.append(positioned_line.line)
 
         # REPLACE compiler directive: text substitution preprocessor.
         # ``REPLACE ==old== BY ==new==.`` applies the substitution to all
         # subsequent source lines until ``REPLACE OFF.``.  Multiple pairs are
         # separated by commas.  Only pseudo-text (==...==) operands are
         # supported; bare-word operands fail closed with a diagnostic.
-        code_lines = self._apply_replace_directives(code_lines)
+        code_lines, code_numbers = self._apply_replace_directives(code_lines, code_numbers)
         code_lines, qualification_problems = resolve_qualified_names(code_lines)
+        mapped = len(code_lines) == len(code_numbers)
         code_lines, next_sentence_problems = rewrite_next_sentence(code_lines)
+        mapped = mapped and len(code_lines) == len(code_numbers)
         for problem in next_sentence_problems:
             self._diagnostics.warning(DiagnosticCode.UNSUPPORTED_CONSTRUCT, problem, location="NEXT SENTENCE")
         for problem in qualification_problems:
@@ -832,7 +865,8 @@ class CobolParser:
         # statements. Both structured parsing and semantic extraction need
         # the same logical header (without rewriting the original source).
         logical_lines = []
-        for line in code_lines:
+        logical_numbers: list[int] = []
+        for index, line in enumerate(code_lines):
             if logical_lines and line.strip() == ".":
                 # A separator period on its own line ends the sentence exactly
                 # as if written at the end of the previous line.
@@ -859,7 +893,11 @@ class CobolParser:
                 logical_lines[-1] += " " + line
             else:
                 logical_lines.append(line)
+                if mapped:
+                    logical_numbers.append(code_numbers[index])
         code_lines = logical_lines
+        self._line_map = tuple(logical_numbers) if mapped else ()
+        self._code_lines = tuple(logical_lines)
         # Recognised-but-unimplemented constructs must never vanish silently:
         # LOCAL-STORAGE SECTION and the REPLACE compiler directive change what
         # the program does, so the parser names them explicitly the moment it

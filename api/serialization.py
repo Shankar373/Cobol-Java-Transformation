@@ -359,6 +359,8 @@ def encode_evidence_manifest(manifest: EvidenceManifest) -> bytes:
     }
     if manifest.graph_traceability:
         payload["graph_traceability"] = dict(manifest.graph_traceability)
+    if manifest.dialect_profiles:
+        payload["dialect_profiles"] = dict(manifest.dialect_profiles)
     return _encode_envelope(SCHEMA_EVIDENCE, payload)
 
 
@@ -531,14 +533,18 @@ def _decode_verdict_evidence(raw: object) -> VerdictEvidence | None:
     )
 
 
-def _decode_graph_traceability(raw: object) -> tuple[tuple[str, str], ...]:
+def _decode_string_map(raw: object, name: str) -> tuple[tuple[str, str], ...]:
     if raw is None:
         return ()
-    items = _expect_dict(raw, "graph_traceability")
+    items = _expect_dict(raw, name)
     for key, value in items.items():
         if not isinstance(key, str) or not isinstance(value, str):
-            _fail("graph_traceability must map strings")
+            _fail(f"{name} must map strings")
     return tuple(sorted(items.items()))
+
+
+def _decode_graph_traceability(raw: object) -> tuple[tuple[str, str], ...]:
+    return _decode_string_map(raw, "graph_traceability")
 
 
 def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
@@ -675,6 +681,7 @@ def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
             verdict_evidence=_decode_verdict_evidence(payload.get("verdict_evidence")),
             created_at=_expect_str(payload.get("created_at"), "created_at"),
             graph_traceability=_decode_graph_traceability(payload.get("graph_traceability")),
+            dialect_profiles=_decode_string_map(payload.get("dialect_profiles"), "dialect_profiles"),
         )
     except PersistenceCorruptionError:
         raise

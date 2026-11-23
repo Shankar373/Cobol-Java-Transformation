@@ -39,7 +39,9 @@ from engine.transformation.cobol_parser import CobolParser, CobolParseError
 from engine.transformation.copybook_resolver import (
     AmbiguousCopybookError,
     CopybookResolutionError,
+    LibraryOrders,
     copybook_search_dirs,
+    orders_for,
     resolve_copybook,
 )
 from engine.transformation.ir import (
@@ -56,7 +58,7 @@ from engine.transformation.ir import (
 from engine.transformation.diagnostics import DiagnosticCode
 from engine.transformation.fd_copybooks import expand_fd_copybooks
 from engine.transformation.file_ownership import record_ownership
-from engine.transformation.source_format import compiler_visible_text
+from engine.transformation.source_format import comment_free_lines, positioned_lines
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +83,6 @@ _FILE_VERB_WRITE = re.compile(
     re.IGNORECASE,
 )
 _COBOL_STRING_LITERAL = re.compile(r'"[^"\n]*"|' r"'[^'\n]*'")
-_COBOL_COMMENT_LINE = re.compile(r"(?m)^[ \t]*\*")
-_COBOL_INLINE_COMMENT = re.compile(r"\*>.*$", re.MULTILINE)
-# Full-line comment blanking for the CALL/COPY scanner: the
-# comment-indicator regex above only strips the leading "*", so the CALL/COPY
-# scanner blanks whole comment lines offset-preservingly instead.
-_COBOL_COMMENT_LINE_FULL = re.compile(r"(?m)^[ \t]*\*.*$")
 # Single-pass CALL/COPY scanner.  Alternation priority is the
 # contract: at the leftmost match a real CALL/COPY verb captures its own
 # operand (quoted literals included), while any other string literal or
@@ -98,33 +94,70 @@ _COBOL_COMMENT_LINE_FULL = re.compile(r"(?m)^[ \t]*\*.*$")
 _CALL_COPY_SCAN = re.compile(
     r"(?<![A-Za-z0-9_-])(?P<verb>CALL|COPY)(?P<gap>\s+)"
     r"(?P<operand>\"[^\"]+\"|'[^']+'|\S+)"
-    r"|\"[^\"]*\"|'[^']*'"
-    r"|\*>[^\n]*",
+    r"|\"[^\"]*\"|'[^']*'",
     re.IGNORECASE,
 )
+
+
+def _display_path(path: Path, root: Path) -> str:
+    """``path`` relative to ``root`` in POSIX form (the file name when it lies outside the root)."""
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _copy_location(visible: str, end: int, source_path: str) -> str:
+    """``file:line`` of the COPY statement whose operand ends at ``end`` in the compiler-visible text.
+
+    The compiler-visible text keeps the physical line structure (continuations fold into the line they
+    continue), so the line number is the one the single reader assigns.  ``file`` is omitted when unknown.
+    """
+    verb_at = visible.upper().rfind("COPY", 0, end)
+    line = visible.count("\n", 0, max(verb_at, 0)) + 1
+    return f"{source_path}:{line}" if source_path else str(line)
 
 
 def _scan_call_copy(source: str) -> list[tuple[str, str, int]]:
     """Return ``(verb, operand, end_index)`` for *real* CALL/COPY statements.
 
-    Comment lines are blanked offset-preservingly first; string literals and
-    ``*>`` inline comments that are not the verb's own operand are consumed
-    whole by the scanner's alternation (data, never statements).
+    String literals that are not the verb's own operand are consumed whole by
+    the scanner's alternation (data, never statements).
 
-    ``source`` must be compiler-visible text (``compiler_visible_text``):
+    ``source`` must be :func:`_visible_program_text` (the compiler-visible
+    text with comment text removed by the single reader):
     the literal alternation pairs quotes, which only works once continued
     literals are folded and doubled-quote escapes are re-delimited — on raw
     text one continued literal shifts every later pairing, so literal text
     reads as code and real statements read as literals.
     """
-    masked = _COBOL_COMMENT_LINE_FULL.sub(lambda m: " " * len(m.group(0)), source)
     found: list[tuple[str, str, int]] = []
-    for match in _CALL_COPY_SCAN.finditer(masked):
+    for match in _CALL_COPY_SCAN.finditer(source):
         verb = match.group("verb")
         if verb is None:
             continue  # bare literal or inline comment: data, not a statement
         found.append((verb.upper(), match.group("operand"), match.end()))
     return found
+
+
+def _program_text_lines(source: str) -> list[str]:
+    """The program text of ``source``, one entry per physical line, as the single reader decides it.
+
+    A comment, debug (``D``), compiler-card, directive or dead ``>>IF`` branch line, a continuation line (folded
+    into its anchor) and a free-format ``*>`` tail all contribute an empty entry, so a verb written there is
+    never seen.  The area prefix is already cut (``PositionedLine.code``).
+    """
+    return [pl.code if pl.kind == "code" else "" for pl in positioned_lines(source)]
+
+
+def _visible_program_text(source: str) -> str:
+    """``compiler_visible_text`` with comment text removed (line structure kept).
+
+    Comment, debug, card, directive and dead-branch lines are blank and a ``*>`` tail is cut where the single
+    reader says the comment starts, so a CALL/COPY written there is never scanned and line numbers still
+    count physical lines.
+    """
+    return "\n".join(comment_free_lines(source, keep_line_numbers=True))
 
 
 def _remaining_copybooks(copybooks, consumed) -> tuple[str, ...]:
@@ -155,12 +188,16 @@ class ApplicationDiscovery:
         self,
         source_dir: str | Path,
         application_id: str | None = None,
+        orders: LibraryOrders = (),
     ) -> CobolApplication:
         """Discover COBOL application structure from a source directory.
 
         Args:
             source_dir: directory containing COBOL source files
             application_id: explicit application ID (default: directory name)
+            orders: library orders deciding same-named copybooks (one list
+                for all programs, or ``PROGRAM-ID -> orders``); see
+                ``copybook_resolver.orders_for``.  Empty keeps ``AMBIGUOUS``.
 
         Returns:
             CobolApplication with discovered programs and dependencies
@@ -188,7 +225,7 @@ class ApplicationDiscovery:
 
         for cobol_file in cobol_files:
             unit, error = self._parse_program_unit(
-                cobol_file, source_path, copybook_dirs
+                cobol_file, source_path, copybook_dirs, orders
             )
             if unit is not None:
                 program_units.append(unit)
@@ -245,6 +282,7 @@ class ApplicationDiscovery:
         cobol_file: Path,
         source_root: Path,
         copybook_dirs: tuple[Path, ...] | None = None,
+        orders: LibraryOrders = (),
     ) -> tuple[CobolProgramUnit | None, str | None]:
         """Parse a single COBOL file into a program unit.
 
@@ -306,7 +344,8 @@ class ApplicationDiscovery:
             # COPY statements inside the FILE SECTION are expanded before parsing (G-26): the FD's
             # record belongs to the file, so it must be in the FD when the parser reads it.
             expansion = expand_fd_copybooks(
-                source, copybook_dirs or (source_root, cobol_file.parent))
+                source, copybook_dirs or (source_root, cobol_file.parent),
+                source_file=_display_path(cobol_file, source_root))
             program = self._parser.parse(expansion.source)
             parse_diagnostics = _collected_diagnostics() + tuple(
                 f"{d.code}: {d.message}" for d in expansion.errors)
@@ -317,6 +356,8 @@ class ApplicationDiscovery:
                 source,
                 program.program_id,
                 search_dirs=copybook_dirs or (source_root, cobol_file.parent),
+                orders=orders,
+                source_path=_display_path(cobol_file, source_root),
             )
             entry_points = self._extract_entry_points(source)
             file_deps = self._extract_file_dependencies(
@@ -375,6 +416,8 @@ class ApplicationDiscovery:
                 source,
                 program_id,
                 search_dirs=copybook_dirs or (source_root, cobol_file.parent),
+                orders=orders,
+                source_path=_display_path(cobol_file, source_root),
             )
             entry_points = self._extract_entry_points(source)
             file_deps = self._extract_file_dependencies(source, program_id)
@@ -416,14 +459,13 @@ class ApplicationDiscovery:
         regex scan that does NOT require a full parser pass so it succeeds even
         when the parser would raise CobolParseError.
         """
-        for line in source.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("*") or not stripped:
+        for code in _program_text_lines(source):
+            stripped = code.strip()
+            if not stripped:
                 continue
-            # Fixed-format source carries a 6-column sequence number, so the
-            # verb does not start the (stripped) line.  Search rather than
-            # anchor on the column start, otherwise the file is silently
-            # excluded from discovery.
+            # ``code`` has the sequence number and indicator columns cut by the
+            # single reader, but search rather than anchor on the start so a
+            # leading label or paragraph name does not exclude the file.
             m = re.search(r"PROGRAM-ID[.\s]+([A-Z0-9][A-Z0-9\-]*)", stripped, re.IGNORECASE)
             if m:
                 return m.group(1).rstrip(".").strip()
@@ -439,7 +481,7 @@ class ApplicationDiscovery:
         """
         calls: list[ProgramCall] = []
         # Scan and slice the same canonical text (offsets index into it).
-        source = compiler_visible_text(source)
+        source = _visible_program_text(source)
 
         for verb, operand, end in _scan_call_copy(source):
             if verb != "CALL":
@@ -477,6 +519,8 @@ class ApplicationDiscovery:
         source: str,
         source_program: str,
         search_dirs: tuple[Path, ...] = (),
+        orders: LibraryOrders = (),
+        source_path: str = "",
     ) -> list[CopybookReference]:
         """Extract COPY statements from COBOL source and resolve them on disk.
 
@@ -490,7 +534,8 @@ class ApplicationDiscovery:
         """
         copybooks: list[CopybookReference] = []
 
-        for verb, operand, _end in _scan_call_copy(compiler_visible_text(source)):
+        visible = _visible_program_text(source)
+        for verb, operand, end in _scan_call_copy(visible):
             if verb != "COPY":
                 continue
             copybook_name = operand.rstrip(".")
@@ -500,11 +545,12 @@ class ApplicationDiscovery:
                 continue
 
             resolution, resolved_path = self._resolve_copybook(
-                copybook_name, source_program, search_dirs
+                copybook_name, source_program, search_dirs, orders
             )
             copybooks.append(CopybookReference(
                 source_program=source_program,
                 copybook_name=copybook_name,
+                location=_copy_location(visible, end, source_path),
                 resolution=resolution,
                 resolved_path=resolved_path,
             ))
@@ -516,6 +562,7 @@ class ApplicationDiscovery:
         copybook_name: str,
         source_program: str,
         search_dirs: tuple[Path, ...],
+        orders: LibraryOrders = (),
     ) -> tuple[str, str]:
         """Resolve one COPY reference.
 
@@ -526,7 +573,8 @@ class ApplicationDiscovery:
             return "UNRESOLVED", ""
         try:
             resolved = resolve_copybook(
-                copybook_name, search_dirs, program_id=source_program
+                copybook_name, search_dirs, program_id=source_program,
+                orders=orders_for(orders, source_program),
             )
         except AmbiguousCopybookError:
             return "AMBIGUOUS", ""
@@ -544,7 +592,7 @@ class ApplicationDiscovery:
             re.IGNORECASE,
         )
 
-        for match in entry_pattern.finditer(source):
+        for match in entry_pattern.finditer("\n".join(_program_text_lines(source))):
             entry_name = match.group(1) or match.group(2)
             entry_points.append(entry_name)
 
@@ -571,9 +619,7 @@ class ApplicationDiscovery:
         cannot be resolved to a declared file is kept verbatim and stays
         fail-closed downstream (``File dependency X has no FILE definition``).
         """
-        scan_source = _COBOL_STRING_LITERAL.sub(" ", source)
-        scan_source = _COBOL_COMMENT_LINE.sub(" ", scan_source)
-        scan_source = _COBOL_INLINE_COMMENT.sub(" ", scan_source)
+        scan_source = _COBOL_STRING_LITERAL.sub(" ", "\n".join(_program_text_lines(source)))
 
         ownership = record_ownership(file_definitions)
 

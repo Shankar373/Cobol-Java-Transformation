@@ -26,7 +26,7 @@ PUBLIC_KEYS = ("status", "allowed", "blockers", "blocking_references", "unsuppor
 
 
 #: Bump when the readiness policy changes: stored records of an older policy are re-assessed.
-POLICY_VERSION = "2"
+POLICY_VERSION = "3"  # 3: records carry library_orders and dialect_profiles for the engine bridge
 _CHUNK = 1 << 20
 
 
@@ -85,7 +85,31 @@ def assess_workspace(workspace: Path, label: str) -> dict[str, Any]:
     record.update(checkpoint_id=result.checkpoint.checkpoint_id, source_digest=result.checkpoint.source_digest,
                   discovery_run_id=run.run_id, gate_status=result.report["completeness"]["status"],
                   toolchain={"backend": tools["kind"], "version": tools.get("version", "")})
+    record.update(library_orders=library_orders_record(result.library_orders),
+                  dialect_profiles=profile_pairs(result.report))
     return record
+
+
+def library_orders_record(orders: dict[str, tuple[tuple[str, ...], ...]]) -> dict[str, list[list[str]]]:
+    """Discovery's per-program library orders as JSON-safe plain data (sorted by program)."""
+    return {program: [list(order) for order in orders[program]] for program in sorted(orders)}
+
+
+def profile_pairs(report: dict[str, Any]) -> list[list[str]]:
+    """``[[file, profile_id], ...]`` sorted by file, read straight from the discovery report's DialectProfiles
+    (``report['dialects']['profiles']``): the dialect/format authority is discovery, nothing is re-derived here."""
+    profiles = report.get("dialects", {}).get("profiles", [])
+    return sorted([str(p["file"]), str(p["profile_id"])] for p in profiles if p.get("profile_id"))
+
+
+def engine_wiring(record: dict[str, Any]) -> tuple[tuple[tuple[str, tuple[tuple[str, ...], ...]], ...], tuple[tuple[str, str], ...]]:
+    """``(library_orders, dialect_profiles)`` of a readiness record as the immutable plain-data tuples the engine
+    configs take; both empty for a record without them (older or blocked records never invent facts)."""
+    orders = record.get("library_orders") or {}
+    library_orders = tuple((str(program), tuple(tuple(str(name) for name in order) for order in value))
+                           for program, value in sorted(orders.items()))
+    profiles = tuple(sorted((str(pair[0]), str(pair[1])) for pair in record.get("dialect_profiles") or ()))
+    return library_orders, profiles
 
 
 def public(record: dict[str, Any]) -> dict[str, Any]:

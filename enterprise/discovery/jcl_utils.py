@@ -152,7 +152,7 @@ def analyse_tso(path: str, body: list[tuple[int, str]], owner: str) -> tuple[lis
             facts.append(Fact(path, number, 1, "db2-bind", " ".join(upper.split()[:2]), owner,
                               detail(plan=_paren(upper, "PLAN"), package=_paren(upper, "PACKAGE"))))
             for member in _names(upper, "MEMBER"):
-                refs.append(Ref(path, number, 1, "binds", "dbrm", member, owner, "DB2 BIND MEMBER"))
+                refs.append(Ref(path, number, 1, "uses-db2", "dbrm", member, owner, "DB2 BIND MEMBER"))  # closed vocabulary: no "binds"
             for plan in _names(upper, "PLAN"):
                 refs.append(Ref(path, number, 1, "uses-db2", "db2-plan", plan, owner, "DB2 BIND PLAN"))
         elif head in ("END", "SUBCOM", "FREE", "REBIND", "DSNH", "CALL", "EX", "EXEC", "ALLOC", "ALLOCATE"):

@@ -29,7 +29,12 @@ or a JDK fails (`tests/conftest.py`).
 1. Write the failing test first; show it red against the current code.
 2. Keep generated output byte-identical for constructs you did not mean to
    change: hash the generated project of every fixture application before
-   and after (the method used throughout `docs/audits/CHANGE_LEDGER.md`).
+   and after (the method used throughout `docs/audits/CHANGE_LEDGER.md`):
+   `python tools/generation_hashes.py --check docs/audits/generation_hashes.json`
+   must report `identical` (exit 0); it names every changed file otherwise
+   (exit 1). Compare against another ref with `--ref <git-ref>`; after an
+   intended change, regenerate the baseline with `--write
+   docs/audits/generation_hashes.json` and review the diff.
 3. Run focused tests locally; CI runs the full hermetic, pytest-only gate,
    Docker and frontend suites on the pushed commit. Put `[certify]` in the
    commit message when generation, the pipeline or verification changed —

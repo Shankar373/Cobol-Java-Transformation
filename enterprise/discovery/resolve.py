@@ -21,7 +21,7 @@ from .inventory import FileRecord
 from .jcl_utils import SYSTEM_PROGRAMS
 from .library_order import library_winner as _shared_library_winner
 
-__all__ = ["build_graph", "GraphBuild", "Estate"]
+__all__ = ["build_graph", "GraphBuild", "Estate", "orders_for_program", "program_library_orders"]
 
 PLATFORM_COPYBOOK_PREFIXES = ("DFH", "CMQ", "SQL", "DLI", "IKJ", "IGZ", "CEE", "DSN", "AIB", "UIB")
 PLATFORM_PROC_PREFIXES = ("IGYW", "IGYC", "IGYR", "DFHYI", "DFHEI", "DSNH", "ELAX", "IEWL", "CEEW", "CBLW", "ASMA", "EDC")
@@ -88,6 +88,8 @@ class GraphBuild:
     estate: Estate
     #: ``program name -> [(job/proc label, ddname, dataset)]`` for the report.
     bindings: list[dict[str, object]] = field(default_factory=list)
+    #: ``program -> steps that run it`` with procedures expanded (the input of :func:`program_library_orders`).
+    runs: dict[str, list[_Step]] = field(default_factory=dict)
 
 
 def _add(index: dict[str, list], key: str, value: object) -> None:
@@ -305,6 +307,43 @@ def _effective_runs(est: Estate) -> dict[str, list[_Step]]:
                             merged.dds[ddname] = list(refs)
                     runs.setdefault(proc_step.program.upper(), []).append(merged)
     return runs
+
+
+def orders_for_program(est: Estate, runs: dict[str, list[_Step]], program: str, source_file: str) -> list[list[str]]:
+    """THE library-order derivation (single authority for discovery and the engine bridge).
+
+    One order per step that runs ``program`` (its ``SYSLIB`` DD, else the job's ``JCLLIB ORDER``), or the compile
+    command's ``-I`` order for ``source_file`` when no JCL runs it.  Each order is the list of dataset/directory
+    names as written, upper-cased for DDs; empty when nothing in the estate says how the program is built.
+    """
+    orders: list[list[str]] = []
+    for step in runs.get(program.upper(), []):
+        syslib = [dd.target.upper() for dd in step.dds.get("SYSLIB", []) if dd.target]
+        job = step.label.split(":", 1)[-1].split("/", 1)[0].upper()
+        jcllib = [target for _position, target in sorted(est.jcllib.get(job, []))]
+        if syslib or jcllib:
+            orders.append(syslib or jcllib)
+    if not orders:
+        include = est.include_order.get(source_file.rsplit("/", 1)[-1].lower())
+        if include:
+            orders.append(list(include))
+    return orders
+
+
+def program_library_orders(build: "GraphBuild") -> dict[str, tuple[tuple[str, ...], ...]]:
+    """``PROGRAM-ID -> tuple of library orders`` for every program the estate defines exactly once and whose
+    build/run facts give at least one order.  Deterministic (sorted keys, sorted de-duplicated orders), plain data,
+    derived by the same :func:`orders_for_program` discovery's copybook resolution uses.  A program defined in more
+    than one file is omitted (its orders would be a guess), so the engine keeps its existing behaviour for it."""
+    result: dict[str, tuple[tuple[str, ...], ...]] = {}
+    for program, defs in sorted(build.estate.programs.items()):
+        files = sorted({path for path, _line, _kind in defs})
+        if len(files) != 1:
+            continue
+        orders = orders_for_program(build.estate, build.runs, program, files[0])
+        if orders:
+            result[program] = tuple(sorted({tuple(order) for order in orders}))
+    return result
 
 
 class _Builder:
@@ -530,21 +569,8 @@ class _Builder:
         self.graph.nodes[node_id] = Node(node_id, "copybook", path, record.sha256 if record else "", "input")
 
     def _library_orders(self, ref: Ref) -> list[list[str]]:
-        """Library concatenations that apply to the program writing ``ref``: one per step that runs it (its ``SYSLIB``
-        DD, else the job's ``JCLLIB ORDER``), or the compile command's ``-I`` order when no JCL runs it."""
-        program = _scope(ref.owner)[1].upper()
-        orders: list[list[str]] = []
-        for step in self.runs.get(program, []):
-            syslib = [dd.target.upper() for dd in step.dds.get("SYSLIB", []) if dd.target]
-            job = step.label.split(":", 1)[-1].split("/", 1)[0].upper()
-            jcllib = [target for _position, target in sorted(self.est.jcllib.get(job, []))]
-            if syslib or jcllib:
-                orders.append(syslib or jcllib)
-        if not orders:
-            include = self.est.include_order.get(ref.file.rsplit("/", 1)[-1].lower())
-            if include:
-                orders.append(list(include))
-        return orders
+        """Library concatenations that apply to the program writing ``ref`` (see :func:`orders_for_program`)."""
+        return orders_for_program(self.est, self.runs, _scope(ref.owner)[1].upper(), ref.file)
 
     def _library_winner(self, ref: Ref, candidates: list[str]) -> str:
         """The candidate every applicable library order agrees on, or ``""`` when no order decides."""
@@ -710,7 +736,7 @@ def build_graph(records: list[FileRecord]) -> GraphBuild:
     _step_nodes(builder, est)
     _link_copybook_declarations(builder, est)
     _bind_dd_names(builder, records)
-    return GraphBuild(builder.graph, est, builder.bindings)
+    return GraphBuild(builder.graph, est, builder.bindings, builder.runs)
 
 
 def _step_nodes(builder: _Builder, est: Estate) -> None:

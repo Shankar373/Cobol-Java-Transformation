@@ -90,6 +90,7 @@ from engine.verification.business_invariants import (
     build_report,
 )
 from engine.contracts.models import FailurePolicy
+from engine.transformation.source_format import comment_free_lines
 from engine.workload import WorkloadArtifact, WorkloadDefinition
 
 #: Generated files are compared under this policy: a file that only one
@@ -127,6 +128,17 @@ class PipelineConfig:
     # read under, recorded beside the oracle identity in the sealed evidence manifest.  Empty when the caller did
     # not tie the run to a profile.  Advisory record only: it never selects a standard or a format flag.
     oracle_profile_id: str = ""
+    # Layer 4: ``(file, profile_id)`` pairs of the discovery ``DialectProfile`` of every COBOL source file of the run
+    # (plain data computed in api/ from the discovery report), recorded in the sealed evidence manifest.  Empty
+    # when the caller did not tie the run to profiles.  When ``oracle_profile_id`` is empty and the run has exactly
+    # one pair, that pair's id is also the ``OracleIdentity.profile_id``; with several files only the pairs are
+    # recorded (no single id describes the run).  Advisory: never selects a standard or a format flag.
+    dialect_profiles: tuple[tuple[str, str], ...] = ()
+
+
+def _sole_profile_id(pairs: tuple[tuple[str, str], ...]) -> str:
+    """The profile id when the run has exactly one profiled file, else ``""`` (several files: no single id)."""
+    return pairs[0][1] if len(pairs) == 1 else ""
 
 
 @dataclass
@@ -904,11 +916,8 @@ class VerticalSlicePipeline:
             files = []
         texts = []
         for f in files:
-            lines = f.read_bytes().decode("latin-1").splitlines()
-            texts.append("\n".join(
-                "" if len(line) > 6 and line[6] in "*/" else line.split("*>", 1)[0]
-                for line in lines
-            ))
+            text = f.read_bytes().decode("latin-1")
+            texts.append("\n".join(comment_free_lines(text, keep_line_numbers=True)))
         return texts
 
     def _unobserved_effect_evidence(
@@ -1137,7 +1146,7 @@ class VerticalSlicePipeline:
                 for key, value in (
                     ("std", oracle_result.std),
                     ("format_flag", oracle_result.format_flag),
-                    ("profile_id", self._config.oracle_profile_id or None),
+                    ("profile_id", self._config.oracle_profile_id or _sole_profile_id(self._config.dialect_profiles) or None),
                 )
                 if value is not None
             },
@@ -1156,6 +1165,7 @@ class VerticalSlicePipeline:
             artifact_evidence=artifact_evidence,
             comparison_evidence=comparison_evidence,
             graph_traceability=tuple(sorted(self._config.graph_traceability)),
+            dialect_profiles=tuple(sorted(self._config.dialect_profiles)),
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation

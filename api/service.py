@@ -538,6 +538,16 @@ class Service:
             self._store.put_readiness(source_path, current, record)
         return record
 
+    def _engine_wiring(self, source: str | None, label: str):
+        """Discovery facts for the engine, as plain data: ``(library_orders, dialect_profiles)`` of ``source``'s
+        readiness record (the record the readiness gate already assessed; no second discovery pass).  Both empty when
+        there is no source, so the engine keeps its existing behaviour."""
+        from api import readiness as readiness_module
+
+        if not source:
+            return (), ()
+        return readiness_module.engine_wiring(self.readiness_for(source, label))
+
     def stored_readiness(self, app_id: str) -> dict | None:
         """The stored readiness record of the application's current source, if one exists (no assessment is run)."""
         path = self.get_application(app_id).cobol_source_path
@@ -1389,7 +1399,9 @@ class Service:
         # Retried: one slow probe must not turn into an UNAVAILABLE plan.
         docker_available = docker_cli.docker_available_with_retry()
 
+        library_orders, _profiles = self._engine_wiring(self._run_source(run, app), app.name)
         pipeline_config = ModernizationConfig(
+            library_orders=library_orders,
             source_dir=self._run_source(run, app),
             output_dir=output_dir,
             application_id=app.id,
@@ -1545,6 +1557,7 @@ class Service:
             # Same resolution the Spring Boot assembly used, so the oracle
             # runs the program the candidate enters (or refuses).
             oracle_entry_program=self._resolve_entry_program(app, source) or None,
+            dialect_profiles=self._engine_wiring(source, app.name)[1],
         )
 
         phase_to_stage = {

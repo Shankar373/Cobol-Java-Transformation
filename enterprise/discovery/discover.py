@@ -39,7 +39,7 @@ from .model import IngestionResult, ingest_directory, rmtree_force
 from .remotegit import NetworkPolicy, ingest_remote_git
 from .report import build_report, render_summary
 from .runtime_deps import dialect_report
-from .resolve import build_graph
+from .resolve import build_graph, program_library_orders
 from .scan_cobol import scan_cobol
 from .scan_infra import scan_bms, scan_build, scan_other_language, scan_sql
 from .scan_jcl import scan_control_text, scan_jcl
@@ -95,6 +95,9 @@ class DiscoveryResult:
     report: dict[str, Any]
     outputs: dict[str, str]
     reused: bool
+    #: ``PROGRAM-ID -> library orders`` from the discovery build (plain data for the engine bridge; see
+    #: :func:`enterprise.discovery.resolve.program_library_orders`).  Not part of the report or any artefact.
+    library_orders: dict[str, tuple[tuple[str, ...], ...]] = field(default_factory=dict)
 
 
 def is_remote_git(source: str) -> bool:
@@ -414,7 +417,7 @@ def discover(request: DiscoveryRequest, store: Path | str, *, progress: Progress
         outputs = _publish(report, records, directories, build, outdir, roots)
         steps.emit("report", "completed", str(report["completeness"]["status"]))
         outputs["run_record"] = _write_run_record(outdir, info, steps)
-        return DiscoveryResult(info, outdir, report, outputs, info.reused)
+        return DiscoveryResult(info, outdir, report, outputs, info.reused, program_library_orders(build))
     except IngestionError as exc:
         steps.emit(steps.current or "ingestion", "failed", exc.code)
         raise

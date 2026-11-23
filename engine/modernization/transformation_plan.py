@@ -3,7 +3,7 @@ CapabilityReport and discovered application.
 
 The plan:
     1. Routes each program to the appropriate transformer
-    2. Determines transformation order (topological sort by CALL graph)
+    2. Keeps transformation order as discovery order (no CALL-graph ordering yet)
     3. Marks unsupported/unavailable components for skip
     4. Specifies assembly requirements
     5. Defines oracle execution parameters
@@ -329,7 +329,7 @@ class TransformationPlanGenerator:
         )
 
     def _topological_sort(self, application: CobolApplication) -> list:
-        """Sort program units topologically by CALL dependencies."""
+        """Return program units in discovery order (a stable no-op, not a topological sort)."""
         units = list(application.programs)
         # Simple stable sort — preserve discovery order for determinism
         return units

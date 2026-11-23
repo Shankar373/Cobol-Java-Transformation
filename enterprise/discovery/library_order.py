@@ -17,17 +17,51 @@ from typing import Sequence
 from posixpath import dirname as _posix_dirname
 
 
-def in_library(path: str, library: str) -> bool:
-    """Whether the copybook at ``path`` lives in ``library`` (a dataset
-    ``LIBS.LIB2`` or a directory ``libs/lib2``).  Identical logic on both
-    faces."""
+#: Match strength of a library against a copybook path: the dataset (or directory) name matches the directory
+#: path component-for-component (``PROD.COPYLIB`` -> ``.../prod/copylib``), or only its last qualifier matches the
+#: copybook's directory name (``PROD.COPYLIB`` -> ``.../anything/copylib``).  Case-insensitive.
+FULL_MATCH = 2
+QUALIFIER_MATCH = 1
+NO_MATCH = 0
+
+
+def _normalise_library(library: str) -> str:
+    lib = library.lower().replace("\\", "/").strip().split("(", 1)[0].strip("/")  # drop a ``(MEMBER)`` suffix
+    return lib[2:] if lib.startswith("./") else lib
+
+
+def library_match(path: str, library: str) -> int:
+    """How strongly the copybook at ``path`` belongs to ``library`` (a dataset ``PROD.COPYLIB`` or a directory
+    ``libs/lib2``): :data:`FULL_MATCH`, :data:`QUALIFIER_MATCH` or :data:`NO_MATCH`.
+
+    Dataset names map to directories deterministically: the dotted name is read as a path
+    (``PROD.COPYLIB`` == ``prod/copylib``) and must equal the end of the copybook's directory on component
+    boundaries; failing that, the dataset's last qualifier is compared with the directory's own name.
+    """
     folder = _posix_dirname(path.replace("\\", "/")).lower()
-    lib = library.lower().replace("\\", "/").strip("/")
-    lib = lib[2:] if lib.startswith("./") else lib
+    lib = _normalise_library(library)
+    if not lib:
+        return NO_MATCH
     dataset_path = lib.replace(".", "/") if "/" not in lib else lib
     if folder == dataset_path or folder.endswith("/" + dataset_path):
-        return True
-    return "/" not in lib and "." in lib and folder.rsplit("/", 1)[-1] == lib.rsplit(".", 1)[-1]
+        return FULL_MATCH
+    if "/" not in lib and "." in lib and folder.rsplit("/", 1)[-1] == lib.rsplit(".", 1)[-1]:
+        return QUALIFIER_MATCH
+    return NO_MATCH
+
+
+def in_library(path: str, library: str) -> bool:
+    """Whether the copybook at ``path`` lives in ``library`` at any match strength (see :func:`library_match`).
+    Identical logic on both faces."""
+    return library_match(path, library) != NO_MATCH
+
+
+def _library_hits(candidates: Sequence[str], library: str) -> list[str]:
+    """The candidates ``library`` holds, at the strongest match strength present (a full dotted-name match beats
+    the last-qualifier fallback, so ``PROD.COPYLIB`` and ``TEST.COPYLIB`` never both claim each other's directory)."""
+    ranked = [(library_match(c, library), c) for c in candidates]
+    best = max((rank for rank, _c in ranked), default=NO_MATCH)
+    return [c for rank, c in ranked if rank == best and best != NO_MATCH]
 
 
 def library_winner(candidates: list[str] | tuple[str, ...],
@@ -47,7 +81,7 @@ def library_winner(candidates: list[str] | tuple[str, ...],
     for order in orders:
         picked = ""
         for library in order:
-            hits = [c for c in candidates if in_library(c, library)]
+            hits = _library_hits(candidates, library)
             if hits:
                 picked = hits[0] if len(hits) == 1 else ""
                 break

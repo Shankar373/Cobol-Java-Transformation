@@ -65,20 +65,9 @@ def _comment_free(source: str) -> str:
     Literals are kept. Inline ``*>`` is located on a copy where every literal
     is blanked to the same length, so a ``*>`` inside a string never cuts.
     """
-    from engine.transformation.source_format import compiler_visible_text, detect_source_format
+    from engine.transformation.source_format import comment_free_lines
 
-    fixed = detect_source_format(source) == "fixed"
-    kept: list[str] = []
-    for line in compiler_visible_text(source).splitlines():
-        if fixed and len(line) > 6 and line[6] in "*/Dd":
-            continue
-        stripped = line.lstrip()
-        if stripped.startswith("*>") or (not fixed and stripped[:1] == "*"):
-            continue
-        blanked = _LITERAL_RE.sub(lambda m: " " * len(m.group(0)), line)
-        marker = blanked.find("*>")
-        kept.append(line[:marker] if marker >= 0 else line)
-    return "\n".join(kept)
+    return "\n".join(comment_free_lines(source))
 
 
 def _split_divisions(text: str) -> tuple[str, str]:

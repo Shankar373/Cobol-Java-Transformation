@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Sequence
 
 from enterprise.discovery.library_order import library_winner as _shared_library_winner
@@ -181,11 +182,27 @@ def resolve_copybook(
     )
 
 
+#: Library orders: one list applied to every program, or ``PROGRAM-ID -> orders`` (each program resolves with ITS orders).
+LibraryOrders = Sequence[Sequence[str]] | Mapping[str, Sequence[Sequence[str]]]
+
+
+def orders_for(orders: LibraryOrders, program_id: str) -> Sequence[Sequence[str]]:
+    """The orders that apply to ``program_id``: the mapping entry (case-insensitive program id; none -> no order,
+    i.e. the existing heuristic) or the single global list."""
+    if isinstance(orders, Mapping):
+        wanted = program_id.upper()
+        for key, value in orders.items():
+            if str(key).upper() == wanted:
+                return value
+        return ()
+    return orders
+
+
 def resolve_application_copybooks(
     copy_refs: tuple[tuple[str, str], ...],
     search_dirs: tuple[Path, ...] | list[Path],
     *,
-    orders: Sequence[Sequence[str]] = (),
+    orders: LibraryOrders = (),
 ) -> tuple[tuple[ResolvedCopybook, ...], tuple[MissingCopybook, ...]]:
     """Resolve many (program_id, copybook_name) references (collecting).
 
@@ -201,7 +218,7 @@ def resolve_application_copybooks(
     for program_id, copybook_name in copy_refs:
         try:
             resolved.append(
-                resolve_copybook(copybook_name, dirs, program_id=program_id, orders=orders)
+                resolve_copybook(copybook_name, dirs, program_id=program_id, orders=orders_for(orders, program_id))
             )
         except AmbiguousCopybookError as exc:
             missing.append(

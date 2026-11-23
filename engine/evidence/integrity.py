@@ -29,6 +29,7 @@ FINDINGS ADDRESSED:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -43,6 +44,9 @@ from engine.evidence.models import (
 # ---------------------------------------------------------------------------
 # Violation types
 # ---------------------------------------------------------------------------
+
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
 
 class ViolationType(Enum):
     """Types of evidence integrity violations."""
@@ -65,6 +69,7 @@ class ViolationType(Enum):
     ORPHAN_ARTIFACT = "orphan_artifact"
     ORPHAN_COMPARISON = "orphan_comparison"
     MALFORMED_EVIDENCE = "malformed_evidence"
+    PROFILE_BINDING_MISMATCH = "profile_binding_mismatch"
 
 
 #: Comparison results the evidence model accepts. Anything else is
@@ -139,6 +144,7 @@ class EvidenceIntegrityValidator:
 
         # 4. Oracle identity binding (FINDING D)
         violations.extend(self._validate_oracle_binding(manifest))
+        violations.extend(self._validate_profile_binding(manifest))
 
         # 5. Artifact-execution binding
         violations.extend(self._validate_artifact_execution_binding(manifest))
@@ -302,6 +308,49 @@ class EvidenceIntegrityValidator:
                     actual=candidate_source_hash,
                 ))
 
+        return violations
+
+    # ------------------------------------------------------------------
+    # Layer 4: dialect profile binding
+    # ------------------------------------------------------------------
+
+    def _validate_profile_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """Recorded dialect profiles must be well formed and agree with the oracle identity.
+
+        Each pair is a (file, sha256 profile id), files unique; an oracle ``profile_id`` must be one of the recorded
+        ids when any are recorded.  A manifest without profiles is unaffected (the seal already covers the pairs).
+        """
+        pairs = manifest.dialect_profiles
+        violations: list[IntegrityViolation] = []
+        if not pairs:
+            return violations
+        files = [file for file, _pid in pairs]
+        for index, (file, profile_id) in enumerate(pairs):
+            if not file or not _SHA256_HEX.fullmatch(profile_id):
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.PROFILE_BINDING_MISMATCH,
+                    description=f"dialect_profiles[{index}] is not a (file, sha256 profile id) pair",
+                    field_path=f"dialect_profiles[{index}]",
+                    expected="non-empty file and 64-hex profile id",
+                    actual=f"{file!r}: {profile_id!r}",
+                ))
+        if len(set(files)) != len(files):
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROFILE_BINDING_MISMATCH,
+                description="dialect_profiles names a file more than once",
+                field_path="dialect_profiles",
+                expected="one profile id per file",
+                actual=str(sorted(files)),
+            ))
+        oracle_profile = manifest.oracle_identity.profile_id if manifest.oracle_identity is not None else None
+        if oracle_profile is not None and oracle_profile not in {pid for _file, pid in pairs}:
+            violations.append(IntegrityViolation(
+                violation_type=ViolationType.PROFILE_BINDING_MISMATCH,
+                description=f"oracle identity profile_id '{oracle_profile}' is not one of the recorded dialect profiles",
+                field_path="oracle_identity.profile_id",
+                expected="a profile id recorded in dialect_profiles",
+                actual=oracle_profile,
+            ))
         return violations
 
     # ------------------------------------------------------------------

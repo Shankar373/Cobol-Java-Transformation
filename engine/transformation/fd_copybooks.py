@@ -15,14 +15,16 @@ statements are located, so a ``COPY`` word in either is not a statement.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from engine.transformation.copy_origins import CopyHop, CopyOriginMap, OriginBuilder, OriginSpan
 from engine.transformation.copybook_model import (
     CopybookDiagnostic,
     MAX_EXPANDED_CHARS,
     _apply_replacing,
-    _expand_copybook_text,
+    _expand_copybook_traced,
+    _file_lines,
     _find_copy_statements,
     _mask_comments,
     _parse_replacing_clause,
@@ -47,6 +49,16 @@ class FdCopyExpansion:
     source: str  # the program text with FILE SECTION COPY statements expanded
     diagnostics: tuple[CopybookDiagnostic, ...] = ()
     consumed: tuple[str, ...] = ()  # copybook names expanded into FDs (not to be merged into WORKING-STORAGE)
+    #: Origin of every line of ``source`` (program file/line, or copybook file/line with the COPY statement it
+    #: came through); ``None`` when nothing was expanded, in which case every line is its own origin.
+    origins: CopyOriginMap | None = field(default=None, compare=False, repr=False)
+    source_file: str = field(default="", compare=False, repr=False)
+
+    def origin_of(self, expanded_line: int) -> OriginSpan:
+        """Where line ``expanded_line`` (1-based) of ``source`` physically came from."""
+        if self.origins is None:
+            return OriginSpan(self.source_file, expanded_line)
+        return self.origins.origin_of(expanded_line)
 
     @property
     def errors(self) -> tuple[CopybookDiagnostic, ...]:
@@ -64,19 +76,29 @@ def _area_b(text: str) -> str:
     return "\n".join(("       " + line) if line.strip() else line for line in text.split("\n"))
 
 
-def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...]) -> FdCopyExpansion:
-    """Expand the COPY statements of the FILE SECTION; the rest of ``source`` is returned untouched."""
+def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...], source_file: str = "") -> FdCopyExpansion:
+    """Expand the COPY statements of the FILE SECTION; the rest of ``source`` is returned untouched.
+
+    ``source_file`` only labels the program in the origin map (``FdCopyExpansion.origin_of``); the
+    expanded text does not depend on it.
+    """
     masked = _mask_comments(source)
     section = _FILE_SECTION.search(masked)
     if section is None:
-        return FdCopyExpansion(source)
+        return FdCopyExpansion(source, source_file=source_file)
     start = section.end()
     stop = _SECTION_END.search(masked, start)
     end = stop.start() if stop else len(source)
     region = source[start:end]
     spans = _find_copy_statements(region)
     if not spans:
-        return FdCopyExpansion(source)
+        return FdCopyExpansion(source, source_file=source_file)
+
+    def line_of(offset: int) -> int:
+        return source.count("\n", 0, offset) + 1
+
+    builder = OriginBuilder()
+    builder.add(source[:start], _file_lines(source_file, (), 1))
 
     diagnostics: list[CopybookDiagnostic] = []
     consumed: list[str] = []
@@ -86,7 +108,10 @@ def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...]) -> FdCopyExp
     cursor = 0
     for span_start, span_end, target in spans:
         before = region[cursor:span_start].rstrip(" \t")  # the expansion carries its own indentation
-        pieces.append(before + ("\n" if before and not before.endswith("\n") else ""))
+        lead = before + ("\n" if before and not before.endswith("\n") else "")
+        pieces.append(lead)
+        builder.add(lead, _file_lines(source_file, (), line_of(start + cursor)))
+        hop = CopyHop(source_file, line_of(start + span_start), target)
         cursor = span_end
         pairs, clause_error = _parse_replacing_clause(masked_region[span_start:span_end])
         if clause_error is not None:
@@ -105,8 +130,20 @@ def expand_fd_copybooks(source: str, search_dirs: tuple[Path, ...]) -> FdCopyExp
             diagnostics.append(CopybookDiagnostic(
                 level="ERROR", code="COPYBOOK_UNRESOLVED", message=f"Missing COPY target: {target} (in FILE SECTION)"))
             continue
-        text = _apply_replacing(_expand_copybook_text(resolved.path, search_dirs, _CHAIN, diagnostics, budget), tuple(pairs))
-        pieces.append(_area_b(text) if text.endswith("\n") else _area_b(text) + "\n")
+        child, child_origins = _expand_copybook_traced(
+            resolved.path, search_dirs, _CHAIN, diagnostics, budget, (hop,))
+        text = _apply_replacing(child, tuple(pairs))
+        spliced = _area_b(text) if text.endswith("\n") else _area_b(text) + "\n"
+        pieces.append(spliced)
+        if text.count("\n") == child.count("\n"):
+            member = child_origins.lines
+            builder.add(spliced, lambda k, _lines=member: _lines[min(k, len(_lines) - 1)])
+        else:  # a replacement text with newlines: only the COPY statement can be named
+            builder.add(spliced, lambda _k, _hop=hop: OriginSpan(_hop.file, _hop.line, (), exact=False))
         consumed.append(target.upper())
     pieces.append(region[cursor:])
-    return FdCopyExpansion(source[:start] + "".join(pieces) + source[end:], tuple(diagnostics), tuple(consumed))
+    builder.add(region[cursor:], _file_lines(source_file, (), line_of(start + cursor)))
+    builder.add(source[end:], _file_lines(source_file, (), line_of(end)))
+    return FdCopyExpansion(
+        source[:start] + "".join(pieces) + source[end:], tuple(diagnostics), tuple(consumed),
+        builder.build(), source_file)

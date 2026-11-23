@@ -38,7 +38,9 @@ parser -> IR -> capability -> plan -> mapping -> generation -> compile -> execut
 
 **Canonical planner:** `engine/modernization/transformation_plan.py` is the single
 authoritative planner. `engine/modernization/modernization_planner.py` wraps it and is
-exported from `engine/modernization/__init__.py`; it is used by tests and the API layer.
+exported from `engine/modernization/__init__.py`; it is EXPERIMENTAL, pinned by
+`tests/test_experimental_modules.py`, used by tests only (no `api/` import) - the production plan is
+`transformation_plan.py`.
 `engine/modernization/application_assembler.py` is a test-only helper.
 
 **Canonical execution paths:** Docker execution is in

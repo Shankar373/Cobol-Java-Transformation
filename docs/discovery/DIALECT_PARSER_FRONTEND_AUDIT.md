@@ -72,3 +72,56 @@ Read-only audit, 2026-11-18, branch `codex/enterprise-phases-continuation`. Noth
 * Evaluating JCL `IF/ELSE` and `COND=(rc,op)` (`docs/specs/JCL_INTEGRATION_CONTRACT.md:142`): recorded, never evaluated.
 * EBCDIC/code-page semantics beyond the documented narrow cases (`engine/vsam/collation.py:4`) and non-ASCII `PIC X` data (`docs/KNOWN_ISSUES.md:17-20`).
 * Rewriting any parser now: this document changes no code; the shared-module work belongs to P2 of `docs/discovery/KNOWLEDGE_GRAPH_AUDIT.md` plus the phases above.
+
+## Layer 4 closure record (Phase 0 of the Layer 5 roadmap, 2026-11-23, ADR-0013)
+
+Re-audit of `9655239` found three seams that were claimed but not wired (library order in production, `profile_id` in
+real manifests, an engine position stream) and several tests that could not fail. Phase 0 closed them; this record
+states, per criterion, what is now proven and what stays open. "Proven" means a mutation-sensitive test fails when the
+behaviour is removed.
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| 1 | Byte-identical profile JSON / `profile_id`, order independent | proven | `tests/discovery/test_dialect_profile.py` |
+| 2 | Mixed-format token agreement at `(line, column)`; check lane `NOT_ATTEMPTED_REFERENCE_FORMAT` | proven for space-indented sources | `tests/transformation/test_positions_parity_layer4.py` (7 fixtures, ordered `(line,col,kind,text)` equality, one-edit variants that must differ); engine refuses a mixed file for the oracle/JCL reference lane by name `REFERENCE_FORMAT_MIXED_UNSUPPORTED` (`test_reference_format_mixed_refusal_layer4.py`) |
+| 3 | `$SET SOURCEFORMAT"FREE"` identical on both faces; `VARIABLE` refused by name | proven | same file; `test_generation_refusals_layer4.py` |
+| 4 | Cards are facts, never engine statements | proven | `SourceRead.cards` is the only card source (`scan_cobol._raw_cards` removed); `test_compiler_cards_layer4.py` (column-1 cards vs the column-8 variants, identical generated output) |
+| 5 | `>>IF/>>ELSE` gated or refused; dead branches never reach graph/IR | proven | `test_conditional_compilation.py`, positions parity (dead-branch fixture) |
+| 6 | `CLASS-ID` / `SCREEN SECTION` refused by name | proven | `test_generation_refusals_layer4.py` |
+| 7 | `ELAXF` JCL changes the dialect; a data item named `JSON` stays undetermined | proven | `test_dialect_profile.py` |
+| 8 | REPLACING parity; generated output of untouched fixtures byte-identical | proven | `test_replacing_parity.py`; `tools/generation_hashes.py --check docs/audits/generation_hashes.json` (55 apps x 2 runtimes, baseline written from `9655239`) |
+| 9 | Library order: engine and discovery pick the same file; loser in `candidates` | proven through the API run path | `tests/test_library_order_wiring.py`, `tests/test_library_order_profile_api.py` (per-program orders carried readiness record -> `ModernizationConfig.library_orders` -> generator; removing the wiring fails closed) |
+| 10 | Oracle evidence records `std`, format flag, `profile_id` | partly: recorded, not profile-driven | `dialect_profiles` pairs sealed in the manifest (conditional key, manifests without them keep their hash) with `PROFILE_BINDING_MISMATCH` integrity check; `OracleIdentity.profile_id` is set only for a single profiled file; `std` is still the constant `default` |
+| 11 | Every refusal code has a fixture and a matrix row; hashes unchanged | partly | fixtures and `CAPABILITY_MATRIX.md` bullets for OO, SCREEN, VARIABLE, conditional compilation and mixed format; generation hashes unchanged (tool). Three target codes are not implemented (below) |
+
+Also closed in Phase 0: a silent data-loss bug on HEAD (a free-format segment line with `D` or `*` in column 7 inside a
+fixed-start file was dropped as a debug/comment line), false-positive PROGRAM-ID / CALL / COPY / ENTRY / file-verb /
+`EXEC SQL` discovery from comment, debug and dead-branch text, the DB2 `BIND MEMBER` graph crash, and a copybook-model
+cache that let a second program inherit the first program's copybook file.
+
+Single reader: `tests/discovery/test_single_reader_lint.py` (AST rules R1-R7 plus the one-profile-builder rule, each
+mutation-tested) with a shrink-only inventory of five declared exceptions (`cobol_parser`, `copybook_model`,
+`fd_copybooks`, `producer`, `external_dependency_edges`, each with its reason in the test).
+
+### Residual limitations accepted at closure (owner)
+
+* `DIALECT_UNDETERMINED`, `COMPILER_CARD_UNHANDLED`, `JCL_FLAVOUR_UNRECOGNISED` were target refusal codes and do not exist;
+  `undetermined` is a report value, compiler options are recorded but not applied, JCL flavours are not detected (layer 7 /
+  layer 2).
+* Engine consumption of `DialectProfile.unsupported` (layers 7/8), `profile_id` in the producer manifest, and `-std=` from
+  the profile in the oracle are not wired (layers 7, 9, 11).
+* Parity is proven for space-indented sources: the engine does not `expandtabs` and splits on `
+` while discovery
+  uses `splitlines()`; changing tab handling would alter existing `compiler_visible_text` output.
+* Discovery tokens on folded continuation lines keep first-line coordinates (kept for byte-identical discovery output); the
+  engine face resolves true physical origins (`PositionedLine.span_at`).
+* The frozen IR carries no source positions; `CobolParser.last_line_map` and `CopyOriginMap` exist, but statements are not
+  yet traceable to `file:line` (Layer 5 phase 1).
+* Library order: FD-section COPY and nested COPY use the global search set; the graph keeps one `copybook:NAME` node per
+  name.
+* Cards (`CBL`, `PROCESS`, `-INC`, `++INCLUDE`, `%INCLUDE`) are recognised in column 1 in fixed and free format; an
+  indented one (the old raw scan also accepted leading blanks) is program text. A free-format regression of the first
+  Phase 0 draft was found by review and is pinned by `test_compiler_cards_layer4.py`.
+* `external_dependency_edges` still masks comments itself: migrating it exposed a fixture that treats a column-6 `*` as a
+  comment; fixing the fixture needs an owner decision.
+* Closure is accepted when CI and certification on the commit that carries this record are green.

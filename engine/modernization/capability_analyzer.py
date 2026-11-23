@@ -21,8 +21,9 @@ independent evidence channels per program:
                       uncaptured OPEN targets, unmapped IR
                       statement classes
 
-The analyzer is a pure function over the discovered application graph and the
-available infrastructure. It does NOT transform anything.
+The analyzer reads the discovered application graph and the available
+infrastructure, and re-reads copybook files from the source root for the
+copybook checks. It does NOT transform anything.
 """
 
 from __future__ import annotations
@@ -1680,7 +1681,18 @@ class CapabilityAnalyzer:
             if source_root is not None
             else (top_path.parent,)
         )
-        files, nested_diagnostics = collect_copybook_texts(top_path, search_dirs)
+        # Per-program library orders can resolve one name to different files
+        # (one per program): every distinct file generation merges is scanned,
+        # so a construct in any program's copybook reaches the verdict.
+        files_list: list = []
+        nested_diagnostics: list = []
+        for distinct_path in dict.fromkeys(resolved_paths):
+            found_files, found_diagnostics = collect_copybook_texts(
+                Path(distinct_path), search_dirs
+            )
+            files_list.extend(found_files)
+            nested_diagnostics.extend(found_diagnostics)
+        files = tuple(files_list)
         nested_errors = [
             d.message for d in nested_diagnostics if d.level == "ERROR"
         ]
@@ -1849,8 +1861,9 @@ class CapabilityAnalyzer:
     def _derive_overall_level(self, components: list[ComponentCapability]) -> CapabilityLevel:
         """Derive overall application capability level.
 
-        Most severe component wins; UNKNOWN outranks everything because an
-        undetermined construct must never be presented as safe.
+        Most severe component wins (see ``_LEVEL_RANK``: UNSUPPORTED outranks
+        UNKNOWN, which outranks PARTIAL), because an undetermined construct
+        must never be presented as safe.
         """
         if not components:
             return CapabilityLevel.SUPPORTED

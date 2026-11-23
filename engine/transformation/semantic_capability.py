@@ -892,24 +892,9 @@ def _strip_literals_and_comments(source: str) -> str:
     as code); ``*>`` starts a comment in both formats; literals use COBOL's
     doubled-quote escape (the old pattern looked for backslash escapes).
     """
-    from engine.transformation.source_format import (
-        compiler_visible_text,
-        detect_source_format,
-    )
+    from engine.transformation.source_format import comment_free_lines
 
-    fixed = detect_source_format(source) == "fixed"
-    kept: list[str] = []
-    for line in compiler_visible_text(source).splitlines():
-        if fixed and len(line) > 6 and line[6] in "*/Dd":
-            continue
-        if line.lstrip().startswith("*>") or (not fixed and line.lstrip()[:1] == "*"):
-            continue
-        without_literals = _QUOTED_LITERAL.sub(" ", line)
-        marker = without_literals.find("*>")
-        if marker >= 0:
-            without_literals = without_literals[:marker]
-        kept.append(without_literals)
-    return "\n".join(kept)
+    return "\n".join(_QUOTED_LITERAL.sub(" ", line) for line in comment_free_lines(source))
 
 
 def scan_constructs(source: str, *, restrict_to_procedure: bool = True) -> set[str]:

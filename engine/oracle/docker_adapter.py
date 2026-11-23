@@ -47,7 +47,12 @@ from engine.oracle.adapter import (
     OracleExecutionResult,
 )
 from engine.source_hash import compute_source_tree_hash
-from engine.transformation.source_format import code_mentions, detect_source_format
+from engine.transformation.source_format import (
+    code_mentions,
+    detect_source_format,
+    mixed_format_refusal,
+    program_text,
+)
 
 
 def classify_oracle_termination(
@@ -262,7 +267,7 @@ class DockerOracleAdapter(OracleAdapter):
             return ""
         match = re.search(
             r"PROGRAM-ID\.\s*([A-Za-z0-9][A-Za-z0-9_-]*)",
-            text,
+            program_text(text),
             re.IGNORECASE,
         )
         return match.group(1).upper() if match else ""
@@ -406,7 +411,7 @@ class DockerOracleAdapter(OracleAdapter):
             m.group(1).upper()
             for m in re.finditer(
                 r"\bCALL\s+['\"]([A-Za-z0-9][A-Za-z0-9_-]*)['\"]",
-                text,
+                program_text(text),
                 re.IGNORECASE,
             )
         }
@@ -437,6 +442,24 @@ class DockerOracleAdapter(OracleAdapter):
         except OSError:
             return "fixed"
         return cls.detect_source_format(text)
+
+    @staticmethod
+    def _mixed_format_refusals(source_dir: Path, modules: list[str]) -> tuple[str, ...]:
+        """``REFERENCE_FORMAT_MIXED_UNSUPPORTED`` message of every module that switches reference format.
+
+        One ``cobc`` flag is chosen per compilation unit from the start format, so a module that switches
+        format mid-file would be compiled under a flag that misreads part of it: refused by name instead.
+        """
+        found: list[str] = []
+        for module in modules:
+            try:
+                text = (source_dir / module).read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            refusal = mixed_format_refusal(text, module)
+            if refusal:
+                found.append(refusal)
+        return tuple(found)
 
     @classmethod
     def _compile_format_flag(cls, source_dir: Path, modules: list[str]) -> str:
@@ -715,6 +738,26 @@ class DockerOracleAdapter(OracleAdapter):
                         start_time=start_time.isoformat(),
                         end_time=end_time.isoformat(),
                         termination_status="nonzero_exit",
+                        timeout_applied=False,
+                        source_tree_hash_before=source_hash_before,
+                        source_tree_hash_after=source_hash_before,
+                        image_digest=digest,
+                    )
+
+                mixed_refusals = self._mixed_format_refusals(module_dir, [main_file, *link_modules])
+                if mixed_refusals:
+                    end_time = datetime.now(timezone.utc)
+                    return OracleExecutionResult(
+                        execution_id=execution_id,
+                        run_id=run_id,
+                        oracle_id=self._config.oracle_id,
+                        status=AdapterStatus.FAILED,
+                        exit_code=None,
+                        stdout=b"",
+                        stderr="; ".join(mixed_refusals).encode(),
+                        start_time=start_time.isoformat(),
+                        end_time=end_time.isoformat(),
+                        termination_status="error",
                         timeout_applied=False,
                         source_tree_hash_before=source_hash_before,
                         source_tree_hash_after=source_hash_before,

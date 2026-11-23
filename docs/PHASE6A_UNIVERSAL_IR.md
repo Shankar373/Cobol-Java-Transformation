@@ -1,5 +1,8 @@
 # Phase 6A: Universal COBOL Language + Semantic IR
 
+> **Numbering note (2026-11-23):** "6A" is a phase label and is unrelated to the architecture layer
+> numbers. Layer 6 is defined in `docs/architecture/LAYER_MODEL.md` and ADR-0013.
+>
 > **HISTORICAL (label added 2026-10-16, Phase 12 F-02 documentation reconciliation):**
 > dated phase record, not a current status claim (Master README §78).
 > Stale understatement corrected by label: the text below says "No

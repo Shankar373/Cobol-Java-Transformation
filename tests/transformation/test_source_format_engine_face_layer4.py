@@ -31,15 +31,18 @@ def test_compiler_cards_are_excluded_from_compiler_visible_text():
 
 
 def test_mixed_fixed_free_per_line_keeps_both_segments():
-    src = """       IDENTIFICATION DIVISION.
-       PROGRAM-ID. P.
-      *> free line follows
->>SOURCE FORMAT FREE
-IDENTIFICATION DIVISION.
-PROGRAM-ID. Q.
-"""
-    fmt = detect_source_format(src)
-    assert fmt in ("fixed", "free", "mixed")
-    text = compiler_visible_text(src)
-    # Both program ids must survive in some form (per-line format handling).
-    assert "P" in text and "Q" in text
+    """Each segment is rendered with its own format: fixed cut at column 72, free kept whole, directive dropped."""
+    fixed_long = "       01 WS-A PIC X(10) VALUE 'A'." + " " * 36 + "SEQ12345"       # columns 73-80 are not program text
+    free_long = "01 WS-B PIC X(10) VALUE 'B'." + " " * 60 + "kept-in-free-format"   # longer than 72, all program text
+    src = "\n".join([fixed_long, ">>SOURCE FORMAT FREE", free_long, ">>SOURCE FORMAT FIXED", fixed_long]) + "\n"
+    assert detect_source_format(src) == "fixed"           # the START format only (oracle flag callers)
+    lines = compiler_visible_text(src).split("\n")
+    assert lines[0] == fixed_long[:72]                    # the sequence area after column 72 is dropped
+    assert lines[1] == ""                                 # the directive is dropped, its line number is kept
+    assert lines[2] == free_long and len(lines[2]) > 72   # a free segment is not cut at column 72
+    assert lines[3] == ""
+    assert lines[4] == fixed_long[:72]                    # and the format switches back per line
+    assert "SEQ12345" not in "".join(lines)
+    # Mutation: the same text with the switch removed is cut at column 72 (start-format semantics).
+    cut = compiler_visible_text(src.replace(">>SOURCE FORMAT FREE\n", "")).split("\n")
+    assert cut[1] == free_long[:72] and "kept-in-free-format" not in cut[1]

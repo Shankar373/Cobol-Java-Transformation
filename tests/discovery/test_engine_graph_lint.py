@@ -29,11 +29,12 @@ _PATTERN_NAME = re.compile(r"(?:RE|REGEX|PATTERN|PAT)(?:_|$)|_RE\b|_PATTERN|_REG
 #: deliberate exception; an empty string is rejected.
 ALLOWED_STRUCTURE_PARSERS: dict[str, str] = {
     "transformation/application_discovery.py": (
-        "CALL/COPY occurrence scan builds the ProgramCall/CopybookReference IR consumed by generation.  Not yet "
-        "delegated to enterprise.discovery.scan_cobol because (1) classify_call diverts CICS/MQ/IMS/LE entry points "
-        "out of 'calls' while the capability analyzer still needs them there, (2) the discovery tokenizer does not "
-        "treat a fixed-format floating '*>' comment as a comment and so reports a phantom COPY/CALL, (3) the IR keeps "
-        "the source spelling and the USING arguments.  The estate and decomposition no longer read this module."),
+        "CALL/COPY occurrence scan builds the ProgramCall/CopybookReference IR consumed by generation.  Not delegated "
+        "to enterprise.discovery.scan_cobol because (1) classify_call diverts CICS/MQ/IMS/LE entry points out of "
+        "'calls' while the capability analyzer still needs them there, (2) the IR keeps the source spelling and the "
+        "USING arguments.  It reads program text only through the single reader's positioned lines "
+        "(engine.transformation.source_format), so comment, debug, dead-branch and '*>' text is never scanned.  The "
+        "estate and decomposition no longer read this module."),
     "transformation/cobol_parser.py": (
         "The full COBOL parser builds the CobolProgram IR (data layouts, paragraphs, statements) that code generation "
         "needs; discovery records only a dependency graph and has no IR.  COPY/CALL/PERFORM are read here to be "

@@ -100,3 +100,24 @@ Owning layers per `docs/architecture/LAYER_MODEL.md`.
 Inter-program data flow (layer 5, not started), emitting the declared-but-unused vocabulary
 without a coordinated UI change, force-directed UI, `discover()`-level 10k budget, and any
 change to the store schema or the edge identity rules without a dedicated review.
+
+## Phase 0 addendum (2026-11-23, ADR-0013; Layer 5 audit of `9655239`)
+
+Changes to the gaps above, and findings that were not in this document:
+
+* **Gap 1 (production wiring) - partly closed.** The API run path now carries per-program library orders and
+  `DialectProfile` ids into generation and the sealed manifest. `knowledge_graph_path` / `graph_traceability` are
+  still not supplied by `api/service.py`, so real runs still carry no `graph_id`.
+* **Gap 5 (library-order parity) - closed for generation.** One authority (`library_winner`, `orders_for_program`);
+  the graph keeps a single `copybook:NAME` node per name, so per-program winners are visible in edges/candidates only.
+* **New defect, fixed:** JCL `BIND ... MEMBER` emitted relation `binds`, which is not in `EDGE_RELATIONS`;
+  `Edge.__post_init__` raised and aborted `build_graph`. It is now `uses-db2` to a `dbrm` node, with a graph-level
+  regression test (`tests/discovery/test_resolve_graph.py`).
+* **New finding, open (Layer 5):** `cobol_structure` dispatches on the first verb of a period-terminated sentence, so a
+  `PERFORM`/`GO TO`/`MOVE` nested inside `IF ... END-IF` emits no edge. Criterion 4 above is proven for sentence-initial
+  statements only.
+* **New finding, open (layer 3):** of the 73 declared resolver rules only about 7 ids are stamped, so `by_rule` carries
+  almost no semantics; `NODE_KINDS` is not enforced (`dbrm`, `object-member` are emitted outside it).
+* **New finding, open:** parallel implementations of SELECT -> DD binding (`engine/jcl/dd_binding.py`), JCL parsing
+  (`engine/transformation/jcl_parser`, `jcl_dependencies`, `jcl_discovery`, `engine/jcl/preprocess`) and table/queue
+  discovery (`external_dependency_edges`) remain; the lint inventory does not cover JCL parsers.

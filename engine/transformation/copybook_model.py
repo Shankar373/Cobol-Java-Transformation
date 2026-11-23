@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -68,6 +69,7 @@ from engine.transformation.copybook_resolver import (
     ResolvedCopybook,
     resolve_copybook,
 )
+from engine.transformation.copy_origins import CopyHop, CopyOriginMap, OriginBuilder, OriginSpan
 from engine.transformation.ir import CobolProgram, DataItem
 from engine.transformation.source_format import compiler_visible_text
 from enterprise.discovery import copy_replacing
@@ -100,6 +102,9 @@ class CopybookModel:
     name: str  # copybook name as referenced by COPY (upper-cased stem)
     source_path: str  # resolved .cpy file (provenance)
     records: tuple[DataItem, ...] = ()
+    #: Origin of every line of the expanded text this model was parsed from (nested COPY, REPLACING).
+    #: Provenance only: excluded from equality and repr so models compare and serialise as before.
+    origins: CopyOriginMap | None = dataclass_field(default=None, compare=False, repr=False)
 
 
 def parse_copybook(path: str | Path) -> CopybookModel:
@@ -268,6 +273,11 @@ MAX_EXPANDED_CHARS = 4_000_000
 _MIN_READ_COST = 16_384  # so at most ~244 member reads per expansion, however small the members
 
 
+def _file_lines(file: str, via: tuple[CopyHop, ...], first_line: int):  # noqa: ANN202 - origin callback
+    """Origin callback for text read from ``file`` whose first line segment is ``first_line``."""
+    return lambda k: OriginSpan(file, first_line + k, via)
+
+
 def _expand_copybook_text(
     path: Path,
     search_dirs: tuple[Path, ...],
@@ -275,9 +285,23 @@ def _expand_copybook_text(
     diagnostics: list[CopybookDiagnostic],
     _budget: list[int] | None = None,
 ) -> str:
+    """Copybook text with every nested COPY statement expanded (see ``_expand_copybook_traced``)."""
+    return _expand_copybook_traced(path, search_dirs, chain, diagnostics, _budget)[0]
+
+
+def _expand_copybook_traced(
+    path: Path,
+    search_dirs: tuple[Path, ...],
+    chain: tuple[str, ...],
+    diagnostics: list[CopybookDiagnostic],
+    _budget: list[int] | None = None,
+    via: tuple[CopyHop, ...] = (),
+) -> tuple[str, CopyOriginMap]:
     """Copybook text with every nested COPY statement replaced by the expanded
     text of its target, at the statement's own position (group hierarchy and
-    sibling order are preserved).
+    sibling order are preserved), plus the :class:`CopyOriginMap` saying which
+    file and line every expanded line came from.  ``via`` holds the COPY
+    statements the top-level call was itself reached through (outermost first).
 
     Fail-closed contract — a nested target that is missing, ambiguous,
     unreadable (filesystem error *or* non-UTF-8 decode failure), or part
@@ -290,13 +314,15 @@ def _expand_copybook_text(
     reports it verbatim as ``COPYBOOK_UNREADABLE``.
     """
     stem = path.stem.upper()
+    here = path.as_posix()
+    nothing = CopyOriginMap((OriginSpan(here, 1, via),))  # the empty text: one empty line
     budget = _budget if _budget is not None else [MAX_EXPANDED_CHARS]
     if len(chain) >= MAX_COPY_DEPTH or budget[0] <= 0:
         diagnostics.append(CopybookDiagnostic(
             level="ERROR", code="COPYBOOK_EXPANSION_LIMIT",
             message=f"COPY expansion limit reached at copybook {stem} (depth {len(chain)}, "
                     f"at most {MAX_COPY_DEPTH} levels and {MAX_EXPANDED_CHARS} characters in total)"))
-        return ""
+        return "", nothing
     try:
         text = _strip_sequence_numbers(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError) as exc:
@@ -311,12 +337,17 @@ def _expand_copybook_text(
                 message=f"Copybook {stem} at {path}: {exc}",
             )
         )
-        return ""
+        return "", nothing
 
     budget[0] -= max(len(text), _MIN_READ_COST)  # every member read costs something, however small
     spans = _find_copy_statements(text)
+    builder = OriginBuilder()
     if not spans:
-        return text
+        builder.add(text, _file_lines(here, via, 1))
+        return text, builder.build()
+
+    def line_of(offset: int) -> int:
+        return text.count("\n", 0, offset) + 1
 
     masked = _mask_comments(text)
     pieces: list[str] = []
@@ -335,6 +366,7 @@ def _expand_copybook_text(
             cursor = end
             continue
         pieces.append(text[cursor:start])
+        builder.add(text[cursor:start], _file_lines(here, via, line_of(cursor)))
         cursor = end
         target_key = target.upper()
         if target_key == stem or target_key in chain:
@@ -374,16 +406,19 @@ def _expand_copybook_text(
                 )
             )
             continue
-        pieces.append(
-            _apply_replacing(
-                _expand_copybook_text(
-                    resolved.path, search_dirs, (*chain, stem), diagnostics, budget
-                ),
-                tuple(pairs),
-            )
+        hop = CopyHop(here, line_of(start), target)
+        child, child_origins = _expand_copybook_traced(
+            resolved.path, search_dirs, (*chain, stem), diagnostics, budget, (*via, hop)
         )
+        replaced = _apply_replacing(child, tuple(pairs))
+        pieces.append(replaced)
+        if replaced.count("\n") == child.count("\n"):
+            builder.add(replaced, lambda k, _lines=child_origins.lines: _lines[k])
+        else:  # a replacement text with newlines: no member line can be named, only the COPY statement
+            builder.add(replaced, lambda _k, _hop=hop: OriginSpan(_hop.file, _hop.line, via, exact=False))
     pieces.append(text[cursor:])
-    return "".join(pieces)
+    builder.add(text[cursor:], _file_lines(here, via, line_of(cursor)))
+    return "".join(pieces), builder.build()
 
 
 def collect_copybook_texts(
@@ -614,11 +649,14 @@ def _parse_copybook_expanded(
     from engine.transformation.cobol_parser import CobolParser
 
     src = Path(path)
-    text = _expand_copybook_text(src, search_dirs, (), diagnostics)
-    text = _apply_replacing(text, replacing)
-    items = CobolParser().parse_data_description_lines(text.splitlines())
+    text, origins = _expand_copybook_traced(src, search_dirs, (), diagnostics)
+    replaced = _apply_replacing(text, replacing)
+    if replaced.count("\n") != text.count("\n"):  # the clause's own text split lines: no line can be named
+        origins = CopyOriginMap(tuple(
+            OriginSpan(src.as_posix(), 1, (), exact=False) for _ in range(replaced.count("\n") + 1)))
+    items = CobolParser().parse_data_description_lines(replaced.splitlines())
     return CopybookModel(
-        name=src.stem.upper(), source_path=str(src), records=tuple(items)
+        name=src.stem.upper(), source_path=str(src), records=tuple(items), origins=origins
     )
 
 
@@ -884,12 +922,21 @@ def prepare_application_copybooks(
 
     models: dict[str, CopybookModel] = {}
     program_models: dict[tuple[str, str], CopybookModel] = {}
+    # A copybook name that per-program library orders resolved to DIFFERENT
+    # files is program-specific: each program merges its own file's model and
+    # no shared class is planned for the name (same treatment as a REPLACING
+    # parse), so one program's pick never leaks into another's layout.
+    paths_by_name: dict[str, set[str]] = {}
+    for ref in resolved:
+        paths_by_name.setdefault(ref.copybook_name.upper(), set()).add(str(ref.path))
+    divergent = {name for name, paths in paths_by_name.items() if len(paths) > 1}
     for ref in resolved:
         key = ref.copybook_name.upper()
         pair_key = (ref.program_id.upper(), key)
         pairs = unit_pairs.get(pair_key)
-        cache: dict = program_models if pairs else models
-        cache_key: object = pair_key if pairs else key
+        program_specific = bool(pairs) or key in divergent
+        cache: dict = program_models if program_specific else models
+        cache_key: object = pair_key if program_specific else key
         if cache_key in cache:
             continue
         try:

@@ -256,3 +256,28 @@ def test_nodes_that_exist_in_the_upload_carry_path_and_hash() -> None:
     node = build.graph.nodes["program:P"]
     assert node.origin == "input" and node.path == "a/P.cbl" and len(node.sha256) == 64
     assert Node("x", "k").as_dict() == {"id": "x", "kind": "k", "origin": "input"}
+
+
+# --- DB2 BIND MEMBER: a relation the graph does not know must never abort the whole build ------------------------------
+
+
+def test_db2_bind_member_reaches_the_graph_without_aborting_the_build() -> None:
+    jcl = ("//J JOB\n//S1 EXEC PGM=IKJEFT01\n//SYSTSIN DD *\n  DSN SYSTEM(DB2P)\n"
+           "  BIND PLAN(NEWPLAN) MEMBER(DBRM1,DBRM2)\n  END\n/*\n")
+    build = build_graph(records({"jcl/BIND.jcl": jcl}))  # raised ValueError("unknown relation 'binds'") before the fix
+    members = {e.dst for e in edges(build, "uses-db2") if e.dst.startswith("dbrm:")}
+    assert members == {"dbrm:DBRM1", "dbrm:DBRM2"}
+    for edge in edges(build, "uses-db2"):
+        assert edge.file == "jcl/BIND.jcl" and edge.line >= 1 and edge.column >= 1  # provenance is mandatory
+    assert not [e for e in build.graph.edges() if e.relation == "binds"]  # the vocabulary stays closed
+
+
+def test_every_relation_a_scanner_emits_is_in_the_closed_vocabulary() -> None:
+    """Guard the producer/vocabulary seam itself: any JCL utility ref must be constructible as an Edge."""
+    from enterprise.discovery.graph import EDGE_RELATIONS
+    jcl = ("//J JOB\n//S1 EXEC PGM=IKJEFT01\n//SYSTSIN DD *\n  DSN SYSTEM(DB2P)\n  RUN PROGRAM(P1) PLAN(PL1)\n"
+           "  BIND PLAN(PL2) MEMBER(M1)\n  END\n/*\n//S2 EXEC PGM=IDCAMS\n//SYSIN DD *\n"
+           "  DEFINE CLUSTER (NAME(A.B) INDEXED KEYS(4 0) RECORDSIZE(80 80))\n  REPRO INFILE(IN1) OUTFILE(OUT1)\n/*\n"
+           "//S3 EXEC PGM=SORT\n//SYSIN DD *\n  SORT FIELDS=(1,6,CH,A)\n/*\n")
+    scan = scan_file("jcl/ALL.jcl", classify("jcl/ALL.jcl", jcl).cls, jcl)
+    assert {r.relation for r in scan.refs} <= set(EDGE_RELATIONS)

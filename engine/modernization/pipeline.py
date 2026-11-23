@@ -79,6 +79,11 @@ class ModernizationConfig:
     # written to ``<output_dir>/traceability-overlay.json`` (and to ``knowledge_graph_store``, a KGStore path, if set).
     knowledge_graph_path: str = ""
     knowledge_graph_store: str = ""
+    # Layer 4 library order: ``(PROGRAM-ID, (order, ...))`` pairs, each order a tuple of library dataset/directory
+    # names, derived by discovery from JCLLIB/SYSLIB/-I facts (plain data computed in api/; the engine never
+    # imports discovery for it).  Each program resolves its same-named copybooks with ITS orders; empty keeps the
+    # ambiguity error.
+    library_orders: tuple[tuple[str, tuple[tuple[str, ...], ...]], ...] = ()
 
     def __post_init__(self) -> None:
         # Fail-closed validation (raises ValueError naming field+value+set).
@@ -262,6 +267,12 @@ class UniversalModernizationPipeline:
         )
         self._plan_generator = TransformationPlanGenerator()
 
+    def _order_kwargs(self) -> dict:
+        """``orders=`` for discovery/generation: per-program library orders, passed only when the run has any
+        (so a run without them calls both stages exactly as before)."""
+        orders = self._config.library_orders
+        return {"orders": {program: program_orders for program, program_orders in orders}} if orders else {}
+
     def execute(self, progress=None) -> ModernizationReport:
         """Execute the complete modernization flow (phases 1-5)."""
         source_path = Path(self._config.source_dir)
@@ -291,6 +302,7 @@ class UniversalModernizationPipeline:
             application = self._discovery.discover(
                 source_path,
                 application_id=self._config.application_id or source_path.name,
+                **self._order_kwargs(),
             )
             report = self._fill_discovery(report, application)
         except Exception as e:
@@ -435,6 +447,7 @@ class UniversalModernizationPipeline:
                 application,
                 entrypoint=self._config.entrypoint,
                 source_root=source_path,
+                **self._order_kwargs(),
             )
             if not gen_result.success:
                 report.generation_errors = gen_result.errors

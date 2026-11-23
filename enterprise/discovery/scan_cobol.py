@@ -20,8 +20,7 @@ from .scan_embedded import classify_call, parse_exec
 
 __all__ = ["scan_cobol", "DIALECT_SIGNALS"]
 
-_CARD = re.compile(r"^\s*(CBL|PROCESS)\s+(.*)$", re.IGNORECASE)
-_INCLUDE_LINE = re.compile(r"^\s*(?:-INC|\+\+INCLUDE|%INCLUDE)\s+([A-Za-z0-9@#$_-]+)", re.IGNORECASE)
+_INCLUDE_MEMBER = re.compile(r"([A-Za-z0-9@#$_-]+)")
 _DDNAME_PREFIX = re.compile(r"^(?:UT|DA|DC|AS|SYS\d{3})-[A-Z]-", re.IGNORECASE)
 _VERBS = frozenset({
     "MOVE", "IF", "PERFORM", "DISPLAY", "ADD", "COMPUTE", "CALL", "GO", "STOP", "EVALUATE", "READ", "WRITE", "OPEN",
@@ -49,17 +48,15 @@ _LEVEL_NUMBERS = frozenset(
 )
 
 
-def _raw_cards(text: str) -> list[tuple[int, int, str]]:
-    """Compiler-option cards (``CBL``/``PROCESS``) before the first IDENTIFICATION DIVISION: ``(line, col, options)``."""
-    found = []
-    for number, raw in enumerate(text.splitlines(), start=1):
-        upper = raw.upper()
-        if "IDENTIFICATION DIVISION" in upper or re.match(r"^\s*(?:\d{6}\s*)?ID\s+DIVISION", upper):
-            break
-        match = _CARD.match(raw)
-        if match:
-            found.append((number, match.start(1) + 1, match.group(2).strip()))
-    return found
+_OPTION_CARDS = frozenset({"CBL", "PROCESS"})
+
+
+def _identification_line(tokens: list[Token]) -> int:
+    """Physical line of the first ``IDENTIFICATION DIVISION`` / ``ID DIVISION`` header (0 when there is none)."""
+    for index, token in enumerate(tokens[:-1]):
+        if token.kind == "word" and token.upper in ("IDENTIFICATION", "ID") and tokens[index + 1].upper == "DIVISION":
+            return token.line
+    return 0
 
 
 def _split_options(options: str) -> list[str]:
@@ -114,20 +111,20 @@ def scan_cobol(path: str, text: str, *, copybook: bool = False) -> FileScan:
     for directive in directives:
         scan.facts.append(Fact(path, directive.line, 1, "directive", directive.text.upper()[:80]))
     # A dead conditional branch is never compiled: its cards and include cards are never processed.
-    dead = frozenset(number for number, kind in read.skipped if kind == "dead-branch")
-    for number, column, options in _raw_cards(text):
-        if number in dead:
+    # Cards come from the one reader (``read.cards``: column-1 only, dead branches already excluded).
+    header_line = _identification_line(tokens)
+    for card in read.cards:
+        if card.keyword in _OPTION_CARDS:
+            if header_line and card.line >= header_line:
+                continue  # an option card inside the program is not a compiler-option card
+            marker = Token("word", "CBL", card.line, card.column)
+            for option in _split_options(card.text):
+                state.fact(marker, "compiler-option", option.upper(), card=card.text[:80])
             continue
-        marker = Token("word", "CBL", number, column)
-        for option in _split_options(options):
-            state.fact(marker, "compiler-option", option.upper(), card=options[:80])
-    for number, raw in enumerate(text.splitlines(), start=1):
-        if number in dead:
-            continue
-        match = _INCLUDE_LINE.match(raw)
-        if match:
-            marker = Token("word", match.group(1), number, match.start(1) + 1)
-            state.ref(marker, "copies", "copybook", match.group(1).upper(), clause="-INC/++INCLUDE")
+        member = _INCLUDE_MEMBER.match(card.text)
+        if member:
+            marker = Token("word", member.group(1), card.line, card.text_column)
+            state.ref(marker, "copies", "copybook", member.group(1).upper(), clause="-INC/++INCLUDE")
     _collect_values(tokens, state)
     state.structure = cobol_structure.scan_structure(tokens, path=path, copybook=copybook)
     _scan_flat(tokens, state)

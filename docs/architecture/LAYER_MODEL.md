@@ -1,6 +1,8 @@
 # The fourteen-layer model: ownership and integration contracts
 
-Authoritative, 2026-11-19 (branch `codex/enterprise-phases-continuation`, from `c1be7b6`).
+Authoritative, 2026-11-19; Layer 5/6 definitions and corrections amended 2026-11-23 by
+`docs/decisions/ADR-0013_LAYER5_SEMANTIC_FACTS_AND_LAYER6_APPLICATION_IR.md` (branch
+`codex/enterprise-phases-continuation`, from `c1be7b6`).
 This document assigns **one owning layer** to every capability and to every open limitation
 of layers 1–3, and states the four integration contracts that cross layer boundaries
 (graph input, immutable source/checkpoint identity, `DialectProfile`, semantic relationships).
@@ -13,7 +15,8 @@ per-layer audits stay the evidence record:
 |---|---|
 | 1, 2 | `docs/discovery/LAYER_AUDIT.md` |
 | 3 | `docs/discovery/KNOWLEDGE_GRAPH_AUDIT.md` (reconciled 2026-11-19) |
-| 4 | `docs/discovery/DIALECT_PARSER_FRONTEND_AUDIT.md` (acceptance contract) |
+| 4 | `docs/discovery/DIALECT_PARSER_FRONTEND_AUDIT.md` (acceptance contract and closure record) |
+| 5, 6 | `docs/decisions/ADR-0013_LAYER5_SEMANTIC_FACTS_AND_LAYER6_APPLICATION_IR.md` |
 
 ## The layers
 
@@ -25,12 +28,12 @@ Status key: **built** (shipped and tested), **extended** (this task extends it),
 | 1 | Secure ingestion and immutable inventory | `enterprise/ingest/**`, `enterprise/discovery/{model,inventory,limits,zipsource,gitingest,remotegit,checkpoint,checkpoint_core,discover,runs}` | Sealed content-addressed **checkpoint**: `checkpoint_id`, `source_digest`; bytes never change after seal | built |
 | 2 | Application, compiler and build discovery | `enterprise/discovery/{classify,scan_cobol,scan_jcl,scan_embedded,scan_bms,cobol_structure,applications,compilers,resolve,readiness}` | Facts/refs with `file:line:column`, toolchain requirements, advisory GnuCOBOL compatibility verdicts, **readiness gate** | built |
 | 3 | Enterprise knowledge graph and traceability | `enterprise/discovery/{graph,kg_store,kg_query,kg_export,graph_view,traceability}`, `engine/graph_traceability.py`, KG routes in `api/discovery_routes.py`, `frontend/src/pages/KnowledgeGraph.tsx` | Versioned graph documents (`graph_id`), durable `kg_*` store, queries/exports, estate view, `generated-from`/`verified-by` overlays | built |
-| 4 | Dialect-aware parser frontend | `enterprise/discovery/cobol_text.py` (single reference-format reader), `enterprise/discovery/dialect_profile.py`, the shared REPLACING and library-order modules, `engine/transformation/source_format.py` (its engine-facing thin consumer), conditional-compilation evaluation/refusal | **`DialectProfile` + `profile_id`**, normalized source lines/tokens, named frontend refusals (`REFERENCE_FORMAT_*`, `CONDITIONAL_COMPILATION_UNEVALUATED`, …) | extended (this task) |
-| 5 | Parse-tree semantic analysis (inter-program data flow) | *none* | Would produce: statement-level parse tree, inter-program propagation, COPY-expanded discovery graph | **not started — do not start** |
-| 6 | Semantic IR | `engine/transformation/{cobol_parser,ir,qualified_names,next_sentence,exec_sql,sql_parser,subsystem_calls,cics_java_mapping,source_hash}` | `CobolProgram` IR + named diagnostics | built |
+| 4 | Dialect-aware parser frontend | `enterprise/discovery/cobol_text.py` (single reference-format reader), `enterprise/discovery/dialect_profile.py`, the shared REPLACING and library-order modules, `engine/transformation/{source_format,source_positions,copy_origins}.py` (the engine-facing face: positioned lines, COPY-origin map), conditional-compilation evaluation/refusal | **`DialectProfile` + `profile_id`**, normalized source lines/tokens, named frontend refusals (`REFERENCE_FORMAT_*`, `CONDITIONAL_COMPILATION_UNEVALUATED`, …) | built; closure record in the Layer 4 audit (Phase 0, ADR-0013) |
+| 5 | Project-wide semantic facts (ADR-0013) | *none yet* | Would produce: a deterministic, content-addressed semantic-facts document - declarations/scopes, typed references with def/use, qualified names and layouts, CALL/USING/LINKAGE, control/data flow, file/VSAM/SQL/JCL relationships, resolution status, spans with COPY-origin chains | **not started - begins only after Phase 0 acceptance and Layer 4 closure** |
+| 6 | Semantic IR today; canonical COBOL Application IR (ADR-0013) | `engine/transformation/{cobol_parser,ir,qualified_names,next_sentence,exec_sql,sql_parser,subsystem_calls,cics_java_mapping}`, `engine/source_hash.py` | Today: per-program `CobolProgram` IR + named diagnostics (no source positions, no symbol table). Target: the Layer 5 facts projected as typed Application IR; the projection adds no fact absent from Layer 5 | built (per-program IR); Application IR projection not started |
 | 7 | Capability analysis and the refusal ledger | `engine/modernization/capability_analyzer.py`, `engine/transformation/semantic_capability.py`, `docs/CAPABILITY_MATRIX.md` | SUPPORTED/PARTIAL/UNSUPPORTED per construct, GnuCOBOL-proof pinned | built |
-| 8 | Modernization planning | `engine/modernization/{modernization_planner,transformation_plan,application_discovery,entrypoint}.py` | `TransformationPlan`, oracle plan, fail-closed SKIP | built |
-| 9 | Java generation | `engine/transformation/{producer,java_generator,application_generator,java_render,framework_generators,manifest}.py` | Byte-deterministic Java project + `ProducerManifest` | built |
+| 8 | Modernization planning | `engine/modernization/{transformation_plan,capability_analyzer,pipeline}.py`, `engine/transformation/{application_discovery,entrypoint}.py`; `modernization_planner.py` is EXPERIMENTAL and unused in production | `TransformationPlan`, oracle plan, fail-closed SKIP | built |
+| 9 | Java generation | `engine/transformation/{producer,java_generator,application_generator,java_render,spring_boot_generator,manifest}.py` | Byte-deterministic Java project + `ProducerManifest` | built |
 | 10 | Build, packaging and runtime targets | `engine/candidate/**`, `engine/execution/**`, `engine/docker_cli.py`, `engine/transformation/runtime_adapters.py` | Runnable artifact per runtime target | built |
 | 11 | GnuCOBOL oracle and differential execution | `engine/oracle/**`, `engine/comparators/**`, `engine/jcl/**` | Oracle build/run results identified by `oracle_id` | built |
 | 12 | Verification and verdict | `engine/verification/**`, `engine/verdict/**`, `scripts/e2e/verify_independent.py` | Fail-closed verdict; single `VERIFIED` derivation site | built |
@@ -90,7 +93,11 @@ authority for every later stage.
   (`fixed|free|variable|mixed`) with switch lines, `compiler_options`, `directive_state`,
   `library_order`, `unsupported` (construct names), `oracle` (`gnucobol-3.1.2`, selected
   `-std`, format flag).
-* **Consumers (all read, none re-derive):**
+* **Consumers (all read, none re-derive).** Wired today (Phase 0): the discovery report; the API run path
+  (`api/readiness.py` -> `PipelineConfig.dialect_profiles` -> sealed evidence manifest, conditional key, with an
+  integrity check); the engine's mixed-format refusal. **Not yet wired** (stated intent, tracked in the Layer 4
+  closure record): engine consumption of `unsupported` by layers 7/8, `profile_id` in the producer manifest
+  (would change hashes of untouched output), and `-std=` from the profile in the oracle. Intended consumers:
   * layer 2 compatibility lane — `-std`/format flags and `NOT_ATTEMPTED_REFERENCE_FORMAT`;
   * layer 4 engine frontend — named refusals before parsing (OO, `SCREEN SECTION`,
     `VARIABLE`, unevaluated `>>IF`);
@@ -98,7 +105,8 @@ authority for every later stage.
   * layer 9 generation — `profile_id` recorded in the producer manifest;
   * layer 11 oracle — `-std=`/format flag and `profile_id` recorded beside `oracle_id`;
   * layer 13 evidence — `profile_id` sealed with the run.
-* **Prohibition (lint-enforced from layer 4 onward):** no module may re-detect dialect or
+* **Prohibition (lint-enforced from layer 4 onward - imports by `test_engine_graph_lint.py`, behaviour by
+  `test_single_reader_lint.py` with a shrink-only inventory):** no module may re-detect dialect or
   reference format on its own. Reading source requires exactly one reader
   (`enterprise/discovery/cobol_text`); deriving dialect requires exactly one profile builder.
   Advisory approximations (the syntax-check lane) stay labelled as today.
@@ -138,16 +146,16 @@ that owns the fix.
 | Legacy `/estate`, `/decomposition` endpoints use the old discovery | LAYER_AUDIT open | 14 | |
 | Ambiguous references and unresolved dynamic CALLs do not lower readiness | LAYER_AUDIT open | 2 | policy decision |
 | Container image tag mutable (`gnucobol-ocesql:latest`), digest not recorded | LAYER_AUDIT open | 10 | image identity (provenance recorded for Maven/runtime images already) |
-| Build flags (`-std`, `-free`, `-I` order) detected but not applied to the compile plan | LAYER_AUDIT open, KG audit gap 12 | 4 | applied through `DialectProfile`; the syntax lane stays advisory |
-| Library search order was a heuristic (nearest/shortest), JCLLIB/SYSLIB/-I recorded but not applied | LAYER_AUDIT open, KG audit gap 4 | 4 | one shared library-order authority (this task) |
-| `COBOL REPLACING` parsed twice with different rules | KG audit gap 11 | 4 | one shared REPLACING module (this task) |
+| Build flags (`-std`, `-free`, `-I` order) detected but not applied to the compile plan | LAYER_AUDIT open, KG audit gap 12 | 4 | profile ids and per-program library order now reach generation and evidence; `-std=` to the oracle stays open (recorded as `default`); the syntax lane stays advisory |
+| Library search order was a heuristic (nearest/shortest), JCLLIB/SYSLIB/-I recorded but not applied | LAYER_AUDIT open, KG audit gap 4 | 4 | closed for generation (Phase 0): one authority (`library_winner`, `orders_for_program`) applied per program through the API run path. Open: FD-section COPY and nested COPYs use the global search set; the graph keeps one `copybook:NAME` node per name |
+| `COBOL REPLACING` parsed twice with different rules | KG audit gap 11 | 4 | closed: one shared REPLACING module (`copy_replacing.py`) |
 | Duplicate dependency parsers in the engine (`application_discovery`, `copybook_model`, `cobol_parser`, …) | KNOWN_ISSUES:17 | 6, 7, 8 (inventory in `test_engine_graph_lint.py`) | layer 4 retires what belongs to the frontend (REPLACING/library order); the IR-building parsers stay with their justification and may only shrink |
 | `ims-call`/`mq-put`/`mq-get` (+`sql-reads`, `sql-writes`, `cics-op`, `implements`, `column`, `requirement`) declared but not emitted | KNOWN_ISSUES:21 | 3 | coordinated resolver+UI rename, or removed from the vocabulary at a schema bump |
 | `verified-by` not automatic after a VERIFIED verdict | KNOWN_ISSUES:23 | 11→13 | the verifier (11) produces the verdict; wiring `record_verification` into the run is evidence (13) plumbing |
 | Evidence manifest carries the generation-stage overlay id, not the final one | KNOWN_ISSUES:25 | 13 | |
 | Java mapping is name-based (regex class/method scan) | KNOWN_ISSUES:27 | 9 | generation-side identity |
 | API path never supplies `knowledge_graph_path` / `graph_traceability` (production manifests carry none) | reconciled KG audit | 14 | control-plane wiring |
-| Data flow intra-program only; needs a real parse tree | KNOWN_ISSUES:28 | **5** | not started, explicitly out of scope |
+| Data flow intra-program only; needs a real parse tree | KNOWN_ISSUES:28 | **5** | not started; ADR-0013 defines the scope and the entry conditions |
 | UI node-link view capped at 60 nodes, no deep link | KNOWN_ISSUES:29 | 14 | |
 | `EXEC` past column 72 reported `EXEC_NOT_CLOSED` | KNOWN_ISSUES:30 | 4→3 | fixed-format reading is layer 4's contract; the scanner error stays layer 3's surface |
 | 10k scale: `discover()` itself not in the benchmark budget | KNOWN_ISSUES:31 | 3 | benchmark covers the graph pipeline only |
@@ -155,7 +163,9 @@ that owns the fix.
 
 ## Change rules
 
-* Layer 4 acceptance is `docs/discovery/DIALECT_PARSER_FRONTEND_AUDIT.md` (11 criteria).
+* Layer 4 acceptance is `docs/discovery/DIALECT_PARSER_FRONTEND_AUDIT.md` (11 criteria; closure record at its end).
+* Layer 5 starts only after the ADR-0013 Phase 0 rows are accepted. Byte-identical generation is checked with
+  `python tools/generation_hashes.py --check docs/audits/generation_hashes.json`.
 * Generation output of untouched fixtures must stay byte-identical (hash before/after, method
   of `docs/audits/CHANGE_LEDGER.md`); the KG benchmark threshold stays `3.0`.
 * `engine/verdict/derivation.py`, GO TO handling and oracle digest pinning remain
