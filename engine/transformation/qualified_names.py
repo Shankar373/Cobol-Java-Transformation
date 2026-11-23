@@ -94,8 +94,15 @@ def _join_split_qualifiers(lines: list[str], by_name: dict[str, list[_Item]]) ->
     A qualified reference may be wrapped between the name and its qualifier (``AMT`` / ``OF GRP1``); the resolver reads
     one line at a time, so the two halves are put back together first.
     """
+    return _join_split_qualifiers_traced(lines, by_name)[0]
+
+
+def _join_split_qualifiers_traced(lines: list[str], by_name: dict[str, list[_Item]]) -> tuple[list[str], list[int]]:
+    """:func:`_join_split_qualifiers` plus ``origin``: ``origin[i]`` is the index in ``lines`` that output line ``i``
+    starts from (a joined pair starts at the first line; the remainder split off a line starts at that line)."""
     out: list[str] = []
-    for line in lines:
+    origin: list[int] = []
+    for index, line in enumerate(lines):
         if out:
             tail = _mask(out[-1]).split()
             if len(tail) >= 2 and tail[-1].upper() in ("OF", "IN") and tail[-2].upper() in by_name and line.strip():
@@ -104,6 +111,7 @@ def _join_split_qualifiers(lines: list[str], by_name: dict[str, list[_Item]]) ->
                     out[-1] = out[-1].rstrip() + " " + chain.group(1)
                     if chain.group(2).strip():
                         out.append(line[: len(line) - len(line.lstrip())] + chain.group(2).lstrip())
+                        origin.append(index)
                     continue
         found = _LEADING_QUALIFIER.match(line)
         if found is not None and out:
@@ -113,9 +121,11 @@ def _join_split_qualifiers(lines: list[str], by_name: dict[str, list[_Item]]) ->
                 rest = found.group(3)
                 if rest.strip():
                     out.append(found.group(1) + rest.lstrip())
+                    origin.append(index)
                 continue
         out.append(line)
-    return out
+        origin.append(index)
+    return out, origin
 
 
 def _group_of(operand: str, items: list[_Item], by_name: dict[str, list[_Item]]) -> int | None:
@@ -223,9 +233,20 @@ def _expand_corresponding(line: str, items: list[_Item], by_name: dict[str, list
 
 def resolve_qualified_names(lines: list[str]) -> tuple[list[str], list[str]]:
     """The source lines with duplicated names made unique and qualified references resolved, and the problems found."""
+    result, problems, _origin = resolve_qualified_names_traced(lines)
+    return result, problems
+
+
+def resolve_qualified_names_traced(lines: list[str]) -> tuple[list[str], list[str], list[int]]:
+    """:func:`resolve_qualified_names` plus ``origin``: ``origin[i]`` is the index in ``lines`` that output line ``i``
+    derives from (the text and the problems are exactly those of :func:`resolve_qualified_names`).
+
+    Only the procedure division changes its line count (a wrapped qualifier is joined, a CORRESPONDING becomes one
+    statement per pair), so a position kept per input line stays valid for every output line through this vector.
+    """
     data, procedure = _divisions(lines)
     if data < 0 or procedure < 0 or procedure < data:
-        return lines, []
+        return lines, [], list(range(len(lines)))
     items: list[_Item] = []
     stack: list[tuple[int, str, int]] = []
     declaration_lines: dict[int, str] = {}
@@ -272,7 +293,7 @@ def resolve_qualified_names(lines: list[str]) -> tuple[list[str], list[str]]:
                     continue
                 duplicated.discard(token)
     if not by_name:
-        return lines, []
+        return lines, [], list(range(len(lines)))
 
     taken = {item.name for item in items}
     for name in duplicated:
@@ -322,8 +343,12 @@ def resolve_qualified_names(lines: list[str]) -> tuple[list[str], list[str]]:
                 parent.children = []
             parent.children.append(position)
     expanded: list[str] = []
-    for line in _join_split_qualifiers(result[procedure:], by_name):
-        expanded.extend(_expand_corresponding(line, items, by_name, problems))
+    joined, joined_origin = _join_split_qualifiers_traced(result[procedure:], by_name)
+    origin = list(range(procedure))
+    for line, source_index in zip(joined, joined_origin):
+        produced = _expand_corresponding(line, items, by_name, problems)
+        expanded.extend(produced)
+        origin.extend([procedure + source_index] * len(produced))
     result = result[:procedure] + expanded
 
     for index in range(procedure, len(result)):
@@ -360,4 +385,4 @@ def resolve_qualified_names(lines: list[str]) -> tuple[list[str], list[str]]:
                         f"Data name {word.group(0).upper()} is declared more than once and referenced without a "
                         "(resolvable) qualification")
                     leftover.remove(word.group(0).upper())
-    return result, problems
+    return result, problems, origin

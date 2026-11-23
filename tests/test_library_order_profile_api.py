@@ -165,3 +165,36 @@ def test_sole_file_estate_also_sets_the_oracle_profile_id(service, tmp_path, mon
     manifest = run.evidence_manifest
     assert len(manifest.dialect_profiles) == 1
     assert manifest.oracle_identity.profile_id == manifest.dialect_profiles[0][1]
+
+
+# --- the discovery graph id reaches the sealed manifest ---------------------------------------------------------
+
+
+def test_readiness_record_carries_the_discovery_graph_id(service, tmp_path) -> None:
+    root = _estate_root(tmp_path)
+    record = service.readiness_for(str(root), "orders-app")
+    other = discover(DiscoveryRequest("directory", str(root), label="x"), tmp_path / "other-store")
+    assert record["graph_id"] == other.report["dependency_graph"]["graph_id"] != ""
+    assert readiness.graph_lineage(record) == (("graph_id", record["graph_id"]),)
+    assert "graph_id" not in readiness.public(record)  # the public surface is unchanged
+
+
+def test_graph_lineage_of_a_record_without_a_graph_is_empty() -> None:
+    assert readiness.graph_lineage({}) == ()
+    assert readiness.graph_lineage(readiness.blocked_record("X", "y")) == ()
+
+
+def test_sealed_manifest_carries_the_discovery_graph_id(service, tmp_path, monkeypatch) -> None:
+    root = _estate_root(tmp_path)
+    run = _validated_manifest(service, tmp_path, monkeypatch, root)
+    discovered = discover(DiscoveryRequest("directory", str(root), label="x"), tmp_path / "other-store")
+    expected = discovered.report["dependency_graph"]["graph_id"]
+    assert dict(run.evidence_manifest.graph_traceability) == {"graph_id": expected}
+
+
+def test_dropping_the_graph_bridge_leaves_the_manifest_without_lineage(service, tmp_path, monkeypatch) -> None:
+    """Mutation check: the manifest's ``graph_id`` comes from the readiness record, nowhere else."""
+    monkeypatch.setattr(readiness, "graph_lineage", lambda record: ())
+    root = _estate_root(tmp_path)
+    run = _validated_manifest(service, tmp_path, monkeypatch, root)
+    assert run.evidence_manifest.graph_traceability == ()

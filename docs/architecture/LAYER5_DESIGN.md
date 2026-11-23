@@ -1,8 +1,8 @@
 # Layer 5 design: project-wide semantic facts
 
-Status: **design only, proposed, not accepted.** Written against `HEAD 6f683dd` on
-`codex/enterprise-phases-continuation` (2026-11-23). No source, test, workflow or other document is changed by this
-file; nothing here is implemented. Deterministic, open-source only, **no LLM**, no network.
+Status: **design accepted for L5-P1 only (section 11); P1 implemented, P2-P7 still design.** Written against
+`HEAD 6f683dd` on `codex/enterprise-phases-continuation` (2026-11-23) and revised at `be00388` with the entry probes
+(section 11) and the owner decisions D1-D4, D9 (section 9.3). Everything outside section 11.2 is unimplemented. Deterministic, open-source only, **no LLM**, no network.
 
 Governing documents: `docs/decisions/ADR-0013_LAYER5_SEMANTIC_FACTS_AND_LAYER6_APPLICATION_IR.md` (ADR-0013),
 `docs/architecture/LAYER_MODEL.md` (LM), `docs/discovery/DIALECT_PARSER_FRONTEND_AUDIT.md` (L4 audit, closure record
@@ -12,9 +12,8 @@ Evidence convention. `path:line` is something this design's author read at HEAD.
 from the cited line. `[UNVERIFIED]` = inferred, not read, or needs a probe before the phase that depends on it starts.
 Where a number says "about" the author did not count it exactly.
 
-Entry state: `docs/discovery/LAYER4_RESIDUAL_DISPOSITION.md` **does not exist at HEAD** (`ls docs/discovery` shows
-only `COMPILER_AND_APPLICATION_DISCOVERY, COVERAGE, DIALECT_PARSER_FRONTEND_AUDIT, DISCOVERY, KNOWLEDGE_GRAPH_AUDIT,
-LAYER_AUDIT`). It is **pending at HEAD**; section 8.0 lists what must be in it. (At the end of this task an untracked file of that name appeared in the working tree, written by something other than this task; it was not read and is not relied on. Re-check against it before L5-P1.)
+Entry state: `docs/discovery/LAYER4_RESIDUAL_DISPOSITION.md` exists (committed in `8d54a42`) and now carries the recorded
+owner decisions for every Layer 4 residual; section 8.0 and section 10 are ticked against it with evidence in section 11.
 
 ---
 
@@ -752,8 +751,8 @@ full suites, local runs focused tests only.
    target phase: (i) tab handling (`:113-115`), (ii) discovery tokens on folded continuation lines (`:116-117`),
    (iii) FD-section/nested COPY library search (`:120-121`), (iv) `external_dependency_edges` comment masking
    (`:125-126`), (v) unused `DialectProfile.unsupported` consumption and `std` from profile (`:111-112`).
-3. `api/service.py` supplies `graph_id` to the run (else `header.graph_id=""`, 5.6).
-4. Owner decisions D1-D4 (section 9) answered.
+3. `api/service.py` supplies `graph_id` to the run (else `header.graph_id=""`, 5.6): **done, section 11.3.**
+4. Owner decisions D1-D4 (section 9) answered: **done, section 9.3.**
 
 ### L5-P1 - Spans (no new facts yet)
 
@@ -897,22 +896,92 @@ is **not** scheduled here.
 | D10 | Should the document be stored (`kg_store`-style tables) or only sealed + regenerated? | Regenerate deterministically from the checkpoint; store only `semantic_id` in evidence in P4; a store is a later decision. |
 | D11 | Policy: do ambiguous references or unresolved dynamic CALLs lower readiness? (`LAYER_MODEL.md:147` assigns it to layer 2 as an open policy decision) | Facts carry the state; readiness policy stays a layer 2 decision, informed by `complete`/`unsupported_summary`. |
 
+### 9.3 Decisions recorded 2026-11-23 (D1-D4, D9)
+
+Recorded on the project owner's instruction of 2026-11-23 to "resolve decisions D1-D4 and D9". Each adopts the
+recommendation above after the entry probes (section 11); each is reversible by an ADR-0013 amendment. D5-D8, D10
+and D11 stay open: none of them blocks P1.
+
+| # | Decision (resolved) | Basis |
+|---|---|---|
+| D1 | `semantic_id` covers the bindings (checkpoint, graph, profiles) and the body; `facts_digest` is the body-only digest for diffing. Applies from L5-P4; nothing in P1 is hashed. | Same pattern as `graph_id_of`; a binding change must change the seal. |
+| D2 | `Span` extends ADR-0013's `{file,line,column,via_copy[]}` with `end_line`, `end_column`, `basis`, `exact` and a named `note`. Additive. **Implemented in P1** (`engine/semantic_facts/span.py`); ADR-0013 carries the amendment. | A span that cannot say "inexact" would imply exactness (design 2.2). |
+| D3 | Package home is `engine/semantic_facts/`; graph access only through `graph_view`/`kg_query` (P6). `test_engine_graph_lint` and `test_single_reader_lint` pass with the package in place (P1 imports no discovery module). | Needs the engine IR; the lint seam is intact. |
+| D4 | Nested programs are **recorded as unsupported** in P2 (`NESTED_PROGRAM_NOT_MODELLED`), not modelled. Probe (a) shows the engine parser neither models nor refuses them today (section 11.1); that over-acceptance is a separate owner item, not changed here. | Parser support would change which programs generate; no corpus program is nested (11.1). |
+| D9 | Edits to `cobol_parser.py` and `qualified_names.py` **are** `[certify]` changes even when the hash tool is identical, because they sit under the generator. P1's commit carries `[certify]`. | The hash tool proves generation, not the oracle verdicts or the evidence seal. |
+
 ---
 
 ## 10. What must be true before L5-P1 starts
 
-- [ ] ADR-0013 Phase 0 rows accepted and the Layer 4 closure commit's CI **and** certification are green.
-- [ ] `docs/discovery/LAYER4_RESIDUAL_DISPOSITION.md` exists with an owner/status/target phase per residual (it does not
-      exist at HEAD).
-- [ ] Probes done and recorded (each was marked UNVERIFIED here): (a) engine parser behaviour on a nested-program file;
-      (b) `dataclasses.replace` use on IR objects inside `cobol_parser.py`; (c) which text `fd_copybooks` hands to
-      `parse`; (d) callers of `resolve_qualified_names`; (e) `last_line_map` empty for a CORRESPONDING / split-qualifier
-      fixture; (f) how `EVALUATE` is lowered.
-- [ ] Decisions D1-D4 and D9 answered.
-- [ ] `tests/discovery/test_engine_graph_lint.py` read in full (import allow-list) so `engine/semantic_facts/` placement
-      is lint-clean.
-- [ ] `python tools/generation_hashes.py --check docs/audits/generation_hashes.json` passes on the entry commit
-      (baseline from `9655239`, `DIALECT_PARSER_FRONTEND_AUDIT.md:92`).
-- [ ] A fixture set for P1 exists on paper: CORRESPONDING, split qualifier, REPLACE, COPY REPLACING (with and without
-      newline in the replacement), nested COPY, fixed continuation, mixed format, tab line, FD COPY.
-- [ ] The `api/service.py` `graph_id` wiring is scheduled or `header.graph_id=""` is accepted explicitly (5.6).
+- [x] ADR-0013 Phase 0 rows accepted and the Layer 4 closure commit's CI **and** certification are green. Evidence:
+      CI fast checks 45155941742, Full integration validation 45155984410, Corpus certification 45155990012 and
+      Supply chain 45155941625 all `success` on `be00388` (durations in `docs/operations/CI_LEVELS.md`).
+- [x] `docs/discovery/LAYER4_RESIDUAL_DISPOSITION.md` exists with a disposition and a recorded owner decision per residual.
+- [x] Probes done and recorded: (a)-(f) in section 11.1.
+- [x] Decisions D1-D4 and D9 answered (section 9.3).
+- [x] `tests/discovery/test_engine_graph_lint.py` and `test_single_reader_lint.py` pass with `engine/semantic_facts/` present.
+- [x] `python tools/generation_hashes.py --check docs/audits/generation_hashes.json` identical (110 builds) with the P1 change.
+- [x] A fixture set for P1 exists: CORRESPONDING, split qualifier, REPLACE, COPY REPLACING (newline case), nested COPY,
+      fixed continuation, mixed format, tab line, FD COPY - `tests/semantic_facts/test_span_p1.py` - plus every repo
+      COBOL fixture round-tripped.
+- [x] `header.graph_id`: **wired** (section 11.3), not accepted-empty.
+
+---
+
+## 11. Entry probes, the P1 implementation, and the graph_id wiring (added at `be00388`)
+
+### 11.1 Probe results (each was UNVERIFIED above)
+
+| Probe | Result (observed by running the parser / reading the code) | Consequence |
+|---|---|---|
+| (a) nested-program file | `parse()` returns the **outer** `PROGRAM-ID` and merges the contained program's paragraphs into it, including a bogus paragraph named `PROGRAM-ID`; only `UNSUPPORTED_CONSTRUCT` *warnings* are emitted (`Skipped unsupported statement: IDENTIFICATION DIVISION.`, `END PROGRAM ...`), no error. The two repo fixtures with `END PROGRAM` are single programs. | The engine silently over-accepts nested programs. Layer 5 records `NESTED_PROGRAM_NOT_MODELLED` (D4); turning the engine's warning into a refusal is a **new owner item** (it can change which inputs generate), not done. |
+| (b) `dataclasses.replace` inside `cobol_parser.py` | three sites: two on `FileDefinition` (`:983`, `:1970`), one on a statement (`_parse_with_size_error`, the `[NOT] ON SIZE ERROR` bodies). | `id()` matching is sound if the frame is recorded on what `_parse_statement` *returns* (it is: the replaced object is the returned one); the dropped pre-replace object stays pinned by the trace so its `id` cannot be reused. |
+| (c) text `fd_copybooks` hands to `parse` | `application_discovery` parses `expansion.source` (the FD COPY statements expanded in place); the program text and the data-division copybook texts are separate. | Program-text spans use `expansion.origins`; copybook declarations use `CopybookModel.origins`. Both implemented in P1. |
+| (d) callers of `resolve_qualified_names` | exactly one: `cobol_parser.parse` (plus tests). | Safe to add `resolve_qualified_names_traced`; the old name is a wrapper with byte-identical output. |
+| (e) `last_line_map` empty | **Only for CORRESPONDING** expansion. A wrapped (split) qualifier keeps the map (the design's claim that it empties it was wrong). | P1 closes the CORRESPONDING gap with an origin vector; `last_line_map` is now complete for every fixture. |
+| (f) how `EVALUATE` is lowered | to a chain of `IfStatement`s (`WHEN` -> `IF`, later `WHEN`s as nested `else_body` IFs); there is no `EvaluateStatement` in the IR. | The nested lowered IFs have no source frame of their own: P1 gives them the enclosing statement's start as `SPAN_LOWERED_FROM_PARENT` (inexact), never an invented line. |
+
+### 11.2 What L5-P1 implements, and where it differs from sections 2 and 8
+
+Implemented (`tests/semantic_facts/test_span_p1.py`):
+
+* `engine/transformation/parse_trace.py` (`ParseTrace`, `LogicalLine`, `StatementFrame`, `DeclarationFrame`) and
+  `CobolParser.parse_traced()`; `parse()` and every IR class are unchanged (`parse_traced(...)[0] == parse(...)`).
+* `qualified_names.resolve_qualified_names_traced` (origin vector); `cobol_parser` remaps physical line numbers through it.
+* Statement frames recorded by a wrapper around `_parse_statement`; declaration frames from
+  `parse_data_description_lines(..., base=, section=)` (entry start and end line); `CopybookModel.declarations`.
+* `engine/semantic_facts/span.py`: `Span`, `CopyFrame`, `build_span_table`, `copybook_declaration_spans`, named
+  `SPAN_CODES`, `SpanTable.unplaced()` / `.inexact()` inventories.
+* Measured on the 78 repo COBOL fixtures (`fixtures/**/*.cob|*.cbl`): 1,608 statements, 0 unplaced, 0 mis-positioned
+  exact spans; 51 inline clause bodies (`SPAN_INLINE_FRAGMENT`) and 34 EVALUATE-lowered statements
+  (`SPAN_LOWERED_FROM_PARENT`) carry inexact spans; the only unplaced facts are 63 FILE SECTION record items
+  (`SPAN_FILE_SECTION_NOT_TRACED`) and 4 parser-added items (`SPAN_SYNTHETIC_DECLARATION`). The test pins those as the
+  only allowed reasons.
+
+Deliberate differences from the design (all narrowings, none a guess):
+
+* **Statements carry a start position only** (`end_line == 0`): a statement's end index is not uniform across the ~30
+  statement parsers, and a joined or qualifier-expanded logical line cannot give a true last line. Declarations do carry
+  `end_line` (data-division entries are never joined or expanded).
+* **No `UseSite` / reference spans and no operand alignment** (2.4b): references are L5-P3 facts; P1 spans declarations
+  and statements only.
+* **Copybook declaration columns are never claimed** (`SPAN_COPY_COLUMN_UNPROVEN`): the expansion re-indents lines and
+  the one reader cannot be re-run on a single copybook line without a second reader. The line and the full COPY chain
+  (program COPY statement, nested COPY statements, physical file/line) are exact.
+* **FILE SECTION records are not traced** (they are parsed by a scratch parser per FD): named
+  `SPAN_FILE_SECTION_NOT_TRACED`, shrink-only; scheduled with P2 (declarations).
+* The program's own COPY-statement site for a data-division copybook is supplied by the caller (`copy_site=`); extracting
+  it from `_extract_copybooks` is P2.
+* Spans are positions, not behaviour: no GnuCOBOL differential is involved.
+
+### 11.3 `graph_id` is wired (design 5.6 dependency closed)
+
+`api/readiness.assess_workspace` records the discovery report's `dependency_graph.graph_id` in the readiness record
+(`POLICY_VERSION` 4, so stored records are re-assessed); `Service._run_validation` passes it as
+`PipelineConfig.graph_traceability = (("graph_id", id),)` and it is sealed in the evidence manifest through the existing
+conditional key. **Limit, stated plainly:** this is the lineage "this run was generated from the source whose discovery
+produced graph X"; it is *not* the `traceability_overlay_id` (generated class -> graph node). Enabling the overlay in the
+API means passing the graph file to `ModernizationConfig.knowledge_graph_path`, which makes an untraceable generated
+class a generation failure (`_trace_to_graph`): that changes run outcomes and is deferred to a separate, certified step.
+`tests/test_library_order_profile_api.py` covers the record, the sealed manifest and a mutation check.

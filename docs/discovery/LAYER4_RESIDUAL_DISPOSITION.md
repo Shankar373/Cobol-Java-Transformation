@@ -33,7 +33,7 @@ Docker), so statements about what GnuCOBOL does are marked as reasoned, not obse
   tests; divergences are strict xfails that go red when a face changes).
 * No refusal code was added: each candidate failed rule (a), (b) or (c), or needs a matrix row this audit may not write.
 
-## What remains an owner decision
+## What remained an owner decision (all six now recorded below)
 
 1. ~~Whether to fix finding 1 (engine over-refuses `OBJECT-COMPUTER.` and comment words)~~ - DONE: fixed, with a test that real OO markers are still refused and generation hashes unchanged.
 2. Compiler-option policy (1b): which options change semantics and must be refused; needs an oracle differential.
@@ -41,3 +41,24 @@ Docker), so statements about what GnuCOBOL does are marked as reasoned, not obse
 4. Correcting the column-6 fixture and migrating `external_dependency_edges` (4).
 5. Wiring `-std=` from the profile into certified oracle runs (2a): not recommended without a customer-compiler differential.
 6. JCL flavour detection (1c): only with sourced samples.
+
+
+## Owner decisions recorded (2026-11-23)
+
+Recorded on the project owner's instruction of 2026-11-23 to record explicit owner decisions for the outstanding
+Layer 4 limitations. Each decision adopts the recommendation in the table above; **none changes behaviour or a pinned
+test**, and each can be reversed by a later decision with the evidence named in its row. A limitation accepted here is
+still a limitation: Layer 5 carries it as a named fact, never silently.
+
+| # | Item | Decision | Why | Revisit when | Layer 5 handling |
+|---|---|---|---|---|---|
+| 1a | `DIALECT_UNDETERMINED` | **Keep it a value; no refusal code.** | A refusal rejects every program without a dialect signal and contradicts the pinned fixtures. | the customer declares a target dialect that the evidence contradicts | facts carry `dialect` and `confidence`; `undetermined` is never read as `gnucobol`. |
+| 1b | `COMPILER_CARD_UNHANDLED` | **No refusal now; compiler options stay facts.** The deny-list (`ARITH(EXTEND)`, `TRUNC`, `NUMPROC`, `DBCS`, `NSYMBOL`, `CURRENCY`) is the candidate set and is **not adopted** without the evidence. | A refusal contradicts `test_compiler_cards_layer4.py`; the semantic risk is real but unmeasured here. | an oracle (`-std=ibm`) differential shows different results with and without a card | non-empty `compiler_options` surface in the facts so Layer 7 can decide; Layer 5 assumes no default numeric semantics then. |
+| 1c | `JCL_FLAVOUR_UNRECOGNISED` | **Not added.** Per-statement refusal (`JCL_UNKNOWN_STATEMENT`, `JCL_CONDITIONAL_UNEVALUATED`) is the contract. | No sourced VSE/BS2000/OS400 samples exist; a detector without fixtures would be invented behaviour. | the owner supplies real samples | z/OS JCL facts only. |
+| 2a | `-std=` from the profile into the oracle | **Not wired.** The profile stays evidence only. | It would change oracle verdicts and the digest pinning (do-not-regress area). | a customer-compiler differential justifies it | none. |
+| 3a/3b/3d | tabs, line terminators, lone CR | **Accepted limitation, no refusal code and no normalisation.** Tab-led lines keep exact lines and an *inexact* column (`SPAN_COLUMN_TAB`, implemented in P1); form feed and Unicode separators shift only the discovery face's line numbers (engine spans use `\n` physical lines, which match the editor); a lone CR is refused by the generic structure error. | Expanding tabs or splitting differently changes `compiler_visible_text` or discovery output for customer files; no repo fixture contains these characters, so there is no in-repo evidence of the right behaviour. | a tab-width/terminator behaviour is confirmed with a GnuCOBOL run and a real source | spans stay honest (`exact=False`); the strict xfails in `test_positions_residuals_layer4.py` stay as the tripwire. |
+| 4 | `external_dependency_edges` column-6 `*` fixture | **Deferred to L5-P7 (retirement R6).** Keep the documented over-mask until the fixture's two stars move to column 7 in the same change that migrates `_mask_comments` to the single reader. | The single reader is right and the fixture's intended comment is not one; migrating needs a fixture correction approved with that change, not before. | L5-P7 R6 | until then MQ/IMS/DB2/CICS dependency edges can miss a statement behind a column-6 star (under-report, documented). |
+
+Not decided here, new from the Layer 5 entry probes: the engine accepts a **nested program** with warnings and merges
+its paragraphs into the outer program (`LAYER5_DESIGN.md` 11.1 (a)). Whether that becomes a named refusal is an owner
+decision because it can change which inputs generate.

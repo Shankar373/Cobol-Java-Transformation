@@ -26,7 +26,7 @@ PUBLIC_KEYS = ("status", "allowed", "blockers", "blocking_references", "unsuppor
 
 
 #: Bump when the readiness policy changes: stored records of an older policy are re-assessed.
-POLICY_VERSION = "3"  # 3: records carry library_orders and dialect_profiles for the engine bridge
+POLICY_VERSION = "4"  # 3: records carry library_orders and dialect_profiles for the engine bridge; 4: and graph_id
 _CHUNK = 1 << 20
 
 
@@ -86,7 +86,8 @@ def assess_workspace(workspace: Path, label: str) -> dict[str, Any]:
                   discovery_run_id=run.run_id, gate_status=result.report["completeness"]["status"],
                   toolchain={"backend": tools["kind"], "version": tools.get("version", "")})
     record.update(library_orders=library_orders_record(result.library_orders),
-                  dialect_profiles=profile_pairs(result.report))
+                  dialect_profiles=profile_pairs(result.report),
+                  graph_id=str(result.report.get("dependency_graph", {}).get("graph_id", "")))
     return record
 
 
@@ -110,6 +111,17 @@ def engine_wiring(record: dict[str, Any]) -> tuple[tuple[tuple[str, tuple[tuple[
                            for program, value in sorted(orders.items()))
     profiles = tuple(sorted((str(pair[0]), str(pair[1])) for pair in record.get("dialect_profiles") or ()))
     return library_orders, profiles
+
+
+def graph_lineage(record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """``(("graph_id", id),)`` of the discovery graph the readiness gate assessed, or ``()`` for a record without one.
+
+    This is the lineage the sealed evidence manifest can honestly state today: the run generated from the source
+    tree whose discovery produced that graph (same content-addressed source).  It is *not* the traceability overlay
+    (generated class -> graph node), which needs the graph file and fails a run closed; the overlay id stays absent.
+    """
+    graph_id = str(record.get("graph_id") or "")
+    return (("graph_id", graph_id),) if graph_id else ()
 
 
 def public(record: dict[str, Any]) -> dict[str, Any]:

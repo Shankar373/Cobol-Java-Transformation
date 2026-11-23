@@ -83,3 +83,14 @@ Deterministic, open-source only, no LLM. Supersedes the Layer 5 and Layer 6 rows
 * Limitations deliberately left open by Phase 0 are listed in the closure record, not hidden.
 * Layer numbering in older documents (`KNOWN_ISSUES.md` "Layer 4" for data flow and parser retirement;
   `PHASE6A_UNIVERSAL_IR.md`, where "6A" is a phase label) is reconciled in the same change.
+
+## Amendment 2026-11-23: span shape (design decision D2) and the P1 entry
+
+* The `span` of a fact is `{file, line, column, via_copy[]}` **plus** the additive fields `end_line`, `end_column`,
+  `basis` (`token` | `line` | `statement` | `copy-site`), `exact` and `note` (a named `SPAN_*` reason when not exact).
+  Existing readers of the four ADR fields are unaffected. `exact=False` means the line is right (or, for `statement`,
+  the span points at the statement a fact lies inside) and the column is not claimed. A fact that cannot be placed has
+  no span and a named code; a consumer never substitutes a neighbouring line. Implemented in
+  `engine/semantic_facts/span.py` (Layer 5 phase P1); details and measured results in `LAYER5_DESIGN.md` 11.2.
+* The Layer 5 entry checklist (`LAYER5_DESIGN.md` section 10) is satisfied and D1-D4, D9 are resolved (section 9.3).
+  Phases P2-P7 are not started.

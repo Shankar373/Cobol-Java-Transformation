@@ -61,7 +61,7 @@ import re
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 from engine.transformation.copybook_resolver import (
     AmbiguousCopybookError,
@@ -105,6 +105,9 @@ class CopybookModel:
     #: Origin of every line of the expanded text this model was parsed from (nested COPY, REPLACING).
     #: Provenance only: excluded from equality and repr so models compare and serialise as before.
     origins: CopyOriginMap | None = dataclass_field(default=None, compare=False, repr=False)
+    #: Where each data-description entry was read (``parse_trace.DeclarationFrame``; ``start`` indexes the expanded
+    #: text ``origins`` describes).  Provenance only, like ``origins``: excluded from equality and repr.
+    declarations: tuple[Any, ...] = dataclass_field(default=(), compare=False, repr=False)
 
 
 def parse_copybook(path: str | Path) -> CopybookModel:
@@ -654,9 +657,11 @@ def _parse_copybook_expanded(
     if replaced.count("\n") != text.count("\n"):  # the clause's own text split lines: no line can be named
         origins = CopyOriginMap(tuple(
             OriginSpan(src.as_posix(), 1, (), exact=False) for _ in range(replaced.count("\n") + 1)))
-    items = CobolParser().parse_data_description_lines(replaced.splitlines())
+    parser = CobolParser()
+    items = parser.parse_data_description_lines(replaced.splitlines(), base=0, section="copybook")
     return CopybookModel(
-        name=src.stem.upper(), source_path=str(src), records=tuple(items), origins=origins
+        name=src.stem.upper(), source_path=str(src), records=tuple(items), origins=origins,
+        declarations=tuple(parser.last_trace.declarations),
     )
 
 

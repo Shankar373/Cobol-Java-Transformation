@@ -31,7 +31,13 @@ from typing import TYPE_CHECKING, Any
 from engine.transformation.binary_record import certified_binary_record
 from engine.transformation.intrinsic import FUNCTION_OPERAND, parse_function
 from engine.transformation.next_sentence import rewrite_next_sentence
-from engine.transformation.qualified_names import resolve_qualified_names
+from engine.transformation.parse_trace import (
+    DeclarationFrame,
+    LogicalLine,
+    ParseTrace,
+    StatementFrame,
+)
+from engine.transformation.qualified_names import resolve_qualified_names_traced
 from engine.transformation.refmod import REFMOD_ANYWHERE, split_outside_parentheses
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
@@ -604,6 +610,29 @@ class CobolParser:
         self._file_buffer_record: dict[str, str] = {}
         self._line_map: tuple[int, ...] = ()
         self._code_lines: tuple[str, ...] = ()
+        self._reset_trace()
+
+    def _reset_trace(self) -> None:
+        # Layer 5 P1: positions kept beside the IR (see parse_trace).  Nothing here feeds the IR.
+        self._trace_main: list[str] | None = None
+        self._trace_stack: list[int] = []
+        self._trace_statements: list[StatementFrame] = []
+        self._trace_decls: list[DeclarationFrame] = []
+        self._trace_paragraphs: list[tuple[str, int]] = []
+        self._trace_lines: tuple[LogicalLine, ...] = ()
+        self._replaced_physical: set[int] = set()
+
+    @property
+    def last_trace(self) -> ParseTrace:
+        """Positions of the most recent ``parse``: logical lines, statement frames, declaration frames."""
+        return ParseTrace(
+            lines=self._trace_lines, statements=tuple(self._trace_statements),
+            declarations=tuple(self._trace_decls), paragraphs=tuple(self._trace_paragraphs))
+
+    def parse_traced(self, source: str) -> tuple[CobolProgram, ParseTrace]:
+        """``parse`` plus the :class:`ParseTrace` of the same parse (the IR is exactly ``parse``'s)."""
+        program = self.parse(source)
+        return program, self.last_trace
 
     @property
     def last_line_map(self) -> tuple[int, ...]:
@@ -662,6 +691,13 @@ class CobolParser:
             location=name,
         )
 
+    def _logical_line(self, number: int, last: int, meta: dict[int, tuple[int, str]]) -> LogicalLine:
+        """The position record of one logical line: where it starts and why that might not be exact."""
+        column, note = meta.get(number, (0, ""))
+        if number in self._replaced_physical and not note:
+            note = "SPAN_REWRITTEN_REPLACE"
+        return LogicalLine(line=number, column=column, end_line=last, note=note)
+
     def _apply_replace_directives(
         self, lines: list[str], numbers: list[int]
     ) -> tuple[list[str], list[int]]:
@@ -703,7 +739,10 @@ class CobolParser:
                     continue
                 active = list(pairs)
                 continue
-            result.append(_apply_replacing(line, tuple(active)) if active else line)
+            rewritten = _apply_replacing(line, tuple(active)) if active else line
+            if rewritten != line:
+                self._replaced_physical.add(number)
+            result.append(rewritten)
             kept.append(number)
         return result, kept
 
@@ -738,6 +777,7 @@ class CobolParser:
         self._record_owner = {}
         self._line_map = ()
         self._code_lines = ()
+        self._reset_trace()
         self._record_owner_ambiguous = {}
         self._file_records = {}
         self._file_buffer_record = {}
@@ -793,6 +833,8 @@ class CobolParser:
         # Remove comments and empty lines
         code_lines: list[str] = []
         code_numbers: list[int] = []
+        # physical line -> (column of the first character, SPAN note) of the code line it carries
+        line_meta: dict[int, tuple[int, str]] = {}
         for positioned_line in positioned:
             line = positioned_line.text
             # The indicator area belongs to a *fixed* segment: the format is the line's own
@@ -818,6 +860,7 @@ class CobolParser:
                         )
                     continue
             cleaned = _strip_area_prefix(line)
+            lead = len(line) - len(cleaned)
             # Inline comment: ``*>`` outside a literal ends the line's code
             # (GnuCOBOL 3.x, both formats; audit T11).
             marker = self._mask_quoted(cleaned).find("*>")
@@ -832,7 +875,9 @@ class CobolParser:
                 indicator = area_match.group(2)
                 if indicator in ("*", "/"):
                     continue  # comment line (column 7 is * or /)
-                cleaned = area_match.group(3).lstrip()
+                body = area_match.group(3)
+                cleaned = body.lstrip()
+                lead += 7 + len(body) - len(cleaned)
             if cleaned.startswith("*") and code_lines and not code_lines[-1].rstrip().endswith("."):
                 if _reads_as_operator_continuation(cleaned):
                     # ``** (E + 1)`` after an unfinished statement is a comment or the rest of the statement and the
@@ -847,6 +892,9 @@ class CobolParser:
             if cleaned and not cleaned.startswith("*"):
                 code_lines.append(cleaned)
                 code_numbers.append(positioned_line.line)
+                line_meta[positioned_line.line] = (
+                    positioned_line.span_at(lead).column,
+                    "SPAN_COLUMN_TAB" if "\t" in positioned_line.source_text[:lead] else "")
 
         # REPLACE compiler directive: text substitution preprocessor.
         # ``REPLACE ==old== BY ==new==.`` applies the substitution to all
@@ -854,8 +902,13 @@ class CobolParser:
         # separated by commas.  Only pseudo-text (==...==) operands are
         # supported; bare-word operands fail closed with a diagnostic.
         code_lines, code_numbers = self._apply_replace_directives(code_lines, code_numbers)
-        code_lines, qualification_problems = resolve_qualified_names(code_lines)
-        mapped = len(code_lines) == len(code_numbers)
+        parallel = len(code_lines) == len(code_numbers)
+        code_lines, qualification_problems, origin = resolve_qualified_names_traced(code_lines)
+        if parallel:
+            # a wrapped qualifier / CORRESPONDING expansion changed the line count: every output line keeps the
+            # physical line of the input line it derives from, so the map survives (never a guessed one)
+            code_numbers = [code_numbers[index] for index in origin]
+        mapped = parallel and len(code_lines) == len(code_numbers)
         code_lines, next_sentence_problems = rewrite_next_sentence(code_lines)
         mapped = mapped and len(code_lines) == len(code_numbers)
         for problem in next_sentence_problems:
@@ -869,12 +922,15 @@ class CobolParser:
         # the same logical header (without rewriting the original source).
         logical_lines = []
         logical_numbers: list[int] = []
+        logical_last: list[int] = []
         for index, line in enumerate(code_lines):
             if logical_lines and line.strip() == ".":
                 # A separator period on its own line ends the sentence exactly
                 # as if written at the end of the previous line.
                 if not logical_lines[-1].rstrip().endswith("."):
                     logical_lines[-1] = logical_lines[-1].rstrip() + "."
+                if mapped:
+                    logical_last[-1] = code_numbers[index]
                 continue
             if logical_lines and (
                 re.match(r"^(MOVE|ADD)\b", logical_lines[-1], re.IGNORECASE)
@@ -894,13 +950,20 @@ class CobolParser:
                 )
             ):
                 logical_lines[-1] += " " + line
+                if mapped:
+                    logical_last[-1] = code_numbers[index]
             else:
                 logical_lines.append(line)
                 if mapped:
                     logical_numbers.append(code_numbers[index])
+                    logical_last.append(code_numbers[index])
         code_lines = logical_lines
         self._line_map = tuple(logical_numbers) if mapped else ()
         self._code_lines = tuple(logical_lines)
+        self._trace_main = logical_lines
+        self._trace_lines = tuple(
+            self._logical_line(number, last, line_meta)
+            for number, last in zip(logical_numbers, logical_last)) if mapped else ()
         # Recognised-but-unimplemented constructs must never vanish silently:
         # LOCAL-STORAGE SECTION and the REPLACE compiler directive change what
         # the program does, so the parser names them explicitly the moment it
@@ -2085,10 +2148,17 @@ class CobolParser:
             if item.level == 1
         )
 
-    def parse_data_description_lines(self, lines: list[str]) -> list[DataItem]:
-        """Parse COBOL data-description entries for WORKING-STORAGE, LINKAGE or COPYBOOKs."""
+    def parse_data_description_lines(
+        self, lines: list[str], *, base: int = -1, section: str = ""
+    ) -> list[DataItem]:
+        """Parse COBOL data-description entries for WORKING-STORAGE, LINKAGE or COPYBOOKs.
+
+        ``base`` (the logical line index of ``lines[0]`` in the program text) and ``section`` are given only by the
+        program's own sections: they make the parser record where each entry was read (``last_trace``).  A copybook
+        or scratch parse leaves them out and records nothing.
+        """
         parsed = []
-        for stripped in self._data_description_entries(lines):
+        for stripped, entry_start, entry_end in self._data_description_entries_traced(lines):
             m = re.match(r"^(\d{1,2})\s+([A-Z0-9][\w-]*)\b(.*)$", stripped, re.IGNORECASE)
             if not m:
                 continue
@@ -2187,7 +2257,7 @@ class CobolParser:
                 or re.search(r"(?<![\w-])(LEADING|TRAILING)\s+SEPARATE(?![\w-])", clauses, re.IGNORECASE)
             )
             sign_position = sign_found.group(1).upper() if sign_found else ""
-            parsed.append((level, DataItem(
+            parsed.append((level, entry_start, entry_end, DataItem(
                 name=name, level=level, pic_type=pic_type, pic_length=pic_length,
                 decimal_places=decimals,
                 sign_position=sign_position,
@@ -2214,19 +2284,20 @@ class CobolParser:
         # (e.g. a sibling REDEFINES after a nested subgroup) was silently
         # dropped: replace_node could not find the stale grandparent.
         class _Pending:
-            __slots__ = ("level", "item", "children")
+            __slots__ = ("level", "item", "children", "entry")
 
-            def __init__(self, level: int, item: DataItem) -> None:
+            def __init__(self, level: int, item: DataItem, entry: tuple[int, int]) -> None:
                 self.level = level
                 self.item = item
+                self.entry = entry
                 self.children: list[_Pending] = []
 
         roots: list[_Pending] = []
         stack: list[_Pending] = []
-        for level, item in parsed:
+        for level, entry_start, entry_end, item in parsed:
             while stack and stack[-1].level >= level:
                 stack.pop()
-            node = _Pending(level, item)
+            node = _Pending(level, item, (entry_start, entry_end))
             if stack:
                 stack[-1].children.append(node)
             else:
@@ -2234,7 +2305,7 @@ class CobolParser:
             stack.append(node)
 
         def freeze(node: _Pending) -> DataItem:
-            return DataItem(
+            frozen = DataItem(
                 name=node.item.name,
                 level=node.item.level,
                 pic_type=node.item.pic_type,
@@ -2256,11 +2327,19 @@ class CobolParser:
                 justified=node.item.justified,
                 children=tuple(freeze(child) for child in node.children),
             )
+            if section and base >= 0:
+                self._trace_decls.append(DeclarationFrame(
+                    frozen, base + node.entry[0], base + node.entry[1], section))
+            return frozen
 
         return [freeze(root) for root in roots]
 
     @staticmethod
     def _data_description_entries(lines: list[str]) -> list[str]:
+        return [entry for entry, _first, _last in CobolParser._data_description_entries_traced(lines)]
+
+    @staticmethod
+    def _data_description_entries_traced(lines: list[str]) -> list[tuple[str, int, int]]:
         """Join physical lines into whole data-description entries.
 
         An entry runs from its level number to its terminating period, so a
@@ -2269,18 +2348,21 @@ class CobolParser:
         lost and the field became an alphanumeric String).
         """
         entries: list[str] = []
+        spans: list[tuple[int, int]] = []   # (first, last) index in ``lines`` of every entry
         open_entry = False
-        for raw in lines:
+        for index, raw in enumerate(lines):
             stripped = raw.strip()
             if not stripped or stripped.startswith(("*", "/")):
                 continue
             starts_entry = re.match(r"^\d{1,2}\s+\S", stripped) is not None
             if not starts_entry and open_entry and entries:
                 entries[-1] = f"{entries[-1]} {stripped}"
+                spans[-1] = (spans[-1][0], index)
             else:
                 entries.append(stripped)
+                spans.append((index, index))
             open_entry = not entries[-1].rstrip().endswith(".")
-        return entries
+        return [(entry, first, last) for entry, (first, last) in zip(entries, spans)]
 
     @staticmethod
     def _pic_is_signed(pic_str: str) -> bool:
@@ -2307,7 +2389,8 @@ class CobolParser:
         if start is None:
             return []
         end = next((i for i in range(start, len(lines)) if "PROCEDURE DIVISION" in lines[i].upper()), len(lines))
-        return self.parse_data_description_lines(lines[start:end])
+        return self.parse_data_description_lines(
+            lines[start:end], base=start if lines is self._trace_main else -1, section="linkage")
 
     def _parse_procedure_using(self, lines: list[str]) -> list[str]:
         for line in lines:
@@ -2350,7 +2433,8 @@ class CobolParser:
             ),
             len(lines),
         )
-        roots = self.parse_data_description_lines(lines[start:end])
+        roots = self.parse_data_description_lines(
+            lines[start:end], base=start if lines is self._trace_main else -1, section="working-storage")
         items: list[DataItem] = list(roots)
         seen: set[str] = {root.name.upper() for root in roots}
         for root in roots:
@@ -2447,6 +2531,8 @@ class CobolParser:
                         ))
                     current_paragraph = name
                     current_statements = []
+                    if lines is self._trace_main:
+                        self._trace_paragraphs.append((name, i))
                     i += 1
                     continue
 
@@ -2457,6 +2543,8 @@ class CobolParser:
             if current_paragraph is None:
                 current_paragraph = "MAIN"
                 current_statements = []
+                if lines is self._trace_main:
+                    self._trace_paragraphs.append(("MAIN", i))
             if current_paragraph:
                 stmt, new_i = self._parse_statement(lines, i)
                 if stmt is not None:
@@ -2475,6 +2563,29 @@ class CobolParser:
         return paragraphs
 
     def _parse_statement(self, lines: list[str], start: int) -> tuple[Any, int]:
+        """Parse one statement (see ``_parse_statement_impl``) and record where it started, beside the IR.
+
+        A statement parsed from the program's own logical lines starts on logical line ``start``.  One parsed from a
+        synthetic list (an inline fragment, a header re-parse, a clause body) is inside the statement being parsed,
+        so it is recorded with that statement's start line and ``inline=True``: a position claim of "inside the
+        statement that begins there", never a line of its own.
+        """
+        if lines is self._trace_main:
+            frame_start, inline = start, False
+        elif self._trace_stack:
+            frame_start, inline = self._trace_stack[-1], True
+        else:
+            return self._parse_statement_impl(lines, start)
+        self._trace_stack.append(frame_start)
+        try:
+            statement, following = self._parse_statement_impl(lines, start)
+        finally:
+            self._trace_stack.pop()
+        if statement is not None:
+            self._trace_statements.append(StatementFrame(statement, frame_start, inline, len(self._trace_stack)))
+        return statement, following
+
+    def _parse_statement_impl(self, lines: list[str], start: int) -> tuple[Any, int]:
         """Parse a single statement starting at the given line index."""
         line = lines[start].strip()
         upper = line.upper()
