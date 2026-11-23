@@ -189,3 +189,13 @@ def test_facts_are_sorted_by_position_then_id() -> None:
     keys = [((f["span"] or {}).get("file", ""), (f["span"] or {}).get("line", 0), (f["span"] or {}).get("column", 0))
             for f in doc.facts]
     assert keys == sorted(keys)
+
+
+def test_header_flags_cannot_be_flipped_under_a_valid_id() -> None:
+    document = copy.deepcopy(build_semantic_facts({"src/P.cbl": _clean().replace("MOVE A TO B", "MOVE A TO")}).as_dict())
+    document["header"]["complete"] = True
+    document["header"]["unsupported_summary"] = {}
+    assert verify(document), "complete/unsupported_summary are covered by semantic_id"
+    clean = copy.deepcopy(build_semantic_facts({"src/P.cbl": _clean()}).as_dict())
+    clean["header"]["tool_version"] = "forged"
+    assert verify(clean)

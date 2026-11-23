@@ -100,23 +100,23 @@ def test_r1_a_mutated_walker_is_caught_by_the_golden_sequences(monkeypatch):
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.name)
 def test_r1_the_capability_call_walker_finds_exactly_the_calls_the_shared_walker_does(path):
-    if not hasattr(capability_analyzer, "_iter_call_statements"):
-        return                      # retired: the shared walker is the only one
     program = _parse(path)
     shared = [s for p in program.paragraphs for s in walk_statements(p.statements) if isinstance(s, ir.CallStatement)]
-    assert [id(s) for s in capability_analyzer._iter_call_statements(program)] == [id(s) for s in shared] or \
-        sorted(map(id, capability_analyzer._iter_call_statements(program))) == sorted(map(id, shared))
+    assert [id(s) for s in capability_analyzer._iter_call_statements(program)] == [id(s) for s in shared]
+    # independent of both walkers: the recorded golden sequence holds exactly this many CALLs
+    assert len(shared) == GOLDEN[path.relative_to(REPO / "fixtures").as_posix()].count("CallStatement")
 
 
-def test_r1_documented_difference_calls_inside_search_are_missed_by_the_old_capability_walker():
+def test_r1_calls_inside_search_bodies_are_found_by_the_capability_walker_after_the_retirement():
     marker = _marker()
     when = ir.SearchWhen("X = 1", (marker,), None)
     search = ir.SearchStatement("E", "", (when,), (), False, (), False)
     program = ir.CobolProgram(program_id="P", paragraphs=(ir.Paragraph("MAIN", (search,)),))
-    if hasattr(capability_analyzer, "_iter_call_statements"):
+    assert marker in [s for p in program.paragraphs for s in walk_statements(p.statements)]
+    if hasattr(capability_analyzer, "_LINKAGE_WALK_ATTRS"):
         assert marker not in capability_analyzer._iter_call_statements(program)     # the defect the retirement fixes
     else:
-        assert marker in [s for p in program.paragraphs for s in walk_statements(p.statements)]
+        assert marker in capability_analyzer._iter_call_statements(program)         # retired: CALLs in SEARCH are found
 
 
 # ======================================================================================================================
@@ -284,4 +284,4 @@ def test_r5_the_graph_reproduces_every_bound_and_unbound_row_of_the_engine_dd_bi
     assert not undocumented, f"R5 differential: undocumented disagreement {sorted(undocumented)}"
     assert not (new_bound - old_bound), "the graph never reports a binding the engine does not"
     graph_unbound = {(r[2], r[3]) for r in new if r[4] == "UNBOUND"}
-    assert {(r[2], r[3]) for r in old if r[4] == "UNBOUND"} <= graph_unbound | {(r[2], r[3]) for r in new}
+    assert {(r[2], r[3]) for r in old if r[4] == "UNBOUND"} <= graph_unbound

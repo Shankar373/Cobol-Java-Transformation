@@ -122,6 +122,17 @@ SEMANTIC_MAX_BYTES = 4_000_000
 JCL_SUFFIXES = (".jcl", ".job", ".proc", ".prc", ".jclproc")
 
 
+def _graph_artifact_is_genuine(candidate: dict[str, Any], graph_id: str) -> bool:
+    """The artefact's nodes and edges hash to the record's ``graph_id`` (its header string alone is not trusted)."""
+    from enterprise.discovery.graph import graph_id_of
+
+    try:
+        recomputed = graph_id_of(list(candidate.get("nodes", [])), list(candidate.get("edges", [])))
+    except (TypeError, ValueError):
+        return False
+    return recomputed == graph_id == str((candidate.get("header") or {}).get("graph_id", ""))
+
+
 def semantic_document(source: str, record: dict[str, Any]):
     """The Layer 5 facts document built from ``source``'s COBOL program texts under the record's checkpoint, source digest,
     graph id and dialect profiles, or ``None`` (no claim) when there is nothing to read, a file is not valid UTF-8, or the
@@ -168,7 +179,7 @@ def semantic_document(source: str, record: dict[str, Any]):
             candidate = json.loads(Path(artifact).read_text(encoding="utf-8"))
         except (OSError, ValueError):  # a graph artefact that is gone or unreadable is simply not used
             candidate = None
-        if isinstance(candidate, dict) and str((candidate.get("header") or {}).get("graph_id", "")) == graph_id:
+        if isinstance(candidate, dict) and _graph_artifact_is_genuine(candidate, graph_id):
             graph = candidate
             for path in sorted(root.rglob("*")):
                 if path.is_file() and path.suffix.lower() in JCL_SUFFIXES and path.stat().st_size <= SEMANTIC_MAX_BYTES:

@@ -353,3 +353,18 @@ def test_without_the_source_text_no_token_position_is_claimed():
 def test_a_token_that_occurs_twice_on_its_line_is_not_claimed():
     first = {r.name: r.span for r in _table(_body("MOVE A TO A."))[1].references}
     assert not first["A"].exact and first["A"].note == "SPAN_OPERAND_NOT_LOCATED"
+
+
+def test_write_record_direction_depends_on_from_and_a_continued_statement_claims_no_second_line_token():
+    source = (
+        "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. F.\n       ENVIRONMENT DIVISION.\n"
+        "       INPUT-OUTPUT SECTION.\n       FILE-CONTROL.\n           SELECT OUT-F ASSIGN TO 'o.dat'.\n"
+        "       DATA DIVISION.\n       FILE SECTION.\n       FD OUT-F.\n       01 OUT-REC PIC X(4).\n"
+        "       WORKING-STORAGE SECTION.\n       01 W PIC X(4).\n       01 N PIC 9.\n       PROCEDURE DIVISION.\n"
+        "       MAIN.\n           WRITE OUT-REC.\n           WRITE OUT-REC FROM W.\n"
+        "           COMPUTE N =\n               N + 1.\n           STOP RUN.\n")
+    _, table, _ = _table(source)
+    records = [(r.owner_stmt.rsplit("/", 1)[1], r.access) for r in table.references if r.role == "record"]
+    assert records == [("1", "read"), ("2", "write")]
+    expression = next(r for r in table.references if r.role == "expression")
+    assert not expression.span.exact, "N on the continuation line must not be placed on the first line"

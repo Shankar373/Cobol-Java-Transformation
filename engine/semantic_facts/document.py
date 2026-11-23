@@ -164,8 +164,13 @@ class SemanticFacts:
 
 
 def bindings_of(header: dict[str, Any]) -> dict[str, Any]:
-    return {"checkpoint_id": header["checkpoint_id"], "graph_id": header["graph_id"],
-            "profile_ids": header["profile_ids"], "source_digest": header["source_digest"]}
+    """What ``semantic_id`` binds besides the body: the lineage *and* every header field a consumer gates on
+    (``complete``, ``unsupported_summary``, ``graph_bound``, tool identity), so none can be flipped under a valid id."""
+    return {"checkpoint_id": header["checkpoint_id"], "complete": header["complete"],
+            "graph_bound": header["graph_bound"], "graph_id": header["graph_id"],
+            "id_algorithm": header["id_algorithm"], "profile_ids": header["profile_ids"],
+            "source_digest": header["source_digest"], "tool": header["tool"],
+            "tool_version": header["tool_version"], "unsupported_summary": header["unsupported_summary"]}
 
 
 def assemble(programs: list[ProgramFacts], *, checkpoint_id: str = "", source_digest: str = "", graph_id: str = "",
@@ -220,6 +225,14 @@ def verify(document: dict[str, Any]) -> list[str]:
         return problems + [f"header lacks {missing}"]
     if header.get("semantic_id") != semantic:
         problems.append("semantic_id does not match the body and its bindings")
+    if bool(header.get("complete")) != (not header.get("unsupported_summary")):
+        problems.append("complete disagrees with unsupported_summary")
+    if header.get("graph_bound") and not header.get("graph_id"):
+        problems.append("graph_bound without a graph_id")
+    stated = sum((header.get("unsupported_summary") or {}).values())
+    named = sum(1 for f in body["facts"] if f.get("resolution", {}).get("state") == "unsupported")
+    if stated and not named:
+        problems.append("unsupported_summary names items no fact carries")
     declared = {d.get("decl_id") for d in body["declarations"]}
     if len(declared) != len(body["declarations"]):
         problems.append("duplicate decl_id")

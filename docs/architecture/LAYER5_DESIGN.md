@@ -1,8 +1,8 @@
 # Layer 5 design: project-wide semantic facts
 
-Status: **design accepted for L5-P1 only (section 11); P1 implemented, P2-P7 still design.** Written against
-`HEAD 6f683dd` on `codex/enterprise-phases-continuation` (2026-11-23) and revised at `be00388` with the entry probes
-(section 11) and the owner decisions D1-D4, D9 (section 9.3). Everything outside section 11.2 is unimplemented. Deterministic, open-source only, **no LLM**, no network.
+Status: **P1-P7 implemented (sections 11-17); the completion matrix and what is *not* done are in section 17.** Written against
+`HEAD 6f683dd` on `codex/enterprise-phases-continuation` (2026-11-23), revised at `be00388` with the entry probes (section 11)
+and decisions D1-D4, D9 (section 9.3), then extended phase by phase. Deterministic, open source only, **no LLM**, no network.
 
 Governing documents: `docs/decisions/ADR-0013_LAYER5_SEMANTIC_FACTS_AND_LAYER6_APPLICATION_IR.md` (ADR-0013),
 `docs/architecture/LAYER_MODEL.md` (LM), `docs/discovery/DIALECT_PARSER_FRONTEND_AUDIT.md` (L4 audit, closure record
@@ -1171,3 +1171,60 @@ graph *document* (`GraphView`; no source is read, the graph is never written, a 
 * **Limits.** VSAM-ness is the graph's `vsam_candidate`/`vsam` and dataset kind (no cluster is invented); the graph's file
   positions are relative to the discovery root, so the file-binding span uses the program's document key only when the
   caller built the document from the same root; SQL table names are the graph's.
+
+---
+
+## 17. L5-P7 (duplicate producers) and the completion matrix
+
+### 17.1 What each retirement decided
+
+The differential tests are `tests/semantic_facts/test_retirement_p7.py` (golden statement sequences in
+`tests/semantic_facts/golden/walk_sequences.json`, written from the pre-retirement walker). Each is written against
+"whichever of the old implementation and its replacement exist", so it gated the deletion and keeps guarding afterwards. The
+deletions are in a **separate commit after the differential tests had a green full-validation run** (design rule: nothing is
+deleted in the phase that introduces its replacement).
+
+| # | Duplicate | Outcome | Evidence |
+|---|---|---|---|
+| R1 | three statement walkers | **Retired.** `cobol_parser._walk_statements` deleted (the parser uses `control_flow.walk_statements`); `capability_analyzer._LINKAGE_WALK_ATTRS` and the attribute-list walker deleted, `_iter_call_statements` is the shared walk filtered to CALLs. | All walkers equal the golden sequence on 78 fixtures (1,608 statements); one test per statement field of the IR (`ReadStatement.at_end_body` ... `PerformStatement.body`, `SearchWhen.body`, `SearchStatement.at_end`) proves the shared walker reaches it. **Documented behaviour change:** the old capability walker never reached CALLs inside `SEARCH` (`WHEN`, `AT END`); they are now found (a fail-closed tightening, never a loosening). `[certify]` (capability analyzer). |
+| R2 | `_extract_calls` / `_extract_entry_points` regexes | **Not retired.** | Literal targets equal on every fixture program and entries equal on the corpus plus a stress program, but discovery builds a *stub* program (and its CALL edges) from text when `parse` raises: a facts-based projection has nothing to project for that file. A test pins the case. Arguments differ by design (the regex splits on white space). |
+| R3 | `_analyze_call_linkage_arity` | **Not retired.** | `R3_DOCUMENTED`: on two fixtures the analyzer rejects and the header-based facts accept; replacing it would loosen an existing UNSUPPORTED verdict, which the guard forbids. |
+| R4 | `DependencyEdge.metadata` | Layer 6, out of scope. | - |
+| R5 | `engine/jcl/dd_binding` | **Not retired.** | Differential over the two JCL fixture estates: every BOUND row the graph states equals the engine's, except `COPYJOB/RPT` (`DSN=&&TMP`): the graph does not catalogue `&&` temporaries and says `missing-dd`; retiring would regress it (`R5_DOCUMENTED`). The `file-binding` fact keeps such steps (`unresolved_steps`). The engine JCL stack is also not covered by the lint inventory, as the design required first. |
+| R6 | `external_dependency_edges` scans | **Not retired.** | Blocked by owner decision D8 (the column-6 `*` fixture) and by SQL/MQ/IMS/CICS classes the graph does not yet carry; no differential can be honest before D8. |
+| R7 | parser-held ownership dicts | **Retired.** The four parser dicts (one never read) are replaced by the single `RecordOwnership` object. | Parity with `record_ownership` on all 78 fixtures and a two-FD ambiguity case. |
+| R8 | `qualified_names._Item` | **Resolved by derivation, nothing to delete.** | The symbol table is built *after* parsing from the IR and `qualified_names`' own rename list (`ParseTrace.renames`); it never recomputes qualification. Every rename is a declaration with the same chain on all fixtures, and the text pass output is byte-identical through `resolve_qualified_names`, `_traced` and `_detailed`. A SymbolTable cannot feed the text pass (it needs the parsed IR the text pass produces). |
+| R9 | `subsystem_calls` | Stays (justified exception). | - |
+
+### 17.2 Completion matrix
+
+| Phase | Delivered | Not delivered / open |
+|---|---|---|
+| P1 spans | token/line/statement/copy-site spans with COPY chains, named inexact reasons | statements carry a start only (no end) |
+| P2 symbols | declarations, scopes, deterministic ids, source spelling recovered, nested programs fail closed | scopes for nested programs (unsupported by name); GLOBAL/EXTERNAL/RENAMES unsupported by name |
+| P3 references | typed references, access table per IR class, 5-state resolution, exact token spans with source | operand spans need the file text; COPY-resident names unresolved without a materialised program |
+| P4 document | canonical `SemanticFacts`, `semantic_id`/`facts_digest`, `verify`, evidence key + integrity + serialization + API | no HTTP route; copybook text not expanded by the builder |
+| P5 calls | `call`, dynamic, arity, binding, size/class, ENTRY, CANCEL (unsupported), USING cross-check | dynamic-call arity; copybook-in-copybook CALL owner |
+| P6 external | file/SQL/host-var/JCL facts from the graph, flavour refusal, proposal | **graph emission of nested edges not done (D6)**; sort files not bound |
+| P7 | R1, R7 retired; R8 resolved; R2, R3, R5, R6 kept with evidence | R2/R3/R5/R6 retirements (reasons above) |
+
+Layer 5 is therefore **complete for the producer side of the design (P1-P6) and the safe subset of P7**; it is **not**
+declared complete against "all duplicate producers retired": R2, R3, R5 and R6 remain, each blocked by a stated, evidenced
+reason rather than skipped.
+
+### 17.3 Independent review of P2-P7 and its disposition
+
+An independent review of `01ee7e9..HEAD` found 2 HIGH, 4 MEDIUM, 6 LOW items; none changed generated output. Fixed, each with a test:
+`semantic_id` now binds every header field a consumer gates on (`complete`, `unsupported_summary`, `graph_bound`, tool
+identity) and `verify` checks `complete` against the summary; `WRITE/REWRITE rec` without `FROM` reads the record;
+operand tokens of a statement that continues past its first line are no longer claimed exact; the graph artefact is
+re-hashed (`graph_id_of`) rather than trusted by its header string; `/*` (z/OS in-stream delimiter) is no longer a VSE marker;
+a partly bound `file-binding` is `derived`, not `certain`; graph facts are not attributed for a PROGRAM-ID shared by several
+files (`DUPLICATE_PROGRAM_ID_GRAPH_AMBIGUOUS`); two vacuous assertions in the P7 tests were made real.
+
+Stated limits (not fixed): (a) the evidence manifest records `semantic_id`/`facts_digest` and checks their shape and the
+graph/profile cross-links, but no document is persisted beside the manifest, so admission cannot recompute them - the
+seal makes them tamper-evident after sealing, not provable from the manifest alone; (b) SQL indicator variables are all
+`write` (the IR does not separate input from output indicators); (c) dynamic-CALL candidate literals are a *lower bound*
+(`heuristic`): MOVE from another variable, STRING and qualified targets are not followed; (d) the R1 retirement changes
+capability analysis for CALLs inside `SEARCH` bodies (now counted; stricter), recorded in the ledger.

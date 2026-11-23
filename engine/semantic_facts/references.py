@@ -329,7 +329,9 @@ def _read(s: Any) -> list[Use]:
 
 
 def _write_like(s: Any) -> list[Use]:
-    return ([Use(s.file_name, "write", "file", "file")] + _each(_operands(s.record_name), "write", "record")
+    # ``WRITE rec FROM x`` fills the record from x (record written, x read); ``WRITE rec`` alone only reads it
+    record_access = "write" if s.from_field else "read"
+    return ([Use(s.file_name, "write", "file", "file")] + _each(_operands(s.record_name), record_access, "record")
             + _each(_operands(s.from_field), "read", "from"))
 
 
@@ -580,6 +582,16 @@ def _token_span(source_lines: tuple[str, ...] | None, statement_span: Span | Non
                 end_column=column + len(token), basis="token", exact=True)
 
 
+def _single_line(trace: ParseTrace, logical: int, boundaries: set[int]) -> bool:
+    """True when logical line ``logical`` is the whole statement: the next logical line starts another statement or
+    paragraph (or is an ``END-xxx`` / ``ELSE`` terminator), or there is none."""
+    following = logical + 1
+    if following >= len(trace.code) or following in boundaries:
+        return True
+    head = trace.code[following].split(None, 1)[0].upper().rstrip(".") if trace.code[following].strip() else ""
+    return head.startswith("END-") or head == "ELSE"
+
+
 def build_reference_table(program: Any, trace: ParseTrace, spans: SpanTable, symbols: SymbolTable, *,
                           source: str | None = None) -> ReferenceTable:
     """Every reference of ``program``'s statements with its access, resolution and span (or named unsupported use).
@@ -590,6 +602,7 @@ def build_reference_table(program: Any, trace: ParseTrace, spans: SpanTable, sym
     resolver = Resolver(symbols)
     scope = symbols.scopes[0].scope_id
     frames = trace.statement_index()
+    boundaries = {f.start for f in trace.statements} | {i for _name, i in trace.paragraphs}
     by_object = {id(s.statement): s for s in spans.statements}
     statements: list[StatementRow] = []
     references: list[Reference] = []
@@ -608,6 +621,8 @@ def build_reference_table(program: Any, trace: ParseTrace, spans: SpanTable, sym
                 continue
             frame = frames.get(id(statement))
             inline = frame.inline if frame is not None else True
+            if frame is not None and not _single_line(trace, frame.start, boundaries):
+                inline = True       # a statement that continues past its first line: tokens there are not claimed
             _statement_refs(statement, cls, rule, stmt_id, span, inline, lines, resolver, symbols,
                             references, unsupported)
     return ReferenceTable(tuple(statements), tuple(references), tuple(unsupported))

@@ -48,7 +48,7 @@ from engine.transformation.control_flow import (
     walk_statements,
 )
 from engine.transformation.diagnostics import DiagnosticCode, DiagnosticCollector
-from engine.transformation.file_ownership import record_ownership
+from engine.transformation.file_ownership import RecordOwnership, record_ownership
 from engine.transformation.exec_sql import find_includes as find_sql_includes
 from engine.transformation.group_storage import (
     file_record_groups,
@@ -203,16 +203,6 @@ def _operand_tokens(stmt) -> set[str]:
         collect(value)
     return tokens
 
-
-def _walk_statements(statements):
-    """Yield every statement in a body, recursing into all nested bodies."""
-    for stmt in statements:
-        yield stmt
-        for value in getattr(stmt, "__dict__", {}).values():
-            if isinstance(value, (tuple, list)):
-                nested = [v for v in value if hasattr(v, "__dataclass_fields__")]
-                if nested:
-                    yield from _walk_statements(nested)
 
 
 # A statement's own closing delimiter (or a stand-alone paragraph/section
@@ -602,13 +592,9 @@ class CobolParser:
     def __init__(self, diagnostics: DiagnosticCollector | None = None) -> None:
         self._diagnostics = diagnostics or DiagnosticCollector()
         self._unsupported_statements: list[str] = []
-        self._record_owner: dict[str, str] = {}
-        # Records declared under more than one FD (record -> owning FDs) and
-        # each FD's declared 01 records: ownership is a FILE SECTION fact,
-        # never a naming convention.
-        self._record_owner_ambiguous: dict[str, tuple[str, ...]] = {}
-        self._file_records: dict[str, tuple[str, ...]] = {}
-        self._file_buffer_record: dict[str, str] = {}
+        # Record ownership (record -> owning FD, records declared under several FDs, each FD's buffer record): a FILE
+        # SECTION fact computed once by ``file_ownership.record_ownership``, never a naming convention.
+        self._ownership: RecordOwnership = RecordOwnership()
         self._line_map: tuple[int, ...] = ()
         self._code_lines: tuple[str, ...] = ()
         self._reset_trace()
@@ -780,13 +766,10 @@ class CobolParser:
         # only THIS parse.
         self._diagnostics.clear()
         self._unsupported_statements = []
-        self._record_owner = {}
+        self._ownership = RecordOwnership()
         self._line_map = ()
         self._code_lines = ()
         self._reset_trace()
-        self._record_owner_ambiguous = {}
-        self._file_records = {}
-        self._file_buffer_record = {}
         # Line terminators are LF or CRLF.  A lone CR splits no line in the one reader, so its text would be silently
         # read as one very long line (no statement, no diagnostic): refuse it by name instead of guessing.
         if _LONE_CR.search(source):
@@ -995,11 +978,7 @@ class CobolParser:
         # owning FD from the FILE SECTION (every 01 of every FD) while
         # parsing PROCEDURE DIVISION.  A record that no FD declares, or that
         # more than one FD declares, has no provable owner and is refused.
-        ownership = record_ownership(file_section)
-        self._record_owner = dict(ownership.owners)
-        self._record_owner_ambiguous = dict(ownership.ambiguous)
-        self._file_records = dict(ownership.file_records)
-        self._file_buffer_record = dict(ownership.buffer_record)
+        self._ownership = record_ownership(file_section)
         working_storage = self._parse_working_storage(code_lines)
         working_storage = self._with_sqlca_fields(code_lines, working_storage)
         linkage_section = self._parse_linkage_section(code_lines)
@@ -1130,7 +1109,7 @@ class CobolParser:
             return record_problems[hit[0]] if hit else None
 
         for para in program.paragraphs:
-            for stmt in _walk_statements(para.statements):
+            for stmt in walk_statements(para.statements):
                 problems: list[tuple[str, str]] = []
                 if isinstance(stmt, MoveStatement):
                     for target in stmt.targets or (stmt.target,):
@@ -1296,7 +1275,7 @@ class CobolParser:
         performed = performed_paragraphs(paragraphs)
         driver = paragraphs[0]
         if driver.name.upper() in performed:
-            for stmt in _walk_statements(driver.statements):
+            for stmt in walk_statements(driver.statements):
                 if isinstance(stmt, RUN_UNIT_TERMINATORS):
                     self._diagnostics.warning(
                         DiagnosticCode.UNSUPPORTED_CONSTRUCT,
@@ -1313,7 +1292,7 @@ class CobolParser:
                 and bool(para.statements)
                 and isinstance(para.statements[-1], RUN_UNIT_TERMINATORS)
             )
-            for stmt in _walk_statements(para.statements):
+            for stmt in walk_statements(para.statements):
                 if not isinstance(stmt, terminal):
                     continue
                 if closes_chain and stmt is para.statements[-1]:
@@ -1842,7 +1821,7 @@ class CobolParser:
                     )
             if problem is None:
                 for para in program.paragraphs:
-                    for stmt in _walk_statements(para.statements):
+                    for stmt in walk_statements(para.statements):
                         if problem or getattr(stmt, "file_name", "").upper() != name:
                             continue
                         if isinstance(stmt, OpenStatement) and stmt.mode.upper() == "I-O":
@@ -3074,7 +3053,7 @@ class CobolParser:
         file_name = raw_file
 
         # The record comes from the file's own FD, never from its name.
-        record_name = self._file_buffer_record.get(file_name, "")
+        record_name = self._ownership.buffer_record.get(file_name, "")
         if file_name and not record_name:
             self._diagnostics.error(
                 DiagnosticCode.UNDEFINED_FILE,
@@ -3154,10 +3133,10 @@ class CobolParser:
         no FD, or by several, is refused with a diagnostic instead of being
         bound through a ``-REC`` / ``-FILE`` naming guess.
         """
-        owner = self._record_owner.get(record_name)
+        owner = self._ownership.owners.get(record_name)
         if owner:
             return owner
-        fds = self._record_owner_ambiguous.get(record_name)
+        fds = self._ownership.ambiguous.get(record_name)
         if fds:
             self._diagnostics.error(
                 DiagnosticCode.SEMANTIC_ERROR,

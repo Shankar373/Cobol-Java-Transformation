@@ -121,6 +121,12 @@ def build_external_facts(programs: Sequence[ProgramFacts], graph: GraphView) -> 
         if program.program is None or not program.symbols.scopes:
             continue
         name = _scope_program(program.symbols)
+        if "@" in program.symbols.scopes[0].scope_id:
+            # a PROGRAM-ID shared by several files: graph edges are keyed by the bare name, so they cannot be attributed
+            out.add(program.file, Fact("unsupported", f"graph:{program.file}", None,
+                                       Resolution("unsupported", reason="DUPLICATE_PROGRAM_ID_GRAPH_AMBIGUOUS",
+                                                  rule="l5.unsupported"), "l5.unsupported", (("program", name),)))
+            continue
         for decl in program.symbols.declarations:
             if decl.kind == "file" and dict(decl.attributes).get("sort_file") != "true":
                 out.add(program.file, _file_binding(program, decl.decl_id, decl.name,
@@ -169,6 +175,9 @@ def _file_binding(program: ProgramFacts, decl_id: str, file_name: str, assign_ki
         unbound = sorted({str((e.get("detail") or {}).get("job_step", "")) for e in edges
                           if e.get("relation") == "assigns-file" and e.get("resolution") == "unresolved"} - {""})
         extra = ((("dataset_kind", str(kind)),) if kind else ()) + ((("unresolved_steps", ",".join(unbound)),) if unbound else ())
+        if unbound and res.state == "resolved":
+            # some step is not bound by the graph: not certain for the program as a whole
+            res = Resolution("resolved", res.candidates, confidence="derived", rule="l5.file-binding")
         return Fact("file-binding", decl_id, span, res, "l5.file-binding", tuple(sorted(base + provenance + extra)))
     for edge in edges:
         if edge.get("relation") == "assigns-file":

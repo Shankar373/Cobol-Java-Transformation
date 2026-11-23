@@ -83,7 +83,7 @@ def unmodelled_options(options: tuple[str, ...] | list[str]) -> tuple[str, ...]:
 JCL_FLAVOURS = ("ZOS", "VSE", "UNKNOWN")
 _ZOS = re.compile(r"^//[A-Z0-9@#$]{1,8}\s+(?:JOB|EXEC|DD|PROC|SET|IF|OUTPUT|JCLLIB)\b", re.IGNORECASE | re.MULTILINE)
 _ZOS_UNNAMED = re.compile(r"^//\s+(?:DD|EXEC)\b", re.IGNORECASE | re.MULTILINE)   # continuation DD / EXEC without a name
-_VSE = re.compile(r"^// +(?:JOB|EXEC|DLBL|ASSGN|LIBDEF|TLBL|UPSI|OPTION|LBLTYP)\b|^/[&*]", re.IGNORECASE | re.MULTILINE)
+_VSE = re.compile(r"^// +(?:JOB|EXEC|DLBL|ASSGN|LIBDEF|TLBL|UPSI|OPTION|LBLTYP)\b|^/&", re.IGNORECASE | re.MULTILINE)
 
 
 def jcl_flavour(text: str) -> str:

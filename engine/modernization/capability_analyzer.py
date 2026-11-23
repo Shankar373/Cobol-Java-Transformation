@@ -130,56 +130,20 @@ class CapabilityReport:
         }
 
 
-_LINKAGE_WALK_ATTRS = (
-    "body", "then_body", "else_body",
-    "at_end_body", "not_at_end_body", "invalid_key_body",
-    "not_invalid_key_body", "size_error_body", "not_size_error_body",
-)
-
 # CALL passing mode -> registry key.  Only the write-losing modes are tracked;
 # BY REFERENCE stays covered by the CALL SUPPORTED verdict.
 
 
 
 def _iter_call_statements(program) -> "list[CallStatement]":
-    """Collect every CallStatement in a program, recursing into known bodies."""
-    found: list[CallStatement] = []
+    """Every CallStatement of a program: the shared statement walk (``control_flow.walk_statements``) filtered to CALLs.
 
-    def _walk(stmt) -> None:
-        if isinstance(stmt, CallStatement):
-            found.append(stmt)
-        for attr in _LINKAGE_WALK_ATTRS:
-            nested = getattr(stmt, attr, None)
-            if nested:
-                for child in nested:
-                    _walk(child)
-        # Evaluate/Perform-style collections
-        for attr in ("cases", "when_branches", "when_others_body"):
-            coll = getattr(stmt, attr, None)
-            if coll:
-                for item in coll:
-                    if isinstance(item, tuple):
-                        for sub in item:
-                            if hasattr(sub, "__class__"):
-                                try:
-                                    _walk(sub)
-                                except (AttributeError, TypeError):
-                                    pass
-                    elif hasattr(item, "statements"):
-                        for sub in item.statements:
-                            _walk(sub)
-                    elif isinstance(item, (list, tuple)):
-                        for sub in item:
-                            if hasattr(sub, "__class__"):
-                                try:
-                                    _walk(sub)
-                                except (AttributeError, TypeError):
-                                    pass
+    This used to be a second walker with its own list of body attributes, which missed the bodies of SEARCH (``WHEN`` and
+    ``AT END``); one walker reaches every statement body of the IR (tests/semantic_facts/test_retirement_p7.py).
+    """
+    from engine.transformation.control_flow import walk_statements
 
-    for paragraph in getattr(program, "paragraphs", ()):
-        for stmt in getattr(paragraph, "statements", ()):
-            _walk(stmt)
-    return found
+    return [s for p in program.paragraphs for s in walk_statements(p.statements) if isinstance(s, CallStatement)]
 
 
 def _iter_data_item_tree(item):
