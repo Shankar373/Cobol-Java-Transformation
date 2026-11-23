@@ -107,7 +107,7 @@ a unit (the fail-closed rules), a mutation (a wrong IR value is detected) and an
 |---|---|---|
 | M1 | `CapabilityAnalyzer.analyze(..., ir=)`: CALL edges (classification, cycles, arity input) from the IR; the modernization pipeline passes the IR | implemented, `tests/application_ir/test_m1_capability.py` |
 | M2 | `ModernizationPlanner` and the pipeline plan phase: call relationships, entry programs (verified against the IR) and the transformation plan reads, via `consume.canonical_application` | implemented, `tests/application_ir/test_m2_planner.py` |
-| M3 | FILE and COPY relationships: IR file-binding/reference facts to `FileDependency` and COPY relationships *with provenance* (needs COPY expansion in the facts builder, a genuine dependency) | planned; blocker noted in M3 |
+| M3 | FILE and COPY relationships with provenance: Layer 5 `copy-site` facts resolved through the one copybook resolver; `legacy.copybook_references` / `file_dependencies`; `consume.canonicalize` verifies all four relationship kinds | implemented, `tests/application_ir/test_m3_copy_file.py` |
 | M4 | Java generation's application-level input (entry selection call graph) from the IR; the parser IR stays the statement-generation authority | planned |
 
 Retained producers R2, R3, R5, R6 are untouched by this plan: M1 does not remove `_extract_calls`, `_analyze_call_linkage_arity`,

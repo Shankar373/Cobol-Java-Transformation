@@ -41,7 +41,7 @@ FACT_KINDS = (
     "unsupported", "diagnostic", "refusal", "option",
     # cross-program (P5) and external resources (P6)
     "call", "call-arity", "call-binding", "call-size-compat", "cancel", "file-binding", "sql-table",
-    "sql-host-var", "jcl-dd-binding",
+    "sql-host-var", "jcl-dd-binding", "copy-site",
 )
 
 def sha256_of(payload: Any) -> str:

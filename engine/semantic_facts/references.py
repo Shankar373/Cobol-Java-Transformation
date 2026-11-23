@@ -31,7 +31,7 @@ ACCESS = ("read", "write", "modify", "perform", "goto", "open", "close", "call",
 RESOLUTION_STATES = ("resolved", "ambiguous", "unresolved", "dynamic", "unsupported")
 #: The graph's own vocabulary subset used here (a test compares each with ``graph.UNRESOLVED_REASONS``).
 REASONS = ("missing-data-item", "missing-paragraph", "missing-logical-file", "missing-program", "missing-dd",
-           "unbound-ddname", "external-table")
+           "unbound-ddname", "external-table", "missing-copybook")
 CONFIDENCE = ("certain", "derived", "heuristic", "unresolved")
 L5_RULES = ("l5.data-name", "l5.data-name-generated", "l5.data-name-qualified", "l5.special-register",
             "l5.paragraph-name", "l5.file-name",
@@ -42,7 +42,9 @@ L5_RULES = ("l5.data-name", "l5.data-name-generated", "l5.data-name-qualified", 
             "l5.call-literal", "l5.call-external", "l5.call-dynamic", "l5.call-flat", "l5.call-arity",
             "l5.call-binding", "l5.call-size", "l5.cancel",
             # P6: external resources read from the graph
-            "l5.file-binding", "l5.sql-table", "l5.sql-host-var", "l5.jcl-dd")
+            "l5.file-binding", "l5.sql-table", "l5.sql-host-var", "l5.jcl-dd",
+            # M3: COPY statements resolved through the one copybook resolver
+            "l5.copy-site")
 UNSUPPORTED_USE_CODES = (
     "STATEMENT_PARTLY_PARSED", "CONDITION_UNSTRUCTURED", "OPERAND_UNPARSED", "INSPECT_OPERAND_KIND_UNKNOWN",
     "GOTO_TARGET_UNPARSED",
@@ -328,10 +330,10 @@ def _read(s: Any) -> list[Use]:
             + _each(_operands(s.into_field), "write", "into") + _each(_operands(s.record_name), "write", "record"))
 
 
-def _write_like(s: Any) -> list[Use]:
+def _write_like(s: Any, role: str = "file") -> list[Use]:
     # ``WRITE rec FROM x`` fills the record from x (record written, x read); ``WRITE rec`` alone only reads it
     record_access = "write" if s.from_field else "read"
-    return ([Use(s.file_name, "write", "file", "file")] + _each(_operands(s.record_name), record_access, "record")
+    return ([Use(s.file_name, "write", role, "file")] + _each(_operands(s.record_name), record_access, "record")
             + _each(_operands(s.from_field), "read", "from"))
 
 
@@ -417,13 +419,14 @@ def _none(_s: Any) -> list[Use]:
 #: One row per statement class of the IR ``Statement`` union, plus the two non-statement dataclasses the walker also
 #: reaches (``SearchWhen``, ``InspectPhrase``).  ``tests/semantic_facts/test_references_p3.py`` enumerates the union.
 STATEMENT_RULES: dict[str, Callable[[Any], list[Use]]] = {
-    "OpenStatement": lambda s: [Use(s.file_name, "open", "file", "file")],
+    "OpenStatement": lambda s: [Use(s.file_name, "open", f"file:{s.mode.upper()}" if s.mode else "file", "file")],
     "CloseStatement": lambda s: [Use(s.file_name, "close", "file", "file")],
     "ReadStatement": _read,
-    "StartStatement": lambda s: [Use(s.file_name, "read", "file", "file")] + _each(_operands(s.key), "read", "key"),
+    "StartStatement": lambda s: ([Use(s.file_name, "read", "file:start", "file")]
+                                 + _each(_operands(s.key), "read", "key")),
     "WriteStatement": _write_like,
-    "RewriteStatement": _write_like,
-    "DeleteStatement": lambda s: [Use(s.file_name, "write", "file", "file")],
+    "RewriteStatement": lambda s: _write_like(s, "file:rewrite"),
+    "DeleteStatement": lambda s: [Use(s.file_name, "write", "file:delete", "file")],
     "MoveStatement": _move,
     "AddStatement": _add,
     "SubtractStatement": _subtract,

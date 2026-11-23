@@ -395,7 +395,7 @@ class ModernizationPlanner:
         if self._use_application_ir:
             from engine.application_ir.consume import ir_for_application
 
-            ir = ir_for_application(application)
+            ir = ir_for_application(application, source_path)
         capability_report = self._capability_analyzer.analyze(
             application, source_root=source_path, ir=ir
         )
@@ -404,7 +404,7 @@ class ModernizationPlanner:
             # a disagreement keeps discovery's values and is already an UNSUPPORTED finding in the capability report)
             from engine.application_ir.consume import canonical_application
 
-            application = canonical_application(application, ir)
+            application = canonical_application(application, ir, source_path)
 
         # Step 3: Modernization Plan (deterministic)
         transformation_plan = self._plan_generator.generate(

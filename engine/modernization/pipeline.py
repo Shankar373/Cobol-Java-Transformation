@@ -326,7 +326,7 @@ class UniversalModernizationPipeline:
         # search directories generation uses.
         from engine.application_ir.consume import canonical_application, ir_for_application
 
-        application_ir = ir_for_application(application)
+        application_ir = ir_for_application(application, source_path, self._order_kwargs().get("orders", ()))
         capability_report = self._capability_analyzer.analyze(
             application, source_root=source_path, ir=application_ir
         )
@@ -339,7 +339,7 @@ class UniversalModernizationPipeline:
         if progress:
             progress("PLANNING")
         plan = self._plan_generator.generate(
-            canonical_application(application, application_ir),
+            canonical_application(application, application_ir, source_path),
             capability_report,
             self._config.entrypoint,
             assembly_output_type=plan_output_type_for(self._config.target_runtime),

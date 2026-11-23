@@ -109,7 +109,7 @@ def test_a_wrong_ir_changes_nothing_in_the_plan_but_is_reported(tmp_path, monkey
     directory = _tree(tmp_path)
     _, legacy = _plans(directory)
     real = consume.ir_for_application
-    monkeypatch.setattr(consume, "ir_for_application", lambda app: _forge_calls(real(app)))
+    monkeypatch.setattr(consume, "ir_for_application", lambda app, *args, **kw: _forge_calls(real(app, *args, **kw)))
     forged = ModernizationPlanner(use_application_ir=True).plan(directory, application_id="m2")
     reported = [c for c in forged.capability_report.components if c.component_id == "IR->DISCOVERY"]
     assert len(reported) == 1

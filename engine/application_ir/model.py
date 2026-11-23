@@ -16,7 +16,7 @@ from engine.semantic_facts.span import Span
 #: Closed vocabulary of typed edges (each is one Layer 5 fact kind; see ``project.EDGE_OF_FACT``).
 EDGE_KINDS = (
     "call", "call-arity", "call-binding", "call-size-compat", "performs", "goes-to", "falls-through", "redefines",
-    "reads-item", "writes-item", "file-binding", "sql-table", "sql-host-var", "jcl-dd-binding",
+    "reads-item", "writes-item", "file-binding", "sql-table", "sql-host-var", "jcl-dd-binding", "copy-site",
 )
 #: Meta facts kept as notes (they say what is *not* known).
 NOTE_KINDS = ("unsupported", "diagnostic", "refusal", "option", "cancel")

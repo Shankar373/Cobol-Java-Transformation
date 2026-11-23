@@ -560,9 +560,9 @@ class CapabilityAnalyzer:
     ) -> CapabilityReport:
         """Analyze a discovered application and produce a capability report.
 
-        ``ir`` is the canonical Application IR of the same source texts (Layer 6): when given, the CALL edges every
-        classification below reads come from it (``application_ir.consume.canonical_call_edges``), with discovery's edges as
-        the cross-check.  A disagreement keeps discovery's edges and adds an UNSUPPORTED ``IR->DISCOVERY`` finding; an IR that
+        ``ir`` is the canonical Application IR of the same source texts (Layer 6): when given, the CALL edges, entry points,
+        COPY references and FILE dependencies every classification below reads are consulted against it
+        (``application_ir.consume.canonicalize``), with discovery's values as the cross-check.  A disagreement keeps discovery's edges and adds an UNSUPPORTED ``IR->DISCOVERY`` finding; an IR that
         cannot speak for the whole application is not used.  Without ``ir`` behaviour is exactly as before.
 
         ``source_root`` (the ingested source tree) lets the copybook scan be
@@ -572,16 +572,11 @@ class CapabilityAnalyzer:
         """
         components: list[ComponentCapability] = []
         if ir is not None:
-            from engine.application_ir.consume import canonical_call_edges, with_canonical_call_edges
+            from engine.application_ir.consume import canonicalize
 
-            from engine.application_ir.consume import canonical_entry_points
-
-            resolved = canonical_call_edges(application, ir)
-            application = with_canonical_call_edges(application, resolved)
-            entries = canonical_entry_points(application, ir)
-            disagreements = [what for what, found in (
-                (f"CALL edges ({resolved.detail})", resolved.reason), (f"entry points ({entries.detail})", entries.reason))
-                if found == "IR_DIVERGES_FROM_DISCOVERY"]
+            canonical = canonicalize(application, ir, source_root)
+            application = canonical.application
+            disagreements = list(canonical.divergences)
             if disagreements:
                 components.append(ComponentCapability(
                     component_id="IR->DISCOVERY",

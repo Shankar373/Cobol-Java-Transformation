@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-from typing import Iterable, Mapping, Sequence
+from pathlib import Path
+from typing import Callable, Iterable, Mapping, Sequence
 
 from engine.semantic_facts.calls import build_call_facts
 from engine.semantic_facts.graph_bridge import GraphView, build_external_facts, jcl_flavour_facts
@@ -27,11 +28,19 @@ from engine.semantic_facts.document import (
     unsupported_rows,
 )
 from engine.semantic_facts.references import Reference, Resolution, build_reference_table
-from engine.semantic_facts.span import build_span_table
+from engine.semantic_facts.span import Span, build_span_table
 from engine.semantic_facts.symbols import Declaration, SymbolTable, build_symbol_table
 from engine.semantic_facts.references import ReferenceTable
 from engine.transformation.cobol_parser import CobolParseError, CobolParser
 from engine.transformation.control_flow import ends_run_unit
+from engine.transformation.copybook_resolver import (
+    AmbiguousCopybookError,
+    CopybookResolutionError,
+    LibraryOrders,
+    copybook_search_dirs,
+    orders_for,
+    resolve_copybook,
+)
 from engine.transformation.copybook_model import _find_copy_statements, _mask_comments
 from engine.transformation.diagnostics import DiagnosticLevel
 from enterprise.discovery.source_policy import classify_option
@@ -151,7 +160,59 @@ def _program_id(text: str) -> str:
         return "UNKNOWN"
 
 
-def build_program_facts(file: str, text: str, *, options: Sequence[str] = (), scope_id: str = "") -> ProgramFacts:
+#: ``(member, program id) -> (state, candidates)``: ``state`` is resolved | ambiguous | unresolved, ``candidates`` are
+#: checkpoint-relative paths (never absolute).
+CopyResolver = Callable[[str, str], tuple[str, tuple[str, ...]]]
+
+
+def make_copy_resolver(root: "Path | str", orders: LibraryOrders = ()) -> CopyResolver:
+    """Resolve a COPY member exactly as discovery does (``copybook_resolver`` is the one authority: same search
+    directories, same precedence, ambiguity stays an explicit state), reporting paths relative to ``root``."""
+    base = Path(root)
+    search_dirs = copybook_search_dirs(base)
+
+    def relative(path: Path) -> str:
+        try:
+            return path.resolve().relative_to(base.resolve()).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+    def resolve(member: str, program_id: str) -> tuple[str, tuple[str, ...]]:
+        try:
+            found = resolve_copybook(member, search_dirs, program_id=program_id, orders=orders_for(orders, program_id))
+        except AmbiguousCopybookError as exc:
+            return "ambiguous", tuple(sorted(relative(c) for c in exc.candidates))
+        except CopybookResolutionError:
+            return "unresolved", ()
+        return "resolved", (relative(found.path),)
+
+    return resolve
+
+
+def _copy_site_facts(file: str, text: str, program_id: str, resolver: CopyResolver | None) -> list[Fact]:
+    facts: list[Fact] = []
+    for start, end, member in _find_copy_statements(text):
+        line = text.count("\n", 0, start) + 1
+        column = start - (text.rfind("\n", 0, start) + 1) + 1
+        span = Span(file, line, column, line, column + 4, basis="token", exact=True)
+        attributes = (("location", f"{file}:{line}"), ("member", member), ("program", program_id))
+        if resolver is None:
+            resolution = Resolution("unsupported", reason="COPY_RESOLUTION_NOT_REQUESTED", rule="l5.copy-site")
+        else:
+            state, candidates = resolver(member, program_id)
+            if state == "resolved":
+                resolution = Resolution("resolved", candidates, rule="l5.copy-site")
+            elif state == "ambiguous":
+                resolution = Resolution("ambiguous", candidates, confidence="heuristic", rule="l5.copy-site")
+            else:
+                resolution = Resolution("unresolved", reason="missing-copybook", confidence="unresolved",
+                                        rule="l5.copy-site")
+        facts.append(Fact("copy-site", f"copy:{file}:{line}:{member.upper()}", span, resolution, "l5.copy-site", attributes))
+    return facts
+
+
+def build_program_facts(file: str, text: str, *, options: Sequence[str] = (), scope_id: str = "",
+                        copy_resolver: CopyResolver | None = None) -> ProgramFacts:
     parser = CobolParser()
     try:
         program, trace = parser.parse_traced(text)
@@ -176,6 +237,7 @@ def build_program_facts(file: str, text: str, *, options: Sequence[str] = (), sc
                            ("message", diagnostic.message[:200]))))
         if refusal:
             extra.append((diagnostic.code.name, subject))
+    facts += _copy_site_facts(file, text, program.program_id, copy_resolver)
     members = sorted({target for _start, _end, target in _find_copy_statements(_mask_comments(text))})
     if members:
         # COPY text is not expanded here: names declared by a copybook are `unresolved` until the caller supplies the
@@ -207,9 +269,13 @@ def build_semantic_facts(sources: Mapping[str, str], *, checkpoint_id: str = "",
                          external_programs: Iterable[str] = (),
                          graph: Mapping[str, object] | None = None,
                          jcl_sources: Mapping[str, str] | None = None,
+                         copy_root: "Path | str | None" = None,
+                         library_orders: LibraryOrders = (),
                          tool_version: str = "") -> SemanticFacts:
     """The facts document of ``sources`` (``path -> text``; only COBOL program texts, checkpoint-relative paths).
 
+    ``copy_root`` (the directory the sources live under) lets each COPY statement be resolved through the one copybook
+    resolver, with ``library_orders`` as discovery applies them; without it a COPY site is stated but not resolved.
     ``source_digest`` defaults to a digest of exactly these texts.  ``options`` maps a path to its compiler options (the
     discovery profile's ``compiler_options``).  ``graph`` is a discovery graph document: with it the file, SQL and JCL
     facts (P6) are read from it and ``graph_id`` defaults to its own; without it none is claimed.  ``jcl_sources`` are
@@ -224,10 +290,12 @@ def build_semantic_facts(sources: Mapping[str, str], *, checkpoint_id: str = "",
     for name in first_pass.values():
         counts[name] = counts.get(name, 0) + 1
     programs: list[ProgramFacts] = []
+    copy_resolver = make_copy_resolver(copy_root, library_orders) if copy_root is not None else None
     for path in ordered:
         name = first_pass[path]
         scope = f"program:{name}@{path}" if counts[name] > 1 else ""
-        programs.append(build_program_facts(path, sources[path], options=options.get(path, ()), scope_id=scope))
+        programs.append(build_program_facts(path, sources[path], options=options.get(path, ()), scope_id=scope,
+                                            copy_resolver=copy_resolver))
     calls = build_call_facts(programs, external=external_programs)
     programs = [dataclasses.replace(
         p, facts=_unique(p.facts + tuple(calls.facts.get(p.file, ()))),

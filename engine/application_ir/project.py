@@ -78,7 +78,8 @@ def _owner_program(stmt_id: str, scopes: list[tuple[str, str]]) -> str:
     return ""
 
 
-def _fact_edge(fact: Mapping[str, Any], scopes: list[tuple[str, str]]) -> IREdge:
+def _fact_edge(fact: Mapping[str, Any], scopes: list[tuple[str, str]],
+               file_programs: list[tuple[str, str]]) -> IREdge:
     kind, subject = str(fact["kind"]), str(fact["subject"])
     attributes = fact.get("attributes") or {}
     resolution = resolution_of(fact["resolution"])
@@ -91,6 +92,9 @@ def _fact_edge(fact: Mapping[str, Any], scopes: list[tuple[str, str]]) -> IREdge
             target = ""
     elif kind == "call-binding":
         source = str(attributes.get("caller", subject))
+    elif kind == "copy-site":
+        # the COPY statement belongs to the program declared in the file the statement is in
+        source = next((p for f, p in file_programs if f == (fact.get("span") or {}).get("file")), subject)
     return IREdge(_edge_id(kind, source, target, str(fact["fact_id"])), kind, source, target, resolution,
                   span_of(fact.get("span")), str(fact["fact_id"]), _pairs(attributes))
 
@@ -151,7 +155,8 @@ def project(document: Mapping[str, Any]) -> ApplicationIR:
     scopes = sorted(program_of_scope.items(), key=lambda kv: -len(kv[0]))
     references = tuple(sorted((_reference(r) for r in document["references"]),
                               key=lambda r: ((r.span.file, r.span.line) if r.span else ("", 0), r.ref_id)))
-    edges = [_fact_edge(f, scopes) for f in document["facts"] if f["kind"] in EDGE_FACTS]
+    file_programs = sorted({(d.file, d.decl_id) for d in declarations if d.kind == "program"})
+    edges = [_fact_edge(f, scopes, file_programs) for f in document["facts"] if f["kind"] in EDGE_FACTS]
     for raw in document["references"]:
         edges.extend(_reference_edges(raw))
     notes = tuple(sorted((_note(f) for f in document["facts"] if f["kind"] in NOTE_KINDS), key=lambda n: n.note_id))
