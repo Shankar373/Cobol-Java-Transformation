@@ -238,15 +238,23 @@ def resolve_qualified_names(lines: list[str]) -> tuple[list[str], list[str]]:
 
 
 def resolve_qualified_names_traced(lines: list[str]) -> tuple[list[str], list[str], list[int]]:
+    """:func:`resolve_qualified_names_detailed` without the rename list."""
+    result, problems, origin, _renames = resolve_qualified_names_detailed(lines)
+    return result, problems, origin
+
+
+def resolve_qualified_names_detailed(
+        lines: list[str]) -> tuple[list[str], list[str], list[int], tuple[tuple[str, str, tuple[str, ...], int], ...]]:
     """:func:`resolve_qualified_names` plus ``origin``: ``origin[i]`` is the index in ``lines`` that output line ``i``
-    derives from (the text and the problems are exactly those of :func:`resolve_qualified_names`).
+    derives from (the text and the problems are exactly those of :func:`resolve_qualified_names`), and ``renames``:
+    ``(unique name, declared name, ancestors nearest first, line index)`` of each declaration given a generated name.
 
     Only the procedure division changes its line count (a wrapped qualifier is joined, a CORRESPONDING becomes one
     statement per pair), so a position kept per input line stays valid for every output line through this vector.
     """
     data, procedure = _divisions(lines)
     if data < 0 or procedure < 0 or procedure < data:
-        return lines, [], list(range(len(lines)))
+        return lines, [], list(range(len(lines))), ()
     items: list[_Item] = []
     stack: list[tuple[int, str, int]] = []
     declaration_lines: dict[int, str] = {}
@@ -293,7 +301,7 @@ def resolve_qualified_names_traced(lines: list[str]) -> tuple[list[str], list[st
                     continue
                 duplicated.discard(token)
     if not by_name:
-        return lines, [], list(range(len(lines)))
+        return lines, [], list(range(len(lines))), ()
 
     taken = {item.name for item in items}
     for name in duplicated:
@@ -385,4 +393,6 @@ def resolve_qualified_names_traced(lines: list[str]) -> tuple[list[str], list[st
                         f"Data name {word.group(0).upper()} is declared more than once and referenced without a "
                         "(resolvable) qualification")
                     leftover.remove(word.group(0).upper())
-    return result, problems, origin
+    renames = tuple((item.unique, item.name, item.ancestors, item.line) for item in items
+                    if item.unique and item.unique != item.name)
+    return result, problems, origin, renames

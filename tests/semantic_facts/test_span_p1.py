@@ -169,13 +169,13 @@ def test_the_line_map_survives_a_corresponding_expansion():
 
 def test_a_wrong_origin_vector_is_caught(monkeypatch):
     """Mutation: an origin vector that ignores the expansion (as if no pass changed the line count) mis-places what follows."""
-    real = qualified_names.resolve_qualified_names_traced
+    real = qualified_names.resolve_qualified_names_detailed
 
     def broken(lines):
-        out, problems, _origin = real(lines)
-        return out, problems, [min(i, len(lines) - 1) for i in range(len(out))]
+        out, problems, _origin, renames = real(lines)
+        return out, problems, [min(i, len(lines) - 1) for i in range(len(out))], renames
 
-    monkeypatch.setattr("engine.transformation.cobol_parser.resolve_qualified_names_traced", broken)
+    monkeypatch.setattr("engine.transformation.cobol_parser.resolve_qualified_names_detailed", broken)
     _, _, table = _spans(CORRESPONDING)
     assert ("DisplayStatement", 14, 12, True) not in _statement_lines(table)
 

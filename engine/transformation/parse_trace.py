@@ -69,6 +69,14 @@ class ParseTrace:
     declarations: tuple[DeclarationFrame, ...] = ()
     #: ``paragraph name -> logical line index`` of the paragraph header, in source order.
     paragraphs: tuple[tuple[str, int], ...] = ()
+    #: ``(kind, NAME, logical index)`` of each ``PROGRAM-ID`` / ``END PROGRAM`` header (``kind``: program-id | end-program).
+    programs: tuple[tuple[str, str, int], ...] = ()
+    #: ``(clause, NAME, logical index)`` of each program-text data entry carrying a clause the IR does not model:
+    #: ``RENAMES`` (a level-66 entry), ``GLOBAL`` or ``EXTERNAL``.
+    entry_notes: tuple[tuple[str, str, int], ...] = ()
+    #: ``(generated unique name, declared name, ancestors nearest first)`` for each declaration ``qualified_names``
+    #: renamed (a name declared more than once); the IR carries the generated name, the source spelling is here.
+    renames: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
 
     def statement_index(self) -> dict[int, StatementFrame]:
         """``id(statement) -> frame`` (identity, never equality: two equal statements are two statements).  A frame

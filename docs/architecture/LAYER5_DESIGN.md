@@ -985,3 +985,39 @@ produced graph X"; it is *not* the `traceability_overlay_id` (generated class ->
 API means passing the graph file to `ModernizationConfig.knowledge_graph_path`, which makes an untraceable generated
 class a generation failure (`_trace_to_graph`): that changes run outcomes and is deferred to a separate, certified step.
 `tests/test_library_order_profile_api.py` covers the record, the sealed manifest and a mutation check.
+
+---
+
+## 12. Entry policies and L5-P2 (symbols and scopes)
+
+### 12.1 Policies resolved conservatively (`enterprise/discovery/source_policy.py`, parser)
+
+| Question | Policy | Where it is enforced |
+|---|---|---|
+| Compiler options (`CBL`/`PROCESS`/`$SET`) | Every option has one class: `LISTING` (ignorable), `DIALECT` (already in the profile), `SEMANTIC` (changes generated meaning; the engine models none), `UNCLASSIFIED`. `SEMANTIC` and `UNCLASSIFIED` are *unmodelled*: facts derived under them are incomplete, never read as "default". The profile (and so `profile_id`) is unchanged. | `classify_option`, `unmodelled_options`; consumed as diagnostics by the P4 document |
+| Line terminators | LF and CRLF are read; a **lone CR** is refused by name (`LINE_TERMINATOR_LONE_CR_UNSUPPORTED`). Before this, a mixed file parsed to zero statements with *no diagnostic*. | `CobolParser.parse`, `line_terminator_policy` |
+| Tabs | A TAB before the first character makes the column inexact (`SPAN_COLUMN_TAB`); the **line number is never affected**. | P1 spans |
+| JCL flavour | `//name JOB\|EXEC\|DD...` (name in column 3) is `ZOS`; `// JOB`, `// DLBL`, `/&` are `VSE`; a mix or anything else is `UNKNOWN`. Only `ZOS` may be read as z/OS JCL. | `jcl_flavour` |
+| Nested programs | The IR holds one program. A second `PROGRAM-ID` makes every declaration and paragraph read from its text `unsupported(NESTED_PROGRAM_NOT_MODELLED)`; they are never merged into the first program's scope and `SymbolTable.complete` is false. | `ParseTrace.programs`, `symbols.build_symbol_table` |
+
+### 12.2 What L5-P2 implements, and where it differs from section 3
+
+* `engine/semantic_facts/symbols.py`: `Declaration`, `Scope`, `SymbolTable`, `UnsupportedFact`; closed `DECL_KINDS`,
+  `UNSUPPORTED_CODES`, `SPECIAL_REGISTERS` (`RETURN-CODE`, `SORT-RETURN`, `TALLY`).
+* Identity is exactly 3.4 (`sym:<scope>/<kind>:<ancestors reversed>/<NAME>#K`); the ordinal follows IR (= source) order.
+* **Source spelling is recovered.** `qualified_names` renames a name declared twice (`AMT-OF-REC1`) *before* the parser
+  runs, so the IR carries the generated name. The rename list is now exposed (`resolve_qualified_names_detailed`,
+  `ParseTrace.renames`); the declaration keeps the source name and records the generated one as `generated_name`.
+  `resolve_qualified_names` / `_traced` are unchanged wrappers.
+* The parser also keeps equal copies of LINKAGE items in `working_storage`; each is declared once, as `linkage`/
+  `linkage-param`.
+* `RENAMES`, `GLOBAL`, `EXTERNAL` are not modelled by the parser; `ParseTrace.entry_notes` records where they were
+  written and the table names them (`RENAMES_NOT_MODELLED`, `GLOBAL_CLAUSE_NOT_READ`, `EXTERNAL_CLAUSE_NOT_READ`).
+* `graph_node_id` is set only for kinds whose graph node kind is certain (paragraph, data items); files, records and
+  special registers are mapped from the real graph in P6, not guessed. `test_graph_node_ids_match_the_discovery_formula`
+  pins the formula against `cobol_structure.scoped_node_id`.
+* `origin_member`/`template_id` come from the span's COPY chain (member file, local line, name); the copybook digest is
+  not part of `template_id` yet (P4 binds digests through the checkpoint).
+* **Deviations / limits:** paragraphs only (the IR has no SECTION unit; `section` kind is not produced); nested-program
+  *scopes* are not built (fail-closed instead, 12.1); `qualified_names._Item` (R8) is not yet replaced (P7);
+  FILE SECTION record spans remain `SPAN_FILE_SECTION_NOT_TRACED`.

@@ -37,7 +37,7 @@ from engine.transformation.parse_trace import (
     ParseTrace,
     StatementFrame,
 )
-from engine.transformation.qualified_names import resolve_qualified_names_traced
+from engine.transformation.qualified_names import resolve_qualified_names_detailed
 from engine.transformation.refmod import REFMOD_ANYWHERE, split_outside_parentheses
 from engine.transformation.control_flow import (
     RUN_UNIT_TERMINATORS,
@@ -155,6 +155,7 @@ _STATEMENT_WORDS = frozenset({
     "UNSTRING", "WITH", "WRITE",
 })
 
+_LONE_CR = re.compile(r"\r(?!\n)")
 _DATA_REFERENCE = re.compile(r"[A-Z0-9][\w-]*(?:\s*\([^()]*\))?", re.IGNORECASE)
 
 
@@ -619,6 +620,9 @@ class CobolParser:
         self._trace_statements: list[StatementFrame] = []
         self._trace_decls: list[DeclarationFrame] = []
         self._trace_paragraphs: list[tuple[str, int]] = []
+        self._trace_programs: list[tuple[str, str, int]] = []
+        self._trace_entry_notes: list[tuple[str, str, int]] = []
+        self._trace_renames: list[tuple[str, str, tuple[str, ...]]] = []
         self._trace_lines: tuple[LogicalLine, ...] = ()
         self._replaced_physical: set[int] = set()
 
@@ -627,7 +631,9 @@ class CobolParser:
         """Positions of the most recent ``parse``: logical lines, statement frames, declaration frames."""
         return ParseTrace(
             lines=self._trace_lines, statements=tuple(self._trace_statements),
-            declarations=tuple(self._trace_decls), paragraphs=tuple(self._trace_paragraphs))
+            declarations=tuple(self._trace_decls), paragraphs=tuple(self._trace_paragraphs),
+            programs=tuple(self._trace_programs), entry_notes=tuple(self._trace_entry_notes),
+            renames=tuple(self._trace_renames))
 
     def parse_traced(self, source: str) -> tuple[CobolProgram, ParseTrace]:
         """``parse`` plus the :class:`ParseTrace` of the same parse (the IR is exactly ``parse``'s)."""
@@ -781,6 +787,15 @@ class CobolParser:
         self._record_owner_ambiguous = {}
         self._file_records = {}
         self._file_buffer_record = {}
+        # Line terminators are LF or CRLF.  A lone CR splits no line in the one reader, so its text would be silently
+        # read as one very long line (no statement, no diagnostic): refuse it by name instead of guessing.
+        if _LONE_CR.search(source):
+            self._diagnostics.warning(
+                DiagnosticCode.UNSUPPORTED_CONSTRUCT,
+                "Source cannot be read faithfully: LINE_TERMINATOR_LONE_CR_UNSUPPORTED "
+                "(a carriage return not followed by a line feed)",
+                location="source input",
+            )
         # Text that cannot be read faithfully (a continuation line that
         # continues nothing or resumes an open literal without a quote; a
         # literal holding both quote characters) is refused: never guess.
@@ -903,7 +918,8 @@ class CobolParser:
         # supported; bare-word operands fail closed with a diagnostic.
         code_lines, code_numbers = self._apply_replace_directives(code_lines, code_numbers)
         parallel = len(code_lines) == len(code_numbers)
-        code_lines, qualification_problems, origin = resolve_qualified_names_traced(code_lines)
+        code_lines, qualification_problems, origin, renames = resolve_qualified_names_detailed(code_lines)
+        self._trace_renames = [(unique, name, ancestors) for unique, name, ancestors, _line in renames]
         if parallel:
             # a wrapped qualifier / CORRESPONDING expansion changed the line count: every output line keeps the
             # physical line of the input line it derives from, so the map survives (never a guessed one)
@@ -972,6 +988,7 @@ class CobolParser:
         self._validate_division_order(code_lines)
         record_sequential = self._record_sequential_files(code_lines)
         program_id = self._parse_program_id(code_lines)
+        self._trace_programs = self._program_markers(code_lines)
         file_defs = self._parse_file_control(code_lines)
         file_section = self._parse_file_section(code_lines)
         # WRITE and REWRITE name a record, not a file.  Resolve record ->
@@ -1860,6 +1877,21 @@ class CobolParser:
                 location="source input",
             )
 
+    @staticmethod
+    def _program_markers(lines: list[str]) -> list[tuple[str, str, int]]:
+        """``(kind, name, logical index)`` of every ``PROGRAM-ID`` and ``END PROGRAM`` header, source order.
+
+        Recorded for the trace only (more than one ``PROGRAM-ID`` means a nested or batched program, which the IR does
+        not model); ``_parse_program_id`` still reads the first, so the IR is unchanged.
+        """
+        found: list[tuple[str, str, int]] = []
+        for index, line in enumerate(lines):
+            head = re.match(r"(PROGRAM-ID|END\s+PROGRAM)\s*\.?\s*([^\s.]+)?", line, re.IGNORECASE)
+            if head is not None:
+                kind = "program-id" if head.group(1).upper().startswith("PROGRAM") else "end-program"
+                found.append((kind, (head.group(2) or "").strip("'\"").upper(), index))
+        return found
+
     def _parse_program_id(self, lines: list[str]) -> str:
         """Extract PROGRAM-ID from IDENTIFICATION DIVISION."""
         for line in lines:
@@ -2167,6 +2199,11 @@ class CobolParser:
             # (same length), so a VALUE literal containing "VALUE", "PIC",
             # "OCCURS" ... is never read as a clause.
             clauses = _mask_literal_contents(rest)
+            if section and base >= 0:
+                for word, note in (("RENAMES", "RENAMES"), ("GLOBAL", "GLOBAL"), ("EXTERNAL", "EXTERNAL")):
+                    if level == 66 and word == "RENAMES" or re.search(
+                            rf"(?<![\w-]){word}(?![\w-])", clauses, re.IGNORECASE):
+                        self._trace_entry_notes.append((note, name.upper(), base + entry_start))
             if level == 66:
                 self._diagnostics.warning(
                     DiagnosticCode.UNSUPPORTED_CONSTRUCT,
