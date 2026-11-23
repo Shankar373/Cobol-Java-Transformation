@@ -260,3 +260,13 @@ def test_the_engine_never_imports_a_source_scanner_or_a_second_reader():
     for path in sorted((REPO / "engine" / "semantic_facts").glob("*.py")):
         text = path.read_text(encoding="utf-8")
         assert not any(f"enterprise.discovery.{name}" in text for name in forbidden), path.name
+
+
+def test_a_step_the_graph_could_not_bind_is_kept_beside_the_datasets_it_did_bind():
+    root = REPO / "fixtures" / "enterprise" / "payroll-batch"
+    document, _ = graph_from_directory(root)
+    sources = {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8") for p in root.rglob("*.cob")}
+    doc = build_semantic_facts(sources, graph=document)
+    rptprt = next(f for f in doc.facts if f["kind"] == "file-binding" and f["attributes"]["program"] == "RPTPRT")
+    assert rptprt["attributes"]["unresolved_steps"] == "job:COPYJOB/RPT"
+    assert rptprt["resolution"]["state"] == "ambiguous"

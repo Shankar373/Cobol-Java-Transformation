@@ -165,8 +165,11 @@ def _file_binding(program: ProgramFacts, decl_id: str, file_name: str, assign_ki
         else:
             res = Resolution("ambiguous", tuple(targets), confidence="heuristic", rule="l5.file-binding")
         kind = graph.nodes.get(targets[0], {}).get("kind", "")
-        return Fact("file-binding", decl_id, span, res, "l5.file-binding",
-                    tuple(sorted(base + provenance + ((("dataset_kind", str(kind)),) if kind else ()))))
+        # steps the graph could not bind (it does not catalogue ``&&`` temporaries) are kept, not dropped
+        unbound = sorted({str((e.get("detail") or {}).get("job_step", "")) for e in edges
+                          if e.get("relation") == "assigns-file" and e.get("resolution") == "unresolved"} - {""})
+        extra = ((("dataset_kind", str(kind)),) if kind else ()) + ((("unresolved_steps", ",".join(unbound)),) if unbound else ())
+        return Fact("file-binding", decl_id, span, res, "l5.file-binding", tuple(sorted(base + provenance + extra)))
     for edge in edges:
         if edge.get("relation") == "assigns-file":
             if edge.get("resolution") == "unresolved":
