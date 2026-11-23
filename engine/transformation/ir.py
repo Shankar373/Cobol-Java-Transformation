@@ -1120,7 +1120,33 @@ class DependencyEdge:
     source: str  # source program ID
     target: str  # target program ID or resource
     edge_type: str  # CALL, COPY, FILE_READ, FILE_WRITE, ENTRY
-    metadata: str = ""  # additional information
+    #: Legacy free text.  Accepted on construction (parsed into the typed fields below, nothing dropped) and rendered
+    #: back canonically from them, so it is a *derived view*, never a source of truth.  Read the typed fields.
+    metadata: str = ""
+    resolution: str = ""  # RESOLVED | UNRESOLVED | AMBIGUOUS | "" (not a resolvable relation)
+    call_type: str = ""  # STATIC | DYNAMIC | "" (CALL edges only)
+    mode: str = ""  # file open mode of a FILE edge
+    attributes: tuple[tuple[str, str], ...] = ()  # any other legacy key=value pairs, sorted
+
+    def __post_init__(self) -> None:
+        typed = {"resolution": self.resolution, "call_type": self.call_type, "mode": self.mode}
+        extra = dict(self.attributes)
+        for part in (self.metadata or "").split(";"):
+            key, sep, value = part.partition("=")
+            if not sep:
+                continue
+            if key in typed:
+                if not typed[key]:
+                    typed[key] = value
+            else:
+                extra.setdefault(key, value)
+        attributes = tuple(sorted(extra.items()))
+        rendered = ";".join(f"{k}={typed[k]}" for k in ("resolution", "call_type", "mode") if typed[k])
+        rendered = ";".join(filter(None, (rendered, *(f"{k}={v}" for k, v in attributes))))
+        for name, text in typed.items():
+            object.__setattr__(self, name, text)
+        object.__setattr__(self, "attributes", attributes)
+        object.__setattr__(self, "metadata", rendered)
 
 
 @dataclass(frozen=True)

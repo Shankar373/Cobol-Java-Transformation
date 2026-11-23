@@ -552,13 +552,12 @@ class ModernizationPlanner:
             reason = cap.reason
             blocking = self._map_blocking_reasons(cap.level, cap.reason)
         else:
-            # Derive from edge metadata
-            metadata = edge.metadata or ""
-            if "call_type=DYNAMIC" in metadata:
+            # Derive from the edge's typed fields
+            if edge.call_type == "DYNAMIC":
                 level = CapabilityLevel.UNSUPPORTED
                 reason = "Dynamic CALL (data-item target) has no static dispatch"
                 blocking = (BlockingReason.DYNAMIC_CALL,)
-            elif "resolution=UNRESOLVED" in metadata:
+            elif edge.resolution == "UNRESOLVED":
                 level = CapabilityLevel.PARTIAL
                 reason = "Unresolved static call target"
                 blocking = (BlockingReason.UNRESOLVED_CALL,)
@@ -588,8 +587,8 @@ class ModernizationPlanner:
             caller=edge.source,
             target=edge.target,
             arguments=(),  # Would need deeper parsing
-            call_type="DYNAMIC" if "call_type=DYNAMIC" in (edge.metadata or "") else "STATIC",
-            resolution="UNRESOLVED" if "resolution=UNRESOLVED" in (edge.metadata or "") else "RESOLVED",
+            call_type="DYNAMIC" if edge.call_type == "DYNAMIC" else "STATIC",
+            resolution="UNRESOLVED" if edge.resolution == "UNRESOLVED" else "RESOLVED",
             capability_level=level,
             capability_reason=reason,
             blocking_reasons=blocking,

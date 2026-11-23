@@ -702,7 +702,8 @@ class ApplicationDiscovery:
                     source=unit.program_id,
                     target=call.target,
                     edge_type="CALL",
-                    metadata=f"resolution={resolution};call_type={call.call_type}",
+                    resolution=resolution,
+                    call_type=call.call_type,
                 ))
             if tuple(updated_calls) != unit.calls:
                 program_units[index] = replace(unit, calls=tuple(updated_calls))
@@ -722,7 +723,7 @@ class ApplicationDiscovery:
                     source=unit.program_id,
                     target=fd.file_name,
                     edge_type=edge_type,
-                    metadata=f"mode={fd.mode}" if fd.mode else "",
+                    mode=fd.mode or "",
                 ))
 
         return edges

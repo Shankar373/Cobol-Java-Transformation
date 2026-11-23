@@ -1766,9 +1766,8 @@ class CapabilityAnalyzer:
         edge: DependencyEdge,
         program_levels: dict[str, CapabilityLevel],
     ) -> ComponentCapability:
-        metadata = edge.metadata or ""
-        is_resolved = "resolution=RESOLVED" in metadata
-        is_dynamic = "call_type=DYNAMIC" in metadata
+        is_resolved = edge.resolution == "RESOLVED"
+        is_dynamic = edge.call_type == "DYNAMIC"
         # Names join case-insensitively — a case-variant self CALL
         # must stay classified as recursive, not "resolved".
         is_self_call = (

@@ -199,7 +199,7 @@ class TransformationPlanGenerator:
 
         # Plan unresolved calls
         for edge in application.edges:
-            if edge.edge_type == "CALL" and edge.metadata and "UNRESOLVED" in edge.metadata:
+            if edge.edge_type == "CALL" and edge.resolution == "UNRESOLVED":
                 components.append(ComponentPlan(
                     component_id=f"{edge.source}->{edge.target}",
                     component_type="CALL",
