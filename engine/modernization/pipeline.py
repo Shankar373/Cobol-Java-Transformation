@@ -324,8 +324,10 @@ class UniversalModernizationPipeline:
             progress("ANALYZING")
         # source_root keeps the copybook scan transitive over the same
         # search directories generation uses.
+        from engine.application_ir.consume import ir_for_application
+
         capability_report = self._capability_analyzer.analyze(
-            application, source_root=source_path
+            application, source_root=source_path, ir=ir_for_application(application)
         )
         report.capability_report = capability_report
         report.overall_capability = capability_report.overall_level.value

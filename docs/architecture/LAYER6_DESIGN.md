@@ -90,3 +90,25 @@ edges) is investigated as a documented proposal only; the closed graph vocabular
 
 Layer 6 is therefore **not declared complete**: the IR, its identity, evidence and API integration, R4 and a proven first
 consumer differential exist; consumer migration (capability, planning, generation) is open.
+
+## 8. Consumer migration plan (decision 2026-11-23: COBOL language coverage is frozen; complete the platform on the certified subset)
+
+Audit of consumers of application-level relationships (all read `CobolApplication`): `capability_analyzer.analyze` (CALL edges,
+cycles, arity), `modernization_planner` (call relationships, entry programs, copybook and file plans), `transformation_plan`
+(unresolved calls, call graph), `modernization/pipeline` (counts), `application_generator` (call edges for entry selection).
+One adapter serves them all: `application_ir.consume` (`ir_for_application`, `canonical_call_edges`).
+
+Rules for every milestone: the IR is the source and discovery is the cross-check; if they disagree the discovery value is kept
+and the disagreement is surfaced as an UNSUPPORTED finding (fail closed); an IR that cannot speak for the whole application is not
+used; behaviour without an IR is unchanged; each switch lands with a contract (identical reports over every fixture application),
+a unit (the fail-closed rules), a mutation (a wrong IR value is detected) and an integration test.
+
+| Milestone | Scope | Status |
+|---|---|---|
+| M1 | `CapabilityAnalyzer.analyze(..., ir=)`: CALL edges (classification, cycles, arity input) from the IR; the modernization pipeline passes the IR | implemented, `tests/application_ir/test_m1_capability.py` |
+| M2 | `ModernizationPlanner`: call relationships, entry programs and the transformation plan's unresolved-call / call-graph reads from the IR | planned |
+| M3 | FILE and COPY relationships: IR file-binding/reference facts to `FileDependency` and COPY relationships *with provenance* (needs COPY expansion in the facts builder, a genuine dependency) | planned; blocker noted in M3 |
+| M4 | Java generation's application-level input (entry selection call graph) from the IR; the parser IR stays the statement-generation authority | planned |
+
+Retained producers R2, R3, R5, R6 are untouched by this plan: M1 does not remove `_extract_calls`, `_analyze_call_linkage_arity`,
+`dd_binding` or `external_dependency_edges`.

@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from engine.transformation.contracts import ProducerCapability
 from engine.transformation.ir import (
@@ -46,6 +47,9 @@ from engine.transformation.ir import (
     normalize_cobol_name,
 )
 from engine.transformation.cobol_parser import CobolParser
+
+if TYPE_CHECKING:
+    from engine.application_ir.model import ApplicationIR
 from engine.transformation.semantic_capability import (
     CONSTRUCT_REGISTRY,
     IR_TYPE_TO_CONSTRUCT,
@@ -552,8 +556,14 @@ class CapabilityAnalyzer:
         self,
         application: CobolApplication,
         source_root: "str | Path | None" = None,
+        ir: "ApplicationIR | None" = None,
     ) -> CapabilityReport:
         """Analyze a discovered application and produce a capability report.
+
+        ``ir`` is the canonical Application IR of the same source texts (Layer 6): when given, the CALL edges every
+        classification below reads come from it (``application_ir.consume.canonical_call_edges``), with discovery's edges as
+        the cross-check.  A disagreement keeps discovery's edges and adds an UNSUPPORTED ``IR->DISCOVERY`` finding; an IR that
+        cannot speak for the whole application is not used.  Without ``ir`` behaviour is exactly as before.
 
         ``source_root`` (the ingested source tree) lets the copybook scan be
         transitive over the exact search directories generation uses;
@@ -561,6 +571,19 @@ class CapabilityAnalyzer:
         flat behavior.
         """
         components: list[ComponentCapability] = []
+        if ir is not None:
+            from engine.application_ir.consume import canonical_call_edges, with_canonical_call_edges
+
+            resolved = canonical_call_edges(application, ir)
+            application = with_canonical_call_edges(application, resolved)
+            if resolved.reason == "IR_DIVERGES_FROM_DISCOVERY":
+                components.append(ComponentCapability(
+                    component_id="IR->DISCOVERY",
+                    component_type="CALL",
+                    level=CapabilityLevel.UNSUPPORTED,
+                    reason=f"The Application IR and discovery disagree on the CALL edges ({resolved.detail}); "
+                           "discovery's edges are kept and the application is not treated as fully understood",
+                ))
 
         # Check infrastructure first
         infra_level = self._check_infrastructure()
