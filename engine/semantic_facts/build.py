@@ -17,6 +17,7 @@ import hashlib
 from typing import Iterable, Mapping, Sequence
 
 from engine.semantic_facts.calls import build_call_facts
+from engine.semantic_facts.graph_bridge import GraphView, build_external_facts, jcl_flavour_facts
 from engine.semantic_facts.document import (
     Fact,
     ProgramFacts,
@@ -204,11 +205,15 @@ def build_semantic_facts(sources: Mapping[str, str], *, checkpoint_id: str = "",
                          graph_id: str = "", profile_ids: Sequence[tuple[str, str]] = (),
                          options: Mapping[str, Sequence[str]] | None = None,
                          external_programs: Iterable[str] = (),
+                         graph: Mapping[str, object] | None = None,
+                         jcl_sources: Mapping[str, str] | None = None,
                          tool_version: str = "") -> SemanticFacts:
     """The facts document of ``sources`` (``path -> text``; only COBOL program texts, checkpoint-relative paths).
 
     ``source_digest`` defaults to a digest of exactly these texts.  ``options`` maps a path to its compiler options (the
-    discovery profile's ``compiler_options``).  ``external_programs`` names CALL targets that are subsystem or platform
+    discovery profile's ``compiler_options``).  ``graph`` is a discovery graph document: with it the file, SQL and JCL
+    facts (P6) are read from it and ``graph_id`` defaults to its own; without it none is claimed.  ``jcl_sources`` are
+    JCL texts whose flavour is checked (a non-z/OS text is a refusal).  ``external_programs`` names CALL targets that are subsystem or platform
     programs outside the document (the graph's classification; MQI verbs and DL/I entries are always external).
     """
     options = options or {}
@@ -229,8 +234,24 @@ def build_semantic_facts(sources: Mapping[str, str], *, checkpoint_id: str = "",
         unsupported=tuple(sorted(p.unsupported + tuple((code, subject, p.file)
                                                        for code, subject in calls.unsupported.get(p.file, ())))))
         for p in programs]
+    view = GraphView(graph) if graph is not None else None
+    if view is not None:
+        external = build_external_facts(programs, view)
+        programs = [dataclasses.replace(
+            p, facts=_unique(p.facts + tuple(external.facts.get(p.file, ()))),
+            unsupported=tuple(sorted(p.unsupported + tuple((code, subject, p.file)
+                                                           for code, subject in external.unsupported.get(p.file, ())))))
+            for p in programs] + external.programs
+    flavour = jcl_flavour_facts(jcl_sources or {})
+    if flavour:
+        holders = [ProgramFacts(str(f.subject).partition(":")[2], SymbolTable(str(f.subject).partition(":")[2], (), ()),
+                                ReferenceTable((), (), ()), (f,),
+                                (("JCL_FLAVOUR_UNSUPPORTED", f.subject, str(f.subject).partition(":")[2]),))
+                   for f in flavour]
+        programs = programs + holders
     return assemble(programs, checkpoint_id=checkpoint_id, source_digest=source_digest or source_digest_of(sources),
-                    graph_id=graph_id, profile_ids=tuple(profile_ids), tool_version=tool_version)
+                    graph_id=graph_id or (view.graph_id if view is not None else ""),
+                    profile_ids=tuple(profile_ids), tool_version=tool_version, graph_bound=view is not None)
 
 
 __all__ = ["COBOL_SUFFIXES", "build_program_facts", "build_semantic_facts", "source_digest_of"]

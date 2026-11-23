@@ -1136,3 +1136,38 @@ statically resolved callee, `call-arity`, one `call-binding` per argument and on
 * **Limits.** COPY-resident LINKAGE items are unresolved until a materialised program is supplied; call arity for a
   *dynamic* call is not claimed (callee unknown); copybook-in-copybook CALL ownership is not modelled because the document
   is built from program text.
+
+---
+
+## 16. L5-P6 (files, VSAM, SQL, JCL from the graph)
+
+`engine/semantic_facts/graph_bridge.py` is the read-only join between the program-side declarations and the discovery
+graph *document* (`GraphView`; no source is read, the graph is never written, a test proves the document is unchanged).
+
+* **`file-binding`** per FD (SD excluded): `resolved` to the one dataset or literal path; `ambiguous` with every dataset when
+  several steps bind different ones; `unresolved` with the graph's own reason (`missing-dd`, `unbound-ddname`) or
+  `missing-logical-file` when nothing binds it; `unsupported(GDG_GENERATION_NOT_RESOLVED)` for a relative generation, found by
+  joining the program edge to the JCL DD edge at `jcl_file:jcl_line` (`generation: gdg`, `member: +1`). Provenance is carried
+  as attributes (DD name, dataset, step, JCL file and line, organisation, VSAM-candidate, dataset kind) and the span is the
+  graph edge's SELECT position.
+* **`sql-table`** per table edge the graph holds for the program (graph resolution kept, e.g. `external-table`);
+  **`sql-host-var`** per `sql-binds-hostvar` edge, resolved against the program's own symbol table - on `workload-db2` the
+  graph leaves 11 of 11 host variables unresolved and Layer 5 resolves them all; **`jcl-dd-binding`** per JCL DD edge (job ->
+  dataset or sysout) with step, DD, generation and the JCL line.
+* **JCL flavour** (`jcl_sources=`): a text that is not z/OS JCL becomes a `refusal` (`JCL_FLAVOUR_UNSUPPORTED`).
+* **Header.** `graph_bound` says whether graph facts were derived; without a graph no external fact is claimed, and
+  `semantic_id` differs.
+* **API.** The readiness record now carries `graph_artifact` (path of the `dependency-graph.json` the assessment wrote;
+  `POLICY_VERSION` 5). `readiness.semantic_document` reads that artefact and uses it only when its `header.graph_id` is the
+  record's; a missing, unreadable or foreign graph leaves `graph_bound` false (tested).
+* **Import boundary (lint).** `engine/semantic_facts` imports only `enterprise.discovery.{graph, graph_view, kg_query,
+  source_policy}`; no scanner, reader or resolver (test). One reader, one parser, one graph authority stands.
+* **The graph-emission proposal, and what was deliberately not done.** `proposed_edges` lists the nested `performs`, `goes-to`,
+  `reads-item`, `writes-item` relations Layer 5 can state with an exact file/line/column (`rule: l5-proposed`, not a member of
+  `graph.RESOLVER_RULES`), counts the facts it could not place and how many the graph already has. The design's acceptance
+  ("nested edges appear in the graph; `graph_id` changes only by them") is **not implemented**: emitting them means adding
+  resolver rules to a closed set (decision D6, a Layer 3 schema decision, `[certify]`) and would change `graph_id` for every
+  estate. The proposal is the evidence for that decision, with `graph_id` provably untouched.
+* **Limits.** VSAM-ness is the graph's `vsam_candidate`/`vsam` and dataset kind (no cluster is invented); the graph's file
+  positions are relative to the discovery root, so the file-binding span uses the program's document key only when the
+  caller built the document from the same root; SQL table names are the graph's.

@@ -26,7 +26,7 @@ PUBLIC_KEYS = ("status", "allowed", "blockers", "blocking_references", "unsuppor
 
 
 #: Bump when the readiness policy changes: stored records of an older policy are re-assessed.
-POLICY_VERSION = "4"  # 3: records carry library_orders and dialect_profiles for the engine bridge; 4: and graph_id
+POLICY_VERSION = "5"  # 3: records carry library_orders and dialect_profiles for the engine bridge; 4: and graph_id; 5: and graph_artifact
 _CHUNK = 1 << 20
 
 
@@ -87,7 +87,8 @@ def assess_workspace(workspace: Path, label: str) -> dict[str, Any]:
                   toolchain={"backend": tools["kind"], "version": tools.get("version", "")})
     record.update(library_orders=library_orders_record(result.library_orders),
                   dialect_profiles=profile_pairs(result.report),
-                  graph_id=str(result.report.get("dependency_graph", {}).get("graph_id", "")))
+                  graph_id=str(result.report.get("dependency_graph", {}).get("graph_id", "")),
+                  graph_artifact=str(result.outdir / result.outputs["graph"]) if result.outputs.get("graph") else "")
     return record
 
 
@@ -118,28 +119,32 @@ SEMANTIC_MAX_FILES = 2000
 SEMANTIC_MAX_BYTES = 4_000_000
 
 
-def semantic_lineage(source: str, record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
-    """``semantic_facts`` pairs for the evidence manifest: the content addresses of the Layer 5 facts document built from
-    ``source``'s COBOL program texts under the record's checkpoint, source digest, graph id and dialect profiles.
+JCL_SUFFIXES = (".jcl", ".job", ".proc", ".prc", ".jclproc")
 
-    ``()`` (no claim) when there is nothing to read, a file is not valid UTF-8, or the tree exceeds the bounds above.
+
+def semantic_document(source: str, record: dict[str, Any]):
+    """The Layer 5 facts document built from ``source``'s COBOL program texts under the record's checkpoint, source digest,
+    graph id and dialect profiles, or ``None`` (no claim) when there is nothing to read, a file is not valid UTF-8, or the
+    tree exceeds the bounds above.
+
+    For a directory, the discovery graph artefact the readiness assessment wrote (``record["graph_artifact"]``) is read and,
+    when its ``header.graph_id`` is the record's, the file, SQL and JCL facts are read from it (``header.graph_bound``); a
+    missing, unreadable or foreign graph is not used.
     """
     from pathlib import Path
 
-    from engine.evidence.integrity import profiles_digest
     from engine.semantic_facts.build import COBOL_SUFFIXES, build_semantic_facts
 
     root = Path(source)
     if root.is_file():
-        files = [root]
-        base = root.parent
+        files, base = [root], root.parent
     elif root.is_dir():
         files = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in COBOL_SUFFIXES)
         base = root
     else:
-        return ()
+        return None
     if not files or len(files) > SEMANTIC_MAX_FILES:
-        return ()
+        return None
     texts: dict[str, str] = {}
     total = 0
     for path in files:
@@ -147,15 +152,44 @@ def semantic_lineage(source: str, record: dict[str, Any]) -> tuple[tuple[str, st
             raw = path.read_bytes()
             total += len(raw)
             if total > SEMANTIC_MAX_BYTES:
-                return ()
+                return None
             texts[path.relative_to(base).as_posix()] = raw.decode("utf-8")
         except (OSError, UnicodeDecodeError):
-            return ()
+            return None
     profiles = engine_wiring(record)[1]
     graph_id = dict(graph_lineage(record)).get("graph_id", "")
-    document = build_semantic_facts(
+    graph = None
+    jcl: dict[str, str] = {}
+    artifact = str(record.get("graph_artifact") or "")
+    if root.is_dir() and graph_id and artifact:
+        import json
+
+        try:
+            candidate = json.loads(Path(artifact).read_text(encoding="utf-8"))
+        except (OSError, ValueError):  # a graph artefact that is gone or unreadable is simply not used
+            candidate = None
+        if isinstance(candidate, dict) and str((candidate.get("header") or {}).get("graph_id", "")) == graph_id:
+            graph = candidate
+            for path in sorted(root.rglob("*")):
+                if path.is_file() and path.suffix.lower() in JCL_SUFFIXES and path.stat().st_size <= SEMANTIC_MAX_BYTES:
+                    try:
+                        jcl[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError):
+                        continue
+    return build_semantic_facts(
         texts, checkpoint_id=str(record.get("checkpoint_id", "")), source_digest=str(record.get("source_digest", "")),
-        graph_id=graph_id, profile_ids=profiles)
+        graph_id=graph_id, profile_ids=profiles, graph=graph, jcl_sources=jcl)
+
+
+def semantic_lineage(source: str, record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """``semantic_facts`` pairs for the evidence manifest (see :func:`semantic_document`); ``()`` when no document."""
+    from engine.evidence.integrity import profiles_digest
+
+    document = semantic_document(source, record)
+    if document is None:
+        return ()
+    profiles = engine_wiring(record)[1]
+    graph_id = dict(graph_lineage(record)).get("graph_id", "")
     return tuple(sorted((
         ("facts_digest", document.facts_digest), ("graph_id", graph_id),
         ("profiles_digest", profiles_digest(profiles)), ("semantic_id", document.semantic_id))))

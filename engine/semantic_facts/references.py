@@ -30,7 +30,8 @@ REF_KINDS = ("data", "paragraph", "file", "condition", "index", "host-var")
 ACCESS = ("read", "write", "modify", "perform", "goto", "open", "close", "call", "none")
 RESOLUTION_STATES = ("resolved", "ambiguous", "unresolved", "dynamic", "unsupported")
 #: The graph's own vocabulary subset used here (a test compares each with ``graph.UNRESOLVED_REASONS``).
-REASONS = ("missing-data-item", "missing-paragraph", "missing-logical-file", "missing-program")
+REASONS = ("missing-data-item", "missing-paragraph", "missing-logical-file", "missing-program", "missing-dd",
+           "unbound-ddname", "external-table")
 CONFIDENCE = ("certain", "derived", "heuristic", "unresolved")
 L5_RULES = ("l5.data-name", "l5.data-name-generated", "l5.data-name-qualified", "l5.special-register",
             "l5.paragraph-name", "l5.file-name",
@@ -39,7 +40,9 @@ L5_RULES = ("l5.data-name", "l5.data-name-generated", "l5.data-name-qualified", 
             "l5.option",
             # P5: cross-program facts
             "l5.call-literal", "l5.call-external", "l5.call-dynamic", "l5.call-flat", "l5.call-arity",
-            "l5.call-binding", "l5.call-size", "l5.cancel")
+            "l5.call-binding", "l5.call-size", "l5.cancel",
+            # P6: external resources read from the graph
+            "l5.file-binding", "l5.sql-table", "l5.sql-host-var", "l5.jcl-dd")
 UNSUPPORTED_USE_CODES = (
     "STATEMENT_PARTLY_PARSED", "CONDITION_UNSTRUCTURED", "OPERAND_UNPARSED", "INSPECT_OPERAND_KIND_UNKNOWN",
     "GOTO_TARGET_UNPARSED",

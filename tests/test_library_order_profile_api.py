@@ -238,3 +238,26 @@ def test_dropping_the_semantic_bridge_leaves_the_manifest_without_facts(service,
     root = _estate_root(tmp_path)
     run = _validated_manifest(service, tmp_path, monkeypatch, root)
     assert run.evidence_manifest.semantic_facts == ()
+
+
+def test_the_api_document_reads_file_and_jcl_facts_from_the_recorded_graph(service, tmp_path) -> None:
+    """The graph artefact the readiness assessment wrote is used only when it carries the record's ``graph_id``."""
+    root = _estate_root(tmp_path)
+    record = service.readiness_for(str(root), "orders-app")
+    document = readiness.semantic_document(str(root), record)
+    assert document is not None and document.header["graph_id"] == record["graph_id"]
+    assert document.header["graph_bound"] is True
+    assert document.header["graph_id"] == GraphView_id(record)
+    foreign = dict(record, graph_id="f" * 64)
+    missing = dict(record, graph_artifact=str(tmp_path / "gone.json"))
+    assert readiness.semantic_document(str(root), missing).header["graph_bound"] is False
+    unbound = readiness.semantic_document(str(root), foreign)
+    assert unbound is not None and unbound.header["graph_bound"] is False
+    assert not any(f["kind"] in ("file-binding", "jcl-dd-binding") for f in unbound.facts)
+
+
+def GraphView_id(record: dict) -> str:
+    """The ``header.graph_id`` of the graph artefact the record names (read independently of the document)."""
+    import json
+
+    return json.loads(Path(record["graph_artifact"]).read_text(encoding="utf-8"))["header"]["graph_id"]

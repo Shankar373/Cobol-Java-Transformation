@@ -40,7 +40,8 @@ FACT_KINDS = (
     # meta
     "unsupported", "diagnostic", "refusal", "option",
     # cross-program (P5) and external resources (P6)
-    "call", "call-arity", "call-binding", "call-size-compat", "cancel", "file-binding",
+    "call", "call-arity", "call-binding", "call-size-compat", "cancel", "file-binding", "sql-table",
+    "sql-host-var", "jcl-dd-binding",
 )
 
 def sha256_of(payload: Any) -> str:
@@ -168,7 +169,8 @@ def bindings_of(header: dict[str, Any]) -> dict[str, Any]:
 
 
 def assemble(programs: list[ProgramFacts], *, checkpoint_id: str = "", source_digest: str = "", graph_id: str = "",
-             profile_ids: tuple[tuple[str, str], ...] = (), tool_version: str = "") -> SemanticFacts:
+             profile_ids: tuple[tuple[str, str], ...] = (), tool_version: str = "",
+             graph_bound: bool = False) -> SemanticFacts:
     """The document for ``programs`` (any order: everything is sorted by content, never by arrival)."""
     scopes: list[dict[str, Any]] = []
     declarations: list[dict[str, Any]] = []
@@ -192,7 +194,7 @@ def assemble(programs: list[ProgramFacts], *, checkpoint_id: str = "", source_di
         raise ValueError("declaration ids are not unique across the document")
     body = {"declarations": declarations, "facts": facts, "references": references, "scopes": scopes}
     header: dict[str, Any] = {
-        "checkpoint_id": checkpoint_id, "complete": not summary, "graph_id": graph_id,
+        "checkpoint_id": checkpoint_id, "complete": not summary, "graph_bound": graph_bound, "graph_id": graph_id,
         "id_algorithm": "sha256", "profile_ids": [list(pair) for pair in sorted(profile_ids)],
         "source_digest": source_digest, "tool": TOOL, "tool_version": tool_version,
         "unsupported_summary": dict(sorted(summary.items())),
