@@ -73,23 +73,15 @@ edges) is investigated as a documented proposal only; the closed graph vocabular
 | P4 consumers | `legacy.call_edges(ir)` reproduces `ApplicationDiscovery`'s CALL edges exactly on every fixture application (14 CALL edges, 0 differences) and the capability report is identical from either source (a forged edge changes it) | `tests/application_ir/test_consumer_differential.py` |
 | D6 | investigated: no vocabulary/rule change needed; the decision is granularity and volume (`D6_NESTED_EDGES_INVESTIGATION.md`) | measured, nothing emitted |
 
-### Not done (stated, not hidden)
+### Not done (stated, not hidden) - see also section 9
 
-* **No consumer is switched.** The capability analyzer, the planner and Java generation still read `CobolApplication` and the
-  parser IR; the IR is proven *able* to replace the CALL edges (differential), and the migration of each consumer is a further
-  step. Java generation is not migrated at all (its output bytes are pinned; it reads the parser IR, which stays the parsing
-  authority).
-* **R4 scope.** `DependencyEdge.metadata` is retired as a source of truth (typed fields, derived legacy rendering kept so
-  existing readers and ~20 tests keep passing). `JclDependency.metadata` and `JavaDependency.metadata` are different classes and
-  are unchanged. FILE and COPY `DependencyEdge`s are still produced by `ApplicationDiscovery` (the IR has no COPY edges and no
-  per-statement read/write operation for files); `legacy` projects CALL edges only.
-* The IR inherits every Layer 5 limit: copybook text is not expanded, nested programs and GLOBAL/EXTERNAL/RENAMES are named
-  unsupported, dynamic-call candidates are a lower bound, and Layer 5 exceptions R2, R3, R5 and R6 remain open.
+* The IR inherits every Layer 5 limit: copybook *declarations* are not merged into the IR (COPY *relationships* are facts, M3),
+  nested programs and GLOBAL/EXTERNAL/RENAMES are named unsupported, dynamic-call candidates are a lower bound, and the Layer 5
+  exceptions R2, R3, R5 and R6 remain open and untouched.
+* `DependencyEdge.metadata` is retired as a source of truth (typed fields; derived legacy rendering kept for existing readers and
+  tests). `JclDependency.metadata` and `JavaDependency.metadata` are different classes and are unchanged.
 * The manifest binds `ir_id` and `semantic_id`; as for Layer 5 no document is persisted beside it, so admission checks shape and
   the link to `semantic_facts`, and the seal makes the pair tamper-evident after sealing.
-
-Layer 6 is therefore **not declared complete**: the IR, its identity, evidence and API integration, R4 and a proven first
-consumer differential exist; consumer migration (capability, planning, generation) is open.
 
 ## 8. Consumer migration plan (decision 2026-11-23: COBOL language coverage is frozen; complete the platform on the certified subset)
 
@@ -108,7 +100,29 @@ a unit (the fail-closed rules), a mutation (a wrong IR value is detected) and an
 | M1 | `CapabilityAnalyzer.analyze(..., ir=)`: CALL edges (classification, cycles, arity input) from the IR; the modernization pipeline passes the IR | implemented, `tests/application_ir/test_m1_capability.py` |
 | M2 | `ModernizationPlanner` and the pipeline plan phase: call relationships, entry programs (verified against the IR) and the transformation plan reads, via `consume.canonical_application` | implemented, `tests/application_ir/test_m2_planner.py` |
 | M3 | FILE and COPY relationships with provenance: Layer 5 `copy-site` facts resolved through the one copybook resolver; `legacy.copybook_references` / `file_dependencies`; `consume.canonicalize` verifies all four relationship kinds | implemented, `tests/application_ir/test_m3_copy_file.py` |
-| M4 | Java generation's application-level input (entry selection call graph) from the IR; the parser IR stays the statement-generation authority | planned |
+| M4 | Java generation's application-level inputs (call edges for entry selection, COPY references, entry points) through the IR via `ApplicationGenerator.generate(..., ir=)`; a disagreeing IR refuses generation; programs are still mapped from the parser IR | implemented, `tests/application_ir/test_m4_generation.py` |
 
 Retained producers R2, R3, R5, R6 are untouched by this plan: M1 does not remove `_extract_calls`, `_analyze_call_linkage_arity`,
 `dd_binding` or `external_dependency_edges`.
+
+## 9. Status after M1-M4 (consumer migration)
+
+| Consumer | Reads | Through | Cross-check / failure mode |
+|---|---|---|---|
+| `CapabilityAnalyzer.analyze(ir=)` (M1, M3) | CALL edges, entry points, COPY references, FILE dependencies | `consume.canonicalize` | divergence -> UNSUPPORTED `IR->DISCOVERY` finding, discovery values kept |
+| `ModernizationPlanner` and the pipeline plan phase (M2) | the same, via `consume.canonical_application` | `TransformationPlanGenerator`, plan builders | identical plans on every fixture application (contract test) |
+| `ApplicationGenerator.generate(ir=)` (M4) | call edges (entry selection), COPY references, entry points | `consume.canonicalize` | divergence -> generation refused with an explicit error |
+
+Value semantics. CALL edges are delivered from the IR (order follows discovery). Entry points, COPY references and FILE dependencies
+are *verified* against the IR and delivered with discovery's spelling and ownership notes (existing behaviour that generated names
+depend on); the confirmation is recorded in `CanonicalApplication.checks`. A discovery-only superset (for example words inside
+`EXEC CICS` blocks that discovery's text scan reads as files) is `DISCOVERY_SUPERSET`: the larger set is kept, the fail-closed
+direction, and it is not a divergence. Anything the IR has that discovery lacks, or any different value, is a divergence.
+Measured over the 55 fixture applications with a `cobol/` tree: CALL, entry and COPY match on 55/55; FILE matches on 54/55 and
+is a discovery superset on `workload-cics` (the documented case).
+
+Still open: the planner, analyzer and generator also read per-program values that the IR does not carry (program plans, record
+layouts, statements); those stay on the parser IR, which remains the parsing and statement-generation authority. Producers R2
+(`_extract_calls`, `_extract_entry_points`, COPY and FILE regex scans), R3, R5 and R6 are retained: discovery still builds the
+application the IR is checked against, and a file the parser refuses is still served by the text scans. Layer 6 is therefore
+**not declared complete** unless the release criteria listed with the final report are all met.

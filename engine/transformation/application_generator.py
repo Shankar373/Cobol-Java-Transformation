@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from engine.transformation.cobol_to_java_mapping import (
     map_cobol_programs_to_application,
@@ -33,6 +34,9 @@ from engine.transformation.entrypoint import resolve_entrypoint
 from engine.transformation.ir import CobolApplication
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator
 from engine.transformation.java_ir import JavaApplication, JavaClass
+
+if TYPE_CHECKING:
+    from engine.application_ir.model import ApplicationIR
 
 
 @dataclass(frozen=True)
@@ -72,8 +76,15 @@ class ApplicationGenerator:
         entrypoint: str = "",
         source_root: str | Path | None = None,
         orders: LibraryOrders = (),
+        ir: "ApplicationIR | None" = None,
     ) -> ApplicationGenerationResult:
         """Transform all discovered programs and assemble one Java application.
+
+        ``ir`` is the canonical Application IR of the same sources (Layer 6): the application-level inputs below (call edges
+        for entry selection, COPY references, entry points) are taken through it.  They are value-identical to discovery's
+        when the IR agrees; if it does not, generation is refused rather than run from an application whose canonical form
+        disagrees.  The statement-generation authority is unchanged: programs are still mapped from the parser IR
+        (``unit.program``).  Without ``ir`` behaviour is exactly as before.
 
         Args:
             application: the DISCOVERED application structure (program units,
@@ -101,6 +112,19 @@ class ApplicationGenerator:
         deterministically with explicit diagnostics — never silently
         skipped. COBOL sources are only read, never concatenated.
         """
+        if ir is not None:
+            from engine.application_ir.consume import canonicalize
+
+            canonical = canonicalize(application, ir, source_root)
+            if canonical.divergences:
+                return ApplicationGenerationResult(
+                    success=False,
+                    program_ids=tuple(u.program_id for u in application.programs),
+                    errors=("Application IR disagrees with discovery on " + "; ".join(canonical.divergences)
+                            + ": generation refused",),
+                )
+            application = canonical.application
+
         # 0. Materialize copybooks into program IR (no-op when the
         #    application references no copybooks).
         preparation = prepare_application_copybooks(

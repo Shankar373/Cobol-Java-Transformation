@@ -450,6 +450,7 @@ class UniversalModernizationPipeline:
                 application,
                 entrypoint=self._config.entrypoint,
                 source_root=source_path,
+                ir=application_ir,
                 **self._order_kwargs(),
             )
             if not gen_result.success:

@@ -101,4 +101,6 @@ Deterministic, open-source only, no LLM. Supersedes the Layer 5 and Layer 6 rows
   not in the Layer 5 document; `coverage` and `verify` prove it) with a content-addressed `ir_id` bound to `semantic_id` and
   sealed through the conditional key `application_ir`.
 * R4: `DependencyEdge` carries typed `resolution`, `call_type`, `mode`, `attributes`; `metadata` is a derived rendering.
-* Not started by this amendment: switching capability analysis, planning or generation to the IR (see the design, section 7).
+* Consumer migration (2026-11-23/24): capability analysis (M1), planning (M2), FILE/COPY relationships (M3) and generation's
+  application-level inputs (M4) consult the IR through `application_ir.consume`; the parser IR remains the statement-generation
+  authority (see `LAYER6_DESIGN.md` sections 8-9).
