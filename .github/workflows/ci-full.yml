@@ -12,7 +12,8 @@ name: Full integration validation
 #   * nightly (schedule), manual dispatch (gh workflow run ci-full.yml --ref <branch>);
 #   * a push to main or a release/** branch, and a pushed tag (release candidates);
 #   * a pushed commit whose message contains "[full]" (the evidence is then tied to that exact SHA).
-# On every other push the run exists but its jobs are SKIPPED (shown as skipped, never as passed).
+# On every other push the run exists but EVERY job is skipped, so the run itself shows as skipped, never as passed
+# (there is deliberately no always-running 'plan' job: it would turn a validation that did not run into a green run).
 #
 # THIS IS NOT CERTIFICATION: the four-runtime corpus and the independent verifier are certification.yml's job.
 
@@ -35,41 +36,10 @@ env:
   SHARDS: '6'
 
 jobs:
-  plan:
-    name: Full validation due?
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      run: ${{ steps.decide.outputs.run }}
-    steps:
-      - name: Decide whether the complete validation runs for this event
-        id: decide
-        env:
-          EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          run=false
-          case "$EVENT" in
-            schedule|workflow_dispatch) run=true ;;
-            push)
-              case "$REF" in
-                refs/heads/main|refs/heads/release/*|refs/tags/*) run=true ;;
-              esac
-              case "$COMMIT_MESSAGE" in
-                *"[full]"*) run=true ;;
-              esac ;;
-          esac
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "full validation due: $run (event=$EVENT ref=$REF)"
-
   coverage:
     # Roadmap unit 19: the Docker-free suite under coverage.py with a floor that may only rise.
     name: Test coverage floor
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[full]')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -104,8 +74,7 @@ jobs:
     # hides, and - with PytestWarning as an error - a stale entry in
     # tests/docker_lane.txt (conftest warns when an entry matches no test).
     name: Backend hermetic suite (no Docker)
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[full]')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -133,8 +102,7 @@ jobs:
     # found this way: a non-ASCII character in generated Java that only failed under a non-UTF-8 default code
     # page, and a test that trusted the WSL launcher as bash. Docker lanes stay on Linux.
     name: Backend hermetic suite (Windows)
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[full]')
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
@@ -164,12 +132,11 @@ jobs:
 
   backend-oracle:
     # The former single 68-minute Docker-lane job (run 45050810212) split into SHARDS runners. Each shard builds the
-    # same pinned images (Buildx layer cache, steps below), runs ITS test files and uploads its
+    # same pinned images (layer cache: .github/actions/docker-buildx-cache), runs ITS test files and uploads its
     # JUnit report; backend-oracle-complete proves nothing was lost. Each shard has its own PostgreSQL service, so
     # shards share no state.
     name: Backend and COBOL/Java Docker tests (shard ${{ matrix.shard }}/6)
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[full]')
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -290,8 +257,8 @@ jobs:
     # The sharded lane is only as good as its re-assembly: this job fails unless every shard passed, every collected
     # test case ran exactly once, and the VSAM / s390x / PostgreSQL proof modules ran with no skip.
     name: Backend Docker lane complete (all shards, proofs ran, no test dropped)
-    needs: [plan, backend-oracle]
-    if: ${{ always() && needs.plan.outputs.run == 'true' }}
+    needs: backend-oracle
+    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[full]')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

@@ -73,16 +73,19 @@ def test_full_validation_is_due_only_for_scheduled_main_release_and_marked_runs(
     assert FULL["name"] == "Full integration validation"
     triggers = FULL.get("on") or FULL[True]
     assert "schedule" in triggers and "workflow_dispatch" in triggers
-    plan = _steps_text(FULL["jobs"]["plan"])
-    for token in ("schedule|workflow_dispatch", "refs/heads/main", "refs/heads/release/*", "refs/tags/*", '"[full]"'):
-        assert token in plan, token
-    step_env = FULL["jobs"]["plan"]["steps"][0]["env"]
-    assert step_env["COMMIT_MESSAGE"] == "${{ github.event.head_commit.message }}"   # via env, never in the shell text
-    assert "github.event.head_commit.message" not in FULL["jobs"]["plan"]["steps"][0]["run"]
+    # No always-running job: when the validation is not due, EVERY job is skipped and the run shows as skipped. A
+    # 'plan' job that succeeds would make a validation that never ran look green.
+    assert "plan" not in FULL["jobs"]
+    due = ("github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
+           "github.ref == 'refs/heads/main'", "startsWith(github.ref, 'refs/heads/release/')",
+           "startsWith(github.ref, 'refs/tags/')", "contains(github.event.head_commit.message, '[full]')")
     for key, job in FULL["jobs"].items():
-        if key != "plan":
-            assert "plan" in (job["needs"] if isinstance(job["needs"], list) else [job["needs"]]), key
-            assert "needs.plan.outputs.run == 'true'" in job["if"], key
+        assert "if" in job, f"{key} runs unconditionally"
+        for token in due:
+            assert token in job["if"], (key, token)
+    # nothing interpolates the commit message into a shell: it is only an expression in `if:`
+    assert "head_commit.message" not in _text("ci-full.yml").replace(
+        "contains(github.event.head_commit.message, '[full]')", "")
 
 
 def test_full_validation_keeps_every_required_proof():

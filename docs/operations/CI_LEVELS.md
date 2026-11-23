@@ -74,6 +74,31 @@ the hermetic job already, so merging would only save runner minutes, not wall-cl
 * Release candidates: tag the commit (`rc-*` / `v*`) or commit with `[full]`, then `[certify]`; both are tied to the
   exact SHA. Do not claim certification from level A or B.
 
-## Measured durations
+## Measured durations (GitHub Actions API, job `started_at` to `completed_at`)
 
-See the section appended by the measurement run (below); numbers are job durations from the GitHub Actions API.
+Wall-clock is the run's `created_at` to `updated_at`. Everything ran on `ubuntu-24.04` / `windows-2022` hosted runners.
+
+| Run (SHA) | Workflow | Wall-clock | Notes |
+|---|---|---|---|
+| 45050810212 (`9655239`) | old single `ci.yml` | **72m 04s** | Docker job 72m00s (builds 2m50s + serial pytest 68m39s); every other job <= 7m47s |
+| 45138109387 (`95e2c7a`) | old single `ci.yml` | **57m 08s** | Docker job 57m03s; failed only on the stale dependency map (fixed in `6f683dd`) |
+| 45138109575 (`95e2c7a`) | certification | 17m 52s | four runtimes 11m01s / 11m46s / 17m34s / 17m34s (unchanged by this work) |
+| 45147459800 (`276fe67`) | **CI fast checks** | **2m 08s** | slowest job: capability truth (Linux 1m52s, Windows 2m04s); lint 9s, type check 27s |
+| 45152315981 (`cacdf60`) | **CI fast checks** | **2m 20s** | all nine jobs green, generation hashes 21s |
+| 45147459656 (`276fe67`) | **Full validation**, cold cache | **29m 54s** | 6 shards 19m18s-29m03s (OCESQL image build 6m26s-13m34s with six cold builds at once); completeness proof passed |
+| 45152357956 (`cacdf60`) | **Full validation**, warm cache | **14m 02s** | 6 shards 10m47s-13m16s (tests 8m-12m), Windows hermetic 8m03s, coverage 4m50s, Linux hermetic 4m38s, completeness proof 32s |
+
+What the numbers say, without rounding in our favour:
+
+* The 57-72 minute serial Docker job became 14 minutes warm (about 30 cold) - the gain is the sharding, not the cache.
+* Image builds were never the bottleneck (2m50s of 72 min). Warm, they cost 6s (oracle), 15s (OCESQL), 16s (Maven) against
+  17s / 50s / 45s before; the s390x step still takes about 1m25s because **77 s of it is `apt-get install qemu-user-static`**
+  (19 s index update + 57 s download and unpack); the s390x image itself is about 8 s warm and 58 s cold.
+  The big-endian proof is untouched. Replacing the apt install with a pinned `binfmt` image would save about a minute per
+  shard and add a registry trust path; not adopted.
+* A **cold** cache run is slower than it needs to be: with six shards missing the cache simultaneously, the OCESQL build took
+  6-13 minutes each (the cause - mirror contention versus the `mode=max` cache export - was not isolated). It happens when a
+  Dockerfile, `docker/maven-precache/**` or the build script changes and the cache entry (982 MB) misses.
+* The shard weights of the first run (serial measurement) were off by up to about 40 % per shard (479-752 s of test time against an equal estimate); the weights in
+  `tools/ci_test_durations.json` now come from the first in-CI run. Per-shard test time warm: 8m-12m.
+* Not measured: the report-only Trivy job (moved to schedule / dispatch / tags, so it cost nothing on these pushes).
