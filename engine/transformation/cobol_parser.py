@@ -63,6 +63,7 @@ from engine.transformation.sign_conditions import rewrite_sign_conditions
 from engine.transformation.source_format import (
     code_mentions,
     positioned_lines,
+    program_text,
     reference_format_errors,
     unquote_literal,
 )
@@ -754,14 +755,16 @@ class CobolParser:
         # Pre-parse refusals (layer 4, criterion 6): constructs the engine
         # never supports are refused by name before any statement is parsed,
         # so ``has_errors`` fails closed and no ``UNKNOWN`` Java type is emitted.
-        masked = self._mask_quoted(source)
-        if re.search(r"\b(CLASS-ID|INTERFACE-ID|METHOD-ID|FACTORY|OBJECT)\b", masked, re.IGNORECASE):
+        # Only live program text counts (comments, debug and dead-branch lines are never compiled), and a COBOL word
+        # continues across hyphens: ``OBJECT-COMPUTER`` is the standard paragraph, not the OO ``OBJECT`` word.
+        masked = self._mask_quoted(program_text(source))
+        if re.search(r"(?<![\w-])(?:CLASS-ID|INTERFACE-ID|METHOD-ID|FACTORY|OBJECT)(?![\w-])", masked, re.IGNORECASE):
             self._diagnostics.error(
                 DiagnosticCode.OO_COBOL_UNSUPPORTED,
                 "OO_COBOL_UNSUPPORTED: object-oriented COBOL (CLASS-ID/INTERFACE-ID/METHOD-ID/FACTORY/OBJECT) "
                 "is not supported by the generator",
             )
-        if re.search(r"\bSCREEN\s+SECTION\b", masked, re.IGNORECASE):
+        if re.search(r"(?<![\w-])SCREEN\s+SECTION(?![\w-])", masked, re.IGNORECASE):
             self._diagnostics.error(
                 DiagnosticCode.SCREEN_SECTION_UNSUPPORTED,
                 "SCREEN_SECTION_UNSUPPORTED: SCREEN SECTION is not supported by the generator",

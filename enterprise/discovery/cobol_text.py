@@ -12,7 +12,7 @@ and mid-file switches between the two.  Micro Focus ``$SET SOURCEFORMAT`` is hon
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NamedTuple
 
 FIXED_TEXT_END = 72
@@ -461,7 +461,10 @@ def read_source(text: str) -> "SourceRead":
         if indicator == "-" and lines:
             if not _open_quote(lines[-1].text):
                 body = _strip_free_comment(body)  # COBOL 2002 ``*>`` is a comment in fixed format too
-            lines[-1] = _fold(lines[-1], body)
+            folded = _fold(lines[-1], body)
+            # A continued literal resumes unstripped (its ``*>`` may be literal text); once folded, a ``*>`` that is
+            # outside every literal is a comment and must not reach the tokens (engine face: ``PositionedLine.code``).
+            lines[-1] = replace(folded, text=_strip_free_comment(folded.text))
             continue
         body = _strip_free_comment(body)  # COBOL 2002 ``*>`` is a comment in fixed format too
         if body.strip():

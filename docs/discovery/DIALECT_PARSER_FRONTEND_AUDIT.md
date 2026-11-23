@@ -110,9 +110,11 @@ mutation-tested) with a shrink-only inventory of five declared exceptions (`cobo
   layer 2).
 * Engine consumption of `DialectProfile.unsupported` (layers 7/8), `profile_id` in the producer manifest, and `-std=` from
   the profile in the oracle are not wired (layers 7, 9, 11).
-* Parity is proven for space-indented sources: the engine does not `expandtabs` and splits on `
-` while discovery
-  uses `splitlines()`; changing tab handling would alter existing `compiler_visible_text` output.
+* Parity is proven for space-indented sources: the engine does not `expandtabs` and splits physical lines on `
+`, while
+  discovery expands tabs and uses `splitlines()` (which also splits on form feed, vertical tab, ``-``, ``,
+  ` ` and a lone ``); changing tab handling would alter existing `compiler_visible_text` output. A `*>` comment
+  after a continued literal used to leak into discovery tokens (false `calls` edge); fixed in the residual audit.
 * Discovery tokens on folded continuation lines keep first-line coordinates (kept for byte-identical discovery output); the
   engine face resolves true physical origins (`PositionedLine.span_at`).
 * The frozen IR carries no source positions; `CobolParser.last_line_map` and `CopyOriginMap` exist, but statements are not
@@ -125,3 +127,5 @@ mutation-tested) with a shrink-only inventory of five declared exceptions (`cobo
 * `external_dependency_edges` still masks comments itself: migrating it exposed a fixture that treats a column-6 `*` as a
   comment; fixing the fixture needs an owner decision.
 * Closure is accepted when CI and certification on the commit that carries this record are green.
+* Residual audit of the items above (dispositions, evidence, owner decisions, one engine over-refusal finding for
+  `OBJECT-COMPUTER`): `docs/discovery/LAYER4_RESIDUAL_DISPOSITION.md`.
