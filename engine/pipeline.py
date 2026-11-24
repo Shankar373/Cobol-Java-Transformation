@@ -141,6 +141,9 @@ class PipelineConfig:
     # Layer 6: ``ir_id`` / ``semantic_id`` of the Application IR projected from ``semantic_facts`` (computed in api/),
     # recorded in the sealed manifest.  Empty when none was computed.  Advisory lineage, like ``semantic_facts``.
     application_ir: tuple[tuple[str, str], ...] = ()
+    # Layer 7: the capability record of the modernization analysis the run rests on (``ModernizationReport.capability_record``),
+    # recorded in the sealed manifest.  Empty when none was computed.  Advisory lineage: it never changes a verdict.
+    capability_analysis: tuple[tuple[str, str], ...] = ()
 
 
 def _sole_profile_id(pairs: tuple[tuple[str, str], ...]) -> str:
@@ -1175,6 +1178,7 @@ class VerticalSlicePipeline:
             dialect_profiles=tuple(sorted(self._config.dialect_profiles)),
             semantic_facts=tuple(sorted(self._config.semantic_facts)),
             application_ir=tuple(sorted(self._config.application_ir)),
+            capability_analysis=tuple(sorted(self._config.capability_analysis)),
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation

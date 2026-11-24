@@ -80,6 +80,7 @@ class ViolationType(Enum):
     PROFILE_BINDING_MISMATCH = "profile_binding_mismatch"
     SEMANTIC_FACTS_BINDING_MISMATCH = "semantic_facts_binding_mismatch"
     APPLICATION_IR_BINDING_MISMATCH = "application_ir_binding_mismatch"
+    CAPABILITY_ANALYSIS_BINDING_MISMATCH = "capability_analysis_binding_mismatch"
 
 
 #: Comparison results the evidence model accepts. Anything else is
@@ -157,6 +158,7 @@ class EvidenceIntegrityValidator:
         violations.extend(self._validate_profile_binding(manifest))
         violations.extend(self._validate_semantic_facts_binding(manifest))
         violations.extend(self._validate_application_ir_binding(manifest))
+        violations.extend(self._validate_capability_analysis_binding(manifest))
 
         # 5. Artifact-execution binding
         violations.extend(self._validate_artifact_execution_binding(manifest))
@@ -449,6 +451,39 @@ class EvidenceIntegrityValidator:
             bad("application_ir semantic_id differs from the recorded semantic_facts", "application_ir.semantic_id",
                 str(facts.get("semantic_id")), values["semantic_id"])
         return violations
+
+    # ------------------------------------------------------------------
+    # Layer 7: capability record binding
+    # ------------------------------------------------------------------
+
+    def _validate_capability_analysis_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """The recorded capability record must be well formed and bound to the manifest's own source identity.
+
+        Shape and vocabulary are checked by ``capability_record.shape_problems``; the record's ``source_hash`` must equal the
+        manifest's ``source_identity.source_hash`` (the analysis was of *this* source).  The manifest holds no report, IR or
+        plan, so the remaining ids are made tamper-evident by the seal, and re-derivable by ``capability_record.verify_record``.
+        """
+        from engine.modernization.capability_record import shape_problems
+
+        pairs = manifest.capability_analysis
+        if not pairs:
+            return []
+
+        def bad(path: str, description: str, expected: str, actual: str) -> IntegrityViolation:
+            return IntegrityViolation(
+                violation_type=ViolationType.CAPABILITY_ANALYSIS_BINDING_MISMATCH, description=description,
+                field_path=path, expected=expected, actual=actual)
+
+        problems = shape_problems(pairs)
+        if problems:
+            return [bad(path, f"{path} {problem}", "well-formed capability record", dict(pairs).get(path.split(".")[-1], ""))
+                    for path, problem in problems]
+        recorded = dict(pairs)["source_hash"]
+        expected = manifest.source_identity.source_hash.digest
+        if recorded != expected:
+            return [bad("capability_analysis.source_hash", "capability_analysis was recorded for another source",
+                        expected, recorded)]
+        return []
 
     # ------------------------------------------------------------------
     # FINDING D: Oracle identity binding

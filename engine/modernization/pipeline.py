@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.jcl.assembly import JOB_RUNNER_RUNTIMES, JobAssembly, assemble_job_runners, has_jcl_members
+from engine.modernization.capability_record import build_record as build_capability_record
 from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityReport
 from engine.modernization.transformation_plan import (
     TransformationPlan,
@@ -155,6 +156,9 @@ class ModernizationReport:
     traceability: dict | None = None
     #: ``(key, value)`` pairs for ``PipelineConfig.graph_traceability`` / the sealed evidence manifest.
     graph_traceability: tuple[tuple[str, str], ...] = ()
+    #: Layer 7: the IR-keyed capability record (``capability_record.build_record``) for ``PipelineConfig.capability_analysis`` / the
+    #: sealed evidence manifest.  ``()`` when the analysis had no IR.
+    capability_record: tuple[tuple[str, str], ...] = ()
 
     def to_dict(self) -> dict:
         graph_section = {"knowledge_graph": {
@@ -176,6 +180,7 @@ class ModernizationReport:
                 "dependency_edges": self.dependency_edges,
             },
             "capability": self.capability_report.to_dict() if self.capability_report else {},
+            "capability_record": dict(self.capability_record),
             "plan": self.transformation_plan.to_dict() if self.transformation_plan else {},
             "transformation": {
                 "success": self.generation_success,
@@ -345,6 +350,8 @@ class UniversalModernizationPipeline:
             assembly_output_type=plan_output_type_for(self._config.target_runtime),
         )
         report.transformation_plan = plan
+        report.capability_record = build_capability_record(
+            self._config.application_id, capability_report, plan, application_ir, source_path)
         report.transformable_count = plan.transformable_programs
         report.skipped_count = plan.skipped_programs
         if progress:

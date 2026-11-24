@@ -127,6 +127,17 @@ def _revalidation_candidate(app: ApplicationRecord) -> str | None:
     return app.java_candidate_path
 
 
+def _capability_pairs(run: "RunRecord") -> tuple[tuple[str, str], ...]:
+    """The capability record the generation pipeline stored on ``run`` as sorted pairs (``()`` when it stored none).
+
+    Values are passed through as strings whatever they are, so a stored record that is not well formed reaches the evidence
+    validator and is refused there rather than being silently dropped."""
+    stored = ((getattr(run, "modernization_report", None) or {}).get("pipeline_report") or {}).get("capability_record")
+    if not isinstance(stored, dict) or not stored:
+        return ()
+    return tuple(sorted((str(key), str(value)) for key, value in stored.items()))
+
+
 def _cleanup_temp_dir(path: str | Path | None) -> None:
     """Best-effort cleanup of a temporary directory.
 
@@ -1579,6 +1590,7 @@ class Service:
             graph_traceability=self._graph_lineage(source, app.name),
             semantic_facts=lineage[0],
             application_ir=lineage[1],
+            capability_analysis=_capability_pairs(run),
         )
 
         phase_to_stage = {

@@ -365,6 +365,8 @@ def encode_evidence_manifest(manifest: EvidenceManifest) -> bytes:
         payload["semantic_facts"] = dict(manifest.semantic_facts)
     if manifest.application_ir:
         payload["application_ir"] = dict(manifest.application_ir)
+    if manifest.capability_analysis:
+        payload["capability_analysis"] = dict(manifest.capability_analysis)
     return _encode_envelope(SCHEMA_EVIDENCE, payload)
 
 
@@ -688,6 +690,7 @@ def decode_evidence_manifest(raw: object) -> EvidenceManifest | None:
             dialect_profiles=_decode_string_map(payload.get("dialect_profiles"), "dialect_profiles"),
             semantic_facts=_decode_string_map(payload.get("semantic_facts"), "semantic_facts"),
             application_ir=_decode_string_map(payload.get("application_ir"), "application_ir"),
+            capability_analysis=_decode_string_map(payload.get("capability_analysis"), "capability_analysis"),
         )
     except PersistenceCorruptionError:
         raise
