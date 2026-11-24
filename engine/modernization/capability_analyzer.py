@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from engine.modernization import ir_unsupported
 from engine.transformation.contracts import ProducerCapability
 from engine.transformation.ir import (
     CallStatement,
@@ -593,6 +594,8 @@ class CapabilityAnalyzer:
         program_levels: dict[str, CapabilityLevel] = {}
         for unit in application.programs:
             unit_components = self._analyze_program_unit(unit)
+            if ir is not None:
+                unit_components = ir_unsupported.apply(unit_components, unit, ir)
             components.extend(unit_components)
             for comp in unit_components:
                 if comp.component_type == "PROGRAM":
