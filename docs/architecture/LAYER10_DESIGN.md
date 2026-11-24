@@ -1,6 +1,6 @@
 # Layer 10 design: Build, packaging and runtime targets
 
-Status: **started (2026-11-24): L10-P1, L10-P2 and the audits of section 5 done; open: certification of the Layer 10 changes on the exact SHA.** From `785fba4` (Layer 9 complete and certified). Deterministic, open source
+Status: **closed with stated limits (2026-11-24): L10-P1, L10-P2, the B4 fix and the audits of section 5 done and certified on `c223e07` (fast CI, supply chain, four-runtime corpus certification, dispatched full integration all green).** Open by decision, not defect: byte-reproducible jars (would change generated poms and the 110 generation hashes; needs an explicit decision). From `785fba4` (Layer 9 complete and certified). Deterministic, open source
 only, no LLM. Language coverage is frozen; Layer 11 is not started.
 
 Scope (`LAYER_MODEL.md`): `engine/candidate/**` (build + execute lanes), `engine/execution/**` (containers, hardening, workspace files),
