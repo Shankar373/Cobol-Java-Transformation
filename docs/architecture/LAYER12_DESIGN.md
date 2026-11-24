@@ -1,6 +1,6 @@
 # Layer 12 design: Verification and verdict
 
-Status: **audit started (2026-11-24), no code changed.** From the Layer 11 closure. Deterministic, open source only, no LLM. This is a do-not-regress
+Status: **audited (2026-11-24); one test file added, no engine change; verdict derivation untouched.** From the Layer 11 closure. Deterministic, open source only, no LLM. This is a do-not-regress
 area (`engine/verdict/derivation.py`, `LAYER_MODEL.md` change rules).
 
 Scope: `engine/verification/**`, `engine/verdict/**`, `scripts/e2e/verify_independent.py`. Output: a fail-closed verdict; a single `VERIFIED` derivation site.
@@ -17,7 +17,19 @@ Scope: `engine/verification/**`, `engine/verdict/**`, `scripts/e2e/verify_indepe
   dependency ledger that states simulator-grade proof; neither writes the run's verdict.
 * Existing coverage: `tests/verdict/**` (166 passed locally, 20 Docker skips).
 
-## 2. Next steps (not started)
+## 2. L12-P1: sealed-record tamper never verifies (test only)
 
-1. Probe the validator-to-verdict path for each sealed Layer 7 to 10 record with a tampered record end to end (expect ERROR, never VERIFIED).
-2. Audit `engine/verification/**` (business invariants, validation summary) and `scripts/e2e/verify_independent.py`.
+`tests/verdict/test_sealed_record_tamper_never_verifies.py`: the control manifest verifies; the same manifest carrying a malformed
+`capability_analysis`, `transformation_plan`, `java_generation` or `build_artifact` is not admitted by the validator, and `derive_verdict_untrusted`
+returns ERROR (never VERIFIED) with the violations surfaced. No defect found. Cross-binding mismatches (a well-shaped record disagreeing with another)
+are pinned per layer in `tests/evidence/test_*_evidence.py`.
+
+## 3. Audits without a code change
+
+* `engine/verification/validation_summary.py`: a report view, never a verdict source; PASS only when every comparator MATCHes with no skipped or
+  unavailable check and at least one executed check; it always lists what is not proven (no IBM runtime, one recorded input, no REST verification).
+
+## 4. Limits
+
+* `engine/verification/business_invariants.py` and `scripts/e2e/verify_independent.py` were not audited line by line; they are covered by
+  `tests/verification/**` and the certification workflow.
