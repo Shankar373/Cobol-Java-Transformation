@@ -26,6 +26,7 @@ Output: a runnable artifact per runtime target.
 | B1 | Nothing tied the project handed to the build lane to the project Layer 9 generated. The pipeline hashed the tree before and after the build, but only to show it was not *rewritten during* validation, never that it *was the generation's output* | a project edited, extended or truncated between generation and validation would be built, run and compared as if it were that generation; the sealed generation record's `output_digest` was never consulted after sealing | **closed in L10-P1** |
 | B2 | `validate_candidate` (Spring/Maven lanes) checks only that declared files exist, not their hashes | **reclassified, not a gap**: `validate_candidate` is never called in production (`grep` over `engine/` and `api/` finds only the definitions), and the manifest it would check is derived from the same tree moments earlier, so a hash check there would be circular. The real check is B1's binding against the *sealed* generation digest | no change; documented |
 | B3 | The build lane did not identify the artifact it produced | the runnable artifact was not content-addressed in the evidence | **closed in L10-P2** |
+| B4 | The before/after candidate source-tree hash (`_candidate_source_tree_hash`) excluded any path with a part named `target`, `build`, `out`, `.git`, `node_modules` or `__pycache__`, at any depth, while the candidate identity excluded only the top-level `target` | a file written or rewritten under a nested `src/out/` (or `build/`, ...) during build or execution left `source_tree_hash_before == after`: the mutation check the evidence validator enforces was blind there (probed: a file added under `src/out/` did not move the hash) | **closed**: only top-level build-output directories are excluded; a top-level *file* with such a name is source |
 
 ## 3. L10-P1: the build lane validates only the project generation recorded
 
@@ -51,6 +52,13 @@ Layer 9 `java_generation` record, `built_tree_digest == output_digest` (what was
 the builder and so records no artifact. Advisory lineage: it never changes a verdict. Tests: `tests/candidate/test_build_record.py`,
 `tests/evidence/test_build_artifact_evidence.py`, and three end-to-end cases in `tests/test_candidate_generation_binding.py` (a one-jar lane seals the record
 equal to the generation digest; a lone class file and a refused candidate seal none).
+
+### B4 fix and tests
+
+`VerticalSlicePipeline._candidate_source_tree_hash` now skips a file only when it lies under a **top-level** directory in `_SOURCE_TREE_EXCLUDED_DIRS`.
+Generated projects contain no such nested directory, so their candidate hashes and all 110 generation hashes are unchanged; an uploaded candidate that does is
+now hashed more strictly (the safe direction). `tests/test_candidate_mutation_hash.py` (13 tests): a file added under each of six nested directory names moves
+the hash; the four top-level build-output names do not; a top-level file named `target` is source; edits move it; it is deterministic.
 
 ## 4. Remaining Layer 10 work (not started; stated up front, not claimed)
 

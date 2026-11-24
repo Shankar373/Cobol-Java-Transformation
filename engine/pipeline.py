@@ -710,8 +710,10 @@ class VerticalSlicePipeline:
             identities[inp.container_path] = ContentHash.from_bytes(source.read_bytes())
         return identities
 
-    #: Directories excluded from the candidate source-tree mutation hash
-    #: (build outputs written during compile are not source).
+    #: Top-level directories excluded from the candidate source-tree mutation hash
+    #: (build outputs written during compile are not source).  Only the *top level*
+    #: is excluded: a nested ``src/out/`` or ``src/build/`` holds source, and a
+    #: rewrite there during build or execution must still be detected (Layer 10).
     _SOURCE_TREE_EXCLUDED_DIRS = frozenset({
         "target", "build", "out", ".git", "__pycache__", "node_modules",
     })
@@ -746,7 +748,7 @@ class VerticalSlicePipeline:
                 if not f.is_file():
                     continue
                 rel = f.relative_to(candidate_path)
-                if any(part in self._SOURCE_TREE_EXCLUDED_DIRS for part in rel.parts):
+                if len(rel.parts) > 1 and rel.parts[0] in self._SOURCE_TREE_EXCLUDED_DIRS:
                     continue
                 hasher.update(str(rel).encode())
                 hasher.update(f.read_bytes())
