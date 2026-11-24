@@ -105,6 +105,12 @@ def _forge_calls(ir):
     return dataclasses.replace(ir, edges=edges)
 
 
+def _without_ir_provenance(component):
+    """Layer 7 adds IR provenance to a component's details when an IR is supplied; level and reason stay compared."""
+    details = {k: v for k, v in component.details.items() if k not in ("ir_provenance", "ir_unsupported")}
+    return dataclasses.replace(component, details=details)
+
+
 def test_a_wrong_ir_changes_nothing_in_the_plan_but_is_reported(tmp_path, monkeypatch):
     directory = _tree(tmp_path)
     _, legacy = _plans(directory)
@@ -113,8 +119,8 @@ def test_a_wrong_ir_changes_nothing_in_the_plan_but_is_reported(tmp_path, monkey
     forged = ModernizationPlanner(use_application_ir=True).plan(directory, application_id="m2")
     reported = [c for c in forged.capability_report.components if c.component_id == "IR->DISCOVERY"]
     assert len(reported) == 1
-    assert [c for c in forged.capability_report.components if c.component_id != "IR->DISCOVERY"] == \
-        list(legacy.capability_report.components)
+    assert [_without_ir_provenance(c) for c in forged.capability_report.components if c.component_id != "IR->DISCOVERY"] == \
+        [_without_ir_provenance(c) for c in legacy.capability_report.components]
     assert forged.call_relationships == legacy.call_relationships and forged.entry_programs == legacy.entry_programs
 
 

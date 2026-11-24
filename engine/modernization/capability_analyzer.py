@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from engine.modernization import ir_unsupported
+from engine.modernization.ir_unsupported import application_findings, apply as apply_ir_unsupported
 from engine.transformation.contracts import ProducerCapability
 from engine.transformation.ir import (
     CallStatement,
@@ -595,7 +595,7 @@ class CapabilityAnalyzer:
         for unit in application.programs:
             unit_components = self._analyze_program_unit(unit)
             if ir is not None:
-                unit_components = ir_unsupported.apply(unit_components, unit, ir)
+                unit_components = apply_ir_unsupported(unit_components, unit, ir)
             components.extend(unit_components)
             for comp in unit_components:
                 if comp.component_type == "PROGRAM":
@@ -603,6 +603,8 @@ class CapabilityAnalyzer:
                     # target spelling differs only in case still finds
                     # its callee's level.
                     program_levels[normalize_cobol_name(comp.component_id)] = comp.level
+
+        components.extend(application_findings(ir, application))
 
         # Analyze copybook references (resolution is recorded at discovery)
         for cb_name in application.copybooks:
