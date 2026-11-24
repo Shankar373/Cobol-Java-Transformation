@@ -276,6 +276,9 @@ def canonical_evidence_graph(manifest: EvidenceManifest) -> dict[str, Any]:
     if manifest.capability_analysis:
         # Layer 7: the IR-keyed capability record of the analysis the run rests on (conditional key, as above).
         graph["capability_analysis"] = dict(manifest.capability_analysis)
+    if manifest.transformation_plan:
+        # Layer 8: the record of the transformation plan the run was generated from (conditional key, as above).
+        graph["transformation_plan"] = dict(manifest.transformation_plan)
     return graph
 
 
@@ -449,6 +452,9 @@ class EvidenceManifest:
     # Layer 7: sorted (key, value) pairs of the capability record (``engine.modernization.capability_record.KEYS``): the report,
     # IR, plan and source tree hash the analysis rested on.  Empty when none was recorded; covered by the seal when present.
     capability_analysis: tuple[tuple[str, str], ...] = ()
+    # Layer 8: sorted (key, value) pairs of the plan record (``engine.modernization.plan_record.KEYS``): the plan, capability record and
+    # source tree hash the generation rested on.  Empty when none was recorded; covered by the seal when present.
+    transformation_plan: tuple[tuple[str, str], ...] = ()
     # Seal captured at construction. Integrity validation recomputes the
     # canonical graph and compares it against this seal, so any in-place
     # mutation of evidence after construction is detected. Not part of the

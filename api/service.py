@@ -127,15 +127,25 @@ def _revalidation_candidate(app: ApplicationRecord) -> str | None:
     return app.java_candidate_path
 
 
-def _capability_pairs(run: "RunRecord") -> tuple[tuple[str, str], ...]:
-    """The capability record the generation pipeline stored on ``run`` as sorted pairs (``()`` when it stored none).
+def _stored_record_pairs(run: "RunRecord", key: str) -> tuple[tuple[str, str], ...]:
+    """The record the generation pipeline stored under ``key`` on ``run`` as sorted pairs (``()`` when it stored none).
 
     Values are passed through as strings whatever they are, so a stored record that is not well formed reaches the evidence
     validator and is refused there rather than being silently dropped."""
-    stored = ((getattr(run, "modernization_report", None) or {}).get("pipeline_report") or {}).get("capability_record")
+    stored = ((getattr(run, "modernization_report", None) or {}).get("pipeline_report") or {}).get(key)
     if not isinstance(stored, dict) or not stored:
         return ()
-    return tuple(sorted((str(key), str(value)) for key, value in stored.items()))
+    return tuple(sorted((str(k), str(v)) for k, v in stored.items()))
+
+
+def _capability_pairs(run: "RunRecord") -> tuple[tuple[str, str], ...]:
+    """The Layer 7 capability record stored on ``run`` (see ``_stored_record_pairs``)."""
+    return _stored_record_pairs(run, "capability_record")
+
+
+def _plan_pairs(run: "RunRecord") -> tuple[tuple[str, str], ...]:
+    """The Layer 8 transformation-plan record stored on ``run`` (see ``_stored_record_pairs``)."""
+    return _stored_record_pairs(run, "plan_record")
 
 
 def _cleanup_temp_dir(path: str | Path | None) -> None:
@@ -1591,6 +1601,7 @@ class Service:
             semantic_facts=lineage[0],
             application_ir=lineage[1],
             capability_analysis=_capability_pairs(run),
+            transformation_plan=_plan_pairs(run),
         )
 
         phase_to_stage = {

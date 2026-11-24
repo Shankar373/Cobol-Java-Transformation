@@ -81,6 +81,7 @@ class ViolationType(Enum):
     SEMANTIC_FACTS_BINDING_MISMATCH = "semantic_facts_binding_mismatch"
     APPLICATION_IR_BINDING_MISMATCH = "application_ir_binding_mismatch"
     CAPABILITY_ANALYSIS_BINDING_MISMATCH = "capability_analysis_binding_mismatch"
+    TRANSFORMATION_PLAN_BINDING_MISMATCH = "transformation_plan_binding_mismatch"
 
 
 #: Comparison results the evidence model accepts. Anything else is
@@ -159,6 +160,7 @@ class EvidenceIntegrityValidator:
         violations.extend(self._validate_semantic_facts_binding(manifest))
         violations.extend(self._validate_application_ir_binding(manifest))
         violations.extend(self._validate_capability_analysis_binding(manifest))
+        violations.extend(self._validate_transformation_plan_binding(manifest))
 
         # 5. Artifact-execution binding
         violations.extend(self._validate_artifact_execution_binding(manifest))
@@ -484,6 +486,45 @@ class EvidenceIntegrityValidator:
             return [bad("capability_analysis.source_hash", "capability_analysis was recorded for another source",
                         expected, recorded)]
         return []
+
+    # ------------------------------------------------------------------
+    # Layer 8: transformation plan record binding
+    # ------------------------------------------------------------------
+
+    def _validate_transformation_plan_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """The recorded plan record must be well formed, bound to this source, and name the capability record beside it.
+
+        The plan was built from the capability analysis, so when both records are present they must agree on application,
+        capability id, IR id, plan id and source hash; a plan record without a capability record is itself a violation (the
+        plan's analysis is then unattested).
+        """
+        from engine.modernization.plan_record import disagreements_with_capability, shape_problems
+
+        pairs = manifest.transformation_plan
+        if not pairs:
+            return []
+
+        def bad(path: str, description: str, expected: str, actual: str) -> IntegrityViolation:
+            return IntegrityViolation(
+                violation_type=ViolationType.TRANSFORMATION_PLAN_BINDING_MISMATCH, description=description,
+                field_path=path, expected=expected, actual=actual)
+
+        problems = shape_problems(pairs)
+        if problems:
+            return [bad(path, f"{path} {problem}", "well-formed plan record", dict(pairs).get(path.split(".")[-1], ""))
+                    for path, problem in problems]
+        recorded = dict(pairs)["source_hash"]
+        expected = manifest.source_identity.source_hash.digest
+        if recorded != expected:
+            return [bad("transformation_plan.source_hash", "transformation_plan was recorded for another source",
+                        expected, recorded)]
+        if not manifest.capability_analysis:
+            return [bad("transformation_plan", "transformation_plan has no capability_analysis record to bind to",
+                        "capability_analysis", "")]
+        capability = dict(manifest.capability_analysis)
+        return [bad(f"transformation_plan.{key}", f"transformation_plan names another {key} than capability_analysis",
+                    capability.get(key, ""), dict(pairs).get(key, ""))
+                for key in disagreements_with_capability(pairs, manifest.capability_analysis)]
 
     # ------------------------------------------------------------------
     # FINDING D: Oracle identity binding

@@ -1,6 +1,6 @@
 # Layer 8 design: Modernization planning
 
-Status: **L8-P1 implemented (2026-11-24)**, from `4a2808c` (Layer 7 complete and certified). Deterministic, open source only, no LLM.
+Status: **L8-P1 and L8-P2 implemented (2026-11-24)**, from `4a2808c` (Layer 7 complete and certified). Deterministic, open source only, no LLM.
 Language coverage is frozen: nothing here adds COBOL syntax, and the retained producers R2/R3/R5/R6 stay. Layer 9 is not started.
 
 ## 1. Audit (what exists)
@@ -50,6 +50,7 @@ a planner/generator entry disagreement; every runtime target gets the same actio
 | P9 | Certified behaviour and the 110 generation hashes do not move (refusal text included) | `blocked_by` keeps a blocked caller out of the refusal's program list | `tools/generation_hashes.py --check`, `test_a_refused_callee_blocks_its_caller_in_the_plan_but_...` |
 | P10 | One production planner; the experimental planner stays unwired | n/a | `test_the_experimental_planner_is_not_wired_into_production` |
 | P11 | Mutation: a fail-open reconciliation is detected | n/a | `test_a_fail_open_reconciliation_would_be_detected` |
+| P12 | Plan record in the sealed manifest: content-addressed whole plan, bound to the Layer 7 record (same analysis, IR, plan id, source), integrity-validated, fail-closed | `plan_record` (`build_record`, `verify_record`, `shape_problems`, `disagreements_with_capability`), `EvidenceManifest.transformation_plan`, `ViolationType.TRANSFORMATION_PLAN_BINDING_MISMATCH`, `ModernizationReport.plan_record`, `PipelineConfig.transformation_plan`, `api.service._plan_pairs` | `test_l8_plan_record.py`, `tests/evidence/test_transformation_plan_evidence.py`, `tests/test_transformation_plan_api.py` |
 
 ## 4. The `plan_id` decision
 
@@ -81,3 +82,25 @@ refusal still names the root cause (the callee's or the copybook's own reason) a
   capability level applies to all of them.
 * `mixed` oracle source format is reported, not blocked: generation reads mixed files per line (the oracle lanes refuse them).
 * A report that contains no components while programs exist still plans every program SKIP ("no capability analysis result").
+
+## 7. The plan record (L8-P2)
+
+| Key | Meaning |
+|---|---|
+| `plan_digest` | sha256 of the whole plan document (`TransformationPlan.to_dict`): every component's action, transformer, reason, priority, capability level, provenance and blocker, the oracle parameters, the assembly plan, evidence conflicts and notes. `plan_id` ignores most of these (section 4), so this is what makes the decorations tamper-evident |
+| `plan_id` | the Layer 7 definition, unchanged; the plan record and the capability record must name the same value |
+| `capability_id`, `ir_id` | the Layer 7 record the plan was built from |
+| `source_hash` | the source tree hash, as `engine.pipeline` computes `SourceIdentity.source_hash` |
+| `application_id`, `entry_resolution` | identity and the closed `RESOLVED`/`UNRESOLVED` vocabulary |
+
+Binding rules. `build_record` returns `()` (never a partial record) when the plan, the capability record, the application id or the
+source is missing, or when the capability record names another `plan_id` or `source_hash` than the plan and tree it is given. The evidence
+validator requires the exact key set, lower-case sha256 digests, a known entry resolution, a non-empty application id, `source_hash` equal
+to the manifest's own source identity, **a capability record beside it**, and equal `application_id`, `capability_id`, `ir_id` and `plan_id`
+in both records. `verify_record` re-derives the record from a plan, the capability record and the tree and names every differing key
+(the API test reproduces the sealed record from the source tree, the plan rebuilt from the canonical application with the stored entry).
+The manifest key is conditional: a manifest without it keeps its exact hash (`LEGACY_MANIFEST_HASH` test). The record is advisory lineage:
+it never changes generation or a verdict, and all 110 generation hashes are identical.
+
+Limits. The manifest holds no plan document, so `plan_digest` is tamper-evident through the seal and re-derivable only with the source
+tree; a stopped pipeline (discovery or capability failure before planning) has no plan and therefore no record.
