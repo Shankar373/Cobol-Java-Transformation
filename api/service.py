@@ -56,7 +56,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from api.artifact_seal import compute_generated_seal, verify_generated_seal
+from api.artifact_seal import compute_generated_seal, seal_binding_problem, verify_generated_seal
 from api.errors import (
     BusyError,
     ConflictError,
@@ -1911,6 +1911,12 @@ class Service:
             )
         self._check_evidence_verdict_consistency(run)
         self._require_valid_evidence(run)
+        manifest = run.evidence_manifest
+        if manifest is not None and run.generated_seal:
+            problem = seal_binding_problem(
+                run.generated_seal, manifest.java_generation, manifest.build_artifact)
+            if problem:
+                raise ConflictError(f"Run {run.id!r} cannot be {action}: {problem}")
 
     def approval_history(self, run_id: str) -> list[dict]:
         """Append-only approval trail of a run (decisions and resets)."""

@@ -57,6 +57,11 @@ def tree_digest(project_dir: "str | Path", exclude_top_level: frozenset[str] = f
         for name in filenames:
             full = Path(dirpath, name)
             files[full.relative_to(root).as_posix()] = hashlib.sha256(full.read_bytes()).hexdigest()
+    return digest_of_files(files)
+
+
+def digest_of_files(files: dict[str, str]) -> str:
+    """The tree digest of a ``{posix path: file sha256}`` map: what ``tree_digest`` derives from a directory and the artifact seal records."""
     digest = hashlib.sha256()
     for rel, sha in sorted(files.items()):
         digest.update(f"{rel}\0{sha}\n".encode())

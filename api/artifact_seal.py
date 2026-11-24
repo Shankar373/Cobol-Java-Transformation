@@ -51,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from api.errors import ConflictError, PayloadTooLargeError, ServiceError
+from engine.modernization.generation_record import digest_of_files
 
 #: The only accepted hashing algorithm.  A seal declaring anything else
 #: is refused (fail closed) rather than silently re-interpreted.
@@ -143,6 +144,33 @@ def verify_generated_seal(root: str | Path, seal_json: str | None) -> None:
             f" evidence ({len(differing)} file(s) differ after execution);"
             " re-validate the run before approval or export"
         )
+
+
+def seal_binding_problem(
+    seal_json: str | None,
+    generation: tuple[tuple[str, str], ...] = (),
+    build: tuple[tuple[str, str], ...] = (),
+) -> str:
+    """Why the sealed bundle is not what the sealed manifest says was generated and built (``""`` when it is, or nothing is recorded).
+
+    The seal covers the bytes on disk after validation; the manifest's ``java_generation`` and ``build_artifact`` records name the generated project and
+    the jar the lane built.  Left out of the project digest is only the top-level ``target/`` (the Layer 9 algorithm), and the jar must be the one the
+    manifest names, so a bundle whose source or jar was swapped before the seal was taken is not approved or served as the verified artifact."""
+    if not generation and not build:
+        return ""
+    files = _parse_seal_files(seal_json)
+    if generation:
+        recorded = dict(generation).get("output_digest", "")
+        actual = digest_of_files({k: v for k, v in files.items() if not k.startswith("target/")})
+        if actual != recorded:
+            return (f"Sealed bundle does not match its recorded generation (sealed project {actual}, "
+                    f"recorded {recorded}); re-validate the run")
+    if build:
+        recorded_build = dict(build)
+        sealed_jar = files.get(f"target/{recorded_build.get('artifact_name', '')}")
+        if sealed_jar != recorded_build.get("artifact_digest"):
+            return "Sealed bundle does not contain the built artifact the evidence recorded; re-validate the run"
+    return ""
 
 
 def _parse_seal_files(seal_json: str | None) -> dict[str, str]:
