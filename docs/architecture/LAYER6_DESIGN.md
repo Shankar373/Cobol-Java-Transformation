@@ -121,8 +121,27 @@ direction, and it is not a divergence. Anything the IR has that discovery lacks,
 Measured over the 55 fixture applications with a `cobol/` tree: CALL, entry and COPY match on 55/55; FILE matches on 54/55 and
 is a discovery superset on `workload-cics` (the documented case).
 
-Still open: the planner, analyzer and generator also read per-program values that the IR does not carry (program plans, record
-layouts, statements); those stay on the parser IR, which remains the parsing and statement-generation authority. Producers R2
-(`_extract_calls`, `_extract_entry_points`, COPY and FILE regex scans), R3, R5 and R6 are retained: discovery still builds the
-application the IR is checked against, and a file the parser refuses is still served by the text scans. Layer 6 is therefore
-**not declared complete** unless the release criteria listed with the final report are all met.
+## 10. Formal closure and accepted boundaries (2026-11-24)
+
+Layer 6 is **closed** at M4 against the acceptance criteria below. The earlier sentence that Layer 6 is "not declared complete"
+unless release criteria "listed with the final report" are met referred to a list that was never written; it is replaced by this
+section, which states the criteria and the boundaries that are accepted rather than hidden.
+
+Acceptance criteria (all met at `45c3a52`, exact-SHA CI green): M1-M4 implemented and wired; `tests/application_ir` passes;
+every fail-closed path has a unit and a mutation test; generation hashes identical on all 110 builds; ruff, mypy gate and
+dependency map clean; no regression in the evidence, semantic-facts, API and call-resolution suites.
+
+Accepted boundaries:
+
+1. **CALL-only sourcing.** Only CALL edges are *sourced* from the IR. Entry points, COPY references and FILE dependencies are
+   *verified* against it and delivered with discovery's spelling and ownership notes (generated names depend on them). Any
+   disagreement keeps discovery's value and is an UNSUPPORTED `IR->DISCOVERY` finding.
+2. **FILE 54/55.** FILE dependencies match discovery on 54 of 55 fixture applications. The 55th, `workload-cics`, is the documented
+   `DISCOVERY_SUPERSET`: discovery's text scan also reads words inside `EXEC CICS` blocks as files. The larger set is kept (the
+   fail-closed direction). This is not a divergence and is not to be "fixed" by shrinking discovery.
+3. **Retained producers R2, R3, R5, R6** (`_extract_calls`/entry/COPY/FILE text scans, `_analyze_call_linkage_arity`, `dd_binding`,
+   `external_dependency_edges`) are intentionally retained: discovery builds the application the IR is checked against, and a file
+   the parser refuses is still served by them. Removal needs evidence (a differential per producer) and is not part of Layer 6.
+4. **Parser IR stays authoritative** for programs, record layouts and statements (program plans, Java generation).
+5. All Layer 5 limits are inherited (no copybook declarations merged, nested programs and GLOBAL/EXTERNAL/RENAMES unsupported,
+   dynamic-call candidates a lower bound).
