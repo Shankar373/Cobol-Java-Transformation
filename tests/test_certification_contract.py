@@ -164,8 +164,13 @@ class _CapturingPipeline:
     """Fake validation pipeline that records the config it was given."""
 
     captured: dict = {}
+    #: Only the run under test is recorded: a background run leaked by an earlier test (another workload) can reach this patched class
+    #: while the test waits, and must not overwrite what the test asserts on.
+    expected_workload_id: str = ""
 
     def __init__(self, config, candidate_adapter=None):
+        if _CapturingPipeline.expected_workload_id and config.workload.workload_id != _CapturingPipeline.expected_workload_id:
+            return
         _CapturingPipeline.captured["config"] = config
         _CapturingPipeline.captured["adapter"] = candidate_adapter
 
@@ -189,6 +194,7 @@ def _run_modernize_with_fake_engine(app_id: str) -> str:
     REAL; only the heavy engine work is replaced.
     """
     _CapturingPipeline.captured = {}
+    _CapturingPipeline.expected_workload_id = client.get(f"/applications/{app_id}").json()["workload_id"]
     candidate_dir = Path(__file__).resolve().parent  # any existing dir
 
     with patch.object(
