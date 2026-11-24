@@ -75,6 +75,15 @@ def test_an_entry_point_the_ir_does_not_confirm_keeps_discovery_and_is_reported(
     assert dict(resolved.by_program)["SUB1"]       # discovery's entry points are still delivered
 
 
+def _comparable(plan_dict: dict) -> dict:
+    """The plan dict without the IR-only Layer 5 provenance ids (Layer 7/8 add them when an IR is supplied)."""
+    out = dict(plan_dict)
+    tp = dict(out.get("transformation_plan") or {})
+    tp["components"] = [{k: v for k, v in c.items() if k != "provenance"} for c in tp.get("components", [])]
+    out["transformation_plan"] = tp
+    return out
+
+
 # --- contract: the whole corpus ------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("directory", APP_DIRS, ids=lambda d: d.parent.name)
@@ -85,12 +94,12 @@ def test_contract_the_plan_is_identical_from_the_ir_and_from_discovery(directory
         with pytest.raises(type(exc)):
             ModernizationPlanner(use_application_ir=False).plan(directory, application_id="m2")
         return
-    assert via_ir.to_dict() == legacy.to_dict()
+    assert _comparable(via_ir.to_dict()) == _comparable(legacy.to_dict())
 
 
 def test_the_plan_with_calls_and_entries_is_identical_and_non_trivial(tmp_path):
     via_ir, legacy = _plans(_tree(tmp_path), entrypoint="MAIN")
-    assert via_ir.to_dict() == legacy.to_dict()
+    assert _comparable(via_ir.to_dict()) == _comparable(legacy.to_dict())
     assert len(via_ir.call_relationships) == 2 and {c.resolution for c in via_ir.call_relationships} == {"RESOLVED", "UNRESOLVED"}
     assert any(e.entry_points for e in via_ir.entry_programs) or via_ir.entry_programs
 

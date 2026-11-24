@@ -367,6 +367,7 @@ class UniversalModernizationPipeline:
             for c in plan.components
             if c.component_type == "PROGRAM"
             and c.action.name == "SKIP"
+            and not c.blocked_by       # a caller blocked by a skipped callee is named by the callee's own reason
         )
         # A CALL the plan cannot dispatch (unresolved or dynamic target)
         # blocks generation too: the caller's Java would otherwise build and
