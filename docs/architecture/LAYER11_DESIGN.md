@@ -1,6 +1,6 @@
 # Layer 11 design: GnuCOBOL oracle and differential execution
 
-Status: **in progress (2026-11-24): L11-P1 entry authority done; comparators and JCL audit open.** From `c223e07` (Layer 10 closed with stated limits). Deterministic, open source only, no LLM.
+Status: **closed with stated limits (2026-11-24): L11-P1 done; comparators, JCL lane and oracle audited with no further defect. Certified: fast CI and supply chain on `51f01d1`, corpus certification (four runtimes) on `b7be27c` (the code commit; `51f01d1` is docs only), dispatched full integration on `51f01d1`, all green; the 110 generation hashes identical.** From `c223e07` (Layer 10 closed with stated limits). Deterministic, open source only, no LLM.
 Language coverage is frozen; the 110 generation hashes must not move.
 
 Scope (`LAYER_MODEL.md`): `engine/oracle/**`, `engine/comparators/**`, `engine/jcl/**`. Output: oracle build/run results identified by `oracle_id`.
@@ -27,6 +27,15 @@ Tests: `tests/test_oracle_entry_authority.py` (five estates: service entry == sh
 Residual: the service and the plan still apply the rule in two places; the plan's entry is not in the sealed `plan_record` (its keys are fixed), so
 agreement is pinned by test, not by the validator.
 
-## 3. Next steps (not started)
+## 3. Audits completed without a code change
 
-1. Audit comparators (`framework.py`, `indexed_records.py`) and `engine/jcl/**` for fail-closed behaviour and determinism.
+* **Comparators** (`engine/comparators/framework.py`): a missing artifact is INCONCLUSIVE or MISMATCH by policy, never a match; an unsupported
+  normalization or ordering raises; there is no implicit normalization; byte-exact unless a workload declares `crlf_to_lf`. Covered by
+  `tests/comparators/**` and the adversarial suites (`tests/adversarial/test_comparator_attacks.py`, `test_normalization_attacks.py`, `test_semantic_mutations.py`).
+* **JCL lane / oracle:** extensive existing tests (`tests/test_jcl_*.py`, `tests/test_oracle_*.py`, `tests/test_production_oracle_pin.py`); image identity pinning unchanged.
+
+## 4. Limits (stated, not claimed)
+
+* The oracle compiles with the default `-std=`; the dialect `profile_id` is not recorded beside `oracle_id` (`LAYER_MODEL.md`, open).
+* The real GnuCOBOL/Docker oracle is exercised by the certification lanes, not by the Docker-free local tests.
+* The plan's entry program is not in the sealed `plan_record`; the entry agreement is pinned by tests, not by the evidence validator.
