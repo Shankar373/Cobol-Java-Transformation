@@ -1394,8 +1394,8 @@ class Service:
         called = {
             _key(str(edge.get("target", "")))
             for edge in discovery.call_dependencies
-            if edge.get("target")
-        }
+            if edge.get("target") and _key(str(edge.get("caller", ""))) != _key(str(edge["target"]))
+        }  # a self-CALL does not make a program non-root: the same rule as engine.transformation.entrypoint
         roots = [pid for pid in program_ids if _key(pid) not in called]
         if len(roots) == 1:
             return roots[0]
