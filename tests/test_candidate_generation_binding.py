@@ -96,14 +96,15 @@ class SpyCandidate(Candidate):
         return super().compile(candidate_path, manifest)
 
 
-def _validate(service, tmp_path, monkeypatch, tamper):
+def _validate(service, tmp_path, monkeypatch, tamper, candidate_cls=None):
+    candidate_cls = candidate_cls or SpyCandidate
     app = _application(service, _estate_root(tmp_path))
     run = _run(service, app)
     project, entry = service._generate_application(app, run)
     if tamper:
         victim = next(Path(project).rglob("*.java"))
         victim.write_text(victim.read_text(encoding="utf-8") + "\n// tampered after generation\n", encoding="utf-8")
-    SpyCandidate.compiled = 0
+    candidate_cls.compiled = 0
 
     class EntryOracle(Oracle):
         def execute(self, run_id, source_path, input_data=None, input_files=None, **_ignored):
@@ -111,7 +112,7 @@ def _validate(service, tmp_path, monkeypatch, tamper):
 
     class Doubled(service_module.VerticalSlicePipeline):
         def __init__(self, config, candidate_adapter=None, registry=None):
-            super().__init__(config, candidate_adapter=SpyCandidate(b"HI\n", None, 0), registry=registry)
+            super().__init__(config, candidate_adapter=candidate_cls(b"HI\n", None, 0), registry=registry)
             self._oracle_adapter = EntryOracle(b"HI\n", None, 0)
 
     monkeypatch.setattr(service_module, "VerticalSlicePipeline", Doubled)
@@ -132,3 +133,32 @@ def test_a_project_changed_after_generation_never_reaches_the_builder(service, t
     assert run.verdict.state.value == "ERROR"  # an unverifiable candidate, never a comparison
     candidate = next(e for e in run.evidence_manifest.execution_evidence if e.execution_phase == "BUILD")
     assert candidate.termination_status == "error" and candidate.exit_code is None and candidate.execution_phase == "BUILD"
+
+
+class JarCandidate(SpyCandidate):
+    """A lane whose build produces exactly one jar, as the Maven lanes do."""
+
+    def compile(self, candidate_path, manifest):
+        from engine.candidate.adapter import CompilationResult
+
+        type(self).compiled += 1
+        return CompilationResult(success=True, class_files={"app.jar": b"PK jar bytes"})
+
+
+def test_the_sealed_manifest_binds_the_built_jar_to_the_recorded_generation(service, tmp_path, monkeypatch):
+    import hashlib
+
+    run = _validate(service, tmp_path, monkeypatch, tamper=False, candidate_cls=JarCandidate)
+    built = dict(run.evidence_manifest.build_artifact)
+    assert built == {"artifact_digest": hashlib.sha256(b"PK jar bytes").hexdigest(), "artifact_name": "app.jar",
+                     "built_tree_digest": dict(run.evidence_manifest.java_generation)["output_digest"]}
+
+
+def test_a_build_that_produced_no_single_jar_records_no_artifact(service, tmp_path, monkeypatch):
+    run = _validate(service, tmp_path, monkeypatch, tamper=False)  # the default double builds a lone class file
+    assert run.evidence_manifest.build_artifact == () and run.evidence_manifest.java_generation
+
+
+def test_a_refused_candidate_records_no_artifact(service, tmp_path, monkeypatch):
+    run = _validate(service, tmp_path, monkeypatch, tamper=True, candidate_cls=JarCandidate)
+    assert JarCandidate.compiled == 0 and run.evidence_manifest.build_artifact == ()

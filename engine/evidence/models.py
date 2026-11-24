@@ -282,6 +282,9 @@ def canonical_evidence_graph(manifest: EvidenceManifest) -> dict[str, Any]:
     if manifest.java_generation:
         # Layer 9: the record of the Java generation that plan authorised (conditional key, as above).
         graph["java_generation"] = dict(manifest.java_generation)
+    if manifest.build_artifact:
+        # Layer 10: the content address of the jar the build produced and of the project it was built from (conditional key).
+        graph["build_artifact"] = dict(manifest.build_artifact)
     return graph
 
 
@@ -461,6 +464,9 @@ class EvidenceManifest:
     # Layer 9: sorted (key, value) pairs of the generation record (``engine.modernization.generation_record.KEYS``): the generated tree,
     # program-to-class map and plan record it rested on.  Empty when none was recorded; covered by the seal when present.
     java_generation: tuple[tuple[str, str], ...] = ()
+    # Layer 10: sorted (key, value) pairs of the build-artifact record (``engine.candidate.build_record.KEYS``): the jar built and
+    # executed, and the project tree it was built from.  Empty when no build succeeded; covered by the seal when present.
+    build_artifact: tuple[tuple[str, str], ...] = ()
     # Seal captured at construction. Integrity validation recomputes the
     # canonical graph and compares it against this seal, so any in-place
     # mutation of evidence after construction is detected. Not part of the

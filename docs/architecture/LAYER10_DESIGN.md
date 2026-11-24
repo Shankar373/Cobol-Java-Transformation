@@ -1,6 +1,6 @@
 # Layer 10 design: Build, packaging and runtime targets
 
-Status: **started (2026-11-24): L10-P1 implemented; the layer is NOT complete.** From `785fba4` (Layer 9 complete and certified). Deterministic, open source
+Status: **started (2026-11-24): L10-P1, L10-P2 and the audits of section 5 done; open: certification of the Layer 10 changes on the exact SHA.** From `785fba4` (Layer 9 complete and certified). Deterministic, open source
 only, no LLM. Language coverage is frozen; Layer 11 is not started.
 
 Scope (`LAYER_MODEL.md`): `engine/candidate/**` (build + execute lanes), `engine/execution/**` (containers, hardening, workspace files),
@@ -24,8 +24,8 @@ Output: a runnable artifact per runtime target.
 | # | Gap | Effect | Status |
 |---|---|---|---|
 | B1 | Nothing tied the project handed to the build lane to the project Layer 9 generated. The pipeline hashed the tree before and after the build, but only to show it was not *rewritten during* validation, never that it *was the generation's output* | a project edited, extended or truncated between generation and validation would be built, run and compared as if it were that generation; the sealed generation record's `output_digest` was never consulted after sealing | **closed in L10-P1** |
-| B2 | `validate_candidate` (Spring/Maven lanes) checks only that declared files exist, not that their bytes are the declared hashes | a declared file with other content passes validation | open (L10-P2) |
-| B3 | The build lane does not identify the artifact it produced (jar digest) in evidence | the runnable artifact is not content-addressed | open (L10-P2) |
+| B2 | `validate_candidate` (Spring/Maven lanes) checks only that declared files exist, not their hashes | **reclassified, not a gap**: `validate_candidate` is never called in production (`grep` over `engine/` and `api/` finds only the definitions), and the manifest it would check is derived from the same tree moments earlier, so a hash check there would be circular. The real check is B1's binding against the *sealed* generation digest | no change; documented |
+| B3 | The build lane did not identify the artifact it produced | the runnable artifact was not content-addressed in the evidence | **closed in L10-P2** |
 
 ## 3. L10-P1: the build lane validates only the project generation recorded
 
@@ -40,10 +40,31 @@ Tests (`tests/test_candidate_generation_binding.py`): the untouched project is b
 does; edit / add / remove / rename / nested-`target` are each refused; a missing project and a symlink are refused; end to end through the real
 service with the candidate lane doubled, an untouched project reaches the builder once and a project edited after generation never does and ends `ERROR`.
 
+## 3b. L10-P2: the built artifact is content-addressed (`engine/candidate/build_record.py`)
+
+`EvidenceManifest.build_artifact` (conditional sealed key; a manifest without it keeps its exact hash) holds `artifact_digest` (sha256 of the jar the lane
+built and then executed: the execution is staged from exactly those bytes), `artifact_name` (a bare `.jar` name) and `built_tree_digest` (the project tree
+the build ran on, `target/` excluded, the Layer 9 algorithm). `VerticalSlicePipeline` builds it from the compilation result of a **successful** build that
+produced **exactly one jar and nothing else**; no jar, several jars, a class file, a path-like name or an unhashable tree give no record. The evidence
+validator (`BUILD_ARTIFACT_BINDING_MISMATCH`) requires the exact key set, lower-case digests and a bare jar name, and, when the manifest also carries a
+Layer 9 `java_generation` record, `built_tree_digest == output_digest` (what was built is what was generated). A refused candidate (L10-P1) never reaches
+the builder and so records no artifact. Advisory lineage: it never changes a verdict. Tests: `tests/candidate/test_build_record.py`,
+`tests/evidence/test_build_artifact_evidence.py`, and three end-to-end cases in `tests/test_candidate_generation_binding.py` (a one-jar lane seals the record
+equal to the generation digest; a lone class file and a refused candidate seal none).
+
 ## 4. Remaining Layer 10 work (not started; stated up front, not claimed)
 
-* B2: verify declared candidate files by hash in `validate_candidate`.
-* B3: content-address the built artifact (jar) and bind it to the generation record in the execution evidence.
-* Parity audit of every `RUNTIME_KEYS` row against its adapter, pom content (pinned versions, offline cache coverage) and the build image identity.
-* Container hardening and workspace-file handling audit (`engine/execution/**`) against the certified contract.
-* Four-runtime build and execution certification of the above on the exact SHA (Docker lanes).
+* The real Maven/Docker build is exercised by the certification lanes, not by these hermetic tests (the lane is doubled; the jar digest is that of the bytes
+  the double returns). The jar is not reproducible byte for byte (Maven embeds timestamps), so `artifact_digest` identifies *this* build, not a rebuild.
+* Four-runtime build and execution certification of L10-P1/P2 on the exact SHA (Docker lanes): dispatched for each push, see the ledger.
+
+## 5. Audits completed without a code change (evidence, not assumption)
+
+* **Runtime-target parity.** `tests/test_runtime_registry.py` and `tests/test_runtime_selection.py` already pin the registry as the single source for the
+  engine tables, the certified set as the certification matrix, the API's accepted set and `candidate_adapter_for_target` (fail closed on an unknown
+  target); `tests/test_framework_runtimes.py` keeps the offline image's pre-cached Quarkus/Micronaut set in step with the generated poms. All pass.
+* **Container hardening.** `tests/test_container_hardening.py` scans every `"docker", "run"` site under `engine/` and requires the shared
+  `container_run_hardening_flags` (`no-new-privileges`, `--cap-drop ALL`, `fsize` ulimit, non-root `--user`) at each; `NON_ROOT_EXEMPT_LANES` is empty. All pass.
+* **Generated build files are pinned** (new, `tests/candidate/test_generated_pom_pinning.py`, all five targets): no floating version (range, `LATEST`,
+  `RELEASE`, `SNAPSHOT` on anything the build fetches; the artifact's own `0.0.1-SNAPSHOT` is excluded), every property/plugin/dependency version is a
+  concrete release or a property, and the Java release is declared concretely (17 or 21). Found no defect.

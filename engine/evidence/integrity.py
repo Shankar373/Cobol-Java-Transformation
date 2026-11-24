@@ -83,6 +83,7 @@ class ViolationType(Enum):
     CAPABILITY_ANALYSIS_BINDING_MISMATCH = "capability_analysis_binding_mismatch"
     TRANSFORMATION_PLAN_BINDING_MISMATCH = "transformation_plan_binding_mismatch"
     JAVA_GENERATION_BINDING_MISMATCH = "java_generation_binding_mismatch"
+    BUILD_ARTIFACT_BINDING_MISMATCH = "build_artifact_binding_mismatch"
 
 
 #: Comparison results the evidence model accepts. Anything else is
@@ -163,6 +164,7 @@ class EvidenceIntegrityValidator:
         violations.extend(self._validate_capability_analysis_binding(manifest))
         violations.extend(self._validate_transformation_plan_binding(manifest))
         violations.extend(self._validate_java_generation_binding(manifest))
+        violations.extend(self._validate_build_artifact_binding(manifest))
 
         # 5. Artifact-execution binding
         violations.extend(self._validate_artifact_execution_binding(manifest))
@@ -564,6 +566,32 @@ class EvidenceIntegrityValidator:
         return [bad(f"java_generation.{key}", f"java_generation names another {key} than transformation_plan",
                     plan.get(key, ""), dict(pairs).get(key, ""))
                 for key in disagreements_with_plan(pairs, manifest.transformation_plan)]
+
+    # ------------------------------------------------------------------
+    # Layer 10: build artifact record binding
+    # ------------------------------------------------------------------
+
+    def _validate_build_artifact_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """The recorded build artifact must be well formed and, when generation was recorded, built from exactly that generation."""
+        from engine.candidate.build_record import disagrees_with_generation, shape_problems
+
+        pairs = manifest.build_artifact
+        if not pairs:
+            return []
+
+        def bad(path: str, description: str, expected: str, actual: str) -> IntegrityViolation:
+            return IntegrityViolation(
+                violation_type=ViolationType.BUILD_ARTIFACT_BINDING_MISMATCH, description=description,
+                field_path=path, expected=expected, actual=actual)
+
+        problems = shape_problems(pairs)
+        if problems:
+            return [bad(path, f"{path} {problem}", "well-formed build record", dict(pairs).get(path.split(".")[-1], ""))
+                    for path, problem in problems]
+        if disagrees_with_generation(pairs, manifest.java_generation):
+            return [bad("build_artifact.built_tree_digest", "build_artifact was built from a project other than the recorded generation",
+                        dict(manifest.java_generation).get("output_digest", ""), dict(pairs)["built_tree_digest"])]
+        return []
 
     # ------------------------------------------------------------------
     # FINDING D: Oracle identity binding

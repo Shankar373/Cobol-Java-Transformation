@@ -1085,6 +1085,12 @@ class VerticalSlicePipeline:
             )
 
         candidate_source_after = self._candidate_source_tree_hash()
+        # Layer 10: content-address the jar this build produced (the bytes the execution was staged from) and the tree it was built
+        # from; recorded in the sealed manifest only for a build that succeeded.
+        from engine.candidate.build_record import build_record
+
+        build_artifact = (build_record(compilation.class_files, self._config.java_candidate_path)
+                          if compilation.success else ())
         candidate_evidence = candidate_result.to_execution_evidence()
 
         # Bind both executions to the declared workload. Candidate evidence
@@ -1197,6 +1203,7 @@ class VerticalSlicePipeline:
             capability_analysis=tuple(sorted(self._config.capability_analysis)),
             transformation_plan=tuple(sorted(self._config.transformation_plan)),
             java_generation=tuple(sorted(self._config.java_generation)),
+            build_artifact=tuple(sorted(build_artifact)),
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation
