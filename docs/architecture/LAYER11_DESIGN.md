@@ -10,7 +10,7 @@ Scope (`LAYER_MODEL.md`): `engine/oracle/**`, `engine/comparators/**`, `engine/j
 * **Image identity is already pinned.** `engine/oracle/docker_adapter.py` resolves the oracle image to an immutable `sha256` identity, refuses to execute by
   tag, refuses a declared pin that does not match the resolved image, and records the `cobc --version` observed inside the executed image (audit V6).
   This is a do-not-regress area (`LAYER_MODEL.md`, change rules).
-* **Entry authority (candidate gap, not yet probed).** The Java side now takes its entry from the Layer 8 plan (`plan.oracle.entry_program`, Layer 9).
+* **Entry authority (gap confirmed and closed in L11-P1, section 2).** The Java side now takes its entry from the Layer 8 plan (`plan.oracle.entry_program`, Layer 9).
   The oracle side takes it from `api/service.py::_resolve_entry_program`, passed as `PipelineConfig.oracle_entry_program` (`api/service.py:1603`).
   Both start from the same request value, so they agree whenever the service resolves an entry. They can differ when the service returns `""` (several
   call roots) while the plan resolves an entry another way: the oracle then falls back to its own convention (explicit entry, `main.cob`/`main.cbl`,
