@@ -906,6 +906,11 @@ def _to_class_name(name: str) -> str:
     return name.replace("-", "_").replace(" ", "_").title().replace("_", "")
 
 
+def service_class_name(program_id: str) -> str:
+    """The Spring Boot service class a program id is generated as (the one Spring program-id to class-name rule)."""
+    return _to_class_name(program_id)
+
+
 def _map_transaction_type(java_type: JavaTransactionType) -> SpringBootTransactionType:
     """Map JavaTransactionType to SpringBootTransactionType."""
     mapping = {

@@ -102,7 +102,7 @@ authority for every later stage.
   * layer 4 engine frontend — named refusals before parsing (OO, `SCREEN SECTION`,
     `VARIABLE`, unevaluated `>>IF`);
   * layer 7 capability analysis and layer 8 planning — `unsupported` feeds fail-closed plans;
-  * layer 9 generation — `profile_id` recorded in the producer manifest;
+  * layer 9 generation — `profile_id` recorded in the producer manifest (still unwired; Layer 9 records `docs/architecture/LAYER9_DESIGN.md` §5 instead);
   * layer 11 oracle — `-std=`/format flag and `profile_id` recorded beside `oracle_id`;
   * layer 13 evidence — `profile_id` sealed with the run.
 * **Prohibition (lint-enforced from layer 4 onward - imports by `test_engine_graph_lint.py`, behaviour by

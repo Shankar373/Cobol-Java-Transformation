@@ -35,6 +35,7 @@ from pathlib import Path
 
 from engine.jcl.assembly import JOB_RUNNER_RUNTIMES, JobAssembly, assemble_job_runners, has_jcl_members
 from engine.modernization.capability_record import build_record as build_capability_record
+from engine.modernization.generation_record import build_record as build_generation_record
 from engine.modernization.plan_record import build_record as build_plan_record
 from engine.modernization.capability_analyzer import CapabilityAnalyzer, CapabilityReport
 from engine.modernization.transformation_plan import (
@@ -44,6 +45,8 @@ from engine.modernization.transformation_plan import (
 from engine.transformation.entrypoint import normalise
 from engine.transformation.application_discovery import ApplicationDiscovery
 from engine.transformation.application_generator import ApplicationGenerator
+from engine.transformation.generation_authority import runtime_class_name
+from engine.transformation.java_generator import JavaGenerator
 from engine.transformation.ir import CobolApplication
 from engine.transformation.producer import fail_closed_symbols
 from engine.transformation.runtime_adapters import (
@@ -162,6 +165,9 @@ class ModernizationReport:
     capability_record: tuple[tuple[str, str], ...] = ()
     #: Layer 8: the transformation-plan record (``plan_record.build_record``), bound to ``capability_record``; ``()`` without one.
     plan_record: tuple[tuple[str, str], ...] = ()
+    #: Layer 9: the Java generation record (``generation_record.build_record``), bound to ``plan_record``; ``()`` unless generation
+    #: and assembly succeeded.
+    generation_record: tuple[tuple[str, str], ...] = ()
 
     def to_dict(self) -> dict:
         graph_section = {"knowledge_graph": {
@@ -185,6 +191,7 @@ class ModernizationReport:
             "capability": self.capability_report.to_dict() if self.capability_report else {},
             "capability_record": dict(self.capability_record),
             "plan_record": dict(self.plan_record),
+            "generation_record": dict(self.generation_record),
             "plan": self.transformation_plan.to_dict() if self.transformation_plan else {},
             "transformation": {
                 "success": self.generation_success,
@@ -464,6 +471,7 @@ class UniversalModernizationPipeline:
                 entrypoint=self._config.entrypoint,
                 source_root=source_path,
                 ir=application_ir,
+                plan=plan,
                 **self._order_kwargs(),
             )
             if not gen_result.success:
@@ -496,7 +504,7 @@ class UniversalModernizationPipeline:
         try:
             outcome = adapter.assemble(
                 gen_result.java_application,
-                entry_program=self._config.entrypoint or "",
+                entry_program=plan.oracle.entry_program,  # the plan's established entry, not the raw request (Layer 9)
                 copybook_models=gen_result.copybook_models,
                 output_prefix="pipeline-",
                 runtime=self._config.runtime_config,
@@ -543,6 +551,11 @@ class UniversalModernizationPipeline:
             if not traced:
                 return report
         report.jcl_jobs = self._assemble_job_runners(outcome.project_dir, source_path, gen_result.program_ids)
+        runtime = self._config.target_runtime
+        report.generation_record = build_generation_record(
+            self._config.application_id, plan, report.plan_record,
+            [(program_id, runtime_class_name(runtime, program_id)) for program_id in gen_result.program_ids],
+            runtime_class_name(runtime, plan.oracle.entry_program), runtime, outcome.project_dir)
         if progress:
             progress("ASSEMBLY_COMPLETED")
 
@@ -617,8 +630,6 @@ class UniversalModernizationPipeline:
         """Write a JCL job runner next to the generated programs (command-line runtimes only)."""
         if self._config.target_runtime not in JOB_RUNNER_RUNTIMES:
             return ()
-        from engine.transformation.java_generator import JavaGenerator
-
         namer = JavaGenerator()
         classes = {
             program_id.upper(): namer._to_java_class_name(program_id)

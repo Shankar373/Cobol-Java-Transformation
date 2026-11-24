@@ -95,9 +95,9 @@ def test_the_pipeline_hands_the_generator_the_ir(tmp_path, monkeypatch):
     seen = []
     real = ApplicationGenerator.generate
 
-    def spy(self, application, entrypoint="", source_root=None, orders=(), ir=None):
+    def spy(self, application, entrypoint="", source_root=None, orders=(), ir=None, plan=None):
         seen.append(ir)
-        return real(self, application, entrypoint, source_root, orders, ir=ir)
+        return real(self, application, entrypoint, source_root, orders, ir=ir, plan=plan)
 
     monkeypatch.setattr(ApplicationGenerator, "generate", spy)
     UniversalModernizationPipeline(ModernizationConfig(

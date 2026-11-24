@@ -1,7 +1,7 @@
 # Layer 8 design: Modernization planning
 
 Status: **L8-P1 and L8-P2 implemented (2026-11-24)**, from `4a2808c` (Layer 7 complete and certified). Deterministic, open source only, no LLM.
-Language coverage is frozen: nothing here adds COBOL syntax, and the retained producers R2/R3/R5/R6 stay. Layer 9 is not started.
+Language coverage is frozen: nothing here adds COBOL syntax, and the retained producers R2/R3/R5/R6 stay. Layer 9 consumes the plan: `LAYER9_DESIGN.md`.
 
 ## 1. Audit (what exists)
 

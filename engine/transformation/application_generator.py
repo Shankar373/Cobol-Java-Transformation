@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from engine.transformation.cobol_to_java_mapping import (
     map_cobol_programs_to_application,
@@ -31,6 +31,7 @@ from engine.transformation.copybook_model import (
     prepare_application_copybooks,
 )
 from engine.transformation.entrypoint import resolve_entrypoint
+from engine.transformation.generation_authority import preflight, verify_output
 from engine.transformation.ir import CobolApplication
 from engine.transformation.java_generator import GeneratedFile, JavaGenerator
 from engine.transformation.java_ir import JavaApplication, JavaClass
@@ -77,6 +78,7 @@ class ApplicationGenerator:
         source_root: str | Path | None = None,
         orders: LibraryOrders = (),
         ir: "ApplicationIR | None" = None,
+        plan: Any = None,
     ) -> ApplicationGenerationResult:
         """Transform all discovered programs and assemble one Java application.
 
@@ -85,6 +87,13 @@ class ApplicationGenerator:
         when the IR agrees; if it does not, generation is refused rather than run from an application whose canonical form
         disagrees.  The statement-generation authority is unchanged: programs are still mapped from the parser IR
         (``unit.program``).  Without ``ir`` behaviour is exactly as before.
+
+        ``plan`` is the Layer 8 ``TransformationPlan`` (Layer 9): when given it is the authority over what may be emitted
+        (``engine.transformation.generation_authority``).  Before any Java is produced the plan must be about this application, free
+        of evidence conflicts, complete, approve every program, CALL and copybook (a blocked dependency refuses its callers) and
+        establish a transformable entry agreeing with ``entrypoint``; afterwards the emitted program classes must be exactly the
+        approved programs, program-id to class identity preserved, with the plan's entry as the entry class.  Any disagreement is
+        a refusal, never a partial application.  Without ``plan`` behaviour is exactly as before.
 
         Args:
             application: the DISCOVERED application structure (program units,
@@ -124,6 +133,15 @@ class ApplicationGenerator:
                             + ": generation refused",),
                 )
             application = canonical.application
+
+        if plan is not None:
+            refusals = preflight(plan, application.application_id, [u.program_id for u in application.programs], entrypoint)
+            if refusals:
+                return ApplicationGenerationResult(
+                    success=False,
+                    program_ids=tuple(u.program_id for u in application.programs),
+                    errors=tuple("Transformation plan refuses generation: " + line for line in refusals),
+                )
 
         # 0. Materialize copybooks into program IR (no-op when the
         #    application references no copybooks).
@@ -202,6 +220,17 @@ class ApplicationGenerator:
                 program_ids=tuple(p.program_id for p in programs),
                 errors=(entry_error,),
             )
+
+        if plan is not None:
+            program_classes = [f.class_name for f in files if f.class_name != "ServiceRegistry" and f.class_name not in model_names]
+            refusals = verify_output(plan, program_classes, [p.program_id for p in programs], resolved_entry,
+                                     self._generator.class_name_for)
+            if refusals:
+                return ApplicationGenerationResult(
+                    success=False,
+                    program_ids=tuple(p.program_id for p in programs),
+                    errors=tuple("Generated output departs from the transformation plan: " + line for line in refusals),
+                )
 
         return ApplicationGenerationResult(
             success=True,

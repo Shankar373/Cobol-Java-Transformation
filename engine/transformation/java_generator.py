@@ -157,6 +157,10 @@ class JavaGenerator(JavaSourceRenderer):
         )
         return self.generate_from_java(application)
 
+    def class_name_for(self, program_id: str) -> str:
+        """The Java class a program id is generated as (the one program-id to class-name rule)."""
+        return self._to_java_class_name(program_id)
+
     def _to_java_class_name(self, cobol_name: str) -> str:
         return cobol_name.replace("-", "_").replace(" ", "_").title()
 

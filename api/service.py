@@ -143,6 +143,11 @@ def _capability_pairs(run: "RunRecord") -> tuple[tuple[str, str], ...]:
     return _stored_record_pairs(run, "capability_record")
 
 
+def _generation_pairs(run: "RunRecord") -> tuple[tuple[str, str], ...]:
+    """The Layer 9 Java generation record stored on ``run`` (see ``_stored_record_pairs``)."""
+    return _stored_record_pairs(run, "generation_record")
+
+
 def _plan_pairs(run: "RunRecord") -> tuple[tuple[str, str], ...]:
     """The Layer 8 transformation-plan record stored on ``run`` (see ``_stored_record_pairs``)."""
     return _stored_record_pairs(run, "plan_record")
@@ -1602,6 +1607,7 @@ class Service:
             application_ir=lineage[1],
             capability_analysis=_capability_pairs(run),
             transformation_plan=_plan_pairs(run),
+            java_generation=_generation_pairs(run),
         )
 
         phase_to_stage = {

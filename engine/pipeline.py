@@ -147,6 +147,9 @@ class PipelineConfig:
     # Layer 8: the transformation-plan record (``ModernizationReport.plan_record``) bound to the capability record, recorded in the
     # sealed manifest.  Empty when none was computed.  Advisory lineage: it never changes a verdict.
     transformation_plan: tuple[tuple[str, str], ...] = ()
+    # Layer 9: the Java generation record (``ModernizationReport.generation_record``) bound to the plan record, recorded in the sealed
+    # manifest.  Empty when none was computed.  Advisory lineage: it never changes a verdict.
+    java_generation: tuple[tuple[str, str], ...] = ()
 
 
 def _sole_profile_id(pairs: tuple[tuple[str, str], ...]) -> str:
@@ -1183,6 +1186,7 @@ class VerticalSlicePipeline:
             application_ir=tuple(sorted(self._config.application_ir)),
             capability_analysis=tuple(sorted(self._config.capability_analysis)),
             transformation_plan=tuple(sorted(self._config.transformation_plan)),
+            java_generation=tuple(sorted(self._config.java_generation)),
         )
 
         # Trust-boundary admission: validate evidence integrity before derivation

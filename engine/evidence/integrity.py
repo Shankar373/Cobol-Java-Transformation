@@ -82,6 +82,7 @@ class ViolationType(Enum):
     APPLICATION_IR_BINDING_MISMATCH = "application_ir_binding_mismatch"
     CAPABILITY_ANALYSIS_BINDING_MISMATCH = "capability_analysis_binding_mismatch"
     TRANSFORMATION_PLAN_BINDING_MISMATCH = "transformation_plan_binding_mismatch"
+    JAVA_GENERATION_BINDING_MISMATCH = "java_generation_binding_mismatch"
 
 
 #: Comparison results the evidence model accepts. Anything else is
@@ -161,6 +162,7 @@ class EvidenceIntegrityValidator:
         violations.extend(self._validate_application_ir_binding(manifest))
         violations.extend(self._validate_capability_analysis_binding(manifest))
         violations.extend(self._validate_transformation_plan_binding(manifest))
+        violations.extend(self._validate_java_generation_binding(manifest))
 
         # 5. Artifact-execution binding
         violations.extend(self._validate_artifact_execution_binding(manifest))
@@ -525,6 +527,43 @@ class EvidenceIntegrityValidator:
         return [bad(f"transformation_plan.{key}", f"transformation_plan names another {key} than capability_analysis",
                     capability.get(key, ""), dict(pairs).get(key, ""))
                 for key in disagreements_with_capability(pairs, manifest.capability_analysis)]
+
+    # ------------------------------------------------------------------
+    # Layer 9: Java generation record binding
+    # ------------------------------------------------------------------
+
+    def _validate_java_generation_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
+        """The recorded generation record must be well formed, bound to this source and name the plan record beside it.
+
+        Generation was authorised by the plan, so the record is refused without a plan record, and must agree with it on
+        application, IR id, plan digest, plan id and source hash.
+        """
+        from engine.modernization.generation_record import disagreements_with_plan, shape_problems
+
+        pairs = manifest.java_generation
+        if not pairs:
+            return []
+
+        def bad(path: str, description: str, expected: str, actual: str) -> IntegrityViolation:
+            return IntegrityViolation(
+                violation_type=ViolationType.JAVA_GENERATION_BINDING_MISMATCH, description=description,
+                field_path=path, expected=expected, actual=actual)
+
+        problems = shape_problems(pairs)
+        if problems:
+            return [bad(path, f"{path} {problem}", "well-formed generation record", dict(pairs).get(path.split(".")[-1], ""))
+                    for path, problem in problems]
+        recorded = dict(pairs)["source_hash"]
+        expected = manifest.source_identity.source_hash.digest
+        if recorded != expected:
+            return [bad("java_generation.source_hash", "java_generation was recorded for another source", expected, recorded)]
+        if not manifest.transformation_plan:
+            return [bad("java_generation", "java_generation has no transformation_plan record to bind to",
+                        "transformation_plan", "")]
+        plan = dict(manifest.transformation_plan)
+        return [bad(f"java_generation.{key}", f"java_generation names another {key} than transformation_plan",
+                    plan.get(key, ""), dict(pairs).get(key, ""))
+                for key in disagreements_with_plan(pairs, manifest.transformation_plan)]
 
     # ------------------------------------------------------------------
     # FINDING D: Oracle identity binding
