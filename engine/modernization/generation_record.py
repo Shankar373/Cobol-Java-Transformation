@@ -36,13 +36,22 @@ SHARED_WITH_PLAN = ("application_id", "ir_id", "plan_digest", "plan_id", "source
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 
-def tree_digest(project_dir: "str | Path") -> str:
-    """sha256 of the project tree, or ``""`` when the directory does not exist or holds a symlink (no record is built from one)."""
+#: Top-level directories a build writes into the project (Maven output); never part of what generation produced.
+BUILD_OUTPUT_DIRS = frozenset({"target"})
+
+
+def tree_digest(project_dir: "str | Path", exclude_top_level: frozenset[str] = frozenset()) -> str:
+    """sha256 of the project tree, or ``""`` when the directory does not exist or holds a symlink (no record is built from one).
+
+    ``exclude_top_level`` names top-level directories left out (``BUILD_OUTPUT_DIRS`` re-derives the generated tree of a project that
+    has since been built); with none excluded the digest is exactly the one the record carries."""
     root = Path(project_dir)
     if not root.is_dir():
         return ""
     files: dict[str, str] = {}
     for dirpath, dirnames, filenames in os.walk(root):
+        if Path(dirpath) == root:
+            dirnames[:] = [name for name in dirnames if name not in exclude_top_level]
         if any(Path(dirpath, name).is_symlink() for name in (*dirnames, *filenames)):
             return ""
         for name in filenames:
@@ -52,6 +61,23 @@ def tree_digest(project_dir: "str | Path") -> str:
     for rel, sha in sorted(files.items()):
         digest.update(f"{rel}\0{sha}\n".encode())
     return digest.hexdigest()
+
+
+def generation_binding_problem(pairs: tuple[tuple[str, str], ...], project_dir: "str | Path") -> str:
+    """Why ``project_dir`` is not the project generation recorded (``""`` when it is, or when no record exists to bind to).
+
+    Layer 10 builds and runs what Layer 9 generated; a tree that differs from the recorded ``output_digest`` (build outputs
+    excluded) is some other project and must not be validated as that generation."""
+    recorded = dict(pairs).get("output_digest", "")
+    if not pairs:
+        return ""
+    actual = tree_digest(project_dir, BUILD_OUTPUT_DIRS)
+    if not actual:
+        return "Candidate project cannot be hashed (missing directory or symlink): it is not the recorded generation"
+    if actual != recorded:
+        return (f"Candidate project does not match its recorded generation: tree {actual[:16]} but the generation record "
+                f"holds {recorded[:16]}")
+    return ""
 
 
 def program_map_digest_of(rows: Iterable[tuple[str, str]]) -> str:

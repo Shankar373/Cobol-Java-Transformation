@@ -36,6 +36,7 @@ from engine.candidate.adapter import (
     CandidateAdapter,
     CandidateExecutionResult,
     CandidateManifest,
+    CompilationResult,
 )
 from engine.candidate.docker_java_adapter import (
     DockerJavaCandidateAdapter,
@@ -1034,10 +1035,19 @@ class VerticalSlicePipeline:
 
         if progress is not None:
             progress("BUILDING")
-        compilation = self._candidate_adapter.compile(
-            candidate_path=self._config.java_candidate_path,
-            manifest=self._build_candidate_manifest(source_identity.source_hash),
-        )
+        # Layer 10: when generation recorded the project it produced, build only that project (a different tree is not validated
+        # as that generation: an unverifiable candidate, UNAVAILABLE, never a comparison).
+        from engine.modernization.generation_record import generation_binding_problem
+
+        binding_problem = generation_binding_problem(self._config.java_generation, self._config.java_candidate_path)
+        if binding_problem:
+            compilation = CompilationResult(success=False, class_files={}, compilation_errors=(binding_problem,),
+                                            infrastructure_error=True)
+        else:
+            compilation = self._candidate_adapter.compile(
+                candidate_path=self._config.java_candidate_path,
+                manifest=self._build_candidate_manifest(source_identity.source_hash),
+            )
 
         if compilation.success:
             with tempfile.TemporaryDirectory() as tmpdir:

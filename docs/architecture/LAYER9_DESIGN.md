@@ -1,7 +1,7 @@
 # Layer 9 design: Java generation under the Layer 8 plan
 
 Status: **L9-P1, L9-P2 and L9-P3 implemented (2026-11-24)**, from `85c8804` (Layer 8 complete: plan and plan record). Deterministic, open source only,
-no LLM. Language coverage is frozen: nothing here adds COBOL syntax. Layer 10 is not started.
+no LLM. Language coverage is frozen: nothing here adds COBOL syntax. Layer 10 consumes the generation record: `LAYER10_DESIGN.md`.
 
 ## 1. Audit (what exists)
 
