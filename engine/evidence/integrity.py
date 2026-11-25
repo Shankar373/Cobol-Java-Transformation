@@ -64,6 +64,7 @@ class ViolationType(Enum):
     ORACLE_IDENTITY_MISMATCH = "oracle_identity_mismatch"
     IMAGE_IDENTITY_MISMATCH = "image_identity_mismatch"
     ARTIFACT_EXECUTION_MISMATCH = "artifact_execution_mismatch"
+    ARTIFACT_ROLE_MISMATCH = "artifact_role_mismatch"
     COMPARISON_ARTIFACT_MISMATCH = "comparison_artifact_mismatch"
     COMPARATOR_BINDING_MISMATCH = "comparator_binding_mismatch"
     CONTENT_HASH_MISMATCH = "content_hash_mismatch"
@@ -643,20 +644,66 @@ class EvidenceIntegrityValidator:
     # Artifact-execution binding
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _execution_role(runtime_id: str) -> str | None:
+        """The producer role an execution's runtime proves, or ``None``.
+
+        The pipeline labels its two runtimes ``oracle-*`` and ``candidate-*``
+        (``engine.oracle.adapter``, ``engine.candidate.adapter``), and every
+        other binding in this validator and in verdict derivation already reads
+        those prefixes as the role of an execution. An artifact's
+        ``producer_role`` must therefore agree with the runtime that produced
+        it; a runtime that proves neither role leaves the claim unverifiable.
+        """
+        if runtime_id.startswith("oracle"):
+            return "ORACLE"
+        if runtime_id.startswith("candidate"):
+            return "CANDIDATE"
+        return None
+
     def _validate_artifact_execution_binding(self, manifest: EvidenceManifest) -> list[IntegrityViolation]:
-        """Each artifact's execution_id must reference a valid execution."""
+        """Each artifact must be produced by an execution of its own role.
+
+        ``ARTIFACT_CONTRACT_SPEC.md`` §4 binds every artifact to exactly one
+        producing execution via ``producer_role`` + ``execution_id`` and
+        declares cross-role ambiguity schema-invalid. Existence of the
+        execution (below) plus the role labels on each side of a comparison
+        (``_comparison_pairing_violations``) do not imply the two agree: an
+        ORACLE-labelled artifact produced by the candidate execution passes
+        both, and then serves as a comparison's oracle side. Required evidence
+        counts artifacts by execution id while pairing counts them by role, so
+        the disagreement is invisible — a candidate compared against its own
+        bytes certifies equivalence with no oracle output involved.
+        """
         violations: list[IntegrityViolation] = []
-        valid_exec_ids = {e.execution_id.value for e in manifest.execution_evidence}
+        executions = {e.execution_id.value: e for e in manifest.execution_evidence}
 
         for i, art_ev in enumerate(manifest.artifact_evidence):
-            if art_ev.execution_id.value not in valid_exec_ids:
+            producing = executions.get(art_ev.execution_id.value)
+            if producing is None:
                 violations.append(IntegrityViolation(
                     violation_type=ViolationType.ARTIFACT_EXECUTION_MISMATCH,
                     description=f"Artifact [{i}] references execution_id "
                                 f"'{art_ev.execution_id.value}' not in manifest execution evidence",
                     field_path=f"artifact_evidence[{i}].execution_id",
-                    expected=f"one of {valid_exec_ids}",
+                    expected=f"one of {set(executions)}",
                     actual=art_ev.execution_id.value,
+                ))
+                continue
+
+            proven_role = self._execution_role(producing.runtime_id)
+            claimed_role = art_ev.artifact.producer_role
+            if proven_role != claimed_role:
+                violations.append(IntegrityViolation(
+                    violation_type=ViolationType.ARTIFACT_ROLE_MISMATCH,
+                    description=f"Artifact [{i}] ('{art_ev.artifact.artifact_id}') claims "
+                                f"producer_role {claimed_role} but execution "
+                                f"'{art_ev.execution_id.value}' ran runtime "
+                                f"'{producing.runtime_id}'",
+                    field_path=f"artifact_evidence[{i}].execution_id",
+                    expected=f"{claimed_role} execution (runtime proving role {claimed_role})",
+                    actual=f"runtime '{producing.runtime_id}' proves "
+                           f"{proven_role or 'no role'}",
                 ))
 
         return violations

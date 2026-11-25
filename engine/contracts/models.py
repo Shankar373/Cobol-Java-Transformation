@@ -61,16 +61,27 @@ class OrderingPolicy:
 
 @dataclass(frozen=True)
 class FailurePolicy:
-    """Failure behavior for missing/malformed artifacts."""
+    """Failure behavior for missing/malformed/extra artifacts."""
     on_missing: str = "UNAVAILABLE"  # UNAVAILABLE or FAILED
     on_malformed: str = "INCONCLUSIVE"
-    on_extra: str = "MISMATCH"
+    on_extra: str = "MISMATCH"  # one of FAIL_CLOSED_STATES, never MATCH
+
+    #: The closed set of fail-closed states a failure policy may name. Every
+    #: member caps the verdict below VERIFIED; ``MATCH`` is deliberately absent,
+    #: so no failure policy can be written into certifying a comparison.
+    FAIL_CLOSED_STATES: ClassVar[frozenset[str]] = frozenset({
+        "UNAVAILABLE", "FAILED", "INCONCLUSIVE", "MISMATCH",
+    })
 
     def __post_init__(self) -> None:
         if self.on_missing not in ("UNAVAILABLE", "FAILED"):
             raise ValueError(f"Invalid on_missing: {self.on_missing}")
         if self.on_malformed not in ("INCONCLUSIVE", "MISMATCH"):
             raise ValueError(f"Invalid on_malformed: {self.on_malformed}")
+        # ``on_extra`` was validated by neither the model nor the loader, so an
+        # arbitrary value — including a certifying one — was accepted silently.
+        if self.on_extra not in self.FAIL_CLOSED_STATES:
+            raise ValueError(f"Invalid on_extra: {self.on_extra}")
 
 
 @dataclass(frozen=True)
@@ -92,6 +103,33 @@ class ArtifactContract:
     artifact_types: tuple[ArtifactType, ...]
     comparators: tuple[ComparatorSpec, ...]
     permanently_forbidden: tuple[str, ...] = ("substring_containment",)
+
+    #: ARTIFACT_CONTRACT_SPEC.md §2 / ADR-0002: substring containment is
+    #: permanently forbidden and "this prohibition survives all future
+    #: versions". No contract version may declare it away.
+    MANDATORY_PERMANENTLY_FORBIDDEN: ClassVar[frozenset[str]] = frozenset({
+        "substring_containment",
+    })
+
+    def __post_init__(self) -> None:
+        declared = set(self.permanently_forbidden)
+        # A declared entry outside the enforced set is a prohibition the
+        # normalization gate does not implement: refuse rather than record an
+        # unenforceable claim as if it were enforced.
+        unenforceable = sorted(declared - set(NormalizationPolicy.FORBIDDEN))
+        if unenforceable:
+            raise ValueError(
+                "permanently_forbidden names normalization(s) outside "
+                f"NormalizationPolicy.FORBIDDEN: {unenforceable}"
+            )
+        # And a declared set that omits a mandatory prohibition would disarm a
+        # rule that survives all contract versions.
+        missing = sorted(self.MANDATORY_PERMANENTLY_FORBIDDEN - declared)
+        if missing:
+            raise ValueError(
+                "permanently_forbidden must retain the permanent prohibition(s) "
+                f"ARTIFACT_CONTRACT_SPEC.md §2 declares version-independent: {missing}"
+            )
 
     def get_comparator(self, artifact_type: str) -> ComparatorSpec | None:
         """Get comparator for an artifact type."""

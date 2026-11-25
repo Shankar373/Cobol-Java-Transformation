@@ -388,3 +388,18 @@ Historical forensic reports remain evidence of what was true at their recorded t
   samples). Layer 5 has a design only (`docs/architecture/LAYER5_DESIGN.md`); it has not started.
 - CI: a cold image-layer cache makes the six Docker-lane shards rebuild the OCESQL image concurrently (6-13 min each in the
   first run; cause not isolated). Warm, the lane takes about 14 min. See `docs/operations/CI_LEVELS.md`.
+
+## Layer 13 — evidence, contracts and audit trail (2026-11-25)
+
+- **The contract subsystem has no production caller.** `ContractValidator` and `load_artifact_contract` / `load_oracle_contract` /
+  `load_verdict_contract` are referenced only from tests; nothing in `engine/` or `api/` loads a contract at run time. Every
+  guarantee `contracts/ARTIFACT_CONTRACT_SPEC.md` demands of a run *is* enforced — by duplication instead of by the contract
+  object: an unregistered `artifact_type` and a declared `comparator_id` that disagrees with the registry raise by name in
+  `engine/pipeline.py`; `NormalizationPolicy.__post_init__` refuses the six forbidden normalizations at construction and
+  `_normalize` refuses any normalization the comparator does not implement; `FailurePolicy.__post_init__` refuses a state
+  outside its fail-closed vocabulary. The loader itself is now faithful (L13-P3, `tests/test_layer13_contract_loader_fidelity.py`),
+  so a contract read by any future caller says what the document says. Wiring `ContractValidator` into the pipeline would make the
+  registry and the contract two sources of truth for the same five artifact types and is an owner decision, not an audit fix.
+- **L13-P1/P2/P3 were not run on the real Docker lane locally.** The seal-binding, artifact-role and contract-loader suites are
+  hermetic (10,302 fast-gate tests pass locally); the certification and dispatched full-integration workflows on this SHA are the
+  authority for the four-runtime lane, as stated in `docs/architecture/LAYER13_DESIGN.md` §2.

@@ -148,14 +148,20 @@ def load_artifact_contract(data: dict[str, Any]) -> ArtifactContract:
 
     comparators = []
     for comp_data in data.get("comparators", []):
-        norm_policy = NormalizationPolicy(
-            allowed_normalizations=tuple(comp_data.get("normalizations", []))
-        )
-        order_policy = OrderingPolicy(order=comp_data.get("ordering", "SEQUENTIAL"))
-        failure_policy = FailurePolicy(
-            on_missing=comp_data.get("on_missing", "UNAVAILABLE"),
-            on_malformed=comp_data.get("on_malformed", "INCONCLUSIVE"),
-        )
+        try:
+            norm_policy = NormalizationPolicy(
+                allowed_normalizations=tuple(comp_data.get("normalizations", []))
+            )
+            order_policy = OrderingPolicy(order=comp_data.get("ordering", "SEQUENTIAL"))
+            failure_policy = FailurePolicy(
+                on_missing=comp_data.get("on_missing", "UNAVAILABLE"),
+                on_malformed=comp_data.get("on_malformed", "INCONCLUSIVE"),
+                on_extra=comp_data.get("on_extra", "MISMATCH"),
+            )
+        except ValueError as e:
+            # A declared policy the model refuses must surface as a contract
+            # refusal, never as a raw ValueError from inside the loader.
+            raise ContractValidationError("ARTIFACT", str(e))
         comparators.append(ComparatorSpec(
             comparator_id=comp_data["comparator_id"],
             version=comp_data.get("version", "1.0.0"),
@@ -165,12 +171,21 @@ def load_artifact_contract(data: dict[str, Any]) -> ArtifactContract:
             failure_policy=failure_policy,
         ))
 
-    return ArtifactContract(
-        contract_id=data.get("contract_id", "artifact-v1"),
-        version=version,
-        artifact_types=tuple(artifact_types),
-        comparators=tuple(comparators),
-    )
+    try:
+        return ArtifactContract(
+            contract_id=data.get("contract_id", "artifact-v1"),
+            version=version,
+            artifact_types=tuple(artifact_types),
+            comparators=tuple(comparators),
+            # Declared, not defaulted: substituting the default would assert a
+            # permanent prohibition the contract never stated.
+            permanently_forbidden=tuple(data.get(
+                "permanently_forbidden",
+                ArtifactContract.MANDATORY_PERMANENTLY_FORBIDDEN,
+            )),
+        )
+    except ValueError as e:
+        raise ContractValidationError("ARTIFACT", str(e))
 
 
 def load_oracle_contract(data: dict[str, Any]) -> OracleContract:

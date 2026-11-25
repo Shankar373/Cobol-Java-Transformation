@@ -96,6 +96,12 @@ tests/test_docker_capability_truth.py
 tests/transformation/test_call_capability_fail_closed.py
 tests/transformation/test_cics_multiline_parsing.py
 tests/transformation/test_modernization_planner.py
+# Layer 13 trust boundary: artifact/execution role binding and contract-loader
+# fidelity (fail-closed refusals added in L13; kept in the fast gate so a
+# regression surfaces here rather than only in the full-validation workflow).
+tests/test_layer13_artifact_execution_role_binding.py
+tests/test_layer13_contract_loader_fidelity.py
+tests/contracts/test_contract_validation.py
 
 --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded
 --deselect tests/test_oracle_entry_binding.py::TestServiceResolvesEntry
