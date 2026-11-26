@@ -1,6 +1,8 @@
 # Layer 12 design: Verification and verdict
 
-Status: **audit complete (2026-11-26): L12-P1 and L12-P2 done, verdict derivation untouched.** From the Layer 11 closure. Deterministic, open source only, no LLM. This is a do-not-regress
+Status: **audit complete (2026-11-26): L12-P1 and L12-P2 done, verdict derivation untouched. Certified: fast CI 45778440121, supply chain 45778440237,
+corpus certification (four runtimes) 45778440094 and dispatched full integration 45780488362, all green on `179b884` (the code commit; the docs
+commit follows); the 110 generation hashes identical.** From the Layer 11 closure. Deterministic, open source only, no LLM. This is a do-not-regress
 area (`engine/verdict/derivation.py`, `LAYER_MODEL.md` change rules).
 
 Scope: `engine/verification/**`, `engine/verdict/**`, `scripts/e2e/verify_independent.py`. Output: a fail-closed verdict; a single `VERIFIED` derivation site.
