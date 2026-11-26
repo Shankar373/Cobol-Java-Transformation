@@ -1045,6 +1045,12 @@ async def refresh_application_readiness(app_id: str) -> dict:
     return await run_in_threadpool(lambda: _svc().application_readiness(app_id, refresh=True))
 
 
+@app.get("/applications/{app_id}/blueprint")
+async def get_application_blueprint(app_id: str) -> dict:
+    """The verified Application Blueprint the application's ingested source is pinned to (Stage 1)."""
+    return await run_in_threadpool(lambda: _svc().application_blueprint(app_id))
+
+
 @app.get("/applications/{app_id}/discovery", response_model=DiscoveryResponse)
 def get_application_discovery(app_id: str) -> DiscoveryResponse:
     """Return discovery results for an application."""

@@ -49,6 +49,7 @@ Safety controls implemented here:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -675,7 +676,35 @@ class Service:
         record = self.readiness_for(source_path, label)
         if not record.get("allowed"):
             raise ReadinessError(readiness_module.refusal_message(record))
+        self._enforce_source_pin(source_path, record)
         return record
+
+    def _enforce_source_pin(self, source_path: str, record: dict) -> None:
+        """B3: the source must still be the tree that was ingested, sealed in a checkpoint and described by its blueprint."""
+        from api.discovery_routes import get_service as discovery_service
+        from api.source_pin import enforce_pin
+
+        enforce_pin(self._store, discovery_service().store, source_path, record)
+
+    def _pin_ingested_source(self, workspace: Path, *, origin_kind: str, origin_ref: str, origin_checkpoint_id: str = "") -> None:
+        """B2: bind the freshly assessed workspace to its checkpoint, blueprint and origin (upload hash or commit)."""
+        from api.source_pin import build_pin
+
+        found = self._store.get_readiness(str(workspace))
+        record = found[1] if found else {}
+        self._store.put_pin(str(workspace), build_pin(
+            workspace, record, origin_kind=origin_kind, origin_ref=origin_ref, origin_checkpoint_id=origin_checkpoint_id))
+
+    def application_blueprint(self, app_id: str) -> dict:
+        """The verified Application Blueprint the application's source is pinned to (readable even for a BLOCKED source)."""
+        from api.discovery_routes import get_service as discovery_service
+        from api.source_pin import load_blueprint
+
+        app = self.get_application(app_id)
+        pin = self._store.get_pin(app.cobol_source_path) if app.cobol_source_path else None
+        if pin is None or not pin.get("blueprint_id"):
+            raise NotFoundError("No application blueprint exists for this application; ingest its source")
+        return load_blueprint(discovery_service().store, pin)
 
     def require_source_ready(self, app_id: str) -> dict:
         """Readiness gate for consumers of an application's ingested source other than ``modernize`` (e.g. VSAM migration)."""
@@ -781,6 +810,7 @@ class Service:
 
             readiness = readiness_module.public(
                 self.readiness_for(str(workspace), app.name, refresh=True))
+            self._pin_ingested_source(workspace, origin_kind="zip", origin_ref=hashlib.sha256(data).hexdigest())
 
             app.cobol_source_path = str(workspace)
             self._store.update_application_fields(app_id, **updates)

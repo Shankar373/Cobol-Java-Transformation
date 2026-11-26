@@ -100,6 +100,8 @@ class DiscoveryResult:
     #: ``PROGRAM-ID -> library orders`` from the discovery build (plain data for the engine bridge; see
     #: :func:`enterprise.discovery.resolve.program_library_orders`).  Not part of the report or any artefact.
     library_orders: dict[str, tuple[tuple[str, ...], ...]] = field(default_factory=dict)
+    #: ``blueprint_id`` of the Application Blueprint written beside the report (ADR-0014).
+    blueprint_id: str = ""
 
 
 def is_remote_git(source: str) -> bool:
@@ -307,7 +309,8 @@ def _scrub(value: Any, roots: tuple[str, ...]) -> Any:
 
 
 def _publish(report: dict[str, Any], records: list[FileRecord], directories: list[Any], build: Any, outdir: Path,
-             roots: tuple[str, ...]) -> dict[str, str]:
+             roots: tuple[str, ...]) -> tuple[dict[str, str], str]:
+    """Write every artefact; returns ``(outputs, blueprint_id)``."""
     outdir.mkdir(parents=True, exist_ok=True)
     unresolved = {"ambiguous": [e.as_dict() for e in build.graph.ambiguous()],
                   "unresolved": [e.as_dict() for e in build.graph.unresolved()]}
@@ -329,9 +332,9 @@ def _publish(report: dict[str, Any], records: list[FileRecord], directories: lis
         "readiness": _dump({**report["readiness"], "schema_version": "systemaops.transformation-readiness/1.0"}),
     }
     # Derived last: it hashes the exact text of every other artefact, so its digests name bytes that exist on disk.
-    payloads["blueprint"] = _dump(build_blueprint(
-        scrubbed_report, graph_document, {name: payloads[name] for name in BLUEPRINT_ARTEFACTS},
-        {name: _OUTPUTS[name] for name in BLUEPRINT_ARTEFACTS}))
+    blueprint = build_blueprint(scrubbed_report, graph_document, {name: payloads[name] for name in BLUEPRINT_ARTEFACTS},
+                                {name: _OUTPUTS[name] for name in BLUEPRINT_ARTEFACTS})
+    payloads["blueprint"] = _dump(blueprint)
     outputs = {}
     for key, text in payloads.items():
         target = outdir / _OUTPUTS[key]
@@ -341,7 +344,7 @@ def _publish(report: dict[str, Any], records: list[FileRecord], directories: lis
         temporary = outdir / f".{_OUTPUTS[key]}.{os.getpid()}.{threading.get_ident()}.tmp"
         temporary.write_text(text, encoding="utf-8", newline="\n")
         _replace_with_retry(temporary, target)
-    return outputs
+    return outputs, str(blueprint["blueprint_id"])
 
 
 def _replace_with_retry(source: Path, target: Path) -> None:
@@ -421,10 +424,10 @@ def discover(request: DiscoveryRequest, store: Path | str, *, progress: Progress
                               checkpoint_ok=report_ok, tool_version=__version__, toolchain=toolchain_info,
                               compatibility=compatibility, applications=applications)
         outdir = store / "discoveries" / info.checkpoint_id
-        outputs = _publish(report, records, directories, build, outdir, roots)
+        outputs, blueprint_id = _publish(report, records, directories, build, outdir, roots)
         steps.emit("report", "completed", str(report["completeness"]["status"]))
         outputs["run_record"] = _write_run_record(outdir, info, steps)
-        return DiscoveryResult(info, outdir, report, outputs, info.reused, program_library_orders(build))
+        return DiscoveryResult(info, outdir, report, outputs, info.reused, program_library_orders(build), blueprint_id)
     except IngestionError as exc:
         steps.emit(steps.current or "ingestion", "failed", exc.code)
         raise

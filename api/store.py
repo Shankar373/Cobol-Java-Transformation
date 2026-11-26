@@ -308,6 +308,17 @@ CREATE TABLE IF NOT EXISTS source_readiness (
 """
 
 
+#: What an ingested source tree is pinned to (Stage 1 B2/B3): its content digest, checkpoint and blueprint.
+_PINS_TABLE = """
+CREATE TABLE IF NOT EXISTS source_pins (
+    source_path TEXT PRIMARY KEY,
+    content_digest TEXT NOT NULL,
+    record TEXT NOT NULL,
+    pinned_at TEXT NOT NULL
+)
+"""
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -357,6 +368,7 @@ class Store:
     def _migrate(self) -> None:
         """Apply additive migrations for pre-existing databases."""
         self._conn.execute(_READINESS_TABLE)
+        self._conn.execute(_PINS_TABLE)
         cursor = self._conn.execute("PRAGMA table_info(runs)")
         columns = {row[1] for row in cursor.fetchall()}
         if "report_blob" not in columns:          # migration 2
@@ -633,6 +645,24 @@ class Store:
         with self._lock:
             row = self._conn.execute("SELECT fingerprint, record FROM source_readiness WHERE source_path = ?", (source_path,)).fetchone()
         return (row["fingerprint"], json.loads(row["record"])) if row else None
+
+    def put_pin(self, source_path: str, record: dict) -> None:
+        """Pin one source tree (``record["content_digest"]`` is required); replaces any earlier pin for that path."""
+        import json
+
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO source_pins (source_path, content_digest, record, pinned_at) VALUES (?, ?, ?, ?)",
+                (source_path, record["content_digest"], json.dumps(record, sort_keys=True), _utc_now()))
+            self._conn.commit()
+
+    def get_pin(self, source_path: str) -> dict | None:
+        """The pin of a source tree, or None when it was never pinned."""
+        import json
+
+        with self._lock:
+            row = self._conn.execute("SELECT record FROM source_pins WHERE source_path = ?", (source_path,)).fetchone()
+        return json.loads(row["record"]) if row else None
 
     def find_application_by_name(self, name: str) -> ApplicationRecord | None:
         """Find an application by its exact name."""

@@ -22,17 +22,43 @@ logger = logging.getLogger(__name__)
 
 #: Public keys of a readiness record (the API never returns local paths).
 PUBLIC_KEYS = ("status", "allowed", "blockers", "blocking_references", "unsupported_total", "unsupported", "compile_errors",
-               "unverified_total", "unverified", "applications", "checkpoint_id", "source_digest", "discovery_run_id", "gate_status", "toolchain")
+               "unverified_total", "unverified", "applications", "checkpoint_id", "source_digest", "blueprint_id", "discovery_run_id", "gate_status", "toolchain")
 
 
 #: Bump when the readiness policy changes: stored records of an older policy are re-assessed.
-POLICY_VERSION = "5"  # 3: records carry library_orders and dialect_profiles for the engine bridge; 4: and graph_id; 5: and graph_artifact
+POLICY_VERSION = "6"  # 6: and blueprint_id; 3: records carry library_orders and dialect_profiles for the engine bridge; 4: and graph_id; 5: and graph_artifact
 _CHUNK = 1 << 20
 
 
 def is_transient(record: dict[str, Any]) -> bool:
     """An unexpected discovery failure: never cached, so the next request assesses again."""
     return any(b.get("id") == "discovery-failed:INTERNAL_ERROR" for b in record.get("blockers", []))
+
+
+def _tree_lines(workspace: Path) -> list[str]:
+    """One line per file (relative path and content SHA-256), in a stable order."""
+    lines: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(workspace):
+        dirnames.sort()
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            content = hashlib.sha256()
+            try:
+                with path.open("rb") as handle:
+                    for chunk in iter(lambda: handle.read(_CHUNK), b""):
+                        content.update(chunk)
+            except OSError:
+                content.update(b"unreadable")
+            lines.append(f"{path.relative_to(workspace).as_posix()}\0{content.hexdigest()}\n")
+    return lines
+
+
+def content_digest(workspace: Path) -> str:
+    """SHA-256 of the tree's paths and file contents alone (no policy or toolchain input): what an ingested source is pinned to."""
+    digest = hashlib.sha256()
+    for line in _tree_lines(workspace):
+        digest.update(line.encode("utf-8", "surrogatepass"))
+    return digest.hexdigest()
 
 
 def fingerprint(workspace: Path) -> str:
@@ -87,6 +113,7 @@ def assess_workspace(workspace: Path, label: str) -> dict[str, Any]:
                   toolchain={"backend": tools["kind"], "version": tools.get("version", "")})
     record.update(library_orders=library_orders_record(result.library_orders),
                   dialect_profiles=profile_pairs(result.report),
+                  blueprint_id=result.blueprint_id,
                   graph_id=str(result.report.get("dependency_graph", {}).get("graph_id", "")),
                   graph_artifact=str(result.outdir / result.outputs["graph"]) if result.outputs.get("graph") else "")
     return record

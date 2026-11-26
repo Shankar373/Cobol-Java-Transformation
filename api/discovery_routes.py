@@ -33,7 +33,7 @@ from enterprise.discovery import kg_export as kg_export_module
 from enterprise.discovery import kg_query
 from enterprise.discovery.kg_store import KGStore
 from enterprise.discovery.limits import DEFAULT_LIMITS, Limits
-from enterprise.discovery.runs import ARTEFACTS, DiscoveryRunService, RunNotFound
+from enterprise.discovery.runs import ARTEFACTS, CheckpointTampered, DiscoveryRunService, RunNotFound
 
 router = APIRouter()
 _CHUNK = 1 << 20
@@ -140,6 +140,8 @@ def get_source(run_id: str, path: str, line: int = 1, context: int = 12) -> dict
         return get_service().source_excerpt(run_id, path, line, context)
     except RunNotFound:
         raise HTTPException(404, "Discovery run, file or line not found") from None
+    except CheckpointTampered:
+        raise HTTPException(409, "The checkpoint file no longer matches its recorded digest (tampering suspected)") from None
 
 
 @router.get("/discovery/runs/{run_id}/kg")

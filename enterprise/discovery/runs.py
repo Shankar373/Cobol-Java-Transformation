@@ -8,6 +8,7 @@ here (``created_at``, step times) belong to the run, never to the deterministic 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -28,7 +29,7 @@ from .limits import DEFAULT_LIMITS, Limits
 from .model import rmtree_force
 from .remotegit import NetworkPolicy
 
-__all__ = ["DiscoveryRunService", "RunRecord", "RunNotFound", "ARTEFACTS", "RUN_ID_RE"]
+__all__ = ["DiscoveryRunService", "RunRecord", "RunNotFound", "CheckpointTampered", "ARTEFACTS", "RUN_ID_RE"]
 
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 #: ``artefact name -> (file, media type)`` readable through the service and the API.
@@ -45,6 +46,10 @@ ARTEFACTS: dict[str, tuple[str, str]] = {
 }
 _TERMINAL = ("succeeded", "failed", "interrupted")
 MAX_EXCERPT_FILE_BYTES = 8 * 1024 * 1024
+
+
+class CheckpointTampered(Exception):
+    """A checkpoint file no longer matches the digest its inventory recorded."""
 
 
 class RunNotFound(Exception):
@@ -257,6 +262,8 @@ class DiscoveryRunService:
         if entry is None or entry["size"] > MAX_EXCERPT_FILE_BYTES:
             raise RunNotFound(run_id)
         data = (checkpoint / "source" / Path(*path.split("/"))).read_bytes()
+        if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+            raise CheckpointTampered(run_id)
         from .textio import decode_source
 
         decoded = decode_source(data)
