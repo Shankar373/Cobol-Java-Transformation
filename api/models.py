@@ -290,6 +290,10 @@ class DiscoveryResponse(BaseModel):
     total_size_bytes: int
     discovery_success: bool = True
     discovery_errors: list[dict] = Field(default_factory=list)
+    #: The checkpoint and Application Blueprint (``GET /applications/{id}/blueprint``) this application's source is pinned to; the
+    #: blueprint is the authoritative estate description, this response its compatibility projection. Empty when never pinned.
+    checkpoint_id: str = ""
+    blueprint_id: str = ""
 
 
 class EstateResponse(BaseModel):

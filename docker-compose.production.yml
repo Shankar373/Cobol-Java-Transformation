@@ -41,6 +41,8 @@ services:
       # the API itself refuses to start without a token and answers 401 for
       # every unauthenticated request — independent of this compose guard.
       CONTROL_PLANE_ENV: production
+      # Checkpoint seal key (D4): with it checkpoints are HMAC-sealed; without it the API refuses new discovery in production.
+      SYSTEMAOPS_STORE_KEY: ${SYSTEMAOPS_STORE_KEY:?SYSTEMAOPS_STORE_KEY must be set - see .env.production.example}
       # Trust X-Forwarded-For only from the nginx edge address (audit F12).
       FORWARDED_ALLOW_IPS: ${NGINX_EDGE_IP:-172.30.250.10}
       # The GnuCOBOL oracle is pinned to the image this deployment built

@@ -31,6 +31,7 @@ from api.ingestion import _get_max_total_extracted_bytes
 from api.paths import workspace_root
 from enterprise.discovery import kg_export as kg_export_module
 from enterprise.discovery import kg_query
+from enterprise.discovery.checkpoint_core import KEY_ENV, store_key
 from enterprise.discovery.kg_store import KGStore
 from enterprise.discovery.limits import DEFAULT_LIMITS, Limits
 from enterprise.discovery.runs import ARTEFACTS, CheckpointTampered, DiscoveryRunService, RunNotFound
@@ -48,6 +49,26 @@ class GitRun(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
     ref: str | None = Field(default=None, max_length=256)
     label: str | None = Field(default=None, max_length=80)
+
+
+def _production_active() -> bool:
+    from api.app import production_environment_active
+
+    return production_environment_active()
+
+
+def seal_key_problem() -> str | None:
+    """Why discovery must not run now, or ``None``: in production a checkpoint without a store key is sealed with a plain checksum,
+    which anyone who can write the store can recompute, so a production deployment must configure ``SYSTEMAOPS_STORE_KEY`` (D4)."""
+    if _production_active() and store_key() is None:
+        return f"{KEY_ENV} must be set in production: without it checkpoints are sealed with a plain checksum an attacker can recompute"
+    return None
+
+
+def _require_seal_key() -> None:
+    problem = seal_key_problem()
+    if problem:
+        raise HTTPException(503, problem)
 
 
 def _limits() -> Limits:
@@ -81,6 +102,7 @@ def _run_or_404(run_id: str):
 
 @router.post("/discovery/runs/zip", status_code=202)
 async def submit_zip(request: Request, file: UploadFile = File(...), label: str | None = Form(default=None)) -> dict:
+    _require_seal_key()
     limit = _get_max_zip_archive_bytes()
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > limit + 1_000_000:
@@ -109,6 +131,7 @@ async def submit_zip(request: Request, file: UploadFile = File(...), label: str 
 
 @router.post("/discovery/runs/git", status_code=202)
 def submit_git(body: GitRun) -> dict:
+    _require_seal_key()
     url = body.url.strip()
     if not url.lower().startswith("https://"):
         raise HTTPException(400, "Only https:// Git URLs are accepted")

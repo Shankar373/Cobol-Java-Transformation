@@ -1101,6 +1101,7 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
         total_size_bytes=discovery.total_size_bytes,
         discovery_success=discovery.discovery_success,
         discovery_errors=_public(discovery.discovery_errors),
+        **_svc().source_binding(app_id),
     )
 
 
@@ -1629,7 +1630,12 @@ def ready(request: Request) -> JSONResponse:
     active, limit = _service.job_slots()
     checks["jobs"] = {"active": active, "limit": limit, "gating": False}
 
-    ready_ok = db_ok and not ws_problems and staging_ok
+    from api.discovery_routes import seal_key_problem
+
+    seal_problem = seal_key_problem()
+    checks["checkpoint_seal"] = {"ok": seal_problem is None, "detail": seal_problem or "checkpoint seal key configured or not required"}
+
+    ready_ok = db_ok and not ws_problems and staging_ok and seal_problem is None
     if production_environment_active() and not _caller_authenticated(request):
         # The probe is unauthenticated: an anonymous production caller gets
         # the verdict per check, not server paths, error text or load.

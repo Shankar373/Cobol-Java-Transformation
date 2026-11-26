@@ -92,8 +92,11 @@ def blocked_record(code: str, message: str) -> dict[str, Any]:
 
 def assess_workspace(workspace: Path, label: str) -> dict[str, Any]:
     """Run discovery over ``workspace`` and return its readiness record (``BLOCKED`` when discovery itself is refused)."""
-    from api.discovery_routes import get_service
+    from api.discovery_routes import get_service, seal_key_problem
 
+    problem = seal_key_problem()
+    if problem:
+        return blocked_record("STORE_KEY_REQUIRED", problem)
     service = get_service()
     try:
         result = discover(DiscoveryRequest("directory", str(workspace), label=label[:80]), service.store, limits=service.limits)

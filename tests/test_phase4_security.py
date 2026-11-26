@@ -268,7 +268,7 @@ def production_client(monkeypatch):
 class TestProbesAndAuthResponses:
     def test_anonymous_ready_reports_booleans_only(self, production_client):
         body = production_client.get("/ready").json()
-        assert set(body["checks"]) == {"database", "workspace", "staging", "docker"}
+        assert set(body["checks"]) == {"database", "workspace", "staging", "docker", "checkpoint_seal"}
         for check in body["checks"].values():
             assert set(check) == {"ok"}
 

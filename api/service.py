@@ -695,6 +695,12 @@ class Service:
         self._store.put_pin(str(workspace), build_pin(
             workspace, record, origin_kind=origin_kind, origin_ref=origin_ref, origin_checkpoint_id=origin_checkpoint_id))
 
+    def source_binding(self, app_id: str) -> dict[str, str]:
+        """``checkpoint_id`` and ``blueprint_id`` the application's source is pinned to (empty strings when it is not pinned)."""
+        app = self.get_application(app_id)
+        pin = self._store.get_pin(app.cobol_source_path) if app.cobol_source_path else None
+        return {"checkpoint_id": str((pin or {}).get("checkpoint_id") or ""), "blueprint_id": str((pin or {}).get("blueprint_id") or "")}
+
     def application_blueprint(self, app_id: str) -> dict:
         """The verified Application Blueprint the application's source is pinned to (readable even for a BLOCKED source)."""
         from api.discovery_routes import get_service as discovery_service

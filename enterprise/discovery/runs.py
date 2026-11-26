@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -31,6 +32,9 @@ from .remotegit import NetworkPolicy
 
 __all__ = ["DiscoveryRunService", "RunRecord", "RunNotFound", "CheckpointTampered", "ARTEFACTS", "RUN_ID_RE"]
 
+#: A staging area or checkpoint temp directory untouched for this long was abandoned by a crashed process (D7); a younger one may belong to a
+#: discovery that is still running (the store can be shared), so it is never swept.
+STALE_STAGING_SECONDS = 3600
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 #: ``artefact name -> (file, media type)`` readable through the service and the API.
 ARTEFACTS: dict[str, tuple[str, str]] = {
@@ -132,9 +136,21 @@ class DiscoveryRunService:
                 record.error_message = "the service stopped before this run finished; submit it again"
                 self._save(record)
             self._records[record.run_id] = record
+        self._sweep_stale_staging()
         for leftover in self.uploads_dir.glob("*"):
             if leftover.is_file():
                 leftover.unlink(missing_ok=True)
+
+    def _sweep_stale_staging(self) -> None:
+        """Remove ``discovery-stage-*`` areas and ``.<id>.tmp-*`` checkpoint builds a crash left behind (never published checkpoints)."""
+        cutoff = time.time() - STALE_STAGING_SECONDS
+        candidates = [*self.store.glob("discovery-stage-*"), *(self.store / "checkpoints").glob(".*.tmp-*")]
+        for path in candidates:
+            try:
+                if path.is_dir() and path.stat().st_mtime < cutoff:
+                    rmtree_force(path)
+            except OSError:  # best effort: a leftover is retried on the next start
+                continue
 
     # -- submission ---------------------------------------------------------------------------------------------------
     def new_upload_path(self) -> tuple[str, Path]:
