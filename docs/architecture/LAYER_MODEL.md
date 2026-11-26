@@ -141,9 +141,9 @@ that owns the fix.
 | Git symlink/submodule refusal runs after checkout | LAYER_AUDIT D9 | 1 | mitigated by `core.symlinks=false` + ls-tree precheck |
 | `/source` served without re-verifying the checkpoint | LAYER_AUDIT D10 | 1 | re-hash on read |
 | Symlink refusal tests skipped on Windows hosts | LAYER_AUDIT | 1 (test infra) | run on Linux CI |
-| No rate limit or queue bound on discovery; UI loses the run on reload | LAYER_AUDIT D8, UI note | 14 | control-plane concerns discovered while auditing layer 1 |
-| Readiness gate not re-checked by `UniversalModernizationPipeline.execute` / background workers | LAYER_AUDIT open | 14 | service-layer convention |
-| Legacy `/estate`, `/decomposition` endpoints use the old discovery | LAYER_AUDIT open | 14 | |
+| No rate limit or queue bound on discovery; UI loses the run on reload | LAYER_AUDIT D8, UI note | 14 | closed for readiness assessments (L14-P2: `CONTROL_PLANE_MAX_READINESS_ASSESSMENTS`, 429 when reached; the `/discovery/runs` pool was already bounded at 2 workers); the UI half (run lost on reload) stays open |
+| Readiness gate not re-checked by `UniversalModernizationPipeline.execute` / background workers | LAYER_AUDIT open | 14 | closed: both background workers re-check the gate before any generation/validation work (L14-P1); the engine stays a pure orchestrator |
+| Legacy `/estate`, `/decomposition` endpoints use the old discovery | LAYER_AUDIT open | 14 | audited 2026-11-26: wording stale — they read through the sanctioned `graph_view` (layer-2 scanners + `resolve.build_graph`); the remaining cost is a second scan pass per request (`LAYER14_DESIGN.md` §6) |
 | Ambiguous references and unresolved dynamic CALLs do not lower readiness | LAYER_AUDIT open | 2 | policy decision |
 | Container image tag mutable (`gnucobol-ocesql:latest`), digest not recorded | LAYER_AUDIT open | 10 | image identity (provenance recorded for Maven/runtime images already) |
 | Build flags (`-std`, `-free`, `-I` order) detected but not applied to the compile plan | LAYER_AUDIT open, KG audit gap 12 | 4 | profile ids and per-program library order now reach generation and evidence; `-std=` to the oracle stays open (recorded as `default`); the syntax lane stays advisory |
@@ -154,9 +154,9 @@ that owns the fix.
 | `verified-by` not automatic after a VERIFIED verdict | KNOWN_ISSUES:23 | 11→13 | the verifier (11) produces the verdict; wiring `record_verification` into the run is evidence (13) plumbing |
 | Evidence manifest carries the generation-stage overlay id, not the final one | KNOWN_ISSUES:25 | 13 | |
 | Java mapping is name-based (regex class/method scan) | KNOWN_ISSUES:27 | 9 | generation-side identity |
-| API path never supplies `knowledge_graph_path` / `graph_traceability` (production manifests carry none) | reconciled KG audit | 14 | control-plane wiring |
+| API path never supplies `knowledge_graph_path` / `graph_traceability` (production manifests carry none) | reconciled KG audit | 14 | control-plane wiring; audited 2026-11-26: manifests carry the `graph_id` lineage, the traceability overlay stays absent (`LAYER14_DESIGN.md` §6) |
 | Data flow intra-program only; needs a real parse tree | KNOWN_ISSUES:28 | **5** | not started; ADR-0013 defines the scope and the entry conditions |
-| UI node-link view capped at 60 nodes, no deep link | KNOWN_ISSUES:29 | 14 | |
+| UI node-link view capped at 60 nodes, no deep link | KNOWN_ISSUES:29 | 14 | recorded as a Layer 14 limit (`LAYER14_DESIGN.md` §6), not fixed |
 | `EXEC` past column 72 reported `EXEC_NOT_CLOSED` | KNOWN_ISSUES:30 | 4→3 | fixed-format reading is layer 4's contract; the scanner error stays layer 3's surface |
 | 10k scale: `discover()` itself not in the benchmark budget | KNOWN_ISSUES:31 | 3 | benchmark covers the graph pipeline only |
 | Non-ASCII `PIC X`, numeric risks, VSAM subset, etc. | KNOWN_ISSUES full-audit sections | 7 / 11 / 12 | semantic-proof areas, unchanged by this task |

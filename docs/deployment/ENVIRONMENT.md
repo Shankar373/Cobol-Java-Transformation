@@ -8,9 +8,10 @@ the compose file and must not be overridden.
 
 Numeric limits are parsed by `api/limits.py` `env_int_limit`: unset,
 blank, non-numeric or non-positive values fall back to the code default
-(one warning for a non-numeric value). `CONTROL_PLANE_MAX_CONCURRENT_JOBS`
-and `CONTROL_PLANE_MAX_UPLOAD_FILES` are read in `api/service.py` instead
-(unset/invalid → default, parsed values clamped to ≥ 1).
+(one warning for a non-numeric value). `CONTROL_PLANE_MAX_CONCURRENT_JOBS`,
+`CONTROL_PLANE_MAX_READINESS_ASSESSMENTS` and `CONTROL_PLANE_MAX_UPLOAD_FILES`
+are read in `api/service.py` instead (unset/invalid → default, parsed values
+clamped to ≥ 1).
 
 | Variable | Required | Default (app) | Production guidance |
 |---|---|---|---|
@@ -30,6 +31,7 @@ and `CONTROL_PLANE_MAX_UPLOAD_FILES` are read in `api/service.py` instead
 | `CONTROL_PLANE_MAX_DOWNLOAD_BYTES` | No | 52428800 (50m) | `GET /runs/{id}/download` archive cap (built in memory) |
 | `CONTROL_PLANE_MAX_DOWNLOAD_FILES` | No | 5000 | download entry-count cap |
 | `CONTROL_PLANE_MAX_CONCURRENT_JOBS` | No | 4 | 429 when full; slots released on crash; raising adds throughput, not HA |
+| `CONTROL_PLANE_MAX_READINESS_ASSESSMENTS` | No | 4 | concurrent *fresh* readiness assessments (each one a full discovery pass); a stored, unchanged record never takes a permit; 429 when full (L14-P2) |
 | `CONTROL_PLANE_ALLOWED_ORIGINS` | No | empty = same-origin only | comma-separated allowlist only if cross-origin UI is required |
 | `CONTROL_PLANE_DB` | No (compose pins it) | `<repo>/data/control-plane.db`; `:memory:` = non-persistent (tests) | compose pins `/app/data/control-plane.db` (volume `control-plane-data`); do not override in production |
 | `CONTROL_PLANE_WORKSPACE_DIR` | **Yes** in production (compose and `Dockerfile.production` pin it) | unset = `tempfile.mkdtemp()` in the platform temp directory (historical dev/test behaviour) | `/app/workspaces` (volume `control-plane-work`): uploads, generated apps and `scripts/backup/backup.sh` depend on it; `/ready` checks that it is creatable and writable |

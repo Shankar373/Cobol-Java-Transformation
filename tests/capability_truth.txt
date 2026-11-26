@@ -106,6 +106,11 @@ tests/contracts/test_contract_validation.py
 # comparator that turns an inadmissible report into INCONCLUSIVE.
 tests/verification/test_business_invariants.py
 tests/verification/test_business_invariant_comparator.py
+# Layer 14 control plane: the background workers re-check the readiness gate,
+# fresh readiness assessments are bounded (429) and a failed assessment never
+# destroys the application's source.
+tests/test_layer14_background_gate.py
+tests/test_layer14_readiness_assessment_bound.py
 
 --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded
 --deselect tests/test_oracle_entry_binding.py::TestServiceResolvesEntry

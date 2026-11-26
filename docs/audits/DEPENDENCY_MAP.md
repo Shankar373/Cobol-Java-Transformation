@@ -215,7 +215,7 @@ it at most once.  `tests` = test files that mention it.
 
 | Symbol | Tests |
 |---|---:|
-| `api/discovery_routes.py::reset_service_for_tests` | 4 |
+| `api/discovery_routes.py::reset_service_for_tests` | 6 |
 | `api/logging_config.py::current_request_id` | 0 |
 | `api/name_derivation.py::derive_application_name_from_zip` | 1 |
 | `api/readiness.py::semantic_lineage` | 1 |

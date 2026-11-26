@@ -38,6 +38,10 @@ Safety controls implemented here:
   * stale background workers are rejected by the store (generation check);
   * background jobs are counted against a configurable concurrency limit
     (``CONTROL_PLANE_MAX_CONCURRENT_JOBS``) so retries cannot stack;
+  * every fresh readiness assessment counts against its own concurrency
+    bound (``CONTROL_PLANE_MAX_READINESS_ASSESSMENTS``; 429 when reached)
+    so a readiness refresh can never fan out unbounded discovery, and the
+    background workers re-check the readiness gate before doing any work;
   * uploads keep their directory hierarchy, reject traversal and never
     silently overwrite a colliding path;
   * a verdict served for a run must hash-match that run's evidence manifest.
@@ -58,6 +62,7 @@ from pathlib import Path
 
 from api.artifact_seal import compute_generated_seal, seal_binding_problem, verify_generated_seal
 from api.errors import (
+    ApiError,
     BusyError,
     ConflictError,
     NotFoundError,
@@ -81,6 +86,12 @@ logger = logging.getLogger(__name__)
 
 #: Default cap on background jobs running per Service instance.
 DEFAULT_MAX_CONCURRENT_JOBS = 4
+
+#: Default cap on readiness assessments running at the same time (L14-P2, D8).
+#: A stored readiness record is free; every fresh assessment is a full
+#: discovery pass, so the expensive half is bounded separately from job
+#: slots (a worker already holds a job slot while it assesses).
+DEFAULT_MAX_READINESS_ASSESSMENTS = 4
 
 #: Upper bound for files accepted by the upload endpoints (defense in depth;
 #: the HTTP layer enforces the same limit before reading bodies).
@@ -191,6 +202,22 @@ def _job_limit() -> int:
             DEFAULT_MAX_CONCURRENT_JOBS,
         )
         return DEFAULT_MAX_CONCURRENT_JOBS
+
+
+def _assessment_limit() -> int:
+    """Effective concurrent readiness-assessment limit (env read per call so it is testable)."""
+    raw = os.environ.get("CONTROL_PLANE_MAX_READINESS_ASSESSMENTS")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_READINESS_ASSESSMENTS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning(
+            "Invalid CONTROL_PLANE_MAX_READINESS_ASSESSMENTS=%r; using %d",
+            raw,
+            DEFAULT_MAX_READINESS_ASSESSMENTS,
+        )
+        return DEFAULT_MAX_READINESS_ASSESSMENTS
 
 
 def _public_run_error(exc: BaseException, run_id: str) -> str:
@@ -483,6 +510,8 @@ class Service:
         self._store = store
         self._jobs_lock = threading.Lock()
         self._active_jobs = 0
+        self._assessments_lock = threading.Lock()
+        self._active_assessments = 0
 
     # -- background job slots ------------------------------------------------
 
@@ -521,6 +550,30 @@ class Service:
         with self._jobs_lock:
             return self._active_jobs, _job_limit()
 
+    # -- readiness assessment permits ----------------------------------------
+
+    def _acquire_assessment(self) -> None:
+        """Reserve the right to run one fresh readiness assessment or fail fast with ``BusyError`` (429).
+
+        A stored readiness record is free and never takes a permit; only a
+        fresh assessment (a full discovery pass) does, so the common polling
+        path is unaffected while ``?refresh=true``, a changed tree and the
+        ingest gate are bounded against an unbounded discovery fan-out (D8).
+        """
+        limit = _assessment_limit()
+        with self._assessments_lock:
+            if self._active_assessments >= limit:
+                raise BusyError(
+                    f"Concurrent readiness assessment limit reached"
+                    f" ({limit}); retry after the running assessment"
+                    " completes"
+                )
+            self._active_assessments += 1
+
+    def _release_assessment(self) -> None:
+        with self._assessments_lock:
+            self._active_assessments -= 1
+
     # -- applications -------------------------------------------------------
 
     def create_application(
@@ -558,8 +611,18 @@ class Service:
         stored = None if refresh else self._store.get_readiness(source_path)
         if stored is not None and stored[0] == current:
             return stored[1]
-        record = readiness_module.assess_workspace(path, label) if path.is_dir() else readiness_module.blocked_record(
-            "SOURCE_MISSING", "the application's source directory no longer exists")
+        if not path.is_dir():
+            record = readiness_module.blocked_record(
+                "SOURCE_MISSING", "the application's source directory no longer exists")
+        else:
+            # One fresh assessment at a time per permit (L14-P2): discovery is
+            # the expensive half of readiness, and a refused caller gets the
+            # typed 429 instead of silently starting more discovery work.
+            self._acquire_assessment()
+            try:
+                record = readiness_module.assess_workspace(path, label)
+            finally:
+                self._release_assessment()
         if not readiness_module.is_transient(record):
             self._store.put_readiness(source_path, current, record)
         return record
@@ -694,7 +757,6 @@ class Service:
             # orphan temp dir, never data loss).
             previous = app.cobol_source_path
             updates: dict[str, object] = {"cobol_source_path": str(workspace)}
-            app.cobol_source_path = str(workspace)
 
             if detected_name and detected_name != "application":
                 # If the user didn't provide a meaningful name (empty or generic),
@@ -710,19 +772,30 @@ class Service:
                         app.name = self._store.unique_name(app.name)
                         updates["name"] = app.name
 
+            # Readiness is assessed BEFORE the record points at the new
+            # workspace and the previous source is deleted (L14-P3): an
+            # assessment failure (e.g. the L14-P2 429) must leave the
+            # application on its previous source instead of naming a
+            # directory the failure handler is about to delete.
+            from api import readiness as readiness_module
+
+            readiness = readiness_module.public(
+                self.readiness_for(str(workspace), app.name, refresh=True))
+
+            app.cobol_source_path = str(workspace)
             self._store.update_application_fields(app_id, **updates)
             if previous:
                 _cleanup_temp_dir(previous)
 
             result = discovery.to_dict()
-            from api import readiness as readiness_module
-
-            result["readiness"] = readiness_module.public(self.readiness_for(str(workspace), app.name, refresh=True))
+            result["readiness"] = readiness
             result["detected_name"] = detected_name
             result["top_level_entries"] = top_entries
             return result
         except Exception:
-            # Clean up workspace on failure
+            # Clean up the NEW workspace only; the record still names the
+            # previous source (it was never touched), so a failed write
+            # never destroys the good source.
             _cleanup_temp_dir(workspace)
             raise
 
@@ -986,6 +1059,26 @@ class Service:
             self._finish_failed(run, f"Application {app_id!r} not found")
             return
 
+        # The gate is re-checked where the work happens (L14-P1): between the
+        # request and this worker the tree may have changed or disappeared
+        # (the re-ingest race the entry gate cannot see), and a blocked tree
+        # must fail the run with the readiness refusal before any generation
+        # work starts.
+        source = self._run_source(run, app)
+        if source is not None:
+            try:
+                self._require_ready(source, app.name)
+            except ApiError as exc:
+                logger.warning(
+                    "Background modernize %s refused by the readiness gate: %s",
+                    run_id,
+                    exc,
+                    extra={"event": "run.readiness_refused", "run_id": run_id,
+                           "application_id": app_id},
+                )
+                self._finish_failed(run, str(exc))
+                return
+
         self._snapshot_discovery(run, app)
 
         try:
@@ -1217,6 +1310,11 @@ class Service:
 
         try:
             _source, candidate_path = self._revalidation_target(run, app)
+            # Same gate re-check as the modernize worker (L14-P1): the tree
+            # may have become blocked since the request passed the gate; a
+            # blocked tree never reaches validation.  ReadinessError is an
+            # ApiError, so the except below records the refusal verbatim.
+            self._require_ready(_source, app.name)
             candidate_dir = Path(candidate_path)
             entrypoint = self._revalidation_entrypoint(run, app, candidate_dir)
             adapter = self._candidate_adapter(
