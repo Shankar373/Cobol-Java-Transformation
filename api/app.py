@@ -77,6 +77,7 @@ from api.vsam_routes import UPLOAD_PATH as _VSAM_UPLOAD_PATH
 from api.vsam_routes import configure as _configure_vsam
 from api.vsam_routes import router as _vsam_router
 from api.ingestion import IngestionError
+from enterprise.discovery.errors import IngestionError as DiscoveryIngestionError
 from api.limits import env_int_limit
 from api.logging_config import (
     REQUEST_ID_VAR,
@@ -97,6 +98,7 @@ from api.models import (
     DecompositionResponse,
     DiscoveryResponse,
     EstateResponse,
+    GitIngestRequest,
     IngestResponse,
     IntegratedProofResult,
     IntegratedProofResponse,
@@ -1020,6 +1022,30 @@ async def ingest_application(
         # Service-level errors (404/409/...) map through the ApiError handler.
         raise _error(400, str(exc))
 
+    app = _svc().get_application(app_id)
+    return IngestResponse(
+        application_id=app_id,
+        workspace_path=_public(app.cobol_source_path or ""),
+        source_file_count=discovery["source_file_count"],
+        total_size_bytes=discovery["total_size_bytes"],
+        discovery=_public(discovery),
+        detected_name=discovery.get("detected_name", ""),
+        top_level_entries=discovery.get("top_level_entries", []),
+        readiness=discovery.get("readiness"),
+    )
+
+
+@app.post("/applications/{app_id}/ingest/git", response_model=IngestResponse, status_code=201)
+async def ingest_application_git(app_id: str, body: GitIngestRequest) -> IngestResponse:
+    """Ingest a Git repository (https only) pinned to one commit, then run the same discovery and gate as a ZIP upload."""
+    url = body.url.strip()
+    if not url.lower().startswith("https://"):
+        raise _error(400, "Only https:// Git URLs are accepted")
+    try:
+        discovery = await run_in_threadpool(lambda: _svc().ingest_application_git(app_id, url, body.ref))
+    except (IngestionError, DiscoveryIngestionError) as exc:
+        # A refused Git source (SSRF policy, submodules, symlinks, limits, ...): explicit 400 with the reason, never a path.
+        raise _error(400, getattr(exc, "message", None) or str(exc))
     app = _svc().get_application(app_id)
     return IngestResponse(
         application_id=app_id,

@@ -758,7 +758,7 @@ class Service:
         Detects the application name from the ZIP and updates the record
         if the current name is the generic placeholder.
         """
-        from api.ingestion import ingest_zip, discover_application
+        from api.ingestion import ingest_zip
         from api.name_derivation import derive_application_name_from_zip_bytes
 
         app = self.get_application(app_id)
@@ -770,6 +770,16 @@ class Service:
 
         # 1. Extract ZIP to workspace
         workspace = ingest_zip(data, app_id)
+
+        return self._adopt_workspace(
+            app_id, app, workspace, detected_name, top_entries,
+            origin_kind="zip", origin_ref=hashlib.sha256(data).hexdigest())
+
+    def _adopt_workspace(self, app_id: str, app: ApplicationRecord, workspace: Path, detected_name: str,
+                         top_entries: list[str], *, origin_kind: str, origin_ref: str,
+                         origin_checkpoint_id: str = "") -> dict:
+        """Discover, assess, pin and adopt a freshly materialized workspace as the application's source (ZIP and Git share this)."""
+        from api.ingestion import discover_application
 
         try:
             # 3. Run application discovery from the workspace root so that
@@ -810,7 +820,8 @@ class Service:
 
             readiness = readiness_module.public(
                 self.readiness_for(str(workspace), app.name, refresh=True))
-            self._pin_ingested_source(workspace, origin_kind="zip", origin_ref=hashlib.sha256(data).hexdigest())
+            self._pin_ingested_source(workspace, origin_kind=origin_kind, origin_ref=origin_ref,
+                                      origin_checkpoint_id=origin_checkpoint_id)
 
             app.cobol_source_path = str(workspace)
             self._store.update_application_fields(app_id, **updates)
@@ -827,6 +838,43 @@ class Service:
             # previous source (it was never touched), so a failed write
             # never destroys the good source.
             _cleanup_temp_dir(workspace)
+            raise
+
+    def ingest_application_git(self, app_id: str, url: str, ref: str | None) -> dict:
+        """Ingest a Git source pinned to one commit under a job slot (the Git twin of :meth:`ingest_application`)."""
+        self._refuse_while_run_active(app_id, "re-ingest the application")
+        self._acquire_job_slot()
+        try:
+            return self._ingest_application_git(app_id, url, ref)
+        finally:
+            with self._jobs_lock:
+                self._active_jobs -= 1
+
+    def _discover_git(self, url: str, ref: str | None):
+        """Discovery over a remote Git source under the operator's network policy (the seam tests replace)."""
+        from api.discovery_routes import get_service as discovery_service
+        from enterprise.discovery.discover import DiscoveryRequest, discover
+
+        service = discovery_service()
+        return discover(DiscoveryRequest("git", url, ref=ref or None, allow_ssh=False, network_policy=service.network_policy),
+                        service.store, limits=service.limits)
+
+    def _ingest_application_git(self, app_id: str, url: str, ref: str | None) -> dict:
+        from api.discovery_routes import get_service as discovery_service
+        from api.source_pin import materialize_checkpoint, repository_name
+
+        app = self.get_application(app_id)
+        result = self._discover_git(url, ref)
+        service = discovery_service()
+        service.register_result(result, kind="git", label=app.name)
+        workspace = new_workspace(prefix=f"ingest-{app_id}-")
+        try:
+            top_entries = materialize_checkpoint(service.store, result.checkpoint.checkpoint_id, workspace)
+            return self._adopt_workspace(
+                app_id, app, workspace, repository_name(url), top_entries, origin_kind="git",
+                origin_ref=result.checkpoint.commit or "", origin_checkpoint_id=result.checkpoint.checkpoint_id)
+        except BaseException:
+            _cleanup_temp_dir(workspace)  # a no-op once _adopt_workspace already removed it; never touches the previous source
             raise
 
     # -- uploads -------------------------------------------------------------

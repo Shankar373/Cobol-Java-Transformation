@@ -10,6 +10,7 @@ longer verifies is refused, never silently re-assessed into a new identity.  Re-
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,9 @@ from api.errors import ConflictError, ReadinessError
 from api.readiness import content_digest
 from enterprise.discovery.blueprint import verify_blueprint
 from enterprise.discovery.checkpoint import checkpoint_dir, verify_checkpoint
+from enterprise.discovery.errors import IngestionError
 
-__all__ = ["build_pin", "enforce_pin", "load_blueprint", "UNPINNED"]
+__all__ = ["build_pin", "enforce_pin", "load_blueprint", "materialize_checkpoint", "repository_name", "UNPINNED"]
 
 #: ``origin_kind`` of a pin created on first use for a source ingested before pins existed (trust on first use).
 UNPINNED = "unpinned"
@@ -75,3 +77,29 @@ def enforce_pin(store: Any, discovery_store: Path, source_path: str, record: dic
             load_blueprint(discovery_store, pin)
         except ConflictError as exc:
             raise ReadinessError(str(exc)) from None
+
+
+def repository_name(url: str) -> str:
+    """The repository name of a Git URL (``https://host/org/payroll.git`` -> ``payroll``); empty when there is none."""
+    name = url.rstrip("/").rsplit("/", 1)[-1]
+    return name[:-4] if name.endswith(".git") else name
+
+
+def materialize_checkpoint(discovery_store: Path, checkpoint_id: str, workspace: Path) -> list[str]:
+    """Copy the sealed checkpoint's source tree into the writable ``workspace`` and return its top-level entry names.
+
+    The checkpoint is verified first and stays read-only; the copy is a plain tree (no inherited read-only modes) that is then pinned to the
+    checkpoint like any ingested source.
+    """
+    checkpoint = checkpoint_dir(Path(discovery_store), checkpoint_id)
+    if not verify_checkpoint(checkpoint).ok:
+        raise IngestionError("the discovery checkpoint failed integrity verification", code="CHECKPOINT_TAMPERED")
+    source = checkpoint / "source"
+    for path in sorted(source.rglob("*")):
+        target = workspace / path.relative_to(source)
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+    return sorted(entry.name for entry in workspace.iterdir())

@@ -40,9 +40,11 @@ def _discoveries(checkpoint_id: str) -> Path:
 
 def test_ingest_pins_upload_checkpoint_and_blueprint(api: TestClient) -> None:
     app_id = new_app(api, "pin-ingest")
-    readiness = ingest(api, app_id, COMPLETE).json()["readiness"]
+    blob = zip_bytes(COMPLETE)
+    response = api.post(f"/applications/{app_id}/ingest", files={"file": ("estate.zip", blob, "application/zip")})
+    readiness = response.json()["readiness"]
     pin = _pin(app_id)
-    assert pin["origin_kind"] == "zip" and pin["origin_ref"] == hashlib.sha256(zip_bytes(COMPLETE)).hexdigest()
+    assert pin["origin_kind"] == "zip" and pin["origin_ref"] == hashlib.sha256(blob).hexdigest()
     assert pin["checkpoint_id"] == readiness["checkpoint_id"].strip() and pin["checkpoint_id"].startswith("CP-")
     assert pin["blueprint_id"] == readiness["blueprint_id"] and len(pin["blueprint_id"]) == 64
     assert pin["content_digest"] and pin["source_digest"] == readiness["source_digest"]

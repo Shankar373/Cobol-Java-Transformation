@@ -255,6 +255,12 @@ class VerdictResponse(BaseModel):
 # Ingestion
 # ---------------------------------------------------------------------------
 
+class GitIngestRequest(BaseModel):
+    """A remote Git source for an application: https only, optionally one ref (resolved to and pinned at a commit)."""
+    url: str = Field(min_length=8, max_length=2048)
+    ref: str | None = Field(default=None, max_length=256)
+
+
 class IngestResponse(BaseModel):
     """Response after ingestion + discovery."""
     application_id: str

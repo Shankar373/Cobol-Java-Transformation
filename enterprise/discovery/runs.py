@@ -142,6 +142,11 @@ class DiscoveryRunService:
         run_id = secrets.token_hex(16)
         return run_id, self.uploads_dir / f"{run_id}.zip"
 
+    @property
+    def network_policy(self) -> NetworkPolicy:
+        """The operator's remote-Git network policy (also used by application Git ingestion)."""
+        return self._policy
+
     def submit_zip(self, run_id: str, archive: Path, label: str | None) -> RunRecord:
         record = RunRecord(run_id, "zip", _safe_label(label, "upload"), created_at=_utc_now())
         return self._start(record, DiscoveryRequest("zip", str(archive), label=record.label), cleanup=archive)
