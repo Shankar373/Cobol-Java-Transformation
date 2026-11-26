@@ -181,6 +181,10 @@ jobs:
             paths: tests/discovery tests/evidence tests/tools
           - group: transformation
             paths: tests/transformation
+          - group: control-plane service
+            # API/service-layer tests need the runtime stack (fastapi), which the
+            # pytest-only capability gate deliberately does not install (BL-012).
+            paths: tests/test_layer14_background_gate.py tests/test_layer14_readiness_assessment_bound.py
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
