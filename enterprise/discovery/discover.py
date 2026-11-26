@@ -24,6 +24,7 @@ from typing import Any
 
 from . import __version__
 from .applications import build_applications, link_applications
+from .blueprint import BLUEPRINT_ARTEFACTS, build_blueprint
 from .checkpoint import CheckpointInfo, create_checkpoint, verify_checkpoint
 from .compilers import (
     ToolchainConfig, assess_compatibility, default_runner, probe_toolchain, select_backend, toolchain_requirements,
@@ -67,6 +68,7 @@ _OUTPUTS = {
     "report": "discovery-report.json", "graph": "dependency-graph.json", "inventory": "file-inventory.json",
     "unresolved": "unresolved-references.json", "summary": "discovery-summary.md", "compatibility": "compiler-compatibility.json",
     "applications": "applications.json", "readiness": "transformation-readiness.json",
+    "blueprint": "application-blueprint.json",
 }
 _RUN_RECORD = "run-record.json"
 _SOURCE_BLOCKER_CLASSES = frozenset({"cobol", "copybook", "jcl-job", "jcl-proc", "bms", "sql", "idcams", "sort-control"})
@@ -314,8 +316,9 @@ def _publish(report: dict[str, Any], records: list[FileRecord], directories: lis
     graph_document = _scrub(build.graph.to_dict(), roots)
     graph_id = stamp_graph_id(graph_document)
     report.setdefault("dependency_graph", {})["graph_id"] = graph_id
+    scrubbed_report = _scrub(report, roots)
     payloads = {
-        "report": _dump(_scrub(report, roots)), "graph": _dump(graph_document),
+        "report": _dump(scrubbed_report), "graph": _dump(graph_document),
         "inventory": _dump({"directories": [d.as_dict() for d in directories], "files": [r.as_dict() for r in records],
                             "schema_version": "systemaops.file-inventory/1.0"}),
         "unresolved": _dump({**unresolved, "schema_version": "systemaops.unresolved-references/1.0"}),
@@ -325,6 +328,10 @@ def _publish(report: dict[str, Any], records: list[FileRecord], directories: lis
         "applications": _dump({**report["applications"], "schema_version": "systemaops.applications/1.0"}),
         "readiness": _dump({**report["readiness"], "schema_version": "systemaops.transformation-readiness/1.0"}),
     }
+    # Derived last: it hashes the exact text of every other artefact, so its digests name bytes that exist on disk.
+    payloads["blueprint"] = _dump(build_blueprint(
+        scrubbed_report, graph_document, {name: payloads[name] for name in BLUEPRINT_ARTEFACTS},
+        {name: _OUTPUTS[name] for name in BLUEPRINT_ARTEFACTS}))
     outputs = {}
     for key, text in payloads.items():
         target = outdir / _OUTPUTS[key]

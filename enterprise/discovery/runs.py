@@ -41,6 +41,7 @@ ARTEFACTS: dict[str, tuple[str, str]] = {
     "compatibility": ("compiler-compatibility.json", "application/json"),
     "applications": ("applications.json", "application/json"),
     "readiness": ("transformation-readiness.json", "application/json"),
+    "blueprint": ("application-blueprint.json", "application/json"),
 }
 _TERMINAL = ("succeeded", "failed", "interrupted")
 MAX_EXCERPT_FILE_BYTES = 8 * 1024 * 1024
