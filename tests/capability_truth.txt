@@ -102,6 +102,10 @@ tests/transformation/test_modernization_planner.py
 tests/test_layer13_artifact_execution_role_binding.py
 tests/test_layer13_contract_loader_fidelity.py
 tests/contracts/test_contract_validation.py
+# Layer 12: business-invariant evaluation, report admission and the
+# comparator that turns an inadmissible report into INCONCLUSIVE.
+tests/verification/test_business_invariants.py
+tests/verification/test_business_invariant_comparator.py
 
 --deselect tests/test_docker_capability_truth.py::TestModernizationConfigIsFailClosedByDefault::test_service_layer_probes_live_not_hardcoded
 --deselect tests/test_oracle_entry_binding.py::TestServiceResolvesEntry

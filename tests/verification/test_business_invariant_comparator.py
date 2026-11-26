@@ -124,6 +124,25 @@ class TestComparisonSemantics:
         )
         assert result.result is ComparisonResult.INCONCLUSIVE
 
+    def test_outcome_contradicting_its_declaration_is_inconclusive(self) -> None:
+        """A PASS that does not belong to the declared expectation must not
+        certify equivalence.
+
+        The definitions (and therefore the digest) are left untouched and
+        ``overall`` still follows the outcomes, so only the outcome's own
+        claim disagrees with the declaration it is supposed to report on.
+        """
+        payload = json.loads(_report_bytes(b"OK\n"))
+        payload["outcomes"][0]["expected"] = ["NOT-OK"]
+        result = _compare(
+            _report_bytes(b"OK\n"), json.dumps(payload).encode(),
+        )
+        assert result.result is ComparisonResult.INCONCLUSIVE
+        assert any(
+            item.location == "business_invariant_report"
+            for item in result.differences
+        )
+
     def test_normalization_is_refused_not_ignored(self) -> None:
         with pytest.raises(ValueError, match="does not accept normalization"):
             BusinessInvariantComparator().compare(

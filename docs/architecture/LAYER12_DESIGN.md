@@ -1,6 +1,6 @@
 # Layer 12 design: Verification and verdict
 
-Status: **audited (2026-11-24); one test file added, no engine change; verdict derivation untouched.** From the Layer 11 closure. Deterministic, open source only, no LLM. This is a do-not-regress
+Status: **audit complete (2026-11-26): L12-P1 and L12-P2 done, verdict derivation untouched.** From the Layer 11 closure. Deterministic, open source only, no LLM. This is a do-not-regress
 area (`engine/verdict/derivation.py`, `LAYER_MODEL.md` change rules).
 
 Scope: `engine/verification/**`, `engine/verdict/**`, `scripts/e2e/verify_independent.py`. Output: a fail-closed verdict; a single `VERIFIED` derivation site.
@@ -24,12 +24,46 @@ Scope: `engine/verification/**`, `engine/verdict/**`, `scripts/e2e/verify_indepe
 returns ERROR (never VERIFIED) with the violations surfaced. No defect found. Cross-binding mismatches (a well-shaped record disagreeing with another)
 are pinned per layer in `tests/evidence/test_*_evidence.py`.
 
-## 3. Audits without a code change
+## 3. L12-P2: an outcome cannot disagree with its declaration
 
+`admit_report` verified the definition digest, the outcome/declaration id
+sets and the recomputed `overall`, but never compared an outcome to the
+declaration of the same id. A digest-correct report claiming
+`expected=999, passed=true` for a declaration of `expected=0` was therefore
+admitted as PASS (and compared as MATCH), and duplicate `invariant_id`s —
+which `evaluate_invariants` refuses at build time — were admitted too.
+
+Now `admit_report` refuses duplicate ids and requires every outcome's
+`kind`, `phase` and `expected` to equal its own declaration; the comparator
+turns that refusal into INCONCLUSIVE at `business_invariant_report`, so a
+contradictory report can never reach MATCH. Red-first:
+`tests/verification` 5 failed / 93 passed → 98 passed (four admission tests
+plus one e2e: a contradictory candidate report yields INCONCLUSIVE, not
+MATCH).
+
+## 4. Audits without a code change
+
+* `scripts/e2e/verify_independent.py`, audited line by line: no gap. A
+  non-zero compile exit, an undecodable image (it keeps its own name rather
+  than being dropped), a missing or duplicated jar and an exception all land
+  short of AGREE; per-record output is folded into the compared `files` map
+  as `name#records`; stdout/stderr are compared as full bytes (the 600/300
+  truncation is evidence-only); images are pinned to immutable ids; the build
+  runs `mvn -o` under `--network none`.
+* `engine/verification/business_invariants.py` evaluation path: no gap found.
+  Missing sources, non-UTF-8 text, malformed JSON, an unresolvable
+  `json_path`, an indivisible or empty record file, an out-of-range
+  `record_index` and a non-integer fixed field all fail the invariant rather
+  than passing it; floats are rejected at declaration time so no comparison
+  depends on IEEE-754 rounding; an empty invariant set cannot build a report
+  (no vacuous pass).
 * `engine/verification/validation_summary.py`: a report view, never a verdict source; PASS only when every comparator MATCHes with no skipped or
   unavailable check and at least one executed check; it always lists what is not proven (no IBM runtime, one recorded input, no REST verification).
 
-## 4. Limits
+## 5. Limits
 
-* `engine/verification/business_invariants.py` and `scripts/e2e/verify_independent.py` were not audited line by line; they are covered by
-  `tests/verification/**` and the certification workflow.
+* `admit_report` cannot re-derive `passed`: it trusts the outcome booleans
+  once they are structurally consistent with their declarations. Forging a
+  coherent report is the manifest seal's job (Layers 10/13), not this module's.
+* The Docker lane was not run locally on this change; `tests/verification`
+  and the certification workflow cover it on CI.

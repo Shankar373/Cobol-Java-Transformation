@@ -509,3 +509,65 @@ class TestReportAdmission:
     def test_non_json_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="not valid JSON"):
             admit_report(b"not json")
+
+    # -- outcome <-> declaration self-consistency -------------------------
+    #
+    # ``admit_report`` promises to "fully re-verify" a report and to refuse a
+    # self-inconsistent one. It re-derived ``overall`` from the outcomes and
+    # hashed the definitions, but never compared an outcome with the
+    # declaration of the same id -- so a report could keep its (correct)
+    # definition digest and still assert a PASS for a kind, phase or expected
+    # value the declaration never made.
+
+    @staticmethod
+    def _payload_with(outcome_field: str, value):
+        payload = json.loads(_report(
+            (
+                BusinessInvariant(
+                    invariant_id="exit", kind=InvariantKind.EXIT_CODE,
+                    source=InvariantSource.EXIT_STATUS, expected=0,
+                ),
+            ),
+            InvariantObservation(exit_code=0),
+        ).to_bytes())
+        payload["outcomes"][0][outcome_field] = value
+        return payload
+
+    def test_outcome_kind_contradicting_the_declaration_is_rejected(self) -> None:
+        # The declaration is EXIT_CODE; the outcome claims a kind that was
+        # never evaluated, and reports it as passed.
+        payload = self._payload_with("kind", "EXACT_LINES")
+        with pytest.raises(ValueError, match="kind"):
+            admit_report(json.dumps(payload).encode())
+
+    def test_outcome_phase_contradicting_the_declaration_is_rejected(self) -> None:
+        payload = self._payload_with("phase", "PRECONDITION")
+        with pytest.raises(ValueError, match="phase"):
+            admit_report(json.dumps(payload).encode())
+
+    def test_outcome_expected_contradicting_the_declaration_is_rejected(self) -> None:
+        # Declared expectation is 0; the outcome claims 999 passed. Nothing
+        # else in the report changes, so this was admitted as PASS.
+        payload = self._payload_with("expected", 999)
+        with pytest.raises(ValueError, match="expected"):
+            admit_report(json.dumps(payload).encode())
+
+    def test_duplicate_definition_ids_are_rejected(self) -> None:
+        # ``evaluate_invariants`` refuses a duplicate id at build time, so no
+        # genuine report carries one; admitting it here would let two
+        # declarations collapse onto one id when outcomes are matched up.
+        # The digest is recomputed so the report is otherwise admissible and
+        # the duplicate id is the only reason it is refused.
+        import hashlib
+
+        payload = json.loads(self._valid_report().to_bytes())
+        payload["definitions"].append(dict(payload["definitions"][0]))
+        payload["outcomes"].append(dict(payload["outcomes"][0]))
+        payload["definition_digest"] = hashlib.sha256(
+            json.dumps(
+                payload["definitions"], sort_keys=True,
+                separators=(",", ":"), ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        with pytest.raises(ValueError, match="invariant_id"):
+            admit_report(json.dumps(payload).encode())

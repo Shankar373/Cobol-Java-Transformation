@@ -981,6 +981,18 @@ def admit_report(content: bytes) -> AdmittedReport:
             "business-invariant report outcomes do not match declared "
             "invariants exactly"
         )
+    # ``evaluate_invariants`` refuses a duplicate id before a report can be
+    # built, so a duplicate here means the report was not produced by the
+    # evaluator; matching outcomes onto declarations would then be ambiguous.
+    duplicates = sorted({item for item in definition_ids
+                         if definition_ids.count(item) > 1})
+    if duplicates:
+        raise ValueError(
+            f"business-invariant report repeats invariant_id(s): {duplicates}"
+        )
+
+    declaration_by_id = {str(item["invariant_id"]): item
+                         for item in canonical_definitions}
     for outcome in canonical_outcomes:
         phase = outcome["phase"]
         if phase not in {item.value for item in InvariantPhase}:
@@ -989,6 +1001,18 @@ def admit_report(content: bytes) -> AdmittedReport:
             raise ValueError(f"invalid outcome kind {outcome['kind']!r}")
         if not isinstance(outcome["passed"], bool):
             raise ValueError("outcome passed must be a boolean")
+        # An outcome reports on one declaration; a claim about a different
+        # kind, phase or expected value is self-inconsistent even though the
+        # digest over the definitions still matches, and would otherwise be
+        # admitted as a PASS the declaration never made.
+        declaration = declaration_by_id[str(outcome["invariant_id"])]
+        for field_name in ("kind", "phase", "expected"):
+            if outcome[field_name] != declaration[field_name]:
+                raise ValueError(
+                    f"outcome for invariant_id {outcome['invariant_id']!r} "
+                    f"reports {field_name} {outcome[field_name]!r} but its "
+                    f"declaration says {declaration[field_name]!r}"
+                )
 
     computed_overall = (
         "PASS" if all(item["passed"] for item in canonical_outcomes) else "FAIL"
