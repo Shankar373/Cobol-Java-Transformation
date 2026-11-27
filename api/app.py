@@ -1086,6 +1086,7 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
 
     from api.ingestion import discover_application
     discovery = discover_application(Path(app.cobol_source_path), app_id)
+    binding = _svc().source_binding(app_id)
 
     # Every response body is redacted in production, not only run errors
     # (audit F4).
@@ -1101,7 +1102,8 @@ def get_application_discovery(app_id: str) -> DiscoveryResponse:
         total_size_bytes=discovery.total_size_bytes,
         discovery_success=discovery.discovery_success,
         discovery_errors=_public(discovery.discovery_errors),
-        **_svc().source_binding(app_id),
+        checkpoint_id=binding["checkpoint_id"],
+        blueprint_id=binding["blueprint_id"],
     )
 
 
